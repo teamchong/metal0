@@ -143,6 +143,38 @@ METHOD_REGISTRY: dict[str, MethodInfo] = {
         return_type=ReturnType.PYOBJECT,
         arg_types=[ArgType.PYOBJECT, ArgType.PYOBJECT],  # old, new
     ),
+    "startswith": MethodInfo(
+        name="startswith",
+        runtime_type="PyString",
+        runtime_fn="startswith",
+        needs_allocator=False,
+        return_type=ReturnType.PRIMITIVE_INT,  # Returns bool, but we use int
+        arg_types=[ArgType.PYOBJECT],
+    ),
+    "endswith": MethodInfo(
+        name="endswith",
+        runtime_type="PyString",
+        runtime_fn="endswith",
+        needs_allocator=False,
+        return_type=ReturnType.PRIMITIVE_INT,  # Returns bool, but we use int
+        arg_types=[ArgType.PYOBJECT],
+    ),
+    "find": MethodInfo(
+        name="find",
+        runtime_type="PyString",
+        runtime_fn="find",
+        needs_allocator=False,
+        return_type=ReturnType.PRIMITIVE_INT,
+        arg_types=[ArgType.PYOBJECT],
+    ),
+    "count": MethodInfo(
+        name="count",
+        runtime_type="PyString",
+        runtime_fn="count_substr",  # Different name to avoid conflict with list.count
+        needs_allocator=False,
+        return_type=ReturnType.PRIMITIVE_INT,
+        arg_types=[ArgType.PYOBJECT],
+    ),
 
     # List methods
     "append": MethodInfo(
@@ -209,12 +241,73 @@ METHOD_REGISTRY: dict[str, MethodInfo] = {
         arg_types=[ArgType.ANY],
         wrap_primitive_args=True,
     ),
+    "insert": MethodInfo(
+        name="insert",
+        runtime_type="PyList",
+        runtime_fn="insert",
+        needs_allocator=True,
+        return_type=ReturnType.VOID,
+        arg_types=[ArgType.PRIMITIVE, ArgType.ANY],  # index, value
+        wrap_primitive_args=True,
+        is_statement=True,
+    ),
+    "clear": MethodInfo(
+        name="clear",
+        runtime_type="PyList",
+        runtime_fn="clear",
+        needs_allocator=True,
+        return_type=ReturnType.VOID,
+        arg_types=[],
+        is_statement=True,
+    ),
+
+    # Dict methods
+    "keys": MethodInfo(
+        name="keys",
+        runtime_type="PyDict",
+        runtime_fn="keys",
+        needs_allocator=True,
+        return_type=ReturnType.PYOBJECT,
+        arg_types=[],
+    ),
+    "values": MethodInfo(
+        name="values",
+        runtime_type="PyDict",
+        runtime_fn="values",
+        needs_allocator=True,
+        return_type=ReturnType.PYOBJECT,
+        arg_types=[],
+    ),
 }
 
 
-def get_method_info(method_name: str) -> Optional[MethodInfo]:
-    """Get method metadata by name"""
-    return METHOD_REGISTRY.get(method_name)
+def get_method_info(method_name: str, obj_type: Optional[str] = None) -> Optional[MethodInfo]:
+    """
+    Get method metadata by name and optionally by object type.
+
+    For methods like 'count' that exist on multiple types, obj_type helps disambiguate.
+    obj_type can be "string", "list", etc. from var_types tracking.
+    """
+    method_info = METHOD_REGISTRY.get(method_name)
+
+    # If no type hint or method not in registry, return what we have
+    if not obj_type or not method_info:
+        return method_info
+
+    # For "count", check if we need the list or string version
+    if method_name == "count":
+        if obj_type == "list":
+            # Look for PyList.count in registry
+            for info in METHOD_REGISTRY.values():
+                if info.name == "count" and info.runtime_type == "PyList":
+                    return info
+        elif obj_type == "string":
+            # Look for PyString.count_substr in registry
+            for info in METHOD_REGISTRY.values():
+                if info.name == "count" and info.runtime_type == "PyString":
+                    return info
+
+    return method_info
 
 
 def register_method(method_info: MethodInfo) -> None:

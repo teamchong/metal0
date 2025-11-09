@@ -642,7 +642,13 @@ class ZigCodeGenerator:
             if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute):
                 method_name = node.value.func.attr
                 from zyth_core.method_registry import get_method_info, ReturnType
-                method_info = get_method_info(method_name)
+
+                # Get object type for disambiguation
+                obj_type = None
+                if isinstance(node.value.func.value, ast.Name):
+                    obj_type = self.var_types.get(node.value.func.value.id)
+
+                method_info = get_method_info(method_name, obj_type)
                 if method_info and method_info.return_type == ReturnType.PRIMITIVE_INT:
                     self.var_types[target.id] = "int"
 
@@ -858,8 +864,13 @@ class ZigCodeGenerator:
                 obj_code = parts[2]
                 method_name = parts[3]
 
+                # Get object type for disambiguation
+                obj_type = None
+                if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+                    obj_type = self.var_types.get(node.func.value.id)
+
                 # Look up method in registry
-                method_info = get_method_info(method_name)
+                method_info = get_method_info(method_name, obj_type)
                 if not method_info:
                     raise NotImplementedError(f"Method {method_name} not supported")
 

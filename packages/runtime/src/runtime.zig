@@ -268,6 +268,38 @@ pub const PyList = struct {
         // If not found, Python raises ValueError, but we'll return -1 for now
         return -1;
     }
+
+    pub fn insert(obj: *PyObject, allocator: std.mem.Allocator, index: i64, value: *PyObject) !void {
+        std.debug.assert(obj.type_id == .list);
+        const data: *PyList = @ptrCast(@alignCast(obj.data));
+        _ = allocator;
+
+        const list_len: i64 = @intCast(data.items.items.len);
+        var idx: i64 = index;
+
+        // Handle negative indices
+        if (idx < 0) idx = @max(0, list_len + idx);
+
+        // Clamp to valid range
+        idx = @max(0, @min(idx, list_len));
+
+        const insert_idx: usize = @intCast(idx);
+        try data.items.insert(data.allocator, insert_idx, value);
+        incref(value);
+    }
+
+    pub fn clear(obj: *PyObject, allocator: std.mem.Allocator) void {
+        std.debug.assert(obj.type_id == .list);
+        const data: *PyList = @ptrCast(@alignCast(obj.data));
+        _ = allocator;
+
+        // Decref all items
+        for (data.items.items) |item| {
+            decref(item, data.allocator);
+        }
+
+        data.items.clearAndFree();
+    }
 };
 
 /// Python string type
@@ -533,6 +565,82 @@ pub const PyString = struct {
 
         return try create(allocator, result);
     }
+
+    pub fn startswith(obj: *PyObject, prefix: *PyObject) bool {
+        std.debug.assert(obj.type_id == .string);
+        std.debug.assert(prefix.type_id == .string);
+        const data: *PyString = @ptrCast(@alignCast(obj.data));
+        const prefix_data: *PyString = @ptrCast(@alignCast(prefix.data));
+
+        const str = data.data;
+        const pre = prefix_data.data;
+
+        if (pre.len > str.len) return false;
+        return std.mem.eql(u8, str[0..pre.len], pre);
+    }
+
+    pub fn endswith(obj: *PyObject, suffix: *PyObject) bool {
+        std.debug.assert(obj.type_id == .string);
+        std.debug.assert(suffix.type_id == .string);
+        const data: *PyString = @ptrCast(@alignCast(obj.data));
+        const suffix_data: *PyString = @ptrCast(@alignCast(suffix.data));
+
+        const str = data.data;
+        const suf = suffix_data.data;
+
+        if (suf.len > str.len) return false;
+        return std.mem.eql(u8, str[str.len - suf.len..], suf);
+    }
+
+    pub fn find(obj: *PyObject, substring: *PyObject) i64 {
+        std.debug.assert(obj.type_id == .string);
+        std.debug.assert(substring.type_id == .string);
+        const data: *PyString = @ptrCast(@alignCast(obj.data));
+        const needle_data: *PyString = @ptrCast(@alignCast(substring.data));
+
+        const haystack = data.data;
+        const needle = needle_data.data;
+
+        // Empty string is found at position 0
+        if (needle.len == 0) return 0;
+
+        // Needle longer than haystack
+        if (needle.len > haystack.len) return -1;
+
+        // Search for substring
+        var i: usize = 0;
+        while (i <= haystack.len - needle.len) : (i += 1) {
+            if (std.mem.eql(u8, haystack[i..i + needle.len], needle)) {
+                return @intCast(i);
+            }
+        }
+        return -1;
+    }
+
+    pub fn count_substr(obj: *PyObject, substring: *PyObject) i64 {
+        std.debug.assert(obj.type_id == .string);
+        std.debug.assert(substring.type_id == .string);
+        const data: *PyString = @ptrCast(@alignCast(obj.data));
+        const needle_data: *PyString = @ptrCast(@alignCast(substring.data));
+
+        const str = data.data;
+        const sub = needle_data.data;
+
+        if (sub.len == 0) return 0;
+        if (sub.len > str.len) return 0;
+
+        var count_val: i64 = 0;
+        var i: usize = 0;
+        while (i <= str.len - sub.len) {
+            if (std.mem.eql(u8, str[i..i + sub.len], sub)) {
+                count_val += 1;
+                i += sub.len; // Move past this occurrence
+            } else {
+                i += 1;
+            }
+        }
+        return count_val;
+    }
 };
 
 /// Python dict type (simplified - using StringHashMap)
@@ -575,6 +683,72 @@ pub const PyDict = struct {
         std.debug.assert(obj.type_id == .dict);
         const data: *PyDict = @ptrCast(@alignCast(obj.data));
         return data.map.count();
+    }
+
+    pub fn keys(obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+        std.debug.assert(obj.type_id == .dict);
+        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+
+        // Create list to hold keys
+        const result = try PyList.create(allocator);
+
+        // Add all keys as PyString objects
+        var iterator = data.map.keyIterator();
+        while (iterator.next()) |key| {
+            const key_obj = try PyString.create(allocator, key.*);
+            try PyList.append(result, key_obj);
+        }
+
+        return result;
+    }
+
+    pub fn values(obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+        std.debug.assert(obj.type_id == .dict);
+        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+
+        // Create list to hold values
+        const result = try PyList.create(allocator);
+
+        // Add all values
+        var iterator = data.map.valueIterator();
+        while (iterator.next()) |value| {
+            try PyList.append(result, value.*);
+        }
+
+        return result;
+    }
+
+    pub fn getWithDefault(obj: *PyObject, allocator: std.mem.Allocator, key: []const u8, default: *PyObject) *PyObject {
+        std.debug.assert(obj.type_id == .dict);
+        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+        _ = allocator;
+        return data.map.get(key) orelse default;
+    }
+
+    pub fn pop(obj: *PyObject, allocator: std.mem.Allocator, key: []const u8) ?*PyObject {
+        std.debug.assert(obj.type_id == .dict);
+        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+        _ = allocator;
+
+        // Get value before removing
+        if (data.map.fetchRemove(key)) |entry| {
+            return entry.value;
+        }
+        return null;
+    }
+
+    pub fn clear(obj: *PyObject, allocator: std.mem.Allocator) void {
+        std.debug.assert(obj.type_id == .dict);
+        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+        _ = allocator;
+
+        // Decref all values before clearing
+        var iterator = data.map.valueIterator();
+        while (iterator.next()) |value| {
+            decref(value.*, data.map.allocator);
+        }
+
+        data.map.clearAndFree();
     }
 };
 
