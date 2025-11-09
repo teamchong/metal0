@@ -239,6 +239,23 @@ class ZigCodeGenerator:
     def visit_If(self, node: ast.If) -> None:
         """Generate if statement"""
         test_code, test_try = self.visit_expr(node.test)
+
+        # Handle 'in' operator marker
+        if test_code.startswith("__in_operator__"):
+            parts = test_code.split("__")
+            left_code = parts[2]
+            left_is_pyobject = parts[3] == "True"
+            right_code = parts[4]
+
+            # If left is primitive, wrap in PyInt
+            if not left_is_pyobject:
+                temp_var = f"_in_check_value_{id(node)}"
+                self.emit(f"const {temp_var} = try runtime.PyInt.create(allocator, {left_code});")
+                self.emit(f"defer runtime.decref({temp_var}, allocator);")
+                test_code = f"runtime.PyList.contains({right_code}, {temp_var})"
+            else:
+                test_code = f"runtime.PyList.contains({right_code}, {left_code})"
+
         self.emit(f"if ({test_code}) {{")
         self.indent_level += 1
 
@@ -571,8 +588,16 @@ class ZigCodeGenerator:
 
         elif isinstance(node, ast.Compare):
             left_code, left_try = self.visit_expr(node.left)
-            op = self.visit_compare_op(node.ops[0])
             right_code, right_try = self.visit_expr(node.comparators[0])
+
+            # Check if this is an 'in' operator
+            if isinstance(node.ops[0], ast.In):
+                # For 'in' operator: value in collection
+                # Mark for special handling that may need wrapping
+                return (f"__in_operator__{left_code}__{left_try}__{right_code}", False)
+
+            # Regular comparison operators
+            op = self.visit_compare_op(node.ops[0])
             # Comparisons don't need try for now
             return (f"{left_code} {op} {right_code}", False)
 

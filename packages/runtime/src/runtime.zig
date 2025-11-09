@@ -139,6 +139,25 @@ pub const PyList = struct {
         const data: *PyList = @ptrCast(@alignCast(obj.data));
         return data.items.items.len;
     }
+
+    pub fn contains(obj: *PyObject, value: *PyObject) bool {
+        std.debug.assert(obj.type_id == .list);
+        const data: *PyList = @ptrCast(@alignCast(obj.data));
+
+        // Check each item in the list
+        for (data.items.items) |item| {
+            // For now, only support comparing integers
+            if (item.type_id == .int and value.type_id == .int) {
+                const item_data: *PyInt = @ptrCast(@alignCast(item.data));
+                const value_data: *PyInt = @ptrCast(@alignCast(value.data));
+                if (item_data.value == value_data.value) {
+                    return true;
+                }
+            }
+            // Could add string comparison here later
+        }
+        return false;
+    }
 };
 
 /// Python string type
