@@ -4,6 +4,7 @@ Zyth Code Generator - Converts Python AST to Zig code
 import ast
 from typing import List
 from zyth_core.parser import ParsedModule
+from zyth_core.method_registry import get_method_info, ReturnType
 
 
 class ZigCodeGenerator:
@@ -630,25 +631,22 @@ class ZigCodeGenerator:
                 obj_code = parts[2]
                 method_name = parts[3]
 
-                # Handle string methods
-                if method_name == "upper":
-                    return (f"runtime.PyString.upper(allocator, {obj_code})", True)
-                elif method_name == "lower":
-                    return (f"runtime.PyString.lower(allocator, {obj_code})", True)
-                # Handle list methods
-                elif method_name == "append":
-                    # This will be handled in visit_Expr for statement context
-                    # Mark it with a special token so visit_Expr can detect it
+                # Look up method in registry
+                method_info = get_method_info(method_name)
+                if not method_info:
+                    raise NotImplementedError(f"Method {method_name} not supported")
+
+                # Special handling for statement methods (like append)
+                if method_info.is_statement:
+                    # Mark for special handling in visit_Expr
                     if args:
                         arg_code, arg_try = args[0]
                         return (f"__list_append__{obj_code}__{arg_code}__{arg_try}", True)
-                    raise NotImplementedError("append() requires an argument")
-                elif method_name == "pop":
-                    # pop() returns a PyObject that caller must manage
-                    # Mark as needing to track this as py object
-                    return (f"runtime.PyList.pop({obj_code}, allocator)", False)
-                else:
-                    raise NotImplementedError(f"Method {method_name} not supported")
+                    raise NotImplementedError(f"{method_name}() requires an argument")
+
+                # Generate the method call using registry
+                call_code, needs_try = method_info.generate_call(obj_code, args)
+                return (call_code, needs_try)
 
             # Special handling for print
             if func_code == "print":
