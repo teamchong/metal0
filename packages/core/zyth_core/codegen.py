@@ -54,26 +54,58 @@ class ZigCodeGenerator:
             for stmt in node.body:
                 self._detect_runtime_needs(stmt)
 
-    def _detect_reassignments(self, node: ast.AST) -> None:
-        """Detect variables that are reassigned (need var instead of const)"""
+    def _collect_declarations(self, node: ast.AST) -> None:
+        """Collect all variable declarations"""
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    if target.id in self.declared_vars:
-                        self.reassigned_vars.add(target.id)
-                    else:
-                        self.declared_vars.add(target.id)
+                    self.declared_vars.add(target.id)
         elif isinstance(node, ast.FunctionDef):
             for stmt in node.body:
-                self._detect_reassignments(stmt)
+                self._collect_declarations(stmt)
         elif isinstance(node, ast.If):
             for stmt in node.body:
-                self._detect_reassignments(stmt)
+                self._collect_declarations(stmt)
             for stmt in node.orelse:
-                self._detect_reassignments(stmt)
+                self._collect_declarations(stmt)
         elif isinstance(node, ast.While):
             for stmt in node.body:
-                self._detect_reassignments(stmt)
+                self._collect_declarations(stmt)
+        elif isinstance(node, ast.For):
+            # Loop variable is also declared
+            if isinstance(node.target, ast.Name):
+                self.declared_vars.add(node.target.id)
+            for stmt in node.body:
+                self._collect_declarations(stmt)
+
+    def _detect_reassignments(self, node: ast.AST, assignments_seen: set[str] | None = None) -> None:
+        """Detect variables that are reassigned (need var instead of const)"""
+        if assignments_seen is None:
+            assignments_seen = set()
+
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    if target.id in assignments_seen:
+                        self.reassigned_vars.add(target.id)
+                    else:
+                        assignments_seen.add(target.id)
+        elif isinstance(node, ast.FunctionDef):
+            # New scope
+            func_assignments = set()
+            for stmt in node.body:
+                self._detect_reassignments(stmt, func_assignments)
+        elif isinstance(node, ast.If):
+            for stmt in node.body:
+                self._detect_reassignments(stmt, assignments_seen)
+            for stmt in node.orelse:
+                self._detect_reassignments(stmt, assignments_seen)
+        elif isinstance(node, ast.While):
+            for stmt in node.body:
+                self._detect_reassignments(stmt, assignments_seen)
+        elif isinstance(node, ast.For):
+            for stmt in node.body:
+                self._detect_reassignments(stmt, assignments_seen)
 
     def generate(self, parsed: ParsedModule) -> str:
         """Generate Zig code from parsed module"""
@@ -83,10 +115,15 @@ class ZigCodeGenerator:
         self.declared_vars = set()
         self.reassigned_vars = set()
 
-        # First pass: detect runtime needs and variable reassignments
+        # First pass: detect runtime needs and collect all declarations
         for node in parsed.ast_tree.body:
             self._detect_runtime_needs(node)
-            self._detect_reassignments(node)
+            self._collect_declarations(node)
+
+        # Second pass: detect reassignments
+        assignments_seen = set()
+        for node in parsed.ast_tree.body:
+            self._detect_reassignments(node, assignments_seen)
 
         # Reset declared_vars for code generation phase
         self.declared_vars = set()
@@ -213,6 +250,49 @@ class ZigCodeGenerator:
 
         self.indent_level -= 1
         self.emit("}")
+
+    def visit_For(self, node: ast.For) -> None:
+        """Generate for loop (only supports range() for now)"""
+        # Check if this is a range() call
+        if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name):
+            if node.iter.func.id == "range":
+                # Extract range arguments
+                args = node.iter.args
+                if len(args) == 1:
+                    # range(n) -> 0 to n-1
+                    start = "0"
+                    end_code, _ = self.visit_expr(args[0])
+                elif len(args) == 2:
+                    # range(start, end)
+                    start_code, _ = self.visit_expr(args[0])
+                    end_code, _ = self.visit_expr(args[1])
+                    start = start_code
+                else:
+                    raise NotImplementedError("range() with step not supported yet")
+
+                # Get loop variable
+                if isinstance(node.target, ast.Name):
+                    loop_var = node.target.id
+                else:
+                    raise NotImplementedError("Complex loop targets not supported")
+
+                # Generate while loop equivalent
+                self.emit(f"var {loop_var}: i64 = {start};")
+                self.emit(f"while ({loop_var} < {end_code}) {{")
+                self.indent_level += 1
+
+                for stmt in node.body:
+                    self.visit(stmt)
+
+                # Increment loop variable
+                self.emit(f"{loop_var} += 1;")
+
+                self.indent_level -= 1
+                self.emit("}")
+            else:
+                raise NotImplementedError(f"for loop over {node.iter.func.id}() not supported")
+        else:
+            raise NotImplementedError("for loop only supports range() for now")
 
     def visit_Return(self, node: ast.Return) -> None:
         """Generate return statement"""
