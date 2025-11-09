@@ -583,9 +583,31 @@ class ZigCodeGenerator:
                 index_code, index_try = self.visit_expr(node.slice)
                 return (f"runtime.PyList.getItem({value_code}, @intCast({index_code}))", False)
 
+        elif isinstance(node, ast.Attribute):
+            # Method/attribute access: obj.method or obj.attr
+            value_code, value_try = self.visit_expr(node.value)
+            # For now, just return a marker that this is a method access
+            # The Call handler will detect this and handle it specially
+            return (f"__method__{value_code}__{node.attr}", False)
+
         elif isinstance(node, ast.Call):
             func_code, func_try = self.visit_expr(node.func)
             args = [self.visit_expr(arg) for arg in node.args]
+
+            # Check if this is a method call
+            if func_code.startswith("__method__"):
+                # Extract object and method name
+                parts = func_code.split("__")
+                obj_code = parts[2]
+                method_name = parts[3]
+
+                # Handle string methods
+                if method_name == "upper":
+                    return (f"runtime.PyString.upper(allocator, {obj_code})", True)
+                elif method_name == "lower":
+                    return (f"runtime.PyString.lower(allocator, {obj_code})", True)
+                else:
+                    raise NotImplementedError(f"Method {method_name} not supported")
 
             # Special handling for print
             if func_code == "print":
