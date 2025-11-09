@@ -247,14 +247,27 @@ class ZigCodeGenerator:
             left_is_pyobject = parts[3] == "True"
             right_code = parts[4]
 
-            # If left is primitive, wrap in PyInt
-            if not left_is_pyobject:
-                temp_var = f"_in_check_value_{id(node)}"
-                self.emit(f"const {temp_var} = try runtime.PyInt.create(allocator, {left_code});")
-                self.emit(f"defer runtime.decref({temp_var}, allocator);")
-                test_code = f"runtime.PyList.contains({right_code}, {temp_var})"
-            else:
-                test_code = f"runtime.PyList.contains({right_code}, {left_code})"
+            # Check if right side is a dict (based on var_types tracking)
+            is_dict = False
+            if isinstance(node.test, ast.Compare) and isinstance(node.test.comparators[0], ast.Name):
+                right_var = node.test.comparators[0].id
+                if self.var_types.get(right_var) == "dict":
+                    # Dict 'in' operator - check for string key
+                    # Extract string value from the left side of the comparison
+                    if isinstance(node.test.left, ast.Constant) and isinstance(node.test.left.value, str):
+                        key_str = node.test.left.value
+                        test_code = f'runtime.PyDict.contains({right_code}, "{key_str}")'
+                        is_dict = True
+
+            # List 'in' operator - need to wrap primitive in PyInt
+            if not is_dict:
+                if not left_is_pyobject:
+                    temp_var = f"_in_check_value_{id(node)}"
+                    self.emit(f"const {temp_var} = try runtime.PyInt.create(allocator, {left_code});")
+                    self.emit(f"defer runtime.decref({temp_var}, allocator);")
+                    test_code = f"runtime.PyList.contains({right_code}, {temp_var})"
+                else:
+                    test_code = f"runtime.PyList.contains({right_code}, {left_code})"
 
         self.emit(f"if ({test_code}) {{")
         self.indent_level += 1
