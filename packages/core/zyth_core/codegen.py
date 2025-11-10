@@ -37,6 +37,8 @@ class ZigCodeGenerator:
         self.current_class: Optional[str] = None  # Track which class we're currently in
         self.imported_modules: Dict[str, ParsedModule] = imported_modules or {}  # Track imported modules
         self.module_functions: Dict[str, Dict[str, dict]] = {}  # Track module.function signatures
+        self.function_params: set[str] = set()  # Track current function parameters
+        self.vars_assigned_from_params: set[str] = set()  # Track variables initially assigned from parameters
 
     def indent(self) -> str:
         """Get current indentation"""
@@ -171,10 +173,16 @@ class ZigCodeGenerator:
             self._detect_runtime_needs(node)
             self._collect_declarations(node)
 
-        # Second pass: detect reassignments
+        # Second pass: detect reassignments in main module
         assignments_seen = set()
         for node in parsed.ast_tree.body:
             self._detect_reassignments(node, assignments_seen)
+
+        # Also detect reassignments in imported modules
+        for module_name, module in self.imported_modules.items():
+            module_assignments_seen = set()
+            for node in module.ast_tree.body:
+                self._detect_reassignments(node, module_assignments_seen)
 
         # Reset declared_vars for code generation phase
         self.declared_vars = set()
@@ -500,8 +508,10 @@ class ZigCodeGenerator:
         self.emit(f"fn {node.name}({params_str}) {return_type} {{")
         self.indent_level += 1
 
-        # Track parameter types for use in function body
+        # Track parameter types and names for use in function body
+        self.function_params = set()
         for arg in node.args.args:
+            self.function_params.add(arg.arg)
             if arg.annotation and isinstance(arg.annotation, ast.Name):
                 if arg.annotation.id == "str":
                     self.var_types[arg.arg] = "string"
@@ -1128,18 +1138,20 @@ class ZigCodeGenerator:
         self.output[-1] += " catch {"
         self.indent_level += 1
 
-        # For bare except (catches all), just emit handler body and break
-        for exc_type, handler_body in handlers:
-            if exc_type is None:
-                # Bare except - catches all
-                for stmt in handler_body:
-                    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-                        if isinstance(stmt.value.func, ast.Name) and stmt.value.func.id == "print":
-                            if stmt.value.args:
-                                arg = stmt.value.args[0]
-                                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                                    self.emit(f'std.debug.print("{arg.value}\\n", .{{}});')
-                self.emit(f"break :{label};")
+        # Since Zig can't distinguish error types in catch blocks,
+        # treat all exception handlers (IndexError, ValueError, etc.) as bare except
+        # Use only the FIRST handler's body (Python would check in order)
+        if handlers:
+            exc_type, handler_body = handlers[0]
+            # Emit handler body
+            for stmt in handler_body:
+                if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+                    if isinstance(stmt.value.func, ast.Name) and stmt.value.func.id == "print":
+                        if stmt.value.args:
+                            arg = stmt.value.args[0]
+                            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                                self.emit(f'std.debug.print("{arg.value}\\n", .{{}});')
+            self.emit(f"break :{label};")
 
         self.indent_level -= 1
         self.output.append(self.indent() + "};")
@@ -1184,6 +1196,42 @@ class ZigCodeGenerator:
 
         for marker, temp_var in replacements:
             expr_code = expr_code.replace(marker, temp_var)
+
+        return expr_code
+
+    def _expand_sum_markers(self, expr_code: str) -> str:
+        """Expand __sum_call__ markers by generating loop code."""
+        if "__sum_call_" not in expr_code:
+            return expr_code
+
+        import re
+        marker_pattern = r'__sum_call_(\d+)__([a-zA-Z_][a-zA-Z0-9_]*)'
+        matches = re.findall(marker_pattern, expr_code)
+
+        if not matches:
+            return expr_code
+
+        replacements = []
+        for call_id, list_code in matches:
+            # Generate unique variable names for this sum operation
+            result_var = f"_sum_result_{call_id}"
+            idx_var = f"_sum_idx_{call_id}"
+
+            # Generate the sum loop code
+            self.emit(f"var {result_var}: i64 = 0;")
+            self.emit(f"var {idx_var}: i64 = 0;")
+            self.emit(f"while ({idx_var} < runtime.PyList.len({list_code})) : ({idx_var} += 1) {{")
+            self.indent_level += 1
+            self.emit(f"const _sum_item_{call_id} = try runtime.PyList.getItem({list_code}, @intCast({idx_var}));")
+            self.emit(f"{result_var} += runtime.PyInt.getValue(_sum_item_{call_id});")
+            self.indent_level -= 1
+            self.emit("}")
+
+            # Replace the marker with the result variable
+            replacements.append((f"__sum_call_{call_id}__{list_code}", result_var))
+
+        for marker, result_var in replacements:
+            expr_code = expr_code.replace(marker, result_var)
 
         return expr_code
 
@@ -1248,6 +1296,8 @@ class ZigCodeGenerator:
                         if is_first_assignment:
                             self.emit(f"{var_keyword} {target.id} = {temp_vars[0]};")
                         else:
+                            # Decref old value before reassignment
+                            self.emit(f"runtime.decref({target.id}, allocator);")
                             self.emit(f"{target.id} = {temp_vars[0]};")
                     else:
                         result_var = temp_vars[0]
@@ -1260,6 +1310,8 @@ class ZigCodeGenerator:
                         if is_first_assignment:
                             self.emit(f"{var_keyword} {target.id} = {result_var};")
                         else:
+                            # Decref old value before reassignment
+                            self.emit(f"runtime.decref({target.id}, allocator);")
                             self.emit(f"{target.id} = {result_var};")
 
                     if is_first_assignment:
@@ -1596,12 +1648,20 @@ class ZigCodeGenerator:
                         # split() returns a list of strings
                         self.var_types[target.id] = "list"
                         self.list_element_types[target.id] = "string"
+                    elif method_name in ("keys", "values", "items"):
+                        # dict.keys(), dict.values(), dict.items() all return lists
+                        self.var_types[target.id] = "list"
                     elif method_name == "copy":
                         # copy() returns same type as source
                         if obj_type == "dict":
                             self.var_types[target.id] = "dict"
                         elif obj_type == "list":
                             self.var_types[target.id] = "list"
+                    else:
+                        # Default: method returns same type as the object it's called on
+                        # (e.g., text.upper() returns string, numbers.copy() returns list)
+                        if obj_type:
+                            self.var_types[target.id] = obj_type
 
                 # Track types for methods that return PyObject directly (no error union)
                 if method_info and method_info.return_type == ReturnType.PYOBJECT_DIRECT:
@@ -1614,6 +1674,11 @@ class ZigCodeGenerator:
                             self.var_types[target.id] = "dict"
                         elif obj_type == "list":
                             self.var_types[target.id] = "list"
+                    else:
+                        # Default: method returns same type as the object it's called on
+                        # (e.g., text.upper() returns string, numbers.copy() returns list)
+                        if obj_type:
+                            self.var_types[target.id] = obj_type
 
             # Default path
             value_code, needs_try = self.visit_expr(node.value)
@@ -1635,6 +1700,14 @@ class ZigCodeGenerator:
                         # Regular try - emit normally
                         self.emit(f"{var_keyword} {target.id} = {wrapped_code};")
 
+                    # If assigning a parameter, incref it and defer decref the param
+                    var_type = self.var_types.get(target.id)
+                    is_pyobject = var_type in ["string", "list", "dict", "pyint"]
+                    if is_pyobject and isinstance(node.value, ast.Name) and node.value.id in self.function_params:
+                        param_name = node.value.id
+                        self.emit(f"runtime.incref({target.id});")
+                        self.emit(f"defer runtime.decref({param_name}, allocator);")
+
                     # Check if it's a class instance (needs deinit) or PyObject (needs decref)
                     # IMPORTANT: Index subscripts (list[i], dict[key]) return borrowed references
                     # but slice subscripts (list[1:3]) return owned references that MUST be decreffed
@@ -1646,10 +1719,12 @@ class ZigCodeGenerator:
                             is_borrowed_ref = True
                         # Slice operations (list[1:3]) create new objects - need decref
 
-                    var_type = self.var_types.get(target.id)
                     if var_type and var_type in self.class_definitions:
                         # Class instance - use deinit
                         self.emit(f"defer {target.id}.deinit(allocator);")
+                    elif var_type == "int":
+                        # Primitive type - no defer needed
+                        pass
                     elif not is_borrowed_ref:
                         # PyObject that we own - use decref
                         # This includes: literals, function calls, method calls, slicing, etc.
@@ -1668,14 +1743,36 @@ class ZigCodeGenerator:
                         else:
                             type_annotation = "i64"
                         self.emit(f"{var_keyword} {target.id}: {type_annotation} = {value_code};")
+
+                        # If assigning a parameter, incref it and defer decref the param
+                        is_pyobject = var_type in ["string", "list", "dict", "pyint"]
+                        if is_pyobject and isinstance(node.value, ast.Name) and node.value.id in self.function_params:
+                            param_name = node.value.id
+                            self.emit(f"runtime.incref({target.id});")
+                            self.emit(f"defer runtime.decref({param_name}, allocator);")
                     else:
                         self.emit(f"{var_keyword} {target.id} = {value_code};")
             else:
                 # Reassignment - no var/const keyword
-                if needs_try:
+                # If reassigning a PyObject, decref the old value first
+                var_type = self.var_types.get(target.id)
+                is_pyobject = var_type in ["string", "list", "dict", "pyint"]
+
+                if is_pyobject and needs_try:
+                    # Decref old value before reassignment
+                    self.emit(f"runtime.decref({target.id}, allocator);")
+                    wrapped_code = self._wrap_with_try(value_code)
+                    self.emit(f"{target.id} = {wrapped_code};")
+                elif is_pyobject:
+                    # Decref old value before reassignment
+                    self.emit(f"runtime.decref({target.id}, allocator);")
+                    self.emit(f"{target.id} = {value_code};")
+                elif needs_try:
+                    # Non-PyObject with try
                     wrapped_code = self._wrap_with_try(value_code)
                     self.emit(f"{target.id} = {wrapped_code};")
                 else:
+                    # Non-PyObject, non-try (primitives)
                     self.emit(f"{target.id} = {value_code};")
 
     def visit_Expr(self, node: ast.Expr) -> None:
@@ -1684,10 +1781,40 @@ class ZigCodeGenerator:
         if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
             return
 
+        # Special handling for print() calls with string literal arguments
+        # to avoid memory leaks by creating temp variables with defer decref
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "print":
+            if node.value.args and isinstance(node.value.args[0], ast.Constant) and isinstance(node.value.args[0].value, str):
+                # Create temp variable for string literal
+                string_value = node.value.args[0].value
+                temp_var = f"_temp_print_str_{id(node)}"
+                self.emit(f"const {temp_var} = try runtime.PyString.create(allocator, \"{string_value}\");")
+                self.emit(f"defer runtime.decref({temp_var}, allocator);")
+                self.emit(f"_ = std.debug.print(\"{{s}}\\n\", .{{runtime.PyString.getValue({temp_var})}});")
+                return
+            # Special handling for print() with subscript inside try block
+            elif getattr(self, '_in_try_block', False) and node.value.args and isinstance(node.value.args[0], ast.Subscript):
+                # Extract subscript to temp variable first, then print it
+                subscript = node.value.args[0]
+                subscript_code, needs_try = self.visit_expr(subscript)
+                temp_var = f"_print_subscript_{id(node)}"
+
+                # Emit temp variable assignment with catch handler
+                # Don't use 'try' - _emit_catch_handler will add 'catch' block
+                self.emit(f"const {temp_var} = {subscript_code}")
+                self._emit_catch_handler()
+
+                # Print the temp variable (extract int value since it's a PyObject)
+                self.emit(f'_ = std.debug.print("{{}}\\n", .{{runtime.PyInt.getValue({temp_var})}});')
+                return
+
         expr_code, needs_try = self.visit_expr(node.value)
 
         # Unwrap any __WRAP_PRIMITIVE__ markers
         expr_code = self._unwrap_primitive_markers(expr_code, id(node))
+
+        # Expand any __sum_call__ markers
+        expr_code = self._expand_sum_markers(expr_code)
 
         # Special handling for statement methods with primitive args
         if expr_code.startswith("__list_") or expr_code.startswith("__dict_"):
@@ -1769,7 +1896,14 @@ class ZigCodeGenerator:
             return
 
         if needs_try:
-            self.emit(f"_ = try {expr_code};")
+            # Check if we're in a try block - if so, emit catch handler
+            if getattr(self, '_in_try_block', False):
+                # Emit with catch handler
+                self.emit(f"_ = {expr_code}")
+                self._emit_catch_handler()
+            else:
+                # Regular try
+                self.emit(f"_ = try {expr_code};")
         else:
             self.emit(f"_ = {expr_code};")
 
@@ -1782,6 +1916,9 @@ class ZigCodeGenerator:
             if isinstance(node.value, str):
                 # String literal -> PyString.create
                 return (f'runtime.PyString.create(allocator, "{node.value}")', True)
+            elif isinstance(node.value, bool):
+                # Boolean literal - convert Python True/False to Zig true/false
+                return ("true" if node.value else "false", False)
             else:
                 # Numeric literal
                 return (str(node.value), False)
@@ -1815,7 +1952,15 @@ class ZigCodeGenerator:
             right_code, right_try = self.visit_expr(node.right)
 
             # Check if this is string concatenation
-            if left_try or right_try:
+            # Either operand needs try (string literals/method calls) OR operand is string variable
+            left_is_string = False
+            right_is_string = False
+            if isinstance(node.left, ast.Name):
+                left_is_string = self.var_types.get(node.left.id) == "string"
+            if isinstance(node.right, ast.Name):
+                right_is_string = self.var_types.get(node.right.id) == "string"
+
+            if left_try or right_try or (left_is_string and right_is_string):
                 # String concatenation -> PyString.concat
                 # Wrap operands with try if needed
                 left_expr = f"try {left_code}" if left_try else left_code
@@ -2040,7 +2185,7 @@ class ZigCodeGenerator:
                         # Check if it's a subscript (returns PyObject*)
                         if isinstance(node.args[0], ast.Subscript):
                             # Subscript returns PyObject* - need to extract value
-                            wrapped_arg = f"try {arg_code}" if arg_needs_try else arg_code
+                            wrapped_arg = self._wrap_with_try(arg_code) if arg_needs_try else arg_code
 
                             # Check if it's a dict with string key or list with int index
                             subscript_node = node.args[0]
@@ -2127,13 +2272,70 @@ class ZigCodeGenerator:
                 if arg_try:
                     arg_code = f"try {arg_code}"
 
-                # Check variable type to determine PyList.len or PyDict.len
+                # Check variable type to determine PyList.len, PyDict.len, or PyString.len
                 if isinstance(node.args[0], ast.Name):
                     arg_name = node.args[0].id
                     var_type = self.var_types.get(arg_name, "list")
                     if var_type == "dict":
                         return (f"runtime.PyDict.len({arg_code})", False)
+                    elif var_type == "string":
+                        return (f"runtime.PyString.len({arg_code})", False)
                 return (f"runtime.PyList.len({arg_code})", False)
+
+            # Special handling for min()
+            if func_code == "min" and args:
+                if len(args) < 2:
+                    raise NotImplementedError("min() requires at least 2 arguments")
+
+                # Extract all argument codes
+                arg_codes = []
+                for arg_code, arg_try in args:
+                    if arg_try:
+                        arg_codes.append(f"try {arg_code}")
+                    else:
+                        arg_codes.append(arg_code)
+
+                # Build nested @min() calls: @min(a, @min(b, @min(c, d)))
+                result = arg_codes[-1]
+                for i in range(len(arg_codes) - 2, -1, -1):
+                    result = f"@min({arg_codes[i]}, {result})"
+
+                return (result, False)
+
+            # Special handling for max()
+            if func_code == "max" and args:
+                if len(args) < 2:
+                    raise NotImplementedError("max() requires at least 2 arguments")
+
+                # Extract all argument codes
+                arg_codes = []
+                for arg_code, arg_try in args:
+                    if arg_try:
+                        arg_codes.append(f"try {arg_code}")
+                    else:
+                        arg_codes.append(arg_code)
+
+                # Build nested @max() calls: @max(a, @max(b, @max(c, d)))
+                result = arg_codes[-1]
+                for i in range(len(arg_codes) - 2, -1, -1):
+                    result = f"@max({arg_codes[i]}, {result})"
+
+                return (result, False)
+
+            # Special handling for sum()
+            if func_code == "sum" and args:
+                if len(args) != 1:
+                    raise NotImplementedError("sum() requires exactly 1 argument")
+
+                arg_code, arg_try = args[0]
+
+                # If the argument is an expression that returns error union, unwrap it
+                if arg_try:
+                    arg_code = f"try {arg_code}"
+
+                # Return marker for sum() to be expanded later
+                # Format: __sum_call_{id}__{list_code}
+                return (f"__sum_call_{id(node)}__{arg_code}", False)
 
             # Check if this is a class instantiation
             if func_code in self.class_definitions:
@@ -2199,6 +2401,26 @@ class ZigCodeGenerator:
             args_str = ", ".join(arg[0] for arg in args)
             return (f"{func_code}({args_str})", False)
 
+        elif isinstance(node, ast.BoolOp):
+            # Boolean operations: and, or
+            # Get operator
+            if isinstance(node.op, ast.And):
+                op_str = " and "
+            elif isinstance(node.op, ast.Or):
+                op_str = " or "
+            else:
+                raise NotImplementedError(f"Boolean operator {node.op.__class__.__name__} not supported")
+
+            # Generate code for each value
+            parts = []
+            for value in node.values:
+                code, _ = self.visit_expr(value)
+                parts.append(code)
+
+            # Join with operator and wrap in parentheses
+            result = f"({op_str.join(parts)})"
+            return (result, False)
+
         elif isinstance(node, ast.UnaryOp):
             # Unary operations: -x, +x, not x
             operand_code, operand_try = self.visit_expr(node.operand)
@@ -2209,8 +2431,8 @@ class ZigCodeGenerator:
                 # Unary plus: +x
                 return (f"+{operand_code}", operand_try)
             elif isinstance(node.op, ast.Not):
-                # Not: not x
-                return (f"!{operand_code}", operand_try)
+                # Not: not x - wrap in parentheses for correct precedence
+                return (f"!({operand_code})", operand_try)
             else:
                 raise NotImplementedError(f"Unary operator not implemented: {node.op.__class__.__name__}")
 

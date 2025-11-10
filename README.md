@@ -105,7 +105,7 @@ Raw results: [loop_sum_results.md](benchmarks/loop_sum_results.md) · [fibonacci
 
 ## Features
 
-### ✅ Implemented (78/140 tests passing)
+### ✅ Implemented (101/142 tests passing - 71.1%)
 
 **Core Language:**
 - ✅ Function definitions with return values
@@ -114,12 +114,22 @@ Raw results: [loop_sum_results.md](benchmarks/loop_sum_results.md) · [fibonacci
 - ✅ Variable reassignment detection (var vs const)
 - ✅ Tuples with element type tracking
 - ✅ Import/module system (6/8 tests passing)
+- ✅ Exception handling (`try/except` - basic support)
 
 **Data Types:**
 - ✅ Lists (literals, indexing, slicing, comprehensions)
 - ✅ Strings (literals, slicing, concatenation)
 - ✅ Dicts (literals, key access)
 - ✅ Integers (primitives and PyObject)
+
+**Built-in Functions (7 total):**
+- ✅ `range(start, end, step)` - Iterate over numeric ranges
+- ✅ `enumerate(iterable)` - Loop with index
+- ✅ `zip(*iterables)` - Parallel iteration
+- ✅ `len(obj)` - Length of strings, lists, dicts
+- ✅ `min(*args)` - Minimum of values
+- ✅ `max(*args)` - Maximum of values
+- ✅ `sum(iterable)` - Sum of numeric list
 
 **Built-in Methods (19 total):**
 - ✅ String: `upper()`, `lower()`, `split()`, `strip()`, `replace()`, `find()`, `count()`
@@ -134,11 +144,11 @@ Raw results: [loop_sum_results.md](benchmarks/loop_sum_results.md) · [fibonacci
 - ✅ Timestamp-based build cache (3x faster compilation)
 - ✅ Debug builds with memory leak detection
 
-### 🚧 In Progress
+### 🚧 In Progress (Active Development)
 
-- 🔨 Built-in functions: `range()`, `enumerate()`, `zip()` (codegen complete, fixing memory leaks)
-- 🔨 Exception handling: `try/except` (basic support, fixing edge cases)
-- 🔨 Variable reassignment tracking (const vs var detection)
+- 🔨 Boolean operators (`and`, `or`, `not`) - Agent 3 implementing
+- 🔨 Exception handling edge cases - Agent 1 fixing
+- 🔨 Variable reassignment tracking improvements - Agent 2 fixing
 
 ### 📋 Roadmap
 
@@ -213,19 +223,20 @@ See `docs/` for detailed documentation:
 
 **v0.1.0-alpha** - Active Development 🚧
 
-- **Test Coverage:** 78/140 tests passing (55.7%)
-- **Memory Safety:** Debug builds with automatic leak detection
-- **Build Cache:** Timestamp-based compilation cache
-- **Core Features:** Functions, classes, slicing, comprehensions working
-- **In Progress:** Exception handling, built-in functions (range/enumerate/zip)
+- **Test Coverage:** 101/142 tests passing (71.1%) ⬆ +23 tests
+- **Memory Safety:** Debug builds with automatic leak detection ✅
+- **Build Cache:** Timestamp-based compilation cache ✅
+- **Core Features:** Functions, classes, slicing, comprehensions, built-ins ✅
+- **Recent Additions:** 7 built-in functions (range, enumerate, zip, len, min, max, sum)
+- **In Progress:** Boolean operators, exception edge cases, variable tracking
 
 **Not Production Ready:**
 - Limited Python compatibility (subset of language)
-- Active memory leak fixes in progress
+- Some advanced features still in development
 - API subject to breaking changes
 - No PyPI package yet
 
-Use for experimentation and benchmarking. Production release planned for v1.0.
+**Progress:** Active development with frequent feature additions. Production release planned for v1.0.
 
 ## License
 
