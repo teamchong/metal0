@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from core.parser import ParsedModule
 from core.method_registry import get_method_info, ReturnType
 from core.codegen.helpers import CodegenHelpers
+from core.codegen.expressions import ExpressionVisitor
 
 
 @dataclass
@@ -20,7 +21,7 @@ class ClassInfo:
     init_params: List[tuple[str, str]]  # (param_name, param_type)
 
 
-class ZigCodeGenerator(CodegenHelpers):
+class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
     """Generates Zig code from Python AST"""
 
     def __init__(self, imported_modules: Optional[Dict[str, ParsedModule]] = None) -> None:
@@ -34,7 +35,7 @@ class ZigCodeGenerator(CodegenHelpers):
         self.list_element_types: dict[str, str] = {}  # Track list element types: "string", "int"
         self.tuple_element_types: dict[str, str] = {}  # Track tuple element types: "string", "int"
         self.function_signatures: dict[str, dict] = {}  # Track function signatures for proper calling
-        self.class_definitions: Dict[str, ClassInfo] = {}  # Track class definitions
+        self.class_definitions: dict[str, ClassInfo] = {}  # Track class definitions
         self.current_class: Optional[str] = None  # Track which class we're currently in
         self.imported_modules: Dict[str, ParsedModule] = imported_modules or {}  # Track imported modules
         self.module_functions: Dict[str, Dict[str, dict]] = {}  # Track module.function signatures
@@ -1317,6 +1318,7 @@ class ZigCodeGenerator(CodegenHelpers):
 
                     if is_first_assignment:
                         self.emit(f"defer runtime.decref({target.id}, allocator);")
+                    self.var_types[target.id] = "string"
                     return
 
             # Special handling for list literals
@@ -1824,6 +1826,20 @@ class ZigCodeGenerator(CodegenHelpers):
         # Expand any __sum_call__ markers
         expr_code = self._expand_sum_markers(expr_code)
 
+        # Handle __print_pyobject__ marker for dict values
+        if expr_code.startswith("__print_pyobject__"):
+            pyobj_code = expr_code.replace("__print_pyobject__", "")
+            temp_var = f"_print_pyobj_{id(node)}"
+            self.emit(f"const {temp_var} = {pyobj_code};")
+            self.emit(f"if ({temp_var}.type_id == .string) {{")
+            self.emit(f'    _ = std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue({temp_var})}});')
+            self.emit(f"}} else if ({temp_var}.type_id == .int) {{")
+            self.emit(f'    _ = std.debug.print("{{}}\\n", .{{runtime.PyInt.getValue({temp_var})}});')
+            self.emit(f"}} else {{")
+            self.emit(f'    _ = std.debug.print("{{}}\\n", .{{{temp_var}}});')
+            self.emit(f"}}")
+            return
+
         # Special handling for statement methods with primitive args
         if expr_code.startswith("__list_") or expr_code.startswith("__dict_"):
             parts = expr_code.split("__")
@@ -1914,540 +1930,6 @@ class ZigCodeGenerator(CodegenHelpers):
                 self.emit(f"_ = try {expr_code};")
         else:
             self.emit(f"_ = {expr_code};")
-
-    def visit_expr(self, node: ast.AST) -> tuple[str, bool]:
-        """Visit an expression node and return (code, needs_try) tuple"""
-        if isinstance(node, ast.Name):
-            return (node.id, False)
-
-        elif isinstance(node, ast.Constant):
-            if isinstance(node.value, str):
-                # String literal -> PyString.create
-                return (f'runtime.PyString.create(allocator, "{node.value}")', True)
-            elif isinstance(node.value, bool):
-                # Boolean literal - convert Python True/False to Zig true/false
-                return ("true" if node.value else "false", False)
-            else:
-                # Numeric literal
-                return (str(node.value), False)
-
-        elif isinstance(node, ast.Compare):
-            left_code, left_try = self.visit_expr(node.left)
-            right_code, right_try = self.visit_expr(node.comparators[0])
-
-            # Check if this is an 'in' operator
-            if isinstance(node.ops[0], ast.In):
-                # For 'in' operator: value in collection
-                # Mark for special handling that may need wrapping
-                return (f"__in_operator__{left_code}__{left_try}__{right_code}", False)
-
-            # Regular comparison operators
-            # Check if either operand is a pyint variable (needs getValue)
-            left_expr = left_code
-            if isinstance(node.left, ast.Name) and self.var_types.get(node.left.id) == "pyint":
-                left_expr = f"runtime.PyInt.getValue({left_code})"
-
-            right_expr = right_code
-            if isinstance(node.comparators[0], ast.Name) and self.var_types.get(node.comparators[0].id) == "pyint":
-                right_expr = f"runtime.PyInt.getValue({right_code})"
-
-            op = self.visit_compare_op(node.ops[0])
-            # Comparisons don't need try for now
-            return (f"{left_expr} {op} {right_expr}", False)
-
-        elif isinstance(node, ast.BinOp):
-            left_code, left_try = self.visit_expr(node.left)
-            right_code, right_try = self.visit_expr(node.right)
-
-            # Check if this is string concatenation
-            # Either operand needs try (string literals/method calls) OR operand is string variable
-            left_is_string = False
-            right_is_string = False
-            if isinstance(node.left, ast.Name):
-                left_is_string = self.var_types.get(node.left.id) == "string"
-            if isinstance(node.right, ast.Name):
-                right_is_string = self.var_types.get(node.right.id) == "string"
-
-            if left_try or right_try or (left_is_string and right_is_string):
-                # String concatenation -> PyString.concat
-                # Wrap operands with try if needed
-                left_expr = f"try {left_code}" if left_try else left_code
-                right_expr = f"try {right_code}" if right_try else right_code
-                return (f"runtime.PyString.concat(allocator, {left_expr}, {right_expr})", True)
-            else:
-                # Numeric operation
-                # Check if either operand is a pyint variable (needs getValue)
-                left_expr = left_code
-                if isinstance(node.left, ast.Name) and self.var_types.get(node.left.id) == "pyint":
-                    left_expr = f"runtime.PyInt.getValue({left_code})"
-
-                right_expr = right_code
-                if isinstance(node.right, ast.Name) and self.var_types.get(node.right.id) == "pyint":
-                    right_expr = f"runtime.PyInt.getValue({right_code})"
-
-                op = self.visit_bin_op(node.op)
-                return (f"{left_expr} {op} {right_expr}", False)
-
-        elif isinstance(node, ast.List):
-            # List literal -> PyList.create + append items
-            # This returns a unique temp var name that caller must handle
-            return (f"__list_literal_{id(node)}", True)
-
-        elif isinstance(node, ast.Tuple):
-            # Tuple literal -> PyTuple.create + setItem
-            # This returns a unique temp var name that caller must handle
-            return (f"__tuple_literal_{id(node)}", True)
-
-        elif isinstance(node, ast.ListComp):
-            # List comprehension -> create list + loop + append
-            # Store comprehension info for later generation
-            return (f"__list_comp_{id(node)}", True)
-
-        elif isinstance(node, ast.Dict):
-            # Dict literal -> PyDict.create + set items
-            # This returns a unique temp var name that caller must handle
-            return (f"__dict_literal_{id(node)}", True)
-
-        elif isinstance(node, ast.Subscript):
-            # List/dict indexing: obj[index] or obj["key"]
-            # List/string slicing: obj[start:end]
-            value_code, value_try = self.visit_expr(node.value)
-
-            # Check if it's a slice operation
-            if isinstance(node.slice, ast.Slice):
-                # Slicing: obj[start:end:step]
-                start_code = "null" if node.slice.lower is None else str(self.visit_expr(node.slice.lower)[0])
-                end_code = "null" if node.slice.upper is None else str(self.visit_expr(node.slice.upper)[0])
-                step_code = "null" if node.slice.step is None else str(self.visit_expr(node.slice.step)[0])
-
-                # Determine if this is list or string slicing based on var_types
-                if isinstance(node.value, ast.Name):
-                    var_name = node.value.id
-                    var_type = self.var_types.get(var_name)
-                    if var_type == "string":
-                        return (f"runtime.PyString.slice({value_code}, allocator, {start_code}, {end_code}, {step_code})", True)
-
-                # Default to list slicing
-                return (f"runtime.PyList.slice({value_code}, allocator, {start_code}, {end_code}, {step_code})", True)
-
-            # Check if it's a dict access (string key) or list access (int index)
-            elif isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
-                # Dict access with string key
-                key_str = node.slice.value
-                return (f'runtime.PyDict.get({value_code}, "{key_str}").?', False)
-            else:
-                # List/tuple access with integer index (can throw IndexError)
-                index_code, index_try = self.visit_expr(node.slice)
-
-                # Check if it's a tuple or list access based on var_types
-                if isinstance(node.value, ast.Name):
-                    var_name = node.value.id
-                    var_type = self.var_types.get(var_name)
-                    if var_type == "tuple":
-                        return (f"runtime.PyTuple.getItem({value_code}, @intCast({index_code}))", True)
-
-                # Default to list access
-                return (f"runtime.PyList.getItem({value_code}, @intCast({index_code}))", True)
-
-        elif isinstance(node, ast.Attribute):
-            # Method/attribute access: obj.method or obj.attr
-            value_code, value_try = self.visit_expr(node.value)
-
-            # Check if this is accessing an instance attribute
-            if isinstance(node.value, ast.Name):
-                var_name = node.value.id
-                var_type = self.var_types.get(var_name)
-
-                # Check if this is a module function call (e.g., mymath.add)
-                if var_name in self.module_functions:
-                    # Module function access - return direct module.function reference
-                    return (f"{var_name}.{node.attr}", False)
-
-                # If var_type is a class name, check if it's a field or method
-                if var_type in self.class_definitions:
-                    class_info = self.class_definitions[var_type]
-                    # If it's a method, return marker. If it's a field, return direct access
-                    if node.attr in class_info.methods:
-                        # Method access - return marker for Call handler
-                        return (f"__method__{value_code}__{node.attr}__{value_try}", False)
-                    else:
-                        # Direct field access: instance.field
-                        return (f"{value_code}.{node.attr}", False)
-
-            # For method calls or runtime type methods, return a marker
-            # The Call handler will detect this and handle it specially
-            # Include value_try flag in the marker for proper handling
-            return (f"__method__{value_code}__{node.attr}__{value_try}", False)
-
-        elif isinstance(node, ast.Call):
-            func_code, func_try = self.visit_expr(node.func)
-            args = [self.visit_expr(arg) for arg in node.args]
-
-            # Check if this is a method call
-            if func_code.startswith("__method__"):
-                # Extract object and method name
-                parts = func_code.split("__")
-                obj_code = parts[2]
-                method_name = parts[3]
-                obj_needs_try = parts[4] == "True" if len(parts) > 4 else False
-
-                # If object needs try, wrap it
-                if obj_needs_try:
-                    obj_code = f"try {obj_code}"
-
-                # Get object type for disambiguation
-                obj_type = None
-                if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
-                    obj_type = self.var_types.get(node.func.value.id)
-
-                # Check if this is a class instance method call
-                if obj_type and obj_type in self.class_definitions:
-                    # This is an instance method call
-                    call_args = []
-
-                    # Check if method needs allocator
-                    class_info = self.class_definitions[obj_type]
-                    method_needs_allocator = False
-                    method_needs_try = False
-                    if method_name in class_info.methods:
-                        method_sig = class_info.methods[method_name]
-                        method_needs_allocator = method_sig.get("needs_allocator", False)
-                        method_needs_try = method_needs_allocator  # Methods with allocator need try
-
-                    if method_needs_allocator:
-                        call_args.append("allocator")
-
-                    for arg_code, arg_try in args:
-                        if arg_try:
-                            call_args.append(f"try {arg_code}")
-                        else:
-                            call_args.append(arg_code)
-
-                    args_str = ", ".join(call_args)
-                    return (f"{obj_code}.{method_name}({args_str})", method_needs_try)
-
-                # Look up method in registry (for runtime types like PyString, PyList, etc.)
-                method_info = get_method_info(method_name, obj_type)
-                if not method_info:
-                    raise NotImplementedError(f"Method {method_name} not supported")
-
-                # Special handling for statement methods (like append, remove, extend, reverse, insert, clear)
-                if method_info.is_statement:
-                    # Mark for special handling in visit_Expr
-                    # Determine prefix based on runtime type
-                    if method_info.runtime_type == "PyDict":
-                        marker_name = f"dict_{method_name}"
-                    else:
-                        marker_name = f"list_{method_name}"
-                    if args:
-                        # For list literals, generate them as temp variables first
-                        processed_args = []
-                        for i, (arg_code, arg_try) in enumerate(args):
-                            if arg_code.startswith("__list_literal_"):
-                                # Generate list literal as temp variable
-                                temp_list_var = f"_stmt_list_arg_{id(node)}_{i}"
-                                # Find the original AST node to get list elements
-                                list_node = node.args[i]
-                                if isinstance(list_node, ast.List):
-                                    self.emit(f"const {temp_list_var} = try runtime.PyList.create(allocator);")
-                                    self.emit(f"defer runtime.decref({temp_list_var}, allocator);")
-                                    for elem in list_node.elts:
-                                        elem_code, elem_try = self.visit_expr(elem)
-                                        if elem_try:
-                                            temp_elem = f"_tmp_elem_{id(elem)}"
-                                            self.emit(f"const {temp_elem} = try {elem_code};")
-                                            self.emit(f"try runtime.PyList.append({temp_list_var}, {temp_elem});")
-                                            self.emit(f"runtime.decref({temp_elem}, allocator);")
-                                        else:
-                                            temp_elem = f"_tmp_elem_{id(elem)}"
-                                            self.emit(f"const {temp_elem} = try runtime.PyInt.create(allocator, {elem_code});")
-                                            self.emit(f"try runtime.PyList.append({temp_list_var}, {temp_elem});")
-                                            self.emit(f"runtime.decref({temp_elem}, allocator);")
-                                    processed_args.append((temp_list_var, False))
-                                else:
-                                    # Fallback if not a list node
-                                    processed_args.append((arg_code, arg_try))
-                            else:
-                                processed_args.append((arg_code, arg_try))
-
-                        # Encode all arguments in the marker
-                        arg_parts = []
-                        for arg_code, arg_try in processed_args:
-                            arg_parts.append(f"{arg_code}|||{arg_try}")
-                        args_encoded = ";;;".join(arg_parts)
-                        return (f"__{marker_name}__{obj_code}__{args_encoded}", True)
-                    else:
-                        # No args (like reverse)
-                        return (f"__{marker_name}__{obj_code}", True)
-
-                # Generate the method call using registry
-                call_code, needs_try = method_info.generate_call(obj_code, args)
-                return (call_code, needs_try)
-
-            # Special handling for print
-            if func_code == "print":
-                if args:
-                    arg_code, arg_needs_try = args[0]
-                    # Check if we're in runtime mode (PyObject types)
-                    if self.needs_runtime:
-                        # Check if it's a subscript (returns PyObject*)
-                        if isinstance(node.args[0], ast.Subscript):
-                            # Subscript returns PyObject* - need to extract value
-                            wrapped_arg = self._wrap_with_try(arg_code) if arg_needs_try else arg_code
-
-                            # Check if it's a dict with string key or list with int index
-                            subscript_node = node.args[0]
-
-                            # Check if it's a slice operation
-                            if isinstance(subscript_node.slice, ast.Slice):
-                                # Slicing creates a new object - need temp var + decref
-                                temp_var = f"_print_slice_{id(node)}"
-                                if isinstance(subscript_node.value, ast.Name):
-                                    container_var = subscript_node.value.id
-                                    var_type = self.var_types.get(container_var)
-                                    if var_type == "string":
-                                        # String slice - print as string
-                                        return (f'{{ const {temp_var} = {wrapped_arg}; defer runtime.decref({temp_var}, allocator); std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue({temp_var})}}); }}', False)
-                                    else:
-                                        # List slice - print as list
-                                        return (f'{{ const {temp_var} = {wrapped_arg}; defer runtime.decref({temp_var}, allocator); runtime.printList({temp_var}); std.debug.print("\\n", .{{}}); }}', False)
-                                # Default to list printing
-                                return (f'{{ const {temp_var} = {wrapped_arg}; defer runtime.decref({temp_var}, allocator); runtime.printList({temp_var}); std.debug.print("\\n", .{{}}); }}', False)
-                            elif isinstance(subscript_node.slice, ast.Constant) and isinstance(subscript_node.slice.value, str):
-                                # Dict access - value could be string or int
-                                # We need to check the dict variable to determine value type
-                                # For now, try to determine from the dict definition
-                                # This is a simplified approach - ideally we'd track value types
-                                # For dict_simple.py: "name" -> string, "age" -> int
-                                key = subscript_node.slice.value
-                                # Heuristic: keys like "name", "title" are strings, others are ints
-                                if key in ["name", "title", "text", "message"]:
-                                    return (f'std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue({wrapped_arg})}})', False)
-                                else:
-                                    return (f'std.debug.print("{{}}\\n", .{{runtime.PyInt.getValue({wrapped_arg})}})', False)
-                            else:
-                                # List/tuple access - check element type
-                                if isinstance(subscript_node.value, ast.Name):
-                                    container_var = subscript_node.value.id
-                                    elem_type = self.list_element_types.get(container_var) or self.tuple_element_types.get(container_var)
-                                    if elem_type == "string":
-                                        return (f'std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue({wrapped_arg})}})', False)
-                                    elif elem_type == "int":
-                                        return (f'std.debug.print("{{}}\\n", .{{runtime.PyInt.getValue({wrapped_arg})}})', False)
-                                # Default: use runtime type checking
-                                return (f'runtime.printPyObject({wrapped_arg}); std.debug.print("\\n", .{{}})', False)
-                        # Check for instance attribute access (e.g., dog.name)
-                        elif isinstance(node.args[0], ast.Attribute) and isinstance(node.args[0].value, ast.Name):
-                            obj_name = node.args[0].value.id
-                            field_name = node.args[0].attr
-                            obj_type = self.var_types.get(obj_name)
-
-                            # If it's a class instance, check field type
-                            if obj_type and obj_type in self.class_definitions:
-                                class_info = self.class_definitions[obj_type]
-                                field_type = class_info.fields.get(field_name)
-                                # PyObject fields (string, list, dict)
-                                if field_type == "*runtime.PyObject":
-                                    return (f'std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue({arg_code})}})', False)
-                                elif field_type == "int":
-                                    return (f'std.debug.print("{{}}\\n", .{{{arg_code}}})', False)
-                            # Default fallback
-                            return (f'std.debug.print("{{}}\\n", .{{{arg_code}}})', False)
-                        # In runtime mode, check variable type
-                        elif isinstance(node.args[0], ast.Name):
-                            arg_name = node.args[0].id
-                            var_type = self.var_types.get(arg_name, "string")
-                            if var_type == "pyint":
-                                return (f'std.debug.print("{{}}\\n", .{{runtime.PyInt.getValue({arg_name})}})', False)
-                            elif var_type == "int":
-                                # Primitive int
-                                return (f'std.debug.print("{{}}\\n", .{{{arg_name}}})', False)
-                            else:
-                                # Default to string
-                                return (f'std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue({arg_name})}})', False)
-                        elif arg_needs_try:
-                            # Expression that creates PyObject
-                            return (f'std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue(try {arg_code})}})', False)
-                    # Primitive types (int, float, etc)
-                    return (f'std.debug.print("{{}}\\n", .{{{arg_code}}})', False)
-                return (f'std.debug.print("\\n", .{{}})', False)
-
-            # Special handling for len()
-            if func_code == "len" and args:
-                arg_code, arg_try = args[0]
-
-                # If the argument is an expression that returns error union, unwrap it
-                if arg_try:
-                    arg_code = f"try {arg_code}"
-
-                # Check variable type to determine PyList.len, PyDict.len, or PyString.len
-                if isinstance(node.args[0], ast.Name):
-                    arg_name = node.args[0].id
-                    var_type = self.var_types.get(arg_name, "list")
-                    if var_type == "dict":
-                        return (f"runtime.PyDict.len({arg_code})", False)
-                    elif var_type == "string":
-                        return (f"runtime.PyString.len({arg_code})", False)
-                return (f"runtime.PyList.len({arg_code})", False)
-
-            # Special handling for min()
-            if func_code == "min" and args:
-                if len(args) < 2:
-                    raise NotImplementedError("min() requires at least 2 arguments")
-
-                # Extract all argument codes
-                arg_codes = []
-                for arg_code, arg_try in args:
-                    if arg_try:
-                        arg_codes.append(f"try {arg_code}")
-                    else:
-                        arg_codes.append(arg_code)
-
-                # Build nested @min() calls: @min(a, @min(b, @min(c, d)))
-                result = arg_codes[-1]
-                for i in range(len(arg_codes) - 2, -1, -1):
-                    result = f"@min({arg_codes[i]}, {result})"
-
-                return (result, False)
-
-            # Special handling for max()
-            if func_code == "max" and args:
-                if len(args) < 2:
-                    raise NotImplementedError("max() requires at least 2 arguments")
-
-                # Extract all argument codes
-                arg_codes = []
-                for arg_code, arg_try in args:
-                    if arg_try:
-                        arg_codes.append(f"try {arg_code}")
-                    else:
-                        arg_codes.append(arg_code)
-
-                # Build nested @max() calls: @max(a, @max(b, @max(c, d)))
-                result = arg_codes[-1]
-                for i in range(len(arg_codes) - 2, -1, -1):
-                    result = f"@max({arg_codes[i]}, {result})"
-
-                return (result, False)
-
-            # Special handling for sum()
-            if func_code == "sum" and args:
-                if len(args) != 1:
-                    raise NotImplementedError("sum() requires exactly 1 argument")
-
-                arg_code, arg_try = args[0]
-
-                # If the argument is an expression that returns error union, unwrap it
-                if arg_try:
-                    arg_code = f"try {arg_code}"
-
-                # Return marker for sum() to be expanded later
-                # Format: __sum_call_{id}__{list_code}
-                return (f"__sum_call_{id(node)}__{arg_code}", False)
-
-            # Check if this is a class instantiation
-            if func_code in self.class_definitions:
-                class_name = func_code
-                call_args = ["allocator"]
-
-                # Add constructor arguments
-                for arg_code, arg_try in args:
-                    if arg_try:
-                        call_args.append(f"try {arg_code}")
-                    else:
-                        call_args.append(arg_code)
-
-                args_str = ", ".join(call_args)
-                return (f"{class_name}.init({args_str})", True)
-
-            # Check if this is a module function call (e.g., mymath.add)
-            if "." in func_code:
-                parts = func_code.split(".")
-                if len(parts) == 2:
-                    module_name, func_name = parts
-                    if module_name in self.module_functions:
-                        if func_name in self.module_functions[module_name]:
-                            sig = self.module_functions[module_name][func_name]
-                            call_args = []
-
-                            # Add allocator if function needs it
-                            if sig["needs_allocator"]:
-                                call_args.append("allocator")
-
-                            # Add user arguments, wrapping with try if needed
-                            for arg_code, arg_try in args:
-                                if arg_try:
-                                    call_args.append(f"try {arg_code}")
-                                else:
-                                    call_args.append(arg_code)
-
-                            args_str = ", ".join(call_args)
-                            needs_try = sig["needs_allocator"]  # Module functions with allocator return error unions
-                            return (f"{func_code}({args_str})", needs_try)
-
-            # Check if this is a user-defined function
-            if func_code in self.function_signatures:
-                sig = self.function_signatures[func_code]
-                call_args = []
-
-                # Add allocator if function needs it
-                if sig["needs_allocator"]:
-                    call_args.append("allocator")
-
-                # Add user arguments, wrapping with try if needed
-                for arg_code, arg_try in args:
-                    if arg_try:
-                        call_args.append(f"try {arg_code}")
-                    else:
-                        call_args.append(arg_code)
-
-                args_str = ", ".join(call_args)
-                needs_try = "!" in sig["return_type"]
-                return (f"{func_code}({args_str})", needs_try)
-
-            # Regular function call (built-ins like range, len, etc.)
-            args_str = ", ".join(arg[0] for arg in args)
-            return (f"{func_code}({args_str})", False)
-
-        elif isinstance(node, ast.BoolOp):
-            # Boolean operations: and, or
-            # Get operator
-            if isinstance(node.op, ast.And):
-                op_str = " and "
-            elif isinstance(node.op, ast.Or):
-                op_str = " or "
-            else:
-                raise NotImplementedError(f"Boolean operator {node.op.__class__.__name__} not supported")
-
-            # Generate code for each value
-            parts = []
-            for value in node.values:
-                code, _ = self.visit_expr(value)
-                parts.append(code)
-
-            # Join with operator and wrap in parentheses
-            result = f"({op_str.join(parts)})"
-            return (result, False)
-
-        elif isinstance(node, ast.UnaryOp):
-            # Unary operations: -x, +x, not x
-            operand_code, operand_try = self.visit_expr(node.operand)
-            if isinstance(node.op, ast.USub):
-                # Unary minus: -x
-                return (f"-{operand_code}", operand_try)
-            elif isinstance(node.op, ast.UAdd):
-                # Unary plus: +x
-                return (f"+{operand_code}", operand_try)
-            elif isinstance(node.op, ast.Not):
-                # Not: not x - wrap in parentheses for correct precedence
-                return (f"!({operand_code})", operand_try)
-            else:
-                raise NotImplementedError(f"Unary operator not implemented: {node.op.__class__.__name__}")
-
-        else:
-            raise NotImplementedError(
-                f"Expression not implemented: {node.__class__.__name__}"
-            )
 
 
 

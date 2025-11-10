@@ -1,0 +1,74 @@
+/// PyTuple implementation - Python tuple type (immutable sequence)
+const std = @import("std");
+const runtime = @import("runtime.zig");
+
+const PyObject = runtime.PyObject;
+const incref = runtime.incref;
+const PythonError = runtime.PythonError;
+
+/// Python tuple type (immutable sequence)
+pub const PyTuple = struct {
+    items: []*PyObject,
+    allocator: std.mem.Allocator,
+
+    pub fn create(allocator: std.mem.Allocator, size: usize) !*PyObject {
+        const obj = try allocator.create(PyObject);
+        const tuple_data = try allocator.create(PyTuple);
+
+        // Allocate fixed-size array for items
+        const items = try allocator.alloc(*PyObject, size);
+
+        tuple_data.* = PyTuple{
+            .items = items,
+            .allocator = allocator,
+        };
+
+        obj.* = PyObject{
+            .ref_count = 1,
+            .type_id = .tuple,
+            .data = tuple_data,
+        };
+        return obj;
+    }
+
+    pub fn fromSlice(allocator: std.mem.Allocator, values: []const PyObject.Value) !*PyObject {
+        const obj = try create(allocator, values.len);
+        const data: *PyTuple = @ptrCast(@alignCast(obj.data));
+
+        for (values, 0..) |value, i| {
+            const item = try runtime.PyInt.create(allocator, value.int);
+            data.items[i] = item;
+        }
+
+        return obj;
+    }
+
+    pub fn setItem(obj: *PyObject, idx: usize, item: *PyObject) void {
+        std.debug.assert(obj.type_id == .tuple);
+        const data: *PyTuple = @ptrCast(@alignCast(obj.data));
+        std.debug.assert(idx < data.items.len);
+        data.items[idx] = item;
+        incref(item);
+    }
+
+    pub fn getItem(obj: *PyObject, idx: usize) PythonError!*PyObject {
+        std.debug.assert(obj.type_id == .tuple);
+        const data: *PyTuple = @ptrCast(@alignCast(obj.data));
+        if (idx >= data.items.len) {
+            return PythonError.IndexError;
+        }
+        return data.items[idx];
+    }
+
+    pub fn len(obj: *PyObject) usize {
+        std.debug.assert(obj.type_id == .tuple);
+        const data: *PyTuple = @ptrCast(@alignCast(obj.data));
+        return data.items.len;
+    }
+
+    pub fn len_method(obj: *PyObject) i64 {
+        std.debug.assert(obj.type_id == .tuple);
+        const data: *PyTuple = @ptrCast(@alignCast(obj.data));
+        return @intCast(data.items.len);
+    }
+};
