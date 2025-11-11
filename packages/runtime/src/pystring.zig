@@ -128,7 +128,7 @@ pub const PyString = struct {
         return false;
     }
 
-    pub fn slice(obj: *PyObject, allocator: std.mem.Allocator, start_opt: ?i64, end_opt: ?i64, step_opt: ?i64) !*PyObject {
+    pub fn slice(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i64, end_opt: ?i64, step_opt: ?i64) !*PyObject {
         std.debug.assert(obj.type_id == .string);
         const data: *PyString = @ptrCast(@alignCast(obj.data));
 

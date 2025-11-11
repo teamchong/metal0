@@ -155,12 +155,12 @@ class ExpressionVisitor:
                     obj_type = self.var_types.get(node.value.id)
 
                 if obj_type == "list":
-                    return (f"runtime.PyList.slice({obj_code}, allocator, {start_code}, {end_code}, {step_code})", True)
+                    return (f"runtime.PyList.slice(allocator, {obj_code}, {start_code}, {end_code}, {step_code})", True)
                 elif obj_type == "string":
-                    return (f"runtime.PyString.slice({obj_code}, allocator, {start_code}, {end_code}, {step_code})", True)
+                    return (f"runtime.PyString.slice(allocator, {obj_code}, {start_code}, {end_code}, {step_code})", True)
                 else:
                     # Default to string slice for unknown types
-                    return (f"runtime.PyString.slice({obj_code}, allocator, {start_code}, {end_code}, {step_code})", True)
+                    return (f"runtime.PyString.slice(allocator, {obj_code}, {start_code}, {end_code}, {step_code})", True)
             elif isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
                 # Dict access with string literal key - returns PyObject
                 key_str = node.slice.value
@@ -418,7 +418,7 @@ class ExpressionVisitor:
 
             if method_info:
                 args = []
-                # Allocator comes first, then object (matches runtime signatures)
+                # Allocator always comes first, then object (consistent order)
                 if method_info.needs_allocator:
                     args.append("allocator")
                 args.append(obj_code)

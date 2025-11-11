@@ -1118,26 +1118,26 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
         for handler in node.handlers:
             if handler.type is None:
                 # Bare except: catches all errors
-                handlers_info.append((None, handler.body))
+                handlers_info.append((None, handler.body, handler.name))
             elif isinstance(handler.type, ast.Name):
                 # Specific exception type
                 exc_type = handler.type.id
-                handlers_info.append((exc_type, handler.body))
+                handlers_info.append((exc_type, handler.body, handler.name))
             else:
                 raise NotImplementedError("Complex exception types not supported")
 
-        # Generate labeled block for break
-        block_label = f"try_block_{id(node)}"
+        # Generate unique label for this try block
+        block_label = f"try_catch_{id(node)}"
 
         # Save current try context
         prev_in_try = getattr(self, '_in_try_block', False)
         prev_handlers = getattr(self, '_current_handlers', [])
-        prev_label = getattr(self, '_current_try_label', None)
+        prev_label = getattr(self, '_try_block_label', None)
 
         # Set new try context
         self._in_try_block = True
         self._current_handlers = handlers_info
-        self._current_try_label = block_label
+        self._try_block_label = block_label
 
         # Emit labeled block
         self.emit(f"{block_label}: {{")
@@ -1153,49 +1153,77 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
         # Restore previous context
         self._in_try_block = prev_in_try
         self._current_handlers = prev_handlers
-        self._current_try_label = prev_label
+        self._try_block_label = prev_label
 
-    def _emit_catch_handler(self) -> None:
-        """Emit catch handler code for current try block context"""
+    def _emit_error_handler_for_stmt(self, stmt_with_try: str, var_name: str = "_") -> None:
+        """Emit a statement that may error with inline error handling if in try block"""
         if not getattr(self, '_in_try_block', False):
+            # Not in try block - use regular try
+            self.emit(f"{stmt_with_try};")
             return
 
+        # In try block - use inline catch with error type checking
         handlers = getattr(self, '_current_handlers', [])
-        if not handlers:
-            return
+        label = getattr(self, '_try_block_label', 'try_catch')
 
-        label = getattr(self, '_current_try_label', 'try_block')
+        # Check if we need to capture the error (only if there are specific exception types)
+        has_specific_handlers = any(exc_type is not None for exc_type, _, _ in handlers)
 
-        # Generate catch block that breaks to label
-        self.output[-1] += " catch {"
+        # Emit statement with catch handler
+        if has_specific_handlers:
+            self.emit(f"{var_name} = {stmt_with_try} catch |err| {{")
+        else:
+            # Bare except only - no need to capture error
+            self.emit(f"{var_name} = {stmt_with_try} catch {{")
         self.indent_level += 1
 
-        # Since Zig can't distinguish error types in catch blocks,
-        # treat all exception handlers (IndexError, ValueError, etc.) as bare except
-        # Use only the FIRST handler's body (Python would check in order)
-        if handlers:
-            exc_type, handler_body = handlers[0]
-            # Emit handler body
-            for stmt in handler_body:
-                if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-                    if isinstance(stmt.value.func, ast.Name) and stmt.value.func.id == "print":
-                        if stmt.value.args:
-                            arg = stmt.value.args[0]
-                            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                                self.emit(f'std.debug.print("{arg.value}\\n", .{{}});')
-            self.emit(f"break :{label};")
+        # Generate if-else chain for exception type matching
+        for i, (exc_type, handler_body, exc_var_name) in enumerate(handlers):
+            if exc_type is None:
+                # Bare except - catches everything
+                if i > 0:
+                    self.emit("else {")
+                    self.indent_level += 1
+
+                for stmt in handler_body:
+                    self.visit(stmt)
+
+                self.emit(f"break :{label};")
+
+                if i > 0:
+                    self.indent_level -= 1
+                    self.emit("}")
+            else:
+                # Specific exception type
+                if i == 0:
+                    self.emit(f"if (err == error.{exc_type}) {{")
+                else:
+                    self.emit(f"}} else if (err == error.{exc_type}) {{")
+
+                self.indent_level += 1
+
+                for stmt in handler_body:
+                    self.visit(stmt)
+
+                self.emit(f"break :{label};")
+
+                self.indent_level -= 1
+
+        # If no handler matched and there's no bare except, return the error (propagate up)
+        has_bare_except = any(exc_type is None for exc_type, _, _ in handlers)
+        if handlers and not has_bare_except and any(exc_type is not None for exc_type, _, _ in handlers):
+            # Close the if-else chain and add fallback
+            self.emit("} else {")
+            self.indent_level += 1
+            self.emit("return err;")
+            self.indent_level -= 1
+            self.emit("}")
+        elif handlers and not has_bare_except:
+            # No specific handlers, but handlers exist (shouldn't happen)
+            pass
 
         self.indent_level -= 1
-        self.output.append(self.indent() + "};")
-
-    def _wrap_with_try(self, code: str) -> str:
-        """Wrap error-returning code with appropriate error handling"""
-        if getattr(self, '_in_try_block', False):
-            # Inside try block - return code without try, will use catch
-            return code
-        else:
-            # Outside try block - use regular try
-            return f"try {code}"
+        self.emit("};")
 
     def _flatten_binop_chain(self, node: ast.BinOp, op_type: type) -> list[ast.AST]:
         """Flatten chained binary operations like a + b + c into [a, b, c]"""
@@ -1843,17 +1871,11 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
 
             if is_first_assignment:
                 if needs_try:
-                    wrapped_code = self._wrap_with_try(value_code)
-
-                    # Check if we're in a try block - if so, emit catch handler
+                    # Emit assignment with error handling
                     if getattr(self, '_in_try_block', False):
-                        # Emit assignment without semicolon
-                        self.emit(f"{var_keyword} {target.id} = {wrapped_code}")
-                        # Emit catch handler
-                        self._emit_catch_handler()
+                        self._emit_error_handler_for_stmt(f"{value_code}", f"{var_keyword} {target.id}")
                     else:
-                        # Regular try - emit normally
-                        self.emit(f"{var_keyword} {target.id} = {wrapped_code};")
+                        self.emit(f"{var_keyword} {target.id} = try {value_code};")
 
                     # If assigning a parameter, incref it and defer decref the param
                     var_type = self.var_types.get(target.id)
@@ -1923,16 +1945,20 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                 if is_pyobject and needs_try:
                     # Decref old value before reassignment
                     self.emit(f"runtime.decref({target.id}, allocator);")
-                    wrapped_code = self._wrap_with_try(value_code)
-                    self.emit(f"{target.id} = {wrapped_code};")
+                    if getattr(self, '_in_try_block', False):
+                        self._emit_error_handler_for_stmt(f"{value_code}", f"{target.id}")
+                    else:
+                        self.emit(f"{target.id} = try {value_code};")
                 elif is_pyobject:
                     # Decref old value before reassignment
                     self.emit(f"runtime.decref({target.id}, allocator);")
                     self.emit(f"{target.id} = {value_code};")
                 elif needs_try:
                     # Non-PyObject with try
-                    wrapped_code = self._wrap_with_try(value_code)
-                    self.emit(f"{target.id} = {wrapped_code};")
+                    if getattr(self, '_in_try_block', False):
+                        self._emit_error_handler_for_stmt(f"{value_code}", f"{target.id}")
+                    else:
+                        self.emit(f"{target.id} = try {value_code};")
                 else:
                     # Non-PyObject, non-try (primitives)
                     self.emit(f"{target.id} = {value_code};")
@@ -1987,7 +2013,11 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                     if is_dict_subscript:
                         self.emit(f"const {temp_var} = {arg_code};")
                     else:
-                        self.emit(f"const {temp_var} = try {arg_code};")
+                        # Emit with error handling
+                        if getattr(self, '_in_try_block', False):
+                            self._emit_error_handler_for_stmt(f"{arg_code}", f"const {temp_var}")
+                        else:
+                            self.emit(f"const {temp_var} = try {arg_code};")
                     # Only defer decref for method calls or slices (which create new PyObjects)
                     # Single element subscripts return borrowed references, don't decref them
                     if is_method_call or is_slice:
@@ -2032,22 +2062,6 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                         # Default: try string first
                         self.emit(f'_ = std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue({temp_var})}});')
                     return
-            # Special handling for print() with subscript inside try block
-            if getattr(self, '_in_try_block', False) and node.value.args and isinstance(node.value.args[0], ast.Subscript):
-                # Extract subscript to temp variable first, then print it
-                subscript = node.value.args[0]
-                subscript_code, needs_try = self.visit_expr(subscript)
-                temp_var = f"_print_subscript_{id(node)}"
-
-                # Emit temp variable assignment with catch handler
-                # Don't use 'try' - _emit_catch_handler will add 'catch' block
-                self.emit(f"const {temp_var} = {subscript_code}")
-                self._emit_catch_handler()
-
-                # Print the temp variable (extract int value since it's a PyObject)
-                self.emit(f'_ = std.debug.print("{{}}\\n", .{{runtime.PyInt.getValue({temp_var})}});')
-                return
-
         expr_code, needs_try = self.visit_expr(node.value)
 
         # Unwrap any __WRAP_PRIMITIVE__ markers
@@ -2073,10 +2087,10 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
         # Special handling for statement methods with primitive args
         if expr_code.startswith("__list_") or expr_code.startswith("__dict_"):
             parts = expr_code.split("__")
-            method_type = parts[1]  # "list_append", "dict_update", etc
+            method_type = parts[1]  # "list_reverse", "dict_update", etc
             obj_code = parts[2]
 
-            if len(parts) > 3:
+            if len(parts) > 3 and parts[3]:  # Check if args exist (parts[3] not empty)
                 # Parse all arguments (format: "arg1|||try1;;;arg2|||try2")
                 # Args might contain __ themselves, so rejoin parts[3:]
                 args_encoded = "__".join(parts[3:])
@@ -2103,11 +2117,11 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                 elif method_type == "list_remove":
                     arg_code, arg_try = args_list[0]
                     if arg_try:
-                        self.emit(f"try runtime.PyList.remove({obj_code}, allocator, {arg_code});")
+                        self.emit(f"try runtime.PyList.remove(allocator, {obj_code}, {arg_code});")
                     else:
                         temp_var = f"_{method_type}_arg_{id(node)}"
                         self.emit(f"const {temp_var} = try runtime.PyInt.create(allocator, {arg_code});")
-                        self.emit(f"try runtime.PyList.remove({obj_code}, allocator, {temp_var});")
+                        self.emit(f"try runtime.PyList.remove(allocator, {obj_code}, {temp_var});")
                         self.emit(f"runtime.decref({temp_var}, allocator);")
 
                 elif method_type == "list_extend":
@@ -2121,16 +2135,16 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
 
                     if value_try:
                         # Value is already PyObject
-                        self.emit(f"try runtime.PyList.insert({obj_code}, allocator, {index_code}, {value_code});")
+                        self.emit(f"try runtime.PyList.insert(allocator, {obj_code}, {index_code}, {value_code});")
                     else:
                         # Value is primitive - wrap it
                         temp_var = f"_{method_type}_val_{id(node)}"
                         self.emit(f"const {temp_var} = try runtime.PyInt.create(allocator, {value_code});")
-                        self.emit(f"try runtime.PyList.insert({obj_code}, allocator, {index_code}, {temp_var});")
+                        self.emit(f"try runtime.PyList.insert(allocator, {obj_code}, {index_code}, {temp_var});")
                         self.emit(f"runtime.decref({temp_var}, allocator);")
 
                 elif method_type == "list_clear":
-                    self.emit(f"runtime.PyList.clear({obj_code}, allocator);")
+                    self.emit(f"runtime.PyList.clear(allocator, {obj_code});")
 
                 # Dict statement methods with args
                 elif method_type == "dict_update":
@@ -2142,21 +2156,18 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                 if method_type == "list_reverse":
                     self.emit(f"runtime.PyList.reverse({obj_code});")
                 elif method_type == "list_clear":
-                    self.emit(f"runtime.PyList.clear({obj_code}, allocator);")
+                    self.emit(f"runtime.PyList.clear(allocator, {obj_code});")
                 elif method_type == "list_sort":
                     self.emit(f"runtime.PyList.sort({obj_code});")
                 elif method_type == "dict_clear":
-                    self.emit(f"runtime.PyDict.clear({obj_code}, allocator);")
+                    self.emit(f"runtime.PyDict.clear(allocator, {obj_code});")
             return
 
         if needs_try:
-            # Check if we're in a try block - if so, emit catch handler
+            # Emit with error handling
             if getattr(self, '_in_try_block', False):
-                # Emit with catch handler
-                self.emit(f"_ = {expr_code}")
-                self._emit_catch_handler()
+                self._emit_error_handler_for_stmt(f"{expr_code}", "_")
             else:
-                # Regular try
                 self.emit(f"_ = try {expr_code};")
         else:
             self.emit(f"_ = {expr_code};")

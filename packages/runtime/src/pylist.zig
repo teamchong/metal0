@@ -38,7 +38,7 @@ pub const PyList = struct {
         incref(item);
     }
 
-    pub fn pop(obj: *PyObject, allocator: std.mem.Allocator) PythonError!*PyObject {
+    pub fn pop(allocator: std.mem.Allocator, obj: *PyObject) PythonError!*PyObject {
         std.debug.assert(obj.type_id == .list);
         const data: *PyList = @ptrCast(@alignCast(obj.data));
         if (data.items.items.len == 0) {
@@ -86,7 +86,7 @@ pub const PyList = struct {
         return false;
     }
 
-    pub fn slice(obj: *PyObject, allocator: std.mem.Allocator, start_opt: ?i64, end_opt: ?i64, step_opt: ?i64) !*PyObject {
+    pub fn slice(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i64, end_opt: ?i64, step_opt: ?i64) !*PyObject {
         std.debug.assert(obj.type_id == .list);
         const data: *PyList = @ptrCast(@alignCast(obj.data));
 
@@ -155,7 +155,7 @@ pub const PyList = struct {
         }
     }
 
-    pub fn remove(obj: *PyObject, allocator: std.mem.Allocator, value: *PyObject) !void {
+    pub fn remove(allocator: std.mem.Allocator, obj: *PyObject, value: *PyObject) !void {
         std.debug.assert(obj.type_id == .list);
         const data: *PyList = @ptrCast(@alignCast(obj.data));
         const alloc = allocator; // Use passed allocator for consistency
@@ -218,7 +218,7 @@ pub const PyList = struct {
         return -1;
     }
 
-    pub fn insert(obj: *PyObject, allocator: std.mem.Allocator, idx: i64, value: *PyObject) !void {
+    pub fn insert(allocator: std.mem.Allocator, obj: *PyObject, idx: i64, value: *PyObject) !void {
         std.debug.assert(obj.type_id == .list);
         const data: *PyList = @ptrCast(@alignCast(obj.data));
         const alloc = allocator; // Use passed allocator for consistency
@@ -238,7 +238,7 @@ pub const PyList = struct {
         incref(value);
     }
 
-    pub fn clear(obj: *PyObject, allocator: std.mem.Allocator) void {
+    pub fn clear(allocator: std.mem.Allocator, obj: *PyObject) void {
         std.debug.assert(obj.type_id == .list);
         const data: *PyList = @ptrCast(@alignCast(obj.data));
         _ = allocator;
@@ -277,7 +277,7 @@ pub const PyList = struct {
         }
     }
 
-    pub fn copy(obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+    pub fn copy(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
         std.debug.assert(obj.type_id == .list);
         const data: *PyList = @ptrCast(@alignCast(obj.data));
 

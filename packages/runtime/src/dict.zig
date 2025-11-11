@@ -45,7 +45,7 @@ pub const PyDict = struct {
         return data.map.count();
     }
 
-    pub fn keys(obj: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
+    pub fn keys(allocator: std.mem.Allocator, obj: *runtime.PyObject) !*runtime.PyObject {
         std.debug.assert(obj.type_id == .dict);
         const data: *PyDict = @ptrCast(@alignCast(obj.data));
 
@@ -63,7 +63,7 @@ pub const PyDict = struct {
         return result;
     }
 
-    pub fn values(obj: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
+    pub fn values(allocator: std.mem.Allocator, obj: *runtime.PyObject) !*runtime.PyObject {
         std.debug.assert(obj.type_id == .dict);
         const data: *PyDict = @ptrCast(@alignCast(obj.data));
 
@@ -79,7 +79,7 @@ pub const PyDict = struct {
         return result;
     }
 
-    pub fn getWithDefault(obj: *runtime.PyObject, allocator: std.mem.Allocator, key: []const u8, default: *runtime.PyObject) *runtime.PyObject {
+    pub fn getWithDefault(allocator: std.mem.Allocator, obj: *runtime.PyObject, key: []const u8, default: *runtime.PyObject) *runtime.PyObject {
         std.debug.assert(obj.type_id == .dict);
         const data: *PyDict = @ptrCast(@alignCast(obj.data));
         _ = allocator;
@@ -87,16 +87,16 @@ pub const PyDict = struct {
         return data.map.get(key) orelse default;
     }
 
-    pub fn get_method(obj: *runtime.PyObject, allocator: std.mem.Allocator, key: *runtime.PyObject, default: *runtime.PyObject) *runtime.PyObject {
+    pub fn get_method(allocator: std.mem.Allocator, obj: *runtime.PyObject, key: *runtime.PyObject, default: *runtime.PyObject) *runtime.PyObject {
         std.debug.assert(obj.type_id == .dict);
         std.debug.assert(key.type_id == .string);
         const key_data: *runtime.PyString = @ptrCast(@alignCast(key.data));
-        const result = getWithDefault(obj, allocator, key_data.data, default);
+        const result = getWithDefault(allocator, obj, key_data.data, default);
         runtime.decref(key, allocator); // Done with key PyObject, decref it
         return result;
     }
 
-    pub fn pop(obj: *runtime.PyObject, allocator: std.mem.Allocator, key: []const u8) ?*runtime.PyObject {
+    pub fn pop(allocator: std.mem.Allocator, obj: *runtime.PyObject, key: []const u8) ?*runtime.PyObject {
         std.debug.assert(obj.type_id == .dict);
         const data: *PyDict = @ptrCast(@alignCast(obj.data));
         _ = allocator;
@@ -108,14 +108,14 @@ pub const PyDict = struct {
         return null;
     }
 
-    pub fn pop_method(obj: *runtime.PyObject, allocator: std.mem.Allocator, key: *runtime.PyObject) ?*runtime.PyObject {
+    pub fn pop_method(allocator: std.mem.Allocator, obj: *runtime.PyObject, key: *runtime.PyObject) ?*runtime.PyObject {
         std.debug.assert(obj.type_id == .dict);
         std.debug.assert(key.type_id == .string);
         const key_data: *runtime.PyString = @ptrCast(@alignCast(key.data));
-        return pop(obj, allocator, key_data.data);
+        return pop(allocator, obj, key_data.data);
     }
 
-    pub fn clear(obj: *runtime.PyObject, allocator: std.mem.Allocator) void {
+    pub fn clear(allocator: std.mem.Allocator, obj: *runtime.PyObject) void {
         std.debug.assert(obj.type_id == .dict);
         const data: *PyDict = @ptrCast(@alignCast(obj.data));
         const alloc = allocator; // Use passed allocator for consistency
@@ -130,7 +130,7 @@ pub const PyDict = struct {
         data.map.clearAndFree();
     }
 
-    pub fn items(obj: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
+    pub fn items(allocator: std.mem.Allocator, obj: *runtime.PyObject) !*runtime.PyObject {
         std.debug.assert(obj.type_id == .dict);
         const data: *PyDict = @ptrCast(@alignCast(obj.data));
 
@@ -166,7 +166,7 @@ pub const PyDict = struct {
         }
     }
 
-    pub fn copy(obj: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
+    pub fn copy(allocator: std.mem.Allocator, obj: *runtime.PyObject) !*runtime.PyObject {
         std.debug.assert(obj.type_id == .dict);
         const data: *PyDict = @ptrCast(@alignCast(obj.data));
 
