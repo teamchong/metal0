@@ -71,4 +71,23 @@ pub const PyTuple = struct {
         const data: *PyTuple = @ptrCast(@alignCast(obj.data));
         return @intCast(data.items.len);
     }
+
+    pub fn contains(obj: *PyObject, value: *PyObject) bool {
+        std.debug.assert(obj.type_id == .tuple);
+        const data: *PyTuple = @ptrCast(@alignCast(obj.data));
+
+        // Check each item in the tuple
+        for (data.items) |item| {
+            // For now, only support comparing integers
+            if (item.type_id == .int and value.type_id == .int) {
+                const item_data: *runtime.PyInt = @ptrCast(@alignCast(item.data));
+                const value_data: *runtime.PyInt = @ptrCast(@alignCast(value.data));
+                if (item_data.value == value_data.value) {
+                    return true;
+                }
+            }
+            // Could add string comparison here later
+        }
+        return false;
+    }
 };

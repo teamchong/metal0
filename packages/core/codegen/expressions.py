@@ -46,8 +46,68 @@ class ExpressionVisitor:
             left_code, left_try = self.visit_expr(node.left)
             right_code, right_try = self.visit_expr(node.comparators[0])
 
-            if isinstance(node.ops[0], ast.In):
-                return (f"__in_operator__{left_code}__{left_try}__{right_code}", False)
+            # Handle 'in' and 'not in' operators
+            if isinstance(node.ops[0], (ast.In, ast.NotIn)):
+                is_not_in = isinstance(node.ops[0], ast.NotIn)
+
+                # Determine container type from the right operand (e.g., x in list)
+                container_type = None
+                if isinstance(node.comparators[0], ast.Name):
+                    container_type = self.var_types.get(node.comparators[0].id)
+
+                # Determine item type from the left operand
+                item_type = None
+                if isinstance(node.left, ast.Name):
+                    item_type = self.var_types.get(node.left.id)
+
+                # Generate appropriate runtime call based on container type
+                if container_type == "list":
+                    # For list, we need to wrap primitive ints in PyInt
+                    is_primitive_int = False
+                    if item_type == "int" and isinstance(node.left, ast.Name):
+                        is_primitive_int = True
+                    elif isinstance(node.left, ast.Constant) and isinstance(node.left.value, int):
+                        is_primitive_int = True
+
+                    if is_primitive_int:
+                        # Create temporary PyInt for comparison
+                        result_code = f"__list_contains__{right_code}__{left_code}"
+                    else:
+                        result_code = f"runtime.PyList.contains({right_code}, {left_code})"
+                elif container_type == "string":
+                    # String contains expects both operands to be PyString
+                    left_expr = f"try {left_code}" if left_try else left_code
+                    result_code = f"runtime.PyString.contains({right_code}, {left_expr})"
+                elif container_type == "dict":
+                    # Dict contains expects a string key
+                    if isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
+                        # String literal key
+                        result_code = f'runtime.PyDict.contains({right_code}, "{node.left.value}")'
+                    elif item_type == "string":
+                        # String variable key - need to get the value
+                        result_code = f"runtime.PyDict.contains({right_code}, runtime.PyString.getValue({left_code}))"
+                    else:
+                        raise NotImplementedError(f"Dict 'in' operator requires string key, got {item_type}")
+                elif container_type == "tuple":
+                    # For tuple, similar to list
+                    is_primitive_int = False
+                    if item_type == "int" and isinstance(node.left, ast.Name):
+                        is_primitive_int = True
+                    elif isinstance(node.left, ast.Constant) and isinstance(node.left.value, int):
+                        is_primitive_int = True
+
+                    if is_primitive_int:
+                        result_code = f"__tuple_contains__{right_code}__{left_code}"
+                    else:
+                        result_code = f"runtime.PyTuple.contains({right_code}, {left_code})"
+                else:
+                    raise NotImplementedError(f"'in' operator not supported for type {container_type}")
+
+                # Add negation for 'not in'
+                if is_not_in:
+                    result_code = f"!({result_code})"
+
+                return (result_code, False)
 
             left_expr = left_code
             if isinstance(node.left, ast.Name) and self.var_types.get(node.left.id) == "pyint":
@@ -94,6 +154,11 @@ class ExpressionVisitor:
                 needs_try = left_try or right_try
                 # Use std.math.pow with floats and cast back to int for simplicity
                 return (f"@as(i64, @intFromFloat(@floor(std.math.pow(f64, @floatFromInt({left_code}), @floatFromInt({right_code})))))", needs_try)
+            elif isinstance(node.op, (ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift)):
+                # Bitwise operators require concrete integer types in Zig
+                needs_try = left_try or right_try
+                op = self.visit_bin_op(node.op)
+                return (f"@as(i64, {left_code}) {op} @as(i64, {right_code})", needs_try)
 
             op = self.visit_bin_op(node.op)
             needs_try = left_try or right_try
@@ -186,6 +251,28 @@ class ExpressionVisitor:
                 if isinstance(node.value, ast.Name):
                     obj_type = self.var_types.get(node.value.id)
 
+                # Check if index is negative (negative constant or unary minus)
+                is_negative = False
+                if isinstance(node.slice, ast.UnaryOp) and isinstance(node.slice.op, ast.USub):
+                    is_negative = True
+                elif isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, int) and node.slice.value < 0:
+                    is_negative = True
+
+                # Handle negative indexing: convert to len(obj) + index
+                # Need to cast len to i64, add negative index, then cast back to usize
+                if is_negative:
+                    if obj_type == "list":
+                        # Cast len to i64, add negative index, cast result to usize
+                        adjusted_index = f"@intCast(@as(i64, @intCast(runtime.PyList.len({obj_code}))) + ({index_code}))"
+                    elif obj_type == "string":
+                        adjusted_index = f"@as(i64, @intCast(runtime.PyString.len({obj_code}))) + ({index_code})"
+                    elif obj_type == "tuple":
+                        adjusted_index = f"@intCast(@as(i64, @intCast(runtime.PyTuple.len({obj_code}))) + ({index_code}))"
+                    else:
+                        # For unknown types or dict, keep as-is
+                        adjusted_index = index_code
+                    index_code = adjusted_index
+
                 # Cast i64 to usize for list/tuple indexing
                 index_type = None
                 if isinstance(node.slice, ast.Name):
@@ -205,8 +292,17 @@ class ExpressionVisitor:
                     return (f"runtime.PyString.getItem(allocator, {obj_code}, {index_code})", True)
                 elif obj_type == "dict":
                     return (f'runtime.PyDict.get({obj_code}, "{index_code}").?', False)
+                elif obj_try:
+                    # Object is a PyObject (from expression) - default to list indexing
+                    if isinstance(node.slice, ast.Name):
+                        index_code = f"@intCast({index_code})"
+                    return (f"runtime.PyList.getItem({obj_code}, {index_code})", True)
                 else:
-                    return (f"{obj_code}[{index_code}]", obj_try or index_try)
+                    # Unknown type for variable - default to list indexing
+                    # (Handles cases where type tracking failed for slice results)
+                    if isinstance(node.slice, ast.Name):
+                        index_code = f"@intCast({index_code})"
+                    return (f"runtime.PyList.getItem({obj_code}, {index_code})", True)
 
         elif isinstance(node, ast.Attribute):
             obj_code, obj_try = self.visit_expr(node.value)
@@ -243,6 +339,9 @@ class ExpressionVisitor:
                 return (f"+{operand_code}", operand_try)
             elif isinstance(node.op, ast.Not):
                 return (f"!({operand_code})", operand_try)
+            elif isinstance(node.op, ast.Invert):
+                # Bitwise NOT requires concrete integer type in Zig
+                return (f"~@as(i64, {operand_code})", operand_try)
             else:
                 raise NotImplementedError(f"Unary operator not implemented: {node.op.__class__.__name__}")
 
@@ -281,7 +380,11 @@ class ExpressionVisitor:
                 if isinstance(node.args[0], ast.Name):
                     arg_type = self.var_types.get(node.args[0].id)
 
-                if arg_type == "list" or arg_type == "tuple":
+                # Check for type() markers first
+                if arg_code.startswith("__type_"):
+                    type_name = arg_code.replace("__type_", "").replace("__", "")
+                    return (f'std.debug.print("{{s}}\\n", .{{"{type_name}"}})', False)
+                elif arg_type == "list" or arg_type == "tuple":
                     return (f'runtime.printList({arg_code}); std.debug.print("\\n", .{{}})', False)
                 elif arg_type == "dict":
                     return (f'runtime.printDict({arg_code}); std.debug.print("\\n", .{{}})', False)
@@ -303,6 +406,9 @@ class ExpressionVisitor:
                         elif obj_type == "dict":
                             # Dict values need runtime type checking
                             return (f"__print_pyobject__{arg_code}", False)
+                        else:
+                            # Unknown type - default to list (returns PyInt)
+                            return (f'std.debug.print("{{}}\\n", .{{runtime.PyInt.getValue(try {arg_code})}})', False)
                     # Default for string-like expressions (method calls, etc)
                     return (f'std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue(try {arg_code})}})', False)
                 else:
@@ -320,10 +426,23 @@ class ExpressionVisitor:
                     return (f"runtime.PyTuple.len({arg_code})", False)
                 elif arg_type == "dict":
                     return (f"runtime.PyDict.len({arg_code})", False)
-                elif arg_type == "string" or arg_try:
+                elif arg_type == "string":
                     return (f"runtime.PyString.len({arg_code})", False)
+                elif arg_try:
+                    # Expression returns PyObject - infer type from expression code
+                    if "PyList" in arg_code or "slice" in arg_code:
+                        return (f"runtime.PyList.len({arg_code})", False)
+                    elif "PyDict" in arg_code:
+                        return (f"runtime.PyDict.len({arg_code})", False)
+                    elif "PyTuple" in arg_code:
+                        return (f"runtime.PyTuple.len({arg_code})", False)
+                    else:
+                        # Default to string for unknown PyObjects
+                        return (f"runtime.PyString.len({arg_code})", False)
                 else:
-                    return (f"{arg_code}.len", False)
+                    # Variable name with unknown type - default to list
+                    # (Handles cases where type tracking failed for slice results)
+                    return (f"runtime.PyList.len({arg_code})", False)
 
             elif func_name == "min":
                 args = [self.visit_expr(arg)[0] for arg in node.args]
@@ -407,24 +526,135 @@ class ExpressionVisitor:
                 else:
                     return (f"{arg_code} != 0", False)
 
-            elif func_name == "range":
-                if len(node.args) == 1:
-                    end_code, _ = self.visit_expr(node.args[0])
-                    return (f"runtime.range(allocator, 0, {end_code})", True)
-                elif len(node.args) == 2:
-                    start_code, _ = self.visit_expr(node.args[0])
-                    end_code, _ = self.visit_expr(node.args[1])
-                    return (f"runtime.range(allocator, {start_code}, {end_code})", True)
+            elif func_name == "isinstance":
+                obj_code, obj_try = self.visit_expr(node.args[0])
+                # Second arg is type - should be ast.Name like int, str, list, dict
+                if not isinstance(node.args[1], ast.Name):
+                    raise NotImplementedError("isinstance() second argument must be a type name")
+
+                type_name = node.args[1].id
+                obj_type = None
+                if isinstance(node.args[0], ast.Name):
+                    obj_type = self.var_types.get(node.args[0].id)
+
+                # Map Python type names to Zyth internal types
+                type_map = {
+                    "int": ["int", "pyint"],
+                    "str": ["string"],
+                    "list": ["list"],
+                    "dict": ["dict"],
+                    "tuple": ["tuple"],
+                }
+
+                if type_name in type_map and obj_type in type_map[type_name]:
+                    return ("true", False)
                 else:
-                    raise NotImplementedError("range() with step not yet supported")
+                    return ("false", False)
+
+            elif func_name == "type":
+                obj_code, obj_try = self.visit_expr(node.args[0])
+                obj_type = None
+                if isinstance(node.args[0], ast.Name):
+                    obj_type = self.var_types.get(node.args[0].id)
+
+                # Return marker that print() will handle
+                if obj_type == "string":
+                    return ("__type_str__", False)
+                elif obj_type in ["int", "pyint"]:
+                    return ("__type_int__", False)
+                elif obj_type == "list":
+                    return ("__type_list__", False)
+                elif obj_type == "dict":
+                    return ("__type_dict__", False)
+                elif obj_type == "tuple":
+                    return ("__type_tuple__", False)
+                else:
+                    # Unknown type
+                    return ("__type_unknown__", False)
+
+            elif func_name == "range":
+                # range(stop) or range(start, stop) or range(start, stop, step)
+                if len(node.args) == 1:
+                    # range(stop) -> range(0, stop, 1)
+                    stop_code, _ = self.visit_expr(node.args[0])
+                    return (f"runtime.range(allocator, 0, {stop_code}, 1)", True)
+                elif len(node.args) == 2:
+                    # range(start, stop) -> range(start, stop, 1)
+                    start_code, _ = self.visit_expr(node.args[0])
+                    stop_code, _ = self.visit_expr(node.args[1])
+                    return (f"runtime.range(allocator, {start_code}, {stop_code}, 1)", True)
+                elif len(node.args) == 3:
+                    # range(start, stop, step)
+                    start_code, _ = self.visit_expr(node.args[0])
+                    stop_code, _ = self.visit_expr(node.args[1])
+                    step_code, _ = self.visit_expr(node.args[2])
+                    return (f"runtime.range(allocator, {start_code}, {stop_code}, {step_code})", True)
+                else:
+                    raise NotImplementedError("range() takes 1-3 arguments")
 
             elif func_name == "enumerate":
-                arg_code, _ = self.visit_expr(node.args[0])
-                return (f"runtime.enumerate(allocator, {arg_code})", True)
+                # enumerate(iterable, start=0)
+                iterable_code, _ = self.visit_expr(node.args[0])
+
+                start = "0"
+                if len(node.args) == 2:
+                    start_code, _ = self.visit_expr(node.args[1])
+                    start = start_code
+
+                return (f"runtime.enumerate(allocator, {iterable_code}, {start})", True)
 
             elif func_name == "zip":
-                arg_codes = [self.visit_expr(arg)[0] for arg in node.args]
-                return (f"runtime.zip(allocator, {', '.join(arg_codes)})", True)
+                # zip(iter1, iter2, ...)
+                if len(node.args) < 2:
+                    raise NotImplementedError("zip() requires at least 2 arguments")
+
+                # Generate list of iterables
+                iterables = []
+                for arg in node.args:
+                    arg_code, _ = self.visit_expr(arg)
+                    iterables.append(arg_code)
+
+                # For simplicity, support 2-3 iterables
+                if len(iterables) == 2:
+                    return (f"runtime.zip2(allocator, {iterables[0]}, {iterables[1]})", True)
+                elif len(iterables) == 3:
+                    return (f"runtime.zip3(allocator, {iterables[0]}, {iterables[1]}, {iterables[2]})", True)
+                else:
+                    raise NotImplementedError("zip() supports 2-3 iterables for now")
+
+            elif func_name == "all":
+                # all(iterable) - returns true if all elements are truthy
+                iterable_code, _ = self.visit_expr(node.args[0])
+                return (f"runtime.all({iterable_code})", False)
+
+            elif func_name == "any":
+                # any(iterable) - returns true if any element is truthy
+                iterable_code, _ = self.visit_expr(node.args[0])
+                return (f"runtime.any({iterable_code})", False)
+
+            elif func_name == "sorted":
+                # sorted(iterable) - returns new sorted list
+                iterable_code, _ = self.visit_expr(node.args[0])
+                return (f"runtime.sorted({iterable_code}, allocator)", True)
+
+            elif func_name == "reversed":
+                # reversed(iterable) - returns new reversed list
+                iterable_code, _ = self.visit_expr(node.args[0])
+                return (f"runtime.reversed({iterable_code}, allocator)", True)
+
+            elif func_name == "filter":
+                # filter(pred, iterable) - filters list by predicate
+                # Simplified: only support None (filter falsy values)
+                if isinstance(node.args[0], ast.Constant) and node.args[0].value is None:
+                    iterable_code, _ = self.visit_expr(node.args[1])
+                    return (f"runtime.filterTruthy({iterable_code}, allocator)", True)
+                else:
+                    raise NotImplementedError("filter() only supports None predicate for now")
+
+            elif func_name == "map":
+                # map(function, iterable) - applies function to each element
+                # Simplified: defer full implementation until functions work
+                raise NotImplementedError("map() requires function support (coming soon)")
 
             # Check if it's a class instantiation
             elif func_name in self.class_definitions:

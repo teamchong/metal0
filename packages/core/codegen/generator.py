@@ -145,6 +145,15 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                         self.reassigned_vars.add(target.id)
                     else:
                         assignments_seen.add(target.id)
+        elif isinstance(node, ast.AugAssign):
+            # Augmented assignment is always a reassignment
+            if isinstance(node.target, ast.Name):
+                if node.target.id in assignments_seen:
+                    self.reassigned_vars.add(node.target.id)
+                else:
+                    # First assignment followed by augmented assignment
+                    assignments_seen.add(node.target.id)
+                    self.reassigned_vars.add(node.target.id)
         elif isinstance(node, ast.FunctionDef):
             # New scope
             func_assignments: set[str] = set()
@@ -815,8 +824,40 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
         """Generate if statement"""
         test_code, test_try = self.visit_expr(node.test)
 
-        # Handle 'in' operator marker
-        if test_code.startswith("__in_operator__"):
+        # Handle list contains marker (for primitive ints that need wrapping)
+        if test_code.startswith("__list_contains__") or test_code.startswith("!(__list_contains__"):
+            is_negated = test_code.startswith("!(")
+            marker = test_code[2:-1] if is_negated else test_code  # Remove !( and )
+            parts = marker.split("__")
+            right_code = parts[2]  # list variable
+            left_code = parts[3]  # primitive int value
+
+            # Wrap primitive int in PyInt for comparison
+            temp_var = f"_list_contains_value_{id(node)}"
+            self.emit(f"const {temp_var} = try runtime.PyInt.create(allocator, {left_code});")
+            self.emit(f"defer runtime.decref({temp_var}, allocator);")
+            test_code = f"runtime.PyList.contains({right_code}, {temp_var})"
+            if is_negated:
+                test_code = f"!({test_code})"
+
+        # Handle tuple contains marker (for primitive ints that need wrapping)
+        elif test_code.startswith("__tuple_contains__") or test_code.startswith("!(__tuple_contains__"):
+            is_negated = test_code.startswith("!(")
+            marker = test_code[2:-1] if is_negated else test_code  # Remove !( and )
+            parts = marker.split("__")
+            right_code = parts[2]  # tuple variable
+            left_code = parts[3]  # primitive int value
+
+            # Wrap primitive int in PyInt for comparison
+            temp_var = f"_tuple_contains_value_{id(node)}"
+            self.emit(f"const {temp_var} = try runtime.PyInt.create(allocator, {left_code});")
+            self.emit(f"defer runtime.decref({temp_var}, allocator);")
+            test_code = f"runtime.PyTuple.contains({right_code}, {temp_var})"
+            if is_negated:
+                test_code = f"!({test_code})"
+
+        # Handle 'in' operator marker (legacy - kept for compatibility)
+        elif test_code.startswith("__in_operator__"):
             parts = test_code.split("__")
             left_code = parts[2]
             left_is_pyobject = parts[3] == "True"
@@ -861,7 +902,7 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
         # Handle inline PyString.create in method calls like startswith/endswith
         # Extract them into temp variables to avoid memory leaks
         import re
-        create_pattern = r'try runtime\.PyString\.create\(allocator, "([^"]+)"\)'
+        create_pattern = r'try runtime\.PyString\.create\(allocator, "([^"]*)"\)'
         if re.search(create_pattern, test_code):
             matches = list(re.finditer(create_pattern, test_code))
             for i, match in enumerate(matches):
@@ -1568,18 +1609,21 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
 
             # Special handling for subscript assignment (infer type from list element type)
             if isinstance(node.value, ast.Subscript):
-                # Check if we're subscripting a list with known element type
-                if isinstance(node.value.value, ast.Name):
-                    list_var = node.value.value.id
-                    elem_type = self.list_element_types.get(list_var)
-                    if elem_type == "string":
-                        self.var_types[target.id] = "string"
+                # Check if it's a slice operation - if so, don't set type here
+                # The slice type tracking below (line ~1706) will handle it correctly
+                if not isinstance(node.value.slice, ast.Slice):
+                    # Single-item subscripting - infer type from list element type
+                    if isinstance(node.value.value, ast.Name):
+                        list_var = node.value.value.id
+                        elem_type = self.list_element_types.get(list_var)
+                        if elem_type == "string":
+                            self.var_types[target.id] = "string"
+                        else:
+                            # Default to pyint for lists with unknown or int elements
+                            self.var_types[target.id] = "pyint"
                     else:
-                        # Default to pyint for lists with unknown or int elements
+                        # Unknown subscript source, default to pyint
                         self.var_types[target.id] = "pyint"
-                else:
-                    # Unknown subscript source, default to pyint
-                    self.var_types[target.id] = "pyint"
 
             # Special handling for list.pop() and dict.pop() (returns PyObject, type unknown until runtime)
             if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute):
@@ -1666,8 +1710,8 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                 # If slicing a variable, copy its type
                 if isinstance(node.value.value, ast.Name):
                     source_type = self.var_types.get(node.value.value.id)
-                    if source_type:
-                        self.var_types[target.id] = source_type
+                    # Always set type - default to list if source type unknown
+                    self.var_types[target.id] = source_type if source_type else "list"
 
             # Track type for class instantiation
             if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
@@ -1903,6 +1947,42 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
             # Unwrap any __WRAP_PRIMITIVE__ markers
             value_code = self._unwrap_primitive_markers(value_code, id(node))
 
+            # Track type for simple constant assignments
+            if isinstance(node.value, ast.Constant):
+                if isinstance(node.value.value, int) and not isinstance(node.value.value, bool):
+                    self.var_types[target.id] = "int"
+                elif isinstance(node.value.value, str):
+                    self.var_types[target.id] = "string"
+                elif isinstance(node.value.value, bool):
+                    # bool is a subclass of int in Python, so check it first
+                    pass  # Don't track bool separately for now
+
+            # Track type for built-in function calls that return lists
+            if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+                func_name = node.value.func.id
+                if func_name == "range":
+                    self.var_types[target.id] = "list"
+                    self.list_element_types[target.id] = "int"
+                elif func_name in ["enumerate", "zip"]:
+                    self.var_types[target.id] = "list"
+                    self.list_element_types[target.id] = "tuple"
+                elif func_name in ["sorted", "reversed", "filter"]:
+                    self.var_types[target.id] = "list"
+                    # Element type preserved from input, but we don't track it here for simplicity
+
+            # Track type for subscript access from lists with known element types
+            if isinstance(node.value, ast.Subscript):
+                if isinstance(node.value.value, ast.Name):
+                    source_var = node.value.value.id
+                    source_type = self.var_types.get(source_var)
+                    # If subscripting a list, check if we know what type of elements it contains
+                    if source_type == "list":
+                        elem_type = self.list_element_types.get(source_var)
+                        if elem_type == "tuple":
+                            self.var_types[target.id] = "tuple"
+                        elif elem_type == "int":
+                            self.var_types[target.id] = "pyint"
+
             # Check if this is a method call that returns PyObject
             if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute):
                 # Method call - check if it returns PyObject
@@ -2003,6 +2083,80 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                 else:
                     # Non-PyObject, non-try (primitives)
                     self.emit(f"{target.id} = {value_code};")
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        """Handle augmented assignment: x += 1, y *= 2, etc."""
+        # Get target variable name
+        if not isinstance(node.target, ast.Name):
+            raise NotImplementedError("Augmented assignment only supports simple variables for now")
+
+        var_name = node.target.id
+
+        # Get target type
+        var_type = self.var_types.get(var_name)
+
+        # Generate code for right-hand side
+        value_code, value_try = self.visit_expr(node.value)
+
+        # Determine operation
+        op_map = {
+            ast.Add: "+",
+            ast.Sub: "-",
+            ast.Mult: "*",
+            ast.Div: "/",
+            ast.FloorDiv: "//",
+            ast.Mod: "%",
+            ast.Pow: "**",
+            ast.BitAnd: "&",
+            ast.BitOr: "|",
+            ast.BitXor: "^",
+            ast.LShift: "<<",
+            ast.RShift: ">>",
+        }
+
+        op = op_map.get(type(node.op))
+        if op is None:
+            raise NotImplementedError(f"Augmented assignment operator {type(node.op).__name__} not supported")
+
+        # Special cases
+        if op == "//":
+            # Floor division in Zig: @divFloor(a, b)
+            if var_type == "int":
+                self.emit(f"{var_name} = @divFloor({var_name}, {value_code});")
+            else:
+                raise NotImplementedError("Floor division only supports int for now")
+        elif op == "**":
+            # Exponentiation in Zig: std.math.pow
+            if var_type == "int":
+                # Use the same pattern as BinOp Pow in expressions
+                self.emit(f"{var_name} = @as(i64, @intFromFloat(@floor(std.math.pow(f64, @floatFromInt({var_name}), @floatFromInt({value_code})))));")
+            else:
+                raise NotImplementedError("Exponentiation only supports int for now")
+        else:
+            # Regular operators: +, -, *, /, %
+            if var_type == "int":
+                if op == "/":
+                    # Integer division in Zig requires @divTrunc
+                    self.emit(f"{var_name} = @divTrunc({var_name}, {value_code});")
+                elif op == "%":
+                    # Modulo in Zig requires @rem
+                    self.emit(f"{var_name} = @rem({var_name}, {value_code});")
+                else:
+                    self.emit(f"{var_name} {op}= {value_code};")
+            elif var_type == "string" and op == "+":
+                # String concatenation: need to allocate new string
+                value_expr = f"try {value_code}" if value_try else value_code
+                self.emit(f"const __temp_str = try runtime.PyString.concat(allocator, {var_name}, {value_expr});")
+                self.emit(f"runtime.decref({var_name}, allocator);")
+                self.emit(f"{var_name} = __temp_str;")
+            elif var_type == "list" and op == "+":
+                # List concatenation
+                value_expr = f"try {value_code}" if value_try else value_code
+                self.emit(f"const __temp_list = try runtime.PyList.concat(allocator, {var_name}, {value_expr});")
+                self.emit(f"runtime.decref({var_name}, allocator);")
+                self.emit(f"{var_name} = __temp_list;")
+            else:
+                raise NotImplementedError(f"Augmented assignment {op}= not supported for type {var_type}")
 
     def visit_Expr(self, node: ast.Expr) -> None:
         """Generate expression statement"""
@@ -2124,6 +2278,9 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                     elif is_method_call and arg_type == "string":
                         # String methods return PyString
                         self.emit(f'_ = std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue({temp_var})}});')
+                    elif is_subscript and not is_slice:
+                        # Unknown type subscript - default to list subscript (returns PyInt)
+                        self.emit(f'_ = std.debug.print("{{}}\\n", .{{runtime.PyInt.getValue({temp_var})}});')
                     else:
                         # Default: try string first
                         self.emit(f'_ = std.debug.print("{{s}}\\n", .{{runtime.PyString.getValue({temp_var})}});')

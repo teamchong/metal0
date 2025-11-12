@@ -39,6 +39,23 @@ pub const PyString = struct {
         return data.data.len;
     }
 
+    pub fn getItem(allocator: std.mem.Allocator, obj: *PyObject, index: i64) !*PyObject {
+        std.debug.assert(obj.type_id == .string);
+        const data: *PyString = @ptrCast(@alignCast(obj.data));
+
+        const idx: usize = @intCast(index);
+        if (idx >= data.data.len) {
+            return PythonError.IndexError;
+        }
+
+        // Return single character as a new string
+        const result = try allocator.alloc(u8, 1);
+        defer allocator.free(result); // Free temporary buffer
+        result[0] = data.data[idx];
+
+        return create(allocator, result);
+    }
+
     pub fn concat(allocator: std.mem.Allocator, a: *PyObject, b: *PyObject) !*PyObject {
         std.debug.assert(a.type_id == .string);
         std.debug.assert(b.type_id == .string);
@@ -145,11 +162,19 @@ pub const PyString = struct {
 
         // Handle negative indices
         if (start < 0) start = @max(0, str_len + start);
-        if (end < 0) end = @max(0, str_len + end);
+        if (end < 0) {
+            const min_end: i64 = if (step < 0) -1 else 0;
+            end = @max(min_end, str_len + end);
+        }
 
         // Clamp to valid range
         start = @max(0, @min(start, str_len));
-        end = @max(0, @min(end, str_len));
+        if (step > 0) {
+            end = @max(0, @min(end, str_len));
+        } else {
+            // For negative step, allow end to be -1 to mean "include index 0"
+            end = @max(-1, @min(end, str_len));
+        }
 
         // If step is 1, we can use simple substring extraction (optimization)
         if (step == 1) {
@@ -169,11 +194,11 @@ pub const PyString = struct {
                 result_len = (end_idx - start_idx + step_usize - 1) / step_usize;
             }
         } else {
-            const start_idx: usize = @intCast(start);
-            const end_idx: usize = @intCast(end);
-            const step_neg: usize = @intCast(-step);
-            if (start_idx > end_idx) {
-                result_len = (start_idx - end_idx + step_neg - 1) / step_neg;
+            const step_neg: i64 = -step;
+            // end can be -1, so use i64 arithmetic
+            if (start > end) {
+                const count: i64 = @divFloor(start - end + step_neg - 1, step_neg);
+                result_len = @intCast(count);
             }
         }
 
@@ -193,14 +218,12 @@ pub const PyString = struct {
             }
         } else {
             // Negative step - iterate backwards
-            const start_idx: usize = @intCast(start);
-            const end_idx: usize = @intCast(end);
-            const step_neg: usize = @intCast(-step);
-            var i: usize = start_idx;
-            while (i > end_idx and result_idx < result_len) {
-                result[result_idx] = data.data[i];
+            const step_neg: i64 = -step;
+            var i: i64 = start;
+            while (i > end and result_idx < result_len) {
+                const idx: usize = @intCast(i);
+                result[result_idx] = data.data[idx];
                 result_idx += 1;
-                if (i < step_neg) break;
                 i -= step_neg;
             }
         }
@@ -493,6 +516,7 @@ pub const PyString = struct {
         }
 
         const result = try allocator.alloc(u8, data.data.len);
+        defer allocator.free(result); // Free temporary buffer
         result[0] = std.ascii.toUpper(data.data[0]);
 
         for (data.data[1..], 0..) |c, i| {
@@ -507,6 +531,7 @@ pub const PyString = struct {
         const data: *PyString = @ptrCast(@alignCast(obj.data));
 
         const result = try allocator.alloc(u8, data.data.len);
+        defer allocator.free(result); // Free temporary buffer
         for (data.data, 0..) |c, i| {
             if (std.ascii.isUpper(c)) {
                 result[i] = std.ascii.toLower(c);
@@ -525,6 +550,7 @@ pub const PyString = struct {
         const data: *PyString = @ptrCast(@alignCast(obj.data));
 
         const result = try allocator.alloc(u8, data.data.len);
+        defer allocator.free(result); // Free temporary buffer
         var prev_was_alpha = false;
 
         for (data.data, 0..) |c, i| {
@@ -559,6 +585,7 @@ pub const PyString = struct {
         _ = right_padding; // Calculated for clarity, actual padding is handled by slice
 
         const result = try allocator.alloc(u8, w);
+        defer allocator.free(result); // Free temporary buffer
         @memset(result[0..left_padding], ' ');
         @memcpy(result[left_padding..left_padding + data.data.len], data.data);
         @memset(result[left_padding + data.data.len..], ' ');

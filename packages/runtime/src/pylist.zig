@@ -31,6 +31,18 @@ pub const PyList = struct {
         return obj;
     }
 
+    pub fn fromSlice(allocator: std.mem.Allocator, values: []const PyObject.Value) !*PyObject {
+        const obj = try create(allocator);
+        const data: *PyList = @ptrCast(@alignCast(obj.data));
+
+        for (values) |value| {
+            const item = try runtime.PyInt.create(allocator, value.int);
+            try data.items.append(allocator, item);
+        }
+
+        return obj;
+    }
+
     pub fn append(obj: *PyObject, item: *PyObject) !void {
         std.debug.assert(obj.type_id == .list);
         const data: *PyList = @ptrCast(@alignCast(obj.data));
@@ -103,11 +115,19 @@ pub const PyList = struct {
 
         // Handle negative indices
         if (start < 0) start = @max(0, list_len + start);
-        if (end < 0) end = @max(0, list_len + end);
+        if (end < 0) {
+            const min_end: i64 = if (step < 0) -1 else 0;
+            end = @max(min_end, list_len + end);
+        }
 
         // Clamp to valid range
         start = @max(0, @min(start, list_len));
-        end = @max(0, @min(end, list_len));
+        if (step > 0) {
+            end = @max(0, @min(end, list_len));
+        } else {
+            // For negative step, allow end to be -1 to mean "include index 0"
+            end = @max(-1, @min(end, list_len));
+        }
 
         // Create new list
         const new_list = try create(allocator);
@@ -126,15 +146,13 @@ pub const PyList = struct {
             }
         } else {
             // Negative step - iterate backwards
-            const start_idx: usize = @intCast(start);
-            const end_idx: usize = @intCast(end);
-            const step_neg: usize = @intCast(-step);
-            var i: usize = start_idx;
-            while (i > end_idx) {
-                const item = data.items.items[i];
+            const step_neg: i64 = -step;
+            var i: i64 = start;
+            while (i > end) {
+                const idx: usize = @intCast(i);
+                const item = data.items.items[idx];
                 try new_data.items.append(allocator, item);
                 incref(item);
-                if (i < step_neg) break;
                 i -= step_neg;
             }
         }
@@ -153,6 +171,31 @@ pub const PyList = struct {
             try data.items.append(data.allocator, item);
             incref(item);
         }
+    }
+
+    pub fn concat(allocator: std.mem.Allocator, obj: *PyObject, other: *PyObject) !*PyObject {
+        std.debug.assert(obj.type_id == .list);
+        std.debug.assert(other.type_id == .list);
+        const data: *PyList = @ptrCast(@alignCast(obj.data));
+        const other_data: *PyList = @ptrCast(@alignCast(other.data));
+
+        // Create new list
+        const new_list = try create(allocator);
+        const new_data: *PyList = @ptrCast(@alignCast(new_list.data));
+
+        // Copy all items from first list
+        for (data.items.items) |item| {
+            try new_data.items.append(allocator, item);
+            incref(item);
+        }
+
+        // Copy all items from second list
+        for (other_data.items.items) |item| {
+            try new_data.items.append(allocator, item);
+            incref(item);
+        }
+
+        return new_list;
     }
 
     pub fn remove(allocator: std.mem.Allocator, obj: *PyObject, value: *PyObject) !void {

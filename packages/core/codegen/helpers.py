@@ -30,5 +30,10 @@ class CodegenHelpers:
             ast.Mod: "%",
             ast.FloorDiv: "//",
             ast.Pow: "**",
+            ast.BitAnd: "&",
+            ast.BitOr: "|",
+            ast.BitXor: "^",
+            ast.LShift: "<<",
+            ast.RShift: ">>",
         }
         return op_map.get(type(op), "+")
