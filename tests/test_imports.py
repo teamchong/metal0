@@ -85,3 +85,100 @@ def test_import_multi_module():
     assert zyth_output == py_output
     assert "5" in zyth_output
     assert "HiHiHiHiHi" in zyth_output
+
+
+def test_import_statement():
+    """Test basic import statement (stub)"""
+    zyth_output = run_example("import_simple")
+    assert zyth_output == "Test passed"
+
+
+def test_import_from_statement():
+    """Test from...import statement doesn't crash"""
+    # Create inline test for from...import
+    import os
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write("""
+from pytest import fixture
+
+x = 20
+print(x)
+""")
+        test_file = f.name
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            output_path = tmp.name
+
+        # Compile
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "core.compiler", test_file, output_path],
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            pytest.fail(f"Compilation failed:\n{result.stderr}")
+
+        # Run
+        result = subprocess.run(
+            [output_path],
+            capture_output=True,
+            text=True
+        )
+
+        assert result.stderr.strip() == "20"
+        Path(output_path).unlink(missing_ok=True)
+    finally:
+        os.unlink(test_file)
+
+
+def test_pytest_import():
+    """Test that pytest import doesn't crash"""
+    zyth_output = run_example("import_simple")
+    # The example imports pytest and runs test
+    assert "Test passed" in zyth_output
+
+
+def test_pytest_decorator_stub():
+    """Test pytest decorator stubs work (don't crash during compilation)"""
+    # Create inline test with decorators
+    import os
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write("""
+import pytest
+
+@pytest.fixture
+def dummy_fixture():
+    return 42
+
+result = dummy_fixture()
+print(result)
+""")
+        test_file = f.name
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            output_path = tmp.name
+
+        # Compile
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "core.compiler", test_file, output_path],
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            pytest.fail(f"Compilation failed:\n{result.stderr}")
+
+        # Run
+        result = subprocess.run(
+            [output_path],
+            capture_output=True,
+            text=True
+        )
+
+        assert result.stderr.strip() == "42"
+        Path(output_path).unlink(missing_ok=True)
+    finally:
+        os.unlink(test_file)

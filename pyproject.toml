@@ -23,7 +23,8 @@ members = [
     "packages/http",
     "packages/ai",
     "packages/async",
-    "packages/db"
+    "packages/db",
+    "packages/pytest_compat"
 ]
 
 [tool.uv.sources]
@@ -35,3 +36,4 @@ zyth-http = { workspace = true }
 zyth-ai = { workspace = true }
 zyth-async = { workspace = true }
 zyth-db = { workspace = true }
+pytest-compat = { workspace = true }

@@ -105,11 +105,13 @@ zyth build examples/fibonacci.py
 |:---|---:|---:|---:|
 | **Loop sum (1M)** | 65.4 ms | 1.6 ms | **41.40x faster** 🔥 |
 | **Fibonacci(35)** | 804.5 ms | 28.2 ms | **28.56x faster** 🚀 |
+| **Fibonacci(40)** | 12.3 s | 886 ms | **13.87x faster** 🚀 |
 | **List methods** | 22.1 ms | 1.5 ms | **14.89x faster** ⚡ |
 | **List operations** | 22.3 ms | 1.6 ms | **13.98x faster** ⚡ |
 | **String concat** | 23.6 ms | 1.9 ms | **12.24x faster** ⚡ |
 
 **Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine)** on macOS ARM64.
+**Note:** Zyth binaries are pre-compiled - benchmarks measure **runtime only**, not compile time.
 
 Raw results: [loop_sum_results.md](benchmarks/loop_sum_results.md) · [fibonacci_results.md](benchmarks/fibonacci_results.md) · [list_methods_results.md](benchmarks/list_methods_results.md) · [list_ops_results.md](benchmarks/list_ops_results.md) · [string_results.md](benchmarks/string_results.md)
 

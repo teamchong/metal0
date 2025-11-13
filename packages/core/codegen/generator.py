@@ -399,8 +399,10 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
         pass
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        """Handle from...import statements - not yet supported"""
-        raise NotImplementedError("from...import not yet supported, use 'import module' instead")
+        """Handle from...import statements - stub implementation"""
+        # For now, just silently accept imports without generating code
+        # This allows 'import pytest' and similar to work
+        pass
 
     def _function_needs_allocator(self, node: ast.FunctionDef) -> bool:
         """Check if function needs allocator parameter
@@ -1161,6 +1163,63 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                 self.emit(f"return {value_code};")
         else:
             self.emit("return;")
+
+    def visit_Assert(self, node: ast.Assert) -> None:
+        """Generate assert statement"""
+        # Generate condition check
+        test_code, test_try = self.visit_expr(node.test)
+
+        # Handle list contains marker (for primitive ints that need wrapping)
+        if test_code.startswith("__list_contains__") or test_code.startswith("!(__list_contains__"):
+            is_negated = test_code.startswith("!(")
+            marker = test_code[2:-1] if is_negated else test_code  # Remove !( and )
+            parts = marker.split("__")
+            right_code = parts[2]  # list variable
+            left_code = parts[3]  # primitive int value
+
+            # Wrap primitive int in PyInt for comparison
+            temp_var = f"_list_contains_value_{id(node)}"
+            self.emit(f"const {temp_var} = try runtime.PyInt.create(allocator, {left_code});")
+            self.emit(f"defer runtime.decref({temp_var}, allocator);")
+            test_code = f"runtime.PyList.contains({right_code}, {temp_var})"
+            if is_negated:
+                test_code = f"!({test_code})"
+
+        # Build assertion message
+        if node.msg:
+            # Custom message provided
+            msg_code, _ = self.visit_expr(node.msg)
+            # Check if message is a string literal or PyString
+            if isinstance(node.msg, ast.Constant) and isinstance(node.msg.value, str):
+                msg_str = node.msg.value
+            else:
+                # For non-literal messages, create a temp var to get the value
+                temp_msg_var = f"_assert_msg_{id(node)}"
+                self.emit(f"const {temp_msg_var} = {msg_code};")
+                self.emit(f"if (!({test_code})) {{")
+                self.indent_level += 1
+                self.emit(f'_ = std.debug.print("AssertionError: {{s}}\\n", .{{runtime.PyString.getValue({temp_msg_var})}});')
+                self.emit(f"defer runtime.decref({temp_msg_var}, allocator);")
+                self.emit("std.process.exit(1);")
+                self.indent_level -= 1
+                self.emit("}")
+                return
+
+            # String literal message
+            self.emit(f"if (!({test_code})) {{")
+            self.indent_level += 1
+            self.emit(f'_ = std.debug.print("AssertionError: {msg_str}\\n", .{{}});')
+            self.emit("std.process.exit(1);")
+            self.indent_level -= 1
+            self.emit("}")
+        else:
+            # No custom message - use default
+            self.emit(f"if (!({test_code})) {{")
+            self.indent_level += 1
+            self.emit('_ = std.debug.print("AssertionError\\n", .{});')
+            self.emit("std.process.exit(1);")
+            self.indent_level -= 1
+            self.emit("}")
 
     def visit_Try(self, node: ast.Try) -> None:
         """Generate try/except block with proper error handling"""
@@ -2253,7 +2312,18 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                     obj_type = self.var_types.get(arg.value.id)
                     is_dict_subscript = (obj_type == "dict")
 
-                if (arg_try and (is_method_call or is_subscript)) or is_dict_subscript or is_attribute or is_pyobject_var:
+                # Check if attribute is a PyObject field (not primitive)
+                is_pyobject_attribute = False
+                if is_attribute and isinstance(arg, ast.Attribute) and isinstance(arg.value, ast.Name):
+                    obj_name = arg.value.id
+                    obj_type = self.var_types.get(obj_name)
+                    if obj_type and obj_type in self.class_definitions:
+                        class_info = self.class_definitions[obj_type]
+                        field_type = class_info.fields.get(arg.attr)
+                        if field_type == "*runtime.PyObject":
+                            is_pyobject_attribute = True
+
+                if (arg_try and (is_method_call or is_subscript)) or is_dict_subscript or is_pyobject_attribute or is_pyobject_var:
                     # Determine the type to know how to print
                     arg_type = None
                     is_slice = False
@@ -2274,14 +2344,16 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                             field_type = class_info.fields.get(arg.attr)
                             if field_type == "*runtime.PyObject":
                                 arg_type = "string"  # Assume PyObject fields are strings for now
+                            elif field_type == "i64":
+                                arg_type = "int"  # Primitive int field
                     elif is_pyobject_var and isinstance(arg, ast.Name):
                         # PyObject variable like sound
                         arg_type = self.var_types.get(arg.id)
 
                     # Extract to temp variable
                     temp_var = f"_temp_print_{id(node)}"
-                    # Dict subscripts, attributes, and pyobject variables don't need try
-                    if is_dict_subscript or is_attribute or is_pyobject_var:
+                    # Dict subscripts, pyobject attributes, and pyobject variables don't need try
+                    if is_dict_subscript or is_pyobject_attribute or is_pyobject_var:
                         self.emit(f"const {temp_var} = {arg_code};")
                     else:
                         # Emit with error handling
@@ -2290,7 +2362,7 @@ class ZigCodeGenerator(CodegenHelpers, ExpressionVisitor):
                         else:
                             self.emit(f"const {temp_var} = try {arg_code};")
                     # Only defer decref for method calls or slices (which create new PyObjects)
-                    # Attributes, pyobject variables, and single element subscripts return borrowed references, don't decref them
+                    # PyObject attributes, pyobject variables, and single element subscripts return borrowed references, don't decref them
                     if is_method_call or is_slice:
                         self.emit(f"defer runtime.decref({temp_var}, allocator);")
 

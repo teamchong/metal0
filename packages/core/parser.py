@@ -49,7 +49,7 @@ def parse_file(filepath: str) -> ParsedModule:
         raise SyntaxError(f"Failed to parse {filepath}: {e}") from e
 
 
-def load_module(module_name: str, search_path: Path) -> ParsedModule:
+def load_module(module_name: str, search_path: Path) -> ParsedModule | None:
     """
     Load and parse a Python module
 
@@ -58,11 +58,22 @@ def load_module(module_name: str, search_path: Path) -> ParsedModule:
         search_path: Directory to search for module
 
     Returns:
-        ParsedModule for the imported module
+        ParsedModule for the imported module, or None if module is stdlib/third-party
 
     Raises:
-        FileNotFoundError: If module file not found
+        FileNotFoundError: If module file not found in search path (and not stdlib)
     """
+    # Skip standard library and third-party modules
+    # These are stub imports that don't need to be compiled
+    STDLIB_AND_THIRD_PARTY = {
+        "pytest", "unittest", "sys", "os", "pathlib", "typing",
+        "collections", "itertools", "functools", "json", "re",
+        "datetime", "math", "random", "asyncio", "dataclasses"
+    }
+
+    if module_name in STDLIB_AND_THIRD_PARTY:
+        return None
+
     module_file = search_path / f"{module_name}.py"
 
     if not module_file.exists():
@@ -92,8 +103,12 @@ def load_all_modules(main_module: ParsedModule) -> Dict[str, ParsedModule]:
         if module_name in loaded_modules:
             continue
 
-        # Load module
+        # Load module (returns None for stdlib/third-party)
         module = load_module(module_name, search_path)
+        if module is None:
+            # Skip stdlib/third-party modules
+            continue
+
         loaded_modules[module_name] = module
 
         # Add its imports to the queue
