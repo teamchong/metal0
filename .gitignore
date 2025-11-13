@@ -69,3 +69,4 @@ _prototype/
 *.zig.o
 *.bak*
 *.before_fix
+.venv/
