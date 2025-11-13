@@ -3,20 +3,27 @@
 help:
 	@echo "Zyth Commands"
 	@echo "============="
-	@echo "build    - Build zyth compiler binary"
-	@echo "install  - Install zyth to ~/.local/bin"
-	@echo "verify   - Verify installation is working"
-	@echo "test     - Run Python tests (legacy)"
-	@echo "test-zig - Run Zig runtime tests"
-	@echo "clean    - Remove build artifacts"
+	@echo "install        - Build optimized binary and install to ~/.local/bin (RECOMMENDED)"
+	@echo "build          - Build debug binary for development"
+	@echo "build-release  - Build optimized production binary"
+	@echo "verify         - Verify installation is working"
+	@echo "test           - Run Python tests (legacy)"
+	@echo "test-zig       - Run Zig runtime tests"
+	@echo "clean          - Remove build artifacts"
 
 build:
-	@echo "🔨 Building zyth compiler..."
+	@echo "🔨 Building zyth compiler (debug mode)..."
 	@command -v zig >/dev/null 2>&1 || { echo "❌ Error: zig not installed"; exit 1; }
 	zig build
-	@echo "✅ Binary built: zig-out/bin/zyth"
+	@echo "✅ Debug binary built: zig-out/bin/zyth"
 
-install: build
+build-release:
+	@echo "🔨 Building zyth compiler (optimized for production)..."
+	@command -v zig >/dev/null 2>&1 || { echo "❌ Error: zig not installed"; exit 1; }
+	zig build -Doptimize=ReleaseSafe
+	@echo "✅ Release binary built: zig-out/bin/zyth"
+
+install: build-release
 	@echo "📦 Installing zyth to ~/.local/bin..."
 	@mkdir -p ~/.local/bin
 	@cp zig-out/bin/zyth ~/.local/bin/zyth
