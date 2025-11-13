@@ -282,6 +282,14 @@ pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: 
     } else if (std.mem.eql(u8, method_name, "copy")) {
         try buf.writer(self.allocator).print("runtime.PyList.copy(allocator, {s})", .{obj_result.code});
         return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
+    }
+    // Dict methods
+    else if (std.mem.eql(u8, method_name, "keys")) {
+        try buf.writer(self.allocator).print("runtime.PyDict.keys(allocator, {s})", .{obj_result.code});
+        return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
+    } else if (std.mem.eql(u8, method_name, "values")) {
+        try buf.writer(self.allocator).print("runtime.PyDict.values(allocator, {s})", .{obj_result.code});
+        return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
     } else {
         return error.UnsupportedMethod;
     }

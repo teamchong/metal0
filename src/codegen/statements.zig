@@ -83,6 +83,9 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
                 .list => {
                     try self.var_types.put(var_name, "list");
                 },
+                .dict => {
+                    try self.var_types.put(var_name, "dict");
+                },
                 .call => |call| {
                     // Check if this is a class instantiation
                     switch (call.func.*) {

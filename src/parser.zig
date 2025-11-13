@@ -87,6 +87,13 @@ pub const Parser = struct {
         return false;
     }
 
+    fn check(self: *Parser, token_type: lexer.TokenType) bool {
+        if (self.peek()) |tok| {
+            return tok.type == token_type;
+        }
+        return false;
+    }
+
     fn matchAny(self: *Parser, types: []const lexer.TokenType) bool {
         for (types) |t| {
             if (self.match(t)) return true;
@@ -763,22 +770,94 @@ pub const Parser = struct {
                 // Function call
                 node = try self.parseCall(node);
             } else if (self.match(.LBracket)) {
-                // Subscript
-                const index = try self.parseExpression();
-                _ = try self.expect(.RBracket);
-
+                // Subscript or slice
                 const node_ptr = try self.allocator.create(ast.Node);
                 node_ptr.* = node;
 
-                const index_ptr = try self.allocator.create(ast.Node);
-                index_ptr.* = index;
+                // Check if it starts with colon (e.g., [:5])
+                if (self.check(.Colon)) {
+                    _ = self.advance();
+                    const upper = if (!self.check(.RBracket)) try self.parseExpression() else null;
+                    _ = try self.expect(.RBracket);
 
-                node = ast.Node{
-                    .subscript = .{
-                        .value = node_ptr,
-                        .slice = index_ptr,
-                    },
-                };
+                    const upper_ptr = if (upper) |u| blk: {
+                        const ptr = try self.allocator.create(ast.Node);
+                        ptr.* = u;
+                        break :blk ptr;
+                    } else null;
+
+                    node = ast.Node{
+                        .subscript = .{
+                            .value = node_ptr,
+                            .slice = .{
+                                .slice = .{
+                                    .lower = null,
+                                    .upper = upper_ptr,
+                                    .step = null,
+                                },
+                            },
+                        },
+                    };
+                } else {
+                    const lower = try self.parseExpression();
+
+                    if (self.match(.Colon)) {
+                        // Slice: [start:end] or [start:]
+                        const upper = if (!self.check(.RBracket) and !self.check(.Colon)) try self.parseExpression() else null;
+
+                        // Check for step: [start:end:step]
+                        const step = if (self.match(.Colon)) blk: {
+                            if (!self.check(.RBracket)) {
+                                break :blk try self.parseExpression();
+                            } else {
+                                break :blk null;
+                            }
+                        } else null;
+
+                        _ = try self.expect(.RBracket);
+
+                        const lower_ptr = try self.allocator.create(ast.Node);
+                        lower_ptr.* = lower;
+
+                        const upper_ptr = if (upper) |u| blk: {
+                            const ptr = try self.allocator.create(ast.Node);
+                            ptr.* = u;
+                            break :blk ptr;
+                        } else null;
+
+                        const step_ptr = if (step) |s| blk: {
+                            const ptr = try self.allocator.create(ast.Node);
+                            ptr.* = s;
+                            break :blk ptr;
+                        } else null;
+
+                        node = ast.Node{
+                            .subscript = .{
+                                .value = node_ptr,
+                                .slice = .{
+                                    .slice = .{
+                                        .lower = lower_ptr,
+                                        .upper = upper_ptr,
+                                        .step = step_ptr,
+                                    },
+                                },
+                            },
+                        };
+                    } else {
+                        // Simple index: [0]
+                        _ = try self.expect(.RBracket);
+
+                        const index_ptr = try self.allocator.create(ast.Node);
+                        index_ptr.* = lower;
+
+                        node = ast.Node{
+                            .subscript = .{
+                                .value = node_ptr,
+                                .slice = .{ .index = index_ptr },
+                            },
+                        };
+                    }
+                }
             } else if (self.match(.Dot)) {
                 // Attribute access
                 const attr_tok = try self.expect(.Ident);
@@ -896,6 +975,9 @@ pub const Parser = struct {
                 .LBracket => {
                     return try self.parseList();
                 },
+                .LBrace => {
+                    return try self.parseDict();
+                },
                 .Minus => {
                     // Unary minus (e.g., -10)
                     _ = self.advance();
@@ -953,6 +1035,37 @@ pub const Parser = struct {
         return ast.Node{
             .list = .{
                 .elts = try elts.toOwnedSlice(self.allocator),
+            },
+        };
+    }
+
+    fn parseDict(self: *Parser) ParseError!ast.Node {
+        _ = try self.expect(.LBrace);
+
+        var keys = std.ArrayList(ast.Node){};
+        defer keys.deinit(self.allocator);
+
+        var values = std.ArrayList(ast.Node){};
+        defer values.deinit(self.allocator);
+
+        while (!self.match(.RBrace)) {
+            const key = try self.parseExpression();
+            _ = try self.expect(.Colon);
+            const value = try self.parseExpression();
+
+            try keys.append(self.allocator, key);
+            try values.append(self.allocator, value);
+
+            if (!self.match(.Comma)) {
+                _ = try self.expect(.RBrace);
+                break;
+            }
+        }
+
+        return ast.Node{
+            .dict = .{
+                .keys = try keys.toOwnedSlice(self.allocator),
+                .values = try values.toOwnedSlice(self.allocator),
             },
         };
     }

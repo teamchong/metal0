@@ -73,32 +73,28 @@ pub const PyList = struct {
         return data.items.items[idx];
     }
 
-    pub fn len(obj: *PyObject) usize {
+    pub fn get(obj: *PyObject, index_val: i64) !*PyObject {
         std.debug.assert(obj.type_id == .list);
         const data: *PyList = @ptrCast(@alignCast(obj.data));
-        return data.items.items.len;
-    }
+        const list_len: i64 = @intCast(data.items.items.len);
 
-    pub fn contains(obj: *PyObject, value: *PyObject) bool {
-        std.debug.assert(obj.type_id == .list);
-        const data: *PyList = @ptrCast(@alignCast(obj.data));
+        // Handle negative indices
+        const idx = if (index_val < 0) list_len + index_val else index_val;
 
-        // Check each item in the list
-        for (data.items.items) |item| {
-            // For now, only support comparing integers
-            if (item.type_id == .int and value.type_id == .int) {
-                const item_data: *PyInt = @ptrCast(@alignCast(item.data));
-                const value_data: *PyInt = @ptrCast(@alignCast(value.data));
-                if (item_data.value == value_data.value) {
-                    return true;
-                }
-            }
-            // Could add string comparison here later
+        if (idx < 0 or idx >= list_len) {
+            return PythonError.IndexError;
         }
-        return false;
+
+        const item = data.items.items[@intCast(idx)];
+        incref(item);
+        return item;
     }
 
-    pub fn slice(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i64, end_opt: ?i64, step_opt: ?i64) !*PyObject {
+    pub fn slice(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i64, end_opt: ?i64) !*PyObject {
+        return PyList.sliceWithStep(allocator, obj, start_opt, end_opt, null);
+    }
+
+    pub fn sliceWithStep(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i64, end_opt: ?i64, step_opt: ?i64) !*PyObject {
         std.debug.assert(obj.type_id == .list);
         const data: *PyList = @ptrCast(@alignCast(obj.data));
 
@@ -158,6 +154,31 @@ pub const PyList = struct {
         }
 
         return new_list;
+    }
+
+    pub fn len(obj: *PyObject) usize {
+        std.debug.assert(obj.type_id == .list);
+        const data: *PyList = @ptrCast(@alignCast(obj.data));
+        return data.items.items.len;
+    }
+
+    pub fn contains(obj: *PyObject, value: *PyObject) bool {
+        std.debug.assert(obj.type_id == .list);
+        const data: *PyList = @ptrCast(@alignCast(obj.data));
+
+        // Check each item in the list
+        for (data.items.items) |item| {
+            // For now, only support comparing integers
+            if (item.type_id == .int and value.type_id == .int) {
+                const item_data: *PyInt = @ptrCast(@alignCast(item.data));
+                const value_data: *PyInt = @ptrCast(@alignCast(value.data));
+                if (item_data.value == value_data.value) {
+                    return true;
+                }
+            }
+            // Could add string comparison here later
+        }
+        return false;
     }
 
     pub fn extend(obj: *PyObject, other: *PyObject) !void {

@@ -148,7 +148,7 @@ fn visitEnumerateFor(self: *ZigCodeGenerator, for_node: ast.Node.For, args: []as
 
             // Register variable types
             try self.var_types.put(idx_name, "int");
-            try self.var_types.put(val_name, "auto");
+            try self.var_types.put(val_name, "pyobject");
 
             // Generate temporary variable to hold the casted list data
             const list_data_var = try std.fmt.allocPrint(self.allocator, "__enum_list_{d}", .{self.temp_var_counter});
@@ -208,7 +208,7 @@ fn visitZipFor(self: *ZigCodeGenerator, for_node: ast.Node.For, args: []ast.Node
                     else => return error.InvalidZipTarget,
                 };
                 try var_names.append(self.allocator, var_name);
-                try self.var_types.put(var_name, "auto");
+                try self.var_types.put(var_name, "pyobject");
                 try self.declared_vars.put(var_name, {});
             }
 

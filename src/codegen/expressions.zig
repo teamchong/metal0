@@ -31,6 +31,10 @@ pub fn visitExpr(self: *ZigCodeGenerator, node: ast.Node) CodegenError!ExprResul
 
         .list => |list| visitList(self, list),
 
+        .dict => |dict| visitDict(self, dict),
+
+        .subscript => |sub| visitSubscript(self, sub),
+
         else => error.UnsupportedExpression,
     };
 }
@@ -189,6 +193,210 @@ fn visitList(self: *ZigCodeGenerator, list: ast.Node.List) CodegenError!ExprResu
         .code = list_var,
         .needs_try = false,
     };
+}
+
+/// Visit a dict literal expression
+fn visitDict(self: *ZigCodeGenerator, dict: ast.Node.Dict) CodegenError!ExprResult {
+    // Generate code to create a dict literal
+    // Strategy: Create empty dict, then set each key-value pair
+    self.needs_runtime = true;
+    self.needs_allocator = true;
+
+    // Unique variable name for the dict
+    const dict_var = try std.fmt.allocPrint(self.allocator, "__dict_{d}", .{self.temp_var_counter});
+    self.temp_var_counter += 1;
+
+    // Emit dict creation as statement
+    var create_buf = std.ArrayList(u8){};
+    try create_buf.writer(self.allocator).print("const {s} = try runtime.PyDict.create(allocator);", .{dict_var});
+    try self.emit(try create_buf.toOwnedSlice(self.allocator));
+
+    // Set each key-value pair
+    for (dict.keys, dict.values) |key, value| {
+        const key_result = try visitExpr(self, key);
+        const value_result = try visitExpr(self, value);
+        var set_buf = std.ArrayList(u8){};
+
+        // Extract string key from PyString or constant
+        const key_code = switch (key) {
+            .constant => |c| switch (c.value) {
+                .string => |str| blk: {
+                    // Strip quotes from string constant
+                    var content: []const u8 = str;
+                    if (str.len >= 2) {
+                        content = str[1 .. str.len - 1];
+                    }
+                    break :blk try std.fmt.allocPrint(self.allocator, "\"{s}\"", .{content});
+                },
+                else => key_result.code,
+            },
+            else => key_result.code,
+        };
+
+        // Wrap value if needed (constants need to be wrapped in PyObject)
+        const needs_wrapping = switch (value) {
+            .constant => |c| switch (c.value) {
+                .int, .float, .bool => true,
+                else => false,
+            },
+            else => false,
+        };
+
+        const value_code = if (needs_wrapping) blk: {
+            const wrapped = switch (value) {
+                .constant => |c| switch (c.value) {
+                    .int => try std.fmt.allocPrint(self.allocator, "try runtime.PyInt.create(allocator, {s})", .{value_result.code}),
+                    .float => try std.fmt.allocPrint(self.allocator, "try runtime.PyFloat.create(allocator, {s})", .{value_result.code}),
+                    .bool => try std.fmt.allocPrint(self.allocator, "try runtime.PyBool.create(allocator, {s})", .{value_result.code}),
+                    else => value_result.code,
+                },
+                else => value_result.code,
+            };
+            break :blk wrapped;
+        } else if (value_result.needs_try) blk: {
+            break :blk try std.fmt.allocPrint(self.allocator, "try {s}", .{value_result.code});
+        } else value_result.code;
+
+        try set_buf.writer(self.allocator).print("try runtime.PyDict.set({s}, {s}, {s});", .{ dict_var, key_code, value_code });
+        try self.emit(try set_buf.toOwnedSlice(self.allocator));
+    }
+
+    // Return the dict variable name
+    return ExprResult{
+        .code = dict_var,
+        .needs_try = false,
+    };
+}
+
+/// Visit a subscript expression (indexing or slicing)
+fn visitSubscript(self: *ZigCodeGenerator, sub: ast.Node.Subscript) CodegenError!ExprResult {
+    self.needs_runtime = true;
+    self.needs_allocator = true;
+
+    const value_result = try visitExpr(self, sub.value.*);
+    var buf = std.ArrayList(u8){};
+
+    switch (sub.slice) {
+        .index => |idx| {
+            // Simple indexing: items[0] or dict["key"]
+            const idx_result = try visitExpr(self, idx.*);
+
+            // Determine if value is a string, dict, or list by checking variable type
+            const value_type = blk: {
+                switch (sub.value.*) {
+                    .name => |name| {
+                        if (self.var_types.get(name.id)) |var_type| {
+                            break :blk var_type;
+                        }
+                    },
+                    .constant => |c| {
+                        if (c.value == .string) break :blk "string";
+                    },
+                    else => {},
+                }
+                break :blk "list"; // default to list
+            };
+
+            if (std.mem.eql(u8, value_type, "string")) {
+                // String indexing
+                if (idx_result.needs_try) {
+                    try buf.writer(self.allocator).print("runtime.PyString.charAt(allocator, {s}, try {s})", .{ value_result.code, idx_result.code });
+                } else {
+                    try buf.writer(self.allocator).print("runtime.PyString.charAt(allocator, {s}, {s})", .{ value_result.code, idx_result.code });
+                }
+            } else if (std.mem.eql(u8, value_type, "dict")) {
+                // Dict indexing - extract string key
+                const key_code = switch (idx.*) {
+                    .constant => |c| switch (c.value) {
+                        .string => |str| blk: {
+                            // Strip quotes from string constant
+                            var content: []const u8 = str;
+                            if (str.len >= 2) {
+                                content = str[1 .. str.len - 1];
+                            }
+                            break :blk try std.fmt.allocPrint(self.allocator, "\"{s}\"", .{content});
+                        },
+                        else => idx_result.code,
+                    },
+                    else => idx_result.code,
+                };
+                try buf.writer(self.allocator).print("runtime.PyDict.get({s}, {s}).?", .{ value_result.code, key_code });
+                // Dict.get() returns optional, not error union, so no try needed
+                return ExprResult{
+                    .code = try buf.toOwnedSlice(self.allocator),
+                    .needs_try = false,
+                };
+            } else {
+                // List indexing
+                if (idx_result.needs_try) {
+                    try buf.writer(self.allocator).print("runtime.PyList.get({s}, try {s})", .{ value_result.code, idx_result.code });
+                } else {
+                    try buf.writer(self.allocator).print("runtime.PyList.get({s}, {s})", .{ value_result.code, idx_result.code });
+                }
+            }
+
+            return ExprResult{
+                .code = try buf.toOwnedSlice(self.allocator),
+                .needs_try = true,
+            };
+        },
+        .slice => |range| {
+            // Slicing: items[1:3]
+            const is_string = blk: {
+                switch (sub.value.*) {
+                    .name => |name| {
+                        if (self.var_types.get(name.id)) |var_type| {
+                            break :blk std.mem.eql(u8, var_type, "string");
+                        }
+                    },
+                    .constant => |c| {
+                        break :blk c.value == .string;
+                    },
+                    else => {},
+                }
+                break :blk false;
+            };
+
+            // Generate lower bound code
+            const lower_code = if (range.lower) |lower| blk: {
+                const result = try visitExpr(self, lower.*);
+                break :blk result.code;
+            } else "null";
+
+            // Generate upper bound code
+            const upper_code = if (range.upper) |upper| blk: {
+                const result = try visitExpr(self, upper.*);
+                break :blk result.code;
+            } else "null";
+
+            // Generate step code (if provided)
+            const step_code = if (range.step) |step| blk: {
+                const result = try visitExpr(self, step.*);
+                break :blk result.code;
+            } else "null";
+
+            if (is_string) {
+                // String slicing
+                if (range.step == null) {
+                    try buf.writer(self.allocator).print("runtime.PyString.slice(allocator, {s}, {s}, {s})", .{ value_result.code, lower_code, upper_code });
+                } else {
+                    try buf.writer(self.allocator).print("runtime.PyString.sliceWithStep(allocator, {s}, {s}, {s}, {s})", .{ value_result.code, lower_code, upper_code, step_code });
+                }
+            } else {
+                // List slicing
+                if (range.step == null) {
+                    try buf.writer(self.allocator).print("runtime.PyList.slice(allocator, {s}, {s}, {s})", .{ value_result.code, lower_code, upper_code });
+                } else {
+                    try buf.writer(self.allocator).print("runtime.PyList.sliceWithStep(allocator, {s}, {s}, {s}, {s})", .{ value_result.code, lower_code, upper_code, step_code });
+                }
+            }
+
+            return ExprResult{
+                .code = try buf.toOwnedSlice(self.allocator),
+                .needs_try = true,
+            };
+        },
+    }
 }
 
 /// Visit a function call expression

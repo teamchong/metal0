@@ -213,6 +213,10 @@ pub const ZigCodeGenerator = struct {
                 self.needs_runtime = true;
                 self.needs_allocator = true;
             },
+            .dict => {
+                self.needs_runtime = true;
+                self.needs_allocator = true;
+            },
             .expr_stmt => |expr_stmt| {
                 // Skip docstrings (same as in visitNode)
                 const is_docstring = switch (expr_stmt.value.*) {
@@ -265,6 +269,10 @@ pub const ZigCodeGenerator = struct {
                 }
             },
             .list => {
+                self.needs_runtime = true;
+                self.needs_allocator = true;
+            },
+            .dict => {
                 self.needs_runtime = true;
                 self.needs_allocator = true;
             },

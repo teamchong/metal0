@@ -56,6 +56,26 @@ pub const PyString = struct {
         return create(allocator, result);
     }
 
+    pub fn charAt(allocator: std.mem.Allocator, obj: *PyObject, index_val: i64) !*PyObject {
+        std.debug.assert(obj.type_id == .string);
+        const data: *PyString = @ptrCast(@alignCast(obj.data));
+        const str_len: i64 = @intCast(data.data.len);
+
+        // Handle negative indices
+        const idx = if (index_val < 0) str_len + index_val else index_val;
+
+        if (idx < 0 or idx >= str_len) {
+            return PythonError.IndexError;
+        }
+
+        // Return single character as a new string
+        const result = try allocator.alloc(u8, 1);
+        defer allocator.free(result); // Free temporary buffer
+        result[0] = data.data[@intCast(idx)];
+
+        return create(allocator, result);
+    }
+
     pub fn concat(allocator: std.mem.Allocator, a: *PyObject, b: *PyObject) !*PyObject {
         std.debug.assert(a.type_id == .string);
         std.debug.assert(b.type_id == .string);
@@ -145,7 +165,11 @@ pub const PyString = struct {
         return false;
     }
 
-    pub fn slice(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i64, end_opt: ?i64, step_opt: ?i64) !*PyObject {
+    pub fn slice(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i64, end_opt: ?i64) !*PyObject {
+        return PyString.sliceWithStep(allocator, obj, start_opt, end_opt, null);
+    }
+
+    pub fn sliceWithStep(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i64, end_opt: ?i64, step_opt: ?i64) !*PyObject {
         std.debug.assert(obj.type_id == .string);
         const data: *PyString = @ptrCast(@alignCast(obj.data));
 

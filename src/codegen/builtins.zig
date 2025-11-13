@@ -23,7 +23,23 @@ pub fn visitPrintCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!Ex
         .name => |name| {
             const var_type = self.var_types.get(name.id);
             if (var_type) |vtype| {
-                if (std.mem.eql(u8, vtype, "string")) {
+                if (std.mem.eql(u8, vtype, "pyobject")) {
+                    // PyObject - need to extract value based on type
+                    // Emit if-else chain directly as statement (no semicolon needed)
+                    var print_buf = std.ArrayList(u8){};
+                    try print_buf.writer(self.allocator).print(
+                        "if ({s}.type_id == .int) {{ std.debug.print(\"{{}}\\n\", .{{runtime.PyInt.getValue({s})}}); }} " ++
+                        "else if ({s}.type_id == .string) {{ std.debug.print(\"{{s}}\\n\", .{{runtime.PyString.getValue({s})}}); }} " ++
+                        "else {{ std.debug.print(\"{{any}}\\n\", .{{{s}}}); }}",
+                        .{ name.id, name.id, name.id, name.id, name.id }
+                    );
+                    try self.emit(try print_buf.toOwnedSlice(self.allocator));
+                    // Return empty code since we already emitted the statement
+                    return ExprResult{
+                        .code = "",
+                        .needs_try = false,
+                    };
+                } else if (std.mem.eql(u8, vtype, "string")) {
                     try buf.writer(self.allocator).print("std.debug.print(\"{{s}}\\n\", .{{runtime.PyString.getValue({s})}})", .{arg_result.code});
                 } else {
                     try buf.writer(self.allocator).print("std.debug.print(\"{{}}\\n\", .{{{s}}})", .{arg_result.code});
@@ -88,6 +104,8 @@ pub fn visitLenCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!Expr
                     try buf.writer(self.allocator).print("runtime.PyList.len({s})", .{arg_result.code});
                 } else if (std.mem.eql(u8, vtype, "string")) {
                     try buf.writer(self.allocator).print("runtime.PyString.len({s})", .{arg_result.code});
+                } else if (std.mem.eql(u8, vtype, "dict")) {
+                    try buf.writer(self.allocator).print("runtime.PyDict.len({s})", .{arg_result.code});
                 } else {
                     try buf.writer(self.allocator).print("runtime.PyList.len({s})", .{arg_result.code});
                 }

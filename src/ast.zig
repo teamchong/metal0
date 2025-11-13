@@ -18,6 +18,7 @@ pub const Node = union(enum) {
     class_def: ClassDef,
     return_stmt: Return,
     list: List,
+    dict: Dict,
     subscript: Subscript,
     attribute: Attribute,
     expr_stmt: ExprStmt,
@@ -102,9 +103,25 @@ pub const Node = union(enum) {
         elts: []Node,
     };
 
+    pub const Dict = struct {
+        keys: []Node,
+        values: []Node,
+    };
+
     pub const Subscript = struct {
         value: *Node,
-        slice: *Node,
+        slice: Slice,
+    };
+
+    pub const Slice = union(enum) {
+        index: *Node, // items[0]
+        slice: SliceRange, // items[1:3]
+    };
+
+    pub const SliceRange = struct {
+        lower: ?*Node, // start (null = from beginning)
+        upper: ?*Node, // end (null = to end)
+        step: ?*Node, // step (null = 1)
     };
 
     pub const Attribute = struct {
