@@ -64,6 +64,7 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
 
             // Infer type from value and check if it's a class instance
             var is_class_instance = false;
+            var class_name: ?[]const u8 = null;
             switch (assign.value.*) {
                 .constant => |constant| {
                     switch (constant.value) {
@@ -148,6 +149,7 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
                             if (self.class_names.contains(func_name.id)) {
                                 try self.var_types.put(var_name, "class");
                                 is_class_instance = true;
+                                class_name = func_name.id;
                             }
                         },
                         .attribute => {
@@ -160,9 +162,13 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
                 else => {},
             }
 
-            // Use 'var' for reassigned vars, 'const' otherwise
-            // Note: Class instances use 'const' unless reassigned - field mutations don't require 'var' in Zig
-            const var_keyword = if (self.reassigned_vars.contains(var_name)) "var" else "const";
+            // Use 'var' for reassigned vars or class instances with methods
+            // Class instances with methods need 'var' because calling methods that take *T requires mutability
+            const needs_var_for_class = if (is_class_instance and class_name != null)
+                (self.class_has_methods.get(class_name.?) orelse false)
+            else
+                false;
+            const var_keyword = if (self.reassigned_vars.contains(var_name) or needs_var_for_class) "var" else "const";
 
             // Generate assignment code
             var buf = std.ArrayList(u8){};

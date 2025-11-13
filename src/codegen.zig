@@ -71,6 +71,7 @@ pub const ZigCodeGenerator = struct {
     tuple_element_types: std.StringHashMap([]const u8),
     function_names: std.StringHashMap(void),
     class_names: std.StringHashMap(void),
+    class_has_methods: std.StringHashMap(bool),
 
     needs_runtime: bool,
     needs_allocator: bool,
@@ -92,6 +93,7 @@ pub const ZigCodeGenerator = struct {
             .tuple_element_types = std.StringHashMap([]const u8).init(allocator),
             .function_names = std.StringHashMap(void).init(allocator),
             .class_names = std.StringHashMap(void).init(allocator),
+            .class_has_methods = std.StringHashMap(bool).init(allocator),
             .needs_runtime = false,
             .needs_allocator = false,
             .temp_var_counter = 0,
@@ -110,6 +112,7 @@ pub const ZigCodeGenerator = struct {
         self.tuple_element_types.deinit();
         self.function_names.deinit();
         self.class_names.deinit();
+        self.class_has_methods.deinit();
         self.arena.deinit(); // Free all temp allocations
         self.allocator.destroy(self);
     }
@@ -129,6 +132,32 @@ pub const ZigCodeGenerator = struct {
     pub fn emitOwned(self: *ZigCodeGenerator, code: []const u8) CodegenError!void {
         // No defer needed - arena allocator frees everything at once
         try self.emit(code);
+    }
+
+    /// Extract expression to statement if it needs cleanup
+    /// This prevents memory leaks in nested expressions like: s1 + " " + s2
+    pub fn extractResultToStatement(self: *ZigCodeGenerator, result: ExprResult) CodegenError![]const u8 {
+        if (result.needs_decref) {
+            const temp_id = self.temp_var_counter;
+            self.temp_var_counter += 1;
+
+            var buf = std.ArrayList(u8){};
+            if (result.needs_try) {
+                try buf.writer(self.temp_allocator).print("const __expr{d} = try {s};", .{ temp_id, result.code });
+            } else {
+                try buf.writer(self.temp_allocator).print("const __expr{d} = {s};", .{ temp_id, result.code });
+            }
+            try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
+
+            var defer_buf = std.ArrayList(u8){};
+            try defer_buf.writer(self.temp_allocator).print("defer runtime.decref(__expr{d}, allocator);", .{temp_id});
+            try self.emitOwned(try defer_buf.toOwnedSlice(self.temp_allocator));
+
+            var name_buf = std.ArrayList(u8){};
+            try name_buf.writer(self.temp_allocator).print("__expr{d}", .{temp_id});
+            return try name_buf.toOwnedSlice(self.temp_allocator);
+        }
+        return result.code;
     }
 
     /// Increase indentation level

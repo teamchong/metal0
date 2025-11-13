@@ -75,21 +75,16 @@ pub fn visitBinOp(self: *ZigCodeGenerator, binop: ast.Node.BinOp) CodegenError!E
         };
 
         if (is_left_string or is_right_string) {
-            // String concatenation - use runtime function
-            const left_code = if (left_result.needs_try)
-                try std.fmt.allocPrint(self.allocator, "try {s}", .{left_result.code})
-            else
-                left_result.code;
-            const right_code = if (right_result.needs_try)
-                try std.fmt.allocPrint(self.allocator, "try {s}", .{right_result.code})
-            else
-                right_result.code;
+            // String concatenation - extract nested temps to statements to prevent leaks
+            const left_code = try self.extractResultToStatement(left_result);
+            const right_code = try self.extractResultToStatement(right_result);
 
             try buf.writer(self.temp_allocator).print("runtime.PyString.concat(allocator, {s}, {s})", .{ left_code, right_code });
 
             return ExprResult{
                 .code = try buf.toOwnedSlice(self.temp_allocator),
                 .needs_try = true,
+                .needs_decref = true, // Mark as needing cleanup
             };
         }
     }

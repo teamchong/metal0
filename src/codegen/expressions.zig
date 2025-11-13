@@ -113,6 +113,7 @@ fn visitConstant(self: *ZigCodeGenerator, constant: ast.Node.Constant) CodegenEr
             return ExprResult{
                 .code = try buf.toOwnedSlice(self.temp_allocator),
                 .needs_try = true,
+                .needs_decref = true, // String creates need cleanup
             };
         },
         .int => |num| {

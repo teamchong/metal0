@@ -33,6 +33,19 @@ pub fn visitClassInstantiation(self: *ZigCodeGenerator, class_name: []const u8, 
 
 pub fn visitClassDef(self: *ZigCodeGenerator, class: ast.Node.ClassDef) CodegenError!void {
     try self.class_names.put(class.name, {});
+
+    // Count methods (excluding __init__) to determine if class needs 'var'
+    var method_count: usize = 0;
+    for (class.body) |node| {
+        if (node == .function_def) {
+            const func = node.function_def;
+            if (!std.mem.eql(u8, func.name, "__init__")) {
+                method_count += 1;
+            }
+        }
+    }
+    try self.class_has_methods.put(class.name, method_count > 0);
+
     var buf = std.ArrayList(u8){};
     try buf.writer(self.temp_allocator).print("const {s} = struct {{", .{class.name});
     try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
@@ -162,6 +175,33 @@ pub fn visitClassDef(self: *ZigCodeGenerator, class: ast.Node.ClassDef) CodegenE
     try self.emit("};");
 }
 
+/// Helper function to wrap primitive constants as PyObjects
+fn wrapPrimitiveIfNeeded(self: *ZigCodeGenerator, node: ast.Node, arg_code: []const u8) ![]const u8 {
+    switch (node) {
+        .constant => |c| {
+            switch (c.value) {
+                .int => {
+                    return try std.fmt.allocPrint(self.temp_allocator,
+                        "try runtime.PyInt.create(allocator, {s})", .{arg_code});
+                },
+                .string => {
+                    return try std.fmt.allocPrint(self.temp_allocator,
+                        "try runtime.PyString.create(allocator, {s})", .{arg_code});
+                },
+                .bool => {
+                    return try std.fmt.allocPrint(self.temp_allocator,
+                        "runtime.PyBool.create({s})", .{arg_code});
+                },
+                .float => {
+                    return try std.fmt.allocPrint(self.temp_allocator,
+                        "try runtime.PyFloat.create(allocator, {s})", .{arg_code});
+                },
+            }
+        },
+        else => return arg_code,
+    }
+}
+
 pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: []ast.Node) CodegenError!ExprResult {
     const obj_result = try expressions.visitExpr(self,attr.value.*);
     const method_name = attr.attr;
@@ -251,7 +291,8 @@ pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: 
     else if (std.mem.eql(u8, method_name, "append")) {
         if (args.len != 1) return error.InvalidArguments;
         const arg_result = try expressions.visitExpr(self,args[0]);
-        try buf.writer(self.temp_allocator).print("runtime.PyList.append({s}, {s})", .{ obj_result.code, arg_result.code });
+        const wrapped_arg = try wrapPrimitiveIfNeeded(self, args[0], arg_result.code);
+        try buf.writer(self.temp_allocator).print("runtime.PyList.append({s}, {s})", .{ obj_result.code, wrapped_arg });
         return ExprResult{ .code = try buf.toOwnedSlice(self.temp_allocator), .needs_try = true };
     } else if (std.mem.eql(u8, method_name, "pop")) {
         try buf.writer(self.temp_allocator).print("runtime.PyList.pop(allocator, {s})", .{obj_result.code});
@@ -267,23 +308,27 @@ pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: 
     } else if (std.mem.eql(u8, method_name, "remove")) {
         if (args.len != 1) return error.InvalidArguments;
         const arg_result = try expressions.visitExpr(self,args[0]);
-        try buf.writer(self.temp_allocator).print("runtime.PyList.remove(allocator, {s}, {s})", .{ obj_result.code, arg_result.code });
+        const wrapped_arg = try wrapPrimitiveIfNeeded(self, args[0], arg_result.code);
+        try buf.writer(self.temp_allocator).print("runtime.PyList.remove(allocator, {s}, {s})", .{ obj_result.code, wrapped_arg });
         return ExprResult{ .code = try buf.toOwnedSlice(self.temp_allocator), .needs_try = true };
     } else if (std.mem.eql(u8, method_name, "count")) {
         if (args.len != 1) return error.InvalidArguments;
         const arg_result = try expressions.visitExpr(self,args[0]);
-        try buf.writer(self.temp_allocator).print("runtime.PyList.count({s}, {s})", .{ obj_result.code, arg_result.code });
+        const wrapped_arg = try wrapPrimitiveIfNeeded(self, args[0], arg_result.code);
+        try buf.writer(self.temp_allocator).print("runtime.PyList.count({s}, {s})", .{ obj_result.code, wrapped_arg });
         return ExprResult{ .code = try buf.toOwnedSlice(self.temp_allocator), .needs_try = false };
     } else if (std.mem.eql(u8, method_name, "index")) {
         if (args.len != 1) return error.InvalidArguments;
         const arg_result = try expressions.visitExpr(self,args[0]);
-        try buf.writer(self.temp_allocator).print("runtime.PyList.index({s}, {s})", .{ obj_result.code, arg_result.code });
+        const wrapped_arg = try wrapPrimitiveIfNeeded(self, args[0], arg_result.code);
+        try buf.writer(self.temp_allocator).print("runtime.PyList.index({s}, {s})", .{ obj_result.code, wrapped_arg });
         return ExprResult{ .code = try buf.toOwnedSlice(self.temp_allocator), .needs_try = false };
     } else if (std.mem.eql(u8, method_name, "insert")) {
         if (args.len != 2) return error.InvalidArguments;
         const arg1_result = try expressions.visitExpr(self,args[0]);
         const arg2_result = try expressions.visitExpr(self,args[1]);
-        try buf.writer(self.temp_allocator).print("runtime.PyList.insert(allocator, {s}, {s}, {s})", .{ obj_result.code, arg1_result.code, arg2_result.code });
+        const wrapped_arg2 = try wrapPrimitiveIfNeeded(self, args[1], arg2_result.code);
+        try buf.writer(self.temp_allocator).print("runtime.PyList.insert(allocator, {s}, {s}, {s})", .{ obj_result.code, arg1_result.code, wrapped_arg2 });
         return ExprResult{ .code = try buf.toOwnedSlice(self.temp_allocator), .needs_try = true };
     } else if (std.mem.eql(u8, method_name, "clear")) {
         try buf.writer(self.temp_allocator).print("runtime.PyList.clear(allocator, {s})", .{obj_result.code});
@@ -328,6 +373,23 @@ pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: 
         try buf.writer(self.temp_allocator).print("runtime.PyDict.update({s}, {s})", .{ obj_result.code, arg_result.code });
         return ExprResult{ .code = try buf.toOwnedSlice(self.temp_allocator), .needs_try = true };
     } else {
-        return error.UnsupportedMethod;
+        // Attempt to handle user-defined class methods
+        // Generate generic method call: obj.method(args)
+        // If obj is a class instance, Zig will resolve the method call
+        buf = std.ArrayList(u8){};
+        try buf.writer(self.temp_allocator).print("{s}.{s}(", .{ obj_result.code, method_name });
+
+        for (args, 0..) |arg, i| {
+            if (i > 0) try buf.writer(self.temp_allocator).writeAll(", ");
+            const arg_result = try expressions.visitExpr(self,arg);
+            if (arg_result.needs_try) {
+                try buf.writer(self.temp_allocator).print("try {s}", .{arg_result.code});
+            } else {
+                try buf.writer(self.temp_allocator).writeAll(arg_result.code);
+            }
+        }
+
+        try buf.writer(self.temp_allocator).writeAll(")");
+        return ExprResult{ .code = try buf.toOwnedSlice(self.temp_allocator), .needs_try = false };
     }
 }
