@@ -1,5 +1,8 @@
 const std = @import("std");
 const ast = @import("ast.zig");
+const operators = @import("codegen/operators.zig");
+const classes = @import("codegen/classes.zig");
+const builtins = @import("codegen/builtins.zig");
 
 /// Codegen errors
 pub const CodegenError = error{
@@ -42,7 +45,7 @@ pub fn generate(allocator: std.mem.Allocator, tree: ast.Node) ![]const u8 {
 }
 
 /// Expression evaluation result
-const ExprResult = struct {
+pub const ExprResult = struct {
     code: []const u8,
     needs_try: bool,
 };
@@ -159,7 +162,7 @@ pub const ZigCodeGenerator = struct {
         // Phase 4: Generate class and function definitions (before main)
         for (module.body) |node| {
             if (node == .class_def) {
-                try self.visitClassDef(node.class_def);
+                try classes.visitClassDef(self, node.class_def);
                 try self.emit("");
             }
         }
@@ -343,7 +346,7 @@ pub const ZigCodeGenerator = struct {
     }
 
     /// Visit a node and generate code
-    fn visitNode(self: *ZigCodeGenerator, node: ast.Node) CodegenError!void {
+    pub fn visitNode(self: *ZigCodeGenerator, node: ast.Node) CodegenError!void {
         switch (node) {
             .assign => |assign| try self.visitAssign(assign),
             .expr_stmt => |expr_stmt| {
@@ -370,37 +373,6 @@ pub const ZigCodeGenerator = struct {
             .return_stmt => |ret| try self.visitReturn(ret),
             else => {}, // Ignore other node types for now
         }
-    }
-
-    // Helper methods
-    fn visitCompareOp(self: *ZigCodeGenerator, op: ast.CompareOp) []const u8 {
-        _ = self;
-        return switch (op) {
-            .Lt => "<",
-            .LtEq => "<=",
-            .Gt => ">",
-            .GtEq => ">=",
-            .Eq => "==",
-            .NotEq => "!=",
-            .In => "in", // Will need special handling
-            .NotIn => "not in", // Will need special handling
-        };
-    }
-
-    fn visitBinOpHelper(self: *ZigCodeGenerator, op: ast.Operator) []const u8 {
-        _ = self;
-        return switch (op) {
-            .Add => "+",
-            .Sub => "-",
-            .Mult => "*",
-            .Div => "/",
-            .Mod => "%",
-            .FloorDiv => "//", // Handled specially in visitBinOp
-            .Pow => "**", // Handled specially in visitBinOp
-            .BitAnd => "&",
-            .BitOr => "|",
-            .BitXor => "^",
-        };
     }
 
     // Visitor methods
@@ -464,8 +436,9 @@ pub const ZigCodeGenerator = struct {
                     else => {},
                 }
 
-                // Use 'var' for class instances (to allow field mutations) or reassigned vars
-                const var_keyword = if (is_class_instance or self.reassigned_vars.contains(var_name)) "var" else "const";
+                // Use 'var' for reassigned vars, 'const' otherwise
+                // Note: Class instances use 'const' unless reassigned - field mutations don't require 'var' in Zig
+                const var_keyword = if (self.reassigned_vars.contains(var_name)) "var" else "const";
 
                 // Generate assignment code
                 var buf = std.ArrayList(u8){};
@@ -506,7 +479,7 @@ pub const ZigCodeGenerator = struct {
             .attribute => |attr| {
                 // Handle attribute assignment like self.value = expr
                 // Generate the attribute expression (e.g., "self.value")
-                const attr_result = try self.visitAttribute(attr);
+                const attr_result = try classes.visitAttribute(self, attr);
 
                 // Evaluate the value expression
                 const value_result = try self.visitExpr(assign.value.*);
@@ -524,7 +497,7 @@ pub const ZigCodeGenerator = struct {
         }
     }
 
-    fn visitExpr(self: *ZigCodeGenerator, node: ast.Node) CodegenError!ExprResult {
+    pub fn visitExpr(self: *ZigCodeGenerator, node: ast.Node) CodegenError!ExprResult {
         return switch (node) {
             .name => |name| ExprResult{
                 .code = name.id,
@@ -533,17 +506,17 @@ pub const ZigCodeGenerator = struct {
 
             .constant => |constant| self.visitConstant(constant),
 
-            .binop => |binop| self.visitBinOp(binop),
+            .binop => |binop| operators.visitBinOp(self, binop),
 
-            .unaryop => |unaryop| self.visitUnaryOp(unaryop),
+            .unaryop => |unaryop| operators.visitUnaryOp(self, unaryop),
 
-            .boolop => |boolop| self.visitBoolOp(boolop),
+            .boolop => |boolop| operators.visitBoolOp(self, boolop),
 
-            .attribute => |attr| self.visitAttribute(attr),
+            .attribute => |attr| classes.visitAttribute(self, attr),
 
             .call => |call| self.visitCall(call),
 
-            .compare => |compare| self.visitCompare(compare),
+            .compare => |compare| operators.visitCompare(self, compare),
 
             .list => |list| self.visitList(list),
 
@@ -649,86 +622,6 @@ pub const ZigCodeGenerator = struct {
         }
     }
 
-    fn visitBinOp(self: *ZigCodeGenerator, binop: ast.Node.BinOp) CodegenError!ExprResult {
-        const left_result = try self.visitExpr(binop.left.*);
-        const right_result = try self.visitExpr(binop.right.*);
-
-        var buf = std.ArrayList(u8){};
-
-        // Handle operators that need special Zig functions
-        switch (binop.op) {
-            .FloorDiv => {
-                // Floor division: use @divFloor builtin
-                try buf.writer(self.allocator).print("@divFloor({s}, {s})", .{ left_result.code, right_result.code });
-            },
-            .Pow => {
-                // Exponentiation: use std.math.pow
-                try buf.writer(self.allocator).print("std.math.pow(i64, {s}, {s})", .{ left_result.code, right_result.code });
-            },
-            else => {
-                // Standard operators that map directly to Zig operators
-                const op_str = self.visitBinOpHelper(binop.op);
-                try buf.writer(self.allocator).print("{s} {s} {s}", .{ left_result.code, op_str, right_result.code });
-            },
-        }
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = left_result.needs_try or right_result.needs_try,
-        };
-    }
-
-    fn visitCompare(self: *ZigCodeGenerator, compare: ast.Node.Compare) CodegenError!ExprResult {
-        if (compare.ops.len == 0 or compare.comparators.len == 0) {
-            return error.InvalidCompare;
-        }
-
-        const left_result = try self.visitExpr(compare.left.*);
-        const right_result = try self.visitExpr(compare.comparators[0]);
-
-        const op = compare.ops[0];
-        var buf = std.ArrayList(u8){};
-
-        // Handle 'in' and 'not in' operators specially
-        if (op == .In or op == .NotIn) {
-            self.needs_runtime = true;
-
-            // Wrap left operand if it's a primitive constant
-            var left_code = left_result.code;
-            if (compare.left.* == .constant) {
-                const constant = compare.left.*.constant;
-                switch (constant.value) {
-                    .int => {
-                        left_code = try std.fmt.allocPrint(self.allocator, "try runtime.PyInt.create(allocator, {s})", .{left_result.code});
-                    },
-                    .string => {
-                        // Strings are already wrapped by visitConstant
-                    },
-                    .bool => {
-                        left_code = try std.fmt.allocPrint(self.allocator, "try runtime.PyBool.create(allocator, {s})", .{left_result.code});
-                    },
-                    .float => {
-                        left_code = try std.fmt.allocPrint(self.allocator, "try runtime.PyFloat.create(allocator, {s})", .{left_result.code});
-                    },
-                }
-            }
-
-            if (op == .In) {
-                try buf.writer(self.allocator).print("runtime.contains({s}, {s})", .{ left_code, right_result.code });
-            } else {
-                try buf.writer(self.allocator).print("!runtime.contains({s}, {s})", .{ left_code, right_result.code });
-            }
-        } else {
-            const op_str = self.visitCompareOp(op);
-            try buf.writer(self.allocator).print("{s} {s} {s}", .{ left_result.code, op_str, right_result.code });
-        }
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
     fn visitList(self: *ZigCodeGenerator, list: ast.Node.List) CodegenError!ExprResult {
         // Generate code to create a list literal
         // Strategy: Create empty list, then append each element
@@ -790,27 +683,27 @@ pub const ZigCodeGenerator = struct {
             .name => |func_name| {
                 // Handle built-in functions
                 if (std.mem.eql(u8, func_name.id, "print")) {
-                    return self.visitPrintCall(call.args);
+                    return builtins.visitPrintCall(self, call.args);
                 } else if (std.mem.eql(u8, func_name.id, "len")) {
-                    return self.visitLenCall(call.args);
+                    return builtins.visitLenCall(self, call.args);
                 } else if (std.mem.eql(u8, func_name.id, "abs")) {
-                    return self.visitAbsCall(call.args);
+                    return builtins.visitAbsCall(self, call.args);
                 } else if (std.mem.eql(u8, func_name.id, "round")) {
-                    return self.visitRoundCall(call.args);
+                    return builtins.visitRoundCall(self, call.args);
                 } else if (std.mem.eql(u8, func_name.id, "min")) {
-                    return self.visitMinCall(call.args);
+                    return builtins.visitMinCall(self, call.args);
                 } else if (std.mem.eql(u8, func_name.id, "max")) {
-                    return self.visitMaxCall(call.args);
+                    return builtins.visitMaxCall(self, call.args);
                 } else if (std.mem.eql(u8, func_name.id, "sum")) {
-                    return self.visitSumCall(call.args);
+                    return builtins.visitSumCall(self, call.args);
                 } else if (std.mem.eql(u8, func_name.id, "all")) {
-                    return self.visitAllCall(call.args);
+                    return builtins.visitAllCall(self, call.args);
                 } else if (std.mem.eql(u8, func_name.id, "any")) {
-                    return self.visitAnyCall(call.args);
+                    return builtins.visitAnyCall(self, call.args);
                 } else {
                     // Check if this is a class instantiation
                     if (self.class_names.contains(func_name.id)) {
-                        return self.visitClassInstantiation(func_name.id, call.args);
+                        return classes.visitClassInstantiation(self, func_name.id, call.args);
                     }
 
                     // Check if this is a user-defined function
@@ -822,7 +715,7 @@ pub const ZigCodeGenerator = struct {
             },
             .attribute => |attr| {
                 // Handle method calls like obj.method(args)
-                return self.visitMethodCall(attr, call.args);
+                return classes.visitMethodCall(self, attr, call.args);
             },
             else => return error.UnsupportedCall,
         }
@@ -851,356 +744,6 @@ pub const ZigCodeGenerator = struct {
         }
 
         try buf.writer(self.allocator).writeAll(")");
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: []ast.Node) CodegenError!ExprResult {
-        const obj_result = try self.visitExpr(attr.value.*);
-        const method_name = attr.attr;
-        var buf = std.ArrayList(u8){};
-
-        // String methods
-        if (std.mem.eql(u8, method_name, "upper")) {
-            try buf.writer(self.allocator).print("runtime.PyString.upper(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "lower")) {
-            try buf.writer(self.allocator).print("runtime.PyString.lower(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "strip")) {
-            try buf.writer(self.allocator).print("runtime.PyString.strip(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "lstrip")) {
-            try buf.writer(self.allocator).print("runtime.PyString.lstrip(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "rstrip")) {
-            try buf.writer(self.allocator).print("runtime.PyString.rstrip(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "split")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyString.split(allocator, {s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "replace")) {
-            if (args.len != 2) return error.InvalidArguments;
-            const arg1_result = try self.visitExpr(args[0]);
-            const arg2_result = try self.visitExpr(args[1]);
-            try buf.writer(self.allocator).print("runtime.PyString.replace(allocator, {s}, {s}, {s})", .{ obj_result.code, arg1_result.code, arg2_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "capitalize")) {
-            try buf.writer(self.allocator).print("runtime.PyString.capitalize(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "swapcase")) {
-            try buf.writer(self.allocator).print("runtime.PyString.swapcase(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "title")) {
-            try buf.writer(self.allocator).print("runtime.PyString.title(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "center")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyString.center(allocator, {s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "join")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyString.join(allocator, {s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "startswith")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyString.startswith({s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = false };
-        } else if (std.mem.eql(u8, method_name, "endswith")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyString.endswith({s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = false };
-        } else if (std.mem.eql(u8, method_name, "isdigit")) {
-            try buf.writer(self.allocator).print("runtime.PyString.isdigit({s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = false };
-        } else if (std.mem.eql(u8, method_name, "isalpha")) {
-            try buf.writer(self.allocator).print("runtime.PyString.isalpha({s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = false };
-        } else if (std.mem.eql(u8, method_name, "find")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyString.find({s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = false };
-        }
-        // List methods
-        else if (std.mem.eql(u8, method_name, "append")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyList.append({s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "pop")) {
-            try buf.writer(self.allocator).print("runtime.PyList.pop(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "extend")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyList.extend({s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "reverse")) {
-            try buf.writer(self.allocator).print("runtime.PyList.reverse({s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = false };
-        } else if (std.mem.eql(u8, method_name, "remove")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyList.remove(allocator, {s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "count")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyList.count({s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = false };
-        } else if (std.mem.eql(u8, method_name, "index")) {
-            if (args.len != 1) return error.InvalidArguments;
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.PyList.index({s}, {s})", .{ obj_result.code, arg_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = false };
-        } else if (std.mem.eql(u8, method_name, "insert")) {
-            if (args.len != 2) return error.InvalidArguments;
-            const arg1_result = try self.visitExpr(args[0]);
-            const arg2_result = try self.visitExpr(args[1]);
-            try buf.writer(self.allocator).print("runtime.PyList.insert(allocator, {s}, {s}, {s})", .{ obj_result.code, arg1_result.code, arg2_result.code });
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else if (std.mem.eql(u8, method_name, "clear")) {
-            try buf.writer(self.allocator).print("runtime.PyList.clear(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = false };
-        } else if (std.mem.eql(u8, method_name, "sort")) {
-            try buf.writer(self.allocator).print("runtime.PyList.sort({s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = false };
-        } else if (std.mem.eql(u8, method_name, "copy")) {
-            try buf.writer(self.allocator).print("runtime.PyList.copy(allocator, {s})", .{obj_result.code});
-            return ExprResult{ .code = try buf.toOwnedSlice(self.allocator), .needs_try = true };
-        } else {
-            return error.UnsupportedMethod;
-        }
-    }
-    fn visitPrintCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!ExprResult {
-        if (args.len == 0) {
-            return ExprResult{
-                .code = "std.debug.print(\"\\n\", .{})",
-                .needs_try = false,
-            };
-        }
-
-        const arg = args[0];
-        const arg_result = try self.visitExpr(arg);
-
-        var buf = std.ArrayList(u8){};
-
-        // Determine print format based on variable type
-        switch (arg) {
-            .name => |name| {
-                const var_type = self.var_types.get(name.id);
-                if (var_type) |vtype| {
-                    if (std.mem.eql(u8, vtype, "string")) {
-                        try buf.writer(self.allocator).print("std.debug.print(\"{{s}}\\n\", .{{runtime.PyString.getValue({s})}})", .{arg_result.code});
-                    } else {
-                        try buf.writer(self.allocator).print("std.debug.print(\"{{}}\\n\", .{{{s}}})", .{arg_result.code});
-                    }
-                } else {
-                    try buf.writer(self.allocator).print("std.debug.print(\"{{}}\\n\", .{{{s}}})", .{arg_result.code});
-                }
-            },
-            else => {
-                // For string constants, use getValue
-                const is_string_const = switch (arg) {
-                    .constant => |c| c.value == .string,
-                    else => false,
-                };
-
-                if (is_string_const) {
-                    try buf.writer(self.allocator).print("std.debug.print(\"{{s}}\\n\", .{{runtime.PyString.getValue(try {s})}})", .{arg_result.code});
-                } else if (arg_result.needs_try) {
-                    try buf.writer(self.allocator).print("std.debug.print(\"{{}}\\n\", .{{try {s}}})", .{arg_result.code});
-                } else {
-                    try buf.writer(self.allocator).print("std.debug.print(\"{{}}\\n\", .{{{s}}})", .{arg_result.code});
-                }
-            },
-        }
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitLenCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!ExprResult {
-        if (args.len == 0) return error.MissingLenArg;
-
-        const arg = args[0];
-        const arg_result = try self.visitExpr(arg);
-
-        var buf = std.ArrayList(u8){};
-
-        // Check variable type to determine which len() to call
-        switch (arg) {
-            .name => |name| {
-                const var_type = self.var_types.get(name.id);
-                if (var_type) |vtype| {
-                    if (std.mem.eql(u8, vtype, "list")) {
-                        try buf.writer(self.allocator).print("runtime.PyList.len({s})", .{arg_result.code});
-                    } else if (std.mem.eql(u8, vtype, "string")) {
-                        try buf.writer(self.allocator).print("runtime.PyString.len({s})", .{arg_result.code});
-                    } else {
-                        try buf.writer(self.allocator).print("runtime.PyList.len({s})", .{arg_result.code});
-                    }
-                } else {
-                    try buf.writer(self.allocator).print("runtime.PyList.len({s})", .{arg_result.code});
-                }
-            },
-            else => {
-                try buf.writer(self.allocator).print("runtime.PyList.len({s})", .{arg_result.code});
-            },
-        }
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitAbsCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!ExprResult {
-        if (args.len == 0) return error.MissingLenArg;
-
-        const arg = args[0];
-        const arg_result = try self.visitExpr(arg);
-
-        var buf = std.ArrayList(u8){};
-        try buf.writer(self.allocator).print("@abs({s})", .{arg_result.code});
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitRoundCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!ExprResult {
-        if (args.len == 0) return error.MissingLenArg;
-
-        const arg = args[0];
-        const arg_result = try self.visitExpr(arg);
-
-        var buf = std.ArrayList(u8){};
-        // Python's round() returns an int, Zig's @round() returns same type
-        // Cast to i64 to match Python behavior
-        try buf.writer(self.allocator).print("@as(i64, @intFromFloat(@round({s})))", .{arg_result.code});
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitMinCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!ExprResult {
-        if (args.len == 0) return error.MissingLenArg;
-
-        var buf = std.ArrayList(u8){};
-
-        if (args.len == 1) {
-            // min([1, 2, 3]) - list argument - needs runtime
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.minList({s})", .{arg_result.code});
-        } else if (args.len == 2) {
-            // min(a, b) - use @min builtin
-            const arg1 = try self.visitExpr(args[0]);
-            const arg2 = try self.visitExpr(args[1]);
-            try buf.writer(self.allocator).print("@min({s}, {s})", .{ arg1.code, arg2.code });
-        } else {
-            // min(a, b, c, ...) - chain @min calls
-            var result_code = try self.visitExpr(args[0]);
-            for (args[1..]) |arg| {
-                const arg_result = try self.visitExpr(arg);
-                var temp_buf = std.ArrayList(u8){};
-                try temp_buf.writer(self.allocator).print("@min({s}, {s})", .{ result_code.code, arg_result.code });
-                result_code.code = try temp_buf.toOwnedSlice(self.allocator);
-            }
-            return result_code;
-        }
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitMaxCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!ExprResult {
-        if (args.len == 0) return error.MissingLenArg;
-
-        var buf = std.ArrayList(u8){};
-
-        if (args.len == 1) {
-            // max([1, 2, 3]) - list argument - needs runtime
-            const arg_result = try self.visitExpr(args[0]);
-            try buf.writer(self.allocator).print("runtime.maxList({s})", .{arg_result.code});
-        } else if (args.len == 2) {
-            // max(a, b) - use @max builtin
-            const arg1 = try self.visitExpr(args[0]);
-            const arg2 = try self.visitExpr(args[1]);
-            try buf.writer(self.allocator).print("@max({s}, {s})", .{ arg1.code, arg2.code });
-        } else {
-            // max(a, b, c, ...) - chain @max calls
-            var result_code = try self.visitExpr(args[0]);
-            for (args[1..]) |arg| {
-                const arg_result = try self.visitExpr(arg);
-                var temp_buf = std.ArrayList(u8){};
-                try temp_buf.writer(self.allocator).print("@max({s}, {s})", .{ result_code.code, arg_result.code });
-                result_code.code = try temp_buf.toOwnedSlice(self.allocator);
-            }
-            return result_code;
-        }
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitSumCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!ExprResult {
-        if (args.len == 0) return error.MissingLenArg;
-
-        const arg = args[0];
-        const arg_result = try self.visitExpr(arg);
-
-        var buf = std.ArrayList(u8){};
-        try buf.writer(self.allocator).print("runtime.sum({s})", .{arg_result.code});
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitAllCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!ExprResult {
-        if (args.len == 0) return error.MissingLenArg;
-
-        const arg = args[0];
-        const arg_result = try self.visitExpr(arg);
-
-        var buf = std.ArrayList(u8){};
-        try buf.writer(self.allocator).print("runtime.all({s})", .{arg_result.code});
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitAnyCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!ExprResult {
-        if (args.len == 0) return error.MissingLenArg;
-
-        const arg = args[0];
-        const arg_result = try self.visitExpr(arg);
-
-        var buf = std.ArrayList(u8){};
-        try buf.writer(self.allocator).print("runtime.any({s})", .{arg_result.code});
 
         return ExprResult{
             .code = try buf.toOwnedSlice(self.allocator),
@@ -1517,201 +1060,5 @@ pub const ZigCodeGenerator = struct {
         } else {
             try self.emit("return;");
         }
-    }
-
-    fn visitBoolOp(self: *ZigCodeGenerator, boolop: ast.Node.BoolOp) CodegenError!ExprResult {
-        if (boolop.values.len < 2) {
-            return error.UnsupportedExpression;
-        }
-
-        const left_result = try self.visitExpr(boolop.values[0]);
-        const right_result = try self.visitExpr(boolop.values[1]);
-
-        const op_str = switch (boolop.op) {
-            .And => "and",
-            .Or => "or",
-        };
-
-        var buf = std.ArrayList(u8){};
-        try buf.writer(self.allocator).print("({s} {s} {s})", .{ left_result.code, op_str, right_result.code });
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = left_result.needs_try or right_result.needs_try,
-        };
-    }
-
-    fn visitUnaryOp(self: *ZigCodeGenerator, unaryop: ast.Node.UnaryOp) CodegenError!ExprResult {
-        const operand_result = try self.visitExpr(unaryop.operand.*);
-
-        const op_str = switch (unaryop.op) {
-            .Not => "!",
-            .USub => "-",
-            .UAdd => "+",
-        };
-
-        var buf = std.ArrayList(u8){};
-        try buf.writer(self.allocator).print("{s}({s})", .{ op_str, operand_result.code });
-
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = operand_result.needs_try,
-        };
-    }
-
-    fn visitAttribute(self: *ZigCodeGenerator, attr: ast.Node.Attribute) CodegenError!ExprResult {
-        const value_result = try self.visitExpr(attr.value.*);
-        var buf = std.ArrayList(u8){};
-        try buf.writer(self.allocator).print("{s}.{s}", .{ value_result.code, attr.attr });
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitClassInstantiation(self: *ZigCodeGenerator, class_name: []const u8, args: []ast.Node) CodegenError!ExprResult {
-        var buf = std.ArrayList(u8){};
-        try buf.writer(self.allocator).print("{s}.init(", .{class_name});
-        for (args, 0..) |arg, i| {
-            if (i > 0) try buf.writer(self.allocator).writeAll(", ");
-            const arg_result = try self.visitExpr(arg);
-            try buf.writer(self.allocator).writeAll(arg_result.code);
-        }
-        try buf.writer(self.allocator).writeAll(")");
-        return ExprResult{
-            .code = try buf.toOwnedSlice(self.allocator),
-            .needs_try = false,
-        };
-    }
-
-    fn visitClassDef(self: *ZigCodeGenerator, class: ast.Node.ClassDef) CodegenError!void {
-        try self.class_names.put(class.name, {});
-        var buf = std.ArrayList(u8){};
-        try buf.writer(self.allocator).print("const {s} = struct {{", .{class.name});
-        try self.emit(try buf.toOwnedSlice(self.allocator));
-        self.indent();
-
-        var init_method: ?ast.Node.FunctionDef = null;
-        var methods = std.ArrayList(ast.Node.FunctionDef){};
-        defer methods.deinit(self.allocator);
-
-        for (class.body) |node| {
-            switch (node) {
-                .function_def => |func| {
-                    if (std.mem.eql(u8, func.name, "__init__")) {
-                        init_method = func;
-                    } else {
-                        try methods.append(self.allocator, func);
-                    }
-                },
-                else => {},
-            }
-        }
-
-        if (init_method) |init_func| {
-            for (init_func.body) |stmt| {
-                switch (stmt) {
-                    .assign => |assign| {
-                        for (assign.targets) |target| {
-                            switch (target) {
-                                .attribute => |attr| {
-                                    switch (attr.value.*) {
-                                        .name => |name| {
-                                            if (std.mem.eql(u8, name.id, "self")) {
-                                                var field_buf = std.ArrayList(u8){};
-                                                try field_buf.writer(self.allocator).print("{s}: i64,", .{attr.attr});
-                                                try self.emit(try field_buf.toOwnedSlice(self.allocator));
-                                            }
-                                        },
-                                        else => {},
-                                    }
-                                },
-                                else => {},
-                            }
-                        }
-                    },
-                    else => {},
-                }
-            }
-
-            try self.emit("");
-            buf = std.ArrayList(u8){};
-            try buf.writer(self.allocator).writeAll("pub fn init(");
-
-            for (init_func.args, 0..) |arg, i| {
-                if (std.mem.eql(u8, arg.name, "self")) continue;
-                if (i > 1) try buf.writer(self.allocator).writeAll(", ");
-                try buf.writer(self.allocator).print("{s}: i64", .{arg.name});
-            }
-
-            try buf.writer(self.allocator).print(") {s} {{", .{class.name});
-            try self.emit(try buf.toOwnedSlice(self.allocator));
-            self.indent();
-
-            buf = std.ArrayList(u8){};
-            try buf.writer(self.allocator).print("return {s}{{", .{class.name});
-            try self.emit(try buf.toOwnedSlice(self.allocator));
-            self.indent();
-
-            for (init_func.body) |stmt| {
-                switch (stmt) {
-                    .assign => |assign| {
-                        for (assign.targets) |target| {
-                            switch (target) {
-                                .attribute => |attr| {
-                                    switch (attr.value.*) {
-                                        .name => |name| {
-                                            if (std.mem.eql(u8, name.id, "self")) {
-                                                const value_result = try self.visitExpr(assign.value.*);
-                                                buf = std.ArrayList(u8){};
-                                                try buf.writer(self.allocator).print(".{s} = {s},", .{ attr.attr, value_result.code });
-                                                try self.emit(try buf.toOwnedSlice(self.allocator));
-                                            }
-                                        },
-                                        else => {},
-                                    }
-                                },
-                                else => {},
-                            }
-                        }
-                    },
-                    else => {},
-                }
-            }
-
-            self.dedent();
-            try self.emit("};");
-            self.dedent();
-            try self.emit("}");
-        }
-
-        for (methods.items) |method| {
-            try self.emit("");
-            buf = std.ArrayList(u8){};
-            try buf.writer(self.allocator).print("pub fn {s}(", .{method.name});
-
-            for (method.args, 0..) |arg, i| {
-                if (i > 0) try buf.writer(self.allocator).writeAll(", ");
-                if (std.mem.eql(u8, arg.name, "self")) {
-                    try buf.writer(self.allocator).print("self: *{s}", .{class.name});
-                } else {
-                    try buf.writer(self.allocator).print("{s}: i64", .{arg.name});
-                }
-            }
-
-            try buf.writer(self.allocator).writeAll(") void {");
-            try self.emit(try buf.toOwnedSlice(self.allocator));
-            self.indent();
-
-            for (method.body) |stmt| {
-                try self.visitNode(stmt);
-            }
-
-            self.dedent();
-            try self.emit("}");
-        }
-
-        self.dedent();
-        try self.emit("};");
     }
 };
