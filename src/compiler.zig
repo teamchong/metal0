@@ -57,6 +57,9 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
             output_flag,
         },
     });
+    // Child.run always allocates stdout/stderr, must free them
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
 
     if (result.term.Exited != 0) {
         std.debug.print("Zig compilation failed:\n{s}\n", .{result.stderr});
@@ -73,6 +76,9 @@ fn findZigBinary(allocator: std.mem.Allocator) ![]const u8 {
         // Default to "zig" and hope it's in PATH
         return try allocator.dupe(u8, "zig");
     };
+    // Child.run succeeded, must free stdout/stderr
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
 
     if (result.term.Exited == 0) {
         const path = std.mem.trim(u8, result.stdout, " \n\r\t");

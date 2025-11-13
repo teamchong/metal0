@@ -102,7 +102,6 @@ pub const ZigCodeGenerator = struct {
     }
 
     pub fn deinit(self: *ZigCodeGenerator) void {
-        self.arena.deinit(); // Free ALL temp allocations at once
         self.output.deinit(self.allocator);
         self.var_types.deinit();
         self.declared_vars.deinit();
@@ -111,6 +110,7 @@ pub const ZigCodeGenerator = struct {
         self.tuple_element_types.deinit();
         self.function_names.deinit();
         self.class_names.deinit();
+        self.arena.deinit(); // Free arena last, after all other structures
         self.allocator.destroy(self);
     }
 
@@ -125,8 +125,9 @@ pub const ZigCodeGenerator = struct {
     }
 
     /// Emit a line and free the owned slice after copying it
+    /// Note: Arena allocator will free this automatically on deinit
     pub fn emitOwned(self: *ZigCodeGenerator, code: []const u8) CodegenError!void {
-        defer self.temp_allocator.free(code);
+        // No defer needed - arena allocator frees everything at once
         try self.emit(code);
     }
 
