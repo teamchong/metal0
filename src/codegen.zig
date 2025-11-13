@@ -17,6 +17,10 @@ pub const CodegenError = error{
     UnsupportedForLoop,
     InvalidLoopVariable,
     InvalidRangeArgs,
+    InvalidEnumerateArgs,
+    InvalidEnumerateTarget,
+    InvalidZipArgs,
+    InvalidZipTarget,
     MissingLenArg,
     NotImplemented,
     OutOfMemory,
@@ -60,6 +64,7 @@ pub const ZigCodeGenerator = struct {
 
     needs_runtime: bool,
     needs_allocator: bool,
+    temp_var_counter: usize,
 
     pub fn init(allocator: std.mem.Allocator) !*ZigCodeGenerator {
         const self = try allocator.create(ZigCodeGenerator);
@@ -76,6 +81,7 @@ pub const ZigCodeGenerator = struct {
             .class_names = std.StringHashMap(void).init(allocator),
             .needs_runtime = false,
             .needs_allocator = false,
+            .temp_var_counter = 0,
         };
         return self;
     }
@@ -280,6 +286,20 @@ pub const ZigCodeGenerator = struct {
                 try self.detectRuntimeNeedsExpr(binop.left.*);
                 try self.detectRuntimeNeedsExpr(binop.right.*);
             },
+            .compare => |compare| {
+                // Check if 'in' or 'not in' operator is used
+                for (compare.ops) |op| {
+                    if (op == .In or op == .NotIn) {
+                        self.needs_runtime = true;
+                        break;
+                    }
+                }
+                // Recursively check left and comparators
+                try self.detectRuntimeNeedsExpr(compare.left.*);
+                for (compare.comparators) |comp| {
+                    try self.detectRuntimeNeedsExpr(comp);
+                }
+            },
             else => {},
         }
     }
@@ -396,7 +416,6 @@ pub const ZigCodeGenerator = struct {
 
                 // Determine if this is first assignment or reassignment
                 const is_first_assignment = !self.declared_vars.contains(var_name);
-                const var_keyword = if (self.reassigned_vars.contains(var_name)) "var" else "const";
 
                 if (is_first_assignment) {
                     try self.declared_vars.put(var_name, {});
@@ -405,7 +424,8 @@ pub const ZigCodeGenerator = struct {
                 // Evaluate the value expression
                 const value_result = try self.visitExpr(assign.value.*);
 
-                // Infer type from value
+                // Infer type from value and check if it's a class instance
+                var is_class_instance = false;
                 switch (assign.value.*) {
                     .constant => |constant| {
                         switch (constant.value) {
@@ -423,13 +443,29 @@ pub const ZigCodeGenerator = struct {
                         const source_type = self.var_types.get(source_name.id);
                         if (source_type) |stype| {
                             try self.var_types.put(var_name, stype);
+                            is_class_instance = std.mem.eql(u8, stype, "class");
                         }
                     },
                     .list => {
                         try self.var_types.put(var_name, "list");
                     },
+                    .call => |call| {
+                        // Check if this is a class instantiation
+                        switch (call.func.*) {
+                            .name => |func_name| {
+                                if (self.class_names.contains(func_name.id)) {
+                                    try self.var_types.put(var_name, "class");
+                                    is_class_instance = true;
+                                }
+                            },
+                            else => {},
+                        }
+                    },
                     else => {},
                 }
+
+                // Use 'var' for class instances (to allow field mutations) or reassigned vars
+                const var_keyword = if (is_class_instance or self.reassigned_vars.contains(var_name)) "var" else "const";
 
                 // Generate assignment code
                 var buf = std.ArrayList(u8){};
@@ -467,6 +503,23 @@ pub const ZigCodeGenerator = struct {
                     try self.emit(try buf.toOwnedSlice(self.allocator));
                 }
             },
+            .attribute => |attr| {
+                // Handle attribute assignment like self.value = expr
+                // Generate the attribute expression (e.g., "self.value")
+                const attr_result = try self.visitAttribute(attr);
+
+                // Evaluate the value expression
+                const value_result = try self.visitExpr(assign.value.*);
+
+                // Generate assignment code: attr = value;
+                var buf = std.ArrayList(u8){};
+                if (value_result.needs_try) {
+                    try buf.writer(self.allocator).print("{s} = try {s};", .{ attr_result.code, value_result.code });
+                } else {
+                    try buf.writer(self.allocator).print("{s} = {s};", .{ attr_result.code, value_result.code });
+                }
+                try self.emit(try buf.toOwnedSlice(self.allocator));
+            },
             else => return error.UnsupportedTarget,
         }
     }
@@ -491,6 +544,8 @@ pub const ZigCodeGenerator = struct {
             .call => |call| self.visitCall(call),
 
             .compare => |compare| self.visitCompare(compare),
+
+            .list => |list| self.visitList(list),
 
             else => error.UnsupportedExpression,
         };
@@ -631,13 +686,101 @@ pub const ZigCodeGenerator = struct {
         const left_result = try self.visitExpr(compare.left.*);
         const right_result = try self.visitExpr(compare.comparators[0]);
 
-        const op_str = self.visitCompareOp(compare.ops[0]);
-
+        const op = compare.ops[0];
         var buf = std.ArrayList(u8){};
-        try buf.writer(self.allocator).print("{s} {s} {s}", .{ left_result.code, op_str, right_result.code });
+
+        // Handle 'in' and 'not in' operators specially
+        if (op == .In or op == .NotIn) {
+            self.needs_runtime = true;
+
+            // Wrap left operand if it's a primitive constant
+            var left_code = left_result.code;
+            if (compare.left.* == .constant) {
+                const constant = compare.left.*.constant;
+                switch (constant.value) {
+                    .int => {
+                        left_code = try std.fmt.allocPrint(self.allocator, "try runtime.PyInt.create(allocator, {s})", .{left_result.code});
+                    },
+                    .string => {
+                        // Strings are already wrapped by visitConstant
+                    },
+                    .bool => {
+                        left_code = try std.fmt.allocPrint(self.allocator, "try runtime.PyBool.create(allocator, {s})", .{left_result.code});
+                    },
+                    .float => {
+                        left_code = try std.fmt.allocPrint(self.allocator, "try runtime.PyFloat.create(allocator, {s})", .{left_result.code});
+                    },
+                }
+            }
+
+            if (op == .In) {
+                try buf.writer(self.allocator).print("runtime.contains({s}, {s})", .{ left_code, right_result.code });
+            } else {
+                try buf.writer(self.allocator).print("!runtime.contains({s}, {s})", .{ left_code, right_result.code });
+            }
+        } else {
+            const op_str = self.visitCompareOp(op);
+            try buf.writer(self.allocator).print("{s} {s} {s}", .{ left_result.code, op_str, right_result.code });
+        }
 
         return ExprResult{
             .code = try buf.toOwnedSlice(self.allocator),
+            .needs_try = false,
+        };
+    }
+
+    fn visitList(self: *ZigCodeGenerator, list: ast.Node.List) CodegenError!ExprResult {
+        // Generate code to create a list literal
+        // Strategy: Create empty list, then append each element
+        self.needs_runtime = true;
+        self.needs_allocator = true;
+
+        // Unique variable name for the list
+        const list_var = try std.fmt.allocPrint(self.allocator, "__list_{d}", .{self.temp_var_counter});
+        self.temp_var_counter += 1;
+
+        // Emit list creation as statements
+        var create_buf = std.ArrayList(u8){};
+        try create_buf.writer(self.allocator).print("const {s} = try runtime.PyList.create(allocator);", .{list_var});
+        try self.emit(try create_buf.toOwnedSlice(self.allocator));
+
+        // Append each element
+        for (list.elts) |elt| {
+            const elt_result = try self.visitExpr(elt);
+            var append_buf = std.ArrayList(u8){};
+
+            // Check if element needs wrapping (constants need to be wrapped in PyObject)
+            const needs_wrapping = switch (elt) {
+                .constant => |c| switch (c.value) {
+                    .int, .float, .bool => true,
+                    else => false,
+                },
+                else => false,
+            };
+
+            if (needs_wrapping) {
+                // Wrap constant in appropriate PyObject type
+                const wrapped_code = switch (elt) {
+                    .constant => |c| switch (c.value) {
+                        .int => try std.fmt.allocPrint(self.allocator, "try runtime.PyInt.create(allocator, {s})", .{elt_result.code}),
+                        .float => try std.fmt.allocPrint(self.allocator, "try runtime.PyFloat.create(allocator, {s})", .{elt_result.code}),
+                        .bool => try std.fmt.allocPrint(self.allocator, "try runtime.PyBool.create(allocator, {s})", .{elt_result.code}),
+                        else => elt_result.code,
+                    },
+                    else => elt_result.code,
+                };
+                try append_buf.writer(self.allocator).print("try runtime.PyList.append({s}, {s});", .{ list_var, wrapped_code });
+            } else if (elt_result.needs_try) {
+                try append_buf.writer(self.allocator).print("try runtime.PyList.append({s}, try {s});", .{ list_var, elt_result.code });
+            } else {
+                try append_buf.writer(self.allocator).print("try runtime.PyList.append({s}, {s});", .{ list_var, elt_result.code });
+            }
+            try self.emit(try append_buf.toOwnedSlice(self.allocator));
+        }
+
+        // Return the list variable name
+        return ExprResult{
+            .code = list_var,
             .needs_try = false,
         };
     }
@@ -1095,13 +1238,17 @@ pub const ZigCodeGenerator = struct {
     }
 
     fn visitFor(self: *ZigCodeGenerator, for_node: ast.Node.For) CodegenError!void {
-        // Check if this is a range() call
+        // Check if this is a special function call (range, enumerate, zip)
         switch (for_node.iter.*) {
             .call => |call| {
                 switch (call.func.*) {
                     .name => |func_name| {
                         if (std.mem.eql(u8, func_name.id, "range")) {
                             return self.visitRangeFor(for_node, call.args);
+                        } else if (std.mem.eql(u8, func_name.id, "enumerate")) {
+                            return self.visitEnumerateFor(for_node, call.args);
+                        } else if (std.mem.eql(u8, func_name.id, "zip")) {
+                            return self.visitZipFor(for_node, call.args);
                         }
                     },
                     else => {},
@@ -1176,6 +1323,125 @@ pub const ZigCodeGenerator = struct {
                 try self.emit("}");
             },
             else => return error.InvalidLoopVariable,
+        }
+    }
+
+    fn visitEnumerateFor(self: *ZigCodeGenerator, for_node: ast.Node.For, args: []ast.Node) CodegenError!void {
+        if (args.len != 1) return error.InvalidEnumerateArgs;
+
+        // Get the iterable expression
+        const iterable_result = try self.visitExpr(args[0]);
+
+        // Extract target variables (should be tuple: index, value)
+        switch (for_node.target.*) {
+            .list => |target_list| {
+                if (target_list.elts.len != 2) return error.InvalidEnumerateTarget;
+
+                // Get index and value variable names
+                const idx_name = switch (target_list.elts[0]) {
+                    .name => |n| n.id,
+                    else => return error.InvalidEnumerateTarget,
+                };
+                const val_name = switch (target_list.elts[1]) {
+                    .name => |n| n.id,
+                    else => return error.InvalidEnumerateTarget,
+                };
+
+                // Register variable types
+                try self.var_types.put(idx_name, "int");
+                try self.var_types.put(val_name, "auto");
+
+                // Generate temporary variable to hold the casted list data
+                const list_data_var = try std.fmt.allocPrint(self.allocator, "__enum_list_{d}", .{self.temp_var_counter});
+                self.temp_var_counter += 1;
+
+                // Cast PyObject to PyList to access items
+                var cast_buf = std.ArrayList(u8){};
+                try cast_buf.writer(self.allocator).print("const {s}: *runtime.PyList = @ptrCast(@alignCast({s}.data));", .{ list_data_var, iterable_result.code });
+                try self.emit(try cast_buf.toOwnedSlice(self.allocator));
+
+                // Generate: for (list_data.items.items, 0..) |val, idx| {
+                var buf = std.ArrayList(u8){};
+                try buf.writer(self.allocator).print("for ({s}.items.items, 0..) |{s}, {s}| {{", .{ list_data_var, val_name, idx_name });
+                try self.emit(try buf.toOwnedSlice(self.allocator));
+
+                // Mark variables as declared
+                try self.declared_vars.put(idx_name, {});
+                try self.declared_vars.put(val_name, {});
+
+                self.indent();
+
+                for (for_node.body) |stmt| {
+                    try self.visitNode(stmt);
+                }
+
+                self.dedent();
+                try self.emit("}");
+            },
+            else => return error.InvalidEnumerateTarget,
+        }
+    }
+
+    fn visitZipFor(self: *ZigCodeGenerator, for_node: ast.Node.For, args: []ast.Node) CodegenError!void {
+        if (args.len < 2) return error.InvalidZipArgs;
+
+        // Get all iterable expressions
+        var iterables = std.ArrayList([]const u8){};
+        defer iterables.deinit(self.allocator);
+
+        for (args) |arg| {
+            const iterable_result = try self.visitExpr(arg);
+            try iterables.append(self.allocator, iterable_result.code);
+        }
+
+        // Extract target variables (should be tuple)
+        switch (for_node.target.*) {
+            .list => |target_list| {
+                if (target_list.elts.len != args.len) return error.InvalidZipTarget;
+
+                // Get all variable names
+                var var_names = std.ArrayList([]const u8){};
+                defer var_names.deinit(self.allocator);
+
+                for (target_list.elts) |elt| {
+                    const var_name = switch (elt) {
+                        .name => |n| n.id,
+                        else => return error.InvalidZipTarget,
+                    };
+                    try var_names.append(self.allocator, var_name);
+                    try self.var_types.put(var_name, "auto");
+                    try self.declared_vars.put(var_name, {});
+                }
+
+                // Generate: for (list1.list.items.items, list2.list.items.items, ...) |var1, var2, ...| {
+                var buf = std.ArrayList(u8){};
+                try buf.writer(self.allocator).writeAll("for (");
+
+                for (iterables.items, 0..) |iterable, i| {
+                    if (i > 0) try buf.writer(self.allocator).writeAll(", ");
+                    try buf.writer(self.allocator).print("{s}.list.items.items", .{iterable});
+                }
+
+                try buf.writer(self.allocator).writeAll(") |");
+
+                for (var_names.items, 0..) |var_name, i| {
+                    if (i > 0) try buf.writer(self.allocator).writeAll(", ");
+                    try buf.writer(self.allocator).writeAll(var_name);
+                }
+
+                try buf.writer(self.allocator).writeAll("| {");
+                try self.emit(try buf.toOwnedSlice(self.allocator));
+
+                self.indent();
+
+                for (for_node.body) |stmt| {
+                    try self.visitNode(stmt);
+                }
+
+                self.dedent();
+                try self.emit("}");
+            },
+            else => return error.InvalidZipTarget,
         }
     }
 

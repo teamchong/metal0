@@ -319,7 +319,18 @@ pub const Parser = struct {
 
     fn parseFor(self: *Parser) ParseError!ast.Node {
         _ = try self.expect(.For);
-        const target = try self.parsePrimary();
+
+        // Parse target (can be single var or tuple like: i, x)
+        var targets = std.ArrayList(ast.Node){};
+        defer targets.deinit(self.allocator);
+
+        try targets.append(self.allocator, try self.parsePrimary());
+
+        // Check for comma-separated targets (tuple unpacking)
+        while (self.match(.Comma)) {
+            try targets.append(self.allocator, try self.parsePrimary());
+        }
+
         _ = try self.expect(.In);
         const iter = try self.parseExpression();
         _ = try self.expect(.Colon);
@@ -331,7 +342,17 @@ pub const Parser = struct {
         _ = try self.expect(.Dedent);
 
         const target_ptr = try self.allocator.create(ast.Node);
-        target_ptr.* = target;
+        if (targets.items.len == 1) {
+            // Single target
+            target_ptr.* = targets.items[0];
+        } else {
+            // Multiple targets (tuple unpacking) - use list node
+            target_ptr.* = ast.Node{
+                .list = .{
+                    .elts = try targets.toOwnedSlice(self.allocator),
+                },
+            };
+        }
 
         const iter_ptr = try self.allocator.create(ast.Node);
         iter_ptr.* = iter;
@@ -509,6 +530,15 @@ pub const Parser = struct {
             } else if (self.match(.In)) {
                 try ops.append(self.allocator, .In);
                 found = true;
+            } else if (self.match(.Not)) {
+                // Check for "not in"
+                if (self.match(.In)) {
+                    try ops.append(self.allocator, .NotIn);
+                    found = true;
+                } else {
+                    // Put back the Not token - it's not part of comparison
+                    self.current -= 1;
+                }
             }
 
             if (!found) break;

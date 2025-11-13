@@ -481,6 +481,32 @@ pub fn filterTruthy(iterable: *PyObject, allocator: std.mem.Allocator) !*PyObjec
     return result;
 }
 
+/// Generic 'in' operator - checks membership based on container type
+pub fn contains(needle: *PyObject, haystack: *PyObject) bool {
+    switch (haystack.type_id) {
+        .string => {
+            // String contains substring
+            return PyString.contains(haystack, needle);
+        },
+        .list => {
+            // List contains element
+            return PyList.contains(haystack, needle);
+        },
+        .dict => {
+            // Dict contains key (needle must be a string)
+            if (needle.type_id != .string) {
+                return false;
+            }
+            const key = PyString.getValue(needle);
+            return PyDict.contains(haystack, key);
+        },
+        else => {
+            // Unsupported type - return false
+            return false;
+        },
+    }
+}
+
 /// Python list type - re-exported from pylist.zig
 pub const PyList = pylist.PyList;
 
