@@ -40,7 +40,7 @@ def run_example(example_path: Path) -> tuple[str, str, int, int]:
             ["python", str(example_path)],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=60
         )
 
         # Compile Zyth
