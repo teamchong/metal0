@@ -132,7 +132,7 @@ pub const ZigCodeGenerator = struct {
         }
         try self.emit("");
 
-        try self.emit("pub fn main() CodegenError!void {");
+        try self.emit("pub fn main() !void {");
         self.indent();
 
         if (self.needs_allocator) {
@@ -211,9 +211,11 @@ pub const ZigCodeGenerator = struct {
             .assign => |assign| try self.visitAssign(assign),
             .expr_stmt => |expr_stmt| {
                 const result = try self.visitExpr(expr_stmt.value.*);
-                // Expression statement - emit it
+                // Expression statement - emit it with semicolon
                 if (result.code.len > 0) {
-                    try self.emit(result.code);
+                    var buf = std.ArrayList(u8){};
+                    try buf.writer(self.allocator).print("{s};", .{result.code});
+                    try self.emit(try buf.toOwnedSlice(self.allocator));
                 }
             },
             .if_stmt => |if_node| try self.visitIf(if_node),

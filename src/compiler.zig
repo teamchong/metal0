@@ -3,36 +3,31 @@ const std = @import("std");
 /// Compile Zig source code to native binary
 pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
     // Write Zig code to temporary file
-    const tmp_dir = try std.fs.createTmpDir(.{ .prefix = "zyth_" });
-    defer tmp_dir.cleanup() catch {};
+    const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/zyth_main_{d}.zig", .{std.time.milliTimestamp()});
+    defer allocator.free(tmp_path);
 
-    const tmp_file_path = try std.fs.path.join(allocator, &[_][]const u8{ "/tmp", "zyth_XXXXXX", "main.zig" });
-    defer allocator.free(tmp_file_path);
-
-    // Create temp file
-    var tmp_file = try tmp_dir.createFile("main.zig", .{});
+    // Write temp file
+    const tmp_file = try std.fs.createFileAbsolute(tmp_path, .{});
     defer tmp_file.close();
+    defer std.fs.deleteFileAbsolute(tmp_path) catch {};
 
     try tmp_file.writeAll(zig_code);
-
-    // Get absolute path of temp file
-    const cwd = try std.process.getCwd(allocator);
-    defer allocator.free(cwd);
 
     // Shell out to zig build-exe
     const zig_path = try findZigBinary(allocator);
     defer allocator.free(zig_path);
+
+    const output_flag = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{output_path});
+    defer allocator.free(output_flag);
 
     const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{
             zig_path,
             "build-exe",
-            try std.fmt.allocPrint(allocator, "/tmp/zyth_*/main.zig", .{}), // TODO: Use actual tmp path
-            "-O",
-            "Debug",
-            "--name",
-            output_path,
+            tmp_path,
+            "-ODebug",
+            output_flag,
         },
     });
 

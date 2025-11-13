@@ -50,15 +50,22 @@ fn compileFile(allocator: std.mem.Allocator, input_path: []const u8, output_path
     const source = try std.fs.cwd().readFileAlloc(allocator, input_path, 10 * 1024 * 1024); // 10MB max
     defer allocator.free(source);
 
-    // PHASE 1 BRIDGE: Use Python for AST (temporary)
-    // TODO: Replace with pure Zig lexer/parser
-    std.debug.print("Parsing (using Python bridge)...\n", .{});
+    // PHASE 1: Lexer - Tokenize source code
+    std.debug.print("Lexing...\n", .{});
+    var lex = try lexer.Lexer.init(allocator, source);
+    defer lex.deinit();
 
-    const ast_json = try getPythonAst(allocator, input_path);
-    defer allocator.free(ast_json);
+    const tokens = try lex.tokenize();
+    defer allocator.free(tokens);
 
+    // PHASE 2: Parser - Build AST
+    std.debug.print("Parsing...\n", .{});
+    var p = parser.Parser.init(allocator, tokens);
+    const tree = try p.parse();
+
+    // PHASE 3: Codegen - Generate Zig code
     std.debug.print("Generating Zig code...\n", .{});
-    const zig_code = try codegen.generate(allocator, ast_json);
+    const zig_code = try codegen.generate(allocator, tree);
     defer allocator.free(zig_code);
 
     // Determine output path
@@ -93,31 +100,6 @@ fn compileFile(allocator: std.mem.Allocator, input_path: []const u8, output_path
             .argv = &[_][]const u8{bin_path},
         });
     }
-}
-
-// TEMPORARY: Bridge to Python AST
-fn getPythonAst(allocator: std.mem.Allocator, input_file: []const u8) ![]const u8 {
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{
-            "python",
-            "-c",
-            try std.fmt.allocPrint(allocator,
-                \\import ast, json, sys
-                \\with open('{s}') as f:
-                \\    tree = ast.parse(f.read())
-                \\    print(json.dumps(ast.dump(tree, indent=2)))
-                , .{input_file}
-            ),
-        },
-    });
-
-    if (result.term.Exited != 0) {
-        std.debug.print("Python AST parsing failed:\n{s}\n", .{result.stderr});
-        return error.PythonParseFailed;
-    }
-
-    return result.stdout;
 }
 
 fn printUsage() !void {
