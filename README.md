@@ -4,18 +4,15 @@
 
 Python to Zig AOT compiler. Write Python, run native code.
 
-**Up to 41x faster** than CPython | Native binaries | Zero interpreter overhead
+**Up to 41x faster** than CPython | Native binaries | Zero runtime overhead
 
 ## Quick Start
 
 ```bash
-# Clone and setup
+# Clone and install
 git clone <repo-url> zyth
 cd zyth
-make install-dev
-
-# Activate environment
-source .venv/bin/activate
+make install
 
 # Compile and run
 zyth examples/fibonacci.py
@@ -23,56 +20,32 @@ zyth examples/fibonacci.py
 
 ## Installation
 
-### Development Setup (Contributors)
+**Requirements:**
+- Zig 0.15.2 or later
 
+**Install:**
 ```bash
-make install-dev
-source .venv/bin/activate
-zyth --help
+make install
 ```
 
-### Production Install (Users)
+This builds an optimized 433KB binary and installs it to `~/.local/bin/zyth`.
 
+Make sure `~/.local/bin` is in your PATH:
 ```bash
-# From PyPI (when published)
-pip install zyth-cli
-zyth --help
-
-# Or with pipx (isolated)
-pipx install zyth-cli
-```
-
-### Manual Install
-
-```bash
-# From source
-uv pip install -e packages/cli
-
-# Activate venv
-source .venv/bin/activate
-zyth --help
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 ## Usage
 
 ```bash
-# Smart run (compile if needed, then execute)
-zyth app.py
+# Compile and run
+zyth your_file.py
 
-# Build to ./bin/ without running
-zyth build app.py
+# Build without running
+zyth build your_file.py
 
-# Build all Python files recursively
-zyth build
-
-# Build current directory only (non-recursive)
-zyth build .
-
-# Show generated Zig code
-zyth app.py --show-zig
-
-# Custom output directory
-zyth build app.py -o dist/
+# Custom output path
+zyth build your_file.py /tmp/output
 ```
 
 ## Example
@@ -156,12 +129,6 @@ Raw results: [loop_sum_results.md](benchmarks/loop_sum_results.md) · [fibonacci
 - ✅ Timestamp-based build cache (3x faster compilation)
 - ✅ Debug builds with memory leak detection
 
-### 🚧 In Progress (Active Development)
-
-- 🔨 Boolean operators (`and`, `or`, `not`) - Agent 3 implementing
-- 🔨 Exception handling edge cases - Agent 1 fixing
-- 🔨 Variable reassignment tracking improvements - Agent 2 fixing
-
 ### 📋 Roadmap
 
 **Phase 1: Core Completeness**
@@ -184,35 +151,54 @@ Raw results: [loop_sum_results.md](benchmarks/loop_sum_results.md) · [fibonacci
 - [ ] JIT compilation
 - [ ] REPL
 
-## Project Structure
+## Architecture
+
+**Pure Zig Compiler (No Python Dependency):**
 
 ```
 zyth/
-├── packages/
-│   ├── core/       # Compiler (parser, codegen)
-│   ├── runtime/    # Zig runtime library
-│   ├── cli/        # Command-line tool
-│   ├── web/        # zyth.web (future)
-│   ├── http/       # zyth.http (future)
-│   └── ai/         # zyth.ai (future)
-├── examples/       # Example programs
-└── docs/          # Documentation
+├── src/                      # Zig compiler (3 phases)
+│   ├── main.zig             # Entry point & CLI
+│   ├── lexer.zig            # Phase 1: Tokenization
+│   ├── parser.zig           # Phase 2: AST construction
+│   ├── codegen.zig          # Phase 3: Zig code generation
+│   ├── compiler.zig         # Zig compilation wrapper
+│   └── ast.zig              # AST node definitions
+├── packages/runtime/src/     # Runtime library
+│   ├── runtime.zig          # PyObject & memory management
+│   ├── pystring.zig         # String methods
+│   ├── pylist.zig           # List methods
+│   ├── dict.zig             # Dict methods
+│   └── pyint.zig            # Integer wrapping
+├── examples/                 # Demo programs
+├── tests/                    # Integration tests (pytest)
+├── build.zig                 # Zig build configuration
+└── Makefile                  # Simple build/install
 ```
+
+**Compilation Pipeline:**
+1. **Lexer**: Python source → Tokens
+2. **Parser**: Tokens → AST (native Zig structures)
+3. **Codegen**: AST → Zig source code
+4. **Zig Compiler**: Zig code → Native binary
 
 ## Development
 
 ```bash
-# Run tests
-make test         # Python tests
-make test-zig     # Zig runtime tests
+# Build debug binary (for development)
+make build
 
-# Code quality
-make lint         # Run linter
-make format       # Format code
-make typecheck    # Type check
+# Build optimized binary
+make build-release
 
-# Run example
-make run FILE=examples/fibonacci.py
+# Install optimized binary
+make install
+
+# Run tests (requires pytest)
+pytest
+
+# Zig runtime tests
+make test-zig
 
 # Clean build artifacts
 make clean
@@ -220,9 +206,8 @@ make clean
 
 ## Requirements
 
-- Python 3.10+
-- Zig 0.15.2+
-- uv (recommended) or pip
+- **Compilation**: Zig 0.15.2+ only
+- **Testing** (optional): Python 3.10+ with pytest
 
 ## Documentation
 
