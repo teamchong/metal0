@@ -5,6 +5,14 @@ const parser = @import("parser.zig");
 const codegen = @import("codegen.zig");
 const compiler = @import("compiler.zig");
 
+const CompileOptions = struct {
+    input_file: []const u8,
+    output_file: ?[]const u8 = null,
+    mode: []const u8, // "run" or "build"
+    binary: bool = false, // --binary flag
+    force: bool = false, // --force/-f flag
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -19,41 +27,91 @@ pub fn main() !void {
         return;
     }
 
-    const command = args[1];
+    var opts = CompileOptions{
+        .input_file = undefined,
+        .mode = "run",
+    };
 
-    if (std.mem.eql(u8, command, "build") or std.mem.eql(u8, command, "run")) {
-        if (args.len < 3) {
-            std.debug.print("Error: Missing input file\n", .{});
-            try printUsage();
-            return;
-        }
+    var i: usize = 1;
+    var is_build_command = false;
 
-        const input_file = args[2];
-        const output_file = if (args.len > 3) args[3] else null;
-
-        try compileFile(allocator, input_file, output_file, command);
-    } else if (std.mem.eql(u8, command, "test")) {
+    // Parse command (build/test or direct file)
+    if (std.mem.eql(u8, args[1], "build")) {
+        is_build_command = true;
+        opts.mode = "build";
+        i = 2;
+    } else if (std.mem.eql(u8, args[1], "test")) {
         // Run pytest for now (bridge to Python)
         std.debug.print("Running tests (bridge to Python)...\n", .{});
         _ = try std.process.Child.run(.{
             .allocator = allocator,
             .argv = &[_][]const u8{ "pytest", "-v" },
         });
-    } else {
-        // Default: treat first arg as file to run
-        try compileFile(allocator, command, null, "run");
+        return;
     }
+
+    // Parse flags and input file
+    var input_file: ?[]const u8 = null;
+    var output_file: ?[]const u8 = null;
+
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+
+        if (std.mem.eql(u8, arg, "--binary")) {
+            opts.binary = true;
+        } else if (std.mem.eql(u8, arg, "--force") or std.mem.eql(u8, arg, "-f")) {
+            opts.force = true;
+        } else if (std.mem.startsWith(u8, arg, "--")) {
+            std.debug.print("Unknown flag: {s}\n", .{arg});
+            try printUsage();
+            return;
+        } else {
+            // First non-flag is input file, second is output file
+            if (input_file == null) {
+                input_file = arg;
+            } else if (output_file == null) {
+                output_file = arg;
+            } else {
+                std.debug.print("Too many arguments\n", .{});
+                try printUsage();
+                return;
+            }
+        }
+    }
+
+    if (input_file == null) {
+        std.debug.print("Error: Missing input file\n", .{});
+        try printUsage();
+        return;
+    }
+
+    opts.input_file = input_file.?;
+    opts.output_file = output_file;
+
+    try compileFile(allocator, opts);
 }
 
-fn compileFile(allocator: std.mem.Allocator, input_path: []const u8, output_path: ?[]const u8, mode: []const u8) !void {
+/// Get current architecture string (e.g., "x86_64", "arm64")
+fn getArch() []const u8 {
+    const builtin = @import("builtin");
+    return switch (builtin.cpu.arch) {
+        .x86_64 => "x86_64",
+        .aarch64 => "arm64",
+        .arm => "arm",
+        .riscv64 => "riscv64",
+        else => "unknown",
+    };
+}
+
+fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Read source file
-    const source = try std.fs.cwd().readFileAlloc(allocator, input_path, 10 * 1024 * 1024); // 10MB max
+    const source = try std.fs.cwd().readFileAlloc(allocator, opts.input_file, 10 * 1024 * 1024); // 10MB max
     defer allocator.free(source);
 
     // Determine output path
-    const bin_path_allocated = output_path == null;
-    const bin_path = output_path orelse blk: {
-        const basename = std.fs.path.basename(input_path);
+    const bin_path_allocated = opts.output_file == null;
+    const bin_path = opts.output_file orelse blk: {
+        const basename = std.fs.path.basename(opts.input_file);
         const name_no_ext = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
             basename[0..idx]
         else
@@ -64,22 +122,35 @@ fn compileFile(allocator: std.mem.Allocator, input_path: []const u8, output_path
             if (err != error.PathAlreadyExists) return err;
         };
 
-        const path = try std.fmt.allocPrint(allocator, ".pyx/{s}", .{name_no_ext});
+        // Generate output filename with architecture
+        // Binary: name (or name.exe on Windows)
+        // Shared lib: name_x86_64.so (or name_x86_64.dylib on macOS)
+        const arch = getArch();
+        const path = if (opts.binary)
+            try std.fmt.allocPrint(allocator, ".pyx/{s}", .{name_no_ext})
+        else
+            try std.fmt.allocPrint(allocator, ".pyx/{s}_{s}.so", .{ name_no_ext, arch });
         break :blk path;
     };
     defer if (bin_path_allocated) allocator.free(bin_path);
 
-    // Check if binary is up-to-date using content hash
-    const should_compile = try shouldRecompile(allocator, source, bin_path);
+    // Check if binary is up-to-date using content hash (unless --force)
+    const should_compile = opts.force or try shouldRecompile(allocator, source, bin_path);
 
     if (!should_compile) {
-        // Binary is up-to-date, skip compilation
-        if (std.mem.eql(u8, mode, "run")) {
-            // Just run the existing binary (inherit stdout/stderr)
-            var child = std.process.Child.init(&[_][]const u8{bin_path}, allocator);
-            _ = try child.spawnAndWait();
+        // Output is up-to-date, skip compilation
+        if (std.mem.eql(u8, opts.mode, "run")) {
+            if (opts.binary) {
+                // Run binary directly
+                var child = std.process.Child.init(&[_][]const u8{bin_path}, allocator);
+                _ = try child.spawnAndWait();
+            } else {
+                // .so files cannot be executed directly
+                std.debug.print("✓ Shared library up-to-date: {s}\n", .{bin_path});
+                std.debug.print("To run, use: pyx --binary {s}\n", .{opts.input_file});
+            }
         } else {
-            std.debug.print("✓ Binary up-to-date: {s}\n", .{bin_path});
+            std.debug.print("✓ Output up-to-date: {s}\n", .{bin_path});
         }
         return;
     }
@@ -103,9 +174,15 @@ fn compileFile(allocator: std.mem.Allocator, input_path: []const u8, output_path
     const zig_code = try codegen.generate(allocator, tree);
     defer allocator.free(zig_code);
 
-    // Compile Zig code to binary
-    std.debug.print("Compiling to binary...\n", .{});
-    try compiler.compileZig(allocator, zig_code, bin_path);
+    // Compile Zig code
+    const output_type = if (opts.binary) "binary" else "shared library";
+    std.debug.print("Compiling to {s}...\n", .{output_type});
+
+    if (opts.binary) {
+        try compiler.compileZig(allocator, zig_code, bin_path);
+    } else {
+        try compiler.compileZigSharedLib(allocator, zig_code, bin_path);
+    }
 
     std.debug.print("✓ Compiled successfully to: {s}\n", .{bin_path});
 
@@ -113,21 +190,41 @@ fn compileFile(allocator: std.mem.Allocator, input_path: []const u8, output_path
     try updateCache(allocator, source, bin_path);
 
     // Run if mode is "run"
-    if (std.mem.eql(u8, mode, "run")) {
-        std.debug.print("\n", .{});
-        // Run binary with inherited stdout/stderr
-        var child = std.process.Child.init(&[_][]const u8{bin_path}, allocator);
-        _ = try child.spawnAndWait();
+    if (std.mem.eql(u8, opts.mode, "run")) {
+        if (opts.binary) {
+            std.debug.print("\n", .{});
+            // Run binary directly
+            var child = std.process.Child.init(&[_][]const u8{bin_path}, allocator);
+            _ = try child.spawnAndWait();
+        } else {
+            // .so files cannot be executed directly
+            std.debug.print("\n✓ Shared library compiled: {s}\n", .{bin_path});
+            std.debug.print("To run, use: pyx --binary {s}\n", .{opts.input_file});
+            std.debug.print("(Shared library runner coming in next version)\n", .{});
+        }
     }
 }
 
 fn printUsage() !void {
     std.debug.print(
         \\Usage:
-        \\  pyx <file.py>              # Compile and run
-        \\  pyx build <file.py>        # Compile only
-        \\  pyx build <file.py> <out>  # Compile to specific path
-        \\  pyx test                   # Run test suite
+        \\  pyx <file.py>                    # Compile .so and run
+        \\  pyx <file.py> --force            # Force recompile
+        \\  pyx <file.py> --binary           # Compile to binary and run
+        \\  pyx build <file.py>              # Build .so only
+        \\  pyx build <file.py> --binary     # Build standalone binary
+        \\  pyx build <file.py> <out>        # Custom output path
+        \\  pyx build <file.py> -f           # Force rebuild
+        \\  pyx test                         # Run test suite
+        \\
+        \\Flags:
+        \\  --binary     Build standalone binary (default: shared library)
+        \\  --force, -f  Force recompile (ignore cache)
+        \\
+        \\Examples:
+        \\  pyx myapp.py                     # Fast: builds myapp_x86_64.so
+        \\  pyx myapp.py -f                  # Force recompile myapp_x86_64.so
+        \\  pyx build --binary myapp.py      # Deploy: builds myapp binary
         \\
     , .{});
 }

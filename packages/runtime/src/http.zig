@@ -11,7 +11,7 @@ pub const HttpResponse = struct {
     }
 };
 
-/// Async HTTP GET request
+/// Async HTTP GET request using Zig 0.15.2 fetch API
 pub fn get(allocator: std.mem.Allocator, url: []const u8) !HttpResponse {
     // Parse URL
     const uri = try std.Uri.parse(url);
@@ -20,28 +20,24 @@ pub fn get(allocator: std.mem.Allocator, url: []const u8) !HttpResponse {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
-    // Build request
-    var req = try client.open(.GET, uri, .{
-        .server_header_buffer = try allocator.alloc(u8, 8192),
+    // Response body buffer
+    var response_buf = std.ArrayList(u8){};
+    defer response_buf.deinit(allocator);
+
+    // Create writer for response
+    var buf_writer = response_buf.writer(allocator);
+    var any_writer = buf_writer.any();
+
+    // Execute fetch request
+    const result = try client.fetch(.{
+        .location = .{ .uri = uri },
+        .method = .GET,
+        .response_writer = &any_writer,
     });
-    defer req.deinit();
-    defer allocator.free(req.server_header_buffer);
-
-    // Send request and wait for response
-    try req.send();
-    try req.finish();
-    try req.wait();
-
-    // Read response body
-    var body = std.ArrayList(u8){};
-    defer body.deinit(allocator);
-
-    const reader = req.reader();
-    try reader.readAllArrayList(&body, allocator, 10 * 1024 * 1024); // 10MB max
 
     return HttpResponse{
-        .status = @intFromEnum(req.response.status),
-        .body = try body.toOwnedSlice(allocator),
+        .status = @intFromEnum(result.status),
+        .body = try response_buf.toOwnedSlice(allocator),
         .allocator = allocator,
     };
 }
