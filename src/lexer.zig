@@ -24,6 +24,8 @@ pub const TokenType = enum {
     True,
     False,
     None,
+    Async,
+    Await,
 
     // Literals
     Ident,
@@ -482,6 +484,8 @@ pub const Lexer = struct {
             .{ "True", .True },
             .{ "False", .False },
             .{ "None", .None },
+            .{ "async", .Async },
+            .{ "await", .Await },
         });
 
         return keywords.get(lexeme) orelse .Ident;

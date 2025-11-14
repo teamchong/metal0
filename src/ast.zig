@@ -23,6 +23,7 @@ pub const Node = union(enum) {
     subscript: Subscript,
     attribute: Attribute,
     expr_stmt: ExprStmt,
+    await_expr: AwaitExpr,
 
     pub const Module = struct {
         body: []Node,
@@ -78,6 +79,7 @@ pub const Node = union(enum) {
         name: []const u8,
         args: []Arg,
         body: []Node,
+        is_async: bool,
     };
 
     pub const ClassDef = struct {
@@ -135,6 +137,10 @@ pub const Node = union(enum) {
     };
 
     pub const ExprStmt = struct {
+        value: *Node,
+    };
+
+    pub const AwaitExpr = struct {
         value: *Node,
     };
 
@@ -260,6 +266,10 @@ pub const Node = union(enum) {
             .expr_stmt => |e| {
                 e.value.deinit(allocator);
                 allocator.destroy(e.value);
+            },
+            .await_expr => |a| {
+                a.value.deinit(allocator);
+                allocator.destroy(a.value);
             },
             // Leaf nodes need no cleanup
             .name, .constant => {},

@@ -75,6 +75,7 @@ pub const ZigCodeGenerator = struct {
 
     needs_runtime: bool,
     needs_allocator: bool,
+    has_async: bool,
     temp_var_counter: usize,
 
     pub fn init(allocator: std.mem.Allocator) !*ZigCodeGenerator {
@@ -96,6 +97,7 @@ pub const ZigCodeGenerator = struct {
             .class_has_methods = std.StringHashMap(bool).init(allocator),
             .needs_runtime = false,
             .needs_allocator = false,
+            .has_async = false,
             .temp_var_counter = 0,
         };
         // Set temp_allocator after arena is moved into struct
@@ -172,6 +174,53 @@ pub const ZigCodeGenerator = struct {
         }
     }
 
+    /// Emit async executor (simple single-threaded event loop)
+    fn emitAsyncExecutor(self: *ZigCodeGenerator) CodegenError!void {
+        try self.emit("// Async executor (simple single-threaded event loop)");
+        try self.emit("const Executor = struct {");
+        self.indent();
+        try self.emit("frames: std.ArrayList(*anyopaque),");
+        try self.emit("allocator: std.mem.Allocator,");
+        try self.emit("");
+        try self.emit("pub fn init(allocator: std.mem.Allocator) Executor {");
+        self.indent();
+        try self.emit("return .{");
+        self.indent();
+        try self.emit(".frames = std.ArrayList(*anyopaque){},");
+        try self.emit(".allocator = allocator,");
+        self.dedent();
+        try self.emit("};");
+        self.dedent();
+        try self.emit("}");
+        try self.emit("");
+        try self.emit("pub fn spawn(self: *Executor, frame: anytype) !void {");
+        self.indent();
+        try self.emit("try self.frames.append(self.allocator, @ptrCast(frame));");
+        self.dedent();
+        try self.emit("}");
+        try self.emit("");
+        try self.emit("pub fn run(self: *Executor) !void {");
+        self.indent();
+        try self.emit("// Simple: run all frames sequentially for Phase 1");
+        try self.emit("for (self.frames.items) |frame_ptr| {");
+        self.indent();
+        try self.emit("// Resume each frame until complete");
+        try self.emit("// (Full async implementation in Phase 2)");
+        try self.emit("_ = frame_ptr;");
+        self.dedent();
+        try self.emit("}");
+        self.dedent();
+        try self.emit("}");
+        try self.emit("");
+        try self.emit("pub fn deinit(self: *Executor) void {");
+        self.indent();
+        try self.emit("self.frames.deinit(self.allocator);");
+        self.dedent();
+        try self.emit("}");
+        self.dedent();
+        try self.emit("};");
+    }
+
     /// Generate code from parsed AST
     pub fn generate(self: *ZigCodeGenerator, module: ast.Node.Module) CodegenError!void {
         // Phase 1: Detect runtime needs, collect declarations, and collect function names
@@ -179,9 +228,12 @@ pub const ZigCodeGenerator = struct {
             try self.detectRuntimeNeeds(node);
             try self.collectDeclarations(node);
 
-            // Collect function names
+            // Collect function names and detect async
             if (node == .function_def) {
                 try self.function_names.put(node.function_def.name, {});
+                if (node.function_def.is_async) {
+                    self.has_async = true;
+                }
             }
 
             // Collect class names
@@ -207,6 +259,12 @@ pub const ZigCodeGenerator = struct {
             try self.emit("const runtime = @import(\"runtime.zig\");");
         }
         try self.emit("");
+
+        // Phase 3.5: Generate async executor if needed
+        if (self.has_async) {
+            try self.emitAsyncExecutor();
+            try self.emit("");
+        }
 
         // Phase 4: Generate class and function definitions (before main)
         for (module.body) |node| {

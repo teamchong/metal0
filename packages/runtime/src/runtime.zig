@@ -1,4 +1,4 @@
-/// Zyth Runtime Library
+/// PyX Runtime Library
 /// Core runtime support for compiled Python code
 const std = @import("std");
 const pyint = @import("pyint.zig");
@@ -523,6 +523,16 @@ pub const PyString = pystring.PyString;
 // Import PyDict from separate file
 const dict_module = @import("dict.zig");
 pub const PyDict = dict_module.PyDict;
+
+// HTTP and async modules
+pub const http = @import("http.zig");
+pub const async_runtime = @import("async.zig");
+
+// Export convenience functions
+pub const httpGet = http.getAsPyString;
+pub const httpGetResponse = http.getAsResponse;
+pub const sleep = async_runtime.sleepAsync;
+pub const now = async_runtime.now;
 
 // Tests
 test "PyInt creation and retrieval" {

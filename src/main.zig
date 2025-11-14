@@ -59,12 +59,12 @@ fn compileFile(allocator: std.mem.Allocator, input_path: []const u8, output_path
         else
             basename;
 
-        // Create .zyth/ directory if it doesn't exist
-        std.fs.cwd().makeDir(".zyth") catch |err| {
+        // Create .pyx/ directory if it doesn't exist
+        std.fs.cwd().makeDir(".pyx") catch |err| {
             if (err != error.PathAlreadyExists) return err;
         };
 
-        const path = try std.fmt.allocPrint(allocator, ".zyth/{s}", .{name_no_ext});
+        const path = try std.fmt.allocPrint(allocator, ".pyx/{s}", .{name_no_ext});
         break :blk path;
     };
     defer if (bin_path_allocated) allocator.free(bin_path);
@@ -124,10 +124,10 @@ fn compileFile(allocator: std.mem.Allocator, input_path: []const u8, output_path
 fn printUsage() !void {
     std.debug.print(
         \\Usage:
-        \\  zyth <file.py>              # Compile and run
-        \\  zyth build <file.py>        # Compile only
-        \\  zyth build <file.py> <out>  # Compile to specific path
-        \\  zyth test                   # Run test suite
+        \\  pyx <file.py>              # Compile and run
+        \\  pyx build <file.py>        # Compile only
+        \\  pyx build <file.py> <out>  # Compile to specific path
+        \\  pyx test                   # Run test suite
         \\
     , .{});
 }
@@ -141,7 +141,7 @@ fn computeHash(source: []const u8) [32]u8 {
 
 /// Get cache file path for a binary
 fn getCachePath(allocator: std.mem.Allocator, bin_path: []const u8) ![]const u8 {
-    // Cache file next to binary: .zyth/fibonacci.hash
+    // Cache file next to binary: .pyx/fibonacci.hash
     return try std.fmt.allocPrint(allocator, "{s}.hash", .{bin_path});
 }
 

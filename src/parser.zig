@@ -118,6 +118,7 @@ pub const Parser = struct {
         // Try to determine statement type
         if (self.peek()) |tok| {
             switch (tok.type) {
+                .Async => return try self.parseFunctionDef(),
                 .Def => return try self.parseFunctionDef(),
                 .Class => return try self.parseClassDef(),
                 .If => return try self.parseIf(),
@@ -212,6 +213,9 @@ pub const Parser = struct {
     }
 
     fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
+        // Check for 'async' keyword
+        const is_async = self.match(.Async);
+
         _ = try self.expect(.Def);
         const name_tok = try self.expect(.Ident);
         _ = try self.expect(.LParen);
@@ -278,6 +282,7 @@ pub const Parser = struct {
                 .name = name_tok.lexeme,
                 .args = try args.toOwnedSlice(self.allocator),
                 .body = body,
+                .is_async = is_async,
             },
         };
     }
@@ -1004,6 +1009,16 @@ pub const Parser = struct {
                     return ast.Node{
                         .name = .{
                             .id = ident_tok.lexeme,
+                        },
+                    };
+                },
+                .Await => {
+                    _ = self.advance();
+                    const value_ptr = try self.allocator.create(ast.Node);
+                    value_ptr.* = try self.parsePrimary();
+                    return ast.Node{
+                        .await_expr = .{
+                            .value = value_ptr,
                         },
                     };
                 },

@@ -54,7 +54,6 @@ zig-out/
 # Compiled binaries
 output
 fib_binary
-*_zyth
 /tmp/
 
 # UV
@@ -63,10 +62,10 @@ uv.lock
 # macOS
 .DS_Store
 
-# Zyth specific
+# PyX specific
 _prototype/
 *.zig.o
 *.bak*
 *.before_fix
 .venv/
-.zyth/
+.pyx/

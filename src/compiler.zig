@@ -21,7 +21,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     }
 
     // Write Zig code to temporary file
-    const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/zyth_main_{d}.zig", .{std.time.milliTimestamp()});
+    const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/pyx_main_{d}.zig", .{std.time.milliTimestamp()});
     defer allocator.free(tmp_path);
 
     // Write temp file
