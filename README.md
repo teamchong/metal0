@@ -89,28 +89,7 @@ pyx examples/fibonacci.py
 # Output: 9227465 (in 59ms vs CPython's 842ms)
 ```
 
-### 2. NumPy-Style Computation
-
-Vector operations without NumPy - **12x faster** than CPython.
-
-```python
-# Vector dot product
-dot_product = 0
-for i in range(10000):
-    a_i = i * 2
-    b_i = i + 100
-    dot_product = dot_product + a_i * b_i
-print(dot_product)
-
-# Nested loops (matrix-like)
-result = 0
-for i in range(100):
-    for j in range(100):
-        result = result + i * j
-print(result)
-```
-
-### 3. Object-Oriented (Class Inheritance)
+### 2. Object-Oriented (Class Inheritance)
 
 Full OOP support with classes and inheritance.
 
@@ -134,7 +113,7 @@ rect = Rectangle(10, 20, 5, 3)
 print(rect.area())  # 15
 ```
 
-### 4. List Processing
+### 3. List Processing
 
 List comprehensions with filtering.
 
@@ -149,7 +128,7 @@ numbers.reverse()
 print(numbers)
 ```
 
-### 5. String Operations
+### 4. String Operations
 
 String manipulation - **8x faster** than CPython.
 
