@@ -12,6 +12,7 @@ const CodegenError = codegen.CodegenError;
 pub fn visitNode(self: *ZigCodeGenerator, node: ast.Node) CodegenError!void {
     switch (node) {
         .assign => |assign| try visitAssign(self, assign),
+        .aug_assign => |aug_assign| try visitAugAssign(self, aug_assign),
         .expr_stmt => |expr_stmt| {
             // Skip docstrings (standalone string constants)
             const is_docstring = switch (expr_stmt.value.*) {
@@ -169,9 +170,10 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
                                 "copy", "reversed"
                             };
 
-                            // Methods that return integers
+                            // Methods that return primitive integers (not PyObjects)
+                            // Note: find(), count() now return PyInt objects, not primitives
                             const int_methods = [_][]const u8{
-                                "count", "index", "find"
+                                "index"  // List.index() still returns primitive i64
                             };
 
                             // Check if it's a string method
@@ -417,6 +419,122 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
         },
         else => return error.UnsupportedTarget,
     }
+}
+
+fn visitAugAssign(self: *ZigCodeGenerator, aug_assign: ast.Node.AugAssign) CodegenError!void {
+    // Get target variable name
+    const var_name = switch (aug_assign.target.*) {
+        .name => |name| name.id,
+        else => return error.UnsupportedTarget,
+    };
+
+    // Mark variable as reassigned
+    if (!self.reassigned_vars.contains(var_name)) {
+        try self.reassigned_vars.put(var_name, {});
+    }
+
+    // Evaluate the value expression
+    const value_result = try expressions.visitExpr(self, aug_assign.value.*);
+
+    // Determine if this is a primitive type or PyObject
+    const var_type = self.var_types.get(var_name);
+    const is_primitive = if (var_type) |vtype| std.mem.eql(u8, vtype, "int") else false;
+
+    var buf = std.ArrayList(u8){};
+
+    if (is_primitive) {
+        // For primitives, use direct Zig operators
+        const op_str = switch (aug_assign.op) {
+            .Add => "+=",
+            .Sub => "-=",
+            .Mult => "*=",
+            .Div => "/=",
+            .FloorDiv => "//=", // Will need custom handling
+            .Mod => "%=",
+            .Pow => "**=", // Will need custom handling
+            else => return error.UnsupportedExpression,
+        };
+
+        // Handle special cases that don't have direct Zig equivalents
+        if (aug_assign.op == .FloorDiv) {
+            // x //= y → x = @divFloor(x, y)
+            if (value_result.needs_try) {
+                try buf.writer(self.temp_allocator).print("{s} = @divFloor({s}, try {s});", .{ var_name, var_name, value_result.code });
+            } else {
+                try buf.writer(self.temp_allocator).print("{s} = @divFloor({s}, {s});", .{ var_name, var_name, value_result.code });
+            }
+        } else if (aug_assign.op == .Pow) {
+            // x **= y → x = std.math.pow(i64, x, y)
+            if (value_result.needs_try) {
+                try buf.writer(self.temp_allocator).print("{s} = std.math.pow(i64, {s}, try {s});", .{ var_name, var_name, value_result.code });
+            } else {
+                try buf.writer(self.temp_allocator).print("{s} = std.math.pow(i64, {s}, {s});", .{ var_name, var_name, value_result.code });
+            }
+        } else if (aug_assign.op == .Mod) {
+            // x %= y → x = @rem(x, y) for signed integers in Zig
+            if (value_result.needs_try) {
+                try buf.writer(self.temp_allocator).print("{s} = @rem({s}, try {s});", .{ var_name, var_name, value_result.code });
+            } else {
+                try buf.writer(self.temp_allocator).print("{s} = @rem({s}, {s});", .{ var_name, var_name, value_result.code });
+            }
+        } else {
+            // Standard operators: +=, -=, *=, /=
+            if (value_result.needs_try) {
+                try buf.writer(self.temp_allocator).print("{s} {s} try {s};", .{ var_name, op_str, value_result.code });
+            } else {
+                try buf.writer(self.temp_allocator).print("{s} {s} {s};", .{ var_name, op_str, value_result.code });
+            }
+        }
+    } else {
+        // For PyObjects (string, list, dict, etc.), use runtime functions
+        // Determine the specific type to use the right function
+        const is_string = if (var_type) |vtype| std.mem.eql(u8, vtype, "string") else false;
+        const is_list = if (var_type) |vtype| std.mem.eql(u8, vtype, "list") else false;
+
+        // Only Add is supported for PyObjects currently (string/list concatenation)
+        if (aug_assign.op != .Add) {
+            return error.UnsupportedExpression;
+        }
+
+        // Generate temp variable to hold old value, concat, then decref old
+        // This avoids use-after-free: old_x = x; x = concat(old_x, y); decref(old_x);
+        const temp_var_name = try std.fmt.allocPrint(self.temp_allocator, "__aug_old_{d}", .{self.temp_var_counter});
+        self.temp_var_counter += 1;
+
+        // Save old value: const __aug_old_0 = x;
+        var save_buf = std.ArrayList(u8){};
+        try save_buf.writer(self.temp_allocator).print("const {s} = {s};", .{ temp_var_name, var_name });
+        try self.emitOwned(try save_buf.toOwnedSlice(self.temp_allocator));
+
+        // Generate appropriate concatenation based on type
+        if (is_string) {
+            // x = runtime.PyString.concat(allocator, __aug_old_0, y)
+            if (value_result.needs_try) {
+                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyString.concat(allocator, {s}, try {s});", .{ var_name, temp_var_name, value_result.code });
+            } else {
+                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyString.concat(allocator, {s}, {s});", .{ var_name, temp_var_name, value_result.code });
+            }
+        } else if (is_list) {
+            // x = runtime.PyList.concat(allocator, __aug_old_0, y)
+            if (value_result.needs_try) {
+                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyList.concat(allocator, {s}, try {s});", .{ var_name, temp_var_name, value_result.code });
+            } else {
+                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyList.concat(allocator, {s}, {s});", .{ var_name, temp_var_name, value_result.code });
+            }
+        } else {
+            // Unknown type - error
+            return error.UnsupportedExpression;
+        }
+        try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
+
+        // Decref old value after reassignment: runtime.decref(__aug_old_0, allocator);
+        var decref_buf = std.ArrayList(u8){};
+        try decref_buf.writer(self.temp_allocator).print("runtime.decref({s}, allocator);", .{temp_var_name});
+        try self.emitOwned(try decref_buf.toOwnedSlice(self.temp_allocator));
+        return;
+    }
+
+    try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
 }
 
 fn visitReturn(self: *ZigCodeGenerator, ret: ast.Node.Return) CodegenError!void {

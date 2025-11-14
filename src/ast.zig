@@ -4,6 +4,7 @@ const std = @import("std");
 pub const Node = union(enum) {
     module: Module,
     assign: Assign,
+    aug_assign: AugAssign,
     binop: BinOp,
     unaryop: UnaryOp,
     compare: Compare,
@@ -34,6 +35,12 @@ pub const Node = union(enum) {
 
     pub const Assign = struct {
         targets: []Node,
+        value: *Node,
+    };
+
+    pub const AugAssign = struct {
+        target: *Node,
+        op: Operator,
         value: *Node,
     };
 
@@ -177,6 +184,12 @@ pub const Node = union(enum) {
             .assign => |a| {
                 for (a.targets) |*t| t.deinit(allocator);
                 allocator.free(a.targets);
+                a.value.deinit(allocator);
+                allocator.destroy(a.value);
+            },
+            .aug_assign => |a| {
+                a.target.deinit(allocator);
+                allocator.destroy(a.target);
                 a.value.deinit(allocator);
                 allocator.destroy(a.value);
             },

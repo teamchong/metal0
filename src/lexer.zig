@@ -50,6 +50,13 @@ pub const TokenType = enum {
     Ampersand,
     Pipe,
     Caret,
+    PlusEq,
+    MinusEq,
+    StarEq,
+    SlashEq,
+    DoubleSlashEq,
+    PercentEq,
+    StarStarEq,
 
     // Delimiters
     LParen,
@@ -393,10 +400,25 @@ pub const Lexer = struct {
             ',' => .Comma,
             ':' => .Colon,
             '.' => .Dot,
-            '+' => .Plus,
-            '%' => .Percent,
+            '+' => blk: {
+                if (self.peek() == '=') {
+                    _ = self.advance();
+                    break :blk .PlusEq;
+                }
+                break :blk .Plus;
+            },
+            '%' => blk: {
+                if (self.peek() == '=') {
+                    _ = self.advance();
+                    break :blk .PercentEq;
+                }
+                break :blk .Percent;
+            },
             '-' => blk: {
-                if (self.peek() == '>') {
+                if (self.peek() == '=') {
+                    _ = self.advance();
+                    break :blk .MinusEq;
+                } else if (self.peek() == '>') {
                     _ = self.advance();
                     break :blk .Arrow;
                 }
@@ -405,14 +427,28 @@ pub const Lexer = struct {
             '*' => blk: {
                 if (self.peek() == '*') {
                     _ = self.advance();
+                    if (self.peek() == '=') {
+                        _ = self.advance();
+                        break :blk .StarStarEq;
+                    }
                     break :blk .DoubleStar;
+                } else if (self.peek() == '=') {
+                    _ = self.advance();
+                    break :blk .StarEq;
                 }
                 break :blk .Star;
             },
             '/' => blk: {
                 if (self.peek() == '/') {
                     _ = self.advance();
+                    if (self.peek() == '=') {
+                        _ = self.advance();
+                        break :blk .DoubleSlashEq;
+                    }
                     break :blk .DoubleSlash;
+                } else if (self.peek() == '=') {
+                    _ = self.advance();
+                    break :blk .SlashEq;
                 }
                 break :blk .Slash;
             },

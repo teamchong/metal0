@@ -180,7 +180,39 @@ pub const Parser = struct {
             }
         }
 
-        // Check for assignment
+        // Check for augmented assignment (+=, -=, etc.)
+        const aug_op = blk: {
+            if (self.match(.PlusEq)) break :blk ast.Operator.Add;
+            if (self.match(.MinusEq)) break :blk ast.Operator.Sub;
+            if (self.match(.StarEq)) break :blk ast.Operator.Mult;
+            if (self.match(.SlashEq)) break :blk ast.Operator.Div;
+            if (self.match(.DoubleSlashEq)) break :blk ast.Operator.FloorDiv;
+            if (self.match(.PercentEq)) break :blk ast.Operator.Mod;
+            if (self.match(.StarStarEq)) break :blk ast.Operator.Pow;
+            break :blk null;
+        };
+
+        if (aug_op) |op| {
+            const value = try self.parseExpression();
+            _ = self.expect(.Newline) catch {};
+
+            // Allocate nodes on heap
+            const target_ptr = try self.allocator.create(ast.Node);
+            target_ptr.* = expr;
+
+            const value_ptr = try self.allocator.create(ast.Node);
+            value_ptr.* = value;
+
+            return ast.Node{
+                .aug_assign = .{
+                    .target = target_ptr,
+                    .op = op,
+                    .value = value_ptr,
+                },
+            };
+        }
+
+        // Check for regular assignment
         if (self.match(.Eq)) {
             const value = try self.parseExpression();
             _ = self.expect(.Newline) catch {};

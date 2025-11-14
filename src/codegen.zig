@@ -513,6 +513,15 @@ pub const ZigCodeGenerator = struct {
                     }
                 }
             },
+            .aug_assign => |aug_assign| {
+                // Augmented assignment can declare a variable if it doesn't exist
+                switch (aug_assign.target.*) {
+                    .name => |name| {
+                        try self.declared_vars.put(name.id, {});
+                    },
+                    else => {},
+                }
+            },
             else => {},
         }
     }
@@ -532,6 +541,19 @@ pub const ZigCodeGenerator = struct {
                         },
                         else => {},
                     }
+                }
+            },
+            .aug_assign => |aug_assign| {
+                // Augmented assignment is always a reassignment
+                switch (aug_assign.target.*) {
+                    .name => |name| {
+                        try self.reassigned_vars.put(name.id, {});
+                        // Also mark as seen for first assignment
+                        if (!assignments_seen.contains(name.id)) {
+                            try assignments_seen.put(name.id, {});
+                        }
+                    },
+                    else => {},
                 }
             },
             .if_stmt => |if_node| {

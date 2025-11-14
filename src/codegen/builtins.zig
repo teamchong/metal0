@@ -42,6 +42,15 @@ pub fn visitPrintCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!Ex
                     };
                 } else if (std.mem.eql(u8, vtype, "string")) {
                     try buf.writer(self.temp_allocator).print("std.debug.print(\"{{s}}\\n\", .{{runtime.PyString.getValue({s})}})", .{arg_result.code});
+                } else if (std.mem.eql(u8, vtype, "list")) {
+                    // Emit list print as statement
+                    var print_buf = std.ArrayList(u8){};
+                    try print_buf.writer(self.temp_allocator).print("{{ runtime.printList({s}); std.debug.print(\"\\n\", .{{}}); }}", .{arg_result.code});
+                    try self.emitOwned(try print_buf.toOwnedSlice(self.temp_allocator));
+                    return ExprResult{
+                        .code = "",
+                        .needs_try = false,
+                    };
                 } else if (std.mem.eql(u8, vtype, "tuple")) {
                     // Emit tuple print as statement
                     var print_buf = std.ArrayList(u8){};
