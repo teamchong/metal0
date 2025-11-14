@@ -10,10 +10,35 @@ const CodegenError = codegen.CodegenError;
 
 /// Infer parameter type by analyzing function body usage
 fn inferParamType(self: *ZigCodeGenerator, param_name: []const u8, body: []const ast.Node) []const u8 {
+    // First check for direct usage
     for (body) |node| {
         const param_type = inferParamTypeInNode(self, param_name, node);
         if (param_type) |t| return t;
     }
+
+    // Check if parameter is assigned to a variable that's later used in string contexts
+    // Example: result = word; result = result + " world"
+    for (body) |node| {
+        if (node == .assign) {
+            const assign = node.assign;
+            // Check if RHS is our parameter
+            if (assign.value.* == .name and std.mem.eql(u8, assign.value.name.id, param_name)) {
+                // Found: some_var = param_name
+                // Check if some_var is a string type
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        const var_type = inferVarTypeFromBody(self, target.name.id, body);
+                        if (var_type) |vt| {
+                            if (std.mem.eql(u8, vt, "string")) {
+                                return "*runtime.PyObject";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     return "i64"; // Default to i64
 }
 
@@ -154,6 +179,75 @@ fn nodeReferencesName(node: ast.Node, target_name: []const u8) bool {
     return false;
 }
 
+/// Infer variable type by tracing assignments in function body
+/// Returns the most specific type found across all assignments
+fn inferVarTypeFromBody(self: *ZigCodeGenerator, var_name: []const u8, body: []const ast.Node) ?[]const u8 {
+    var found_type: ?[]const u8 = null;
+    for (body) |node| {
+        const var_type = inferVarTypeFromNode(self, var_name, node);
+        if (var_type) |t| {
+            // Prioritize concrete types over name references
+            if (std.mem.eql(u8, t, "string") or std.mem.eql(u8, t, "list") or
+                std.mem.eql(u8, t, "dict") or std.mem.eql(u8, t, "tuple")) {
+                return t; // Found concrete type, return immediately
+            }
+            found_type = t; // Remember this type but keep looking
+        }
+    }
+    return found_type;
+}
+
+/// Recursively search for assignments to variable
+fn inferVarTypeFromNode(self: *ZigCodeGenerator, var_name: []const u8, node: ast.Node) ?[]const u8 {
+    switch (node) {
+        .assign => |assign| {
+            // Check if this assignment is to our variable
+            for (assign.targets) |target| {
+                if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                    // Found assignment - analyze the value
+                    switch (assign.value.*) {
+                        .constant => |c| {
+                            switch (c.value) {
+                                .string => return "string",
+                                .int => return "int",
+                                else => {},
+                            }
+                        },
+                        .list => return "list",
+                        .dict => return "dict",
+                        .tuple => return "tuple",
+                        .binop => |binop| {
+                            // String concat result is string
+                            if (binop.op == .Add and (isStringNode(self, binop.left.*) or isStringNode(self, binop.right.*))) {
+                                return "string";
+                            }
+                        },
+                        .name => |rhs_name| {
+                            // result = word - check if RHS is a parameter or known type
+                            if (self.var_types.get(rhs_name.id)) |t| return t;
+                            // Don't infer recursively to avoid infinite loops
+                            // Just return null and let other assignments determine the type
+                        },
+                        else => {},
+                    }
+                }
+            }
+        },
+        .while_stmt => |while_stmt| {
+            for (while_stmt.body) |stmt| {
+                if (inferVarTypeFromNode(self, var_name, stmt)) |t| return t;
+            }
+        },
+        .if_stmt => |if_stmt| {
+            for (if_stmt.body) |stmt| {
+                if (inferVarTypeFromNode(self, var_name, stmt)) |t| return t;
+            }
+        },
+        else => {},
+    }
+    return null;
+}
+
 /// Infer return type by analyzing return statements
 fn inferReturnType(self: *ZigCodeGenerator, body: []const ast.Node) ![]const u8 {
     for (body) |node| {
@@ -185,6 +279,18 @@ fn inferReturnType(self: *ZigCodeGenerator, body: []const ast.Node) ![]const u8 
                                 return "i64";
                             }
                         }
+                        // If not in var_types yet, trace assignments in function body
+                        const inferred = inferVarTypeFromBody(self, name.id, body);
+                        if (inferred) |var_type| {
+                            if (std.mem.eql(u8, var_type, "string") or
+                                std.mem.eql(u8, var_type, "list") or
+                                std.mem.eql(u8, var_type, "dict") or
+                                std.mem.eql(u8, var_type, "tuple") or
+                                std.mem.eql(u8, var_type, "pyobject"))
+                            {
+                                return "*runtime.PyObject";
+                            }
+                        }
                         return "i64";
                     },
                     .binop => |binop| {
@@ -206,14 +312,14 @@ fn inferReturnType(self: *ZigCodeGenerator, body: []const ast.Node) ![]const u8 
             return "void";
         }
         // Recursively check nested statements
-        const nested_type = inferReturnTypeInNode(self, node);
+        const nested_type = inferReturnTypeInNode(self, node, body);
         if (nested_type) |t| return t;
     }
     return "void";
 }
 
 /// Check for return statements in nested nodes
-fn inferReturnTypeInNode(self: *ZigCodeGenerator, node: ast.Node) ?[]const u8 {
+fn inferReturnTypeInNode(self: *ZigCodeGenerator, node: ast.Node, body: []const ast.Node) ?[]const u8 {
     switch (node) {
         .if_stmt => |if_stmt| {
             // Check body for return statements
@@ -243,6 +349,18 @@ fn inferReturnTypeInNode(self: *ZigCodeGenerator, node: ast.Node) ?[]const u8 {
                                         return "*runtime.PyObject";
                                     } else if (std.mem.eql(u8, var_type, "int")) {
                                         return "i64";
+                                    }
+                                }
+                                // Trace assignments in function body
+                                const inferred = inferVarTypeFromBody(self, name.id, body);
+                                if (inferred) |var_type| {
+                                    if (std.mem.eql(u8, var_type, "string") or
+                                        std.mem.eql(u8, var_type, "list") or
+                                        std.mem.eql(u8, var_type, "dict") or
+                                        std.mem.eql(u8, var_type, "tuple") or
+                                        std.mem.eql(u8, var_type, "pyobject"))
+                                    {
+                                        return "*runtime.PyObject";
                                     }
                                 }
                                 return "i64";

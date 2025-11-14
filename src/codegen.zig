@@ -76,6 +76,7 @@ pub const ZigCodeGenerator = struct {
     class_names: std.StringHashMap(void),
     class_has_methods: std.StringHashMap(bool),
     method_return_types: std.StringHashMap([]const u8),
+    class_methods: std.StringHashMap(std.ArrayList(ast.Node.FunctionDef)),
 
     needs_runtime: bool,
     needs_allocator: bool,
@@ -105,6 +106,7 @@ pub const ZigCodeGenerator = struct {
             .class_names = std.StringHashMap(void).init(allocator),
             .class_has_methods = std.StringHashMap(bool).init(allocator),
             .method_return_types = std.StringHashMap([]const u8).init(allocator),
+            .class_methods = std.StringHashMap(std.ArrayList(ast.Node.FunctionDef)).init(allocator),
             .needs_runtime = false,
             .needs_allocator = false,
             .needs_http = false,
@@ -131,6 +133,12 @@ pub const ZigCodeGenerator = struct {
         self.class_names.deinit();
         self.class_has_methods.deinit();
         self.method_return_types.deinit();
+        // Free class_methods
+        var it = self.class_methods.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.*.deinit(self.allocator);
+        }
+        self.class_methods.deinit();
         self.arena.deinit(); // Free all temp allocations
         self.allocator.destroy(self);
     }

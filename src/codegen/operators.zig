@@ -78,6 +78,10 @@ pub fn visitBinOp(self: *ZigCodeGenerator, binop: ast.Node.BinOp) CodegenError!E
                 .constant => |c| {
                     break :blk c.value == .string;
                 },
+                .binop => |inner_binop| {
+                    // Nested string concat: if inner is also Add with strings, result is string
+                    break :blk inner_binop.op == .Add;
+                },
                 else => break :blk false,
             }
         };
@@ -90,6 +94,10 @@ pub fn visitBinOp(self: *ZigCodeGenerator, binop: ast.Node.BinOp) CodegenError!E
                 },
                 .constant => |c| {
                     break :blk c.value == .string;
+                },
+                .binop => |inner_binop| {
+                    // Nested string concat: if inner is also Add with strings, result is string
+                    break :blk inner_binop.op == .Add;
                 },
                 else => break :blk false,
             }

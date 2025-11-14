@@ -132,7 +132,7 @@ pub fn visitPrintCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!Ex
                         }
 
                         // Functions that return primitives, not PyObjects
-                        const primitive_funcs = [_][]const u8{"len", "abs", "round", "min", "max", "sum", "isinstance"};
+                        const primitive_funcs = [_][]const u8{"len", "abs", "round", "min", "max", "sum", "pow", "isinstance"};
                         for (primitive_funcs) |pf| {
                             if (std.mem.eql(u8, func_name.id, pf)) {
                                 break :blk true;
@@ -372,6 +372,22 @@ pub fn visitSumCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!Expr
 
     var buf = std.ArrayList(u8){};
     try buf.writer(self.temp_allocator).print("runtime.sum({s})", .{arg_result.code});
+
+    return ExprResult{
+        .code = try buf.toOwnedSlice(self.temp_allocator),
+        .needs_try = false,
+    };
+}
+
+pub fn visitPowCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!ExprResult {
+    if (args.len != 2) return error.InvalidArguments;
+
+    const base = try expressions.visitExpr(self, args[0]);
+    const exp = try expressions.visitExpr(self, args[1]);
+
+    var buf = std.ArrayList(u8){};
+    // Use std.math.pow for integer power
+    try buf.writer(self.temp_allocator).print("std.math.pow(i64, {s}, {s})", .{ base.code, exp.code });
 
     return ExprResult{
         .code = try buf.toOwnedSlice(self.temp_allocator),

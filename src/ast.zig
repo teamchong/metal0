@@ -95,6 +95,7 @@ pub const Node = union(enum) {
 
     pub const ClassDef = struct {
         name: []const u8,
+        bases: [][]const u8,
         body: []Node,
     };
 
@@ -257,6 +258,7 @@ pub const Node = union(enum) {
             .class_def => |c| {
                 for (c.body) |*n| n.deinit(allocator);
                 allocator.free(c.body);
+                allocator.free(c.bases);
             },
             .return_stmt => |r| {
                 if (r.value) |v| {

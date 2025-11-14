@@ -324,6 +324,23 @@ pub const Parser = struct {
     fn parseClassDef(self: *Parser) ParseError!ast.Node {
         _ = try self.expect(.Class);
         const name_tok = try self.expect(.Ident);
+
+        // Parse optional base classes: class Dog(Animal):
+        var bases = std.ArrayList([]const u8){};
+        defer bases.deinit(self.allocator);
+
+        if (self.match(.LParen)) {
+            while (!self.match(.RParen)) {
+                const base_tok = try self.expect(.Ident);
+                try bases.append(self.allocator, base_tok.lexeme);
+
+                if (!self.match(.Comma)) {
+                    _ = try self.expect(.RParen);
+                    break;
+                }
+            }
+        }
+
         _ = try self.expect(.Colon);
         _ = try self.expect(.Newline);
         _ = try self.expect(.Indent);
@@ -335,6 +352,7 @@ pub const Parser = struct {
         return ast.Node{
             .class_def = .{
                 .name = name_tok.lexeme,
+                .bases = try bases.toOwnedSlice(self.allocator),
                 .body = body,
             },
         };

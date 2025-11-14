@@ -649,6 +649,8 @@ pub fn visitCall(self: *ZigCodeGenerator, call: ast.Node.Call) CodegenError!Expr
                 return builtins.visitMaxCall(self, call.args);
             } else if (std.mem.eql(u8, func_name.id, "sum")) {
                 return builtins.visitSumCall(self, call.args);
+            } else if (std.mem.eql(u8, func_name.id, "pow")) {
+                return builtins.visitPowCall(self, call.args);
             } else if (std.mem.eql(u8, func_name.id, "all")) {
                 return builtins.visitAllCall(self, call.args);
             } else if (std.mem.eql(u8, func_name.id, "any")) {

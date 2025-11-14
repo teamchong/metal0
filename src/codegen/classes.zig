@@ -36,11 +36,36 @@ pub fn visitClassInstantiation(self: *ZigCodeGenerator, class_name: []const u8, 
     };
 }
 
+/// Check if method needs allocator parameter (returns PyObject)
+fn methodNeedsAllocator(body: []ast.Node) bool {
+    for (body) |node| {
+        if (node == .return_stmt) {
+            if (node.return_stmt.value) |ret_val| {
+                // If returning a string constant, needs allocator
+                if (ret_val.* == .constant) {
+                    if (ret_val.constant.value == .string) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 /// Infer return type from method body by checking for return statements
 fn inferReturnType(body: []ast.Node) []const u8 {
     for (body) |node| {
         if (node == .return_stmt) {
-            // Method has a return statement, assume it returns i64 for now
+            if (node.return_stmt.value) |ret_val| {
+                // Check if returning a string constant
+                if (ret_val.* == .constant) {
+                    if (ret_val.constant.value == .string) {
+                        return "!*runtime.PyObject";
+                    }
+                }
+            }
+            // Other return types default to i64
             return "i64";
         }
     }
@@ -51,18 +76,6 @@ fn inferReturnType(body: []ast.Node) []const u8 {
 pub fn visitClassDef(self: *ZigCodeGenerator, class: ast.Node.ClassDef) CodegenError!void {
     try self.class_names.put(class.name, {});
 
-    // Count methods (excluding __init__) to determine if class needs 'var'
-    var method_count: usize = 0;
-    for (class.body) |node| {
-        if (node == .function_def) {
-            const func = node.function_def;
-            if (!std.mem.eql(u8, func.name, "__init__")) {
-                method_count += 1;
-            }
-        }
-    }
-    try self.class_has_methods.put(class.name, method_count > 0);
-
     var buf = std.ArrayList(u8){};
     try buf.writer(self.temp_allocator).print("const {s} = struct {{", .{class.name});
     try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
@@ -72,6 +85,7 @@ pub fn visitClassDef(self: *ZigCodeGenerator, class: ast.Node.ClassDef) CodegenE
     var methods = std.ArrayList(ast.Node.FunctionDef){};
     defer methods.deinit(self.allocator);
 
+    // Collect methods from this class
     for (class.body) |node| {
         switch (node) {
             .function_def => |func| {
@@ -84,6 +98,30 @@ pub fn visitClassDef(self: *ZigCodeGenerator, class: ast.Node.ClassDef) CodegenE
             else => {},
         }
     }
+
+    // If this class has base classes, inherit their methods
+    if (class.bases.len > 0) {
+        for (class.bases) |base_name| {
+            if (self.class_methods.get(base_name)) |parent_methods| {
+                // Add parent methods if not overridden
+                for (parent_methods.items) |parent_method| {
+                    var is_overridden = false;
+                    for (methods.items) |child_method| {
+                        if (std.mem.eql(u8, child_method.name, parent_method.name)) {
+                            is_overridden = true;
+                            break;
+                        }
+                    }
+                    if (!is_overridden) {
+                        try methods.append(self.allocator, parent_method);
+                    }
+                }
+            }
+        }
+    }
+
+    // Update class_has_methods after inheritance
+    try self.class_has_methods.put(class.name, methods.items.len > 0);
 
     if (init_method) |init_func| {
         // First pass: determine field types from initializers
@@ -237,13 +275,22 @@ pub fn visitClassDef(self: *ZigCodeGenerator, class: ast.Node.ClassDef) CodegenE
         buf = std.ArrayList(u8){};
         try buf.writer(self.temp_allocator).print("pub fn {s}(", .{method.name});
 
+        // Check if method needs allocator
+        const needs_allocator = methodNeedsAllocator(method.body);
+
         for (method.args, 0..) |arg, i| {
             if (i > 0) try buf.writer(self.temp_allocator).writeAll(", ");
             if (std.mem.eql(u8, arg.name, "self")) {
-                try buf.writer(self.temp_allocator).print("self: *{s}", .{class.name});
+                // Use _ prefix to allow unused self
+                try buf.writer(self.temp_allocator).print("_self: *{s}", .{class.name});
             } else {
                 try buf.writer(self.temp_allocator).print("{s}: i64", .{arg.name});
             }
+        }
+
+        // Add allocator parameter if method needs it
+        if (needs_allocator) {
+            try buf.writer(self.temp_allocator).writeAll(", _allocator: std.mem.Allocator");
         }
 
         // Infer return type from method body
@@ -258,6 +305,12 @@ pub fn visitClassDef(self: *ZigCodeGenerator, class: ast.Node.ClassDef) CodegenE
         try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
         self.indent();
 
+        // Create aliases for parameters (Zig allows unused with _ prefix on param)
+        try self.emit("const self = _self;");
+        if (needs_allocator) {
+            try self.emit("const allocator = _allocator;");
+        }
+
         for (method.body) |stmt| {
             try statements.visitNode(self, stmt);
         }
@@ -268,6 +321,13 @@ pub fn visitClassDef(self: *ZigCodeGenerator, class: ast.Node.ClassDef) CodegenE
 
     self.dedent();
     try self.emit("};");
+
+    // Store methods for this class so children can inherit them
+    var stored_methods = std.ArrayList(ast.Node.FunctionDef){};
+    for (methods.items) |method| {
+        try stored_methods.append(self.allocator, method);
+    }
+    try self.class_methods.put(class.name, stored_methods);
 }
 
 /// Helper function to wrap primitive constants as PyObjects
@@ -366,22 +426,6 @@ pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: 
     };
 
     if (is_class_method) {
-        // User-defined class method - generate obj.method(args)
-        try buf.writer(self.temp_allocator).print("{s}.{s}(", .{ obj_code, method_name });
-        for (args, 0..) |arg, i| {
-            if (i > 0) try buf.writer(self.temp_allocator).writeAll(", ");
-            const arg_result = try expressions.visitExpr(self,arg);
-            if (arg_result.needs_try) {
-                try buf.writer(self.temp_allocator).print("try {s}", .{arg_result.code});
-            } else {
-                try buf.writer(self.temp_allocator).writeAll(arg_result.code);
-            }
-        }
-        try buf.writer(self.temp_allocator).writeAll(")");
-
-        const method_call_code = try buf.toOwnedSlice(self.temp_allocator);
-
-        // Check if we need to wrap the return value (primitive -> PyObject)
         // Get class name from var_type to look up method return type
         const class_name = blk: {
             switch (attr.value.*) {
@@ -394,6 +438,40 @@ pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: 
             }
             break :blk null;
         };
+
+        // Check if method returns PyObject (needs allocator)
+        var method_needs_alloc = false;
+        if (class_name) |cname| {
+            const method_key = try std.fmt.allocPrint(self.temp_allocator, "{s}.{s}", .{cname, method_name});
+            if (self.method_return_types.get(method_key)) |return_type| {
+                if (std.mem.eql(u8, return_type, "!*runtime.PyObject")) {
+                    method_needs_alloc = true;
+                }
+            }
+        }
+
+        // User-defined class method - generate obj.method(args)
+        try buf.writer(self.temp_allocator).print("{s}.{s}(", .{ obj_code, method_name });
+        for (args, 0..) |arg, i| {
+            if (i > 0) try buf.writer(self.temp_allocator).writeAll(", ");
+            const arg_result = try expressions.visitExpr(self,arg);
+            if (arg_result.needs_try) {
+                try buf.writer(self.temp_allocator).print("try {s}", .{arg_result.code});
+            } else {
+                try buf.writer(self.temp_allocator).writeAll(arg_result.code);
+            }
+        }
+
+        // Add allocator argument if method needs it
+        if (method_needs_alloc) {
+            if (args.len > 0) try buf.writer(self.temp_allocator).writeAll(", ");
+            try buf.writer(self.temp_allocator).writeAll("allocator");
+            self.needs_allocator = true;
+        }
+
+        try buf.writer(self.temp_allocator).writeAll(")");
+
+        const method_call_code = try buf.toOwnedSlice(self.temp_allocator);
 
         if (class_name) |cname| {
             const method_key = try std.fmt.allocPrint(self.temp_allocator, "{s}.{s}", .{cname, method_name});
@@ -409,6 +487,9 @@ pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: 
                         .needs_try = true,
                         .needs_decref = true,
                     };
+                } else if (std.mem.eql(u8, return_type, "!*runtime.PyObject")) {
+                    // Method returns PyObject with error, needs try
+                    return ExprResult{ .code = method_call_code, .needs_try = true, .needs_decref = true };
                 }
                 // void methods don't return values, return as-is
                 // Future: add f64, bool support
