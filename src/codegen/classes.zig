@@ -5,7 +5,7 @@ const attributes = @import("classes/attributes.zig");
 const classes = @import("classes/classes.zig");
 const instantiation = @import("classes/instantiation.zig");
 const methods = @import("classes/methods.zig");
-const python_ffi = @import("classes/python_ffi.zig");
+const c_ffi = @import("classes/c_ffi.zig");
 
 // Re-export public functions
 pub const visitAttribute = attributes.visitAttribute;

@@ -186,11 +186,6 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
                                 break :blk false;
                             };
 
-                            // Track Python FFI variables for print detection
-                            if (is_python_call) {
-                                try self.python_ffi_vars.put(var_name, {});
-                            }
-
                             // Skip type tracking for Python C API function calls
                             // These return *anyopaque and are managed by Python's refcounting
                             if (!is_python_call) {

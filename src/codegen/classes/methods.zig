@@ -4,7 +4,7 @@ const CodegenError = @import("../../codegen.zig").CodegenError;
 const ExprResult = @import("../../codegen.zig").ExprResult;
 const ZigCodeGenerator = @import("../../codegen.zig").ZigCodeGenerator;
 const expressions = @import("../expressions.zig");
-const python_ffi = @import("python_ffi.zig");
+const c_ffi = @import("c_ffi.zig");
 const instantiation = @import("instantiation.zig");
 
 pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: []ast.Node) CodegenError!ExprResult {
@@ -28,7 +28,7 @@ pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: 
     };
 
     if (is_python_call) {
-        return try python_ffi.visitPythonFunctionCall(self, obj_code, method_name, args);
+        return try c_ffi.visitPythonFunctionCall(self, obj_code, method_name, args);
     }
 
     // Check if this is a user-defined class method call

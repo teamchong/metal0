@@ -58,9 +58,12 @@ pub fn visitPythonFunctionCall(self: *ZigCodeGenerator, module_code: []const u8,
                         const str_code = str_result.code;
 
                         // Generate cache check + parse code
+                        // Cache hit: Return cached value directly (no incref - borrowed from cache)
+                        // Cache miss: Parse, store in cache (incref once), return it
+                        // This avoids incref/decref on every loop iteration
                         var code_buf = std.ArrayList(u8){};
                         try code_buf.writer(self.temp_allocator).print(
-                            "blk: {{ if ({s}) |cached| {{ runtime.incref(cached); break :blk cached; }} " ++
+                            "blk: {{ if ({s}) |cached| {{ break :blk cached; }} " ++
                             "const str = try {s}; " ++
                             "const parsed = try runtime.jsonLoads(str, allocator); " ++
                             "runtime.decref(str, allocator); " ++
@@ -71,7 +74,7 @@ pub fn visitPythonFunctionCall(self: *ZigCodeGenerator, module_code: []const u8,
                         );
 
                         const code = try code_buf.toOwnedSlice(self.temp_allocator);
-                        return ExprResult{ .code = code, .needs_try = false, .needs_decref = true };
+                        return ExprResult{ .code = code, .needs_try = false, .needs_decref = false };
                     }
                 },
                 else => {},
