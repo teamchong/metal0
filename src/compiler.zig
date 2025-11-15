@@ -67,7 +67,10 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     try args.append(allocator, zig_path);
     try args.append(allocator, "build-exe");
     try args.append(allocator, tmp_path);
-    try args.append(allocator, i_flag);
+
+    // Add /tmp to import path so @import("runtime") finds /tmp/runtime.zig
+    try args.append(allocator, "-I/tmp");
+
     try args.append(allocator, "-ODebug");
     try args.append(allocator, "-lc");
     try args.append(allocator, output_flag);

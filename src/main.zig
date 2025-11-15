@@ -4,7 +4,7 @@ const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const compiler = @import("compiler.zig");
 const native_types = @import("analysis/native_types.zig");
-const native_codegen = @import("codegen/native.zig");
+const native_codegen = @import("codegen/native/main.zig");
 
 const CompileOptions = struct {
     input_file: []const u8,
