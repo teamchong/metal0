@@ -57,7 +57,7 @@ pub fn main() !void {
     while (i < args.len) : (i += 1) {
         const arg = args[i];
 
-        if (std.mem.eql(u8, arg, "--binary")) {
+        if (std.mem.eql(u8, arg, "--binary") or std.mem.eql(u8, arg, "-b")) {
             opts.binary = true;
         } else if (std.mem.eql(u8, arg, "--force") or std.mem.eql(u8, arg, "-f")) {
             opts.force = true;
@@ -79,9 +79,29 @@ pub fn main() !void {
         }
     }
 
+    // If no input file and in build mode, build all .py in current directory
+    if (input_file == null and is_build_command) {
+        try buildDirectory(allocator, ".", opts);
+        return;
+    }
+
     if (input_file == null) {
         std.debug.print("Error: Missing input file\n", .{});
         try printUsage();
+        return;
+    }
+
+    // Check if input is a directory
+    const stat = std.fs.cwd().statFile(input_file.?) catch |err| {
+        if (err == error.FileNotFound) {
+            std.debug.print("Error: File not found: {s}\n", .{input_file.?});
+            return;
+        }
+        return err;
+    };
+
+    if (stat.kind == .directory) {
+        try buildDirectory(allocator, input_file.?, opts);
         return;
     }
 
@@ -89,6 +109,48 @@ pub fn main() !void {
     opts.output_file = output_file;
 
     try compileFile(allocator, opts);
+}
+
+/// Build all .py files in a directory
+fn buildDirectory(allocator: std.mem.Allocator, dir_path: []const u8, opts: CompileOptions) !void {
+    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+    defer dir.close();
+
+    var iter = dir.iterate();
+    var file_count: usize = 0;
+    var error_count: usize = 0;
+
+    std.debug.print("Building all .py files in {s}/\n\n", .{dir_path});
+
+    while (try iter.next()) |entry| {
+        if (entry.kind != .file) continue;
+
+        // Check if file ends with .py
+        if (!std.mem.endsWith(u8, entry.name, ".py")) continue;
+
+        // Build full path
+        const full_path = try std.fs.path.join(allocator, &[_][]const u8{ dir_path, entry.name });
+        defer allocator.free(full_path);
+
+        file_count += 1;
+        std.debug.print("=== Building {s} ===\n", .{entry.name});
+
+        var file_opts = opts;
+        file_opts.input_file = full_path;
+
+        compileFile(allocator, file_opts) catch |err| {
+            std.debug.print("✗ Failed: {s} - {any}\n\n", .{ entry.name, err });
+            error_count += 1;
+            continue;
+        };
+
+        std.debug.print("\n", .{});
+    }
+
+    std.debug.print("=== Summary ===\n", .{});
+    std.debug.print("Total files: {d}\n", .{file_count});
+    std.debug.print("Success: {d}\n", .{file_count - error_count});
+    std.debug.print("Failed: {d}\n", .{error_count});
 }
 
 /// Get current architecture string (e.g., "x86_64", "arm64")
@@ -247,6 +309,8 @@ fn printUsage() !void {
         \\  pyaot <file.py>                    # Compile .so and run
         \\  pyaot <file.py> --force            # Force recompile
         \\  pyaot <file.py> --binary           # Compile to binary and run
+        \\  pyaot build                        # Build all .py in current directory
+        \\  pyaot build <dir/>                 # Build all .py in directory
         \\  pyaot build <file.py>              # Build .so only
         \\  pyaot build <file.py> --binary     # Build standalone binary
         \\  pyaot build <file.py> <out>        # Custom output path
@@ -254,12 +318,13 @@ fn printUsage() !void {
         \\  pyaot test                         # Run test suite
         \\
         \\Flags:
-        \\  --binary     Build standalone binary (default: shared library)
-        \\  --force, -f  Force recompile (ignore cache)
+        \\  --binary, -b  Build standalone binary (default: shared library)
+        \\  --force, -f   Force recompile (ignore cache)
         \\
         \\Examples:
         \\  pyaot myapp.py                     # Fast: builds myapp_x86_64.so
-        \\  pyaot myapp.py -f                  # Force recompile myapp_x86_64.so
+        \\  pyaot build                        # Build all .py in current dir
+        \\  pyaot build examples/              # Build all .py in examples/
         \\  pyaot build --binary myapp.py      # Deploy: builds myapp binary
         \\
     , .{});
