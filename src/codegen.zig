@@ -489,12 +489,28 @@ pub const ZigCodeGenerator = struct {
                     try self.detectRuntimeNeeds(stmt);
                 }
             },
-            .import_stmt => {
-                self.needs_python = true;
+            .import_stmt => |import| {
+                // Check if this is a native module (json, http, asyncio) or Python module
+                const is_native_module = std.mem.eql(u8, import.module, "json") or
+                    std.mem.eql(u8, import.module, "http") or
+                    std.mem.eql(u8, import.module, "asyncio");
+
+                if (!is_native_module) {
+                    // Python module - needs Python interpreter
+                    self.needs_python = true;
+                }
                 self.needs_allocator = true;
             },
-            .import_from => {
-                self.needs_python = true;
+            .import_from => |import| {
+                // Check if this is a native module or Python module
+                const is_native_module = std.mem.eql(u8, import.module, "json") or
+                    std.mem.eql(u8, import.module, "http") or
+                    std.mem.eql(u8, import.module, "asyncio");
+
+                if (!is_native_module) {
+                    // Python module - needs Python interpreter
+                    self.needs_python = true;
+                }
                 self.needs_allocator = true;
             },
             else => {},
