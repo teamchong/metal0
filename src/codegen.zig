@@ -78,6 +78,7 @@ pub const ZigCodeGenerator = struct {
     method_return_types: std.StringHashMap([]const u8),
     class_methods: std.StringHashMap(std.ArrayList(ast.Node.FunctionDef)),
     imported_modules: std.StringHashMap(void), // Track imported module names
+    python_ffi_vars: std.StringHashMap(void), // Track Python FFI result variables
 
     needs_runtime: bool,
     needs_allocator: bool,
@@ -109,6 +110,7 @@ pub const ZigCodeGenerator = struct {
             .method_return_types = std.StringHashMap([]const u8).init(allocator),
             .class_methods = std.StringHashMap(std.ArrayList(ast.Node.FunctionDef)).init(allocator),
             .imported_modules = std.StringHashMap(void).init(allocator),
+            .python_ffi_vars = std.StringHashMap(void).init(allocator),
             .needs_runtime = false,
             .needs_allocator = false,
             .needs_http = false,
@@ -142,6 +144,7 @@ pub const ZigCodeGenerator = struct {
         }
         self.class_methods.deinit();
         self.imported_modules.deinit();
+        self.python_ffi_vars.deinit();
         self.arena.deinit(); // Free all temp allocations
         self.allocator.destroy(self);
     }

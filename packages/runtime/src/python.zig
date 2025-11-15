@@ -152,7 +152,7 @@ pub fn callPythonFunction(allocator: std.mem.Allocator, func: *anyopaque, args: 
     }
 
     for (args, 0..) |arg, i| {
-        c.Py_IncRef(@ptrCast(arg)); // Tuple steals reference, so incref first
+        c.Py_IncRef(@ptrCast(@alignCast(arg))); // Tuple steals reference, so incref first
         _ = c.PyTuple_SetItem(py_args, @intCast(i), @ptrCast(@alignCast(arg)));
     }
 

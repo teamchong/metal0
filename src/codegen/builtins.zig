@@ -19,8 +19,13 @@ pub fn visitPrintCall(self: *ZigCodeGenerator, args: []ast.Node) CodegenError!Ex
     var buf = std.ArrayList(u8){};
 
     // Check if this is a Python C API object (from FFI)
-    const is_python_object = std.mem.indexOf(u8, arg_result.code, "python.") != null or
-                              std.mem.indexOf(u8, arg_result.code, "try python.") != null;
+    var is_python_object = std.mem.indexOf(u8, arg_result.code, "python.") != null or
+                            std.mem.indexOf(u8, arg_result.code, "try python.") != null;
+
+    // Also check if the variable is tracked as a Python FFI variable
+    if (!is_python_object and arg == .name) {
+        is_python_object = self.python_ffi_vars.contains(arg.name.id);
+    }
 
     if (is_python_object) {
         // Python C API object - use python.printPyObject()
