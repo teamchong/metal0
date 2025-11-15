@@ -7,7 +7,20 @@ const c = @cImport({
 
 /// Initialize Python interpreter
 pub fn initialize() !void {
-    c.Py_Initialize();
+    // Try to get Python home from environment or use system Python
+    const python_home = std.process.getEnvVarOwned(std.heap.c_allocator, "VIRTUAL_ENV") catch null;
+
+    if (python_home) |home| {
+        defer std.heap.c_allocator.free(home);
+        const home_wide = try std.heap.c_allocator.dupeZ(u8, home);
+        defer std.heap.c_allocator.free(home_wide);
+
+        // Note: Py_SetPythonHome needs wchar_t*, skipping for now
+        // c.Py_SetPythonHome(@ptrCast(home_wide.ptr));
+    }
+
+    // Use Py_InitializeEx(0) to skip signal handler registration
+    c.Py_InitializeEx(0);
     if (c.Py_IsInitialized() == 0) {
         return error.PythonInitFailed;
     }
