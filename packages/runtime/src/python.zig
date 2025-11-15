@@ -3,20 +3,59 @@ const std = @import("std");
 /// Python C API bindings
 const c = @cImport({
     @cInclude("Python.h");
+    @cInclude("wchar.h");
 });
+
+/// Convert UTF-8 string to wchar_t* for Python
+fn toWideString(allocator: std.mem.Allocator, str: []const u8) ![:0]c.wchar_t {
+    // Null-terminate the input string
+    const str_z = try allocator.dupeZ(u8, str);
+    defer allocator.free(str_z);
+
+    // Use mbstowcs to convert (requires locale setup)
+    const len = c.mbstowcs(null, str_z.ptr, 0);
+    if (len == @as(usize, @bitCast(@as(isize, -1)))) {
+        return error.InvalidUtf8;
+    }
+
+    // Allocate wchar_t buffer (+1 for null terminator)
+    const wstr = try allocator.allocSentinel(c.wchar_t, len, 0);
+    _ = c.mbstowcs(wstr.ptr, str_z.ptr, len + 1);
+
+    return wstr;
+}
+
+/// Find Python home directory
+fn findPythonHome(allocator: std.mem.Allocator) !?[]const u8 {
+    // Use sys.base_prefix to get the actual Python installation
+    // (not the virtual environment, which lacks stdlib)
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{ "python3", "-c", "import sys; print(sys.base_prefix, end='')" },
+    }) catch return null;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    if (result.term.Exited == 0 and result.stdout.len > 0) {
+        return try allocator.dupe(u8, result.stdout);
+    }
+
+    return null;
+}
 
 /// Initialize Python interpreter
 pub fn initialize() !void {
-    // Try to get Python home from environment or use system Python
-    const python_home = std.process.getEnvVarOwned(std.heap.c_allocator, "VIRTUAL_ENV") catch null;
+    // Find Python installation (base_prefix for stdlib)
+    const python_home = try findPythonHome(std.heap.c_allocator);
+    defer if (python_home) |home| std.heap.c_allocator.free(home);
+
+    var python_home_wide: ?[:0]c.wchar_t = null;
+    defer if (python_home_wide) |w| std.heap.c_allocator.free(w);
 
     if (python_home) |home| {
-        defer std.heap.c_allocator.free(home);
-        const home_wide = try std.heap.c_allocator.dupeZ(u8, home);
-        defer std.heap.c_allocator.free(home_wide);
-
-        // Note: Py_SetPythonHome needs wchar_t*, skipping for now
-        // c.Py_SetPythonHome(@ptrCast(home_wide.ptr));
+        std.debug.print("Using Python home: {s}\n", .{home});
+        python_home_wide = try toWideString(std.heap.c_allocator, home);
+        c.Py_SetPythonHome(python_home_wide.?.ptr);
     }
 
     // Use Py_InitializeEx(0) to skip signal handler registration
@@ -24,6 +63,25 @@ pub fn initialize() !void {
     if (c.Py_IsInitialized() == 0) {
         return error.PythonInitFailed;
     }
+
+    // Add venv site-packages to sys.path if VIRTUAL_ENV is set
+    if (std.process.getEnvVarOwned(std.heap.c_allocator, "VIRTUAL_ENV")) |venv| {
+        defer std.heap.c_allocator.free(venv);
+
+        // Build Python code: import sys; sys.path.insert(0, 'path')
+        var code_buf = std.ArrayList(u8){};
+        defer code_buf.deinit(std.heap.c_allocator);
+
+        try code_buf.writer(std.heap.c_allocator).print("import sys; sys.path.insert(0, r'{s}/lib/python3.12/site-packages')", .{venv});
+        const code_z = try code_buf.toOwnedSliceSentinel(std.heap.c_allocator, 0);
+        defer std.heap.c_allocator.free(code_z);
+
+        std.debug.print("Adding to sys.path: {s}/lib/python3.12/site-packages\n", .{venv});
+        const result = c.PyRun_SimpleString(code_z.ptr);
+        if (result != 0) {
+            std.debug.print("Failed to modify sys.path\n", .{});
+        }
+    } else |_| {}
 }
 
 /// Finalize Python interpreter

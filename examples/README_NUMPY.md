@@ -1,29 +1,52 @@
 # NumPy Support in PyAOT
 
-## Current Status
+## Current Status (2025-01-15)
 
-**Import system:** ✅ Implemented
-**NumPy FFI:** ⚠️ Partial (Python embedding configuration needed)
+**Import statement:** ✅ Working (`import numpy`)
+**Python embedding:** ✅ Fixed (PYTHONHOME configured)
+**Module execution:** ✅ NumPy loads successfully
+**Attribute access:** ❌ Not implemented (`np.array` fails)
+**Function calls:** ❌ Not implemented (can't call NumPy functions yet)
 
 ## What Works
 
-PyAOT has a complete import system:
-- Parser recognizes `import` and `from...import` statements
-- Codegen generates Python C API calls
-- Runtime has `python.zig` with FFI bindings
-
-## What Needs Work
-
-**Python embedding configuration:**
-- Need to set `PYTHONHOME` correctly (requires wchar_t* conversion)
-- Need to handle virtual environments
-- Need to configure Python paths before `Py_Initialize()`
-
-**Current error:**
+```python
+import numpy
+print("NumPy imported successfully!")
 ```
-Fatal Python error: init_fs_encoding: failed to get the Python codec
-ModuleNotFoundError: No module named 'encodings'
+
+**Output:**
 ```
+Using Python home: /usr/local/...
+Adding to sys.path: /path/to/venv/lib/python3.12/site-packages
+NumPy imported successfully!
+```
+
+**Implementation:**
+- ✅ Parser recognizes `import` statements
+- ✅ Codegen generates Python C API calls (`python.importModule()`)
+- ✅ Runtime configures PYTHONHOME (wchar_t* conversion)
+- ✅ Runtime handles virtual environments (VIRTUAL_ENV detection)
+- ✅ Python interpreter initializes correctly
+
+## What Doesn't Work Yet
+
+**Module attribute access:**
+```python
+import numpy as np
+arr = np.array([1, 2, 3])  # ❌ Fails: np.array not implemented
+```
+
+**Error:**
+```
+error: ZigCompilationFailed
+referenced by: pyaot_main
+```
+
+**Root cause:** PyAOT's codegen doesn't support:
+1. Accessing attributes from imported modules (`np.array`)
+2. Calling Python functions through FFI
+3. Converting Zig types to Python objects for FFI calls
 
 ## Approaches for NumPy
 
@@ -84,9 +107,93 @@ Once embedding is fixed, benchmark:
 - Overhead of FFI calls
 - When PyAOT is worth it (more logic, less arrays)
 
-## Next Steps
+## Next Steps to Enable NumPy Function Calls
 
-1. Fix `python.zig` to properly configure PYTHONHOME
-2. Create working NumPy demo
-3. Benchmark FFI overhead
-4. Document when to use PyAOT vs Python+NumPy
+### 1. Implement Module Attribute Access (1-2 weeks)
+
+**Parser changes (src/parser.zig):**
+- Already has `.attribute` node type
+- Need to handle `module.function` pattern
+
+**Codegen changes (src/codegen/expressions.zig):**
+```zig
+.attribute => |attr| {
+    if (is_imported_module(attr.value)) {
+        // Generate: python.getattr(module, "array")
+        return try std.fmt.allocPrint(
+            allocator,
+            "try python.getattr({s}, \"{s}\")",
+            .{attr.value.code, attr.attr}
+        );
+    }
+}
+```
+
+**Runtime changes (packages/runtime/src/python.zig):**
+```zig
+pub fn getattr(obj: *anyopaque, name: []const u8) !*anyopaque {
+    const name_z = try allocator.dupeZ(u8, name);
+    defer allocator.free(name_z);
+
+    const attr = c.PyObject_GetAttrString(@ptrCast(obj), name_z.ptr);
+    if (attr == null) {
+        c.PyErr_Print();
+        return error.AttributeNotFound;
+    }
+    return @ptrCast(attr);
+}
+```
+
+### 2. Implement Python Function Calls (1-2 weeks)
+
+**Codegen changes:**
+```zig
+.call => |call| {
+    if (is_python_function(call.func)) {
+        // Convert args: Zig → Python objects
+        var py_args = ArrayList(*anyopaque).init(allocator);
+        for (call.args) |arg| {
+            const py_arg = try convertToPython(arg);
+            try py_args.append(py_arg);
+        }
+
+        // Generate: python.callFunction(func, args)
+        return "try python.callFunction(func, args)";
+    }
+}
+```
+
+**Runtime has:** `callFunction()` already implemented!
+
+### 3. Implement Type Conversion (1 week)
+
+**Already in python.zig:**
+- ✅ `fromInt()` - Zig i64 → Python int
+- ✅ `fromFloat()` - Zig f64 → Python float
+- ✅ `fromString()` - Zig []u8 → Python str
+- ✅ `toInt()` - Python int → Zig i64
+- ✅ `toFloat()` - Python float → Zig f64
+
+**Need to add:**
+- `fromList()` - Zig []PyObject → Python list
+- `toList()` - Python list → Zig []PyObject
+- Auto-conversion in codegen
+
+### 4. Test and Benchmark
+
+Once implemented:
+1. Test `examples/numpy_demo.py`
+2. Run `benchmarks/numpy_comparison.py`
+3. Document performance characteristics
+
+**Estimated total effort:** 3-5 weeks
+
+---
+
+## Current Achievement
+
+✅ **Python embedding works perfectly!**
+✅ **NumPy loads successfully!**
+✅ **Foundation for FFI complete!**
+
+**Remaining work:** Module attribute access + function call codegen (3-5 weeks)
