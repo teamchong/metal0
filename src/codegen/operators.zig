@@ -41,33 +41,9 @@ fn visitCompareOp(self: *ZigCodeGenerator, op: ast.CompareOp) []const u8 {
 
 /// Visit binary operation node (e.g., a + b, a * b)
 pub fn visitBinOp(self: *ZigCodeGenerator, binop: ast.Node.BinOp) CodegenError!ExprResult {
-    const left_result = try expressions.visitExpr(self,binop.left.*);
-    const right_result = try expressions.visitExpr(self,binop.right.*);
-
     var buf = std.ArrayList(u8){};
 
-    // Check if operands are PyObjects (need unwrapping)
-    const is_left_pyobject = blk: {
-        switch (binop.left.*) {
-            .name => |name| {
-                const var_type = self.var_types.get(name.id);
-                break :blk var_type != null and std.mem.eql(u8, var_type.?, "pyobject");
-            },
-            else => break :blk false,
-        }
-    };
-
-    const is_right_pyobject = blk: {
-        switch (binop.right.*) {
-            .name => |name| {
-                const var_type = self.var_types.get(name.id);
-                break :blk var_type != null and std.mem.eql(u8, var_type.?, "pyobject");
-            },
-            else => break :blk false,
-        }
-    };
-
-    // Check for string concatenation (string + string)
+    // Check for string concatenation chain FIRST (before evaluating operands)
     if (binop.op == .Add) {
         const is_left_string = blk: {
             switch (binop.left.*) {
@@ -104,19 +80,87 @@ pub fn visitBinOp(self: *ZigCodeGenerator, binop: ast.Node.BinOp) CodegenError!E
         };
 
         if (is_left_string or is_right_string) {
-            // String concatenation - extract nested temps to statements to prevent leaks
-            const left_code = try self.extractResultToStatement(left_result);
-            const right_code = try self.extractResultToStatement(right_result);
+            // Check if this is a concatenation chain (a + b + c + d)
+            const binop_node = ast.Node{ .binop = binop };
+            if (expressions.detectBinOpChain(self.temp_allocator, binop_node, .Add)) |operands| {
+                // Chain detected - use optimized concatMulti
+                defer self.temp_allocator.free(operands);
 
-            try buf.writer(self.temp_allocator).print("runtime.PyString.concat(allocator, {s}, {s})", .{ left_code, right_code });
+                // Generate array of string operands
+                const array_var = try std.fmt.allocPrint(self.allocator, "__concat_array_{d}", .{self.temp_var_counter});
+                self.temp_var_counter += 1;
 
-            return ExprResult{
-                .code = try buf.toOwnedSlice(self.temp_allocator),
-                .needs_try = true,
-                .needs_decref = true, // Mark as needing cleanup
-            };
+                // Create array with operands
+                var array_buf = std.ArrayList(u8){};
+                try array_buf.writer(self.temp_allocator).print("const {s} = [_]*runtime.PyObject{{", .{array_var});
+
+                // Emit each operand
+                for (operands, 0..) |operand, i| {
+                    const operand_result = try expressions.visitExpr(self, operand);
+                    const operand_code = try self.extractResultToStatement(operand_result);
+
+                    if (i > 0) {
+                        try array_buf.writer(self.temp_allocator).writeAll(", ");
+                    }
+                    try array_buf.writer(self.temp_allocator).writeAll(operand_code);
+                }
+
+                try array_buf.writer(self.temp_allocator).writeAll("};");
+                try self.emitOwned(try array_buf.toOwnedSlice(self.temp_allocator));
+
+                // Call concatMulti with array converted to slice (use current_allocator for loop optimization)
+                try buf.writer(self.temp_allocator).print("runtime.PyString.concatMulti({s}, {s}[0..])", .{ self.current_allocator, array_var });
+
+                return ExprResult{
+                    .code = try buf.toOwnedSlice(self.temp_allocator),
+                    .needs_try = true,
+                    .needs_decref = !self.in_loop, // Only decref if not in loop (arena will handle it)
+                };
+            } else {
+                // Not a chain (only 2 elements) - use normal concat
+                // Need to evaluate operands now since we didn't earlier
+                const left_result = try expressions.visitExpr(self, binop.left.*);
+                const right_result = try expressions.visitExpr(self, binop.right.*);
+
+                const left_code = try self.extractResultToStatement(left_result);
+                const right_code = try self.extractResultToStatement(right_result);
+
+                try buf.writer(self.temp_allocator).print("runtime.PyString.concat({s}, {s}, {s})", .{ self.current_allocator, left_code, right_code });
+
+                return ExprResult{
+                    .code = try buf.toOwnedSlice(self.temp_allocator),
+                    .needs_try = true,
+                    .needs_decref = !self.in_loop, // Only decref if not in loop (arena will handle it)
+                };
+            }
         }
     }
+
+    // Not a chain - evaluate operands normally
+    const left_result = try expressions.visitExpr(self, binop.left.*);
+    const right_result = try expressions.visitExpr(self, binop.right.*);
+
+    // Check if operands are PyObjects (need unwrapping)
+    const is_left_pyobject = blk: {
+        switch (binop.left.*) {
+            .name => |name| {
+                const var_type = self.var_types.get(name.id);
+                break :blk var_type != null and std.mem.eql(u8, var_type.?, "pyobject");
+            },
+            else => break :blk false,
+        }
+    };
+
+    const is_right_pyobject = blk: {
+        switch (binop.right.*) {
+            .name => |name| {
+                const var_type = self.var_types.get(name.id);
+                break :blk var_type != null and std.mem.eql(u8, var_type.?, "pyobject");
+            },
+            else => break :blk false,
+        }
+    };
+
 
     // Unwrap PyObject operands to get primitive values
     const left_code = if (is_left_pyobject)

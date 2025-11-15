@@ -3,7 +3,7 @@ const std = @import("std");
 /// Compile Zig source code to native binary
 pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
     // Copy runtime files to /tmp for import
-    const runtime_files = [_][]const u8{ "runtime.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pytuple.zig", "async.zig", "http.zig", "python.zig" };
+    const runtime_files = [_][]const u8{ "runtime.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pytuple.zig", "async.zig", "http.zig", "python.zig", "json.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{file});
         defer allocator.free(src_path);
@@ -19,6 +19,11 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         defer allocator.free(content);
         try dst.writeAll(content);
     }
+
+    // Copy runtime subdirectories to /tmp
+    try copyRuntimeDir(allocator, "http");
+    try copyRuntimeDir(allocator, "async");
+    try copyRuntimeDir(allocator, "json");
 
     // Write Zig code to temporary file
     const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/pyaot_main_{d}.zig", .{std.time.milliTimestamp()});
@@ -113,7 +118,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
 /// Compile Zig source code to shared library (.so/.dylib)
 pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
     // Copy runtime files to /tmp for import
-    const runtime_files = [_][]const u8{ "runtime.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pytuple.zig", "async.zig", "http.zig", "python.zig" };
+    const runtime_files = [_][]const u8{ "runtime.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pytuple.zig", "async.zig", "http.zig", "python.zig", "json.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{file});
         defer allocator.free(src_path);
@@ -129,6 +134,11 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
         defer allocator.free(content);
         try dst.writeAll(content);
     }
+
+    // Copy runtime subdirectories to /tmp
+    try copyRuntimeDir(allocator, "http");
+    try copyRuntimeDir(allocator, "async");
+    try copyRuntimeDir(allocator, "json");
 
     // Write Zig code to temporary file
     const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/pyaot_main_{d}.zig", .{std.time.milliTimestamp()});
@@ -294,4 +304,51 @@ fn getPythonPaths(allocator: std.mem.Allocator) !PythonInfo {
         null;
 
     return PythonInfo{ .lib_dir = lib_dir, .lib_name = lib_name, .include_dir = include_dir };
+}
+
+/// Copy a runtime subdirectory recursively to /tmp
+fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8) !void {
+    const src_dir_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{dir_name});
+    defer allocator.free(src_dir_path);
+    const dst_dir_path = try std.fmt.allocPrint(allocator, "/tmp/{s}", .{dir_name});
+    defer allocator.free(dst_dir_path);
+
+    // Create destination directory
+    std.fs.makeDirAbsolute(dst_dir_path) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    // Open source directory
+    var src_dir = std.fs.cwd().openDir(src_dir_path, .{ .iterate = true }) catch |err| {
+        // If directory doesn't exist, that's okay - just skip it
+        if (err == error.FileNotFound) return;
+        return err;
+    };
+    defer src_dir.close();
+
+    // Iterate through files in source directory
+    var iterator = src_dir.iterate();
+    while (try iterator.next()) |entry| {
+        if (entry.kind == .file) {
+            // Copy file
+            const src_file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ src_dir_path, entry.name });
+            defer allocator.free(src_file_path);
+            const dst_file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dst_dir_path, entry.name });
+            defer allocator.free(dst_file_path);
+
+            const src_file = try std.fs.cwd().openFile(src_file_path, .{});
+            defer src_file.close();
+            const dst_file = try std.fs.createFileAbsolute(dst_file_path, .{});
+            defer dst_file.close();
+
+            const content = try src_file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+            defer allocator.free(content);
+            try dst_file.writeAll(content);
+        } else if (entry.kind == .directory) {
+            // Recursively copy subdirectory
+            const subdir_name = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_name, entry.name });
+            defer allocator.free(subdir_name);
+            try copyRuntimeDir(allocator, subdir_name);
+        }
+    }
 }

@@ -1,0 +1,228 @@
+const std = @import("std");
+const ast = @import("../ast.zig");
+const types = @import("types.zig");
+
+/// Track variable lifetimes through the AST
+pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line: usize) !usize {
+    var line = current_line;
+
+    switch (node) {
+        .module => |module| {
+            for (module.body) |body_node| {
+                line = try analyzeLifetimes(info, body_node, line);
+            }
+        },
+        .assign => |assign| {
+            // Record assignment
+            for (assign.targets) |target| {
+                if (target == .name) {
+                    try info.recordVariableUse(target.name.id, line, true);
+                }
+            }
+            // Analyze value expression for uses
+            line = try analyzeLifetimes(info, assign.value.*, line);
+            line += 1;
+        },
+        .aug_assign => |aug| {
+            // Record both use and assignment
+            if (aug.target.* == .name) {
+                try info.recordVariableUse(aug.target.name.id, line, false);
+                try info.recordVariableUse(aug.target.name.id, line, true);
+            }
+            line = try analyzeLifetimes(info, aug.value.*, line);
+            line += 1;
+        },
+        .name => |name| {
+            // Record variable use
+            try info.recordVariableUse(name.id, line, false);
+        },
+        .binop => |binop| {
+            line = try analyzeLifetimes(info, binop.left.*, line);
+            line = try analyzeLifetimes(info, binop.right.*, line);
+        },
+        .unaryop => |unary| {
+            line = try analyzeLifetimes(info, unary.operand.*, line);
+        },
+        .call => |call| {
+            line = try analyzeLifetimes(info, call.func.*, line);
+            for (call.args) |arg| {
+                line = try analyzeLifetimes(info, arg, line);
+            }
+        },
+        .compare => |compare| {
+            line = try analyzeLifetimes(info, compare.left.*, line);
+            for (compare.comparators) |comp| {
+                line = try analyzeLifetimes(info, comp, line);
+            }
+        },
+        .boolop => |boolop| {
+            for (boolop.values) |value| {
+                line = try analyzeLifetimes(info, value, line);
+            }
+        },
+        .if_stmt => |if_stmt| {
+            const scope_start = line;
+            line = try analyzeLifetimes(info, if_stmt.condition.*, line);
+            line += 1;
+
+            // Analyze body
+            for (if_stmt.body) |body_node| {
+                line = try analyzeLifetimes(info, body_node, line);
+            }
+
+            // Analyze else body
+            for (if_stmt.else_body) |else_node| {
+                line = try analyzeLifetimes(info, else_node, line);
+            }
+
+            // Mark scope end for any variables defined in this scope
+            _ = scope_start;
+            line += 1;
+        },
+        .for_stmt => |for_stmt| {
+            const scope_start = line;
+            line = try analyzeLifetimes(info, for_stmt.iter.*, line);
+
+            // Record loop variable
+            if (for_stmt.target.* == .name) {
+                try info.recordVariableUse(for_stmt.target.name.id, line, true);
+                try info.markLoopLocal(for_stmt.target.name.id);
+            }
+            line += 1;
+
+            // Analyze body
+            for (for_stmt.body) |body_node| {
+                line = try analyzeLifetimes(info, body_node, line);
+            }
+
+            // Mark scope end
+            if (for_stmt.target.* == .name) {
+                try info.markScopeEnd(for_stmt.target.name.id, line);
+            }
+            _ = scope_start;
+            line += 1;
+        },
+        .while_stmt => |while_stmt| {
+            const scope_start = line;
+            line = try analyzeLifetimes(info, while_stmt.condition.*, line);
+            line += 1;
+
+            // Analyze body
+            for (while_stmt.body) |body_node| {
+                line = try analyzeLifetimes(info, body_node, line);
+            }
+
+            _ = scope_start;
+            line += 1;
+        },
+        .function_def => |func| {
+            const scope_start = line;
+
+            // Record parameters
+            for (func.args) |arg| {
+                try info.recordVariableUse(arg.name, line, true);
+            }
+            line += 1;
+
+            // Analyze body
+            for (func.body) |body_node| {
+                line = try analyzeLifetimes(info, body_node, line);
+            }
+
+            // Mark scope end for parameters
+            for (func.args) |arg| {
+                try info.markScopeEnd(arg.name, line);
+            }
+            _ = scope_start;
+            line += 1;
+        },
+        .class_def => |class_def| {
+            const scope_start = line;
+
+            // Analyze class body
+            for (class_def.body) |body_node| {
+                line = try analyzeLifetimes(info, body_node, line);
+            }
+
+            _ = scope_start;
+            line += 1;
+        },
+        .return_stmt => |ret| {
+            if (ret.value) |value| {
+                line = try analyzeLifetimes(info, value.*, line);
+            }
+            line += 1;
+        },
+        .list => |list| {
+            for (list.elts) |elt| {
+                line = try analyzeLifetimes(info, elt, line);
+            }
+        },
+        .listcomp => |listcomp| {
+            line = try analyzeLifetimes(info, listcomp.iter.*, line);
+            if (listcomp.target.* == .name) {
+                try info.recordVariableUse(listcomp.target.name.id, line, true);
+                try info.markLoopLocal(listcomp.target.name.id);
+            }
+            line = try analyzeLifetimes(info, listcomp.elt.*, line);
+            for (listcomp.ifs) |if_node| {
+                line = try analyzeLifetimes(info, if_node, line);
+            }
+        },
+        .dict => |dict| {
+            for (dict.keys) |key| {
+                line = try analyzeLifetimes(info, key, line);
+            }
+            for (dict.values) |value| {
+                line = try analyzeLifetimes(info, value, line);
+            }
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elt| {
+                line = try analyzeLifetimes(info, elt, line);
+            }
+        },
+        .subscript => |subscript| {
+            line = try analyzeLifetimes(info, subscript.value.*, line);
+            switch (subscript.slice) {
+                .index => |idx| {
+                    line = try analyzeLifetimes(info, idx.*, line);
+                },
+                .slice => |slice| {
+                    if (slice.lower) |lower| {
+                        line = try analyzeLifetimes(info, lower.*, line);
+                    }
+                    if (slice.upper) |upper| {
+                        line = try analyzeLifetimes(info, upper.*, line);
+                    }
+                    if (slice.step) |step| {
+                        line = try analyzeLifetimes(info, step.*, line);
+                    }
+                },
+            }
+        },
+        .attribute => |attr| {
+            line = try analyzeLifetimes(info, attr.value.*, line);
+        },
+        .expr_stmt => |expr| {
+            line = try analyzeLifetimes(info, expr.value.*, line);
+            line += 1;
+        },
+        .await_expr => |await_expr| {
+            line = try analyzeLifetimes(info, await_expr.value.*, line);
+        },
+        .assert_stmt => |assert_stmt| {
+            line = try analyzeLifetimes(info, assert_stmt.condition.*, line);
+            if (assert_stmt.msg) |msg| {
+                line = try analyzeLifetimes(info, msg.*, line);
+            }
+            line += 1;
+        },
+        // Leaf nodes
+        .constant, .import_stmt, .import_from => {
+            // No variables to track
+        },
+    }
+
+    return line;
+}

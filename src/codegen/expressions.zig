@@ -73,8 +73,8 @@ fn visitConstant(self: *ZigCodeGenerator, constant: ast.Node.Constant) CodegenEr
                 content = str[1 .. str.len - 1];
             }
 
-            // Generate Zig code with proper escaping
-            try buf.writer(self.temp_allocator).writeAll("runtime.PyString.create(allocator, \"");
+            // Generate Zig code with proper escaping (use current_allocator for loop optimization)
+            try buf.writer(self.temp_allocator).print("runtime.PyString.create({s}, \"", .{self.current_allocator});
 
             // Escape content for Zig string
             // Python escape sequences: already processed by Python lexer,
@@ -626,6 +626,47 @@ fn visitSubscript(self: *ZigCodeGenerator, sub: ast.Node.Subscript) CodegenError
                 .needs_try = true,
                 .needs_decref = true,
             };
+        },
+    }
+}
+
+/// Detect and flatten a binary operator chain
+/// Returns null if not a chain (single operation)
+/// Returns array of operands if it's a chain (e.g., a + b + c + d -> [a, b, c, d])
+pub fn detectBinOpChain(allocator: std.mem.Allocator, node: ast.Node, op: ast.Operator) ?[]ast.Node {
+    var operands = std.ArrayList(ast.Node){};
+    errdefer operands.deinit(allocator);
+
+    // Recursively collect operands from left side
+    collectBinOpOperands(allocator, &operands, node, op) catch return null;
+
+    // Only return chain if we have 3+ operands (2+ operations)
+    if (operands.items.len < 3) {
+        operands.deinit(allocator);
+        return null;
+    }
+
+    return operands.toOwnedSlice(allocator) catch null;
+}
+
+/// Helper: Recursively collect operands from a BinOp chain
+fn collectBinOpOperands(allocator: std.mem.Allocator, operands: *std.ArrayList(ast.Node), node: ast.Node, target_op: ast.Operator) !void {
+    switch (node) {
+        .binop => |binop| {
+            // Only collect if operator matches
+            if (std.meta.eql(binop.op, target_op)) {
+                // Recursively collect from left
+                try collectBinOpOperands(allocator, operands, binop.left.*, target_op);
+                // Recursively collect from right
+                try collectBinOpOperands(allocator, operands, binop.right.*, target_op);
+            } else {
+                // Different operator - treat whole expression as leaf
+                try operands.append(allocator, node);
+            }
+        },
+        else => {
+            // Leaf node - add to operands
+            try operands.append(allocator, node);
         },
     }
 }

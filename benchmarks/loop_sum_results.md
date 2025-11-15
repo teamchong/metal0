@@ -1,4 +1,5 @@
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `CPython` | 4.313 ± 0.226 | 4.066 | 4.797 | 28.33 ± 1.51 |
-| `PyAOT` | 0.152 ± 0.002 | 0.149 | 0.157 | 1.00 |
+| `python benchmarks/loop_sum.py` | 43.044 ± 1.819 | 41.174 | 44.807 | 28.19 ± 1.19 |
+| `pypy3 benchmarks/loop_sum.py` | 2.072 ± 0.002 | 2.070 | 2.073 | 1.36 ± 0.00 |
+| `pyaot benchmarks/loop_sum.py` | 1.527 ± 0.002 | 1.526 | 1.529 | 1.00 |

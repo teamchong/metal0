@@ -7,6 +7,87 @@ const expressions = @import("expressions.zig");
 const ZigCodeGenerator = codegen.ZigCodeGenerator;
 const CodegenError = codegen.CodegenError;
 
+/// Detect if loop body contains string/PyObject operations that benefit from arena allocation
+fn loopNeedsArena(body: []ast.Node) bool {
+    for (body) |stmt| {
+        if (stmtNeedsArena(stmt)) return true;
+    }
+    return false;
+}
+
+/// Check if a statement contains operations that benefit from arena allocation
+fn stmtNeedsArena(stmt: ast.Node) bool {
+    return switch (stmt) {
+        .assign => |assign| exprNeedsArena(assign.value.*),
+        .expr_stmt => |expr_stmt| exprNeedsArena(expr_stmt.value.*),
+        .aug_assign => |aug| exprNeedsArena(aug.value.*),
+        .if_stmt => |if_stmt| {
+            // Check condition and bodies
+            if (exprNeedsArena(if_stmt.condition.*)) return true;
+            for (if_stmt.body) |s| {
+                if (stmtNeedsArena(s)) return true;
+            }
+            for (if_stmt.else_body) |s| {
+                if (stmtNeedsArena(s)) return true;
+            }
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            // Nested loop - check body
+            for (while_stmt.body) |s| {
+                if (stmtNeedsArena(s)) return true;
+            }
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            // Nested loop - check body
+            for (for_stmt.body) |s| {
+                if (stmtNeedsArena(s)) return true;
+            }
+            return false;
+        },
+        else => false,
+    };
+}
+
+/// Check if expression involves string/PyObject operations
+fn exprNeedsArena(expr: ast.Node) bool {
+    return switch (expr) {
+        .constant => |c| c.value == .string,
+        .binop => |binop| {
+            // String concatenation with + - assume it might be strings
+            // This is conservative but safe
+            if (binop.op == .Add) {
+                return true; // Any Add operation in a loop could be string concat
+            }
+            return false;
+        },
+        .call => |call| {
+            // Method calls and list/dict operations
+            switch (call.func.*) {
+                .attribute => return true, // Method calls (.upper(), .split(), etc.)
+                .name => |name| {
+                    // Check for runtime functions
+                    if (std.mem.eql(u8, name.id, "len") or
+                        std.mem.eql(u8, name.id, "sum") or
+                        std.mem.eql(u8, name.id, "any") or
+                        std.mem.eql(u8, name.id, "all"))
+                    {
+                        return true;
+                    }
+                    return false;
+                },
+                else => return false,
+            }
+        },
+        .list => true,
+        .listcomp => true,
+        .dict => true,
+        .tuple => true,
+        else => false,
+    };
+}
+
 pub fn visitIf(self: *ZigCodeGenerator, if_node: ast.Node.If) CodegenError!void {
     const test_result = try expressions.visitExpr(self, if_node.condition.*);
 
@@ -90,6 +171,10 @@ fn visitRangeFor(self: *ZigCodeGenerator, for_node: ast.Node.For, args: []ast.No
                 return error.InvalidRangeArgs;
             }
 
+            // TODO: Arena allocator disabled - incompatible with escaping variables
+            // due to defer execution order
+            const needs_arena = false; // loopNeedsArena(for_node.body);
+
             // Check if loop variable already declared
             const is_first_use = !self.declared_vars.contains(loop_var);
 
@@ -110,9 +195,28 @@ fn visitRangeFor(self: *ZigCodeGenerator, for_node: ast.Node.For, args: []ast.No
 
             self.indent();
 
+            // Switch to loop allocator if arena is enabled
+            const previous_allocator = self.current_allocator;
+            const was_in_loop = self.in_loop;
+            if (needs_arena) {
+                self.current_allocator = "loop_allocator";
+                self.in_loop = true;
+
+                // Add periodic arena reset every 10,000 iterations
+                try self.emit("// Periodic arena reset to prevent unbounded growth");
+                var reset_buf = std.ArrayList(u8){};
+                try reset_buf.writer(self.temp_allocator).print("if (@mod({s}, 10000) == 0) _ = loop_arena.reset(.retain_capacity);", .{loop_var});
+                try self.emitOwned(try reset_buf.toOwnedSlice(self.temp_allocator));
+                try self.emit("");
+            }
+
             for (for_node.body) |stmt| {
                 try statements.visitNode(self, stmt);
             }
+
+            // Restore allocator context
+            self.current_allocator = previous_allocator;
+            self.in_loop = was_in_loop;
 
             buf = std.ArrayList(u8){};
             try buf.writer(self.temp_allocator).print("{s} += {s};", .{ loop_var, step });
@@ -267,17 +371,27 @@ fn visitZipFor(self: *ZigCodeGenerator, for_node: ast.Node.For, args: []ast.Node
 }
 
 pub fn visitWhile(self: *ZigCodeGenerator, while_node: ast.Node.While) CodegenError!void {
-    const test_result = try expressions.visitExpr(self, while_node.condition.*);
+    // TODO: Arena allocator disabled - incompatible with escaping variables
+    _ = loopNeedsArena; // Suppress unused warning
 
+    // Emit while condition
+    const test_result = try expressions.visitExpr(self, while_node.condition.*);
     var buf = std.ArrayList(u8){};
     try buf.writer(self.temp_allocator).print("while ({s}) {{", .{test_result.code});
     try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
 
     self.indent();
 
+    // Mark as in loop but don't change allocator (arena disabled)
+    const was_in_loop = self.in_loop;
+    self.in_loop = true;
+
     for (while_node.body) |stmt| {
         try statements.visitNode(self, stmt);
     }
+
+    // Restore loop context
+    self.in_loop = was_in_loop;
 
     self.dedent();
     try self.emit("}");

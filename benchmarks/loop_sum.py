@@ -1,6 +1,6 @@
-# Sum numbers from 0 to 99999999 (100M iterations)
+# Sum numbers - 1.4 billion iterations for ~60 seconds on CPython
 total = 0
-for i in range(100000000):
+for i in range(1400000000):
     total = total + i
 
 print(total)

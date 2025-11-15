@@ -527,15 +527,18 @@ pub const PyString = pystring.PyString;
 const dict_module = @import("dict.zig");
 pub const PyDict = dict_module.PyDict;
 
-// HTTP and async modules
+// HTTP, async, and JSON modules
 pub const http = @import("http.zig");
 pub const async_runtime = @import("async.zig");
+pub const json = @import("json.zig");
 
 // Export convenience functions
 pub const httpGet = http.getAsPyString;
 pub const httpGetResponse = http.getAsResponse;
 pub const sleep = async_runtime.sleepAsync;
 pub const now = async_runtime.now;
+pub const jsonLoads = json.loads;
+pub const jsonDumps = json.dumps;
 
 // Tests
 test "PyInt creation and retrieval" {

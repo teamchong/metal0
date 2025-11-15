@@ -790,9 +790,53 @@ pub fn visitMethodCall(self: *ZigCodeGenerator, attr: ast.Node.Attribute, args: 
     }
 }
 
-/// Handle Python function calls like np.array([1, 2, 3])
+/// Handle Python function calls like np.array([1, 2, 3]) and native modules like json.loads()
 fn visitPythonFunctionCall(self: *ZigCodeGenerator, module_code: []const u8, func_name: []const u8, args: []ast.Node) CodegenError!ExprResult {
     self.needs_allocator = true;
+
+    // Check for native JSON module calls (json.loads, json.dumps)
+    const is_json_loads = std.mem.eql(u8, func_name, "loads");
+    const is_json_dumps = std.mem.eql(u8, func_name, "dumps");
+
+    if (is_json_loads or is_json_dumps) {
+        // Native JSON handling
+        if (args.len == 0) return error.MissingArgument;
+
+        const arg_result = try expressions.visitExpr(self, args[0]);
+        const arg_code = try self.extractResultToStatement(arg_result);
+
+        var buf = std.ArrayList(u8){};
+        if (is_json_loads) {
+            // json.loads(json_str) -> runtime.jsonLoads(json_str, allocator)
+            try buf.writer(self.temp_allocator).print("runtime.jsonLoads({s}, allocator)", .{arg_code});
+        } else {
+            // json.dumps(obj) -> runtime.jsonDumps(obj, allocator)
+            try buf.writer(self.temp_allocator).print("runtime.jsonDumps({s}, allocator)", .{arg_code});
+        }
+
+        const code = try buf.toOwnedSlice(self.temp_allocator);
+        return ExprResult{ .code = code, .needs_try = true, .needs_decref = true };
+    }
+
+    // Check for native HTTP module calls (http.get)
+    const is_http_get = std.mem.eql(u8, func_name, "get");
+
+    if (is_http_get) {
+        // Native HTTP handling
+        if (args.len == 0) return error.MissingArgument;
+
+        const arg_result = try expressions.visitExpr(self, args[0]);
+        const arg_code = try self.extractResultToStatement(arg_result);
+
+        var buf = std.ArrayList(u8){};
+        // http.get(url) -> runtime.httpGet(allocator, url)
+        try buf.writer(self.temp_allocator).print("runtime.httpGet(allocator, {s})", .{arg_code});
+
+        const code = try buf.toOwnedSlice(self.temp_allocator);
+        return ExprResult{ .code = code, .needs_try = true, .needs_decref = true };
+    }
+
+    // Python FFI function call
     self.needs_python = true;
 
     // Get the function attribute from module

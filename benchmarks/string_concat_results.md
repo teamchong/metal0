@@ -1,4 +1,4 @@
-| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
+| Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `CPython` | 20.7 ± 2.4 | 18.6 | 43.9 | 8.07 ± 7.50 |
-| `PyAOT` | 2.6 ± 2.4 | 1.2 | 34.7 | 1.00 |
+| `python benchmarks/string_concat.py` | 37.117 ± 2.534 | 35.185 | 39.986 | 40.78 ± 2.79 |
+| `pypy3 benchmarks/string_concat.py` | 0.910 ± 0.002 | 0.908 | 0.912 | 1.00 |

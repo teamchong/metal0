@@ -7,6 +7,8 @@ const functions = @import("codegen/functions.zig");
 const expressions = @import("codegen/expressions.zig");
 const statements = @import("codegen/statements.zig");
 const control_flow = @import("codegen/control_flow.zig");
+const analysis = @import("analysis/analyzer.zig");
+const SemanticInfo = @import("analysis/types.zig").SemanticInfo;
 
 /// Codegen errors
 pub const CodegenError = error{
@@ -21,6 +23,7 @@ pub const CodegenError = error{
     UnsupportedCall,
     UnsupportedMethod,
     InvalidArguments,
+    MissingArgument,
     UnsupportedForLoop,
     InvalidLoopVariable,
     InvalidRangeArgs,
@@ -39,6 +42,11 @@ pub fn generate(allocator: std.mem.Allocator, tree: ast.Node, is_shared_lib: boo
     // Initialize code generator
     var generator = try ZigCodeGenerator.init(allocator, is_shared_lib);
     defer generator.deinit();
+
+    // Run semantic analysis pass
+    var semantic_info = try analysis.analyze(allocator, tree);
+    defer semantic_info.deinit();
+    generator.semantic_info = semantic_info;
 
     // Generate code from AST
     switch (tree) {
@@ -80,6 +88,9 @@ pub const ZigCodeGenerator = struct {
     imported_modules: std.StringHashMap(void), // Track imported module names
     python_ffi_vars: std.StringHashMap(void), // Track Python FFI result variables
 
+    // Semantic analysis info for optimization
+    semantic_info: SemanticInfo,
+
     needs_runtime: bool,
     needs_allocator: bool,
     needs_http: bool,
@@ -87,6 +98,8 @@ pub const ZigCodeGenerator = struct {
     has_async: bool,
     temp_var_counter: usize,
     is_shared_lib: bool, // Generate for shared library (.so) or binary
+    current_allocator: []const u8, // Current allocator name (default "allocator", can be "loop_allocator")
+    in_loop: bool, // Track if we're inside a loop body
 
     pub fn init(allocator: std.mem.Allocator, is_shared_lib: bool) !*ZigCodeGenerator {
         const self = try allocator.create(ZigCodeGenerator);
@@ -111,6 +124,7 @@ pub const ZigCodeGenerator = struct {
             .class_methods = std.StringHashMap(std.ArrayList(ast.Node.FunctionDef)).init(allocator),
             .imported_modules = std.StringHashMap(void).init(allocator),
             .python_ffi_vars = std.StringHashMap(void).init(allocator),
+            .semantic_info = SemanticInfo.init(allocator),
             .needs_runtime = false,
             .needs_allocator = false,
             .needs_http = false,
@@ -118,6 +132,8 @@ pub const ZigCodeGenerator = struct {
             .has_async = false,
             .temp_var_counter = 0,
             .is_shared_lib = is_shared_lib,
+            .current_allocator = "allocator",
+            .in_loop = false,
         };
         // Set temp_allocator after arena is moved into struct
         self.temp_allocator = self.arena.allocator();
@@ -181,9 +197,12 @@ pub const ZigCodeGenerator = struct {
             }
             try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
 
-            var defer_buf = std.ArrayList(u8){};
-            try defer_buf.writer(self.temp_allocator).print("defer runtime.decref(__expr{d}, allocator);", .{temp_id});
-            try self.emitOwned(try defer_buf.toOwnedSlice(self.temp_allocator));
+            // Only emit defer if not in loop (arena will handle cleanup)
+            if (!self.in_loop) {
+                var defer_buf = std.ArrayList(u8){};
+                try defer_buf.writer(self.temp_allocator).print("defer runtime.decref(__expr{d}, allocator);", .{temp_id});
+                try self.emitOwned(try defer_buf.toOwnedSlice(self.temp_allocator));
+            }
 
             var name_buf = std.ArrayList(u8){};
             try name_buf.writer(self.temp_allocator).print("__expr{d}", .{temp_id});

@@ -63,7 +63,7 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
                 try self.declared_vars.put(var_name, {});
             }
 
-            // Evaluate the value expression
+            // Evaluate the value expression (use current allocator - arena if in loop)
             const value_result = try expressions.visitExpr(self, assign.value.*);
 
             // Infer type from value and check if it's a class instance
@@ -295,7 +295,16 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
                         std.mem.eql(u8, var_type.?, "dict") or
                         std.mem.eql(u8, var_type.?, "tuple")
                     ));
-                    if (needs_defer) {
+
+                    // Don't add defer if:
+                    // - Variable declared inside loop (arena cleans up)
+                    // - Variable will be reassigned (may get arena memory assigned)
+                    const will_be_reassigned = blk: {
+                        const lifetime = self.semantic_info.lifetimes.get(var_name);
+                        break :blk if (lifetime) |lt| lt.reassignment_count > 0 else false;
+                    };
+
+                    if (needs_defer and !self.in_loop and !will_be_reassigned) {
                         var defer_buf = std.ArrayList(u8){};
                         try defer_buf.writer(self.temp_allocator).print("defer runtime.decref({s}, allocator);", .{var_name});
                         try self.emitOwned(try defer_buf.toOwnedSlice(self.temp_allocator));
@@ -318,7 +327,16 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
                         std.mem.eql(u8, var_type.?, "dict") or
                         std.mem.eql(u8, var_type.?, "tuple")
                     ));
-                    if (needs_defer) {
+
+                    // Don't add defer if:
+                    // - Variable declared inside loop (arena cleans up)
+                    // - Variable will be reassigned (may get arena memory assigned)
+                    const will_be_reassigned = blk: {
+                        const lifetime = self.semantic_info.lifetimes.get(var_name);
+                        break :blk if (lifetime) |lt| lt.reassignment_count > 0 else false;
+                    };
+
+                    if (needs_defer and !self.in_loop and !will_be_reassigned) {
                         var defer_buf = std.ArrayList(u8){};
                         try defer_buf.writer(self.temp_allocator).print("defer runtime.decref({s}, allocator);", .{var_name});
                         try self.emitOwned(try defer_buf.toOwnedSlice(self.temp_allocator));
@@ -326,8 +344,19 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
                 }
             } else {
                 // Reassignment
+                // Skip decref for ALL loop reassignments (arena or defer will clean up)
+                // This trades memory for performance - intermediate values may leak until scope end
                 const var_type = self.var_types.get(var_name);
-                if (var_type != null and std.mem.eql(u8, var_type.?, "string")) {
+                const is_pyobject = var_type != null and (
+                    std.mem.eql(u8, var_type.?, "string") or
+                    std.mem.eql(u8, var_type.?, "list") or
+                    std.mem.eql(u8, var_type.?, "dict") or
+                    std.mem.eql(u8, var_type.?, "tuple") or
+                    std.mem.eql(u8, var_type.?, "pyobject")
+                );
+
+                // Only add decref if NOT in loop
+                if (is_pyobject and !self.in_loop) {
                     var decref_buf = std.ArrayList(u8){};
                     try decref_buf.writer(self.temp_allocator).print("runtime.decref({s}, allocator);", .{var_name});
                     try self.emitOwned(try decref_buf.toOwnedSlice(self.temp_allocator));
@@ -446,10 +475,12 @@ fn visitAssign(self: *ZigCodeGenerator, assign: ast.Node.Assign) CodegenError!vo
                                     try buf.writer(self.temp_allocator).print("{s} {s} = try runtime.PyTuple.getItem({s}, {d});", .{ var_keyword, var_name, value_result.code, i });
                                     try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
 
-                                    // Add defer for PyObject
-                                    var defer_buf = std.ArrayList(u8){};
-                                    try defer_buf.writer(self.temp_allocator).print("defer runtime.decref({s}, allocator);", .{var_name});
-                                    try self.emitOwned(try defer_buf.toOwnedSlice(self.temp_allocator));
+                                    // Add defer for PyObject (only if not in loop - arena will handle cleanup)
+                                    if (!self.in_loop) {
+                                        var defer_buf = std.ArrayList(u8){};
+                                        try defer_buf.writer(self.temp_allocator).print("defer runtime.decref({s}, allocator);", .{var_name});
+                                        try self.emitOwned(try defer_buf.toOwnedSlice(self.temp_allocator));
+                                    }
                                 } else {
                                     try buf.writer(self.temp_allocator).print("{s} = try runtime.PyTuple.getItem({s}, {d});", .{ var_name, value_result.code, i });
                                     try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
@@ -553,18 +584,18 @@ fn visitAugAssign(self: *ZigCodeGenerator, aug_assign: ast.Node.AugAssign) Codeg
 
         // Generate appropriate concatenation based on type
         if (is_string) {
-            // x = runtime.PyString.concat(allocator, __aug_old_0, y)
+            // x = runtime.PyString.concat(current_allocator, __aug_old_0, y)
             if (value_result.needs_try) {
-                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyString.concat(allocator, {s}, try {s});", .{ var_name, temp_var_name, value_result.code });
+                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyString.concat({s}, {s}, try {s});", .{ var_name, self.current_allocator, temp_var_name, value_result.code });
             } else {
-                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyString.concat(allocator, {s}, {s});", .{ var_name, temp_var_name, value_result.code });
+                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyString.concat({s}, {s}, {s});", .{ var_name, self.current_allocator, temp_var_name, value_result.code });
             }
         } else if (is_list) {
-            // x = runtime.PyList.concat(allocator, __aug_old_0, y)
+            // x = runtime.PyList.concat(current_allocator, __aug_old_0, y)
             if (value_result.needs_try) {
-                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyList.concat(allocator, {s}, try {s});", .{ var_name, temp_var_name, value_result.code });
+                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyList.concat({s}, {s}, try {s});", .{ var_name, self.current_allocator, temp_var_name, value_result.code });
             } else {
-                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyList.concat(allocator, {s}, {s});", .{ var_name, temp_var_name, value_result.code });
+                try buf.writer(self.temp_allocator).print("{s} = try runtime.PyList.concat({s}, {s}, {s});", .{ var_name, self.current_allocator, temp_var_name, value_result.code });
             }
         } else {
             // Unknown type - error
@@ -602,16 +633,30 @@ fn visitReturn(self: *ZigCodeGenerator, ret: ast.Node.Return) CodegenError!void 
 /// Generate code for import statement
 fn visitImport(self: *ZigCodeGenerator, import_node: ast.Node.Import) CodegenError!void {
     self.needs_allocator = true;
-    self.needs_python = true;
 
     const alias = import_node.asname orelse import_node.module;
 
-    var buf = std.ArrayList(u8){};
-    try buf.writer(self.temp_allocator).print(
-        "const {s} = try python.importModule(allocator, \"{s}\");",
-        .{ alias, import_node.module }
-    );
-    try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
+    // Special handling for native modules (json, http, asyncio)
+    const is_native_module = std.mem.eql(u8, import_node.module, "json") or
+        std.mem.eql(u8, import_node.module, "http") or
+        std.mem.eql(u8, import_node.module, "asyncio");
+
+    if (is_native_module) {
+        // For native modules, just create a marker - we'll handle method calls specially
+        // No actual import needed since functions are in runtime
+        var buf = std.ArrayList(u8){};
+        try buf.writer(self.temp_allocator).print("// Native module: {s}", .{import_node.module});
+        try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
+    } else {
+        // Python FFI module
+        self.needs_python = true;
+        var buf = std.ArrayList(u8){};
+        try buf.writer(self.temp_allocator).print(
+            "const {s} = try python.importModule(allocator, \"{s}\");",
+            .{ alias, import_node.module }
+        );
+        try self.emitOwned(try buf.toOwnedSlice(self.temp_allocator));
+    }
 
     // Track this module name for attribute access
     try self.imported_modules.put(alias, {});

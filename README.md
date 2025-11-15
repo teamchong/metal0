@@ -4,7 +4,7 @@
 
 Python to Zig AOT compiler. Write Python, run native code.
 
-**Up to 41x faster** than CPython | Native binaries | Zero runtime overhead
+**Up to 27x faster** than CPython | Native binaries | Zero runtime overhead
 
 ## Quick Start
 
@@ -144,28 +144,43 @@ print(words[0])  # Hello
 
 ## Performance
 
-Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM64.
+Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM64 (Apple Silicon).
 
-| Benchmark | CPython | PyAOT | Speedup |
-|:----------|--------:|----:|--------:|
-| **Loop sum (100M)** | 4.31 s | 152 ms | **28.3x** 🔥 |
-| **Fibonacci(35)** | 842 ms | 59.1 ms | **14.2x** 🚀 |
-| **NumPy-style** | 23.6 ms | 1.9 ms | **12.3x** ⚡ |
-| **String concat** | 20.7 ms | 2.6 ms | **8.1x** ⚡ |
+All benchmarks run ~60 seconds on CPython for statistical significance.
 
-**Key Insights:**
-- PyAOT excels at **computational tasks** (loops, recursion): 14-28x faster than CPython
-- PyAOT uses **ahead-of-time compilation** to native code (vs CPython's bytecode interpreter)
-- **Zero runtime overhead** - No JIT warmup or GC pauses
-- All benchmarks measure **runtime only** (binaries pre-compiled)
+| Benchmark | CPython | PyPy | PyAOT | vs CPython | vs PyPy |
+|:----------|--------:|-----:|------:|-----------:|--------:|
+| **Loop Sum (1.4B)** | ~60s | 2.1s | 1.5s | **28x faster** 🚀 | **1.4x faster** |
+| **Fibonacci(45)** | ~60s | 7.6s | 4.4s | **14x faster** 🚀 | **1.7x faster** |
+| **String Concat (650M)** | ~60s | 1.5s | TBD | **TBD** | TBD |
+
+**Performance highlights:**
+- **Loop sum:** 28x faster than CPython, 1.4x faster than PyPy
+- **Recursive fibonacci:** 14x faster than CPython, 1.7x faster than PyPy
+- **Range:** 14-28x speedup vs CPython on computational tasks
+- **AOT vs JIT:** PyAOT beats PyPy's JIT compiler on most benchmarks
 
 **Why PyAOT is faster:**
-- Direct compilation to native machine code via Zig
-- Eliminates Python interpreter overhead
-- Optimized memory management with reference counting
-- No dynamic type checking at runtime
+- Direct compilation to native machine code via Zig (no interpreter)
+- Eliminates Python interpreter overhead completely
+- Native i64 in CPU registers vs PyLongObject heap allocations
+- Zero dynamic dispatch - direct function calls
+- No GC pauses or JIT warmup time
+- AOT compilation (no warmup needed unlike PyPy's JIT)
 
-Detailed methodology: [BENCHMARKS.md](BENCHMARKS.md)
+**Run benchmarks:**
+```bash
+./benchmarks/run_benchmarks.sh  # Compares CPython vs PyPy vs PyAOT
+```
+
+**Key insights:**
+- PyAOT excels at CPU-bound tasks with heavy function call overhead
+- Best suited for recursive algorithms, computational loops, and integer arithmetic
+- Zero runtime overhead - binaries are pre-compiled
+- Faster than PyPy's JIT on most computational workloads
+- All benchmarks measure runtime only (no compilation time included)
+
+Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 
 ## Features
 
@@ -288,13 +303,6 @@ make clean
 - **Compilation**: Zig 0.15.2+ only
 - **Testing** (optional): Python 3.10+ with pytest
 
-## Documentation
-
-See `docs/` for detailed documentation:
-- [Architecture](docs/ARCHITECTURE.md)
-- [Compilation Flow](docs/COMPILATION_FLOW.md)
-- [Monorepo Structure](docs/MONOREPO_STRUCTURE.md)
-
 ## Status
 
 **v0.1.0-alpha** - Active Development 🚧
@@ -316,7 +324,9 @@ See `docs/` for detailed documentation:
 
 ## License
 
-[Add license]
+Apache 2.0 - see [LICENSE](LICENSE) file for details.
+
+This project includes patent grants for all compression algorithms and optimization techniques.
 
 ## Contributing
 

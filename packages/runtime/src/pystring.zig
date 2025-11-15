@@ -98,6 +98,48 @@ pub const PyString = struct {
         return obj;
     }
 
+    /// Optimized concatenation for multiple strings - single allocation
+    pub fn concatMulti(allocator: std.mem.Allocator, strings: []const *PyObject) !*PyObject {
+        if (strings.len == 0) {
+            return try create(allocator, "");
+        }
+        if (strings.len == 1) {
+            incref(strings[0]);
+            return strings[0];
+        }
+
+        // Calculate total length
+        var total_len: usize = 0;
+        for (strings) |str| {
+            std.debug.assert(str.type_id == .string);
+            const str_data: *PyString = @ptrCast(@alignCast(str.data));
+            total_len += str_data.data.len;
+        }
+
+        // Allocate result buffer once
+        const result = try allocator.alloc(u8, total_len);
+        var pos: usize = 0;
+
+        // Copy all strings
+        for (strings) |str| {
+            const str_data: *PyString = @ptrCast(@alignCast(str.data));
+            @memcpy(result[pos .. pos + str_data.data.len], str_data.data);
+            pos += str_data.data.len;
+        }
+
+        // Create PyObject
+        const obj = try allocator.create(PyObject);
+        const str_data = try allocator.create(PyString);
+        str_data.data = result;
+
+        obj.* = PyObject{
+            .ref_count = 1,
+            .type_id = .string,
+            .data = str_data,
+        };
+        return obj;
+    }
+
     pub fn upper(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
         std.debug.assert(obj.type_id == .string);
         const data: *PyString = @ptrCast(@alignCast(obj.data));
