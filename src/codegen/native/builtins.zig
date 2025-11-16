@@ -12,10 +12,17 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Generate: obj.len
-    // Works for Zig slices and arrays
+    // Check if argument is ArrayList (detected as .list type)
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const is_arraylist = (arg_type == .list);
+
+    // Generate: obj.items.len for ArrayList, obj.len for slices/arrays
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ".len");
+    if (is_arraylist) {
+        try self.output.appendSlice(self.allocator, ".items.len");
+    } else {
+        try self.output.appendSlice(self.allocator, ".len");
+    }
 }
 
 /// Generate code for str(obj)
@@ -112,6 +119,159 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // }
     try self.output.appendSlice(self.allocator,
         "@compileError(\"zip() not yet supported\")");
+}
+
+/// Generate code for abs(n)
+/// Returns absolute value
+pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    // Generate: @abs(n) or if (n < 0) -n else n
+    try self.output.appendSlice(self.allocator, "@abs(");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for min(a, b, ...)
+/// Returns minimum value
+pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) return;
+
+    // Generate: @min(a, @min(b, c))
+    try self.output.appendSlice(self.allocator, "@min(");
+    try self.genExpr(args[0]);
+
+    for (args[1..]) |arg| {
+        try self.output.appendSlice(self.allocator, ", ");
+        try self.genExpr(arg);
+    }
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for max(a, b, ...)
+/// Returns maximum value
+pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) return;
+
+    // Generate: @max(a, @max(b, c))
+    try self.output.appendSlice(self.allocator, "@max(");
+    try self.genExpr(args[0]);
+
+    for (args[1..]) |arg| {
+        try self.output.appendSlice(self.allocator, ", ");
+        try self.genExpr(arg);
+    }
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for round(n)
+/// Rounds to nearest integer
+pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    // Generate: @round(n)
+    try self.output.appendSlice(self.allocator, "@round(");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for pow(base, exp)
+/// Returns base^exp
+pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 2) return;
+
+    // Generate: std.math.pow(f64, base, exp)
+    try self.output.appendSlice(self.allocator, "std.math.pow(f64, ");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try self.genExpr(args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for chr(n)
+/// Converts integer to character
+pub fn genChr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    // Generate: @as(u8, @intCast(n))
+    try self.output.appendSlice(self.allocator, "@as(u8, @intCast(");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, "))");
+}
+
+/// Generate code for ord(c)
+/// Converts character to integer
+pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    // Generate: @as(i64, str[0])
+    // Assumes single-char string
+    try self.output.appendSlice(self.allocator, "@as(i64, ");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, "[0])");
+}
+
+/// Generate code for sum(iterable)
+/// Returns sum of all elements
+pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.output.appendSlice(self.allocator, "@compileError(\"sum() not yet supported\")");
+}
+
+/// Generate code for all(iterable)
+/// Returns true if all elements are truthy
+pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.output.appendSlice(self.allocator, "@compileError(\"all() not yet supported\")");
+}
+
+/// Generate code for any(iterable)
+/// Returns true if any element is truthy
+pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.output.appendSlice(self.allocator, "@compileError(\"any() not yet supported\")");
+}
+
+/// Generate code for sorted(iterable)
+/// Returns sorted copy
+pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.output.appendSlice(self.allocator, "@compileError(\"sorted() not yet supported\")");
+}
+
+/// Generate code for reversed(iterable)
+/// Returns reversed copy
+pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.output.appendSlice(self.allocator, "@compileError(\"reversed() not yet supported\")");
+}
+
+/// Generate code for map(func, iterable)
+/// Applies function to each element
+pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.output.appendSlice(self.allocator, "@compileError(\"map() not yet supported\")");
+}
+
+/// Generate code for filter(func, iterable)
+/// Filters elements by predicate
+pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.output.appendSlice(self.allocator, "@compileError(\"filter() not yet supported\")");
+}
+
+/// Generate code for type(obj)
+/// Returns type of object
+pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.output.appendSlice(self.allocator, "@compileError(\"type() not yet supported\")");
+}
+
+/// Generate code for isinstance(obj, type)
+/// Checks if object is instance of type
+pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.output.appendSlice(self.allocator, "@compileError(\"isinstance() not yet supported\")");
 }
 
 // TODO: Implement more built-in functions

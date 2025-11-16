@@ -53,6 +53,9 @@ pub const NativeCodegen = struct {
             // Use relative import since runtime.zig is in /tmp with generated file
             try self.emit("const runtime = @import(\"./runtime.zig\");\n");
         }
+        if (analysis.needs_string_utils) {
+            try self.emit("const string_utils = @import(\"string_utils.zig\");\n");
+        }
         try self.emit("\n");
 
         // PHASE 3: Generate main function
@@ -99,15 +102,33 @@ pub const NativeCodegen = struct {
             if (target == .name) {
                 const var_name = target.name.id;
 
-                // Use const for all variables (simple approach - works for most Python code)
-                // TODO: Track mutations to determine const vs var
+                // ArrayLists and dicts need var instead of const for mutation
+                const is_arraylist = (assign.value.* == .list and assign.value.list.elts.len == 0);
+                const is_dict = (assign.value.* == .dict);
+
+                // Check if value is upper() or lower() which allocate strings
+                const is_allocated_string = blk: {
+                    if (assign.value.* == .call and assign.value.call.func.* == .attribute) {
+                        const method_name = assign.value.call.func.attribute.attr;
+                        if (std.mem.eql(u8, method_name, "upper") or std.mem.eql(u8, method_name, "lower")) {
+                            break :blk true;
+                        }
+                    }
+                    break :blk false;
+                };
+
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "const ");
+                if (is_arraylist or is_dict) {
+                    try self.output.appendSlice(self.allocator, "var ");
+                } else {
+                    try self.output.appendSlice(self.allocator, "const ");
+                }
                 try self.output.appendSlice(self.allocator, var_name);
 
-                // Only emit type annotation for known types
+                // Only emit type annotation for known types that aren't dicts or ArrayLists
+                // For ArrayLists/dicts, let Zig infer the type from the initializer
                 // For unknown types (json.loads, etc.), let Zig infer
-                if (value_type != .unknown) {
+                if (value_type != .unknown and !is_dict and !is_arraylist) {
                     try self.output.appendSlice(self.allocator, ": ");
                     try value_type.toZigType(self.allocator, &self.output);
                 }
@@ -118,6 +139,21 @@ pub const NativeCodegen = struct {
                 try self.genExpr(assign.value.*);
 
                 try self.output.appendSlice(self.allocator, ";\n");
+
+                // Add defer cleanup for ArrayLists and Dicts
+                if (is_arraylist) {
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("defer {s}.deinit(allocator);\n", .{var_name});
+                }
+                if (is_dict) {
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("defer {s}.deinit();\n", .{var_name});
+                }
+                // Add defer cleanup for allocated strings (upper/lower)
+                if (is_allocated_string) {
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("defer allocator.free({s});\n", .{var_name});
+                }
             }
         }
     }
@@ -300,6 +336,7 @@ pub const NativeCodegen = struct {
             .boolop => |b| try self.genBoolOp(b),
             .call => |c| try self.genCall(c),
             .list => |l| try self.genList(l),
+            .dict => |d| try self.genDict(d),
             .subscript => |s| try self.genSubscript(s),
             else => {},
         }
@@ -478,6 +515,84 @@ pub const NativeCodegen = struct {
                 try methods.genReplace(self, call.func.attribute.value.*, call.args);
                 return;
             }
+
+            // String methods - more
+            if (std.mem.eql(u8, method_name, "join")) {
+                try methods.genJoin(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "startswith")) {
+                try methods.genStartswith(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "endswith")) {
+                try methods.genEndswith(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "find")) {
+                try methods.genFind(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+
+            // List methods
+            if (std.mem.eql(u8, method_name, "pop")) {
+                try methods.genPop(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "extend")) {
+                try methods.genExtend(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "insert")) {
+                try methods.genInsert(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "remove")) {
+                try methods.genRemove(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "index")) {
+                try methods.genIndex(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "count")) {
+                try methods.genCount(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "reverse")) {
+                try methods.genReverse(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "sort")) {
+                try methods.genSort(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "clear")) {
+                try methods.genClear(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "copy")) {
+                try methods.genCopy(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+
+            // Dict methods
+            if (std.mem.eql(u8, method_name, "get")) {
+                try methods.genGet(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "keys")) {
+                try methods.genKeys(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "values")) {
+                try methods.genValues(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, method_name, "items")) {
+                try methods.genItems(self, call.func.attribute.value.*, call.args);
+                return;
+            }
         }
 
         // Check for built-in functions (len, str, int, float, etc.)
@@ -514,6 +629,78 @@ pub const NativeCodegen = struct {
                 return;
             }
 
+            // Math functions
+            if (std.mem.eql(u8, func_name, "abs")) {
+                try builtins.genAbs(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "min")) {
+                try builtins.genMin(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "max")) {
+                try builtins.genMax(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "sum")) {
+                try builtins.genSum(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "round")) {
+                try builtins.genRound(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "pow")) {
+                try builtins.genPow(self, call.args);
+                return;
+            }
+
+            // Collection functions
+            if (std.mem.eql(u8, func_name, "all")) {
+                try builtins.genAll(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "any")) {
+                try builtins.genAny(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "sorted")) {
+                try builtins.genSorted(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "reversed")) {
+                try builtins.genReversed(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "map")) {
+                try builtins.genMap(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "filter")) {
+                try builtins.genFilter(self, call.args);
+                return;
+            }
+
+            // String/char functions
+            if (std.mem.eql(u8, func_name, "chr")) {
+                try builtins.genChr(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "ord")) {
+                try builtins.genOrd(self, call.args);
+                return;
+            }
+
+            // Type functions
+            if (std.mem.eql(u8, func_name, "type")) {
+                try builtins.genType(self, call.args);
+                return;
+            }
+            if (std.mem.eql(u8, func_name, "isinstance")) {
+                try builtins.genIsinstance(self, call.args);
+                return;
+            }
+
             // Fallback: regular function call
             try self.output.appendSlice(self.allocator, func_name);
             try self.output.appendSlice(self.allocator, "(");
@@ -529,13 +716,17 @@ pub const NativeCodegen = struct {
 
 
     fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
+        // Empty lists become ArrayList for dynamic growth
+        if (list.elts.len == 0) {
+            try self.output.appendSlice(self.allocator, "std.ArrayList(i64){}");
+            return;
+        }
+
+        // Non-empty lists are fixed arrays
         try self.output.appendSlice(self.allocator, "&[_]");
 
         // Infer element type
-        const elem_type = if (list.elts.len > 0)
-            try self.type_inferrer.inferExpr(list.elts[0])
-        else
-            .unknown;
+        const elem_type = try self.type_inferrer.inferExpr(list.elts[0]);
 
         try elem_type.toZigType(self.allocator, &self.output);
 
@@ -546,6 +737,43 @@ pub const NativeCodegen = struct {
             try self.genExpr(elem);
         }
 
+        try self.output.appendSlice(self.allocator, "}");
+    }
+
+    fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
+        // Infer value type from first value
+        const val_type = if (dict.values.len > 0)
+            try self.type_inferrer.inferExpr(dict.values[0])
+        else
+            .unknown;
+
+        // Generate: blk: {
+        //   var map = std.StringHashMap(T).init(allocator);
+        //   try map.put("key", value);
+        //   break :blk map;
+        // }
+
+        try self.output.appendSlice(self.allocator, "blk: {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "var map = std.StringHashMap(");
+        try val_type.toZigType(self.allocator, &self.output);
+        try self.output.appendSlice(self.allocator, ").init(allocator);\n");
+
+        // Add all key-value pairs
+        for (dict.keys, dict.values) |key, value| {
+            try self.emitIndent();
+            try self.output.appendSlice(self.allocator, "try map.put(");
+            try self.genExpr(key);
+            try self.output.appendSlice(self.allocator, ", ");
+            try self.genExpr(value);
+            try self.output.appendSlice(self.allocator, ");\n");
+        }
+
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "break :blk map;\n");
+        self.dedent();
+        try self.emitIndent();
         try self.output.appendSlice(self.allocator, "}");
     }
 

@@ -11,7 +11,10 @@ pub const NativeType = union(enum) {
 
     // Composites
     list: *const NativeType, // []T or ArrayList(T)
-    dict: DictType, // Struct with known fields
+    dict: struct {
+        key: *const NativeType,
+        value: *const NativeType,
+    }, // StringHashMap(V)
     tuple: []const NativeType, // Zig tuple struct
 
     // Special
@@ -30,15 +33,10 @@ pub const NativeType = union(enum) {
                 try elem_type.toZigType(allocator, buf);
                 try buf.appendSlice(allocator, ")");
             },
-            .dict => |dict_type| {
-                try buf.appendSlice(allocator, "struct { ");
-                for (dict_type.fields.items) |field| {
-                    try buf.appendSlice(allocator, field.name);
-                    try buf.appendSlice(allocator, ": ");
-                    try field.type.toZigType(allocator, buf);
-                    try buf.appendSlice(allocator, ", ");
-                }
-                try buf.appendSlice(allocator, "}");
+            .dict => |kv| {
+                try buf.appendSlice(allocator, "std.StringHashMap(");
+                try kv.value.toZigType(allocator, buf);
+                try buf.appendSlice(allocator, ")");
             },
             .tuple => |types| {
                 try buf.appendSlice(allocator, "struct { ");
@@ -55,15 +53,6 @@ pub const NativeType = union(enum) {
             .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
         }
     }
-};
-
-pub const DictType = struct {
-    fields: std.ArrayList(Field),
-
-    pub const Field = struct {
-        name: []const u8,
-        type: *const NativeType,
-    };
 };
 
 /// Error set for type inference
@@ -125,7 +114,19 @@ pub const TypeInferrer = struct {
             .binop => |b| try self.inferBinOp(b),
             .call => |c| try self.inferCall(c),
             .list => .{ .list = &.unknown },
-            .dict => .{ .dict = .{ .fields = std.ArrayList(DictType.Field){} } },
+            .dict => |d| blk: {
+                // Infer value type from first value if available
+                const val_type = if (d.values.len > 0)
+                    try self.inferExpr(d.values[0])
+                else
+                    .unknown;
+
+                // For now, always use string keys (most common case)
+                break :blk .{ .dict = .{
+                    .key = &.string,
+                    .value = &val_type,
+                } };
+            },
             else => .unknown,
         };
     }

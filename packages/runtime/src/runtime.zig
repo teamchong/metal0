@@ -6,6 +6,9 @@ const pylist = @import("pylist.zig");
 const pystring = @import("pystring.zig");
 const pytuple = @import("pytuple.zig");
 
+/// Export string utilities for native codegen
+pub const string_utils = @import("string_utils.zig");
+
 /// Python exception types mapped to Zig errors
 pub const PythonError = error{
     ZeroDivisionError,

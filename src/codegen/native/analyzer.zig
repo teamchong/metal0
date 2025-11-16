@@ -10,6 +10,7 @@ pub const ModuleAnalysis = struct {
     needs_async: bool = false,
     needs_allocator: bool = false,
     needs_runtime: bool = false,
+    needs_string_utils: bool = false,
 
     /// Merge two analyses
     pub fn merge(self: *ModuleAnalysis, other: ModuleAnalysis) void {
@@ -18,6 +19,7 @@ pub const ModuleAnalysis = struct {
         self.needs_async = self.needs_async or other.needs_async;
         self.needs_allocator = self.needs_allocator or other.needs_allocator;
         self.needs_runtime = self.needs_runtime or other.needs_runtime;
+        self.needs_string_utils = self.needs_string_utils or other.needs_string_utils;
     }
 };
 
@@ -92,6 +94,22 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
             // Check for module.function() calls
             if (call.func.* == .attribute) {
                 const attr = call.func.attribute;
+
+                // Check for string methods that need string_utils
+                if (std.mem.eql(u8, attr.attr, "upper") or std.mem.eql(u8, attr.attr, "lower")) {
+                    analysis.needs_string_utils = true;
+                    analysis.needs_allocator = true;
+                }
+
+                // Check for list methods that need allocator (append, extend, insert, etc.)
+                const list_methods = [_][]const u8{ "append", "extend", "insert", "remove", "clone" };
+                for (list_methods) |method| {
+                    if (std.mem.eql(u8, attr.attr, method)) {
+                        analysis.needs_allocator = true;
+                        break;
+                    }
+                }
+
                 if (attr.value.* == .name) {
                     const module_name = attr.value.name.id;
 
@@ -129,6 +147,9 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
             }
         },
         .dict => |dict| {
+            // Dicts need allocator for HashMap.init()
+            analysis.needs_allocator = true;
+
             for (dict.keys) |key| {
                 const key_analysis = try analyzeExpr(key);
                 analysis.merge(key_analysis);
