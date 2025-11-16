@@ -78,6 +78,9 @@ pub const TypeInferrer = struct {
 
     /// Analyze a module to infer all variable types
     pub fn analyze(self: *TypeInferrer, module: ast.Node.Module) InferError!void {
+        // Register __name__ as a string constant (for if __name__ == "__main__" support)
+        try self.var_types.put("__name__", .string);
+
         for (module.body) |stmt| {
             try self.visitStmt(stmt);
         }

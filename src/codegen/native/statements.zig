@@ -5,6 +5,25 @@ const ast = @import("../../ast.zig");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 
+/// Check if function has a return statement (recursively)
+fn hasReturnStatement(body: []ast.Node) bool {
+    for (body) |stmt| {
+        if (stmt == .return_stmt) return true;
+        // Check nested statements
+        if (stmt == .if_stmt) {
+            if (hasReturnStatement(stmt.if_stmt.body)) return true;
+            if (hasReturnStatement(stmt.if_stmt.else_body)) return true;
+        }
+        if (stmt == .while_stmt) {
+            if (hasReturnStatement(stmt.while_stmt.body)) return true;
+        }
+        if (stmt == .for_stmt) {
+            if (hasReturnStatement(stmt.for_stmt.body)) return true;
+        }
+    }
+    return false;
+}
+
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
     // Generate function signature: fn name(param: type, ...) return_type {
@@ -24,9 +43,12 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     try self.emit(") ");
 
-    // Return type - for now assume i64 if not void
-    // TODO: Proper return type inference
-    try self.emit("i64 {\n");
+    // Determine return type based on whether function has return statements
+    if (hasReturnStatement(func.body)) {
+        try self.emit("i64 {\n");
+    } else {
+        try self.emit("void {\n");
+    }
 
     self.indent();
 
@@ -53,6 +75,26 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         try self.genExpr(value.*);
     }
     try self.emit(";\n");
+}
+
+/// Generate from-import statement: from module import names
+/// For MVP, just comment out imports - assume functions are in same file
+pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenError!void {
+    try self.emitIndent();
+    try self.emit("// from ");
+    try self.emit(import.module);
+    try self.emit(" import ");
+
+    for (import.names, 0..) |name, i| {
+        if (i > 0) try self.emit(", ");
+        try self.emit(name);
+        // Handle aliases if present
+        if (import.asnames[i]) |asname| {
+            try self.emit(" as ");
+            try self.emit(asname);
+        }
+    }
+    try self.emit("\n");
 }
 
 /// Convert Python type hint to Zig type
@@ -530,6 +572,33 @@ fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, bo
     try self.output.appendSlice(self.allocator, "}\n");
 
     // Close block scope
+    self.dedent();
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}\n");
+}
+
+/// Generate assert statement
+/// Transforms: assert condition or assert condition, message
+/// Into: if (!(condition)) { std.debug.panic("Assertion failed", .{}); }
+pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenError!void {
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "if (!(");
+    try self.genExpr(assert_node.condition.*);
+    try self.output.appendSlice(self.allocator, ")) {\n");
+
+    self.indent();
+    try self.emitIndent();
+
+    if (assert_node.msg) |msg| {
+        // assert x, "message"
+        try self.output.appendSlice(self.allocator, "std.debug.panic(\"Assertion failed: {s}\", .{");
+        try self.genExpr(msg.*);
+        try self.output.appendSlice(self.allocator, "});\n");
+    } else {
+        // assert x
+        try self.output.appendSlice(self.allocator, "std.debug.panic(\"Assertion failed\", .{});\n");
+    }
+
     self.dedent();
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "}\n");

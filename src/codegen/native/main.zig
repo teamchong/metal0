@@ -109,7 +109,10 @@ pub const NativeCodegen = struct {
         }
         try self.emit("\n");
 
-        // PHASE 3: Generate function definitions (before main)
+        // PHASE 3: Define __name__ constant (for if __name__ == "__main__" support)
+        try self.emit("const __name__ = \"__main__\";\n\n");
+
+        // PHASE 4: Generate function definitions (before main)
         for (module.body) |stmt| {
             if (stmt == .function_def) {
                 try statements.genFunctionDef(self, stmt.function_def);
@@ -117,7 +120,7 @@ pub const NativeCodegen = struct {
             }
         }
 
-        // PHASE 4: Generate main function
+        // PHASE 5: Generate main function
         try self.emit("pub fn main() !void {\n");
         self.indent();
 
@@ -131,7 +134,7 @@ pub const NativeCodegen = struct {
             try self.emit("const allocator = gpa.allocator();\n\n");
         }
 
-        // PHASE 5: Generate statements (skip function defs - already handled)
+        // PHASE 6: Generate statements (skip function defs - already handled)
         for (module.body) |stmt| {
             if (stmt != .function_def) {
                 try self.generateStmt(stmt);
@@ -152,7 +155,9 @@ pub const NativeCodegen = struct {
             .while_stmt => |while_stmt| try statements.genWhile(self, while_stmt),
             .for_stmt => |for_stmt| try statements.genFor(self, for_stmt),
             .return_stmt => |ret| try statements.genReturn(self, ret),
+            .assert_stmt => |assert_node| try statements.genAssert(self, assert_node),
             .import_stmt => {}, // Native modules - no import needed
+            .import_from => |import| try statements.genImportFrom(self, import),
             else => {},
         }
     }

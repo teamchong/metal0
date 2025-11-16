@@ -83,20 +83,58 @@ fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void
 
 /// Generate comparison operations (==, !=, <, <=, >, >=)
 fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!void {
-    try genExpr(self, compare.left.*);
+    // Check if we're comparing strings (need std.mem.eql instead of ==)
+    const left_type = try self.type_inferrer.inferExpr(compare.left.*);
 
     for (compare.ops, 0..) |op, i| {
-        const op_str = switch (op) {
-            .Eq => " == ",
-            .NotEq => " != ",
-            .Lt => " < ",
-            .LtEq => " <= ",
-            .Gt => " > ",
-            .GtEq => " >= ",
-            else => " ? ",
-        };
-        try self.output.appendSlice(self.allocator, op_str);
-        try genExpr(self, compare.comparators[i]);
+        const right_type = try self.type_inferrer.inferExpr(compare.comparators[i]);
+
+        // Special handling for string comparisons
+        if (left_type == .string and right_type == .string) {
+            switch (op) {
+                .Eq => {
+                    try self.output.appendSlice(self.allocator, "std.mem.eql(u8, ");
+                    try genExpr(self, compare.left.*);
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.output.appendSlice(self.allocator, ")");
+                },
+                .NotEq => {
+                    try self.output.appendSlice(self.allocator, "!std.mem.eql(u8, ");
+                    try genExpr(self, compare.left.*);
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.output.appendSlice(self.allocator, ")");
+                },
+                else => {
+                    // String comparison operators other than == and != not supported
+                    try genExpr(self, compare.left.*);
+                    const op_str = switch (op) {
+                        .Lt => " < ",
+                        .LtEq => " <= ",
+                        .Gt => " > ",
+                        .GtEq => " >= ",
+                        else => " ? ",
+                    };
+                    try self.output.appendSlice(self.allocator, op_str);
+                    try genExpr(self, compare.comparators[i]);
+                },
+            }
+        } else {
+            // Regular comparisons for non-strings
+            try genExpr(self, compare.left.*);
+            const op_str = switch (op) {
+                .Eq => " == ",
+                .NotEq => " != ",
+                .Lt => " < ",
+                .LtEq => " <= ",
+                .Gt => " > ",
+                .GtEq => " >= ",
+                else => " ? ",
+            };
+            try self.output.appendSlice(self.allocator, op_str);
+            try genExpr(self, compare.comparators[i]);
+        }
     }
 }
 
