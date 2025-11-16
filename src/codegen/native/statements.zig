@@ -30,10 +30,16 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     self.indent();
 
+    // Push new scope for function body
+    try self.pushScope();
+
     // Generate function body
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
     }
+
+    // Pop scope when exiting function
+    self.popScope();
 
     self.dedent();
     try self.emit("}\n");
@@ -98,41 +104,71 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 break :blk false;
             };
 
+            // Check if this is first assignment or reassignment
+            const is_first_assignment = !self.isDeclared(var_name);
+
             try self.emitIndent();
-            if (is_arraylist or is_dict) {
-                try self.output.appendSlice(self.allocator, "var ");
+            if (is_first_assignment) {
+                // First assignment: decide between const and var
+                // Use var for:
+                // - Mutable collections (ArrayLists, dicts)
+                // - Simple literals that are likely accumulators (0, 1, true, false)
+                // Use const for:
+                // - Function call results
+                // - Complex expressions
+                // - Strings and arrays
+                const is_simple_literal = switch (assign.value.*) {
+                    .constant => true,
+                    .binop => false, // Expressions like (a + b)
+                    .call => false,   // Function calls
+                    else => false,
+                };
+                const needs_var = is_arraylist or is_dict or
+                                 (is_simple_literal and (value_type == .int or value_type == .float or value_type == .bool));
+
+                if (needs_var) {
+                    try self.output.appendSlice(self.allocator, "var ");
+                } else {
+                    try self.output.appendSlice(self.allocator, "const ");
+                }
+                try self.output.appendSlice(self.allocator, var_name);
+
+                // Only emit type annotation for known types that aren't dicts, lists, or ArrayLists
+                // For lists/ArrayLists/dicts, let Zig infer the type from the initializer
+                // For unknown types (json.loads, etc.), let Zig infer
+                const is_list = (value_type == .list);
+                if (value_type != .unknown and !is_dict and !is_arraylist and !is_list) {
+                    try self.output.appendSlice(self.allocator, ": ");
+                    try value_type.toZigType(self.allocator, &self.output);
+                }
+
+                try self.output.appendSlice(self.allocator, " = ");
+
+                // Mark as declared
+                try self.declareVar(var_name);
             } else {
-                try self.output.appendSlice(self.allocator, "const ");
+                // Reassignment: x = value (no var/const keyword!)
+                try self.output.appendSlice(self.allocator, var_name);
+                try self.output.appendSlice(self.allocator, " = ");
+                // No type annotation on reassignment
             }
-            try self.output.appendSlice(self.allocator, var_name);
-
-            // Only emit type annotation for known types that aren't dicts, lists, or ArrayLists
-            // For lists/ArrayLists/dicts, let Zig infer the type from the initializer
-            // For unknown types (json.loads, etc.), let Zig infer
-            const is_list = (value_type == .list);
-            if (value_type != .unknown and !is_dict and !is_arraylist and !is_list) {
-                try self.output.appendSlice(self.allocator, ": ");
-                try value_type.toZigType(self.allocator, &self.output);
-            }
-
-            try self.output.appendSlice(self.allocator, " = ");
 
             // Emit value
             try self.genExpr(assign.value.*);
 
             try self.output.appendSlice(self.allocator, ";\n");
 
-            // Add defer cleanup for ArrayLists and Dicts
-            if (is_arraylist) {
+            // Add defer cleanup for ArrayLists and Dicts (only on first assignment)
+            if (is_first_assignment and is_arraylist) {
                 try self.emitIndent();
                 try self.output.writer(self.allocator).print("defer {s}.deinit(allocator);\n", .{var_name});
             }
-            if (is_dict) {
+            if (is_first_assignment and is_dict) {
                 try self.emitIndent();
                 try self.output.writer(self.allocator).print("defer {s}.deinit();\n", .{var_name});
             }
-            // Add defer cleanup for allocated strings (upper/lower/replace/sorted/reversed)
-            if (is_allocated_string) {
+            // Add defer cleanup for allocated strings (upper/lower/replace/sorted/reversed - only on first assignment)
+            if (is_first_assignment and is_allocated_string) {
                 try self.emitIndent();
                 try self.output.writer(self.allocator).print("defer allocator.free({s});\n", .{var_name});
             }
@@ -231,9 +267,17 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
     try self.output.appendSlice(self.allocator, ") {\n");
 
     self.indent();
+
+    // Push new scope for loop body
+    try self.pushScope();
+
     for (while_stmt.body) |stmt| {
         try self.generateStmt(stmt);
     }
+
+    // Pop scope when exiting loop
+    self.popScope();
+
     self.dedent();
 
     try self.emitIndent();
@@ -287,9 +331,17 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     try self.output.appendSlice(self.allocator, "| {\n");
 
     self.indent();
+
+    // Push new scope for loop body
+    try self.pushScope();
+
     for (for_stmt.body) |stmt| {
         try self.generateStmt(stmt);
     }
+
+    // Pop scope when exiting loop
+    self.popScope();
+
     self.dedent();
 
     try self.emitIndent();
@@ -316,11 +368,20 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
         return; // Invalid range() call
     }
 
-    // Generate initialization
+    // Generate initialization (check if already declared)
+    const is_first_assignment = !self.isDeclared(var_name);
+
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "var ");
-    try self.output.appendSlice(self.allocator, var_name);
-    try self.output.appendSlice(self.allocator, ": i64 = ");
+    if (is_first_assignment) {
+        try self.output.appendSlice(self.allocator, "var ");
+        try self.output.appendSlice(self.allocator, var_name);
+        try self.output.appendSlice(self.allocator, ": i64 = ");
+        // Mark as declared
+        try self.declareVar(var_name);
+    } else {
+        try self.output.appendSlice(self.allocator, var_name);
+        try self.output.appendSlice(self.allocator, " = ");
+    }
     if (start_expr) |start| {
         try self.genExpr(start);
     } else {
@@ -337,6 +398,10 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     try self.output.appendSlice(self.allocator, ") {\n");
 
     self.indent();
+
+    // Push new scope for loop body
+    try self.pushScope();
+
     for (body) |stmt| {
         try self.generateStmt(stmt);
     }
@@ -351,6 +416,9 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
         try self.output.appendSlice(self.allocator, "1");
     }
     try self.output.appendSlice(self.allocator, ";\n");
+
+    // Pop scope when exiting loop
+    self.popScope();
 
     self.dedent();
     try self.emitIndent();
@@ -432,6 +500,9 @@ fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, bo
 
     self.indent();
 
+    // Push new scope for loop body
+    try self.pushScope();
+
     // Generate: const idx = __enum_idx_N;
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const {s} = __enum_idx_{d};\n", .{ idx_var, unique_id });
@@ -444,6 +515,9 @@ fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, bo
     for (body) |stmt| {
         try self.generateStmt(stmt);
     }
+
+    // Pop scope when exiting loop
+    self.popScope();
 
     self.dedent();
     try self.emitIndent();
@@ -538,6 +612,9 @@ fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []
     try self.output.appendSlice(self.allocator, "while (__zip_idx < __zip_len) : (__zip_idx += 1) {\n");
     self.indent();
 
+    // Push new scope for loop body
+    try self.pushScope();
+
     // Generate: const var1 = __zip_iter_0[__zip_idx]; const var2 = __zip_iter_1[__zip_idx]; ...
     for (target.list.elts, 0..) |elt, i| {
         const var_name = elt.name.id;
@@ -551,6 +628,9 @@ fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []
     for (body) |stmt| {
         try self.generateStmt(stmt);
     }
+
+    // Pop scope when exiting loop
+    self.popScope();
 
     // Close while loop
     self.dedent();

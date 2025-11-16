@@ -290,20 +290,20 @@ fn runSharedLib(allocator: std.mem.Allocator, lib_path: []const u8) !void {
     };
     defer _ = std.c.dlclose(handle);
 
-    // Find the pyaot_main function
-    const pyaot_main = std.c.dlsym(handle, "pyaot_main") orelse {
+    // Find the main function
+    const main_symbol = std.c.dlsym(handle, "main") orelse {
         const err = std.c.dlerror();
-        const err_str = if (err) |e| std.mem.span(e) else "pyaot_main not found";
-        std.debug.print("Failed to find pyaot_main: {s}\n", .{err_str});
+        const err_str = if (err) |e| std.mem.span(e) else "main not found";
+        std.debug.print("Failed to find main: {s}\n", .{err_str});
         return error.DlsymFailed;
     };
 
     // Cast to function pointer and call
-    const main_fn: *const fn () callconv(.c) c_int = @ptrCast(@alignCast(pyaot_main));
+    const main_fn: *const fn () callconv(.c) c_int = @ptrCast(@alignCast(main_symbol));
     const result = main_fn();
 
     if (result != 0) {
-        std.debug.print("pyaot_main returned non-zero: {d}\n", .{result});
+        std.debug.print("main returned non-zero: {d}\n", .{result});
         return error.MainFailed;
     }
 }

@@ -29,20 +29,68 @@ pub const NativeCodegen = struct {
     type_inferrer: *TypeInferrer,
     indent_level: usize,
 
+    // Variable scope tracking - stack of scopes (innermost = last)
+    scopes: std.ArrayList(std.StringHashMap(void)),
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
+        var scopes = std.ArrayList(std.StringHashMap(void)){};
+
+        // Initialize with global scope
+        const global_scope = std.StringHashMap(void).init(allocator);
+        try scopes.append(allocator, global_scope);
+
         self.* = .{
             .allocator = allocator,
             .output = std.ArrayList(u8){},
             .type_inferrer = type_inferrer,
             .indent_level = 0,
+            .scopes = scopes,
         };
         return self;
     }
 
     pub fn deinit(self: *NativeCodegen) void {
         self.output.deinit(self.allocator);
+        // Clean up all scopes
+        for (self.scopes.items) |*scope| {
+            scope.deinit();
+        }
+        self.scopes.deinit(self.allocator);
         self.allocator.destroy(self);
+    }
+
+    /// Push new scope (call when entering loop/function/block)
+    pub fn pushScope(self: *NativeCodegen) !void {
+        const new_scope = std.StringHashMap(void).init(self.allocator);
+        try self.scopes.append(self.allocator, new_scope);
+    }
+
+    /// Pop scope (call when exiting loop/function/block)
+    pub fn popScope(self: *NativeCodegen) void {
+        if (self.scopes.items.len > 0) {
+            const idx = self.scopes.items.len - 1;
+            self.scopes.items[idx].deinit();
+            _ = self.scopes.pop();
+        }
+    }
+
+    /// Check if variable declared in any scope (innermost to outermost)
+    pub fn isDeclared(self: *NativeCodegen, name: []const u8) bool {
+        var i: usize = self.scopes.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (self.scopes.items[i].contains(name)) return true;
+        }
+        return false;
+    }
+
+    /// Declare variable in current (innermost) scope
+    pub fn declareVar(self: *NativeCodegen, name: []const u8) !void {
+        if (self.scopes.items.len > 0) {
+            const current_scope = &self.scopes.items[self.scopes.items.len - 1];
+            try current_scope.put(name, {});
+        }
     }
 
     /// Generate native Zig code for module
