@@ -458,6 +458,26 @@ pub const NativeCodegen = struct {
                 try methods.genAppend(self, call.func.attribute.value.*, call.args);
                 return;
             }
+
+            if (std.mem.eql(u8, method_name, "upper")) {
+                try methods.genUpper(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+
+            if (std.mem.eql(u8, method_name, "lower")) {
+                try methods.genLower(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+
+            if (std.mem.eql(u8, method_name, "strip")) {
+                try methods.genStrip(self, call.func.attribute.value.*, call.args);
+                return;
+            }
+
+            if (std.mem.eql(u8, method_name, "replace")) {
+                try methods.genReplace(self, call.func.attribute.value.*, call.args);
+                return;
+            }
         }
 
         // Check for built-in functions (len, str, int, float, etc.)
@@ -485,6 +505,12 @@ pub const NativeCodegen = struct {
             // Handle float()
             if (std.mem.eql(u8, func_name, "float")) {
                 try builtins.genFloat(self, call.args);
+                return;
+            }
+
+            // Handle bool()
+            if (std.mem.eql(u8, func_name, "bool")) {
+                try builtins.genBool(self, call.args);
                 return;
             }
 

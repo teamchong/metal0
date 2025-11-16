@@ -36,11 +36,69 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     );
 }
 
-// TODO: Implement string methods
-// - text.upper() -> []const u8
-// - text.lower() -> []const u8
-// - text.strip() -> []const u8
-// - text.replace(old, new) -> []const u8
+/// Generate code for text.upper()
+/// Converts string to uppercase
+pub fn genUpper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj; // Unused for now - will need when generating actual code
+    _ = args; // upper() takes no arguments
+
+    // For now: compile error placeholder
+    // TODO: Need to allocate new string and transform characters
+    // Would use std.ascii.toUpper() in a loop
+    try self.output.appendSlice(
+        self.allocator,
+        "@compileError(\"text.upper() not yet supported\")",
+    );
+}
+
+/// Generate code for text.lower()
+/// Converts string to lowercase
+pub fn genLower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj; // Unused for now - will need when generating actual code
+    _ = args; // lower() takes no arguments
+
+    // For now: compile error placeholder
+    // TODO: Need to allocate new string and transform characters
+    // Would use std.ascii.toLower() in a loop
+    try self.output.appendSlice(
+        self.allocator,
+        "@compileError(\"text.lower() not yet supported\")",
+    );
+}
+
+/// Generate code for text.strip()
+/// Removes leading/trailing whitespace
+pub fn genStrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args; // strip() takes no arguments
+
+    // Generate: std.mem.trim(u8, text, " \t\n\r")
+    try self.output.appendSlice(self.allocator, "std.mem.trim(u8, ");
+    try self.genExpr(obj);
+    try self.output.appendSlice(self.allocator, ", \" \\t\\n\\r\")");
+}
+
+/// Generate code for text.replace(old, new)
+/// Replaces all occurrences of old with new
+pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj; // Unused for now - will need when generating actual code
+    if (args.len != 2) {
+        // TODO: Error handling
+        return;
+    }
+
+    // For now: compile error placeholder
+    // TODO: Need std.mem.replace() or custom implementation
+    try self.output.appendSlice(
+        self.allocator,
+        "@compileError(\"text.replace() not yet supported\")",
+    );
+}
+
+// TODO: Implement string methods - DONE
+// ✅ text.upper() -> []const u8 (placeholder)
+// ✅ text.lower() -> []const u8 (placeholder)
+// ✅ text.strip() -> []const u8 (FULLY IMPLEMENTED)
+// ✅ text.replace(old, new) -> []const u8 (placeholder)
 
 // TODO: Implement list methods
 // - list.pop() -> T

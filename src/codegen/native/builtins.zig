@@ -56,6 +56,24 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.output.appendSlice(self.allocator, ")");
 }
 
+/// Generate code for bool(obj)
+/// Converts to bool
+/// Python truthiness rules: 0, "", [], {} are False, everything else is True
+pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        return;
+    }
+
+    // For now: simple cast for numbers
+    // TODO: Implement truthiness for strings/lists/dicts
+    // - Empty string "" -> false
+    // - Empty list [] -> false
+    // - Zero 0 -> false
+    // - Non-zero numbers -> true
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, " != 0");
+}
+
 /// Note: range() is handled specially in for-loops by genRangeLoop() in main.zig
 /// It's not a standalone function but a loop optimization that generates:
 /// - range(n) → while (i < n)
@@ -97,4 +115,4 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 // TODO: Implement more built-in functions
-// - bool(obj) -> bool
+// - Expand bool() to handle truthiness for strings/lists/dicts
