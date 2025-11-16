@@ -101,6 +101,11 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                     analysis.needs_allocator = true;
                 }
 
+                // Check for string methods that need allocator
+                if (std.mem.eql(u8, attr.attr, "replace")) {
+                    analysis.needs_allocator = true;
+                }
+
                 // Check for list methods that need allocator (append, extend, insert, etc.)
                 const list_methods = [_][]const u8{ "append", "extend", "insert", "remove", "clone" };
                 for (list_methods) |method| {
@@ -124,6 +129,18 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                         analysis.needs_async = true;
                         analysis.needs_runtime = true;
                         analysis.needs_allocator = true;
+                    }
+                }
+            }
+
+            // Check for built-in functions that need allocator
+            if (call.func.* == .name) {
+                const func_name = call.func.name.id;
+                const allocator_builtins = [_][]const u8{ "reversed", "sorted" };
+                for (allocator_builtins) |builtin| {
+                    if (std.mem.eql(u8, func_name, builtin)) {
+                        analysis.needs_allocator = true;
+                        break;
                     }
                 }
             }

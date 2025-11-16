@@ -71,18 +71,18 @@ pub fn genStrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Generate code for text.replace(old, new)
 /// Replaces all occurrences of old with new
 pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj; // Unused for now - will need when generating actual code
     if (args.len != 2) {
-        // TODO: Error handling
         return;
     }
 
-    // For now: compile error placeholder
-    // TODO: Need std.mem.replace() or custom implementation
-    try self.output.appendSlice(
-        self.allocator,
-        "@compileError(\"text.replace() not yet supported\")",
-    );
+    // Generate: try std.mem.replaceOwned(u8, allocator, text, old, new)
+    try self.output.appendSlice(self.allocator, "try std.mem.replaceOwned(u8, allocator, ");
+    try self.genExpr(obj);
+    try self.output.appendSlice(self.allocator, ", ");
+    try self.genExpr(args[0]); // old
+    try self.output.appendSlice(self.allocator, ", ");
+    try self.genExpr(args[1]); // new
+    try self.output.appendSlice(self.allocator, ")");
 }
 
 /// Generate code for sep.join(list)

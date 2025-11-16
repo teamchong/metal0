@@ -214,36 +214,105 @@ pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for sum(iterable)
 /// Returns sum of all elements
 pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.output.appendSlice(self.allocator, "@compileError(\"sum() not yet supported\")");
+    if (args.len != 1) return;
+
+    // Generate: blk: {
+    //   var total: i64 = 0;
+    //   for (items) |item| { total += item; }
+    //   break :blk total;
+    // }
+
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "var total: i64 = 0;\n");
+    try self.output.appendSlice(self.allocator, "for (");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ") |item| { total += item; }\n");
+    try self.output.appendSlice(self.allocator, "break :blk total;\n");
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for all(iterable)
 /// Returns true if all elements are truthy
 pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.output.appendSlice(self.allocator, "@compileError(\"all() not yet supported\")");
+    if (args.len != 1) return;
+
+    // Generate: blk: {
+    //   for (items) |item| {
+    //     if (item == 0) break :blk false;
+    //   }
+    //   break :blk true;
+    // }
+
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "for (");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ") |item| {\n");
+    try self.output.appendSlice(self.allocator, "if (item == 0) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "}\n");
+    try self.output.appendSlice(self.allocator, "break :blk true;\n");
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for any(iterable)
 /// Returns true if any element is truthy
 pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.output.appendSlice(self.allocator, "@compileError(\"any() not yet supported\")");
+    if (args.len != 1) return;
+
+    // Generate: blk: {
+    //   for (items) |item| {
+    //     if (item != 0) break :blk true;
+    //   }
+    //   break :blk false;
+    // }
+
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "for (");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ") |item| {\n");
+    try self.output.appendSlice(self.allocator, "if (item != 0) break :blk true;\n");
+    try self.output.appendSlice(self.allocator, "}\n");
+    try self.output.appendSlice(self.allocator, "break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for sorted(iterable)
 /// Returns sorted copy
 pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.output.appendSlice(self.allocator, "@compileError(\"sorted() not yet supported\")");
+    if (args.len != 1) return;
+
+    // Generate: blk: {
+    //   var copy = try allocator.dupe(i64, items);
+    //   std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));
+    //   break :blk copy;
+    // }
+
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "var copy = try allocator.dupe(i64, ");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ");\n");
+    try self.output.appendSlice(self.allocator, "std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));\n");
+    try self.output.appendSlice(self.allocator, "break :blk copy;\n");
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for reversed(iterable)
-/// Returns reversed copy
+/// Returns reversed copy of list
 pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.output.appendSlice(self.allocator, "@compileError(\"reversed() not yet supported\")");
+    if (args.len != 1) return;
+
+    // Generate: blk: {
+    //   var copy = try allocator.dupe(i64, items);
+    //   std.mem.reverse(i64, copy);
+    //   break :blk copy;
+    // }
+
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "var copy = try allocator.dupe(i64, ");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ");\n");
+    try self.output.appendSlice(self.allocator, "std.mem.reverse(i64, copy);\n");
+    try self.output.appendSlice(self.allocator, "break :blk copy;\n");
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for map(func, iterable)
