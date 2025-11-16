@@ -113,7 +113,18 @@ pub const TypeInferrer = struct {
             .name => |n| self.var_types.get(n.id) orelse .unknown,
             .binop => |b| try self.inferBinOp(b),
             .call => |c| try self.inferCall(c),
-            .list => .{ .list = &.unknown },
+            .list => |l| blk: {
+                // Infer element type from first element if available
+                const elem_type = if (l.elts.len > 0)
+                    try self.inferExpr(l.elts[0])
+                else
+                    .unknown;
+
+                // Allocate on heap to avoid dangling pointer
+                const elem_ptr = try self.allocator.create(NativeType);
+                elem_ptr.* = elem_type;
+                break :blk .{ .list = elem_ptr };
+            },
             .dict => |d| blk: {
                 // Infer value type from first value if available
                 const val_type = if (d.values.len > 0)
@@ -121,10 +132,14 @@ pub const TypeInferrer = struct {
                 else
                     .unknown;
 
+                // Allocate on heap to avoid dangling pointer
+                const val_ptr = try self.allocator.create(NativeType);
+                val_ptr.* = val_type;
+
                 // For now, always use string keys (most common case)
                 break :blk .{ .dict = .{
                     .key = &.string,
-                    .value = &val_type,
+                    .value = val_ptr,
                 } };
             },
             else => .unknown,

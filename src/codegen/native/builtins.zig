@@ -287,7 +287,7 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // }
 
     try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "var copy = try allocator.dupe(i64, ");
+    try self.output.appendSlice(self.allocator, "const copy = try allocator.dupe(i64, ");
     try self.genExpr(args[0]);
     try self.output.appendSlice(self.allocator, ");\n");
     try self.output.appendSlice(self.allocator, "std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));\n");
@@ -307,7 +307,7 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // }
 
     try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "var copy = try allocator.dupe(i64, ");
+    try self.output.appendSlice(self.allocator, "const copy = try allocator.dupe(i64, ");
     try self.genExpr(args[0]);
     try self.output.appendSlice(self.allocator, ");\n");
     try self.output.appendSlice(self.allocator, "std.mem.reverse(i64, copy);\n");
