@@ -168,6 +168,62 @@ pub const TypeInferrer = struct {
                 for (while_stmt.body) |s| try self.visitStmt(s);
             },
             .for_stmt => |for_stmt| {
+                // Register loop variables before visiting body
+                // This enables proper type inference for print statements inside loops
+                if (for_stmt.target.* == .list) {
+                    // Multiple loop vars: for i, item in enumerate(items)
+                    // Parser uses .list for tuple unpacking
+                    const targets = for_stmt.target.list.elts;
+
+                    // Check for enumerate() pattern
+                    if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .name) {
+                        const func_name = for_stmt.iter.call.func.name.id;
+
+                        if (std.mem.eql(u8, func_name, "enumerate") and targets.len >= 2) {
+                            // First var is always int (index)
+                            if (targets[0] == .name) {
+                                try self.var_types.put(targets[0].name.id, .int);
+                            }
+                            // Second var type comes from the list being enumerated
+                            if (targets[1] == .name and for_stmt.iter.call.args.len > 0) {
+                                const arg = for_stmt.iter.call.args[0];
+                                // Only handle simple cases to avoid side effects
+                                if (arg == .name) {
+                                        // Get type from variable
+                                    const list_type = self.var_types.get(arg.name.id) orelse .unknown;
+                                    const elem_type = if (list_type == .list) list_type.list.* else .unknown;
+                                    try self.var_types.put(targets[1].name.id, elem_type);
+                                } else if (arg == .list and arg.list.elts.len > 0) {
+                                    // Infer from first list element
+                                    const first_elem = arg.list.elts[0];
+                                    const elem_type = if (first_elem == .constant)
+                                        self.inferConstant(first_elem.constant.value) catch .unknown
+                                    else .unknown;
+                                    try self.var_types.put(targets[1].name.id, elem_type);
+                                }
+                            }
+                        } else if (std.mem.eql(u8, func_name, "zip")) {
+                            // zip(list1, list2, ...) - infer from each list
+                            for (for_stmt.iter.call.args, 0..) |arg, i| {
+                                if (i < targets.len and targets[i] == .name) {
+                                    if (arg == .name) {
+                                        const list_type = self.var_types.get(arg.name.id) orelse .unknown;
+                                        const elem_type = if (list_type == .list) list_type.list.* else .unknown;
+                                        try self.var_types.put(targets[i].name.id, elem_type);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (for_stmt.target.* == .name) {
+                    // Single loop var: for item in items
+                    if (for_stmt.iter.* == .name) {
+                        const iter_type = self.var_types.get(for_stmt.iter.name.id) orelse .unknown;
+                        const elem_type = if (iter_type == .list) iter_type.list.* else .unknown;
+                        try self.var_types.put(for_stmt.target.name.id, elem_type);
+                    }
+                }
+
                 for (for_stmt.body) |s| try self.visitStmt(s);
             },
             else => {},

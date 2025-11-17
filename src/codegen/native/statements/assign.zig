@@ -97,7 +97,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             const var_name = target.name.id;
 
             // ArrayLists, dicts, and class instances need var instead of const for mutation
-            const is_arraylist = (assign.value.* == .list and assign.value.list.elts.len == 0);
+            // ALL Python lists are ArrayList (mutable), not just empty ones
+            const is_arraylist = (assign.value.* == .list);
             const is_dict = (assign.value.* == .dict);
             const is_class_instance = blk: {
                 if (assign.value.* == .call and assign.value.call.func.* == .name) {

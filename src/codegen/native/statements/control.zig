@@ -90,12 +90,20 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Regular iteration over collection
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "for (");
-    try self.genExpr(for_stmt.iter.*);
 
     // Add .items if it's an ArrayList
     const iter_type = try self.type_inferrer.inferExpr(for_stmt.iter.*);
-    if (iter_type == .list) {
-        try self.output.appendSlice(self.allocator, ".items");
+
+    // If iterating over list literal, wrap in parens for .items access
+    if (iter_type == .list and for_stmt.iter.* == .list) {
+        try self.output.appendSlice(self.allocator, "(");
+        try self.genExpr(for_stmt.iter.*);
+        try self.output.appendSlice(self.allocator, ").items");
+    } else {
+        try self.genExpr(for_stmt.iter.*);
+        if (iter_type == .list) {
+            try self.output.appendSlice(self.allocator, ".items");
+        }
     }
 
     try self.output.appendSlice(self.allocator, ") |");
@@ -259,12 +267,21 @@ fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, bo
     // Generate for loop over iterable
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "for (");
-    try self.genExpr(iterable);
 
-    // NOTE: Don't add .items for enumerate loops
-    // In PyAOT, list variables are typically slices (from literals), not ArrayLists
-    // The caller (enumerate) handles the iterable directly
-    // If we need ArrayList support in the future, check the AST structure properly
+    // Check if we need to add .items for ArrayList
+    const iter_type = try self.type_inferrer.inferExpr(iterable);
+
+    // If iterating over list literal, wrap in parens for .items access
+    if (iter_type == .list and iterable == .list) {
+        try self.output.appendSlice(self.allocator, "(");
+        try self.genExpr(iterable);
+        try self.output.appendSlice(self.allocator, ").items");
+    } else {
+        try self.genExpr(iterable);
+        if (iter_type == .list) {
+            try self.output.appendSlice(self.allocator, ".items");
+        }
+    }
 
     try self.output.appendSlice(self.allocator, ") |");
     try self.output.appendSlice(self.allocator, item_var);

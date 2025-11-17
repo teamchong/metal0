@@ -170,6 +170,11 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
             }
         },
         .list => |list| {
+            // All lists need allocator now (ArrayList.append() for non-empty lists)
+            if (list.elts.len > 0) {
+                analysis.needs_allocator = true;
+            }
+
             for (list.elts) |elt| {
                 const elt_analysis = try analyzeExpr(elt);
                 analysis.merge(elt_analysis);

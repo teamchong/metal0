@@ -126,13 +126,13 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         for (args, 0..) |arg, i| {
             const arg_type = try self.type_inferrer.inferExpr(arg);
             if (arg_type == .list) {
-                // Generate loop to print list elements
+                // Generate loop to print list elements (use .items for ArrayList)
                 try self.output.appendSlice(self.allocator, "{\n");
                 try self.output.appendSlice(self.allocator, "    const __list = ");
                 try self.genExpr(arg);
                 try self.output.appendSlice(self.allocator, ";\n");
                 try self.output.appendSlice(self.allocator, "    std.debug.print(\"[\", .{});\n");
-                try self.output.appendSlice(self.allocator, "    for (__list, 0..) |__elem, __idx| {\n");
+                try self.output.appendSlice(self.allocator, "    for (__list.items, 0..) |__elem, __idx| {\n");
                 try self.output.appendSlice(self.allocator, "        if (__idx > 0) std.debug.print(\", \", .{});\n");
                 try self.output.appendSlice(self.allocator, "        std.debug.print(\"{d}\", .{__elem});\n");
                 try self.output.appendSlice(self.allocator, "    }\n");
