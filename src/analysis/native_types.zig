@@ -60,19 +60,43 @@ pub const InferError = error{
     OutOfMemory,
 };
 
+/// Convert Python type hint string to NativeType
+fn pythonTypeHintToNative(type_hint: ?[]const u8) NativeType {
+    if (type_hint) |hint| {
+        if (std.mem.eql(u8, hint, "int")) return .int;
+        if (std.mem.eql(u8, hint, "float")) return .float;
+        if (std.mem.eql(u8, hint, "bool")) return .bool;
+        if (std.mem.eql(u8, hint, "str")) return .string;
+    }
+    return .unknown;
+}
+
+/// Class field information
+pub const ClassInfo = struct {
+    fields: std.StringHashMap(NativeType),
+};
+
 /// Type inferrer - analyzes AST to determine native Zig types
 pub const TypeInferrer = struct {
     allocator: std.mem.Allocator,
     var_types: std.StringHashMap(NativeType),
+    class_fields: std.StringHashMap(ClassInfo), // class_name -> field types
 
     pub fn init(allocator: std.mem.Allocator) InferError!TypeInferrer {
         return TypeInferrer{
             .allocator = allocator,
             .var_types = std.StringHashMap(NativeType).init(allocator),
+            .class_fields = std.StringHashMap(ClassInfo).init(allocator),
         };
     }
 
     pub fn deinit(self: *TypeInferrer) void {
+        // Free class field maps
+        var it = self.class_fields.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.fields.deinit();
+        }
+        self.class_fields.deinit();
         self.var_types.deinit();
     }
 
@@ -96,6 +120,46 @@ pub const TypeInferrer = struct {
                     }
                 }
             },
+            .class_def => |class_def| {
+                // Track class field types from __init__ parameters
+                var fields = std.StringHashMap(NativeType).init(self.allocator);
+
+                // Find __init__ method
+                for (class_def.body) |stmt| {
+                    if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, "__init__")) {
+                        const init_fn = stmt.function_def;
+
+                        // Extract field types from __init__ parameters
+                        for (init_fn.body) |init_stmt| {
+                            if (init_stmt == .assign) {
+                                const assign = init_stmt.assign;
+                                // Check if target is self.attribute
+                                if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                                    const attr = assign.targets[0].attribute;
+                                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                                        const field_name = attr.attr;
+
+                                        // Determine field type from parameter type annotation
+                                        if (assign.value.* == .name) {
+                                            const value_name = assign.value.name.id;
+                                            for (init_fn.args) |arg| {
+                                                if (std.mem.eql(u8, arg.name, value_name)) {
+                                                    const field_type = pythonTypeHintToNative(arg.type_annotation);
+                                                    try fields.put(field_name, field_type);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                try self.class_fields.put(class_def.name, .{ .fields = fields });
+            },
             .if_stmt => |if_stmt| {
                 for (if_stmt.body) |s| try self.visitStmt(s);
                 for (if_stmt.else_body) |s| try self.visitStmt(s);
@@ -116,6 +180,26 @@ pub const TypeInferrer = struct {
             .name => |n| self.var_types.get(n.id) orelse .unknown,
             .binop => |b| try self.inferBinOp(b),
             .call => |c| try self.inferCall(c),
+            .attribute => |a| blk: {
+                // Infer attribute type: obj.attr
+                // Heuristic: Check all known classes for a field with this name
+                // This works when field names are unique across classes
+                if (a.value.* == .name) {
+                    var class_it = self.class_fields.iterator();
+                    while (class_it.next()) |class_entry| {
+                        if (class_entry.value_ptr.fields.get(a.attr)) |field_type| {
+                            // Found a class with a field matching this attribute name
+                            break :blk field_type;
+                        }
+                    }
+                }
+
+                // Fallback: try to infer from object type (for future enhancements)
+                const obj_type = try self.inferExpr(a.value.*);
+                _ = obj_type; // Currently unused, but kept for future use
+
+                break :blk .unknown;
+            },
             .list => |l| blk: {
                 // Infer element type from first element if available
                 const elem_type = if (l.elts.len > 0)

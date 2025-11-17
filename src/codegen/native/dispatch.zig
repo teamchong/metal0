@@ -157,7 +157,8 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
         }
 
         // Dict methods
-        if (std.mem.eql(u8, method_name, "get")) {
+        if (std.mem.eql(u8, method_name, "get") and call.args.len > 0) {
+            // Only handle dict.get(key) - class methods with no args fall through
             try methods.genGet(self, call.func.attribute.value.*, call.args);
             return true;
         }
