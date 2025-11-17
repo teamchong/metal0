@@ -30,6 +30,7 @@ fn pythonTypeToZig(type_hint: ?[]const u8) []const u8 {
         if (std.mem.eql(u8, hint, "float")) return "f64";
         if (std.mem.eql(u8, hint, "bool")) return "bool";
         if (std.mem.eql(u8, hint, "str")) return "[]const u8";
+        if (std.mem.eql(u8, hint, "list")) return "anytype";
     }
     return "i64"; // Default to i64 instead of anytype (most class fields are integers)
 }

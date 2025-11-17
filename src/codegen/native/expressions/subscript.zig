@@ -74,10 +74,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     try self.output.appendSlice(self.allocator, "]; }");
                 } else {
                     // Positive index - simple subscript
+                    // Need to cast index to usize for ArrayList
                     try genExpr(self, subscript.value.*);
-                    try self.output.appendSlice(self.allocator, ".items[");
+                    try self.output.appendSlice(self.allocator, ".items[@intCast(");
                     try genExpr(self, subscript.slice.index.*);
-                    try self.output.appendSlice(self.allocator, "]");
+                    try self.output.appendSlice(self.allocator, ")]");
                 }
             } else {
                 // Array/slice/string indexing: a[b]

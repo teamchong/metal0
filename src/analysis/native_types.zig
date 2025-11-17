@@ -87,12 +87,20 @@ pub const InferError = error{
 };
 
 /// Convert Python type hint string to NativeType
-fn pythonTypeHintToNative(type_hint: ?[]const u8) NativeType {
+/// For composite types like list, returns a marker that needs allocation
+fn pythonTypeHintToNative(type_hint: ?[]const u8, allocator: std.mem.Allocator) InferError!NativeType {
     if (type_hint) |hint| {
         if (std.mem.eql(u8, hint, "int")) return .int;
         if (std.mem.eql(u8, hint, "float")) return .float;
         if (std.mem.eql(u8, hint, "bool")) return .bool;
         if (std.mem.eql(u8, hint, "str")) return .string;
+        if (std.mem.eql(u8, hint, "list")) {
+            // For now, assume list[int] - most common case
+            // TODO: Parse generic type hints like list[str], list[float]
+            const elem_ptr = try allocator.create(NativeType);
+            elem_ptr.* = .int;
+            return .{ .list = elem_ptr };
+        }
     }
     return .unknown;
 }
@@ -170,7 +178,7 @@ pub const TypeInferrer = struct {
                                             const value_name = assign.value.name.id;
                                             for (init_fn.args) |arg| {
                                                 if (std.mem.eql(u8, arg.name, value_name)) {
-                                                    const field_type = pythonTypeHintToNative(arg.type_annotation);
+                                                    const field_type = try pythonTypeHintToNative(arg.type_annotation, self.allocator);
                                                     try fields.put(field_name, field_type);
                                                     break;
                                                 }
@@ -251,6 +259,15 @@ pub const TypeInferrer = struct {
                 }
 
                 for (for_stmt.body) |s| try self.visitStmt(s);
+            },
+            .function_def => |func_def| {
+                // Register function parameter types from type annotations
+                for (func_def.args) |arg| {
+                    const param_type = try pythonTypeHintToNative(arg.type_annotation, self.allocator);
+                    try self.var_types.put(arg.name, param_type);
+                }
+                // Visit function body
+                for (func_def.body) |s| try self.visitStmt(s);
             },
             else => {},
         }
