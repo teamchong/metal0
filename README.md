@@ -304,21 +304,7 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
   - Data pipelines (5-10x faster via right-sized buffers + fast paths)
   - AI inference (2x faster for common prompts via layer pruning)
 
-**Phase 4: Model Compression (Comptime AI)**
-- [ ] AQLM compression (8x vs standard int4)
-- [ ] Hybrid compression (pruning + quantization + codebook)
-- [ ] Profile-guided model pruning
-  - Track which layers are actually used
-  - Remove unused layers for user's workload
-  - Example: 70B → 50B for short prompts
-- [ ] Run 70B models on 16GB hardware (12GB on disk)
-- [ ] Comptime optimization strategies:
-  - LLM-optimized compression (AI compressing AI)
-  - Symbolic regression for weights
-  - Multi-model weight sharing
-  - Procedural weight generation
-
-**Phase 5: Advanced**
+**Phase 4: Advanced**
 - [ ] WebAssembly target
 - [ ] Goroutines and channels
 - [ ] REPL
