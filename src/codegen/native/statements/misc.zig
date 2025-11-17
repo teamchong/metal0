@@ -90,10 +90,12 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Check if any arg is string concatenation, allocating method call, or list
+    // Check if any arg is string concatenation, allocating method call, list, tuple, or bool
     var has_string_concat = false;
     var has_allocating_call = false;
     var has_list = false;
+    var has_tuple = false;
+    var has_bool = false;
     for (args) |arg| {
         if (arg == .binop and arg.binop.op == .Add) {
             const left_type = try self.type_inferrer.inferExpr(arg.binop.left.*);
@@ -110,10 +112,16 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (arg_type == .list) {
             has_list = true;
         }
+        if (arg_type == .tuple) {
+            has_tuple = true;
+        }
+        if (arg_type == .bool) {
+            has_bool = true;
+        }
     }
 
-    // If we have lists, handle them specially with custom formatting
-    if (has_list) {
+    // If we have lists, tuples, or bools, handle them specially with custom formatting
+    if (has_list or has_tuple or has_bool) {
         // For lists, we need to print in Python format: [elem1, elem2, ...]
         for (args, 0..) |arg, i| {
             const arg_type = try self.type_inferrer.inferExpr(arg);
@@ -130,13 +138,35 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, "    }\n");
                 try self.output.appendSlice(self.allocator, "    std.debug.print(\"]\", .{});\n");
                 try self.output.appendSlice(self.allocator, "}\n");
+            } else if (arg_type == .tuple) {
+                // Generate inline print for tuple elements
+                try self.output.appendSlice(self.allocator, "{\n");
+                try self.output.appendSlice(self.allocator, "    const __tuple = ");
+                try self.genExpr(arg);
+                try self.output.appendSlice(self.allocator, ";\n");
+                try self.output.appendSlice(self.allocator, "    std.debug.print(\"(\", .{});\n");
+                // Get tuple type to know how many elements
+                if (arg_type.tuple.len > 0) {
+                    for (0..arg_type.tuple.len) |elem_idx| {
+                        if (elem_idx > 0) {
+                            try self.output.appendSlice(self.allocator, "    std.debug.print(\", \", .{});\n");
+                        }
+                        try self.output.writer(self.allocator).print("    std.debug.print(\"{{d}}\", .{{__tuple.@\"{d}\"}});\n", .{elem_idx});
+                    }
+                }
+                try self.output.appendSlice(self.allocator, "    std.debug.print(\")\", .{});\n");
+                try self.output.appendSlice(self.allocator, "}\n");
+            } else if (arg_type == .bool) {
+                // Print booleans as Python-style True/False
+                try self.output.appendSlice(self.allocator, "std.debug.print(\"{s}\", .{if (");
+                try self.genExpr(arg);
+                try self.output.appendSlice(self.allocator, ") \"True\" else \"False\"});\n");
             } else {
-                // For non-list args in mixed print, use std.debug.print
+                // For non-list/tuple/bool args in mixed print, use std.debug.print
                 try self.output.appendSlice(self.allocator, "std.debug.print(\"");
                 const fmt = switch (arg_type) {
                     .int => "{d}",
                     .float => "{d}",
-                    .bool => "{}",
                     .string => "{s}",
                     else => "{any}",
                 };

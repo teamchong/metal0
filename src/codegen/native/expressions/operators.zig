@@ -114,6 +114,22 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try genExpr(self, compare.comparators[i]);
                     try self.output.appendSlice(self.allocator, ")");
                 },
+                .In => {
+                    // String substring check: std.mem.indexOf(u8, haystack, needle) != null
+                    try self.output.appendSlice(self.allocator, "(std.mem.indexOf(u8, ");
+                    try genExpr(self, compare.comparators[i]); // haystack
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try genExpr(self, compare.left.*); // needle
+                    try self.output.appendSlice(self.allocator, ") != null)");
+                },
+                .NotIn => {
+                    // String substring check (negated)
+                    try self.output.appendSlice(self.allocator, "(std.mem.indexOf(u8, ");
+                    try genExpr(self, compare.comparators[i]); // haystack
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try genExpr(self, compare.left.*); // needle
+                    try self.output.appendSlice(self.allocator, ") == null)");
+                },
                 else => {
                     // String comparison operators other than == and != not supported
                     try genExpr(self, compare.left.*);
@@ -127,6 +143,51 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try self.output.appendSlice(self.allocator, op_str);
                     try genExpr(self, compare.comparators[i]);
                 },
+            }
+        }
+        // Handle 'in' operator for lists
+        else if (op == .In or op == .NotIn) {
+            if (right_type == .list) {
+                // List membership check: std.mem.indexOfScalar(T, slice, value) != null
+                const elem_type = right_type.list.*;
+                const type_str = switch (elem_type) {
+                    .int => "i64",
+                    .float => "f64",
+                    .string => "[]const u8",
+                    else => "i64", // fallback
+                };
+
+                if (op == .In) {
+                    try self.output.appendSlice(self.allocator, "(std.mem.indexOfScalar(");
+                } else {
+                    try self.output.appendSlice(self.allocator, "(std.mem.indexOfScalar(");
+                }
+
+                try self.output.appendSlice(self.allocator, type_str);
+                try self.output.appendSlice(self.allocator, ", ");
+                try genExpr(self, compare.comparators[i]); // list/slice
+                try self.output.appendSlice(self.allocator, ", ");
+                try genExpr(self, compare.left.*); // item to search for
+
+                if (op == .In) {
+                    try self.output.appendSlice(self.allocator, ") != null)");
+                } else {
+                    try self.output.appendSlice(self.allocator, ") == null)");
+                }
+            } else if (right_type == .dict) {
+                // Dict key check: dict.contains(key)
+                if (op == .In) {
+                    try genExpr(self, compare.comparators[i]); // dict
+                    try self.output.appendSlice(self.allocator, ".contains(");
+                    try genExpr(self, compare.left.*); // key
+                    try self.output.appendSlice(self.allocator, ")");
+                } else {
+                    try self.output.appendSlice(self.allocator, "!");
+                    try genExpr(self, compare.comparators[i]); // dict
+                    try self.output.appendSlice(self.allocator, ".contains(");
+                    try genExpr(self, compare.left.*); // key
+                    try self.output.appendSlice(self.allocator, ")");
+                }
             }
         } else {
             // Regular comparisons for non-strings

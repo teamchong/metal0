@@ -238,8 +238,43 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.output.writer(self.allocator).print("defer {s}.deinit(allocator);\n", .{var_name});
             }
             if (is_first_assignment and is_dict) {
-                try self.emitIndent();
-                try self.output.writer(self.allocator).print("defer {s}.deinit();\n", .{var_name});
+                // Check if dict has mixed types (which means string values with allocations)
+                const has_mixed_types = blk: {
+                    if (assign.value.dict.values.len == 0) break :blk false;
+                    const first_type = try self.type_inferrer.inferExpr(assign.value.dict.values[0]);
+                    for (assign.value.dict.values[1..]) |value| {
+                        const this_type = try self.type_inferrer.inferExpr(value);
+                        if (@as(std.meta.Tag(@TypeOf(first_type)), first_type) != @as(std.meta.Tag(@TypeOf(this_type)), this_type)) {
+                            break :blk true;
+                        }
+                    }
+                    break :blk false;
+                };
+
+                // If mixed types, need to free string values before deinit
+                if (has_mixed_types) {
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("defer {{\n", .{});
+                    self.indent();
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("var iter = {s}.valueIterator();\n", .{var_name});
+                    try self.emitIndent();
+                    try self.output.appendSlice(self.allocator, "while (iter.next()) |value| {\n");
+                    self.indent();
+                    try self.emitIndent();
+                    try self.output.appendSlice(self.allocator, "allocator.free(value.*);\n");
+                    self.dedent();
+                    try self.emitIndent();
+                    try self.output.appendSlice(self.allocator, "}\n");
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("{s}.deinit();\n", .{var_name});
+                    self.dedent();
+                    try self.emitIndent();
+                    try self.output.appendSlice(self.allocator, "}\n");
+                } else {
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("defer {s}.deinit();\n", .{var_name});
+                }
             }
             // Add defer cleanup for allocated strings (upper/lower/replace/sorted/reversed - only on first assignment)
             if (is_first_assignment and is_allocated_string) {

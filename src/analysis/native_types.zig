@@ -284,6 +284,7 @@ pub const TypeInferrer = struct {
                 }
                 break :blk .{ .tuple = elem_types };
             },
+            .compare => .bool, // Comparison expressions always return bool
             else => .unknown,
         };
     }
