@@ -2,12 +2,17 @@ const std = @import("std");
 
 /// Compile Zig source code to native binary
 pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
-    // Copy runtime files to /tmp for import
-    const runtime_files = [_][]const u8{ "runtime.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pytuple.zig", "async.zig", "http.zig", "json.zig", "string_utils.zig" };
+    // Create .build directory if it doesn't exist
+    std.fs.cwd().makeDir(".build") catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    // Copy runtime files to .build for import
+    const runtime_files = [_][]const u8{ "runtime.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pytuple.zig", "async.zig", "http.zig", "json.zig", "string_utils.zig", "comptime_helpers.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{file});
         defer allocator.free(src_path);
-        const dst_path = try std.fmt.allocPrint(allocator, "/tmp/{s}", .{file});
+        const dst_path = try std.fmt.allocPrint(allocator, ".build/{s}", .{file});
         defer allocator.free(dst_path);
 
         const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
@@ -20,7 +25,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         try dst.writeAll(content);
     }
 
-    // Copy runtime subdirectories to /tmp
+    // Copy runtime subdirectories to .build
     try copyRuntimeDir(allocator, "http");
     try copyRuntimeDir(allocator, "async");
     try copyRuntimeDir(allocator, "json");
@@ -28,7 +33,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     try copyRuntimeDir(allocator, "pystring");
 
     // Write Zig code to temporary file
-    const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/pyaot_main_{d}.zig", .{std.time.milliTimestamp()});
+    const tmp_path = try std.fmt.allocPrint(allocator, ".build/pyaot_main_{d}.zig", .{std.time.milliTimestamp()});
     defer allocator.free(tmp_path);
 
     // Write temp file
@@ -70,8 +75,8 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     try args.append(allocator, "build-exe");
     try args.append(allocator, tmp_path);
 
-    // Add /tmp to import path so @import("runtime") finds /tmp/runtime.zig
-    try args.append(allocator, "-I/tmp");
+    // Add .build to import path so @import("runtime") finds .build/runtime.zig
+    try args.append(allocator, "-I.build");
 
     try args.append(allocator, "-ODebug");
     try args.append(allocator, "-lc");
@@ -96,12 +101,17 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
 
 /// Compile Zig source code to shared library (.so/.dylib)
 pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
-    // Copy runtime files to /tmp for import
-    const runtime_files = [_][]const u8{ "runtime.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pytuple.zig", "async.zig", "http.zig", "json.zig", "string_utils.zig" };
+    // Create .build directory if it doesn't exist
+    std.fs.cwd().makeDir(".build") catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    // Copy runtime files to .build for import
+    const runtime_files = [_][]const u8{ "runtime.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pytuple.zig", "async.zig", "http.zig", "json.zig", "string_utils.zig", "comptime_helpers.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{file});
         defer allocator.free(src_path);
-        const dst_path = try std.fmt.allocPrint(allocator, "/tmp/{s}", .{file});
+        const dst_path = try std.fmt.allocPrint(allocator, ".build/{s}", .{file});
         defer allocator.free(dst_path);
 
         const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
@@ -114,7 +124,7 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
         try dst.writeAll(content);
     }
 
-    // Copy runtime subdirectories to /tmp
+    // Copy runtime subdirectories to .build
     try copyRuntimeDir(allocator, "http");
     try copyRuntimeDir(allocator, "async");
     try copyRuntimeDir(allocator, "json");
@@ -122,7 +132,7 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     try copyRuntimeDir(allocator, "pystring");
 
     // Write Zig code to temporary file
-    const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/pyaot_main_{d}.zig", .{std.time.milliTimestamp()});
+    const tmp_path = try std.fmt.allocPrint(allocator, ".build/pyaot_main_{d}.zig", .{std.time.milliTimestamp()});
     defer allocator.free(tmp_path);
 
     // Write temp file
@@ -205,11 +215,11 @@ fn findZigBinary(allocator: std.mem.Allocator) ![]const u8 {
     return try allocator.dupe(u8, "zig");
 }
 
-/// Copy a runtime subdirectory recursively to /tmp
+/// Copy a runtime subdirectory recursively to .build
 fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8) !void {
     const src_dir_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{dir_name});
     defer allocator.free(src_dir_path);
-    const dst_dir_path = try std.fmt.allocPrint(allocator, "/tmp/{s}", .{dir_name});
+    const dst_dir_path = try std.fmt.allocPrint(allocator, ".build/{s}", .{dir_name});
     defer allocator.free(dst_dir_path);
 
     // Create destination directory
