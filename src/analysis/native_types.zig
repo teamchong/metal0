@@ -336,6 +336,33 @@ pub const TypeInferrer = struct {
                     return .{ .list = elem_ptr };
                 }
             }
+
+            // Dict methods
+            if (obj_type == .dict) {
+                // keys() returns list of strings (dict keys are always strings)
+                if (std.mem.eql(u8, attr.attr, "keys")) {
+                    const elem_ptr = try self.allocator.create(NativeType);
+                    elem_ptr.* = .string;
+                    return .{ .list = elem_ptr };
+                }
+
+                // values() returns list of dict value type
+                if (std.mem.eql(u8, attr.attr, "values")) {
+                    const elem_ptr = try self.allocator.create(NativeType);
+                    elem_ptr.* = obj_type.dict.value.*;
+                    return .{ .list = elem_ptr };
+                }
+
+                // items() returns list of tuples (key, value)
+                if (std.mem.eql(u8, attr.attr, "items")) {
+                    const tuple_types = try self.allocator.alloc(NativeType, 2);
+                    tuple_types[0] = .string; // key
+                    tuple_types[1] = obj_type.dict.value.*; // value
+                    const tuple_ptr = try self.allocator.create(NativeType);
+                    tuple_ptr.* = .{ .tuple = tuple_types };
+                    return .{ .list = tuple_ptr };
+                }
+            }
         }
 
         // For other calls, return unknown

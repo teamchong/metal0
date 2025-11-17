@@ -242,7 +242,7 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             line += 1;
         },
         // Leaf nodes
-        .constant, .import_stmt, .import_from => {
+        .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt => {
             // No variables to track
         },
     }

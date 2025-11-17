@@ -414,3 +414,21 @@ fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "}\n");
 }
+
+/// Generate pass statement (no-op)
+pub fn genPass(self: *NativeCodegen) CodegenError!void {
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "// pass\n");
+}
+
+/// Generate break statement
+pub fn genBreak(self: *NativeCodegen) CodegenError!void {
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "break;\n");
+}
+
+/// Generate continue statement
+pub fn genContinue(self: *NativeCodegen) CodegenError!void {
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "continue;\n");
+}

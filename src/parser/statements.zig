@@ -553,5 +553,23 @@ pub fn parseImportFrom(self: *Parser) ParseError!ast.Node {
         };
     }
 
+    pub fn parsePass(self: *Parser) ParseError!ast.Node {
+        _ = try self.expect(.Pass);
+        _ = self.expect(.Newline) catch {};
+        return ast.Node{ .pass = {} };
+    }
+
+    pub fn parseBreak(self: *Parser) ParseError!ast.Node {
+        _ = try self.expect(.Break);
+        _ = self.expect(.Newline) catch {};
+        return ast.Node{ .break_stmt = {} };
+    }
+
+    pub fn parseContinue(self: *Parser) ParseError!ast.Node {
+        _ = try self.expect(.Continue);
+        _ = self.expect(.Newline) catch {};
+        return ast.Node{ .continue_stmt = {} };
+    }
+
     // ===== Expression Parsing =====
 

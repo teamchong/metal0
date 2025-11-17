@@ -178,6 +178,9 @@ pub const NativeCodegen = struct {
             .class_def => |class| try statements.genClassDef(self, class),
             .import_stmt => {}, // Native modules - no import needed
             .import_from => |import| try statements.genImportFrom(self, import),
+            .pass => try statements.genPass(self),
+            .break_stmt => try statements.genBreak(self),
+            .continue_stmt => try statements.genContinue(self),
             else => {},
         }
     }

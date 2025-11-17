@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("../../ast.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
+const NativeType = @import("../../analysis/native_types.zig").NativeType;
 
 /// Generate code for text.split(separator)
 /// Example: "a b c".split(" ") -> [][]const u8 slice
@@ -333,33 +334,128 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 }
 
 /// Generate code for dict.keys()
-/// Returns iterator over keys
+/// Returns list of keys (always []const u8 for StringHashMap)
 pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // keys() takes no arguments
 
-    // Generate: dict.keys()
+    // Generate block that builds list of keys
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    self.indent_level += 1;
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "var _keys_list = std.ArrayList([]const u8){};\n");
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "var _iter = ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ".keys()");
+    try self.output.appendSlice(self.allocator, ".keyIterator();\n");
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "while (_iter.next()) |key_ptr| {\n");
+    self.indent_level += 1;
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "try _keys_list.append(allocator, key_ptr.*);\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}\n");
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "break :blk _keys_list;\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for dict.values()
-/// Returns iterator over values
+/// Returns list of values
 pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // values() takes no arguments
 
-    // Generate: dict.values()
+    // Infer dict type to get value type
+    const dict_type = try self.type_inferrer.inferExpr(obj);
+    const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType.int;
+
+    // Generate block that builds list of values
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    self.indent_level += 1;
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "var _values_list = std.ArrayList(");
+    try val_type.toZigType(self.allocator, &self.output);
+    try self.output.appendSlice(self.allocator, "){};\n");
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "var _iter = ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ".values()");
+    try self.output.appendSlice(self.allocator, ".valueIterator();\n");
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "while (_iter.next()) |val_ptr| {\n");
+    self.indent_level += 1;
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "try _values_list.append(allocator, val_ptr.*);\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}\n");
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "break :blk _values_list;\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for dict.items()
-/// Returns iterator over key-value pairs
+/// Returns list of tuples (key-value pairs)
 pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // items() takes no arguments
 
-    // Generate: dict.iterator()
+    // Infer dict type to get value type (keys are always []const u8)
+    const dict_type = try self.type_inferrer.inferExpr(obj);
+    const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType.int;
+
+    // Generate block that builds list of tuples
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    self.indent_level += 1;
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "var _items_list = std.ArrayList(std.meta.Tuple(&[_]type{[]const u8, ");
+    try val_type.toZigType(self.allocator, &self.output);
+    try self.output.appendSlice(self.allocator, "})){};\n");
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "var _iter = ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ".iterator()");
+    try self.output.appendSlice(self.allocator, ".iterator();\n");
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "while (_iter.next()) |entry| {\n");
+    self.indent_level += 1;
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "const _tuple = std.meta.Tuple(&[_]type{[]const u8, ");
+    try val_type.toZigType(self.allocator, &self.output);
+    try self.output.appendSlice(self.allocator, "}){entry.key_ptr.*, entry.value_ptr.*};\n");
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "try _items_list.append(allocator, _tuple);\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}\n");
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "break :blk _items_list;\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 // ✅ List methods - IMPLEMENTED

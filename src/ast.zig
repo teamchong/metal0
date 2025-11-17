@@ -30,6 +30,9 @@ pub const Node = union(enum) {
     import_from: ImportFrom,
     assert_stmt: Assert,
     try_stmt: Try,
+    pass: void,
+    break_stmt: void,
+    continue_stmt: void,
 
     pub const Module = struct {
         body: []Node,
@@ -379,7 +382,7 @@ pub const Node = union(enum) {
                 allocator.free(t.finalbody);
             },
             // Leaf nodes need no cleanup
-            .name, .constant => {},
+            .name, .constant, .pass, .break_stmt, .continue_stmt => {},
         }
     }
 };

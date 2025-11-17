@@ -24,3 +24,6 @@ pub const genExprStmt = assign.genExprStmt;
 pub const genIf = control.genIf;
 pub const genWhile = control.genWhile;
 pub const genFor = control.genFor;
+pub const genPass = control.genPass;
+pub const genBreak = control.genBreak;
+pub const genContinue = control.genContinue;

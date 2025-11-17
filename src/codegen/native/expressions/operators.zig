@@ -86,7 +86,11 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
         else => "?",
     };
     try self.output.appendSlice(self.allocator, op_str);
+    // Wrap operand in parentheses to ensure correct precedence
+    // e.g., "not x == 5" becomes "!(x == 5)" not "!x == 5"
+    try self.output.appendSlice(self.allocator, "(");
     try genExpr(self, unaryop.operand.*);
+    try self.output.appendSlice(self.allocator, ")");
 }
 
 /// Generate comparison operations (==, !=, <, <=, >, >=)
