@@ -48,44 +48,55 @@ pub fn parseList(self: *Parser) ParseError!ast.Node {
     };
 }
 
-/// Parse list comprehension: [x for x in items if cond]
+/// Parse list comprehension: [x for x in items if cond] or [x*y for x in range(3) for y in range(3)]
 pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
     // We've already parsed the element expression
-    // Now parse: for <target> in <iter> [if <condition>]
+    // Now parse one or more: for <target> in <iter> [if <condition>]
 
-    _ = try self.expect(.For);
-    // Parse target as primary (just a name, not a full expression)
-    const target = try self.parsePrimary();
-    _ = try self.expect(.In);
-    const iter = try self.parseExpression();
+    var generators = std.ArrayList(ast.Node.Comprehension){};
+    defer generators.deinit(self.allocator);
 
-    // Parse optional if conditions
-    var ifs = std.ArrayList(ast.Node){};
-    defer ifs.deinit(self.allocator);
+    // Parse all "for ... in ..." clauses
+    while (self.match(.For)) {
+        // Parse target as primary (just a name, not a full expression)
+        const target = try self.parsePrimary();
+        _ = try self.expect(.In);
+        const iter = try self.parseExpression();
 
-    while (self.match(.If)) {
-        const cond = try self.parseExpression();
-        try ifs.append(self.allocator, cond);
+        // Parse optional if conditions for this generator
+        var ifs = std.ArrayList(ast.Node){};
+        defer ifs.deinit(self.allocator);
+
+        while (self.check(.If) and !self.check(.For)) {
+            _ = self.advance();
+            const cond = try self.parseExpression();
+            try ifs.append(self.allocator, cond);
+        }
+
+        // Allocate nodes on heap
+        const target_ptr = try self.allocator.create(ast.Node);
+        target_ptr.* = target;
+
+        const iter_ptr = try self.allocator.create(ast.Node);
+        iter_ptr.* = iter;
+
+        try generators.append(self.allocator, ast.Node.Comprehension{
+            .target = target_ptr,
+            .iter = iter_ptr,
+            .ifs = try ifs.toOwnedSlice(self.allocator),
+        });
     }
 
     _ = try self.expect(.RBracket);
 
-    // Allocate nodes on heap
+    // Allocate element on heap
     const elt_ptr = try self.allocator.create(ast.Node);
     elt_ptr.* = elt;
-
-    const target_ptr = try self.allocator.create(ast.Node);
-    target_ptr.* = target;
-
-    const iter_ptr = try self.allocator.create(ast.Node);
-    iter_ptr.* = iter;
 
     return ast.Node{
         .listcomp = .{
             .elt = elt_ptr,
-            .target = target_ptr,
-            .iter = iter_ptr,
-            .ifs = try ifs.toOwnedSlice(self.allocator),
+            .generators = try generators.toOwnedSlice(self.allocator),
         },
     };
 }

@@ -6,6 +6,7 @@ const ast = @import("../../ast.zig");
 const native_types = @import("../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
 const TypeInferrer = native_types.TypeInferrer;
+const SemanticInfo = @import("../../analysis/types.zig").SemanticInfo;
 
 // Import specialized modules
 const json = @import("json.zig");
@@ -27,12 +28,13 @@ pub const NativeCodegen = struct {
     allocator: std.mem.Allocator,
     output: std.ArrayList(u8),
     type_inferrer: *TypeInferrer,
+    semantic_info: *SemanticInfo,
     indent_level: usize,
 
     // Variable scope tracking - stack of scopes (innermost = last)
     scopes: std.ArrayList(std.StringHashMap(void)),
 
-    pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer) !*NativeCodegen {
+    pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
         var scopes = std.ArrayList(std.StringHashMap(void)){};
 
@@ -44,6 +46,7 @@ pub const NativeCodegen = struct {
             .allocator = allocator,
             .output = std.ArrayList(u8){},
             .type_inferrer = type_inferrer,
+            .semantic_info = semantic_info,
             .indent_level = 0,
             .scopes = scopes,
         };

@@ -159,15 +159,17 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             }
         },
         .listcomp => |listcomp| {
-            line = try analyzeLifetimes(info, listcomp.iter.*, line);
-            if (listcomp.target.* == .name) {
-                try info.recordVariableUse(listcomp.target.name.id, line, true);
-                try info.markLoopLocal(listcomp.target.name.id);
+            for (listcomp.generators) |gen| {
+                line = try analyzeLifetimes(info, gen.iter.*, line);
+                if (gen.target.* == .name) {
+                    try info.recordVariableUse(gen.target.name.id, line, true);
+                    try info.markLoopLocal(gen.target.name.id);
+                }
+                for (gen.ifs) |if_node| {
+                    line = try analyzeLifetimes(info, if_node, line);
+                }
             }
             line = try analyzeLifetimes(info, listcomp.elt.*, line);
-            for (listcomp.ifs) |if_node| {
-                line = try analyzeLifetimes(info, if_node, line);
-            }
         },
         .dict => |dict| {
             for (dict.keys) |key| {

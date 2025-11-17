@@ -86,10 +86,12 @@ pub fn analyzeExpressions(info: *types.SemanticInfo, node: ast.Node) !void {
             }
         },
         .listcomp => |listcomp| {
-            try analyzeExpressions(info, listcomp.iter.*);
             try analyzeExpressions(info, listcomp.elt.*);
-            for (listcomp.ifs) |if_node| {
-                try analyzeExpressions(info, if_node);
+            for (listcomp.generators) |gen| {
+                try analyzeExpressions(info, gen.iter.*);
+                for (gen.ifs) |if_node| {
+                    try analyzeExpressions(info, if_node);
+                }
             }
         },
         .dict => |dict| {

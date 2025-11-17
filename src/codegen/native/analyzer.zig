@@ -186,6 +186,23 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                 analysis.merge(value_analysis);
             }
         },
+        .listcomp => |listcomp| {
+            // List comprehensions need allocator for ArrayList operations
+            analysis.needs_allocator = true;
+
+            const elt_analysis = try analyzeExpr(listcomp.elt.*);
+            analysis.merge(elt_analysis);
+
+            for (listcomp.generators) |gen| {
+                const iter_analysis = try analyzeExpr(gen.iter.*);
+                analysis.merge(iter_analysis);
+
+                for (gen.ifs) |if_cond| {
+                    const cond_analysis = try analyzeExpr(if_cond);
+                    analysis.merge(cond_analysis);
+                }
+            }
+        },
         else => {},
     }
 

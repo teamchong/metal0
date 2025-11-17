@@ -120,6 +120,10 @@ pub const Node = union(enum) {
 
     pub const ListComp = struct {
         elt: *Node, // Expression to evaluate for each element
+        generators: []Comprehension, // One or more for clauses
+    };
+
+    pub const Comprehension = struct {
         target: *Node, // Loop variable (e.g., 'x' in 'for x in items')
         iter: *Node, // Iterable (e.g., 'items')
         ifs: []Node, // Optional filter conditions
@@ -273,12 +277,15 @@ pub const Node = union(enum) {
             .listcomp => |lc| {
                 lc.elt.deinit(allocator);
                 allocator.destroy(lc.elt);
-                lc.target.deinit(allocator);
-                allocator.destroy(lc.target);
-                lc.iter.deinit(allocator);
-                allocator.destroy(lc.iter);
-                for (lc.ifs) |*f| f.deinit(allocator);
-                allocator.free(lc.ifs);
+                for (lc.generators) |*gen| {
+                    gen.target.deinit(allocator);
+                    allocator.destroy(gen.target);
+                    gen.iter.deinit(allocator);
+                    allocator.destroy(gen.iter);
+                    for (gen.ifs) |*f| f.deinit(allocator);
+                    allocator.free(gen.ifs);
+                }
+                allocator.free(lc.generators);
             },
             .dict => |d| {
                 for (d.keys) |*k| k.deinit(allocator);

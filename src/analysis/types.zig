@@ -100,4 +100,10 @@ pub const SemanticInfo = struct {
         const lifetime = self.lifetimes.get(name) orelse return false;
         return current_line >= lifetime.last_use;
     }
+
+    /// Check if a variable is mutated (reassigned) after its first assignment
+    pub fn isMutated(self: *SemanticInfo, name: []const u8) bool {
+        const lifetime = self.lifetimes.get(name) orelse return false;
+        return lifetime.reassignment_count > 0;
+    }
 };

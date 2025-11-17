@@ -4,6 +4,8 @@ const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const compiler = @import("compiler.zig");
 const native_types = @import("analysis/native_types.zig");
+const semantic_types = @import("analysis/types.zig");
+const lifetime_analysis = @import("analysis/lifetime.zig");
 const native_codegen = @import("codegen/native/main.zig");
 
 const CompileOptions = struct {
@@ -238,16 +240,21 @@ fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         return error.InvalidAST;
     }
 
-    // PHASE 3: Type Inference - Infer native Zig types
+    // PHASE 3: Semantic Analysis - Analyze variable lifetimes and mutations
+    var semantic_info = semantic_types.SemanticInfo.init(allocator);
+    defer semantic_info.deinit();
+    _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 0);
+
+    // PHASE 4: Type Inference - Infer native Zig types
     std.debug.print("Inferring types...\n", .{});
     var type_inferrer = try native_types.TypeInferrer.init(allocator);
     defer type_inferrer.deinit();
 
     try type_inferrer.analyze(tree.module);
 
-    // PHASE 4: Native Codegen - Generate native Zig code (no PyObject overhead)
+    // PHASE 5: Native Codegen - Generate native Zig code (no PyObject overhead)
     std.debug.print("Generating native Zig code...\n", .{});
-    var native_gen = try native_codegen.NativeCodegen.init(allocator, &type_inferrer);
+    var native_gen = try native_codegen.NativeCodegen.init(allocator, &type_inferrer, &semantic_info);
     defer native_gen.deinit();
 
     const zig_code = try native_gen.generate(tree.module);

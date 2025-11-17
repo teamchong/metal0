@@ -51,6 +51,16 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     }
 
     // Regular numeric operations
+    // Special handling for modulo - use @rem for signed integers
+    if (binop.op == .Mod) {
+        try self.output.appendSlice(self.allocator, "@rem(");
+        try genExpr(self, binop.left.*);
+        try self.output.appendSlice(self.allocator, ", ");
+        try genExpr(self, binop.right.*);
+        try self.output.appendSlice(self.allocator, ")");
+        return;
+    }
+
     try self.output.appendSlice(self.allocator, "(");
     try genExpr(self, binop.left.*);
 
@@ -59,7 +69,6 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         .Sub => " - ",
         .Mult => " * ",
         .Div => " / ",
-        .Mod => " % ",
         .FloorDiv => " / ", // Zig doesn't distinguish
         else => " ? ",
     };

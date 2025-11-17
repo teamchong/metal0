@@ -33,6 +33,7 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .boolop => |b| try operators.genBoolOp(self, b),
         .call => |c| try genCall(self, c),
         .list => |l| try collections.genList(self, l),
+        .listcomp => |lc| try genListComp(self, lc),
         .dict => |d| try collections.genDict(self, d),
         .tuple => |t| try genTuple(self, t),
         .subscript => |s| try genSubscriptLocal(self, s),
@@ -149,4 +150,112 @@ fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError!voi
     try genExpr(self, attr.value.*);
     try self.output.appendSlice(self.allocator, ".");
     try self.output.appendSlice(self.allocator, attr.attr);
+}
+
+/// Generate list comprehension: [x * 2 for x in range(5)]
+/// Generates as imperative loop that builds ArrayList
+fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenError!void {
+    // Generate: blk: { ... }
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    self.indent();
+
+    // Generate: var __comp_result = std.ArrayList(i64){};
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "var __comp_result = std.ArrayList(i64){};\n");
+
+    // Generate nested loops for each generator
+    for (listcomp.generators, 0..) |gen, gen_idx| {
+        // Check if this is a range() call
+        const is_range = gen.iter.* == .call and gen.iter.call.func.* == .name and
+            std.mem.eql(u8, gen.iter.call.func.name.id, "range");
+
+        if (is_range) {
+            // Generate range loop as while loop
+            const var_name = gen.target.name.id;
+            const args = gen.iter.call.args;
+
+            // Parse range arguments
+            var start_val: i64 = 0;
+            var stop_val: i64 = 0;
+            const step_val: i64 = 1;
+
+            if (args.len == 1) {
+                // range(stop)
+                if (args[0] == .constant and args[0].constant.value == .int) {
+                    stop_val = args[0].constant.value.int;
+                }
+            } else if (args.len == 2) {
+                // range(start, stop)
+                if (args[0] == .constant and args[0].constant.value == .int) {
+                    start_val = args[0].constant.value.int;
+                }
+                if (args[1] == .constant and args[1].constant.value == .int) {
+                    stop_val = args[1].constant.value.int;
+                }
+            }
+
+            // Generate: var <var_name>: i64 = <start>;
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ var_name, start_val });
+
+            // Generate: while (<var_name> < <stop>) {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ var_name, stop_val });
+            self.indent();
+
+            // Defer increment: defer <var_name> += <step>;
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ var_name, step_val });
+        } else {
+            // Regular iteration
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
+            try genExpr(self, gen.iter.*);
+            try self.output.appendSlice(self.allocator, ";\n");
+
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
+            try genExpr(self, gen.target.*);
+            try self.output.appendSlice(self.allocator, "| {\n");
+            self.indent();
+        }
+
+        // Generate if conditions for this generator
+        for (gen.ifs) |if_cond| {
+            try self.emitIndent();
+            try self.output.appendSlice(self.allocator, "if (");
+            try genExpr(self, if_cond);
+            try self.output.appendSlice(self.allocator, ") {\n");
+            self.indent();
+        }
+    }
+
+    // Generate: try __comp_result.append(allocator, <elt_expr>);
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "try __comp_result.append(allocator, ");
+    try genExpr(self, listcomp.elt.*);
+    try self.output.appendSlice(self.allocator, ");\n");
+
+    // Close all if conditions and for loops
+    for (listcomp.generators) |gen| {
+        // Close if conditions for this generator
+        for (gen.ifs) |_| {
+            self.dedent();
+            try self.emitIndent();
+            try self.output.appendSlice(self.allocator, "}\n");
+        }
+
+        // Close for loop
+        self.dedent();
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "}\n");
+    }
+
+    // Generate: break :blk try __comp_result.toOwnedSlice(allocator);
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "break :blk try __comp_result.toOwnedSlice(allocator);\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}");
 }
