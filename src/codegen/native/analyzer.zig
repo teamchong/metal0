@@ -136,7 +136,9 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
             // Check for built-in functions that need allocator
             if (call.func.* == .name) {
                 const func_name = call.func.name.id;
-                const allocator_builtins = [_][]const u8{ "reversed", "sorted" };
+                // str() needs allocator for ArrayList buffer
+                // reversed/sorted need allocator for copying slices
+                const allocator_builtins = [_][]const u8{ "reversed", "sorted", "str" };
                 for (allocator_builtins) |builtin| {
                     if (std.mem.eql(u8, func_name, builtin)) {
                         analysis.needs_allocator = true;

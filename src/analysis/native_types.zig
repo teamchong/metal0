@@ -310,6 +310,15 @@ pub const TypeInferrer = struct {
     }
 
     fn inferCall(self: *TypeInferrer, call: ast.Node.Call) InferError!NativeType {
+        // Built-in type conversion functions
+        if (call.func.* == .name) {
+            const func_name = call.func.name.id;
+            if (std.mem.eql(u8, func_name, "str")) return .string;
+            if (std.mem.eql(u8, func_name, "int")) return .int;
+            if (std.mem.eql(u8, func_name, "float")) return .float;
+            if (std.mem.eql(u8, func_name, "bool")) return .bool;
+        }
+
         // Check if this is a method call (attribute access)
         if (call.func.* == .attribute) {
             const attr = call.func.attribute;

@@ -61,6 +61,26 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         return;
     }
 
+    // Special handling for floor division
+    if (binop.op == .FloorDiv) {
+        try self.output.appendSlice(self.allocator, "@divFloor(");
+        try genExpr(self, binop.left.*);
+        try self.output.appendSlice(self.allocator, ", ");
+        try genExpr(self, binop.right.*);
+        try self.output.appendSlice(self.allocator, ")");
+        return;
+    }
+
+    // Special handling for power
+    if (binop.op == .Pow) {
+        try self.output.appendSlice(self.allocator, "std.math.pow(i64, ");
+        try genExpr(self, binop.left.*);
+        try self.output.appendSlice(self.allocator, ", ");
+        try genExpr(self, binop.right.*);
+        try self.output.appendSlice(self.allocator, ")");
+        return;
+    }
+
     try self.output.appendSlice(self.allocator, "(");
     try genExpr(self, binop.left.*);
 
@@ -69,7 +89,6 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         .Sub => " - ",
         .Mult => " * ",
         .Div => " / ",
-        .FloorDiv => " / ", // Zig doesn't distinguish
         else => " ? ",
     };
     try self.output.appendSlice(self.allocator, op_str);

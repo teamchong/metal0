@@ -218,6 +218,18 @@ pub fn contains(needle: *PyObject, haystack: *PyObject) bool {
     }
 }
 
+/// Format any value for Python-style printing (booleans as True/False)
+/// This function is a no-op at runtime - it's just for compile-time type checking
+/// For bool: returns "True" or "False"
+/// For other types: identity function (returns the value unchanged)
+pub inline fn formatAny(value: anytype) (if (@TypeOf(value) == bool) []const u8 else @TypeOf(value)) {
+    if (@TypeOf(value) == bool) {
+        return if (value) "True" else "False";
+    } else {
+        return value;
+    }
+}
+
 /// Python list type - re-exported from pylist.zig
 pub const PyList = pylist.PyList;
 

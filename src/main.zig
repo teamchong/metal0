@@ -243,7 +243,7 @@ fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // PHASE 3: Semantic Analysis - Analyze variable lifetimes and mutations
     var semantic_info = semantic_types.SemanticInfo.init(allocator);
     defer semantic_info.deinit();
-    _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 0);
+    _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 1);
 
     // PHASE 4: Type Inference - Infer native Zig types
     std.debug.print("Inferring types...\n", .{});

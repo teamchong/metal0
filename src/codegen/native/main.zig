@@ -115,10 +115,8 @@ pub const NativeCodegen = struct {
 
         // PHASE 3: Generate imports based on analysis
         try self.emit("const std = @import(\"std\");\n");
-        if (analysis.needs_runtime) {
-            // Use relative import since runtime.zig is in /tmp with generated file
-            try self.emit("const runtime = @import(\"./runtime.zig\");\n");
-        }
+        // Always import runtime for formatAny() and other utilities
+        try self.emit("const runtime = @import(\"./runtime.zig\");\n");
         if (analysis.needs_string_utils) {
             try self.emit("const string_utils = @import(\"string_utils.zig\");\n");
         }
@@ -168,6 +166,7 @@ pub const NativeCodegen = struct {
     pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         switch (node) {
             .assign => |assign| try statements.genAssign(self, assign),
+            .aug_assign => |aug| try statements.genAugAssign(self, aug),
             .expr_stmt => |expr| try statements.genExprStmt(self, expr.value.*),
             .if_stmt => |if_stmt| try statements.genIf(self, if_stmt),
             .while_stmt => |while_stmt| try statements.genWhile(self, while_stmt),

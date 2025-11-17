@@ -46,9 +46,38 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // For now, just pass through if already a string
-    // TODO: Implement conversion for int, float, bool
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // Already a string - just return it
+    if (arg_type == .string) {
+        try self.genExpr(args[0]);
+        return;
+    }
+
+    // Convert number to string
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "var buf = std.ArrayList(u8){};\n");
+
+    if (arg_type == .int) {
+        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{}\", .{");
+    } else if (arg_type == .float) {
+        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{d}\", .{");
+    } else if (arg_type == .bool) {
+        // Python bool to string: True/False
+        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{s}\", .{if (");
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, ") \"True\" else \"False\"});\n");
+        try self.output.appendSlice(self.allocator, "break :blk try buf.toOwnedSlice(allocator);\n");
+        try self.output.appendSlice(self.allocator, "}");
+        return;
+    } else {
+        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{any}\", .{");
+    }
+
     try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, "});\n");
+    try self.output.appendSlice(self.allocator, "break :blk try buf.toOwnedSlice(allocator);\n");
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for int(obj)
@@ -58,7 +87,39 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Generate: @intCast(obj) or std.fmt.parseInt for strings
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // Already an int - just return it
+    if (arg_type == .int) {
+        try self.genExpr(args[0]);
+        return;
+    }
+
+    // Parse string to int
+    if (arg_type == .string) {
+        try self.output.appendSlice(self.allocator, "try std.fmt.parseInt(i64, ");
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, ", 10)");
+        return;
+    }
+
+    // Cast float to int
+    if (arg_type == .float) {
+        try self.output.appendSlice(self.allocator, "@as(i64, @intFromFloat(");
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, "))");
+        return;
+    }
+
+    // Cast bool to int (True -> 1, False -> 0)
+    if (arg_type == .bool) {
+        try self.output.appendSlice(self.allocator, "@as(i64, @intFromBool(");
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, "))");
+        return;
+    }
+
+    // Generic cast for unknown types
     try self.output.appendSlice(self.allocator, "@intCast(");
     try self.genExpr(args[0]);
     try self.output.appendSlice(self.allocator, ")");
@@ -71,7 +132,39 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Generate: @floatCast(obj) or std.fmt.parseFloat for strings
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // Already a float - just return it
+    if (arg_type == .float) {
+        try self.genExpr(args[0]);
+        return;
+    }
+
+    // Parse string to float
+    if (arg_type == .string) {
+        try self.output.appendSlice(self.allocator, "try std.fmt.parseFloat(f64, ");
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, ")");
+        return;
+    }
+
+    // Cast int to float
+    if (arg_type == .int) {
+        try self.output.appendSlice(self.allocator, "@as(f64, @floatFromInt(");
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, "))");
+        return;
+    }
+
+    // Cast bool to float (True -> 1.0, False -> 0.0)
+    if (arg_type == .bool) {
+        try self.output.appendSlice(self.allocator, "@as(f64, @floatFromInt(@intFromBool(");
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, ")))");
+        return;
+    }
+
+    // Generic cast for unknown types
     try self.output.appendSlice(self.allocator, "@floatCast(");
     try self.genExpr(args[0]);
     try self.output.appendSlice(self.allocator, ")");

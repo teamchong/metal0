@@ -24,6 +24,8 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     try copyRuntimeDir(allocator, "http");
     try copyRuntimeDir(allocator, "async");
     try copyRuntimeDir(allocator, "json");
+    try copyRuntimeDir(allocator, "runtime");
+    try copyRuntimeDir(allocator, "pystring");
 
     // Write Zig code to temporary file
     const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/pyaot_main_{d}.zig", .{std.time.milliTimestamp()});
@@ -116,6 +118,8 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     try copyRuntimeDir(allocator, "http");
     try copyRuntimeDir(allocator, "async");
     try copyRuntimeDir(allocator, "json");
+    try copyRuntimeDir(allocator, "runtime");
+    try copyRuntimeDir(allocator, "pystring");
 
     // Write Zig code to temporary file
     const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/pyaot_main_{d}.zig", .{std.time.milliTimestamp()});

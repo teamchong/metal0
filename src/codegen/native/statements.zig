@@ -20,6 +20,7 @@ pub const genPrint = misc.genPrint;
 pub const genAssert = misc.genAssert;
 pub const genTry = misc.genTry;
 pub const genAssign = assign.genAssign;
+pub const genAugAssign = assign.genAugAssign;
 pub const genExprStmt = assign.genExprStmt;
 pub const genIf = control.genIf;
 pub const genWhile = control.genWhile;

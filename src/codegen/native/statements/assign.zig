@@ -313,6 +313,58 @@ fn flattenConcat(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayList(ast
     try parts.append(self.allocator, node);
 }
 
+/// Generate augmented assignment (+=, -=, *=, /=, //=, **=, %=)
+pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!void {
+    try self.emitIndent();
+
+    // Emit target (variable name)
+    try self.genExpr(aug.target.*);
+    try self.output.appendSlice(self.allocator, " = ");
+
+    // Special handling for floor division and power
+    if (aug.op == .FloorDiv) {
+        try self.output.appendSlice(self.allocator, "@divFloor(");
+        try self.genExpr(aug.target.*);
+        try self.output.appendSlice(self.allocator, ", ");
+        try self.genExpr(aug.value.*);
+        try self.output.appendSlice(self.allocator, ");\n");
+        return;
+    }
+
+    if (aug.op == .Pow) {
+        try self.output.appendSlice(self.allocator, "std.math.pow(i64, ");
+        try self.genExpr(aug.target.*);
+        try self.output.appendSlice(self.allocator, ", ");
+        try self.genExpr(aug.value.*);
+        try self.output.appendSlice(self.allocator, ");\n");
+        return;
+    }
+
+    if (aug.op == .Mod) {
+        try self.output.appendSlice(self.allocator, "@rem(");
+        try self.genExpr(aug.target.*);
+        try self.output.appendSlice(self.allocator, ", ");
+        try self.genExpr(aug.value.*);
+        try self.output.appendSlice(self.allocator, ");\n");
+        return;
+    }
+
+    // Regular operators: +=, -=, *=, /=
+    try self.genExpr(aug.target.*);
+
+    const op_str = switch (aug.op) {
+        .Add => " + ",
+        .Sub => " - ",
+        .Mult => " * ",
+        .Div => " / ",
+        else => " ? ",
+    };
+    try self.output.appendSlice(self.allocator, op_str);
+
+    try self.genExpr(aug.value.*);
+    try self.output.appendSlice(self.allocator, ";\n");
+}
+
 /// Generate expression statement (expression with semicolon)
 pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     try self.emitIndent();

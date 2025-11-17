@@ -308,9 +308,9 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const fmt = switch (arg_type) {
                 .int => "{d}",
                 .float => "{d}",
-                .bool => "{}",
+                .bool => "{s}", // formatAny() returns string for bool
                 .string => "{s}",
-                else => "{any}",
+                else => "{any}", // Unknown types - let Zig handle them
             };
             try self.output.appendSlice(self.allocator, fmt);
 
@@ -321,9 +321,17 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         try self.output.appendSlice(self.allocator, "\\n\", .{");
 
-        // Generate arguments
+        // Generate arguments - only wrap known bools in formatAny()
         for (args, 0..) |arg, i| {
-            try self.genExpr(arg);
+            const arg_type = try self.type_inferrer.inferExpr(arg);
+            // Only wrap confirmed bools - unknown types stay as-is
+            if (arg_type == .bool) {
+                try self.output.appendSlice(self.allocator, "runtime.formatAny(");
+                try self.genExpr(arg);
+                try self.output.appendSlice(self.allocator, ")");
+            } else {
+                try self.genExpr(arg);
+            }
             if (i < args.len - 1) {
                 try self.output.appendSlice(self.allocator, ", ");
             }
