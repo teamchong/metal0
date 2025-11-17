@@ -180,6 +180,42 @@ pub const TypeInferrer = struct {
             .name => |n| self.var_types.get(n.id) orelse .unknown,
             .binop => |b| try self.inferBinOp(b),
             .call => |c| try self.inferCall(c),
+            .subscript => |s| blk: {
+                // Infer subscript type: obj[index] or obj[slice]
+                const obj_type = try self.inferExpr(s.value.*);
+
+                switch (s.slice) {
+                    .index => {
+                        // Single index access
+                        // string[i] -> u8 (but we treat as string for printing)
+                        // list[i] -> element type
+                        // dict[key] -> value type
+                        if (obj_type == .string) {
+                            // String indexing returns a single character
+                            // For now, treat as string for simplicity
+                            break :blk .string;
+                        } else if (obj_type == .list) {
+                            break :blk obj_type.list.*;
+                        } else if (obj_type == .dict) {
+                            break :blk obj_type.dict.value.*;
+                        } else {
+                            break :blk .unknown;
+                        }
+                    },
+                    .slice => {
+                        // Slice access always returns same type as container
+                        // string[1:4] -> string
+                        // list[1:4] -> list
+                        if (obj_type == .string) {
+                            break :blk .string;
+                        } else if (obj_type == .list) {
+                            break :blk obj_type;
+                        } else {
+                            break :blk .unknown;
+                        }
+                    },
+                }
+            },
             .attribute => |a| blk: {
                 // Infer attribute type: obj.attr
                 // Heuristic: Check all known classes for a field with this name
