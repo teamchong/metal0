@@ -51,6 +51,24 @@ fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenError!v
     }
 }
 
+/// Recursively collect all parts of a string concatenation chain
+fn collectConcatParts(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayList(ast.Node)) CodegenError!void {
+    if (node == .binop and node.binop.op == .Add) {
+        const left_type = try self.type_inferrer.inferExpr(node.binop.left.*);
+        const right_type = try self.type_inferrer.inferExpr(node.binop.right.*);
+
+        // Only flatten if this is string concatenation
+        if (left_type == .string or right_type == .string) {
+            try collectConcatParts(self, node.binop.left.*, parts);
+            try collectConcatParts(self, node.binop.right.*, parts);
+            return;
+        }
+    }
+
+    // Base case: not a string concatenation binop, add to parts
+    try parts.append(self.allocator, node);
+}
+
 /// Generate binary operations (+, -, *, /, %, //)
 fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // Check if this is string concatenation
@@ -59,11 +77,18 @@ fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         const right_type = try self.type_inferrer.inferExpr(binop.right.*);
 
         if (left_type == .string or right_type == .string) {
-            // Use std.mem.concat for raw string concatenation
+            // Flatten nested concatenations to avoid intermediate allocations
+            var parts = std.ArrayList(ast.Node){};
+            defer parts.deinit(self.allocator);
+
+            try collectConcatParts(self, ast.Node{ .binop = binop }, &parts);
+
+            // Generate single concat call with all parts
             try self.output.appendSlice(self.allocator, "try std.mem.concat(allocator, u8, &[_][]const u8{ ");
-            try genExpr(self, binop.left.*);
-            try self.output.appendSlice(self.allocator, ", ");
-            try genExpr(self, binop.right.*);
+            for (parts.items, 0..) |part, i| {
+                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                try genExpr(self, part);
+            }
             try self.output.appendSlice(self.allocator, " })");
             return;
         }

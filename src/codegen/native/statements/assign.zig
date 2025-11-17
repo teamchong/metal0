@@ -47,6 +47,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         }
                     }
                 }
+                // String concatenation allocates: s1 + s2
+                if (assign.value.* == .binop and assign.value.binop.op == .Add) {
+                    const left_type = try self.type_inferrer.inferExpr(assign.value.binop.left.*);
+                    const right_type = try self.type_inferrer.inferExpr(assign.value.binop.right.*);
+                    if (left_type == .string or right_type == .string) {
+                        break :blk true;
+                    }
+                }
                 break :blk false;
             };
 
@@ -99,6 +107,35 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // No type annotation on reassignment
             }
 
+            // Special handling for string concatenation with nested operations
+            // s1 + " " + s2 needs intermediate temps
+            if (assign.value.* == .binop and assign.value.binop.op == .Add) {
+                const left_type = try self.type_inferrer.inferExpr(assign.value.binop.left.*);
+                const right_type = try self.type_inferrer.inferExpr(assign.value.binop.right.*);
+                if (left_type == .string or right_type == .string) {
+                    // Collect all parts of the concatenation
+                    var parts = std.ArrayList(ast.Node){};
+                    defer parts.deinit(self.allocator);
+
+                    try flattenConcat(self, assign.value.*, &parts);
+
+                    // Generate concat with all parts at once
+                    try self.output.appendSlice(self.allocator, "try std.mem.concat(allocator, u8, &[_][]const u8{ ");
+                    for (parts.items, 0..) |part, i| {
+                        if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                        try self.genExpr(part);
+                    }
+                    try self.output.appendSlice(self.allocator, " });\n");
+
+                    // Add defer cleanup
+                    if (is_first_assignment) {
+                        try self.emitIndent();
+                        try self.output.writer(self.allocator).print("defer allocator.free({s});\n", .{var_name});
+                    }
+                    return;
+                }
+            }
+
             // Emit value
             try self.genExpr(assign.value.*);
 
@@ -127,6 +164,27 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             try self.output.appendSlice(self.allocator, ";\n");
         }
     }
+}
+
+/// Flatten nested string concatenation into a list of parts
+/// (s1 + " ") + s2 becomes [s1, " ", s2]
+fn flattenConcat(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayList(ast.Node)) CodegenError!void {
+    if (node == .binop and node.binop.op == .Add) {
+        // Check if this is string concat
+        const left_type = try self.type_inferrer.inferExpr(node.binop.left.*);
+        const right_type = try self.type_inferrer.inferExpr(node.binop.right.*);
+
+        if (left_type == .string or right_type == .string) {
+            // Recursively flatten left side
+            try flattenConcat(self, node.binop.left.*, parts);
+            // Recursively flatten right side
+            try flattenConcat(self, node.binop.right.*, parts);
+            return;
+        }
+    }
+
+    // Not a string concat, just add the node
+    try parts.append(self.allocator, node);
 }
 
 /// Generate expression statement (expression with semicolon)
