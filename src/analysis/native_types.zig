@@ -254,10 +254,35 @@ pub const TypeInferrer = struct {
     }
 
     fn inferCall(self: *TypeInferrer, call: ast.Node.Call) InferError!NativeType {
-        _ = self;
-        _ = call;
-        // TODO: Infer return types for built-in functions
-        // For now, assume unknown
+        // Check if this is a method call (attribute access)
+        if (call.func.* == .attribute) {
+            const attr = call.func.attribute;
+            const obj_type = try self.inferExpr(attr.value.*);
+
+            // String methods that return strings
+            if (obj_type == .string) {
+                const str_methods = [_][]const u8{
+                    "upper", "lower", "strip", "lstrip", "rstrip",
+                    "capitalize", "title", "swapcase", "replace",
+                    "join", "center", "ljust", "rjust", "zfill",
+                };
+
+                for (str_methods) |method| {
+                    if (std.mem.eql(u8, attr.attr, method)) {
+                        return .string;
+                    }
+                }
+
+                // split() returns list of strings
+                if (std.mem.eql(u8, attr.attr, "split")) {
+                    const elem_ptr = try self.allocator.create(NativeType);
+                    elem_ptr.* = .string;
+                    return .{ .list = elem_ptr };
+                }
+            }
+        }
+
+        // For other calls, return unknown
         return .unknown;
     }
 };
