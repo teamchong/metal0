@@ -37,7 +37,12 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 
     // COMPTIME PATH: All elements known at compile time
     if (all_comptime) {
-        try self.output.appendSlice(self.allocator, "blk: {\n");
+        // Generate unique block label
+        const label = try std.fmt.allocPrint(self.allocator, "list_{d}", .{@intFromPtr(list.elts.ptr)});
+        defer self.allocator.free(label);
+
+        try self.output.appendSlice(self.allocator, label);
+        try self.output.appendSlice(self.allocator, ": {\n");
         self.indent();
         try self.emitIndent();
 
@@ -61,13 +66,29 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
         try self.output.appendSlice(self.allocator, "inline for (_values) |val| {\n");
         self.indent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "const cast_val = if (T == f64 and (@TypeOf(val) == i64 or @TypeOf(val) == comptime_int))\n");
+        try self.output.appendSlice(self.allocator, "const cast_val = if (@TypeOf(val) != T) cast_blk: {\n");
+        self.indent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "    @as(f64, @floatFromInt(val))\n");
+        try self.output.appendSlice(self.allocator, "if (T == f64 and (@TypeOf(val) == i64 or @TypeOf(val) == comptime_int)) {\n");
+        self.indent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "else\n");
+        try self.output.appendSlice(self.allocator, "break :cast_blk @as(f64, @floatFromInt(val));\n");
+        self.dedent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "    val;\n");
+        try self.output.appendSlice(self.allocator, "}\n");
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "if (T == f64 and @TypeOf(val) == comptime_float) {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "break :cast_blk @as(f64, val);\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "}\n");
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "break :cast_blk val;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "} else val;\n");
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "try _list.append(allocator, cast_val);\n");
         self.dedent();
@@ -75,7 +96,9 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
         try self.output.appendSlice(self.allocator, "}\n");
 
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "break :blk _list;\n");
+        try self.output.appendSlice(self.allocator, "break :");
+        try self.output.appendSlice(self.allocator, label);
+        try self.output.appendSlice(self.allocator, " _list;\n");
         self.dedent();
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "}");
@@ -83,7 +106,11 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     }
 
     // RUNTIME PATH: Dynamic list (fallback to current widening approach)
-    try self.output.appendSlice(self.allocator, "blk: {\n");
+    const runtime_label = try std.fmt.allocPrint(self.allocator, "list_{d}", .{@intFromPtr(list.elts.ptr)});
+    defer self.allocator.free(runtime_label);
+
+    try self.output.appendSlice(self.allocator, runtime_label);
+    try self.output.appendSlice(self.allocator, ": {\n");
     self.indent();
     try self.emitIndent();
 
@@ -121,7 +148,9 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     }
 
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :blk _list;\n");
+    try self.output.appendSlice(self.allocator, "break :");
+    try self.output.appendSlice(self.allocator, runtime_label);
+    try self.output.appendSlice(self.allocator, " _list;\n");
     self.dedent();
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "}");
@@ -151,7 +180,7 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
         }
     }
 
-    // Generate: blk: {
+    // Generate: cast_blk: {
     //   var map = std.StringHashMap(T).init(allocator);
     //   try map.put("key", value);
     //   break :blk map;
