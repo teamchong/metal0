@@ -373,6 +373,17 @@ pub const TypeInferrer = struct {
             if (std.mem.eql(u8, func_name, "int")) return .int;
             if (std.mem.eql(u8, func_name, "float")) return .float;
             if (std.mem.eql(u8, func_name, "bool")) return .bool;
+
+            // Built-in math functions
+            if (std.mem.eql(u8, func_name, "abs")) {
+                // abs() returns same type as input
+                if (call.args.len > 0) {
+                    return try self.inferExpr(call.args[0]);
+                }
+            }
+            if (std.mem.eql(u8, func_name, "round")) return .int;
+            if (std.mem.eql(u8, func_name, "chr")) return .string;
+            if (std.mem.eql(u8, func_name, "ord")) return .int;
         }
 
         // Check if this is a method call (attribute access)
@@ -393,6 +404,13 @@ pub const TypeInferrer = struct {
                         return .string;
                     }
                 }
+
+                // Boolean-returning methods
+                if (std.mem.eql(u8, attr.attr, "startswith")) return .bool;
+                if (std.mem.eql(u8, attr.attr, "endswith")) return .bool;
+
+                // Integer-returning methods
+                if (std.mem.eql(u8, attr.attr, "find")) return .int;
 
                 // split() returns list of strings
                 if (std.mem.eql(u8, attr.attr, "split")) {

@@ -289,10 +289,10 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genChr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: @as(u8, @intCast(n))
-    try self.output.appendSlice(self.allocator, "@as(u8, @intCast(");
+    // Generate: &[_]u8{@intCast(n)}
+    try self.output.appendSlice(self.allocator, "&[_]u8{@intCast(");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, "))");
+    try self.output.appendSlice(self.allocator, ")}");
 }
 
 /// Generate code for ord(c)
