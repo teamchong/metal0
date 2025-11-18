@@ -27,7 +27,11 @@ pub const genDict = collections.genDict;
 pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     switch (node) {
         .constant => |c| try constants.genConstant(self, c),
-        .name => |n| try self.output.appendSlice(self.allocator, n.id),
+        .name => |n| {
+            // Check if variable has been renamed (for exception handling)
+            const name_to_use = self.var_renames.get(n.id) orelse n.id;
+            try self.output.appendSlice(self.allocator, name_to_use);
+        },
         .binop => |b| try operators.genBinOp(self, b),
         .unaryop => |u| try operators.genUnaryOp(self, u),
         .compare => |c| try operators.genCompare(self, c),

@@ -45,9 +45,22 @@ pub fn InferListType(comptime TupleType: type) type {
         if (T == f64 or T == f32 or T == f16 or T == comptime_float) {
             has_float = true;
         }
-        // Check for string types
+        // Check for string types (both slices and string literals)
         else if (T == []const u8 or T == []u8) {
             has_string = true;
+        }
+        // Check for string literals (*const [N:0]u8)
+        else if (@typeInfo(T) == .pointer) {
+            const ptr_info = @typeInfo(T).pointer;
+            if (ptr_info.size == .one) {
+                // Check if it points to a sentinel-terminated array of u8
+                if (@typeInfo(ptr_info.child) == .array) {
+                    const array_info = @typeInfo(ptr_info.child).array;
+                    if (array_info.child == u8 and array_info.sentinel_ptr != null) {
+                        has_string = true;
+                    }
+                }
+            }
         }
     }
 

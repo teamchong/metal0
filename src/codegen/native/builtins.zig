@@ -323,7 +323,7 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Generate: blk: {
     //   var total: i64 = 0;
-    //   for (items) |item| { total += item; }
+    //   for (items.items) |item| { total += item; }  // .items for ArrayList
     //   break :blk total;
     // }
 
@@ -331,6 +331,8 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.output.appendSlice(self.allocator, "var total: i64 = 0;\n");
     try self.output.appendSlice(self.allocator, "for (");
     try self.genExpr(args[0]);
+    // ArrayList needs .items for iteration
+    try self.output.appendSlice(self.allocator, ".items");
     try self.output.appendSlice(self.allocator, ") |item| { total += item; }\n");
     try self.output.appendSlice(self.allocator, "break :blk total;\n");
     try self.output.appendSlice(self.allocator, "}");
@@ -342,7 +344,7 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
     // Generate: blk: {
-    //   for (items) |item| {
+    //   for (items.items) |item| {  // .items for ArrayList
     //     if (item == 0) break :blk false;
     //   }
     //   break :blk true;
@@ -351,6 +353,7 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.output.appendSlice(self.allocator, "blk: {\n");
     try self.output.appendSlice(self.allocator, "for (");
     try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ".items");
     try self.output.appendSlice(self.allocator, ") |item| {\n");
     try self.output.appendSlice(self.allocator, "if (item == 0) break :blk false;\n");
     try self.output.appendSlice(self.allocator, "}\n");
@@ -364,7 +367,7 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
     // Generate: blk: {
-    //   for (items) |item| {
+    //   for (items.items) |item| {  // .items for ArrayList
     //     if (item != 0) break :blk true;
     //   }
     //   break :blk false;
@@ -373,6 +376,7 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.output.appendSlice(self.allocator, "blk: {\n");
     try self.output.appendSlice(self.allocator, "for (");
     try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ".items");
     try self.output.appendSlice(self.allocator, ") |item| {\n");
     try self.output.appendSlice(self.allocator, "if (item != 0) break :blk true;\n");
     try self.output.appendSlice(self.allocator, "}\n");

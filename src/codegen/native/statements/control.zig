@@ -376,15 +376,15 @@ fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []
 
     // Build nested @min calls
     if (args.len == 2) {
-        try self.output.appendSlice(self.allocator, "@min(__zip_iter_0.len, __zip_iter_1.len)");
+        try self.output.appendSlice(self.allocator, "@min(__zip_iter_0.items.len, __zip_iter_1.items.len)");
     } else {
         // For 3+ iterables: @min(iter0.len, @min(iter1.len, @min(iter2.len, ...)))
-        try self.output.appendSlice(self.allocator, "@min(__zip_iter_0.len, ");
+        try self.output.appendSlice(self.allocator, "@min(__zip_iter_0.items.len, ");
         for (1..args.len - 1) |_| {
             try self.output.appendSlice(self.allocator, "@min(");
         }
         for (1..args.len) |i| {
-            try self.output.writer(self.allocator).print("__zip_iter_{d}.len", .{i});
+            try self.output.writer(self.allocator).print("__zip_iter_{d}.items.len", .{i});
             if (i < args.len - 1) {
                 try self.output.appendSlice(self.allocator, ", ");
             }
@@ -404,13 +404,13 @@ fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []
     // Push new scope for loop body
     try self.pushScope();
 
-    // Generate: const var1 = __zip_iter_0[__zip_idx]; const var2 = __zip_iter_1[__zip_idx]; ...
+    // Generate: const var1 = __zip_iter_0.items[__zip_idx]; const var2 = __zip_iter_1.items[__zip_idx]; ...
     for (target.list.elts, 0..) |elt, i| {
         const var_name = elt.name.id;
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "const ");
         try self.output.appendSlice(self.allocator, var_name);
-        try self.output.writer(self.allocator).print(" = __zip_iter_{d}[__zip_idx];\n", .{i});
+        try self.output.writer(self.allocator).print(" = __zip_iter_{d}.items[__zip_idx];\n", .{i});
     }
 
     // Generate body statements

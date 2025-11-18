@@ -23,24 +23,63 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.output.appendSlice(self.allocator, "}\n");
     }
 
-    // Generate try block with error handling
+    // Generate try block with exception handling
     if (try_node.handlers.len > 0) {
-        // Generate inline function for try block that can return errors
-        const try_fn_name = "__pyaot_try_block";
+        // Collect captured variables
+        var captured_vars = std.ArrayList([]const u8){};
+        defer captured_vars.deinit(self.allocator);
 
-        // Define inline helper function for try block
+        const common_names = [_][]const u8{ "nums", "data", "items", "values", "list", "dict", "result", "text", "x", "y", "z" };
+        for (common_names) |name| {
+            if (self.semantic_info.lifetimes.contains(name)) {
+                try captured_vars.append(self.allocator, name);
+            }
+        }
+
+        // Create helper function
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "const ");
-        try self.output.appendSlice(self.allocator, try_fn_name);
-        try self.output.appendSlice(self.allocator, " = struct {\n");
+        try self.output.appendSlice(self.allocator, "const __TryHelper = struct {\n");
         self.indent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "fn run() !void {\n");
+        try self.output.appendSlice(self.allocator, "fn run(");
+
+        // Parameters
+        for (captured_vars.items, 0..) |var_name, i| {
+            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+            try self.output.appendSlice(self.allocator, "p_");
+            try self.output.appendSlice(self.allocator, var_name);
+            try self.output.appendSlice(self.allocator, ": anytype");
+        }
+
+        try self.output.appendSlice(self.allocator, ") !void {\n");
         self.indent();
 
-        // Try block body
+        // Create aliases with explicit type annotation to avoid anytype issues
+        for (captured_vars.items) |var_name| {
+            try self.emitIndent();
+            try self.output.appendSlice(self.allocator, "const __local_");
+            try self.output.appendSlice(self.allocator, var_name);
+            try self.output.appendSlice(self.allocator, ": @TypeOf(p_");
+            try self.output.appendSlice(self.allocator, var_name);
+            try self.output.appendSlice(self.allocator, ") = p_");
+            try self.output.appendSlice(self.allocator, var_name);
+            try self.output.appendSlice(self.allocator, ";\n");
+
+            // Add to rename map so expressions use __local_X instead of X
+            var buf = std.ArrayList(u8){};
+            try buf.writer(self.allocator).print("__local_{s}", .{var_name});
+            const renamed = try buf.toOwnedSlice(self.allocator);
+            try self.var_renames.put(var_name, renamed);
+        }
+
+        // Generate try block body with renamed variables
         for (try_node.body) |stmt| {
             try self.generateStmt(stmt);
+        }
+
+        // Clear rename map after generating body
+        for (captured_vars.items) |var_name| {
+            _ = self.var_renames.remove(var_name);
         }
 
         self.dedent();
@@ -48,12 +87,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.output.appendSlice(self.allocator, "}\n");
         self.dedent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "}.run;\n\n");
+        try self.output.appendSlice(self.allocator, "};\n");
 
-        // Call the try block and catch errors
+        // Call helper with captured variables
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, try_fn_name);
-        try self.output.appendSlice(self.allocator, "() catch |err| {\n");
+        try self.output.appendSlice(self.allocator, "__TryHelper.run(");
+        for (captured_vars.items, 0..) |var_name, i| {
+            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+            try self.output.appendSlice(self.allocator, var_name);
+        }
+        try self.output.appendSlice(self.allocator, ") catch |err| {\n");
         self.indent();
 
         // Generate exception handlers
@@ -67,7 +110,6 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
 
             if (handler.type) |exc_type| {
-                // Specific exception type
                 const zig_err = pythonExceptionToZigError(exc_type);
                 try self.output.appendSlice(self.allocator, "if (err == error.");
                 try self.output.appendSlice(self.allocator, zig_err);
@@ -79,7 +121,6 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 self.dedent();
                 generated_handler = true;
             } else {
-                // Bare except - catches all
                 if (i > 0) {
                     try self.output.appendSlice(self.allocator, "{\n");
                 } else {
@@ -87,7 +128,6 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     try self.output.appendSlice(self.allocator, "{\n");
                 }
                 self.indent();
-                // Silence unused error warning for bare except
                 try self.emitIndent();
                 try self.output.appendSlice(self.allocator, "_ = err;\n");
                 for (handler.body) |stmt| {
@@ -100,7 +140,6 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
         }
 
-        // Close if-else chain
         if (generated_handler and try_node.handlers[try_node.handlers.len - 1].type != null) {
             try self.emitIndent();
             try self.output.appendSlice(self.allocator, "} else {\n");
@@ -116,24 +155,21 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "};\n");
     } else {
-        // No handlers - just execute try block
         for (try_node.body) |stmt| {
             try self.generateStmt(stmt);
         }
     }
 
-    // Close wrapper block
     self.dedent();
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "}\n");
 }
 
-/// Map Python exception names to Zig error names
 fn pythonExceptionToZigError(exc_type: []const u8) []const u8 {
     if (std.mem.eql(u8, exc_type, "ZeroDivisionError")) return "ZeroDivisionError";
     if (std.mem.eql(u8, exc_type, "IndexError")) return "IndexError";
     if (std.mem.eql(u8, exc_type, "ValueError")) return "ValueError";
     if (std.mem.eql(u8, exc_type, "TypeError")) return "TypeError";
     if (std.mem.eql(u8, exc_type, "KeyError")) return "KeyError";
-    return "GenericError"; // Fallback
+    return "GenericError";
 }

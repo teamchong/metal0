@@ -88,9 +88,14 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     // Struct definition
     try closure_code.writer(self.allocator).print("const {s} = struct {{\n", .{closure_name});
 
-    // Captured fields - use anytype for comptime polymorphism
+    // Captured fields - use concrete types from type inference
     for (captured_vars) |var_name| {
-        try closure_code.writer(self.allocator).print("    {s}: anytype,\n", .{var_name});
+        // Get type from type inference
+        const var_type = self.getVarType(var_name) orelse .unknown;
+        const zig_type = try self.nativeTypeToZigType(var_type);
+        defer self.allocator.free(zig_type);
+
+        try closure_code.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
     }
     try closure_code.appendSlice(self.allocator, "\n");
 
@@ -186,25 +191,22 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     // Generate closure struct
     var closure_code = std.ArrayList(u8){};
 
-    // Generate generic closure struct using comptime function
-    try closure_code.writer(self.allocator).print("fn {s}(", .{closure_name});
+    // Generate closure struct with concrete types
+    try closure_code.writer(self.allocator).print("const {s} = struct {{\n", .{closure_name});
 
-    // Captured params - generic
-    for (captured_vars, 0..) |var_name, i| {
-        if (i > 0) try closure_code.appendSlice(self.allocator, ", ");
-        try closure_code.writer(self.allocator).print("comptime_var_{s}: anytype", .{var_name});
-    }
-
-    try closure_code.appendSlice(self.allocator, ") type {\n    return struct {\n");
-
-    // Captured fields with inferred types
+    // Captured fields with concrete types from type inference
     for (captured_vars) |var_name| {
-        try closure_code.writer(self.allocator).print("        {s}: @TypeOf(comptime_var_{s}),\n", .{ var_name, var_name });
+        // Get type from type inference
+        const var_type = self.getVarType(var_name) orelse .unknown;
+        const zig_type = try self.nativeTypeToZigType(var_type);
+        defer self.allocator.free(zig_type);
+
+        try closure_code.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
     }
     try closure_code.appendSlice(self.allocator, "\n");
 
     // Call method
-    try closure_code.appendSlice(self.allocator, "        pub fn call(self: @This()");
+    try closure_code.appendSlice(self.allocator, "    pub fn call(self: @This()");
     for (lambda.args) |arg| {
         try closure_code.writer(self.allocator).print(", {s}: i64", .{arg.name});
     }
@@ -212,7 +214,7 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     // Infer return type
     const return_type = try inferReturnType(self, lambda.body.*);
     try closure_code.writer(self.allocator).print(") {s} {{\n", .{return_type});
-    try closure_code.appendSlice(self.allocator, "            return ");
+    try closure_code.appendSlice(self.allocator, "        return ");
 
     // Generate body with captured vars prefixed with "self."
     const saved_output = self.output;
@@ -226,22 +228,17 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     try closure_code.appendSlice(self.allocator, body_code);
     self.allocator.free(body_code);
 
-    try closure_code.appendSlice(self.allocator, ";\n        }\n    };\n}\n\n");
+    try closure_code.appendSlice(self.allocator, ";\n    }\n};\n\n");
 
-    // Store closure struct function
+    // Store closure struct
     try self.lambda_functions.append(self.allocator, try closure_code.toOwnedSlice(self.allocator));
 
     // Restore output
     self.output = std.ArrayList(u8){};
     try self.output.appendSlice(self.allocator, current_output);
 
-    // Generate closure instantiation: Closure(f, g){ .f = f, .g = g }
-    try self.output.writer(self.allocator).print("{s}(", .{closure_name});
-    for (captured_vars, 0..) |var_name, i| {
-        if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-        try self.output.writer(self.allocator).print("{s}", .{var_name});
-    }
-    try self.output.appendSlice(self.allocator, "){ ");
+    // Generate closure instantiation: Closure{ .f = f, .g = g }
+    try self.output.writer(self.allocator).print("{s}{{ ", .{closure_name});
     for (captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.output.appendSlice(self.allocator, ", ");
         try self.output.writer(self.allocator).print(".{s} = {s}", .{ var_name, var_name });

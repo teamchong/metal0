@@ -317,6 +317,22 @@ test "PyDict set and get" {
     try std.testing.expectEqual(@as(i64, 100), PyInt.getValue(retrieved.?));
 }
 
+/// Bounds-checked array list access for exception handling
+/// Returns element at index or IndexError if out of bounds
+pub fn arrayListGet(comptime T: type, list: std.ArrayList(T), index: i64) PythonError!T {
+    const len: i64 = @intCast(list.items.len);
+
+    // Handle negative indices (Python-style)
+    const actual_index = if (index < 0) len + index else index;
+
+    // Bounds check
+    if (actual_index < 0 or actual_index >= len) {
+        return PythonError.IndexError;
+    }
+
+    return list.items[@intCast(actual_index)];
+}
+
 test "reference counting" {
     const allocator = std.testing.allocator;
     const obj = try PyInt.create(allocator, 42);

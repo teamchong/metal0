@@ -3,71 +3,7 @@ const std = @import("std");
 const ast = @import("../../../ast.zig");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
-
-/// Check if a node is a compile-time constant (can use comptime)
-fn isComptimeConstant(node: ast.Node) bool {
-    return switch (node) {
-        .constant => true,
-        .unaryop => |u| isComptimeConstant(u.operand.*),
-        .binop => |b| isComptimeConstant(b.left.*) and isComptimeConstant(b.right.*),
-        else => false,
-    };
-}
-
-/// Check if an expression contains a reference to a variable name
-/// Used to detect self-referencing assignments like: x = x + 1
-fn valueContainsName(node: ast.Node, name: []const u8) bool {
-    switch (node) {
-        .name => |n| return std.mem.eql(u8, n.id, name),
-        .binop => |binop| {
-            return valueContainsName(binop.left.*, name) or valueContainsName(binop.right.*, name);
-        },
-        .unaryop => |unary| {
-            return valueContainsName(unary.operand.*, name);
-        },
-        .call => |call| {
-            if (valueContainsName(call.func.*, name)) return true;
-            for (call.args) |arg| {
-                if (valueContainsName(arg, name)) return true;
-            }
-            return false;
-        },
-        .attribute => |attr| {
-            return valueContainsName(attr.value.*, name);
-        },
-        .subscript => |subscript| {
-            if (valueContainsName(subscript.value.*, name)) return true;
-            switch (subscript.slice) {
-                .index => |idx| return valueContainsName(idx.*, name),
-                .slice => |slice| {
-                    if (slice.lower) |lower| {
-                        if (valueContainsName(lower.*, name)) return true;
-                    }
-                    if (slice.upper) |upper| {
-                        if (valueContainsName(upper.*, name)) return true;
-                    }
-                    if (slice.step) |step| {
-                        if (valueContainsName(step.*, name)) return true;
-                    }
-                    return false;
-                },
-            }
-        },
-        .list => |list| {
-            for (list.elts) |elt| {
-                if (valueContainsName(elt, name)) return true;
-            }
-            return false;
-        },
-        .tuple => |tuple| {
-            for (tuple.elts) |elt| {
-                if (valueContainsName(elt, name)) return true;
-            }
-            return false;
-        },
-        else => return false,
-    }
-}
+const helpers = @import("assign_helpers.zig");
 
 /// Generate assignment statement with automatic defer cleanup
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
@@ -113,15 +49,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         if (target == .name) {
             const var_name = target.name.id;
 
-            // ArrayLists, dicts, and class instances need var instead of const for mutation
-            // ALL Python lists are ArrayList (mutable), not just empty ones
+            // Check collection types (still used for type annotation logic)
             const is_arraylist = (assign.value.* == .list);
             const is_listcomp = (assign.value.* == .listcomp);
             const is_dict = (assign.value.* == .dict);
             const is_class_instance = blk: {
                 if (assign.value.* == .call and assign.value.call.func.* == .name) {
                     const name = assign.value.call.func.name.id;
-                    // Class names start with uppercase
+                    // Class names start with uppercase (PascalCase convention)
                     break :blk name.len > 0 and std.ascii.isUpper(name[0]);
                 }
                 break :blk false;
@@ -179,15 +114,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             try self.emitIndent();
             if (is_first_assignment) {
                 // First assignment: decide between const and var
-                // Use var only for:
-                // - Mutable collections (ArrayLists, dicts, class instances)
-                // - Variables that are actually reassigned later (check mutability analysis)
-                // Use const for everything else (literals, function results, etc.)
+                // Use var if variable is mutated OR if it's a mutable collection/class instance
                 const is_mutated = self.semantic_info.isMutated(var_name);
 
-                // Use var only if actually mutated OR it's a mutable collection
-                // Don't use has_self_ref heuristic - if semantic analysis says not mutated, trust it
-                const needs_var = is_arraylist or is_dict or is_class_instance or is_mutated;
+                // ArrayLists, dicts, and class instances need var (for mutation and deinit)
+                const needs_var = is_mutated or is_arraylist or is_dict or is_class_instance;
 
                 if (needs_var) {
                     try self.output.appendSlice(self.allocator, "var ");
@@ -228,7 +159,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     var parts = std.ArrayList(ast.Node){};
                     defer parts.deinit(self.allocator);
 
-                    try flattenConcat(self, assign.value.*, &parts);
+                    try helpers.flattenConcat(self, assign.value.*, &parts);
 
                     // Generate concat with all parts at once
                     try self.output.appendSlice(self.allocator, "try std.mem.concat(allocator, u8, &[_][]const u8{ ");
@@ -301,14 +232,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Must match the logic in collections.zig to avoid mismatch!
                 var is_comptime_dict = true;
                 for (assign.value.dict.keys) |key| {
-                    if (!isComptimeConstant(key)) {
+                    if (!helpers.isComptimeConstant(key)) {
                         is_comptime_dict = false;
                         break;
                     }
                 }
                 if (is_comptime_dict) {
                     for (assign.value.dict.values) |value| {
-                        if (!isComptimeConstant(value)) {
+                        if (!helpers.isComptimeConstant(value)) {
                             is_comptime_dict = false;
                             break;
                         }
@@ -395,27 +326,6 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             try self.output.appendSlice(self.allocator, ";\n");
         }
     }
-}
-
-/// Flatten nested string concatenation into a list of parts
-/// (s1 + " ") + s2 becomes [s1, " ", s2]
-fn flattenConcat(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayList(ast.Node)) CodegenError!void {
-    if (node == .binop and node.binop.op == .Add) {
-        // Check if this is string concat
-        const left_type = try self.type_inferrer.inferExpr(node.binop.left.*);
-        const right_type = try self.type_inferrer.inferExpr(node.binop.right.*);
-
-        if (left_type == .string or right_type == .string) {
-            // Recursively flatten left side
-            try flattenConcat(self, node.binop.left.*, parts);
-            // Recursively flatten right side
-            try flattenConcat(self, node.binop.right.*, parts);
-            return;
-        }
-    }
-
-    // Not a string concat, just add the node
-    try parts.append(self.allocator, node);
 }
 
 /// Generate augmented assignment (+=, -=, *=, /=, //=, **=, %=)

@@ -131,15 +131,24 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         if (i > 0) try self.emit(", ");
         try self.emit(arg.name);
         try self.emit(": ");
-        // Check if this parameter is used as a function (called in the body)
-        // If so, use anytype to allow function pointers
-        const is_called = isParameterCalled(func.body, arg.name);
-        if (is_called) {
-            try self.emit("anytype"); // Let Zig infer function type at comptime
-        } else {
-            // Convert Python type hint to Zig type
-            const zig_type = pythonTypeToZig(arg.type_annotation);
+
+        // Try to get concrete type from type inference first
+        if (self.getVarType(arg.name)) |var_type| {
+            // Use inferred type if available
+            const zig_type = try self.nativeTypeToZigType(var_type);
+            defer self.allocator.free(zig_type);
             try self.emit(zig_type);
+        } else {
+            // Check if this parameter is used as a function (called in the body)
+            // If so, use anytype only if we don't have type info
+            const is_called = isParameterCalled(func.body, arg.name);
+            if (is_called) {
+                try self.emit("anytype"); // Fallback for unknown function types
+            } else {
+                // Convert Python type hint to Zig type
+                const zig_type = pythonTypeToZig(arg.type_annotation);
+                try self.emit(zig_type);
+            }
         }
     }
 

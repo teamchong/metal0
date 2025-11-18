@@ -53,6 +53,9 @@ pub const NativeCodegen = struct {
     // Track which variables hold simple lambdas (function pointers)
     lambda_vars: std.StringHashMap(void),
 
+    // Variable renames for exception handling (maps original name -> renamed name)
+    var_renames: std.StringHashMap([]const u8),
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
         var scopes = std.ArrayList(std.StringHashMap(void)){};
@@ -75,6 +78,7 @@ pub const NativeCodegen = struct {
             .closure_vars = std.StringHashMap(void).init(allocator),
             .closure_factories = std.StringHashMap(void).init(allocator),
             .lambda_vars = std.StringHashMap(void).init(allocator),
+            .var_renames = std.StringHashMap([]const u8).init(allocator),
         };
         return self;
     }
@@ -111,6 +115,9 @@ pub const NativeCodegen = struct {
             self.allocator.free(key.*);
         }
         self.lambda_vars.deinit();
+
+        // Clean up variable renames
+        self.var_renames.deinit();
 
         self.allocator.destroy(self);
     }
@@ -483,5 +490,18 @@ pub const NativeCodegen = struct {
 
     pub fn dedent(self: *NativeCodegen) void {
         self.indent_level -= 1;
+    }
+
+    /// Convert NativeType to Zig type string for code generation
+    /// Uses type inference results to get concrete types
+    pub fn nativeTypeToZigType(self: *NativeCodegen, native_type: NativeType) ![]const u8 {
+        var buf = std.ArrayList(u8){};
+        try native_type.toZigType(self.allocator, &buf);
+        return buf.toOwnedSlice(self.allocator);
+    }
+
+    /// Get the inferred type of a variable from type inference
+    pub fn getVarType(self: *NativeCodegen, var_name: []const u8) ?NativeType {
+        return self.type_inferrer.var_types.get(var_name);
     }
 };
