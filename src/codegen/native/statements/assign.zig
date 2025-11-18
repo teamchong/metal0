@@ -174,8 +174,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 };
 
                 if (is_simple_type) {
+                    // Check mutability BEFORE emitting
+                    const is_mutable = if (is_first_assignment)
+                        self.semantic_info.isMutated(var_name)
+                    else
+                        false;  // Reassignments don't declare
+
                     // Successfully evaluated at compile time!
-                    try emitComptimeAssignment(self, var_name, comptime_val, is_first_assignment);
+                    try emitComptimeAssignment(self, var_name, comptime_val, is_first_assignment, is_mutable);
                     if (is_first_assignment) {
                         try self.declareVar(var_name);
                     }
@@ -501,11 +507,17 @@ fn emitComptimeAssignment(
     var_name: []const u8,
     value: @import("../../../analysis/comptime_eval.zig").ComptimeValue,
     is_first_assignment: bool,
+    is_mutable: bool,
 ) CodegenError!void {
     try self.emitIndent();
 
     if (is_first_assignment) {
-        try self.output.appendSlice(self.allocator, "const ");
+        // Use var for mutable variables, const for immutable
+        if (is_mutable) {
+            try self.output.appendSlice(self.allocator, "var ");
+        } else {
+            try self.output.appendSlice(self.allocator, "const ");
+        }
     }
 
     try self.output.appendSlice(self.allocator, var_name);

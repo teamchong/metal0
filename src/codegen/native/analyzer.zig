@@ -23,6 +23,47 @@ pub const ModuleAnalysis = struct {
     }
 };
 
+/// Check if a list contains only literal constants
+fn isConstantList(list: ast.Node.List) bool {
+    if (list.elts.len == 0) return false; // Empty lists stay dynamic
+
+    for (list.elts) |elem| {
+        const is_literal = switch (elem) {
+            .constant => true,
+            else => false,
+        };
+        if (!is_literal) return false;
+    }
+
+    return true;
+}
+
+/// Check if all elements in a list have the same type (homogeneous)
+fn allSameType(elements: []ast.Node) bool {
+    if (elements.len == 0) return true;
+
+    // Get type tag of first element
+    const first_const = switch (elements[0]) {
+        .constant => |c| c,
+        else => return false,
+    };
+
+    const first_type_tag = @as(std.meta.Tag(@TypeOf(first_const.value)), first_const.value);
+
+    // Check all other elements match
+    for (elements[1..]) |elem| {
+        const elem_const = switch (elem) {
+            .constant => |c| c,
+            else => return false,
+        };
+
+        const elem_type_tag = @as(std.meta.Tag(@TypeOf(elem_const.value)), elem_const.value);
+        if (elem_type_tag != first_type_tag) return false;
+    }
+
+    return true;
+}
+
 /// Analyze entire module to determine requirements
 pub fn analyzeModule(module: ast.Node.Module, allocator: std.mem.Allocator) !ModuleAnalysis {
     _ = allocator; // Will need for recursive analysis
@@ -170,8 +211,15 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
             }
         },
         .list => |list| {
-            // All lists need allocator now (ArrayList.append() for non-empty lists)
-            if (list.elts.len > 0) {
+            // Check if list can be optimized to fixed-size array (no allocator needed)
+            // Fixed arrays: constant literals + homogeneous type (e.g., [1, 2, 3])
+            // Dynamic lists: non-constant or mixed types (need allocator)
+            const is_constant = isConstantList(list);
+            const is_homogeneous = allSameType(list.elts);
+            const can_optimize_to_array = is_constant and is_homogeneous;
+
+            // Only mark as needing allocator if we can't optimize to fixed array
+            if (list.elts.len > 0 and !can_optimize_to_array) {
                 analysis.needs_allocator = true;
             }
 
