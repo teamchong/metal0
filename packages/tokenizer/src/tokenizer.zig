@@ -319,28 +319,25 @@ pub const Tokenizer = struct {
             const has_match = @reduce(.Or, both_match);
 
             if (has_match) {
-                // Match found: process this window element by element
+                // Match found: process window with branchless merge
                 const window_end = read_pos + vec_size + 1;
                 while (read_pos < window_end and read_pos < len) {
-                    // Unsafe reads (no bounds check)
                     const left = ptr[read_pos];
-                    const right = if (read_pos + 1 < len) ptr[read_pos + 1] else 0;
+                    const has_right = read_pos + 1 < len;
+                    const right = if (has_right) ptr[read_pos + 1] else 0;
 
-                    if (read_pos + 1 < len and left == pair.left and right == pair.right) {
-                        ptr[write_pos] = new_id;
-                        write_pos += 1;
-                        read_pos += 2;
-                    } else {
-                        if (write_pos != read_pos) {
-                            ptr[write_pos] = left;
-                        }
-                        write_pos += 1;
-                        read_pos += 1;
-                    }
+                    // Branchless: check if this is the pair to merge
+                    const is_match = has_right and (left == pair.left) and (right == pair.right);
+
+                    // Branchless write
+                    ptr[write_pos] = if (is_match) new_id else left;
+                    write_pos += 1;
+                    read_pos += if (is_match) @as(usize, 2) else @as(usize, 1);
                 }
             } else {
-                // No matches: bulk copy (Phase 3: memcpy-style with @memcpy)
-                if (write_pos != read_pos) {
+                // No matches: bulk copy with branchless pointer math
+                const should_copy = write_pos != read_pos;
+                if (should_copy) {
                     @memcpy(ptr[write_pos..write_pos + vec_size], ptr[read_pos..read_pos + vec_size]);
                 }
                 write_pos += vec_size;
