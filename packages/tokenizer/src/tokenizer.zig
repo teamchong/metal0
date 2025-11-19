@@ -345,22 +345,19 @@ pub const Tokenizer = struct {
             }
         }
 
-        // Scalar tail: process remaining elements
+        // Scalar tail: branchless processing like main loop
         while (read_pos < len) {
             const left = ptr[read_pos];
-            const right = if (read_pos + 1 < len) ptr[read_pos + 1] else 0;
+            const has_right = read_pos + 1 < len;
+            const right = if (has_right) ptr[read_pos + 1] else 0;
 
-            if (read_pos + 1 < len and left == pair.left and right == pair.right) {
-                ptr[write_pos] = new_id;
-                write_pos += 1;
-                read_pos += 2;
-            } else {
-                if (write_pos != read_pos) {
-                    ptr[write_pos] = left;
-                }
-                write_pos += 1;
-                read_pos += 1;
-            }
+            // Branchless merge check
+            const is_match = has_right and (left == pair.left) and (right == pair.right);
+
+            // Branchless write and advance
+            ptr[write_pos] = if (is_match) new_id else left;
+            write_pos += 1;
+            read_pos += if (is_match) @as(usize, 2) else @as(usize, 1);
         }
 
         return write_pos;
