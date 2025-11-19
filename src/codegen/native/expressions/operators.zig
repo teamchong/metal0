@@ -258,6 +258,56 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try genExpr(self, compare.left.*); // key
                     try self.output.appendSlice(self.allocator, ")");
                 }
+            } else {
+                // Fallback for arrays and unrecognized types
+                // Infer element type from the item being searched for
+
+                // String arrays need special handling - can't use indexOfScalar
+                // because strings require std.mem.eql for comparison, not ==
+                if (left_type == .string) {
+                    // Generate inline block expression that loops through array
+                    try self.output.appendSlice(self.allocator, "(blk: {\n");
+                    try self.output.appendSlice(self.allocator, "for (");
+                    try genExpr(self, compare.comparators[i]); // array
+                    try self.output.appendSlice(self.allocator, ") |__item| {\n");
+                    try self.output.appendSlice(self.allocator, "if (std.mem.eql(u8, __item, ");
+                    try genExpr(self, compare.left.*); // search string
+                    try self.output.appendSlice(self.allocator, ")) break :blk true;\n");
+                    try self.output.appendSlice(self.allocator, "}\n");
+                    try self.output.appendSlice(self.allocator, "break :blk false;\n");
+                    try self.output.appendSlice(self.allocator, "})");
+
+                    // Handle 'not in' by negating the result
+                    if (op == .NotIn) {
+                        // Wrap in negation
+                        const current = try self.output.toOwnedSlice(self.allocator);
+                        try self.output.appendSlice(self.allocator, "!");
+                        try self.output.appendSlice(self.allocator, current);
+                    }
+                } else {
+                    // Integer and float arrays use indexOfScalar
+                    const elem_type_str = switch (left_type) {
+                        .int => "i64",
+                        .float => "f64",
+                        else => "i64", // Default fallback to i64
+                    };
+
+                    if (op == .In) {
+                        try self.output.appendSlice(self.allocator, "(std.mem.indexOfScalar(");
+                    } else {
+                        try self.output.appendSlice(self.allocator, "(std.mem.indexOfScalar(");
+                    }
+                    try self.output.appendSlice(self.allocator, elem_type_str);
+                    try self.output.appendSlice(self.allocator, ", &");
+                    try genExpr(self, compare.comparators[i]); // array/container
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try genExpr(self, compare.left.*); // item to search for
+                    if (op == .In) {
+                        try self.output.appendSlice(self.allocator, ") != null)");
+                    } else {
+                        try self.output.appendSlice(self.allocator, ") == null)");
+                    }
+                }
             }
         } else {
             // Regular comparisons for non-strings

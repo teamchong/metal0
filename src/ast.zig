@@ -288,6 +288,12 @@ pub const Node = union(enum) {
                 allocator.free(w.body);
             },
             .function_def => |f| {
+                for (f.args) |arg| {
+                    if (arg.default) |def| {
+                        def.deinit(allocator);
+                        allocator.destroy(def);
+                    }
+                }
                 allocator.free(f.args);
                 for (f.body) |*n| n.deinit(allocator);
                 allocator.free(f.body);
@@ -295,6 +301,12 @@ pub const Node = union(enum) {
                 allocator.free(f.decorators);
             },
             .lambda => |l| {
+                for (l.args) |arg| {
+                    if (arg.default) |def| {
+                        def.deinit(allocator);
+                        allocator.destroy(def);
+                    }
+                }
                 allocator.free(l.args);
                 l.body.deinit(allocator);
                 allocator.destroy(l.body);
@@ -468,6 +480,7 @@ pub const Value = union(enum) {
 pub const Arg = struct {
     name: []const u8,
     type_annotation: ?[]const u8,
+    default: ?*Node,
 };
 
 /// Parse JSON AST from Python's ast.dump()

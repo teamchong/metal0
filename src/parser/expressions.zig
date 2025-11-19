@@ -348,9 +348,20 @@ pub fn parseLambda(self: *Parser) ParseError!ast.Node {
             if (self.peek()) |tok| {
                 if (tok.type == .Ident) {
                     const param_name = self.advance().?.lexeme;
+
+                    // Parse default value if present (e.g., = 0.1)
+                    var default_value: ?*ast.Node = null;
+                    if (self.match(.Eq)) {
+                        const default_expr = try parseOrExpr(self);
+                        const default_ptr = try self.allocator.create(ast.Node);
+                        default_ptr.* = default_expr;
+                        default_value = default_ptr;
+                    }
+
                     try args.append(self.allocator, .{
                         .name = param_name,
                         .type_annotation = null,
+                        .default = default_value,
                     });
 
                     if (self.match(.Comma)) {

@@ -14,6 +14,7 @@ from pathlib import Path
 
 PYAOT_ROOT = Path(__file__).parent.parent
 EXAMPLES_DIR = PYAOT_ROOT / "examples"
+PYAOT_BIN = PYAOT_ROOT / "zig-out" / "bin" / "pyaot"
 
 # PyAOT-only examples that use built-ins not available in Python
 # These are compiled and run with PyAOT only (no Python comparison)
@@ -50,9 +51,9 @@ def run_example(example_path: Path) -> tuple[str, str, int, int]:
             timeout=60
         )
 
-        # Compile PyAOT
+        # Compile PyAOT (use local build, not system install)
         compile_result = subprocess.run(
-            ["pyaot", "build", "--binary", str(example_path), str(zy_bin)],
+            [str(PYAOT_BIN), "build", "--binary", str(example_path), str(zy_bin)],
             capture_output=True,
             text=True,
             timeout=30,
@@ -93,9 +94,9 @@ class TestExamples:
             with tempfile.TemporaryDirectory() as tmpdir:
                 zy_bin = Path(tmpdir) / "test_zy"
 
-                # Compile PyAOT
+                # Compile PyAOT (use local build, not system install)
                 compile_result = subprocess.run(
-                    ["pyaot", "build", "--binary", str(path), str(zy_bin)],
+                    [str(PYAOT_BIN), "build", "--binary", str(path), str(zy_bin)],
                     capture_output=True,
                     text=True,
                     timeout=30,

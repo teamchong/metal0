@@ -37,9 +37,20 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
                 }
             }
 
+            // Parse default value if present (e.g., = 0.1)
+            var default_value: ?*ast.Node = null;
+            if (self.match(.Eq)) {
+                // Parse the default expression
+                const default_expr = try self.parseExpression();
+                const default_ptr = try self.allocator.create(ast.Node);
+                default_ptr.* = default_expr;
+                default_value = default_ptr;
+            }
+
             try args.append(self.allocator, .{
                 .name = arg_name.lexeme,
                 .type_annotation = type_annotation,
+                .default = default_value,
             });
 
             if (!self.match(.Comma)) {

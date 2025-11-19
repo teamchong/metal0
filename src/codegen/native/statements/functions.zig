@@ -158,15 +158,24 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         const is_func = isParameterUsedAsFunction(func.body, arg.name);
         if (is_func) {
             try self.emit("anytype"); // For decorators and higher-order functions
-        } else if (self.getVarType(arg.name)) |var_type| {
-            // Use inferred type if available and not a function parameter
-            const zig_type = try self.nativeTypeToZigType(var_type);
-            defer self.allocator.free(zig_type);
-            try self.emit(zig_type);
-        } else {
-            // Convert Python type hint to Zig type
+        } else if (arg.type_annotation) |_| {
+            // Use explicit type annotation if provided
             const zig_type = pythonTypeToZig(arg.type_annotation);
             try self.emit(zig_type);
+        } else if (self.getVarType(arg.name)) |var_type| {
+            // Only use inferred type if it's not .unknown
+            const var_type_tag = @as(std.meta.Tag(@TypeOf(var_type)), var_type);
+            if (var_type_tag != .unknown) {
+                const zig_type = try self.nativeTypeToZigType(var_type);
+                defer self.allocator.free(zig_type);
+                try self.emit(zig_type);
+            } else {
+                // .unknown means we don't know - default to i64
+                try self.emit("i64");
+            }
+        } else {
+            // No type hint and no inference - default to i64
+            try self.emit("i64");
         }
     }
 
