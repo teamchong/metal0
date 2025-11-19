@@ -90,12 +90,12 @@ pub fn main() !void {
         "Sentiment analysis determines emotional tone in text.",
     };
 
-    // Large realistic benchmark: 15,000 texts, vocab 2048
-    const training_texts = base_texts ** 1000;
-    var trainer = try Trainer.init(2048, allocator);
+    // Quick benchmark for hyperfine: 500 texts, vocab 300 (~10s total)
+    const training_texts = base_texts ** 33; // 495 texts
+    var trainer = try Trainer.init(300, allocator);
     defer trainer.deinit();
 
-    std.debug.print("Training with {} texts, vocab 2048...\n", .{training_texts.len});
+    std.debug.print("Training with {} texts, vocab 300...\n", .{training_texts.len});
 
     const train_start = std.time.nanoTimestamp();
     var tokenizer = try trainer.trainFromIterator(&training_texts);
@@ -107,7 +107,7 @@ pub fn main() !void {
     std.debug.print("  Vocab size: {}\n\n", .{256 + tokenizer.merges.items.len});
 
     // Benchmark 2: Encoding (vs tiktoken/rustbpe) - run for ~60s
-    std.debug.print("Benchmark 2: Encoding Speed (60s target)\n", .{});
+    std.debug.print("Benchmark 2: Encoding Speed\n", .{});
     std.debug.print("-" ** 40 ++ "\n", .{});
 
     const test_text =
@@ -118,49 +118,30 @@ pub fn main() !void {
         \\Modern language models use BPE tokenization for efficiency.
     ;
 
-    // Calibration: How many iterations for ~60s?
-    std.debug.print("  Calibrating iterations...\n", .{});
-    const encode_cal_start = std.time.nanoTimestamp();
-    var tokens = try tokenizer.encode(test_text);
-    allocator.free(tokens);
-    const encode_cal_elapsed = std.time.nanoTimestamp() - encode_cal_start;
+    const iterations: usize = 1000; // Fixed for hyperfine
 
-    const target_duration_ns: i128 = 60_000_000_000; // 60 seconds
-    const iterations = @max(100, @min(100_000, @as(usize, @intCast(@divFloor(target_duration_ns, encode_cal_elapsed)))));
-
-    std.debug.print("  Running {} iterations (estimated {}s)\n", .{
-        iterations,
-        @divFloor(encode_cal_elapsed * @as(i128, @intCast(iterations)), 1_000_000_000),
-    });
-
-    // Actual benchmark
     const encode_start = std.time.nanoTimestamp();
-
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
-        tokens = try tokenizer.encode(test_text);
+        const tokens = try tokenizer.encode(test_text);
         allocator.free(tokens);
     }
-
     const encode_end = std.time.nanoTimestamp();
     const encode_total_ms = @divFloor(encode_end - encode_start, 1_000_000);
     const encode_per_iter_us = @divFloor(encode_end - encode_start, @as(i128, @intCast(iterations)) * 1000);
 
-    std.debug.print("  Total time ({} iterations): {}ms\n", .{ iterations, encode_total_ms });
+    std.debug.print("  {} iterations: {}ms total\n", .{ iterations, encode_total_ms });
     std.debug.print("  Per iteration: {}μs\n", .{encode_per_iter_us});
-    std.debug.print("  Text length: {} bytes\n", .{test_text.len});
     std.debug.print("  Throughput: {d:.2} MB/s\n\n", .{
         @as(f64, @floatFromInt(test_text.len * iterations)) /
         @as(f64, @floatFromInt(encode_total_ms)) / 1000.0
     });
 
-    // Final encode for token count
-    tokens = try tokenizer.encode(test_text);
-    defer allocator.free(tokens);
-
-    std.debug.print("  Tokens produced: {}\n", .{tokens.len});
-    std.debug.print("  Compression ratio: {d:.2}x\n\n", .{
-        @as(f64, @floatFromInt(test_text.len)) / @as(f64, @floatFromInt(tokens.len))
+    const final_tokens = try tokenizer.encode(test_text);
+    defer allocator.free(final_tokens);
+    std.debug.print("  Tokens: {} ({d:.2}x compression)\n\n", .{
+        final_tokens.len,
+        @as(f64, @floatFromInt(test_text.len)) / @as(f64, @floatFromInt(final_tokens.len))
     });
 
     // Benchmark 3: Memory efficiency

@@ -7,17 +7,17 @@
 
 ---
 
-## Results
+## Hyperfine Results (10 runs, same workload)
 
-| Benchmark | Rust Baseline | Zig PyAOT | Relative |
-|-----------|---------------|-----------|----------|
-| **Training** (15K texts, 2048 vocab) | **22ms** | **313ms** | **14x slower** ❌ |
-| **Encoding** (305 bytes/iter) | **159μs** | **1095μs** | **6.9x slower** ❌ |
-| **Throughput** | **1.92 MB/s** | **0.28 MB/s** | **6.9x slower** ❌ |
-| **Memory** | ~11 KB | **2 KB** | **5.5x better** ✅ |
+| Implementation | Mean | Std Dev | Relative |
+|----------------|------|---------|----------|
+| **Rust baseline** | **31.6ms** | ±0.4ms | **1.00x** ✅ |
+| **Zig PyAOT** | **607.1ms** | ±17.8ms | **19.2x slower** ❌ |
 
-**Same benchmark data:** 15,000 texts, vocab 2048, 305-byte encoding test
+**Workload:** 500 texts training (vocab 300) + 1000 encoding iterations
 
-**Status:** HashMap lookup added but encoding still slow (scanning tokens wrong way)
+**Why slow:**
+- Training: PriorityQueue added, but Rust uses parallel training (rayon)
+- Encoding: Scanning all tokens repeatedly instead of applying merges in order
 
-**Next:** Fix encoding algorithm properly
+**Next:** Fix encoding algorithm (apply merges sequentially, not scan repeatedly)

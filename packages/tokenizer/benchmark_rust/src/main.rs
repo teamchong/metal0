@@ -91,8 +91,8 @@ fn main() {
         "Sentiment analysis determines emotional tone in text.",
     ];
 
-    // Match Zig benchmark: 15,000 texts
-    let training_texts: Vec<&str> = base_texts.into_iter().cycle().take(15000).collect();
+    // Quick benchmark for hyperfine: 500 texts
+    let training_texts: Vec<&str> = base_texts.into_iter().cycle().take(500).collect();
 
     // Collect words
     let mut word_counts: HashMap<String, i32> = HashMap::new();
@@ -111,7 +111,7 @@ fn main() {
 
     let counts: Vec<i32> = word_counts.values().copied().collect();
 
-    let vocab_size = 2048; // Match Zig: 2048
+    let vocab_size = 300; // Quick benchmark
     let num_merges = vocab_size - 256;
     let mut merges = Vec::new();
 
@@ -143,8 +143,8 @@ fn main() {
     println!("  Learned merges: {}", merges.len());
     println!();
 
-    // Benchmark: Encoding (60s target)
-    println!("Benchmark: Encoding Speed (60s target)");
+    // Benchmark: Encoding (quick: 1000 iterations)
+    println!("Benchmark: Encoding Speed");
     println!("{}", "-".repeat(40));
 
     let test_text = concat!(
@@ -155,43 +155,7 @@ fn main() {
         "Modern language models use BPE tokenization for efficiency."
     );
 
-    // Calibration: How many iterations for ~60s?
-    println!("  Calibrating iterations...");
-    let cal_start = Instant::now();
-    {
-        let mut tokens: Vec<u32> = test_text.bytes().map(|b| b as u32).collect();
-        for &pair in &merges {
-            let new_id = 256 + merges.iter().position(|&p| p == pair).unwrap() as u32;
-            let mut i = 0;
-            let mut new_tokens = Vec::new();
-            while i < tokens.len() {
-                if i + 1 < tokens.len() && tokens[i] == pair.0 && tokens[i + 1] == pair.1 {
-                    new_tokens.push(new_id);
-                    i += 2;
-                } else {
-                    new_tokens.push(tokens[i]);
-                    i += 1;
-                }
-            }
-            tokens = new_tokens;
-        }
-    }
-    let cal_elapsed = cal_start.elapsed();
-
-    let target_duration_secs = 60;
-    let iterations = std::cmp::max(
-        100,
-        std::cmp::min(
-            100_000,
-            (target_duration_secs * 1_000_000_000) / cal_elapsed.as_nanos() as usize,
-        ),
-    );
-
-    println!(
-        "  Running {} iterations (estimated {}s)",
-        iterations,
-        (cal_elapsed.as_nanos() as u128 * iterations as u128) / 1_000_000_000
-    );
+    let iterations = 1000; // Fixed for hyperfine
 
     let encode_start = Instant::now();
 
