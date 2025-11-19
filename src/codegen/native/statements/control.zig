@@ -310,20 +310,16 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
         return; // Invalid range() call
     }
 
-    // Generate initialization (check if already declared)
-    const is_first_assignment = !self.isDeclared(var_name);
-
+    // Wrap range loop in block scope to prevent variable shadowing
     try self.emitIndent();
-    if (is_first_assignment) {
-        try self.output.appendSlice(self.allocator, "var ");
-        try self.output.appendSlice(self.allocator, var_name);
-        try self.output.appendSlice(self.allocator, ": i64 = ");
-        // Mark as declared
-        try self.declareVar(var_name);
-    } else {
-        try self.output.appendSlice(self.allocator, var_name);
-        try self.output.appendSlice(self.allocator, " = ");
-    }
+    try self.output.appendSlice(self.allocator, "{\n");
+    self.indent();
+
+    // Generate initialization (always declare as new variable in block scope)
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "var ");
+    try self.output.appendSlice(self.allocator, var_name);
+    try self.output.appendSlice(self.allocator, ": usize = ");
     if (start_expr) |start| {
         try self.genExpr(start);
     } else {
@@ -362,6 +358,11 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // Pop scope when exiting loop
     self.popScope();
 
+    self.dedent();
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}\n");
+
+    // Close block scope
     self.dedent();
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "}\n");
@@ -413,11 +414,11 @@ fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, bo
     try self.output.appendSlice(self.allocator, "{\n");
     self.indent();
 
-    // Generate index counter: var __enum_idx_N: i64 = start;
+    // Generate index counter: var __enum_idx_N: usize = start;
     // Use output buffer length as unique ID to avoid shadowing in nested loops
     const unique_id = self.output.items.len;
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("var __enum_idx_{d}: i64 = ", .{unique_id});
+    try self.output.writer(self.allocator).print("var __enum_idx_{d}: usize = ", .{unique_id});
     if (start_value != 0) {
         const start_str = try std.fmt.allocPrint(self.allocator, "{d}", .{start_value});
         try self.output.appendSlice(self.allocator, start_str);
@@ -516,15 +517,20 @@ fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []
     try self.output.appendSlice(self.allocator, "{\n");
     self.indent();
 
+    // Check type of each iterable to determine if we need .items
+    var iter_is_list = try self.allocator.alloc(bool, args.len);
+    defer self.allocator.free(iter_is_list);
+
+    for (args, 0..) |iterable, i| {
+        const iter_type = try self.type_inferrer.inferExpr(iterable);
+        iter_is_list[i] = (iter_type == .list);
+    }
+
     // Store each iterable in a temporary variable: const __zip_iter_N = ...
     for (args, 0..) |iterable, i| {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __zip_iter_{d} = ", .{i});
         try self.genExpr(iterable);
-
-        // NOTE: Don't add .items for zip loops
-        // In PyAOT, list variables are typically slices (from literals or params), not ArrayLists
-        // zip() works directly with slices
         try self.output.appendSlice(self.allocator, ";\n");
     }
 
@@ -536,17 +542,25 @@ fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "const __zip_len = ");
 
-    // Build nested @min calls
+    // Build nested @min calls - use .items.len for lists, .len for arrays
     if (args.len == 2) {
-        try self.output.appendSlice(self.allocator, "@min(__zip_iter_0.items.len, __zip_iter_1.items.len)");
+        try self.output.appendSlice(self.allocator, "@min(__zip_iter_0");
+        if (iter_is_list[0]) try self.output.appendSlice(self.allocator, ".items");
+        try self.output.appendSlice(self.allocator, ".len, __zip_iter_1");
+        if (iter_is_list[1]) try self.output.appendSlice(self.allocator, ".items");
+        try self.output.appendSlice(self.allocator, ".len)");
     } else {
         // For 3+ iterables: @min(iter0.len, @min(iter1.len, @min(iter2.len, ...)))
-        try self.output.appendSlice(self.allocator, "@min(__zip_iter_0.items.len, ");
+        try self.output.appendSlice(self.allocator, "@min(__zip_iter_0");
+        if (iter_is_list[0]) try self.output.appendSlice(self.allocator, ".items");
+        try self.output.appendSlice(self.allocator, ".len, ");
         for (1..args.len - 1) |_| {
             try self.output.appendSlice(self.allocator, "@min(");
         }
         for (1..args.len) |i| {
-            try self.output.writer(self.allocator).print("__zip_iter_{d}.items.len", .{i});
+            try self.output.writer(self.allocator).print("__zip_iter_{d}", .{i});
+            if (iter_is_list[i]) try self.output.appendSlice(self.allocator, ".items");
+            try self.output.appendSlice(self.allocator, ".len");
             if (i < args.len - 1) {
                 try self.output.appendSlice(self.allocator, ", ");
             }
@@ -566,13 +580,16 @@ fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []
     // Push new scope for loop body
     try self.pushScope();
 
-    // Generate: const var1 = __zip_iter_0.items[__zip_idx]; const var2 = __zip_iter_1.items[__zip_idx]; ...
+    // Generate: const var1 = __zip_iter_0[__zip_idx]; const var2 = __zip_iter_1[__zip_idx]; ...
+    // Use .items for lists, direct indexing for arrays
     for (target.list.elts, 0..) |elt, i| {
         const var_name = elt.name.id;
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "const ");
         try self.output.appendSlice(self.allocator, var_name);
-        try self.output.writer(self.allocator).print(" = __zip_iter_{d}.items[__zip_idx];\n", .{i});
+        try self.output.writer(self.allocator).print(" = __zip_iter_{d}", .{i});
+        if (iter_is_list[i]) try self.output.appendSlice(self.allocator, ".items");
+        try self.output.appendSlice(self.allocator, "[__zip_idx];\n");
     }
 
     // Generate body statements

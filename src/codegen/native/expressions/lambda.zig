@@ -218,7 +218,7 @@ fn stringToNativeType(type_str: []const u8) NativeType {
     if (std.mem.eql(u8, type_str, "i64")) return .int;
     if (std.mem.eql(u8, type_str, "f64")) return .float;
     if (std.mem.eql(u8, type_str, "bool")) return .bool;
-    if (std.mem.eql(u8, type_str, "[]const u8")) return .string;
+    if (std.mem.eql(u8, type_str, "[]const u8")) return .{ .string = .runtime };
     // Check if it's a closure type (__Closure_N)
     if (std.mem.startsWith(u8, type_str, "__Closure_")) {
         return .{ .closure = type_str };

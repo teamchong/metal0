@@ -87,6 +87,19 @@ pub const NativeCodegen = struct {
     // Import registry for Python→Zig module mapping
     import_registry: *import_registry.ImportRegistry,
 
+    // Track from-imports for symbol re-export generation
+    from_imports: std.ArrayList(FromImportInfo),
+
+    // Track from-imported functions that need allocator argument
+    // Maps symbol name -> true (e.g., "loads" -> true)
+    from_import_needs_allocator: std.StringHashMap(void),
+
+    const FromImportInfo = struct {
+        module: []const u8,
+        names: [][]const u8,
+        asnames: []?[]const u8,
+    };
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -123,6 +136,8 @@ pub const NativeCodegen = struct {
             .import_ctx = null,
             .decorated_functions = std.ArrayList(DecoratedFunction){},
             .import_registry = registry,
+            .from_imports = std.ArrayList(FromImportInfo){},
+            .from_import_needs_allocator = std.StringHashMap(void).init(allocator),
         };
         return self;
     }
@@ -356,10 +371,28 @@ pub const NativeCodegen = struct {
         var module_names = std.StringHashMap(void).init(self.allocator);
         defer module_names.deinit();
 
+        // Clear previous from-imports
+        self.from_imports.clearRetainingCapacity();
+
         for (module.body) |stmt| {
-            if (stmt == .import_stmt) {
-                const module_name = stmt.import_stmt.module;
-                try module_names.put(module_name, {});
+            // Handle both "import X" and "from X import Y"
+            switch (stmt) {
+                .import_stmt => |imp| {
+                    const module_name = imp.module;
+                    try module_names.put(module_name, {});
+                },
+                .import_from => |imp| {
+                    const module_name = imp.module;
+                    try module_names.put(module_name, {});
+
+                    // Store from-import info for symbol re-export generation
+                    try self.from_imports.append(self.allocator, FromImportInfo{
+                        .module = module_name,
+                        .names = imp.names,
+                        .asnames = imp.asnames,
+                    });
+                },
+                else => {},
             }
         }
 
@@ -377,11 +410,12 @@ pub const NativeCodegen = struct {
                         try imports.append(self.allocator, python_module.*);
                     },
                     .unsupported => {
-                        std.debug.print("Warning: Module {s} not supported yet\n", .{python_module.*});
+                        std.debug.print("Warning: Module '{s}' not supported yet\n", .{python_module.*});
                     },
                 }
             } else {
-                // Module not in registry - assume it's a user module
+                // Module not in registry - warn and assume user module
+                std.debug.print("Warning: Module '{s}' not in registry, assuming user module\n", .{python_module.*});
                 try imports.append(self.allocator, python_module.*);
             }
         }
@@ -470,6 +504,48 @@ pub const NativeCodegen = struct {
         }
 
         try self.emit("\n");
+
+        // PHASE 3.6: Generate from-import symbol re-exports
+        // For "from json import loads", generate: const loads = json.loads;
+        for (self.from_imports.items) |from_imp| {
+            // Check if this is a Tier 1 runtime module (functions need allocator)
+            const is_runtime_module = self.import_registry.lookup(from_imp.module) != null and
+                (std.mem.eql(u8, from_imp.module, "json") or
+                std.mem.eql(u8, from_imp.module, "http") or
+                std.mem.eql(u8, from_imp.module, "asyncio"));
+
+            for (from_imp.names, 0..) |name, i| {
+                // Get the symbol name (use alias if provided)
+                const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                    from_imp.asnames[i].?
+                else
+                    name;
+
+                // Skip import * for now (complex to implement)
+                if (std.mem.eql(u8, name, "*")) {
+                    std.debug.print("Warning: 'from {s} import *' not supported yet\n", .{from_imp.module});
+                    continue;
+                }
+
+                // Track if this symbol needs allocator (runtime module functions)
+                if (is_runtime_module) {
+                    try self.from_import_needs_allocator.put(symbol_name, {});
+                }
+
+                // Generate: const symbol_name = module.name;
+                try self.emit("const ");
+                try self.emit(symbol_name);
+                try self.emit(" = ");
+                try self.emit(from_imp.module);
+                try self.emit(".");
+                try self.emit(name);
+                try self.emit(";\n");
+            }
+        }
+
+        if (self.from_imports.items.len > 0) {
+            try self.emit("\n");
+        }
 
         // PHASE 4: Define __name__ constant (for if __name__ == "__main__" support)
         try self.emit("const __name__ = \"__main__\";\n\n");

@@ -388,7 +388,7 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
 
         // If mixed types, convert all to strings (Python's str())
         if (!all_same) {
-            val_type = .string;
+            val_type = .{ .string = .runtime };
         }
     }
 

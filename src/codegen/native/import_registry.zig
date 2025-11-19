@@ -100,9 +100,11 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     var registry = ImportRegistry.init(allocator);
 
     // Tier 1: Zig implementations (performance-critical)
-    try registry.register("json", .zig_runtime, "@import(\"runtime\").json", null);
-    try registry.register("http", .zig_runtime, "@import(\"runtime\").http", null);
-    try registry.register("asyncio", .zig_runtime, "@import(\"runtime\").async", null);
+    // Note: runtime is imported as @import("./runtime.zig") at module level
+    // So we reference the already-imported runtime module, not @import("runtime")
+    try registry.register("json", .zig_runtime, "runtime.json", null);
+    try registry.register("http", .zig_runtime, "runtime.http", null);
+    try registry.register("asyncio", .zig_runtime, "runtime.async", null);
 
     // Tier 2: C library wrappers
     try registry.register("numpy", .c_library, "@import(\"c_interop\").numpy", "openblas");

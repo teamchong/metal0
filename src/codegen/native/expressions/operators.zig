@@ -101,8 +101,28 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         return;
     }
 
+    // Check for type mismatches between usize and i64
+    const left_type = try self.type_inferrer.inferExpr(binop.left.*);
+    const right_type = try self.type_inferrer.inferExpr(binop.right.*);
+
+    const left_is_usize = (left_type == .usize);
+    const left_is_int = (left_type == .int);
+    const right_is_usize = (right_type == .usize);
+    const right_is_int = (right_type == .int);
+
+    // If mixing usize and i64, cast to i64 for the operation
+    const needs_cast = (left_is_usize and right_is_int) or (left_is_int and right_is_usize);
+
     try self.output.appendSlice(self.allocator, "(");
+
+    // Cast left operand if needed
+    if (left_is_usize and needs_cast) {
+        try self.output.appendSlice(self.allocator, "@as(i64, @intCast(");
+    }
     try genExpr(self, binop.left.*);
+    if (left_is_usize and needs_cast) {
+        try self.output.appendSlice(self.allocator, "))");
+    }
 
     const op_str = switch (binop.op) {
         .Add => " + ",
@@ -112,7 +132,15 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     };
     try self.output.appendSlice(self.allocator, op_str);
 
+    // Cast right operand if needed
+    if (right_is_usize and needs_cast) {
+        try self.output.appendSlice(self.allocator, "@as(i64, @intCast(");
+    }
     try genExpr(self, binop.right.*);
+    if (right_is_usize and needs_cast) {
+        try self.output.appendSlice(self.allocator, "))");
+    }
+
     try self.output.appendSlice(self.allocator, ")");
 }
 
@@ -233,7 +261,24 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             }
         } else {
             // Regular comparisons for non-strings
+            // Check for type mismatches between usize and i64
+            const left_is_usize = (left_type == .usize);
+            const left_is_int = (left_type == .int);
+            const right_is_usize = (right_type == .usize);
+            const right_is_int = (right_type == .int);
+
+            // If mixing usize and i64, cast to i64 for comparison
+            const needs_cast = (left_is_usize and right_is_int) or (left_is_int and right_is_usize);
+
+            // Cast left operand if needed
+            if (left_is_usize and needs_cast) {
+                try self.output.appendSlice(self.allocator, "@as(i64, @intCast(");
+            }
             try genExpr(self, compare.left.*);
+            if (left_is_usize and needs_cast) {
+                try self.output.appendSlice(self.allocator, "))");
+            }
+
             const op_str = switch (op) {
                 .Eq => " == ",
                 .NotEq => " != ",
@@ -244,7 +289,15 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 else => " ? ",
             };
             try self.output.appendSlice(self.allocator, op_str);
+
+            // Cast right operand if needed
+            if (right_is_usize and needs_cast) {
+                try self.output.appendSlice(self.allocator, "@as(i64, @intCast(");
+            }
             try genExpr(self, compare.comparators[i]);
+            if (right_is_usize and needs_cast) {
+                try self.output.appendSlice(self.allocator, "))");
+            }
         }
     }
 }

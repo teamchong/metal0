@@ -187,9 +187,21 @@ fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         try self.output.appendSlice(self.allocator, func_name);
         try self.output.appendSlice(self.allocator, "(");
 
+        // Check if this is a from-imported function that needs allocator
+        const needs_allocator = self.from_import_needs_allocator.contains(func_name);
+
+        // Add regular arguments first
         for (call.args, 0..) |arg, i| {
             if (i > 0) try self.output.appendSlice(self.allocator, ", ");
             try genExpr(self, arg);
+        }
+
+        // Inject allocator as LAST argument for from-imported runtime functions
+        if (needs_allocator) {
+            if (call.args.len > 0) {
+                try self.output.appendSlice(self.allocator, ", ");
+            }
+            try self.output.appendSlice(self.allocator, "allocator");
         }
 
         try self.output.appendSlice(self.allocator, ")");

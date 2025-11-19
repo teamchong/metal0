@@ -43,13 +43,27 @@ fn allSameType(elements: []ast.Node) bool {
     return true;
 }
 
+/// String type kinds for optimization and tracking
+pub const StringKind = enum {
+    literal, // Compile-time "hello" - can be optimized
+    runtime, // Dynamically allocated (from methods, concat, etc.)
+    slice,   // []const u8 slice from operations
+
+    /// All string kinds map to []const u8 in Zig
+    pub fn toZigType(self: StringKind) []const u8 {
+        _ = self;
+        return "[]const u8";
+    }
+};
+
 /// Native Zig types inferred from Python code
 pub const NativeType = union(enum) {
     // Primitives - stack allocated, zero overhead
     int: void, // i64
+    usize: void, // usize (for array indices)
     float: void, // f64
     bool: void, // bool
-    string: void, // []const u8
+    string: StringKind, // []const u8 - tracks allocation/optimization hint
 
     // Composites
     array: struct {
@@ -81,6 +95,7 @@ pub const NativeType = union(enum) {
     pub fn toZigType(self: NativeType, allocator: std.mem.Allocator, buf: *std.ArrayList(u8)) !void {
         switch (self) {
             .int => try buf.appendSlice(allocator, "i64"),
+            .usize => try buf.appendSlice(allocator, "usize"),
             .float => try buf.appendSlice(allocator, "f64"),
             .bool => try buf.appendSlice(allocator, "bool"),
             .string => try buf.appendSlice(allocator, "[]const u8"),
@@ -143,11 +158,20 @@ pub const NativeType = union(enum) {
         }
 
         // String "wins" over everything (str() is universal)
-        if (self_tag == .string or other_tag == .string) return .string;
+        // When one is string, result is runtime string (most general)
+        if (self_tag == .string or other_tag == .string) return .{ .string = .runtime };
 
         // Float can hold ints, so float "wins"
         if ((self_tag == .float and other_tag == .int) or
             (self_tag == .int and other_tag == .float)) return .float;
+
+        // usize and int mix → promote to int (i64 can represent both)
+        if ((self_tag == .usize and other_tag == .int) or
+            (self_tag == .int and other_tag == .usize)) return .int;
+
+        // usize and float → promote to float
+        if ((self_tag == .usize and other_tag == .float) or
+            (self_tag == .float and other_tag == .usize)) return .float;
 
         // Different incompatible types → fallback to unknown
         return .unknown;
@@ -166,7 +190,7 @@ fn pythonTypeHintToNative(type_hint: ?[]const u8, allocator: std.mem.Allocator) 
         if (std.mem.eql(u8, hint, "int")) return .int;
         if (std.mem.eql(u8, hint, "float")) return .float;
         if (std.mem.eql(u8, hint, "bool")) return .bool;
-        if (std.mem.eql(u8, hint, "str")) return .string;
+        if (std.mem.eql(u8, hint, "str")) return .{ .string = .runtime };
         if (std.mem.eql(u8, hint, "list")) {
             // For now, assume list[int] - most common case
             // TODO: Parse generic type hints like list[str], list[float]
@@ -213,7 +237,7 @@ pub const TypeInferrer = struct {
     /// Analyze a module to infer all variable types
     pub fn analyze(self: *TypeInferrer, module: ast.Node.Module) InferError!void {
         // Register __name__ as a string constant (for if __name__ == "__main__" support)
-        try self.var_types.put("__name__", .string);
+        try self.var_types.put("__name__", .{ .string = .literal });
 
         for (module.body) |stmt| {
             try self.visitStmt(stmt);
@@ -290,9 +314,9 @@ pub const TypeInferrer = struct {
                         const func_name = for_stmt.iter.call.func.name.id;
 
                         if (std.mem.eql(u8, func_name, "enumerate") and targets.len >= 2) {
-                            // First var is always int (index)
+                            // First var is always usize (index for array access)
                             if (targets[0] == .name) {
-                                try self.var_types.put(targets[0].name.id, .int);
+                                try self.var_types.put(targets[0].name.id, .usize);
                             }
                             // Second var type comes from the list being enumerated
                             if (targets[1] == .name and for_stmt.iter.call.args.len > 0) {
@@ -352,15 +376,24 @@ pub const TypeInferrer = struct {
                         }
                     }
                 } else if (for_stmt.target.* == .name) {
-                    // Single loop var: for item in items
-                    if (for_stmt.iter.* == .name) {
+                    // Single loop var: for item in items or for i in range(...)
+                    const target_name = for_stmt.target.name.id;
+
+                    // Check for range() pattern - indices should be usize
+                    if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .name) {
+                        const func_name = for_stmt.iter.call.func.name.id;
+                        if (std.mem.eql(u8, func_name, "range")) {
+                            // range() produces indices → type as usize
+                            try self.var_types.put(target_name, .usize);
+                        }
+                    } else if (for_stmt.iter.* == .name) {
                         const iter_type = self.var_types.get(for_stmt.iter.name.id) orelse .unknown;
                         const elem_type = switch (iter_type) {
                             .list => |l| l.*,
                             .array => |a| a.element_type.*,
                             else => .unknown,
                         };
-                        try self.var_types.put(for_stmt.target.name.id, elem_type);
+                        try self.var_types.put(target_name, elem_type);
                     }
                 }
 
@@ -399,7 +432,7 @@ pub const TypeInferrer = struct {
                         if (obj_type == .string) {
                             // String indexing returns a single character
                             // For now, treat as string for simplicity
-                            break :blk .string;
+                            break :blk .{ .string = .slice };
                         } else if (obj_type == .array) {
                             break :blk obj_type.array.element_type.*;
                         } else if (obj_type == .list) {
@@ -426,7 +459,7 @@ pub const TypeInferrer = struct {
                         // array[1:4] -> slice (converted to list)
                         // list[1:4] -> list
                         if (obj_type == .string) {
-                            break :blk .string;
+                            break :blk .{ .string = .slice };
                         } else if (obj_type == .array) {
                             // Array slices become lists (dynamic)
                             break :blk .{ .list = obj_type.array.element_type };
@@ -495,9 +528,13 @@ pub const TypeInferrer = struct {
                 const val_ptr = try self.allocator.create(NativeType);
                 val_ptr.* = val_type;
 
+                // Allocate key type (always string for Python dicts)
+                const key_ptr = try self.allocator.create(NativeType);
+                key_ptr.* = .{ .string = .runtime };
+
                 // For now, always use string keys (most common case)
                 break :blk .{ .dict = .{
-                    .key = &.string,
+                    .key = key_ptr,
                     .value = val_ptr,
                 } };
             },
@@ -550,7 +587,7 @@ pub const TypeInferrer = struct {
         return switch (value) {
             .int => .int,
             .float => .float,
-            .string => .string,
+            .string => .{ .string = .literal }, // String literals are compile-time constants
             .bool => .bool,
         };
     }
@@ -559,10 +596,35 @@ pub const TypeInferrer = struct {
         const left_type = try self.inferExpr(binop.left.*);
         const right_type = try self.inferExpr(binop.right.*);
 
-        // Simplified type inference - just use left operand type
-        // TODO: Handle type promotion (int + float = float)
-        _ = right_type;
-        return left_type;
+        // Get type tags for analysis
+        const left_tag = @as(std.meta.Tag(NativeType), left_type);
+        const right_tag = @as(std.meta.Tag(NativeType), right_type);
+
+        // String concatenation: str + str → runtime string
+        if (binop.op == .Add and left_tag == .string and right_tag == .string) {
+            return .{ .string = .runtime }; // Concatenation produces runtime string
+        }
+
+        // Type promotion: int + float → float
+        if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or binop.op == .Div) {
+            if (left_tag == .float or right_tag == .float) {
+                return .float; // Any arithmetic with float produces float
+            }
+            // usize mixed with int → result is int (codegen casts both to i64)
+            if ((left_tag == .usize and right_tag == .int) or (left_tag == .int and right_tag == .usize)) {
+                return .int;
+            }
+            // usize op usize → usize
+            if (left_tag == .usize and right_tag == .usize) {
+                return .usize;
+            }
+            if (left_tag == .int and right_tag == .int) {
+                return .int; // int op int produces int
+            }
+        }
+
+        // Default: use widening logic
+        return left_type.widen(right_type);
     }
 
     fn inferCall(self: *TypeInferrer, call: ast.Node.Call) InferError!NativeType {
@@ -577,7 +639,7 @@ pub const TypeInferrer = struct {
 
             // Built-in type conversion functions
 
-            if (std.mem.eql(u8, func_name, "str")) return .string;
+            if (std.mem.eql(u8, func_name, "str")) return .{ .string = .runtime }; // str() produces runtime string
             if (std.mem.eql(u8, func_name, "int")) return .int;
             if (std.mem.eql(u8, func_name, "float")) return .float;
             if (std.mem.eql(u8, func_name, "bool")) return .bool;
@@ -590,7 +652,7 @@ pub const TypeInferrer = struct {
                 }
             }
             if (std.mem.eql(u8, func_name, "round")) return .int;
-            if (std.mem.eql(u8, func_name, "chr")) return .string;
+            if (std.mem.eql(u8, func_name, "chr")) return .{ .string = .runtime }; // chr() produces runtime string
             if (std.mem.eql(u8, func_name, "ord")) return .int;
         }
 
@@ -619,7 +681,7 @@ pub const TypeInferrer = struct {
 
                 for (str_methods) |method| {
                     if (std.mem.eql(u8, attr.attr, method)) {
-                        return .string;
+                        return .{ .string = .runtime }; // String methods produce runtime strings
                     }
                 }
 
@@ -630,10 +692,10 @@ pub const TypeInferrer = struct {
                 // Integer-returning methods
                 if (std.mem.eql(u8, attr.attr, "find")) return .int;
 
-                // split() returns list of strings
+                // split() returns list of runtime strings
                 if (std.mem.eql(u8, attr.attr, "split")) {
                     const elem_ptr = try self.allocator.create(NativeType);
-                    elem_ptr.* = .string;
+                    elem_ptr.* = .{ .string = .runtime }; // Split produces list of runtime strings
                     return .{ .list = elem_ptr };
                 }
             }
@@ -643,7 +705,7 @@ pub const TypeInferrer = struct {
                 // keys() returns list of strings (dict keys are always strings)
                 if (std.mem.eql(u8, attr.attr, "keys")) {
                     const elem_ptr = try self.allocator.create(NativeType);
-                    elem_ptr.* = .string;
+                    elem_ptr.* = .{ .string = .runtime }; // Dict keys are runtime strings
                     return .{ .list = elem_ptr };
                 }
 
@@ -657,7 +719,7 @@ pub const TypeInferrer = struct {
                 // items() returns list of tuples (key, value)
                 if (std.mem.eql(u8, attr.attr, "items")) {
                     const tuple_types = try self.allocator.alloc(NativeType, 2);
-                    tuple_types[0] = .string; // key
+                    tuple_types[0] = .{ .string = .runtime }; // Dict keys are runtime strings
                     tuple_types[1] = obj_type.dict.value.*; // value
                     const tuple_ptr = try self.allocator.create(NativeType);
                     tuple_ptr.* = .{ .tuple = tuple_types };

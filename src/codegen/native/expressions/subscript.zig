@@ -113,9 +113,19 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try genSliceIndex(self, subscript.slice.index.*, true, false);
                         try self.output.appendSlice(self.allocator, "; break :blk __list[__idx]; }");
                     } else {
+                        // Check if index needs casting from i64 to usize
+                        const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
+                        const needs_cast = (index_type == .int);
+
                         try genExpr(self, subscript.value.*);
                         try self.output.appendSlice(self.allocator, "[");
+                        if (needs_cast) {
+                            try self.output.appendSlice(self.allocator, "@as(usize, @intCast(");
+                        }
                         try genExpr(self, subscript.slice.index.*);
+                        if (needs_cast) {
+                            try self.output.appendSlice(self.allocator, "))");
+                        }
                         try self.output.appendSlice(self.allocator, "]");
                     }
                 } else {
@@ -129,9 +139,19 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.output.appendSlice(self.allocator, "; break :blk __list.items[__idx]; }");
                     } else {
                         // Positive index - simple items access
+                        // Check if index needs casting from i64 to usize
+                        const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
+                        const needs_cast = (index_type == .int);
+
                         try genExpr(self, subscript.value.*);
                         try self.output.appendSlice(self.allocator, ".items[");
+                        if (needs_cast) {
+                            try self.output.appendSlice(self.allocator, "@as(usize, @intCast(");
+                        }
                         try genExpr(self, subscript.slice.index.*);
+                        if (needs_cast) {
+                            try self.output.appendSlice(self.allocator, "))");
+                        }
                         try self.output.appendSlice(self.allocator, "]");
                     }
                 }
@@ -170,9 +190,19 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.output.appendSlice(self.allocator, "]; }");
                     } else {
                         // Positive index - simple subscript
+                        // Check if index needs casting from i64 to usize
+                        const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
+                        const needs_cast = (index_type == .int);
+
                         try genExpr(self, subscript.value.*);
                         try self.output.appendSlice(self.allocator, "[");
+                        if (needs_cast) {
+                            try self.output.appendSlice(self.allocator, "@as(usize, @intCast(");
+                        }
                         try genExpr(self, subscript.slice.index.*);
+                        if (needs_cast) {
+                            try self.output.appendSlice(self.allocator, "))");
+                        }
                         try self.output.appendSlice(self.allocator, "]");
                     }
                 }

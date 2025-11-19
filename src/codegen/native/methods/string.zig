@@ -5,14 +5,15 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 
 /// Generate code for text.split(separator)
-/// Example: "a b c".split(" ") -> [][]const u8 slice
+/// Example: "a b c".split(" ") -> ArrayList([]const u8)
 pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // TODO: Error handling
         return;
     }
 
-    // Generate block expression that returns [][]const u8
+    // Generate block expression that returns ArrayList([]const u8)
+    // Keep as ArrayList to match type inference (.list type)
     try self.output.appendSlice(self.allocator, "blk: {\n");
     try self.output.appendSlice(self.allocator, "    var _split_result = std.ArrayList([]const u8){};\n");
     try self.output.appendSlice(self.allocator, "    var _split_iter = std.mem.splitSequence(u8, ");
@@ -23,7 +24,7 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.output.appendSlice(self.allocator, "    while (_split_iter.next()) |part| {\n");
     try self.output.appendSlice(self.allocator, "        try _split_result.append(allocator, part);\n");
     try self.output.appendSlice(self.allocator, "    }\n");
-    try self.output.appendSlice(self.allocator, "    break :blk try _split_result.toOwnedSlice(allocator);\n");
+    try self.output.appendSlice(self.allocator, "    break :blk _split_result;\n");
     try self.output.appendSlice(self.allocator, "}");
 }
 
