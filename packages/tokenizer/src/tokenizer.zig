@@ -221,7 +221,7 @@ pub const Tokenizer = struct {
         return try tokens.toOwnedSlice(self.allocator);
     }
 
-    /// Apply BPE merges with SIMD pair counting
+    /// Apply BPE merges using HashMap for O(1) lookup (not O(n) scan)
     fn applyMerges(self: *Tokenizer, tokens: *std.ArrayList(u32)) !void {
         if (tokens.items.len < 2) return;
 
@@ -229,15 +229,24 @@ pub const Tokenizer = struct {
         while (changed) {
             changed = false;
 
-            // Find best pair to merge (highest priority = lowest index)
+            // Find best pair to merge using HashMap (O(1) lookup!)
             var best_pair: ?Pair = null;
             var best_idx: u32 = std.math.maxInt(u32);
 
-            for (self.merges.items, 0..) |merge, idx| {
-                const count = countPairsSIMD(tokens.items, merge);
-                if (count > 0 and idx < best_idx) {
-                    best_pair = merge;
-                    best_idx = @intCast(idx);
+            // Scan tokens for adjacent pairs and check if they exist in merges_map
+            var i: usize = 0;
+            while (i + 1 < tokens.items.len) : (i += 1) {
+                const pair = Pair{
+                    .left = tokens.items[i],
+                    .right = tokens.items[i + 1],
+                };
+
+                // O(1) HashMap lookup instead of O(n) scan!
+                if (self.merges_map.get(pair)) |merge_idx| {
+                    if (merge_idx < best_idx) {
+                        best_pair = pair;
+                        best_idx = merge_idx;
+                    }
                 }
             }
 

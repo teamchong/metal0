@@ -73,15 +73,26 @@ fn main() {
     println!("Benchmark: BPE Training");
     println!("{}", "-".repeat(40));
 
-    let training_texts = vec![
+    let base_texts = vec![
         "Hello world! This is a test.",
         "The quick brown fox jumps over the lazy dog.",
         "Machine learning and natural language processing.",
         "Byte pair encoding is a text tokenization method.",
         "This is a longer text to make training more interesting.",
+        "Neural networks learn from large amounts of training data.",
+        "Tokenization breaks text into smaller units called tokens.",
+        "Python is a popular programming language for data science.",
+        "Deep learning models require significant computational resources.",
+        "Natural language understanding is a challenging AI problem.",
+        "Transformers revolutionized the field of NLP in recent years.",
+        "GPT models demonstrate impressive text generation capabilities.",
+        "Byte pair encoding creates subword vocabularies efficiently.",
+        "Machine translation systems bridge communication across languages.",
+        "Sentiment analysis determines emotional tone in text.",
     ];
 
-    let training_texts: Vec<&str> = training_texts.into_iter().cycle().take(500).collect();
+    // Match Zig benchmark: 15,000 texts
+    let training_texts: Vec<&str> = base_texts.into_iter().cycle().take(15000).collect();
 
     // Collect words
     let mut word_counts: HashMap<String, i32> = HashMap::new();
@@ -100,7 +111,7 @@ fn main() {
 
     let counts: Vec<i32> = word_counts.values().copied().collect();
 
-    let vocab_size = 300;
+    let vocab_size = 2048; // Match Zig: 2048
     let num_merges = vocab_size - 256;
     let mut merges = Vec::new();
 

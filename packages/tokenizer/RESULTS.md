@@ -9,16 +9,15 @@
 
 ## Results
 
-| Benchmark | bpe/rust-gems (Rust) | HuggingFace | Zig PyAOT |
-|-----------|---------------------|-------------|-----------|
-| **Training** (15K texts, 2048 vocab) | TBD | TBD | **313ms** |
-| **Encoding** (305 bytes/iter) | TBD | TBD | **1095μs** |
-| **Throughput** | TBD | ~50 MB/s | **0.28 MB/s** |
-| **Memory** | TBD | TBD | **2 KB** |
+| Benchmark | Rust Baseline | Zig PyAOT | Relative |
+|-----------|---------------|-----------|----------|
+| **Training** (15K texts, 2048 vocab) | **22ms** | **313ms** | **14x slower** ❌ |
+| **Encoding** (305 bytes/iter) | **159μs** | **1095μs** | **6.9x slower** ❌ |
+| **Throughput** | **1.92 MB/s** | **0.28 MB/s** | **6.9x slower** ❌ |
+| **Memory** | ~11 KB | **2 KB** | **5.5x better** ✅ |
 
-**Notes:**
-- bpe/rust-gems: Fastest Rust implementation (10x faster than HuggingFace)
-- HuggingFace: Industry standard (50 MB/s throughput)
-- Zig PyAOT: Current status with Phase 1+2 optimizations
+**Same benchmark data:** 15,000 texts, vocab 2048, 305-byte encoding test
 
-**Next:** Test bpe/rust-gems and HuggingFace on same hardware
+**Status:** HashMap lookup added but encoding still slow (scanning tokens wrong way)
+
+**Next:** Fix encoding algorithm properly

@@ -90,12 +90,12 @@ pub fn main() !void {
         "Sentiment analysis determines emotional tone in text.",
     };
 
-    // Large training set for ~60s benchmark (15,000 texts)
+    // Large realistic benchmark: 15,000 texts, vocab 2048
     const training_texts = base_texts ** 1000;
-    var trainer = try Trainer.init(2048, allocator); // Large vocab
+    var trainer = try Trainer.init(2048, allocator);
     defer trainer.deinit();
 
-    std.debug.print("Training with {} texts, {} target merges...\n", .{training_texts.len, 2048});
+    std.debug.print("Training with {} texts, vocab 2048...\n", .{training_texts.len});
 
     const train_start = std.time.nanoTimestamp();
     var tokenizer = try trainer.trainFromIterator(&training_texts);
