@@ -104,11 +104,18 @@ fn countPairsParallel(
     words: []const Word,
     allocator: Allocator,
 ) !std.HashMap(Pair, i32, PairContext, std.hash_map.default_max_load_percentage) {
+    // FORCE single-threaded for profiling
+    return countPairsSingleThreaded(words, allocator);
+}
+
+fn countPairsParallelOLD(
+    words: []const Word,
+    allocator: Allocator,
+) !std.HashMap(Pair, i32, PairContext, std.hash_map.default_max_load_percentage) {
     const cpu_count = try std.Thread.getCpuCount();
     const num_threads = @min(cpu_count, words.len);
 
     if (num_threads == 1) {
-        // Single-threaded fallback
         return countPairsSingleThreaded(words, allocator);
     }
 
@@ -169,7 +176,7 @@ fn countPairsParallel(
     return merged;
 }
 
-/// Count pairs in a chunk (called by worker thread)
+/// Count pairs in a chunk (with SIMD + dedup)
 fn countPairsChunk(
     words: []const Word,
     pair_counts: *std.HashMap(Pair, i32, PairContext, std.hash_map.default_max_load_percentage),
@@ -291,8 +298,11 @@ pub const Trainer = struct {
         std.debug.print("Starting BPE training: {} merges to compute\n", .{self.vocab_size - 256});
 
         // Step 1: Collect word frequencies (parallel)
+        const start_collect = std.time.nanoTimestamp();
         std.debug.print("Processing {} texts...\n", .{texts.len});
         var word_counts = try self.collectWordCounts(texts);
+        const collect_ms = @divFloor(std.time.nanoTimestamp() - start_collect, 1_000_000);
+        std.debug.print("  → Word collection: {}ms\n", .{collect_ms});
         defer {
             var it = word_counts.iterator();
             while (it.next()) |entry| {
@@ -324,137 +334,76 @@ pub const Trainer = struct {
             });
         }
 
-        // Step 3: Learn merges (Phase 1 OPTIMIZED: PriorityQueue with smart rebuild)
+        // Step 3: Learn merges (SIMPLE like Rust - no fancy optimizations!)
         var merges = std.ArrayList(Pair){};
 
         const num_merges = self.vocab_size - 256;
 
-        std.debug.print("Starting OPTIMIZED merge loop (Phase 1: PriorityQueue + in-place)...\n", .{});
+        std.debug.print("Starting SIMPLE merge loop (like Rust)...\n", .{});
 
-        // Initial pair count (one-time cost)
-        var pair_counts = try countPairsParallel(words.items, self.allocator);
-        defer pair_counts.deinit();
+        const start_merges = std.time.nanoTimestamp();
+        var total_count_time: i128 = 0;
+        var total_apply_time: i128 = 0;
 
-        // Build priority queue from initial counts: O(n log n)
-        var heap = std.PriorityQueue(MergeCandidate, void, MergeCandidate.compare).init(self.allocator, {});
-        defer heap.deinit();
-
-        var count_it = pair_counts.iterator();
-        while (count_it.next()) |entry| {
-            try heap.add(.{
-                .pair = entry.key_ptr.*,
-                .frequency = entry.value_ptr.*,
-            });
-        }
-
-        std.debug.print("Built priority queue with {} unique pairs\n", .{heap.count()});
-
-        // Main merge loop: O(m × k log n) where k = affected words per merge
+        // Main merge loop: Simple and fast like Rust!
         var merges_done: u32 = 0;
-        while (merges_done < num_merges and heap.count() > 0) {
-            const best = heap.remove(); // O(log n)
-            if (best.frequency == 0) break;
+        while (merges_done < num_merges) {
+            // Count all pairs (fresh every iteration - simple!)
+            const count_start = std.time.nanoTimestamp();
+            var pair_counts = try countPairsParallel(words.items, self.allocator);
+            defer pair_counts.deinit();
+            total_count_time += std.time.nanoTimestamp() - count_start;
 
-            try merges.append(self.allocator, best.pair);
+            // Find best pair (max frequency)
+            var best_pair: ?Pair = null;
+            var best_freq: i32 = 0;
+
+            var it = pair_counts.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.* > best_freq) {
+                    best_freq = entry.value_ptr.*;
+                    best_pair = entry.key_ptr.*;
+                }
+            }
+
+            if (best_pair == null or best_freq == 0) break;
+
+            const pair = best_pair.?;
+            try merges.append(self.allocator, pair);
             const new_id = 256 + merges_done;
 
-            // Track new pair frequencies after this merge
-            var new_frequencies = std.HashMap(
-                Pair,
-                i32,
-                PairContext,
-                std.hash_map.default_max_load_percentage,
-            ).initContext(self.allocator, PairContext{});
-            defer new_frequencies.deinit();
-
-            // Apply merge in-place to ALL words, collecting new frequencies
-            // This is still better than naive O(n²) because:
-            // 1. In-place merge (no ArrayList recreation)
-            // 2. Only recalculate pairs in words that changed
-            // 3. Priority queue avoids scanning all pairs
-            for (words.items, 0..) |*word, word_i| {
-                // Prefetch next word for better cache utilization
-                if (word_i + 1 < words.items.len) {
-                    @prefetch(&words.items[word_i + 1], .{ .rw = .read, .locality = 2 });
-                }
-
-                if (!mergePairInPlace(word, best.pair, new_id)) continue;
-
-                // Recalculate pairs ONLY in this modified word
-                if (word.ids.len < 2) continue;
-
-                var i: usize = 0;
-                while (i < word.ids.len - 1) : (i += 1) {
-                    const pair = Pair{ .left = word.ids[i], .right = word.ids[i + 1] };
-
-                    // Count with SIMD
-                    const count = countPairsSIMD(word.ids, pair);
-                    const weighted = count * @as(u32, @intCast(word.count));
-
-                    const gop = try new_frequencies.getOrPut(pair);
-                    if (gop.found_existing) {
-                        gop.value_ptr.* += @intCast(weighted);
-                    } else {
-                        gop.value_ptr.* = @intCast(weighted);
-                    }
-                }
+            // Apply merge to all words (in-place, simple!)
+            const apply_start = std.time.nanoTimestamp();
+            for (words.items) |*word| {
+                _ = mergePairInPlace(word, pair, new_id);
             }
-
-            // Smart rebuild: Instead of full rebuild, add only new/affected pairs
-            // Remove pairs involving merged tokens from heap, add updated frequencies
-            var temp_heap = std.PriorityQueue(MergeCandidate, void, MergeCandidate.compare).init(self.allocator, {});
-
-            // Add new frequencies
-            var new_it = new_frequencies.iterator();
-            while (new_it.next()) |entry| {
-                if (entry.value_ptr.* > 0) {
-                    try temp_heap.add(.{
-                        .pair = entry.key_ptr.*,
-                        .frequency = entry.value_ptr.*,
-                    });
-                }
-            }
-
-            // Filter old heap: keep pairs that weren't affected by this merge
-            while (heap.removeOrNull()) |candidate| {
-                // Skip the merged pair and any pair involving the merged tokens
-                if (candidate.pair.eql(best.pair) or
-                    candidate.pair.left == best.pair.left or
-                    candidate.pair.left == best.pair.right or
-                    candidate.pair.right == best.pair.left or
-                    candidate.pair.right == best.pair.right)
-                {
-                    continue;
-                }
-
-                // Keep if not in new frequencies (unaffected by merge)
-                if (!new_frequencies.contains(candidate.pair)) {
-                    try temp_heap.add(candidate);
-                }
-            }
-
-            heap.deinit();
-            heap = temp_heap;
+            total_apply_time += std.time.nanoTimestamp() - apply_start;
 
             merges_done += 1;
 
-            // Progress logging
+            // Progress logging (every 1%)
             if (merges_done % @max(1, num_merges / 100) == 0 or merges_done == num_merges) {
                 const percent = (merges_done * 100) / num_merges;
-                std.debug.print("Progress: {}% ({}/{} merges) - Last: ({}, {}) -> {} (freq: {}, heap: {})\n", .{
+                std.debug.print("Progress: {}% ({}/{} merges) - Last: ({}, {}) -> {} (freq: {})\n", .{
                     percent,
                     merges_done,
                     num_merges,
-                    best.pair.left,
-                    best.pair.right,
+                    pair.left,
+                    pair.right,
                     new_id,
-                    best.frequency,
-                    heap.count(),
+                    best_freq,
                 });
             }
         }
 
+        const total_merge_ms = @divFloor(std.time.nanoTimestamp() - start_merges, 1_000_000);
+        const count_ms = @divFloor(total_count_time, 1_000_000);
+        const apply_ms = @divFloor(total_apply_time, 1_000_000);
+
         std.debug.print("Finished training: {} merges completed\n", .{merges_done});
+        std.debug.print("  → Total merge time: {}ms\n", .{total_merge_ms});
+        std.debug.print("    - Pair counting: {}ms ({d:.1}%)\n", .{ count_ms, @as(f64, @floatFromInt(count_ms)) * 100.0 / @as(f64, @floatFromInt(total_merge_ms)) });
+        std.debug.print("    - Applying merges: {}ms ({d:.1}%)\n", .{ apply_ms, @as(f64, @floatFromInt(apply_ms)) * 100.0 / @as(f64, @floatFromInt(total_merge_ms)) });
 
         // Step 4: Build tokenizer (transfers ownership of merges)
         const tokenizer = try self.buildTokenizer(merges);
@@ -465,27 +414,30 @@ pub const Trainer = struct {
         return tokenizer;
     }
 
-    /// Collect word counts from texts (parallel)
+    /// Collect word counts from texts (FAST - minimal allocations!)
     fn collectWordCounts(
         self: *Trainer,
         texts: []const []const u8,
     ) !std.StringHashMap(i32) {
         var word_counts = std.StringHashMap(i32).init(self.allocator);
 
-        // TODO: Add regex splitting for production
-        // For now: simple whitespace splitting
+        // Simple whitespace splitting - but FAST!
         for (texts) |text| {
             var it = std.mem.splitScalar(u8, text, ' ');
             while (it.next()) |word| {
                 if (word.len == 0) continue;
 
-                const word_copy = try self.allocator.dupe(u8, word);
-                const gop = try word_counts.getOrPut(word_copy);
+                // Try to get existing entry first (most common case after first pass)
+                const gop = try word_counts.getOrPut(word);
 
                 if (gop.found_existing) {
+                    // Word exists - just increment count (NO allocation!)
                     gop.value_ptr.* += 1;
-                    self.allocator.free(word_copy); // Don't need duplicate
                 } else {
+                    // New word - allocate ONCE
+                    const word_copy = try self.allocator.dupe(u8, word);
+                    // Update the key to point to our copy
+                    gop.key_ptr.* = word_copy;
                     gop.value_ptr.* = 1;
                 }
             }
