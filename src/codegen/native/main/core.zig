@@ -61,6 +61,9 @@ pub const NativeCodegen = struct {
     // Variable renames for exception handling (maps original name -> renamed name)
     var_renames: std.StringHashMap([]const u8),
 
+    // Track variables hoisted from try blocks (to skip declaration in assignment)
+    hoisted_vars: std.StringHashMap(void),
+
     // Track which variables hold constant arrays (vs ArrayLists)
     array_vars: std.StringHashMap(void),
 
@@ -116,6 +119,7 @@ pub const NativeCodegen = struct {
             .closure_factories = std.StringHashMap(void).init(allocator),
             .lambda_vars = std.StringHashMap(void).init(allocator),
             .var_renames = std.StringHashMap([]const u8).init(allocator),
+            .hoisted_vars = std.StringHashMap(void).init(allocator),
             .array_vars = std.StringHashMap(void).init(allocator),
             .array_slice_vars = std.StringHashMap(void).init(allocator),
             .comptime_evaluator = comptime_eval.ComptimeEvaluator.init(allocator),

@@ -155,21 +155,16 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     try self.emit("pub fn main() !void {\n");
     self.indent();
 
-    // Setup allocator (only if needed)
-    if (analysis.needs_allocator) {
-        try self.emitIndent();
-        try self.emit("var gpa = std.heap.GeneralPurposeAllocator(.{}){};\n");
-        try self.emitIndent();
-        try self.emit("defer _ = gpa.deinit();\n");
-        try self.emitIndent();
-        try self.emit("const allocator = gpa.allocator();\n");
-        // Suppress unused warning if there are constant arrays that don't need allocation
-        if (self.array_vars.count() > 0) {
-            try self.emitIndent();
-            try self.emit("_ = allocator; // May be unused if only constant arrays\n");
-        }
-        try self.emit("\n");
-    }
+    // Setup allocator (always available for float formatting in print)
+    try self.emitIndent();
+    try self.emit("var gpa = std.heap.GeneralPurposeAllocator(.{}){};\n");
+    try self.emitIndent();
+    try self.emit("defer _ = gpa.deinit();\n");
+    try self.emitIndent();
+    try self.emit("var allocator = gpa.allocator();\n");  // var instead of const so we can take address
+    try self.emitIndent();
+    try self.emit("std.mem.doNotOptimizeAway(&allocator);\n");  // Suppress unused warning
+    try self.emit("\n");
 
     // PHASE 6.5: Apply decorators (after allocator, before other code)
     // This allows decorators to run after variables are defined but before main logic

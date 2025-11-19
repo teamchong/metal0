@@ -105,46 +105,21 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 };
 
                 if (is_array_slice) {
-                    // Array slice: index directly without .items
+                    // Array slice: index directly without .items, use runtime bounds check
+                    const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
+                    const needs_cast = (index_type == .int);
+
                     if (isNegativeConstant(subscript.slice.index.*)) {
                         try self.output.appendSlice(self.allocator, "blk: { const __list = ");
                         try genExpr(self, subscript.value.*);
                         try self.output.appendSlice(self.allocator, "; const __idx = ");
                         try genSliceIndex(self, subscript.slice.index.*, true, false);
-                        try self.output.appendSlice(self.allocator, "; break :blk __list[__idx]; }");
+                        try self.output.appendSlice(self.allocator, "; if (__idx >= __list.len) return error.IndexError; break :blk __list[__idx]; }");
                     } else {
-                        // Check if index needs casting from i64 to usize
-                        const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
-                        const needs_cast = (index_type == .int);
-
-                        try genExpr(self, subscript.value.*);
-                        try self.output.appendSlice(self.allocator, "[");
-                        if (needs_cast) {
-                            try self.output.appendSlice(self.allocator, "@as(usize, @intCast(");
-                        }
-                        try genExpr(self, subscript.slice.index.*);
-                        if (needs_cast) {
-                            try self.output.appendSlice(self.allocator, "))");
-                        }
-                        try self.output.appendSlice(self.allocator, "]");
-                    }
-                } else {
-                    // ArrayList indexing - use .items
-                    if (isNegativeConstant(subscript.slice.index.*)) {
-                        // Need block for negative index handling
+                        // Runtime bounds check for positive index
                         try self.output.appendSlice(self.allocator, "blk: { const __list = ");
                         try genExpr(self, subscript.value.*);
                         try self.output.appendSlice(self.allocator, "; const __idx = ");
-                        try genSliceIndex(self, subscript.slice.index.*, true, true);
-                        try self.output.appendSlice(self.allocator, "; break :blk __list.items[__idx]; }");
-                    } else {
-                        // Positive index - simple items access
-                        // Check if index needs casting from i64 to usize
-                        const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
-                        const needs_cast = (index_type == .int);
-
-                        try genExpr(self, subscript.value.*);
-                        try self.output.appendSlice(self.allocator, ".items[");
                         if (needs_cast) {
                             try self.output.appendSlice(self.allocator, "@as(usize, @intCast(");
                         }
@@ -152,8 +127,30 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         if (needs_cast) {
                             try self.output.appendSlice(self.allocator, "))");
                         }
-                        try self.output.appendSlice(self.allocator, "]");
+                        try self.output.appendSlice(self.allocator, "; if (__idx >= __list.len) return error.IndexError; break :blk __list[__idx]; }");
                     }
+                } else {
+                    // ArrayList indexing - use .items with runtime bounds check
+                    const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
+                    const needs_cast = (index_type == .int);
+
+                    // Generate: blk: { const __list = list; const __idx = idx; if (__idx >= __list.items.len) return error.IndexError; break :blk __list.items[__idx]; }
+                    try self.output.appendSlice(self.allocator, "blk: { const __list = ");
+                    try genExpr(self, subscript.value.*);
+                    try self.output.appendSlice(self.allocator, "; const __idx = ");
+                    if (needs_cast) {
+                        try self.output.appendSlice(self.allocator, "@as(usize, @intCast(");
+                    }
+                    if (isNegativeConstant(subscript.slice.index.*)) {
+                        // Negative index needs special handling
+                        try genSliceIndex(self, subscript.slice.index.*, true, true);
+                    } else {
+                        try genExpr(self, subscript.slice.index.*);
+                    }
+                    if (needs_cast) {
+                        try self.output.appendSlice(self.allocator, "))");
+                    }
+                    try self.output.appendSlice(self.allocator, "; if (__idx >= __list.items.len) return error.IndexError; break :blk __list.items[__idx]; }");
                 }
             } else {
                 // Array/slice/string indexing: a[b]
@@ -189,13 +186,14 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try genSliceIndex(self, subscript.slice.index.*, true, false);
                         try self.output.appendSlice(self.allocator, "]; }");
                     } else {
-                        // Positive index - simple subscript
-                        // Check if index needs casting from i64 to usize
+                        // Positive index - use runtime bounds check to avoid compile-time errors in try/except
                         const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
                         const needs_cast = (index_type == .int);
 
+                        // Generate: blk: { const __arr = arr; const __idx = idx; if (__idx >= __arr.len) return error.IndexError; break :blk __arr[__idx]; }
+                        try self.output.appendSlice(self.allocator, "blk: { const __arr = ");
                         try genExpr(self, subscript.value.*);
-                        try self.output.appendSlice(self.allocator, "[");
+                        try self.output.appendSlice(self.allocator, "; const __idx = ");
                         if (needs_cast) {
                             try self.output.appendSlice(self.allocator, "@as(usize, @intCast(");
                         }
@@ -203,7 +201,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         if (needs_cast) {
                             try self.output.appendSlice(self.allocator, "))");
                         }
-                        try self.output.appendSlice(self.allocator, "]");
+                        try self.output.appendSlice(self.allocator, "; if (__idx >= __arr.len) return error.IndexError; break :blk __arr[__idx]; }");
                     }
                 }
             }

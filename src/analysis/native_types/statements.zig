@@ -11,12 +11,13 @@ pub fn visitStmt(
     allocator: std.mem.Allocator,
     var_types: *std.StringHashMap(NativeType),
     class_fields: *std.StringHashMap(ClassInfo),
-    inferExprFn: *const fn (allocator: std.mem.Allocator, var_types: *std.StringHashMap(NativeType), class_fields: *std.StringHashMap(ClassInfo), node: ast.Node) InferError!NativeType,
+    func_return_types: *std.StringHashMap(NativeType),
+    inferExprFn: *const fn (allocator: std.mem.Allocator, var_types: *std.StringHashMap(NativeType), class_fields: *std.StringHashMap(ClassInfo), func_return_types: *std.StringHashMap(NativeType), node: ast.Node) InferError!NativeType,
     node: ast.Node,
 ) InferError!void {
     switch (node) {
         .assign => |assign| {
-            const value_type = try inferExprFn(allocator, var_types, class_fields, assign.value.*);
+            const value_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
             for (assign.targets) |target| {
                 if (target == .name) {
                     try var_types.put(target.name.id, value_type);
@@ -26,8 +27,9 @@ pub fn visitStmt(
         .class_def => |class_def| {
             // Track class field types from __init__ parameters
             var fields = std.StringHashMap(NativeType).init(allocator);
+            var methods = std.StringHashMap(NativeType).init(allocator);
 
-            // Find __init__ method
+            // Extract field types from __init__ method
             for (class_def.body) |stmt| {
                 if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, "__init__")) {
                     const init_fn = stmt.function_def;
@@ -61,14 +63,27 @@ pub fn visitStmt(
                 }
             }
 
-            try class_fields.put(class_def.name, .{ .fields = fields });
+            // Extract method return types from all methods
+            for (class_def.body) |stmt| {
+                if (stmt == .function_def) {
+                    const method = stmt.function_def;
+                    // Skip __init__ - it doesn't have a useful return type
+                    if (std.mem.eql(u8, method.name, "__init__")) continue;
+
+                    // Get return type from annotation
+                    const return_type = try core.pythonTypeHintToNative(method.return_type, allocator);
+                    try methods.put(method.name, return_type);
+                }
+            }
+
+            try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods });
         },
         .if_stmt => |if_stmt| {
-            for (if_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, inferExprFn, s);
-            for (if_stmt.else_body) |s| try visitStmt(allocator, var_types, class_fields, inferExprFn, s);
+            for (if_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, inferExprFn, s);
+            for (if_stmt.else_body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, inferExprFn, s);
         },
         .while_stmt => |while_stmt| {
-            for (while_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, inferExprFn, s);
+            for (while_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, inferExprFn, s);
         },
         .for_stmt => |for_stmt| {
             // Register loop variables before visiting body
@@ -128,7 +143,7 @@ pub fn visitStmt(
                 } else if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .attribute) {
                     // Generic tuple unpacking from method calls like dict.items()
                     // for k, v in dict.items(): ...
-                    const iter_type = inferExprFn(allocator, var_types, class_fields, for_stmt.iter.*) catch .unknown;
+                    const iter_type = inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.*) catch .unknown;
 
                     // If method returns a list of tuples, unpack the tuple element types
                     if (iter_type == .list) {
@@ -166,16 +181,20 @@ pub fn visitStmt(
                 }
             }
 
-            for (for_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, inferExprFn, s);
+            for (for_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, inferExprFn, s);
         },
         .function_def => |func_def| {
+            // Register function return type from annotation
+            const return_type = try core.pythonTypeHintToNative(func_def.return_type, allocator);
+            try func_return_types.put(func_def.name, return_type);
+
             // Register function parameter types from type annotations
             for (func_def.args) |arg| {
                 const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
                 try var_types.put(arg.name, param_type);
             }
             // Visit function body
-            for (func_def.body) |s| try visitStmt(allocator, var_types, class_fields, inferExprFn, s);
+            for (func_def.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, inferExprFn, s);
         },
         else => {},
     }

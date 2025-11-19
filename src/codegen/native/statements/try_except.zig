@@ -4,11 +4,122 @@ const ast = @import("../../../ast.zig");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
+/// Find all variable names referenced in an expression
+fn findReferencedVarsInExpr(expr: ast.Node, vars: *std.StringHashMap(void), allocator: std.mem.Allocator) !void {
+    switch (expr) {
+        .name => |name_node| {
+            try vars.put(name_node.id, {});
+        },
+        .attribute => |attr| {
+            try findReferencedVarsInExpr(attr.value.*, vars, allocator);
+        },
+        .subscript => |sub| {
+            try findReferencedVarsInExpr(sub.value.*, vars, allocator);
+            if (sub.slice == .index) {
+                try findReferencedVarsInExpr(sub.slice.index.*, vars, allocator);
+            }
+        },
+        .call => |call| {
+            try findReferencedVarsInExpr(call.func.*, vars, allocator);
+            for (call.args) |arg| {
+                try findReferencedVarsInExpr(arg, vars, allocator);
+            }
+        },
+        .binop => |binop| {
+            try findReferencedVarsInExpr(binop.left.*, vars, allocator);
+            try findReferencedVarsInExpr(binop.right.*, vars, allocator);
+        },
+        .compare => |cmp| {
+            try findReferencedVarsInExpr(cmp.left.*, vars, allocator);
+            for (cmp.comparators) |comp| {
+                try findReferencedVarsInExpr(comp, vars, allocator);
+            }
+        },
+        .unaryop => |unary| {
+            try findReferencedVarsInExpr(unary.operand.*, vars, allocator);
+        },
+        .list => |list| {
+            for (list.elts) |elem| {
+                try findReferencedVarsInExpr(elem, vars, allocator);
+            }
+        },
+        .dict => |dict| {
+            for (dict.keys) |key| {
+                try findReferencedVarsInExpr(key, vars, allocator);
+            }
+            for (dict.values) |val| {
+                try findReferencedVarsInExpr(val, vars, allocator);
+            }
+        },
+        else => {},
+    }
+}
+
+/// Find all variable names referenced in statements
+fn findReferencedVarsInStmts(stmts: []ast.Node, vars: *std.StringHashMap(void), allocator: std.mem.Allocator) CodegenError!void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .assign => |assign| {
+                try findReferencedVarsInExpr(assign.value.*, vars, allocator);
+            },
+            .expr_stmt => |expr| {
+                try findReferencedVarsInExpr(expr.value.*, vars, allocator);
+            },
+            .return_stmt => |ret| {
+                if (ret.value) |val| {
+                    try findReferencedVarsInExpr(val.*, vars, allocator);
+                }
+            },
+            .if_stmt => |if_stmt| {
+                try findReferencedVarsInExpr(if_stmt.condition.*, vars, allocator);
+                try findReferencedVarsInStmts(if_stmt.body, vars, allocator);
+                try findReferencedVarsInStmts(if_stmt.else_body, vars, allocator);
+            },
+            .while_stmt => |while_stmt| {
+                try findReferencedVarsInExpr(while_stmt.condition.*, vars, allocator);
+                try findReferencedVarsInStmts(while_stmt.body, vars, allocator);
+            },
+            .for_stmt => |for_stmt| {
+                try findReferencedVarsInExpr(for_stmt.iter.*, vars, allocator);
+                try findReferencedVarsInStmts(for_stmt.body, vars, allocator);
+            },
+            else => {},
+        }
+    }
+}
+
 pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
+    // First pass: collect variables declared in try block that need hoisting
+    var declared_vars = std.ArrayList([]const u8){};
+    defer declared_vars.deinit(self.allocator);
+
+    for (try_node.body) |stmt| {
+        if (stmt == .assign) {
+            // Assign has targets (plural) not target
+            if (stmt.assign.targets.len > 0) {
+                const target = stmt.assign.targets[0];
+                if (target == .name) {
+                    try declared_vars.append(self.allocator, target.name.id);
+                }
+            }
+        }
+    }
+
     // Wrap in block for defer scope
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "{\n");
     self.indent();
+
+    // Hoist variable declarations inside block (so they're accessible after try)
+    for (declared_vars.items) |var_name| {
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "var ");
+        try self.output.appendSlice(self.allocator, var_name);
+        try self.output.appendSlice(self.allocator, ": i64 = undefined;\n");
+
+        // Mark as hoisted so assignment generation skips declaration
+        try self.hoisted_vars.put(var_name, {});
+    }
 
     // Generate finally as defer
     if (try_node.finalbody.len > 0) {
@@ -25,12 +136,46 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     // Generate try block with exception handling
     if (try_node.handlers.len > 0) {
-        // Collect captured variables
+        // Collect captured variables and declared variables
         var captured_vars = std.ArrayList([]const u8){};
         defer captured_vars.deinit(self.allocator);
 
-        const common_names = [_][]const u8{ "nums", "data", "items", "values", "list", "dict", "result", "text", "x", "y", "z" };
-        for (common_names) |name| {
+        var declared_var_set = std.StringHashMap(void).init(self.allocator);
+        defer declared_var_set.deinit();
+        for (declared_vars.items) |var_name| {
+            try declared_var_set.put(var_name, {});
+        }
+
+        // Find variables actually referenced in try block body (not just declared)
+        var referenced_vars = std.StringHashMap(void).init(self.allocator);
+        defer referenced_vars.deinit();
+        try findReferencedVarsInStmts(try_node.body, &referenced_vars, self.allocator);
+
+        // Capture only variables that are:
+        // 1. Actually referenced in try block
+        // 2. Not declared in try block (those are passed as pointers)
+        // 3. Not built-in functions
+        var ref_iter = referenced_vars.iterator();
+        while (ref_iter.next()) |entry| {
+            const name = entry.key_ptr.*;
+
+            // Skip if declared in try block (will be passed separately as pointer)
+            if (declared_var_set.contains(name)) continue;
+
+            // Skip built-in functions
+            if (std.mem.eql(u8, name, "print")) continue;
+            if (std.mem.eql(u8, name, "len")) continue;
+            if (std.mem.eql(u8, name, "range")) continue;
+            if (std.mem.eql(u8, name, "str")) continue;
+            if (std.mem.eql(u8, name, "int")) continue;
+            if (std.mem.eql(u8, name, "float")) continue;
+            if (std.mem.eql(u8, name, "bool")) continue;
+            if (std.mem.eql(u8, name, "list")) continue;
+            if (std.mem.eql(u8, name, "dict")) continue;
+            if (std.mem.eql(u8, name, "set")) continue;
+            if (std.mem.eql(u8, name, "tuple")) continue;
+
+            // Only capture if it exists in lifetimes (was declared before this point)
             if (self.semantic_info.lifetimes.contains(name)) {
                 try captured_vars.append(self.allocator, name);
             }
@@ -43,18 +188,27 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "fn run(");
 
-        // Parameters
-        for (captured_vars.items, 0..) |var_name, i| {
-            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+        // Parameters - captured vars and declared vars (as pointers)
+        var param_count: usize = 0;
+        for (captured_vars.items) |var_name| {
+            if (param_count > 0) try self.output.appendSlice(self.allocator, ", ");
             try self.output.appendSlice(self.allocator, "p_");
             try self.output.appendSlice(self.allocator, var_name);
             try self.output.appendSlice(self.allocator, ": anytype");
+            param_count += 1;
+        }
+        for (declared_vars.items) |var_name| {
+            if (param_count > 0) try self.output.appendSlice(self.allocator, ", ");
+            try self.output.appendSlice(self.allocator, "p_");
+            try self.output.appendSlice(self.allocator, var_name);
+            try self.output.appendSlice(self.allocator, ": *i64");  // Pointer for mutable access
+            param_count += 1;
         }
 
         try self.output.appendSlice(self.allocator, ") !void {\n");
         self.indent();
 
-        // Create aliases with explicit type annotation to avoid anytype issues
+        // Create aliases for captured variables
         for (captured_vars.items) |var_name| {
             try self.emitIndent();
             try self.output.appendSlice(self.allocator, "const __local_");
@@ -65,9 +219,18 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.output.appendSlice(self.allocator, var_name);
             try self.output.appendSlice(self.allocator, ";\n");
 
-            // Add to rename map so expressions use __local_X instead of X
+            // Add to rename map
             var buf = std.ArrayList(u8){};
             try buf.writer(self.allocator).print("__local_{s}", .{var_name});
+            const renamed = try buf.toOwnedSlice(self.allocator);
+            try self.var_renames.put(var_name, renamed);
+        }
+
+        // Create aliases for declared variables (dereference pointers)
+        for (declared_vars.items) |var_name| {
+            // Add to rename map to use dereferenced pointer
+            var buf = std.ArrayList(u8){};
+            try buf.writer(self.allocator).print("p_{s}.*", .{var_name});
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(var_name, renamed);
         }
@@ -77,9 +240,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.generateStmt(stmt);
         }
 
-        // Clear rename map after generating body
+        // Clear rename map after generating body and free allocated strings
         for (captured_vars.items) |var_name| {
-            _ = self.var_renames.remove(var_name);
+            if (self.var_renames.fetchRemove(var_name)) |entry| {
+                self.allocator.free(entry.value);
+            }
+        }
+        for (declared_vars.items) |var_name| {
+            if (self.var_renames.fetchRemove(var_name)) |entry| {
+                self.allocator.free(entry.value);
+            }
         }
 
         self.dedent();
@@ -89,14 +259,35 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "};\n");
 
-        // Call helper with captured variables
+        // Call helper with captured variables and pointers to declared variables
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "__TryHelper.run(");
-        for (captured_vars.items, 0..) |var_name, i| {
-            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+        var call_param_count: usize = 0;
+        for (captured_vars.items) |var_name| {
+            if (call_param_count > 0) try self.output.appendSlice(self.allocator, ", ");
             try self.output.appendSlice(self.allocator, var_name);
+            call_param_count += 1;
         }
-        try self.output.appendSlice(self.allocator, ") catch |err| {\n");
+        for (declared_vars.items) |var_name| {
+            if (call_param_count > 0) try self.output.appendSlice(self.allocator, ", ");
+            try self.output.appendSlice(self.allocator, "&");
+            try self.output.appendSlice(self.allocator, var_name);
+            call_param_count += 1;
+        }
+
+        // Check if we need to capture err (only if there are specific exception handlers)
+        const has_specific_handler = blk: {
+            for (try_node.handlers) |handler| {
+                if (handler.type != null) break :blk true;
+            }
+            break :blk false;
+        };
+
+        if (has_specific_handler) {
+            try self.output.appendSlice(self.allocator, ") catch |err| {\n");
+        } else {
+            try self.output.appendSlice(self.allocator, ") catch {\n");
+        }
         self.indent();
 
         // Generate exception handlers
@@ -128,8 +319,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     try self.output.appendSlice(self.allocator, "{\n");
                 }
                 self.indent();
-                try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "_ = err;\n");
+                // Don't need _ = err; anymore - Zig will auto-ignore unused err
                 for (handler.body) |stmt| {
                     try self.generateStmt(stmt);
                 }
@@ -163,6 +353,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     self.dedent();
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "}\n");
+
+    // Clear hoisted variables from tracking after try block completes
+    for (declared_vars.items) |var_name| {
+        _ = self.hoisted_vars.remove(var_name);
+    }
 }
 
 fn pythonExceptionToZigError(exc_type: []const u8) []const u8 {

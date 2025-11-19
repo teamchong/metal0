@@ -174,7 +174,26 @@ pub const PyFloat = pyfloat.PyFloat;
 pub const PyBool = pybool.PyBool;
 
 /// Helper functions for operations that can raise exceptions
-/// Integer division with zero check
+/// True division (Python's / operator) - always returns float
+pub fn divideFloat(a: anytype, b: anytype) PythonError!f64 {
+    const a_float: f64 = switch (@typeInfo(@TypeOf(a))) {
+        .float, .comptime_float => @as(f64, a),
+        .int, .comptime_int => @floatFromInt(a),
+        else => @compileError("divideFloat: unsupported type " ++ @typeName(@TypeOf(a))),
+    };
+    const b_float: f64 = switch (@typeInfo(@TypeOf(b))) {
+        .float, .comptime_float => @as(f64, b),
+        .int, .comptime_int => @floatFromInt(b),
+        else => @compileError("divideFloat: unsupported type " ++ @typeName(@TypeOf(b))),
+    };
+
+    if (b_float == 0.0) {
+        return PythonError.ZeroDivisionError;
+    }
+    return a_float / b_float;
+}
+
+/// Integer division (floor division //) with zero check
 pub fn divideInt(a: i64, b: i64) PythonError!i64 {
     if (b == 0) {
         return PythonError.ZeroDivisionError;
@@ -252,6 +271,20 @@ pub inline fn formatAny(value: anytype) (if (@TypeOf(value) == bool) []const u8 
     }
 }
 
+/// Format float value for printing (Python-style: always show .0 for whole numbers)
+/// Examples: 25.0 -> "25.0", 3.14159 -> "3.14159"
+pub fn formatFloat(value: f64, allocator: std.mem.Allocator) ![]const u8 {
+    var buf = std.ArrayList(u8){};
+    if (@mod(value, 1.0) == 0.0) {
+        // Whole number: force .0 to match Python behavior
+        try buf.writer(allocator).print("{d:.1}", .{value});
+    } else {
+        // Has decimals: show all significant digits
+        try buf.writer(allocator).print("{d}", .{value});
+    }
+    return try buf.toOwnedSlice(allocator);
+}
+
 /// Format PyObject as string for printing
 /// Used when printing dict values with unknown/mixed types
 /// Returns a formatted string that can be printed with {s}
@@ -269,9 +302,7 @@ pub fn formatPyObject(obj: *PyObject, allocator: std.mem.Allocator) ![]const u8 
         },
         .float => blk: {
             const float_data: *PyFloat = @ptrCast(@alignCast(obj.data));
-            var buf = std.ArrayList(u8){};
-            try buf.writer(allocator).print("{d}", .{float_data.value});
-            break :blk try buf.toOwnedSlice(allocator);
+            break :blk try formatFloat(float_data.value, allocator);
         },
         .bool => blk: {
             const bool_data: *PyBool = @ptrCast(@alignCast(obj.data));

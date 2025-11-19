@@ -31,10 +31,11 @@ pub const TypeInferrer = struct {
     }
 
     pub fn deinit(self: *TypeInferrer) void {
-        // Free class field maps
+        // Free class field and method maps
         var it = self.class_fields.iterator();
         while (it.next()) |entry| {
             entry.value_ptr.fields.deinit();
+            entry.value_ptr.methods.deinit();
         }
         self.class_fields.deinit();
         self.var_types.deinit();
@@ -51,6 +52,17 @@ pub const TypeInferrer = struct {
         // Register __name__ as a string constant (for if __name__ == "__main__" support)
         try self.var_types.put("__name__", .{ .string = .literal });
 
+        // First pass: Register all function return types
+        const arena_alloc = self.arena.allocator();
+        for (module.body) |stmt| {
+            if (stmt == .function_def) {
+                const func_def = stmt.function_def;
+                const return_type = try core.pythonTypeHintToNative(func_def.return_type, arena_alloc);
+                try self.func_return_types.put(func_def.name, return_type);
+            }
+        }
+
+        // Second pass: Analyze all statements
         for (module.body) |stmt| {
             try self.visitStmt(stmt);
         }
@@ -64,6 +76,7 @@ pub const TypeInferrer = struct {
             arena_alloc,
             &self.var_types,
             &self.class_fields,
+            &self.func_return_types,
             &inferExprWrapper,
             node,
         );
@@ -88,17 +101,14 @@ fn inferExprWrapper(
     allocator: std.mem.Allocator,
     var_types: *std.StringHashMap(NativeType),
     class_fields: *std.StringHashMap(ClassInfo),
+    func_return_types: *std.StringHashMap(NativeType),
     node: ast.Node,
 ) InferError!NativeType {
-    // Allocator passed here is already the arena allocator from visitStmt
-    var func_return_types = std.StringHashMap(NativeType).init(allocator);
-    defer func_return_types.deinit();
-
     return expressions.inferExpr(
         allocator,
         var_types,
         class_fields,
-        &func_return_types,
+        func_return_types,
         node,
     );
 }

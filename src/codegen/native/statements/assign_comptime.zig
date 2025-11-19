@@ -57,7 +57,14 @@ pub fn emitComptimeAssignment(
     // Emit value
     switch (value) {
         .int => |v| try self.output.writer(self.allocator).print("{d}", .{v}),
-        .float => |v| try self.output.writer(self.allocator).print("{d}", .{v}),
+        .float => |v| {
+            // Use Python-style float formatting (always show .0 for whole numbers)
+            if (@mod(v, 1.0) == 0.0) {
+                try self.output.writer(self.allocator).print("{d:.1}", .{v});
+            } else {
+                try self.output.writer(self.allocator).print("{d}", .{v});
+            }
+        },
         .bool => |v| {
             const bool_str = if (v) "true" else "false";
             try self.output.appendSlice(self.allocator, bool_str);
@@ -87,7 +94,14 @@ pub fn emitComptimeAssignment(
 
                     switch (item) {
                         .int => |v| try self.output.writer(self.allocator).print("{d}", .{v}),
-                        .float => |v| try self.output.writer(self.allocator).print("{d}", .{v}),
+                        .float => |v| {
+                            // Use Python-style float formatting (always show .0 for whole numbers)
+                            if (@mod(v, 1.0) == 0.0) {
+                                try self.output.writer(self.allocator).print("{d:.1}", .{v});
+                            } else {
+                                try self.output.writer(self.allocator).print("{d}", .{v});
+                            }
+                        },
                         .bool => |v| {
                             const bool_str = if (v) "true" else "false";
                             try self.output.appendSlice(self.allocator, bool_str);

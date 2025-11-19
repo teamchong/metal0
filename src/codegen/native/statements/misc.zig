@@ -104,12 +104,13 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Check if any arg is string concatenation, allocating method call, list, tuple, or bool
+    // Check if any arg is string concatenation, allocating method call, list, tuple, bool, or float
     var has_string_concat = false;
     var has_allocating_call = false;
     var has_list = false;
     var has_tuple = false;
     var has_bool = false;
+    var has_float = false;
     for (args) |arg| {
         if (arg == .binop and arg.binop.op == .Add) {
             const left_type = try self.type_inferrer.inferExpr(arg.binop.left.*);
@@ -131,6 +132,9 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
         if (arg_type == .bool) {
             has_bool = true;
+        }
+        if (arg_type == .float) {
+            has_float = true;
         }
     }
 
@@ -223,14 +227,16 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // If we have string concatenation or allocating calls, wrap in block with temp vars
-    if (has_string_concat or has_allocating_call) {
+    // If we have string concatenation, allocating calls, or floats, wrap in block with temp vars
+    if (has_string_concat or has_allocating_call or has_float) {
         try self.output.appendSlice(self.allocator, "{\n");
         self.indent();
 
-        // Create temp vars for each concatenation or allocating method call
+        // Create temp vars for each concatenation, allocating method call, or float
         var temp_counter: usize = 0;
         for (args) |arg| {
+            const arg_type = try self.type_inferrer.inferExpr(arg);
+
             // Handle string concatenation
             if (arg == .binop and arg.binop.op == .Add) {
                 const left_type = try self.type_inferrer.inferExpr(arg.binop.left.*);
@@ -266,6 +272,16 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.writer(self.allocator).print("defer allocator.free(_temp{d});\n", .{temp_counter});
                 temp_counter += 1;
             }
+            // Handle float values (need formatting)
+            else if (arg_type == .float) {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("const _temp{d} = try runtime.formatFloat(", .{temp_counter});
+                try self.genExpr(arg);
+                try self.output.appendSlice(self.allocator, ", allocator);\n");
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("defer allocator.free(_temp{d});\n", .{temp_counter});
+                temp_counter += 1;
+            }
         }
 
         // Emit print statement
@@ -277,7 +293,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const arg_type = try self.type_inferrer.inferExpr(arg);
             const fmt = switch (arg_type) {
                 .int => "{d}",
-                .float => "{d}",
+                .float => "{s}", // Float uses formatted string
                 .bool => "{}",
                 .string => "{s}",
                 else => "{any}",
@@ -291,9 +307,11 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         try self.output.appendSlice(self.allocator, "\\n\", .{");
 
-        // Generate arguments (use temp vars for concat and allocating calls)
+        // Generate arguments (use temp vars for concat, allocating calls, and floats)
         temp_counter = 0;
         for (args, 0..) |arg, i| {
+            const arg_type = try self.type_inferrer.inferExpr(arg);
+
             // Use temp var for string concatenation
             if (arg == .binop and arg.binop.op == .Add) {
                 const left_type = try self.type_inferrer.inferExpr(arg.binop.left.*);
@@ -307,6 +325,11 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
             // Use temp var for allocating method calls
             else if (isAllocatingMethodCall(self, arg)) {
+                try self.output.writer(self.allocator).print("_temp{d}", .{temp_counter});
+                temp_counter += 1;
+            }
+            // Use temp var for floats
+            else if (arg_type == .float) {
                 try self.output.writer(self.allocator).print("_temp{d}", .{temp_counter});
                 temp_counter += 1;
             } else {
@@ -332,7 +355,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const arg_type = try self.type_inferrer.inferExpr(arg);
             const fmt = switch (arg_type) {
                 .int => "{d}",
-                .float => "{d}",
+                .float => "{s}", // Use formatFloat for Python-style float printing
                 .bool => "{s}", // formatAny() returns string for bool
                 .string => "{s}",
                 else => "{any}", // Unknown types - let Zig handle them
@@ -346,10 +369,9 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         try self.output.appendSlice(self.allocator, "\\n\", .{");
 
-        // Generate arguments - only wrap known bools in formatAny()
+        // Generate arguments - wrap bools with formatter
         for (args, 0..) |arg, i| {
             const arg_type = try self.type_inferrer.inferExpr(arg);
-            // Only wrap confirmed bools - unknown types stay as-is
             if (arg_type == .bool) {
                 try self.output.appendSlice(self.allocator, "runtime.formatAny(");
                 try self.genExpr(arg);

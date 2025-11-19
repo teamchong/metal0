@@ -239,6 +239,10 @@ fn inferBinOp(
         if (left_tag == .float or right_tag == .float) {
             return .float; // Any arithmetic with float produces float
         }
+        // Python's / operator ALWAYS returns float (true division)
+        if (binop.op == .Div) {
+            return .float; // Division always produces float
+        }
         // usize mixed with int → result is int (codegen casts both to i64)
         if ((left_tag == .usize and right_tag == .int) or (left_tag == .int and right_tag == .usize)) {
             return .int;
@@ -267,6 +271,11 @@ fn inferCall(
     // Check if this is a registered function (lambda or regular function)
     if (call.func.* == .name) {
         const func_name = call.func.name.id;
+
+        // Check if this is a class constructor (class_name matches a registered class)
+        if (class_fields.contains(func_name)) {
+            return .{ .class_instance = func_name };
+        }
 
         // Check for registered function return types (lambdas, etc.)
         if (func_return_types.get(func_name)) |return_type| {
@@ -302,6 +311,18 @@ fn inferCall(
             if ((std.mem.eql(u8, module_name, "pandas") or std.mem.eql(u8, module_name, "pd")) and
                 std.mem.eql(u8, attr.attr, "DataFrame")) {
                 return .dataframe;
+            }
+
+            // Check if this is a class instance method call
+            // e.g., dog.speak() where dog is an instance of Dog class
+            const var_type = var_types.get(module_name) orelse .unknown;
+            if (var_type == .class_instance) {
+                const class_name = var_type.class_instance;
+                if (class_fields.get(class_name)) |class_info| {
+                    if (class_info.methods.get(attr.attr)) |method_return_type| {
+                        return method_return_type;
+                    }
+                }
             }
         }
 

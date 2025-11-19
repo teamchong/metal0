@@ -82,7 +82,18 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     }
 
     // Special handling for division - can throw ZeroDivisionError
-    if (binop.op == .Div or binop.op == .FloorDiv) {
+    if (binop.op == .Div) {
+        // True division (/) - always returns float
+        try self.output.appendSlice(self.allocator, "try runtime.divideFloat(");
+        try genExpr(self, binop.left.*);
+        try self.output.appendSlice(self.allocator, ", ");
+        try genExpr(self, binop.right.*);
+        try self.output.appendSlice(self.allocator, ")");
+        return;
+    }
+
+    // Special handling for floor division - returns int
+    if (binop.op == .FloorDiv) {
         try self.output.appendSlice(self.allocator, "try runtime.divideInt(");
         try genExpr(self, binop.left.*);
         try self.output.appendSlice(self.allocator, ", ");

@@ -59,7 +59,8 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
             }
         }
 
-        // Skip return type annotation if present (e.g., -> int)
+        // Capture return type annotation if present (e.g., -> int, -> str)
+        var return_type: ?[]const u8 = null;
         if (self.tokens[self.current].type == .Arrow or
             (self.tokens[self.current].type == .Minus and
                 self.current + 1 < self.tokens.len and
@@ -72,10 +73,9 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
                 _ = self.match(.Minus);
                 _ = self.match(.Gt);
             }
-            // Skip the return type
-            while (self.current < self.tokens.len and
-                self.tokens[self.current].type != .Colon)
-            {
+            // Capture the return type
+            if (self.current < self.tokens.len and self.tokens[self.current].type == .Ident) {
+                return_type = self.tokens[self.current].lexeme;
                 self.current += 1;
             }
         }
@@ -95,6 +95,7 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
                 .body = body,
                 .is_async = is_async,
                 .decorators = &[_]ast.Node{}, // Empty decorators for now
+                .return_type = return_type,
             },
         };
     }

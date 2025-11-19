@@ -104,6 +104,7 @@ pub const Node = union(enum) {
         body: []Node,
         is_async: bool,
         decorators: []Node,
+        return_type: ?[]const u8 = null,
     };
 
     pub const Lambda = struct {

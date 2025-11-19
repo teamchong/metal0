@@ -1,9 +1,18 @@
 const std = @import("std");
 
+/// Get unique build directory for this process (for parallel execution)
+fn getBuildDir(allocator: std.mem.Allocator) ![]const u8 {
+    const pid = std.c.getpid();
+    return try std.fmt.allocPrint(allocator, ".build-{d}", .{pid});
+}
+
 /// Compile Zig source code to native binary
 pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
-    // Create .build directory if it doesn't exist
-    std.fs.cwd().makeDir(".build") catch |err| {
+    const build_dir = try getBuildDir(allocator);
+    defer allocator.free(build_dir);
+
+    // Create build directory if it doesn't exist
+    std.fs.cwd().makeDir(build_dir) catch |err| {
         if (err != error.PathAlreadyExists) return err;
     };
 
@@ -12,7 +21,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{file});
         defer allocator.free(src_path);
-        const dst_path = try std.fmt.allocPrint(allocator, ".build/{s}", .{file});
+        const dst_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ build_dir, file });
         defer allocator.free(dst_path);
 
         const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
@@ -26,17 +35,17 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     }
 
     // Copy runtime subdirectories to .build
-    try copyRuntimeDir(allocator, "http");
-    try copyRuntimeDir(allocator, "async");
-    try copyRuntimeDir(allocator, "json");
-    try copyRuntimeDir(allocator, "runtime");
-    try copyRuntimeDir(allocator, "pystring");
+    try copyRuntimeDir(allocator, "http", build_dir);
+    try copyRuntimeDir(allocator, "async", build_dir);
+    try copyRuntimeDir(allocator, "json", build_dir);
+    try copyRuntimeDir(allocator, "runtime", build_dir);
+    try copyRuntimeDir(allocator, "pystring", build_dir);
 
-    // Copy c_interop directory to .build
-    try copyCInteropDir(allocator);
+    // Copy c_interop directory to build dir
+    try copyCInteropDir(allocator, build_dir);
 
     // Write Zig code to temporary file
-    const tmp_path = try std.fmt.allocPrint(allocator, ".build/pyaot_main_{d}.zig", .{std.time.milliTimestamp()});
+    const tmp_path = try std.fmt.allocPrint(allocator, "{s}/pyaot_main_{d}.zig", .{ build_dir, std.time.milliTimestamp() });
     defer allocator.free(tmp_path);
 
     // Write temp file
@@ -78,8 +87,10 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     try args.append(allocator, "build-exe");
     try args.append(allocator, tmp_path);
 
-    // Add .build to import path so @import("runtime") finds .build/runtime.zig
-    try args.append(allocator, "-I.build");
+    // Add build dir to import path so @import("runtime") finds runtime.zig
+    const import_flag = try std.fmt.allocPrint(allocator, "-I{s}", .{build_dir});
+    defer allocator.free(import_flag);
+    try args.append(allocator, import_flag);
 
     try args.append(allocator, "-ODebug");
     try args.append(allocator, "-lc");
@@ -116,8 +127,11 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
 
 /// Compile Zig source code to shared library (.so/.dylib)
 pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
-    // Create .build directory if it doesn't exist
-    std.fs.cwd().makeDir(".build") catch |err| {
+    const build_dir = try getBuildDir(allocator);
+    defer allocator.free(build_dir);
+
+    // Create build directory if it doesn't exist
+    std.fs.cwd().makeDir(build_dir) catch |err| {
         if (err != error.PathAlreadyExists) return err;
     };
 
@@ -126,7 +140,7 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{file});
         defer allocator.free(src_path);
-        const dst_path = try std.fmt.allocPrint(allocator, ".build/{s}", .{file});
+        const dst_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ build_dir, file });
         defer allocator.free(dst_path);
 
         const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
@@ -140,17 +154,17 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     }
 
     // Copy runtime subdirectories to .build
-    try copyRuntimeDir(allocator, "http");
-    try copyRuntimeDir(allocator, "async");
-    try copyRuntimeDir(allocator, "json");
-    try copyRuntimeDir(allocator, "runtime");
-    try copyRuntimeDir(allocator, "pystring");
+    try copyRuntimeDir(allocator, "http", build_dir);
+    try copyRuntimeDir(allocator, "async", build_dir);
+    try copyRuntimeDir(allocator, "json", build_dir);
+    try copyRuntimeDir(allocator, "runtime", build_dir);
+    try copyRuntimeDir(allocator, "pystring", build_dir);
 
-    // Copy c_interop directory to .build
-    try copyCInteropDir(allocator);
+    // Copy c_interop directory to build dir
+    try copyCInteropDir(allocator, build_dir);
 
     // Write Zig code to temporary file
-    const tmp_path = try std.fmt.allocPrint(allocator, ".build/pyaot_main_{d}.zig", .{std.time.milliTimestamp()});
+    const tmp_path = try std.fmt.allocPrint(allocator, "{s}/pyaot_main_{d}.zig", .{ build_dir, std.time.milliTimestamp() });
     defer allocator.free(tmp_path);
 
     // Write temp file
@@ -246,10 +260,10 @@ fn findZigBinary(allocator: std.mem.Allocator) ![]const u8 {
 }
 
 /// Copy a runtime subdirectory recursively to .build
-fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8) !void {
+fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_dir: []const u8) !void {
     const src_dir_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{dir_name});
     defer allocator.free(src_dir_path);
-    const dst_dir_path = try std.fmt.allocPrint(allocator, ".build/{s}", .{dir_name});
+    const dst_dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ build_dir, dir_name });
     defer allocator.free(dst_dir_path);
 
     // Create destination directory
@@ -287,15 +301,16 @@ fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8) !void {
             // Recursively copy subdirectory
             const subdir_name = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_name, entry.name });
             defer allocator.free(subdir_name);
-            try copyRuntimeDir(allocator, subdir_name);
+            try copyRuntimeDir(allocator, subdir_name, build_dir);
         }
     }
 }
 
 /// Copy c_interop directory to .build for C library interop
-fn copyCInteropDir(allocator: std.mem.Allocator) !void {
+fn copyCInteropDir(allocator: std.mem.Allocator, build_dir: []const u8) !void {
     const src_dir_path = "packages/c_interop";
-    const dst_dir_path = ".build/c_interop";
+    const dst_dir_path = try std.fmt.allocPrint(allocator, "{s}/c_interop", .{build_dir});
+    defer allocator.free(dst_dir_path);
 
     // Create destination directory
     std.fs.cwd().makeDir(dst_dir_path) catch |err| {

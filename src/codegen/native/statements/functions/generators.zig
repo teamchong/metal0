@@ -103,8 +103,13 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     try self.emit(") ");
 
-    // Determine return type based on whether function has return statements
-    if (hasReturnStatement(func.body)) {
+    // Determine return type based on type annotation or return statements
+    if (func.return_type) |_| {
+        // Use explicit return type annotation if provided
+        const zig_return_type = pythonTypeToZig(func.return_type);
+        try self.emit(zig_return_type);
+        try self.emit(" {\n");
+    } else if (hasReturnStatement(func.body)) {
         // Check if this returns a parameter (decorator pattern)
         var returned_param_name: ?[]const u8 = null;
         for (func.body) |stmt| {
@@ -166,6 +171,23 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         };
         try self.decorated_functions.append(self.allocator, decorated_func);
     }
+}
+
+/// Check if a method mutates self (assigns to self.field)
+fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
+    for (method.body) |stmt| {
+        if (stmt == .assign) {
+            for (stmt.assign.targets) |target| {
+                if (target == .attribute) {
+                    const attr = target.attribute;
+                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        return true; // Assigns to self.field
+                    }
+                }
+            }
+        }
+    }
+    return false;
 }
 
 /// Generate class definition with __init__ constructor
@@ -312,7 +334,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
             try self.output.appendSlice(self.allocator, "\n");
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("pub fn {s}(self: *", .{method.name});
+            // Use *const for methods that don't mutate self (read-only methods)
+            const mutates_self = methodMutatesSelf(method);
+            if (mutates_self) {
+                try self.output.writer(self.allocator).print("pub fn {s}(self: *", .{method.name});
+            } else {
+                try self.output.writer(self.allocator).print("pub fn {s}(self: *const ", .{method.name});
+            }
             try self.output.appendSlice(self.allocator, class.name);
 
             // Add other parameters (skip 'self')
@@ -327,7 +355,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             try self.output.appendSlice(self.allocator, ") ");
 
             // Determine return type
-            if (hasReturnStatement(method.body)) {
+            if (method.return_type) |_| {
+                // Use explicit return type annotation if provided
+                const zig_return_type = pythonTypeToZig(method.return_type);
+                try self.output.appendSlice(self.allocator, zig_return_type);
+            } else if (hasReturnStatement(method.body)) {
                 try self.output.appendSlice(self.allocator, "i64");
             } else {
                 try self.output.appendSlice(self.allocator, "void");
@@ -379,7 +411,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     // Copy parent method to child class
                     try self.output.appendSlice(self.allocator, "\n");
                     try self.emitIndent();
-                    try self.output.writer(self.allocator).print("pub fn {s}(self: *", .{parent_method.name});
+                    // Use *const for methods that don't mutate self
+                    const mutates_self = methodMutatesSelf(parent_method);
+                    if (mutates_self) {
+                        try self.output.writer(self.allocator).print("pub fn {s}(self: *", .{parent_method.name});
+                    } else {
+                        try self.output.writer(self.allocator).print("pub fn {s}(self: *const ", .{parent_method.name});
+                    }
                     try self.output.appendSlice(self.allocator, class.name);
 
                     // Add other parameters (skip 'self')
@@ -394,7 +432,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     try self.output.appendSlice(self.allocator, ") ");
 
                     // Determine return type
-                    if (hasReturnStatement(parent_method.body)) {
+                    if (parent_method.return_type) |_| {
+                        // Use explicit return type annotation if provided
+                        const zig_return_type = pythonTypeToZig(parent_method.return_type);
+                        try self.output.appendSlice(self.allocator, zig_return_type);
+                    } else if (hasReturnStatement(parent_method.body)) {
                         try self.output.appendSlice(self.allocator, "i64");
                     } else {
                         try self.output.appendSlice(self.allocator, "void");

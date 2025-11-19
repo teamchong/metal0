@@ -87,9 +87,22 @@ pub const NativeType = union(enum) {
     // Library types (DEPRECATED - remove after implementing Python classes properly)
     dataframe: void, // DEPRECATED: pandas.DataFrame - should be generic class type
 
+    // Class types
+    class_instance: []const u8, // Instance of a custom class (stores class name)
+
     // Special
     none: void, // void or ?T
     unknown: void, // Fallback to PyObject* (should be rare)
+
+    /// Check if this is a simple type (int, float, bool, string, class_instance)
+    /// Simple types can be const even if semantic analyzer reports them as mutated
+    /// (workaround for semantic analyzer false positives)
+    pub fn isSimpleType(self: NativeType) bool {
+        return switch (self) {
+            .int, .usize, .float, .bool, .string, .class_instance, .none => true,
+            else => false,
+        };
+    }
 
     /// Convert to Zig type string
     pub fn toZigType(self: NativeType, allocator: std.mem.Allocator, buf: *std.ArrayList(u8)) !void {
@@ -137,6 +150,10 @@ pub const NativeType = union(enum) {
                 try fn_type.return_type.toZigType(allocator, buf);
             },
             .dataframe => try buf.appendSlice(allocator, "pandas.DataFrame"),
+            .class_instance => |class_name| {
+                // For class instances, use the class name as the type (not pointer)
+                try buf.appendSlice(allocator, class_name);
+            },
             .none => try buf.appendSlice(allocator, "void"),
             .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
         }
@@ -202,7 +219,8 @@ pub fn pythonTypeHintToNative(type_hint: ?[]const u8, allocator: std.mem.Allocat
     return .unknown;
 }
 
-/// Class field information
+/// Class field and method information
 pub const ClassInfo = struct {
     fields: std.StringHashMap(NativeType),
+    methods: std.StringHashMap(NativeType), // method_name -> return type
 };

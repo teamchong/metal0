@@ -79,7 +79,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.output.appendSlice(self.allocator, "const ");
                     try self.declareVar(var_name);
                 }
-                try self.output.appendSlice(self.allocator, var_name);
+                // Use renamed version if in var_renames map (for exception handling)
+                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                try self.output.appendSlice(self.allocator, actual_name);
                 try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
             }
         }
@@ -109,15 +111,6 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             const is_listcomp = (assign.value.* == .listcomp);
             const is_dict = (assign.value.* == .dict);
             const is_dictcomp = (assign.value.* == .dictcomp);
-            const is_class_instance = blk: {
-                if (assign.value.* == .call and assign.value.call.func.* == .name) {
-                    const name = assign.value.call.func.name.id;
-                    // Class names start with uppercase (PascalCase convention)
-                    break :blk name.len > 0 and std.ascii.isUpper(name[0]);
-                }
-                break :blk false;
-            };
-
             // Check if value allocates memory
             const is_allocated_string = blk: {
                 if (assign.value.* == .call) {
@@ -165,7 +158,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             };
 
             // Check if this is first assignment or reassignment
-            const is_first_assignment = !self.isDeclared(var_name);
+            // Hoisted variables should skip declaration (already declared before try block)
+            const is_hoisted = self.hoisted_vars.contains(var_name);
+            const is_first_assignment = !self.isDeclared(var_name) and !is_hoisted;
 
             // Try compile-time evaluation FIRST
             if (self.comptime_evaluator.tryEval(assign.value.*)) |comptime_val| {
@@ -197,19 +192,21 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             try self.emitIndent();
             if (is_first_assignment) {
                 // First assignment: decide between const and var
-                // Use var if variable is mutated OR if it's a mutable collection/class instance
-                const is_mutated = self.semantic_info.isMutated(var_name);
-
-                // ArrayLists, dicts, and class instances need var (for mutation and deinit)
+                // ArrayLists and dicts need var (for mutation and deinit)
                 // Dictcomps return immutable HashMaps, so they don't need var
-                const needs_var = is_mutated or is_arraylist or is_dict or is_class_instance;
+                // Class instances can be const - methods mutate through *self, not by reassigning the instance
+                // Default to const for all other types
+                // NOTE: Semantic analyzer's isMutated() has false positives, so we don't use it for now
+                const needs_var = is_arraylist or is_dict;
 
                 if (needs_var) {
                     try self.output.appendSlice(self.allocator, "var ");
                 } else {
                     try self.output.appendSlice(self.allocator, "const ");
                 }
-                try self.output.appendSlice(self.allocator, var_name);
+                // Use renamed version if in var_renames map (for exception handling)
+                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                try self.output.appendSlice(self.allocator, actual_name);
 
                 // Only emit type annotation for known types that aren't dicts, dictcomps, lists, tuples, closures, or ArrayLists
                 // For lists/ArrayLists/dicts/dictcomps/tuples/closures, let Zig infer the type from the initializer
@@ -249,7 +246,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
             } else {
                 // Reassignment: x = value (no var/const keyword!)
-                try self.output.appendSlice(self.allocator, var_name);
+                // Use renamed version if in var_renames map (for exception handling)
+                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                try self.output.appendSlice(self.allocator, actual_name);
                 try self.output.appendSlice(self.allocator, " = ");
                 // No type annotation on reassignment
             }
