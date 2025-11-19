@@ -5,6 +5,7 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const helpers = @import("assign_helpers.zig");
 const comptimeHelpers = @import("assign_comptime.zig");
+const deferCleanup = @import("assign_defer.zig");
 
 /// Check if a list contains only literal values
 fn isConstantList(list: ast.Node.List) bool {
@@ -274,10 +275,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.output.appendSlice(self.allocator, " });\n");
 
                     // Add defer cleanup
-                    if (is_first_assignment) {
-                        try self.emitIndent();
-                        try self.output.writer(self.allocator).print("defer allocator.free({s});\n", .{var_name});
-                    }
+                    try deferCleanup.emitStringConcatDefer(self, var_name, is_first_assignment);
                     return;
                 }
             }
@@ -321,106 +319,17 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
             }
 
-            // Add defer cleanup for ArrayLists and Dicts (only on first assignment)
-            if (is_first_assignment and is_arraylist) {
-                try self.emitIndent();
-                try self.output.writer(self.allocator).print("defer {s}.deinit(allocator);\n", .{var_name});
-            }
-            // Add defer cleanup for list comprehensions (return slices, not ArrayLists)
-            if (is_first_assignment and is_listcomp) {
-                try self.emitIndent();
-                try self.output.writer(self.allocator).print("defer allocator.free({s});\n", .{var_name});
-            }
-            if (is_first_assignment and is_dict) {
-                // Check if dict will use comptime path (all constants AND compatible types)
-                // Must match the logic in collections.zig to avoid mismatch!
-                var is_comptime_dict = true;
-                for (assign.value.dict.keys) |key| {
-                    if (!helpers.isComptimeConstant(key)) {
-                        is_comptime_dict = false;
-                        break;
-                    }
-                }
-                if (is_comptime_dict) {
-                    for (assign.value.dict.values) |value| {
-                        if (!helpers.isComptimeConstant(value)) {
-                            is_comptime_dict = false;
-                            break;
-                        }
-                    }
-                }
-
-                // Even if all constants, check type compatibility (matches collections.zig logic)
-                if (is_comptime_dict and assign.value.dict.values.len > 0) {
-                    const first_type = try self.type_inferrer.inferExpr(assign.value.dict.values[0]);
-                    for (assign.value.dict.values[1..]) |value| {
-                        const this_type = try self.type_inferrer.inferExpr(value);
-                        const tags_match = @as(std.meta.Tag(@TypeOf(first_type)), first_type) ==
-                                          @as(std.meta.Tag(@TypeOf(this_type)), this_type);
-                        const is_int_float_mix = (first_type == .int and this_type == .float) or
-                                                 (first_type == .float and this_type == .int);
-                        if (!tags_match and !is_int_float_mix) {
-                            // Mixed types → will use runtime path → NOT comptime!
-                            is_comptime_dict = false;
-                            break;
-                        }
-                    }
-                }
-
-                // Check if dict needs complex cleanup (string values that were allocated)
-                // Comptime dicts use string literals (no allocation) → simple cleanup
-                // Runtime dicts with mixed types convert to strings → need value freeing
-                const needs_value_cleanup = blk: {
-                    if (is_comptime_dict) break :blk false;  // Comptime dicts never need value cleanup
-                    if (assign.value.dict.values.len == 0) break :blk false;
-
-                    // Check if values have different types (will be widened to string)
-                    const first_type = try self.type_inferrer.inferExpr(assign.value.dict.values[0]);
-                    for (assign.value.dict.values[1..]) |value| {
-                        const this_type = try self.type_inferrer.inferExpr(value);
-                        // Direct enum tag comparison
-                        const first_tag = @as(std.meta.Tag(@TypeOf(first_type)), first_type);
-                        const this_tag = @as(std.meta.Tag(@TypeOf(this_type)), this_type);
-                        if (first_tag != this_tag) {
-                            // Different types → runtime path will allocate strings
-                            break :blk true;
-                        }
-                    }
-
-                    // All same type → no value cleanup needed
-                    break :blk false;
-                };
-
-                // If needs value cleanup, free all string values before deinit
-                if (needs_value_cleanup) {
-                    try self.emitIndent();
-                    try self.output.writer(self.allocator).print("defer {{\n", .{});
-                    self.indent();
-                    try self.emitIndent();
-                    try self.output.writer(self.allocator).print("var iter = {s}.valueIterator();\n", .{var_name});
-                    try self.emitIndent();
-                    try self.output.appendSlice(self.allocator, "while (iter.next()) |value| {\n");
-                    self.indent();
-                    try self.emitIndent();
-                    try self.output.appendSlice(self.allocator, "allocator.free(value.*);\n");
-                    self.dedent();
-                    try self.emitIndent();
-                    try self.output.appendSlice(self.allocator, "}\n");
-                    try self.emitIndent();
-                    try self.output.writer(self.allocator).print("{s}.deinit();\n", .{var_name});
-                    self.dedent();
-                    try self.emitIndent();
-                    try self.output.appendSlice(self.allocator, "}\n");
-                } else {
-                    try self.emitIndent();
-                    try self.output.writer(self.allocator).print("defer {s}.deinit();\n", .{var_name});
-                }
-            }
-            // Add defer cleanup for allocated strings (upper/lower/replace/sorted/reversed - only on first assignment)
-            if (is_first_assignment and is_allocated_string) {
-                try self.emitIndent();
-                try self.output.writer(self.allocator).print("defer allocator.free({s});\n", .{var_name});
-            }
+            // Add defer cleanup based on assignment type
+            try deferCleanup.emitDeferCleanups(
+                self,
+                var_name,
+                is_first_assignment,
+                is_arraylist,
+                is_listcomp,
+                is_dict,
+                is_allocated_string,
+                assign.value.*,
+            );
         } else if (target == .attribute) {
             // Handle attribute assignment (self.x = value)
             try self.emitIndent();
