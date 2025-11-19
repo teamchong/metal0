@@ -228,6 +228,11 @@ fn mergePairInPlace(word: *Word, pair: Pair, new_id: u32) bool {
     var changed = false;
 
     while (read_pos < word.ids.len) {
+        // Prefetch ahead for better cache utilization
+        if (read_pos + 16 < word.ids.len) {
+            @prefetch(&word.ids[read_pos + 16], .{ .rw = .read, .locality = 3 });
+        }
+
         // Check if we can merge at current position
         if (read_pos + 1 < word.ids.len and
             word.ids[read_pos] == pair.left and
@@ -367,7 +372,12 @@ pub const Trainer = struct {
             // 1. In-place merge (no ArrayList recreation)
             // 2. Only recalculate pairs in words that changed
             // 3. Priority queue avoids scanning all pairs
-            for (words.items) |*word| {
+            for (words.items, 0..) |*word, word_i| {
+                // Prefetch next word for better cache utilization
+                if (word_i + 1 < words.items.len) {
+                    @prefetch(&words.items[word_i + 1], .{ .rw = .read, .locality = 2 });
+                }
+
                 if (!mergePairInPlace(word, best.pair, new_id)) continue;
 
                 // Recalculate pairs ONLY in this modified word

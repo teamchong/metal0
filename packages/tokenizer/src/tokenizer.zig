@@ -41,6 +41,11 @@ pub fn countPairsSIMD(ids: []const u32, pair: Pair) u32 {
     // SIMD fast path (8 pairs at once)
     var i: usize = 0;
     while (i + vec_size + 1 <= ids.len) : (i += vec_size) {
+        // Prefetch next iteration for better cache utilization
+        if (i + vec_size * 2 < ids.len) {
+            @prefetch(&ids[i + vec_size * 2], .{ .rw = .read, .locality = 3 });
+        }
+
         const left = @Vector(vec_size, u32){
             ids[i + 0], ids[i + 1], ids[i + 2], ids[i + 3],
             ids[i + 4], ids[i + 5], ids[i + 6], ids[i + 7],
