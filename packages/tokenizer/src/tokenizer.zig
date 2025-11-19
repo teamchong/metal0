@@ -306,23 +306,16 @@ pub const Tokenizer = struct {
                 @prefetch(ptr + read_pos + vec_size + 32, .{ .rw = .read, .locality = 3 });
             }
 
-            // Load vectors for left and right pairs (unsafe: no bounds check)
-            var left_vec: @Vector(vec_size, u32) = undefined;
-            var right_vec: @Vector(vec_size, u32) = undefined;
+            // Direct vector load from memory (single instruction!)
+            const left_vec: @Vector(vec_size, u32) = ptr[read_pos..][0..vec_size].*;
+            const right_vec: @Vector(vec_size, u32) = ptr[read_pos + 1..][0..vec_size].*;
 
-            // Phase 3: Unrolled vector loads
-            comptime var i = 0;
-            inline while (i < vec_size) : (i += 1) {
-                left_vec[i] = ptr[read_pos + i];
-                right_vec[i] = ptr[read_pos + i + 1];
-            }
-
-            // SIMD comparison: find matching pairs
+            // SIMD comparison: find matching pairs (branchless!)
             const left_match = left_vec == @as(@Vector(vec_size, u32), @splat(pair.left));
             const right_match = right_vec == @as(@Vector(vec_size, u32), @splat(pair.right));
             const both_match = left_match & right_match;
 
-            // Phase 3: Use @reduce for faster match detection
+            // Use @reduce for fastest match detection
             const has_match = @reduce(.Or, both_match);
 
             if (has_match) {
