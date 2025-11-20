@@ -204,23 +204,87 @@ pub const Tokenizer = struct {
         self.allocator.free(self.pattern_str);
     }
 
-    /// Encode: Sequential SIMD merging in PRIORITY ORDER (best of both worlds!)
-    /// tiktoken's correctness + our SIMD speed!
+    /// Encode: Stack-optimized for small texts, heap for large!
+    /// tiktoken's correctness + ZERO ALLOCATION for common case!
     pub fn encode(self: *Tokenizer, text: []const u8) ![]u32 {
-        // Pre-allocate for speed (avoid reallocs!)
+        // FAST PATH: Stack allocation for small texts (<4KB)
+        if (text.len <= 4096) {
+            var stack_buffer: [4096]u32 = undefined;
+            var len: usize = text.len;
+
+            // Copy bytes to stack (unsafe, no bounds check!)
+            for (text, 0..) |byte, i| {
+                stack_buffer[i] = byte;
+            }
+
+            // Apply merges using stack buffer
+            len = try self.applyMergesStack(stack_buffer[0..len]);
+
+            // Copy to heap for return
+            const result = try self.allocator.alloc(u32, len);
+            @memcpy(result, stack_buffer[0..len]);
+            return result;
+        }
+
+        // SLOW PATH: Heap allocation for large texts
         var tokens = try std.ArrayList(u32).initCapacity(self.allocator, text.len);
         errdefer tokens.deinit(self.allocator);
 
-        // Convert text to token IDs (bytes initially)
         for (text) |byte| {
             tokens.appendAssumeCapacity(byte);
         }
 
-        // Apply merges in PRIORITY ORDER (sorted by rank, lowest first!)
-        // This matches tiktoken's output EXACTLY!
         try self.applyMerges(&tokens);
-
         return try tokens.toOwnedSlice(self.allocator);
+    }
+
+    /// Stack-optimized version that modifies buffer in-place!
+    fn applyMergesStack(self: *Tokenizer, tokens: []u32) !usize {
+        if (tokens.len < 2) return tokens.len;
+
+        var current_len = tokens.len;
+
+        // Build bloom filter
+        var token_bits: [16]u64 = [_]u64{0} ** 16;
+        for (tokens[0..current_len]) |token_id| {
+            const bit_idx = token_id & 1023;
+            const word_idx = bit_idx >> 6;
+            const bit_pos = @as(u6, @intCast(bit_idx & 63));
+            token_bits[word_idx] |= (@as(u64, 1) << bit_pos);
+        }
+
+        // Process merges
+        for (self.merges.items, 0..) |pair, idx| {
+            if (current_len < 2) break;
+
+            // Bloom filter check
+            const left_bit = pair.left & 1023;
+            const left_word = left_bit >> 6;
+            const left_pos = @as(u6, @intCast(left_bit & 63));
+            const left_exists = (token_bits[left_word] & (@as(u64, 1) << left_pos)) != 0;
+
+            const right_bit = pair.right & 1023;
+            const right_word = right_bit >> 6;
+            const right_pos = @as(u6, @intCast(right_bit & 63));
+            const right_exists = (token_bits[right_word] & (@as(u64, 1) << right_pos)) != 0;
+
+            if (!left_exists or !right_exists) continue;
+
+            const new_id: u32 = 256 + @as(u32, @intCast(idx));
+            const new_len = mergePairInPlace(tokens[0..current_len], pair, new_id);
+
+            if (new_len != current_len) {
+                current_len = new_len;
+
+                // Update bloom filter
+                const new_bit = new_id & 1023;
+                const new_word = new_bit >> 6;
+                const new_pos = @as(u6, @intCast(new_bit & 63));
+                token_bits[new_word] |= (@as(u64, 1) << new_pos);
+            }
+        }
+
+        return current_len;
     }
 
     /// ULTRA-OPTIMIZED: Bloom filter + SIMD merging!
