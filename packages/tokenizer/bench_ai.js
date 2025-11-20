@@ -1,7 +1,12 @@
-import { Tokenizer, models } from 'ai-tokenizer';
+import { Tokenizer } from 'ai-tokenizer';
+import { models } from 'ai-tokenizer';
 
 try {
-    const tokenizer = new Tokenizer(models['openai/gpt-4o']);
+    console.log('models:', typeof models, models);
+    console.log('gpt-4o:', models['openai/gpt-4o']);
+    const modelData = models['openai/gpt-4o'];
+    if (!modelData) throw new Error('Model not found');
+    const tokenizer = new Tokenizer(modelData);
 
     window.benchAITokenizer = function(text, iterations) {
         // Warmup

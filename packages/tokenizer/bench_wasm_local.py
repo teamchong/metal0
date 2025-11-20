@@ -29,6 +29,10 @@ async def main():
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
 
+            # Listen to console messages
+            page.on('console', lambda msg: print(f"CONSOLE: {msg.text}"))
+            page.on('pageerror', lambda exc: print(f"ERROR: {exc}"))
+
             # Navigate to benchmark page
             await page.goto('http://localhost:8899/bench_final.html')
 

@@ -3,7 +3,14 @@ import * as tiktoken from 'tiktoken';
 let encoder = null;
 
 window.initTiktoken = async function() {
-    encoder = tiktoken.get_encoding('cl100k_base');
+    try {
+        console.log('tiktoken:', tiktoken);
+        encoder = tiktoken.get_encoding('cl100k_base');
+        console.log('tiktoken initialized');
+    } catch (e) {
+        console.error('tiktoken init error:', e);
+        throw e;
+    }
 };
 
 window.benchTiktoken = function(text, iterations) {
