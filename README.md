@@ -162,49 +162,53 @@ All benchmarks run ~60 seconds on CPython for statistical significance.
 
 ### Tokenizer Benchmark (Native Binary)
 
-All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on Apple M2.
+All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on Apple M2 using realistic, industry-standard benchmark data (583 diverse texts, 200K chars).
 
-**BPE Training (150K texts, vocab 2048):**
+**BPE Training (583 diverse texts, 200K chars, vocab 2048):**
 
-| Library | Time | vs PyAOT |
-|---------|------|----------|
-| **PyAOT (Zig)** | **11.4ms** | **1.00x** 🏆 |
-| HuggingFace (Rust) | 231.7ms | 20.28x slower |
-| SentencePiece (C++) | 384.3ms | 33.65x slower |
+| Library | Time | vs Fastest |
+|---------|------|------------|
+| **SentencePiece (C++)** | **87.2ms** | **1.00x** 🏆 |
+| HuggingFace (Rust) | 168.5ms | 1.93x slower |
+| PyAOT (Zig) | 202.9ms | 2.33x slower |
 
-**Encoding Benchmark (60K iterations, 286-byte text):**
+**Encoding Benchmark (583 texts × 100 iterations, realistic corpus):**
 
-| Implementation | Status | Correctness |
-|---------------|--------|-------------|
-| **TokenDagger (C)** | 477ms 🏆 | ✅ 100% |
-| tiktoken (Rust) | 1064ms | ✅ 100% |
-| PyAOT (Zig) - old | 595ms | ❌ Returns bytes, not tokens |
-| PyAOT (Zig) - current | ⏳ Too slow (>10min) | ✅ 100% correct |
+| Implementation | Time | vs Fastest | Correctness |
+|---------------|------|------------|-------------|
+| **rs-bpe (Rust)** | **462ms** | **1.00x** 🏆 | ✅ 100% |
+| tiktoken (Rust) | 1060ms | 2.29x slower | ✅ 100% |
+| HuggingFace (Python) | 5270ms | 11.40x slower | ✅ 100% |
+| PyAOT (Zig) | ⏳ Too slow | - | ✅ 100% correct |
+
+**Web/Node.js Encoding (583 texts × 100 iterations):**
+
+| Library | Time | vs Fastest |
+|---------|------|------------|
+| **gpt-tokenizer (JS)** | **512ms** | **1.00x** 🏆 |
+| tiktoken (Node) | 6210ms | 12.13x slower |
 
 **Current Status:**
-- ✅ **Training**: 20-33x faster than Rust/C++
+- ✅ **Training**: Competitive (2.33x slower than fastest)
 - ✅ **Correctness**: 100% matches tiktoken
-- ❌ **Encoding performance**: Naive vocab-based BPE (needs optimization)
-
-**What happened:**
-1. Old implementation: Fast (595ms) but wrong (returned bytes, not BPE tokens)
-2. Fixed correctness: Now 100% correct but very slow (naive O(n²) algorithm)
-3. **Next step**: Optimize BPE encoding while maintaining correctness
+- ❌ **Encoding**: Needs optimization (currently too slow)
 
 **Run benchmarks:**
 ```bash
 cd packages/tokenizer
-make benchmark-train    # BPE training (works great!)
-make test-correctness   # Verify output matches tiktoken (passes!)
-# make benchmark-quick  # Currently too slow (needs optimization)
+make benchmark-train    # BPE training (realistic corpus)
+make benchmark-encode   # Encoding benchmark (rs-bpe, tiktoken, HuggingFace)
+make benchmark-web      # Web/Node.js benchmark (gpt-tokenizer, tiktoken)
+make test-correctness   # Verify output matches tiktoken
 ```
 
 **Implementation notes:**
+- All benchmarks use realistic, diverse text corpus (583 texts, 200K chars)
 - Training uses optimized merge-list BPE with SIMD
 - Encoding uses vocab-based BPE (correct but needs optimization)
 - Pure Zig implementation with no C dependencies
 
-**Run benchmarks:**
+**Quick start:**
 ```bash
 ./benchmarks/run_benchmarks.sh  # Compares CPython vs PyPy vs PyAOT
 ```

@@ -88,7 +88,7 @@ build:
 build-wasm:
 	@echo "$(YELLOW)🔨 Building WASM tokenizer...$(RESET)"
 	@mkdir -p dist
-	@zig build-lib src/wasm.zig -target wasm32-freestanding -O ReleaseFast -dynamic
+	@zig build-exe src/wasm.zig -target wasm32-freestanding -fno-entry -O ReleaseFast -rdynamic
 	@mv wasm.wasm dist/pyaot_tokenizer.wasm
 	@if [ ! -f dist/cl100k_simple.json ]; then \
 		echo "$(YELLOW)⚠️  cl100k_simple.json not found in dist/$(RESET)"; \

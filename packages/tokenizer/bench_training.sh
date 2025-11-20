@@ -5,8 +5,16 @@ set -e
 
 echo "⚡ BPE Training Benchmark (hyperfine)"
 echo "============================================================"
-echo "Training: 150K texts, vocab 2048"
+echo "Training: 583 diverse texts (200K chars), vocab 2048"
+echo "Following industry standards: realistic diverse corpus"
 echo ""
+
+# Generate benchmark data if needed
+if [ ! -f benchmark_data.json ]; then
+    echo "Generating realistic benchmark data..."
+    python3 generate_benchmark_data.py
+    echo ""
+fi
 
 # Build bench_train if needed
 if [ ! -f zig-out/bin/bench_train ]; then
@@ -16,13 +24,16 @@ if [ ! -f zig-out/bin/bench_train ]; then
 fi
 
 cat > /tmp/bench_hf_train.py << 'PYEOF'
-import time
+import time, json
 from tokenizers import Tokenizer, models, trainers
 
-TEXT_COUNT = 150_000
+# Load realistic benchmark data
+with open('benchmark_data.json') as f:
+    data = json.load(f)
+    texts = data['texts']
+
 VOCAB_SIZE = 2048
 
-texts = ["The quick brown fox jumps over the lazy dog"] * TEXT_COUNT
 tokenizer = Tokenizer(models.BPE(unk_token="[UNK]"))
 trainer = trainers.BpeTrainer(
     vocab_size=VOCAB_SIZE,
@@ -37,17 +48,20 @@ print(f"{int(elapsed * 1000)}ms")
 PYEOF
 
 cat > /tmp/bench_spm_train.py << 'PYEOF'
-import time
+import time, json
 import sentencepiece as spm
 import tempfile
 import os
 
-TEXT_COUNT = 150_000
+# Load realistic benchmark data
+with open('benchmark_data.json') as f:
+    data = json.load(f)
+    texts = data['texts']
 
 # Write training data
 with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
-    for _ in range(TEXT_COUNT):
-        f.write("The quick brown fox jumps over the lazy dog\n")
+    for text in texts:
+        f.write(text + "\n")
     temp_file = f.name
 
 # Train

@@ -6,17 +6,29 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const TEXT_COUNT = 150_000;
     const VOCAB_SIZE = 2048;
 
-    // Generate training data
+    // Load realistic benchmark data
+    const file = try std.fs.cwd().openFile("benchmark_data.json", .{});
+    defer file.close();
+
+    const file_size = (try file.stat()).size;
+    const json_data = try allocator.alloc(u8, file_size);
+    defer allocator.free(json_data);
+    _ = try file.readAll(json_data);
+
+    // Parse JSON to get texts array
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_data, .{});
+    defer parsed.deinit();
+
+    const texts_json = parsed.value.object.get("texts").?.array;
     var texts = std.ArrayList([]const u8){};
     defer texts.deinit(allocator);
 
-    const sample_text = "The quick brown fox jumps over the lazy dog";
-    var i: usize = 0;
-    while (i < TEXT_COUNT) : (i += 1) {
-        try texts.append(allocator, sample_text);
+    for (texts_json.items) |text_value| {
+        const text = text_value.string;
+        const owned_text = try allocator.dupe(u8, text);
+        try texts.append(allocator, owned_text);
     }
 
     // Train
