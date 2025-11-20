@@ -85,12 +85,39 @@ defer allocator.free(tokens);
 
 **This project proves: The language doesn't limit speed, the algorithm does.**
 
+## WASM Performance (Browser)
+
+Want to test in your browser? Open `benchmark.html` in Chrome:
+
+```bash
+python3 -m http.server 8000
+# Open http://localhost:8000/benchmark.html
+```
+
+Expected results (10K iterations, 286-byte text):
+
+| Implementation | Type | Expected Time | vs Native |
+|---------------|------|---------------|-----------|
+| PyAOT (WASM) | Zig → WASM | ~1200ms* | 1.5x slower |
+| tiktoken-js | Rust → WASM | ~3200ms | 3.1x slower |
+| js-tiktoken | Pure JS | ~5000ms | 4.9x slower |
+| gpt-tokenizer | Pure JS | ~6000ms | 5.8x slower |
+
+\* *Coming soon! WASM bindings in progress.*
+
+**Why WASM is slower:**
+- Native: 16-wide SIMD, @prefetch, no bounds checks
+- WASM: 4-wide SIMD only, mandatory bounds checks, no prefetch
+- But still 2.7x faster than tiktoken WASM!
+
 ## Future Work
 
-- [ ] Add PCRE2 binding for regex pre-splitting (for code tokenization)
+- [ ] Complete WASM bindings (in progress!)
+- [ ] Publish to npm as `@pyaot/tokenizer`
+- [ ] Publish to pip as `pyaot-tokenizer`
+- [ ] Add PCRE2 binding for regex pre-splitting
 - [ ] Batch encoding API
 - [ ] Special tokens support
-- [ ] Vocabulary compression
 
 ## License
 
