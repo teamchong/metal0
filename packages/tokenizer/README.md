@@ -4,17 +4,28 @@ Fast, pure Zig implementation of BPE tokenization. **1.26x faster than tiktoken 
 
 ## Benchmarks
 
-Performed on Apple M2, 60,000 iterations on 286-byte prose text.
+### Native Binary Performance
+
+Tested on Apple M2, 60,000 iterations on 286-byte prose text.
 
 | Implementation | Time (avg) | Range | vs PyAOT | Notes |
 |---------------|------------|-------|----------|-------|
 | **PyAOT (Zig)** | **820ms** | 810-831ms | **1.00x** 🏆 | Pure Zig, zero deps |
 | tiktoken (Rust) | 1031ms | 1027-1035ms | 1.26x | Official OpenAI |
-| TokenDagger (C) | ~850ms* | - | 1.04x | PCRE2 + simplified BPE |
-| HuggingFace | ~990ms | - | 1.21x | Rust tokenizers |
 | Rust rustbpe | 9550ms | - | 11.6x | Pure Rust BPE |
 
-\* *TokenDagger's "4x faster" claim is vs WASM (browser), not native. On prose, similar to our speed. On code, PCRE2 regex helps (we can add this too!).*
+**Not tested:** HuggingFace, TokenDagger, ai-tokenizer (install issues or not available)
+
+### Browser/WASM Performance
+
+Tested on Chrome (headless), 10,000 iterations on 286-byte text.
+
+| Implementation | Time | Scaled (60K) | vs PyAOT | Type |
+|---------------|------|--------------|----------|------|
+| gpt-tokenizer | 893ms | ~5358ms | 6.5x | Pure JS |
+| **PyAOT native** | **137ms** | **820ms** | **1.00x** 🏆 | Native (ref) |
+
+**Not tested:** js-tiktoken (import errors), tiktoken-js, ai-tokenizer
 
 ### Training Performance (150K texts, 2048 vocab)
 
