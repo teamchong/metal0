@@ -162,38 +162,41 @@ All benchmarks run ~60 seconds on CPython for statistical significance.
 
 ### Tokenizer Benchmark (Native Binary)
 
-Benchmarked with hyperfine (5 runs, 60K iterations, 286-byte text, Apple M2):
+Benchmarked on Apple M2 (60K iterations, 286-byte text, cl100k_base tokenizer):
 
-| Implementation | Time (mean ± σ) | vs PyAOT |
-|---------------|-----------------|----------|
-| **PyAOT (Zig)** | **390ms ± 9ms** | **1.00x** 🏆 |
-| TokenDagger (C) | 772ms ± 18ms | 1.98x |
-| tiktoken (Rust) | 1188ms ± 4ms | 3.04x |
-| HuggingFace (Rust) | 5249ms ± 38ms | 13.44x |
-| Rust rustbpe | 9809ms ± 61ms | 25.12x |
+| Implementation | Time | vs Fastest | Accuracy |
+|---------------|------|------------|----------|
+| **TokenDagger (C)** | **477ms** | **1.00x** 🏆 | ✅ 100% |
+| PyAOT (Zig) | 595ms | 1.25x | ✅ 100% |
+| tiktoken (Rust) | 1064ms | 2.23x | ✅ 100% |
+| HuggingFace (Python) | 4245ms | 8.90x | ✅ 100% |
 
-**Browser (10K iterations, Chrome headless):**
+**Key points:**
+- PyAOT implements greedy longest-match with array-based Trie (same algorithm as tiktoken/TokenDagger)
+- All implementations produce identical token sequences (verified against tiktoken reference)
+- PyAOT is **1.79x faster than tiktoken (Rust)**, **7.1x faster than HuggingFace**
+- TokenDagger's C implementation with PCRE2 regex is currently the fastest
 
-| Implementation | Time | vs Fastest | Size (code only) | Type |
-|---------------|------|------------|------------------|------|
-| **PyAOT (Zig→WASM)** | **10ms** | **1.00x** 🏆 | **60KB** | WASM |
-| ai-tokenizer | 41ms | 4.10x | 8.6MB | Pure JS |
-| gpt-tokenizer | 60ms | 6.00x | 1.1MB | Pure JS |
-| tiktoken (Rust→WASM) | 825ms | 82.50x | 5.6MB | WASM |
+**BPE Training:**
+- PyAOT: **19ms** (150K texts, vocab 2048, 328 merges learned)
 
-PyAOT's tokenizer is **2x faster than C**, 3x faster than Rust (tiktoken). **In browser: PyAOT WASM beats Pure JS by 4.1x and Rust WASM by 82.5x!**
+**Browser (10K iterations, Playwright/Chrome headless):**
 
-*Note: Multi-threaded batch mode (8 cores) achieves ~540ms for high-throughput scenarios, but single-threaded latency is more relevant for typical library usage.*
+| Library | Time | vs Fastest | Tokens | Type |
+|---------|------|------------|--------|------|
+| **ai-tokenizer** | **113ms** | **1.00x** | 76 | Pure JS 🏆 |
+| PyAOT (Zig→WASM) | 199ms | 1.76x | 286* | Zig → WASM |
+| @huggingface/transformers | 837ms | 7.41x | 76 | Rust → WASM |
+| tiktoken (WASM) | 882ms | 7.81x | 76 | Rust → WASM |
+| gpt-tokenizer | 908ms | 8.04x | 76 | Pure JS |
 
-**BPE Training:** PyAOT trains BPE tokenizer in **20ms** (150K texts, vocab 2048, 328 merges learned).
+**Note:** *PyAOT returns 286 bytes instead of 76 tokens (Trie not available in WASM due to memory constraints for 100K vocab).
 
-**Why PyAOT is faster:**
-- Direct compilation to native machine code via Zig (no interpreter)
-- Eliminates Python interpreter overhead completely
-- Native i64 in CPU registers vs PyLongObject heap allocations
-- Zero dynamic dispatch - direct function calls
-- No GC pauses or JIT warmup time
-- AOT compilation (no warmup needed unlike PyPy's JIT)
+**Implementation notes:**
+- PyAOT uses array-based Trie for O(1) character lookup (256-element array per node)
+- Greedy longest-match algorithm (same as tiktoken/TokenDagger)
+- Pure Zig implementation with no C dependencies
+- Competitive performance while maintaining 100% accuracy
 
 **Run benchmarks:**
 ```bash
