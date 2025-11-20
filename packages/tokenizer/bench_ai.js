@@ -1,12 +1,16 @@
 import { Tokenizer } from 'ai-tokenizer';
-import { models } from 'ai-tokenizer';
+import * as o200k from 'ai-tokenizer/encoding/o200k_base';
 
 try {
-    console.log('models:', typeof models, models);
-    console.log('gpt-4o:', models['openai/gpt-4o']);
-    const modelData = models['openai/gpt-4o'];
-    if (!modelData) throw new Error('Model not found');
-    const tokenizer = new Tokenizer(modelData);
+    const tokenizer = new Tokenizer({
+        name: o200k.name,
+        patternRegex: new RegExp(o200k.pat_str, 'gu'),
+        specialTokensRegex: null,
+        specialTokens: o200k.special_tokens,
+        stringRankEncoder: o200k.stringEncoder,
+        binaryRankEncoder: o200k.binaryEncoder,
+        decoder: o200k.decoder
+    });
 
     window.benchAITokenizer = function(text, iterations) {
         // Warmup
@@ -23,9 +27,7 @@ try {
     window.testAITokenizer = function(text) {
         return tokenizer.encode(text).length;
     };
-
-    console.log('ai-tokenizer loaded successfully');
 } catch (e) {
-    console.error('ai-tokenizer error:', e);
+    console.error('ai-tokenizer init failed:', e.message);
     window.aiTokenizerError = e.message;
 }

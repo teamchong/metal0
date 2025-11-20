@@ -1,0 +1,21 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "workspaces": {
+    "": {
+      "name": "pyaot-tokenizer-bench",
+      "dependencies": {
+        "ai-tokenizer": "^1.0.4",
+        "gpt-tokenizer": "^2.1.1",
+        "tiktoken": "^1.0.17",
+      },
+    },
+  },
+  "packages": {
+    "ai-tokenizer": ["ai-tokenizer@1.0.4", "", { "peerDependencies": { "ai": "^5.0.0" }, "optionalPeers": ["ai"] }, "sha512-BHOUljsmH0SEO9bULQL3sz6pJ4jv00r+NHxX3kR6tn1suAAj6DDN4njSk+sqCOI5Cm6FqizUhDfoYZ0R+5/WVQ=="],
+
+    "gpt-tokenizer": ["gpt-tokenizer@2.9.0", "", {}, "sha512-YSpexBL/k4bfliAzMrRqn3M6+it02LutVyhVpDeMKrC/O9+pCe/5s8U2hYKa2vFLD5/vHhsKc8sOn/qGqII8Kg=="],
+
+    "tiktoken": ["tiktoken@1.0.22", "", {}, "sha512-PKvy1rVF1RibfF3JlXBSP0Jrcw2uq3yXdgcEXtKTYn3QJ/cBRBHDnrJ5jHky+MENZ6DIPwNUGWpkVx+7joCpNA=="],
+  }
+}
