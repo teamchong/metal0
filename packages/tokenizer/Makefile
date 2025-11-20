@@ -17,6 +17,7 @@ help:
 	@echo "  make benchmark-quick    - PyAOT vs TokenDagger (hyperfine, ~10s)"
 	@echo "  make benchmark-train    - BPE training (3 libraries, ~30s)"
 	@echo "  make benchmark-encoding - PyAOT vs tiktoken (hyperfine, ~20s)"
+	@echo "  make benchmark-web      - Web/WASM benchmark (hyperfine, ~15s)"
 	@echo "  make test-correctness   - Verify PyAOT matches tiktoken output"
 	@echo ""
 	@echo "$(GREEN)Build targets:$(RESET)"
@@ -64,17 +65,14 @@ test-correctness: build
 	@python3 test_correctness.py
 	@echo ""
 
-# Browser benchmarks (5 libraries - 10K iterations each)
+# Web/WASM benchmarks (hyperfine-based, Node.js)
 benchmark-web: build-wasm
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-	@echo "$(GREEN)🌐 Browser Tokenizer Benchmark (10K iterations)$(RESET)"
+	@echo "$(GREEN)🌐 Web/WASM Benchmark (hyperfine)$(RESET)"
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo ""
-	@if ! python3 -c "import playwright" 2>/dev/null; then \
-		echo "$(YELLOW)⚠️  Installing playwright...$(RESET)"; \
-		pip install playwright && playwright install chromium; \
-	fi
-	@python3 run_browser_benchmark.py
+	@chmod +x bench_web.sh
+	@./bench_web.sh
 	@echo ""
 
 # Build native tokenizer

@@ -1,40 +1,22 @@
 #!/usr/bin/env python3
-"""
-Verify PyAOT tokenizer produces identical results to tiktoken
-"""
-import subprocess
-import tiktoken
+import subprocess, tiktoken, json
 
-TEXT = """The cat sat on the mat. The dog ran in the park. The bird flew in the sky. The fish swam in the sea. The snake slithered on the ground. The rabbit hopped in the field. The fox ran through the forest. The bear climbed the tree. The wolf howled at the moon. The deer grazed in the meadow."""
+TEXT = "The cat sat on the mat. The dog ran in the park. The bird flew in the sky. The fish swam in the sea. The snake slithered on the ground. The rabbit hopped in the field. The fox ran through the forest. The bear climbed the tree. The wolf howled at the moon. The deer grazed in the meadow."
 
-print("🔍 Correctness Test: PyAOT vs tiktoken")
-print("=" * 60)
+enc = tiktoken.get_encoding('cl100k_base')
+expected = enc.encode(TEXT)
 
-# Get tiktoken result (ground truth)
-enc = tiktoken.get_encoding("cl100k_base")
-tiktoken_tokens = enc.encode(TEXT)
-tiktoken_count = len(tiktoken_tokens)
+result = subprocess.run(['./zig-out/bin/test_correctness'], capture_output=True, text=True, timeout=10)
+got = json.loads(result.stderr.strip())
 
-print(f"tiktoken: {tiktoken_count} tokens")
+print(f"Expected: {len(expected)} tokens")
+print(f"Got:      {len(got)} tokens")
 
-# Get PyAOT result
-result = subprocess.run(
-    ['./zig-out/bin/bench_native'],
-    capture_output=True,
-    text=True,
-    timeout=10
-)
-
-if result.returncode != 0:
-    print(f"❌ FAILED: PyAOT exited with code {result.returncode}")
-    print(f"stderr: {result.stderr}")
+if got == expected:
+    print("\n✅ PASS: PyAOT is 100% CORRECT!")
+    exit(0)
+else:
+    print(f"\n❌ FAIL: Mismatch")
+    print(f"Expected: {expected[:20]}")
+    print(f"Got:      {got[:20]}")
     exit(1)
-
-# Parse output (bench_native just prints time)
-# We need to check the actual tokenization, not just time
-# For now, verify it runs without error
-print(f"PyAOT: Benchmark completed in {result.stderr.strip()}")
-print()
-print("✅ PASS: PyAOT runs without errors")
-print()
-print("Note: Full token comparison requires updating bench_native to output tokens")

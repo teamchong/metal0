@@ -6,8 +6,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Load cl100k_base
-    var tokenizer = try Tokenizer.init("dist/cl100k_simple.json", allocator);
+    // Load cl100k_base with full BPE vocab
+    var tokenizer = try Tokenizer.init("dist/cl100k_base_full.json", allocator);
     defer tokenizer.deinit();
 
     const TEXT = 

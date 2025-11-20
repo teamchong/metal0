@@ -336,9 +336,8 @@ pub const Tokenizer = struct {
             try vocab_r.put(rank, token);
         }
 
-        // std.debug.print("Loaded {} vocab entries\n", .{vocab.count()});
-
-        // Skip trie for WASM (uses too much memory)
+        // No explicit merges needed - we'll look up concatenated bytes in vocab
+        // Skip trie (use vocab-based BPE)
         const trie: ?*TrieNode = null;
 
         // Default GPT-4 pattern
@@ -378,9 +377,11 @@ pub const Tokenizer = struct {
         if (text.len <= 4096) {
             var stack_buffer: [4096]u32 = undefined;
 
-            // Start with bytes
+            // Start with bytes - look up each byte's rank in vocab
             for (text, 0..) |byte, i| {
-                stack_buffer[i] = byte;
+                const byte_slice = @as(*const [1]u8, &byte)[0..1];
+                const rank = self.vocab.get(byte_slice) orelse byte; // Fallback to byte value
+                stack_buffer[i] = rank;
             }
 
             const len = try self.applyMergesHashMap(stack_buffer[0..text.len]);
@@ -395,48 +396,61 @@ pub const Tokenizer = struct {
         errdefer tokens.deinit(self.allocator);
 
         for (text) |byte| {
-            tokens.appendAssumeCapacity(byte);
+            const byte_slice = @as(*const [1]u8, &byte)[0..1];
+            const rank = self.vocab.get(byte_slice) orelse byte;
+            tokens.appendAssumeCapacity(rank);
         }
 
         try self.applyMergesHashMapArrayList(&tokens);
         return try tokens.toOwnedSlice(self.allocator);
     }
 
-    /// Hash map based merging: find applicable merges, apply highest priority
+    /// Vocab-based BPE merging (tiktoken style)
     fn applyMergesHashMap(self: *Tokenizer, tokens: []u32) !usize {
         @setRuntimeSafety(false);
 
         if (tokens.len < 2) return tokens.len;
 
         var current_len = tokens.len;
+        var merge_buffer: [512]u8 = undefined; // Buffer for concatenating bytes
 
         while (true) {
-            // Find the highest-priority merge in current sequence
-            var best_pair: ?Pair = null;
             var best_rank: u32 = std.math.maxInt(u32);
+            var best_new_token: u32 = 0;
             var best_pos: usize = 0;
 
-            // Scan for all pairs and lookup in hash map
+            // Scan all adjacent pairs and find lowest-rank merge
             var i: usize = 0;
             while (i + 1 < current_len) : (i += 1) {
-                const pair = Pair{ .left = tokens[i], .right = tokens[i + 1] };
+                const left_token = tokens[i];
+                const right_token = tokens[i + 1];
 
-                if (self.merges_map.get(pair)) |merge_idx| {
-                    // Lower index = higher priority (earlier merge)
-                    if (merge_idx < best_rank) {
-                        best_rank = merge_idx;
-                        best_pair = pair;
+                // Get bytes for each token
+                const left_bytes = self.vocab_r.get(left_token) orelse continue;
+                const right_bytes = self.vocab_r.get(right_token) orelse continue;
+
+                // Concatenate and look up in vocab
+                const total_len = left_bytes.len + right_bytes.len;
+                if (total_len > merge_buffer.len) continue; // Skip if too large
+
+                @memcpy(merge_buffer[0..left_bytes.len], left_bytes);
+                @memcpy(merge_buffer[left_bytes.len..total_len], right_bytes);
+
+                if (self.vocab.get(merge_buffer[0..total_len])) |merged_rank| {
+                    // Lower rank = higher priority
+                    if (merged_rank < best_rank) {
+                        best_rank = merged_rank;
+                        best_new_token = merged_rank;
                         best_pos = i;
                     }
                 }
             }
 
             // No more merges possible
-            if (best_pair == null) break;
+            if (best_rank == std.math.maxInt(u32)) break;
 
-            // Apply the merge: replace (left, right) with new_token
-            const new_token = 256 + best_rank;
-            tokens[best_pos] = new_token;
+            // Apply the merge: replace (left, right) with merged token
+            tokens[best_pos] = best_new_token;
 
             // Shift remaining tokens left
             i = best_pos + 1;
@@ -450,28 +464,39 @@ pub const Tokenizer = struct {
     }
 
     fn applyMergesHashMapArrayList(self: *Tokenizer, tokens: *std.ArrayList(u32)) !void {
+        var merge_buffer: [512]u8 = undefined;
+
         while (true) {
-            var best_pair: ?Pair = null;
             var best_rank: u32 = std.math.maxInt(u32);
+            var best_new_token: u32 = 0;
             var best_pos: usize = 0;
 
             var i: usize = 0;
             while (i + 1 < tokens.items.len) : (i += 1) {
-                const pair = Pair{ .left = tokens.items[i], .right = tokens.items[i + 1] };
+                const left_token = tokens.items[i];
+                const right_token = tokens.items[i + 1];
 
-                if (self.merges_map.get(pair)) |merge_idx| {
-                    if (merge_idx < best_rank) {
-                        best_rank = merge_idx;
-                        best_pair = pair;
+                const left_bytes = self.vocab_r.get(left_token) orelse continue;
+                const right_bytes = self.vocab_r.get(right_token) orelse continue;
+
+                const total_len = left_bytes.len + right_bytes.len;
+                if (total_len > merge_buffer.len) continue;
+
+                @memcpy(merge_buffer[0..left_bytes.len], left_bytes);
+                @memcpy(merge_buffer[left_bytes.len..total_len], right_bytes);
+
+                if (self.vocab.get(merge_buffer[0..total_len])) |merged_rank| {
+                    if (merged_rank < best_rank) {
+                        best_rank = merged_rank;
+                        best_new_token = merged_rank;
                         best_pos = i;
                     }
                 }
             }
 
-            if (best_pair == null) break;
+            if (best_rank == std.math.maxInt(u32)) break;
 
-            const new_token = 256 + best_rank;
-            tokens.items[best_pos] = new_token;
+            tokens.items[best_pos] = best_new_token;
             _ = tokens.orderedRemove(best_pos + 1);
         }
     }
