@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
 const BacktrackEncoder = @import("backtrack_encoder.zig").BacktrackEncoder;
 const encodeGreedy = @import("greedy_encoder.zig").encodeGreedy;
 const encodeOptimized = @import("optimized_hashmap_encoder.zig").encodeOptimized;
+const cl100k_splitter = @import("cl100k_splitter.zig");
 
 /// A byte pair in the BPE vocabulary
 pub const Pair = struct {
@@ -609,8 +610,21 @@ pub const Tokenizer = struct {
     /// Trie-based longest-match encoding (fast + correct)
     /// Falls back to HashMap if trie not available (WASM)
     pub fn encode(self: *Tokenizer, text: []const u8) ![]u32 {
-        // Use optimized HashMap encoder (O(n²) merge-based BPE)
-        return encodeOptimized(self.allocator, text, &self.vocab, &self.vocab_r);
+        // Split text using cl100k_base pattern
+        const chunks = try cl100k_splitter.split(self.allocator, text);
+        defer self.allocator.free(chunks);
+
+        // Encode each chunk separately and concatenate
+        var result = std.ArrayList(u32){};
+        errdefer result.deinit(self.allocator);
+
+        for (chunks) |chunk| {
+            const tokens = try encodeOptimized(self.allocator, chunk, &self.vocab, &self.vocab_r);
+            defer self.allocator.free(tokens);
+            try result.appendSlice(self.allocator, tokens);
+        }
+
+        return try result.toOwnedSlice(self.allocator);
     }
 
     /// Backtracking encoder - rs-bpe algorithm
