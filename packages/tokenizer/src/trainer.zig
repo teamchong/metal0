@@ -481,11 +481,14 @@ pub const Trainer = struct {
         const TrieNode = @import("tokenizer.zig").TrieNode;
         const trie = try TrieNode.init(self.allocator);
 
+        const split_table = std.AutoHashMap(u32, @import("tokenizer.zig").Pair).init(self.allocator);
+
         return Tokenizer{
             .vocab = vocab,
             .vocab_r = vocab_r,
             .merges = merges,
             .merges_map = merges_map,
+            .split_table = split_table,
             .pattern_str = pattern_str,
             .trie = trie,
             .allocator = self.allocator,

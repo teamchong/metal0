@@ -16,7 +16,7 @@ for (const text of texts.slice(0, 10)) {
 
 // Benchmark: encode all texts 100 times
 const start = Date.now();
-for (let i = 0; i < 100; i++) {
+for (let i = 0; i < 1000; i++) {
     for (const text of texts) {
         enc.encode(text);
     }

@@ -18,11 +18,11 @@ help:
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo ""
 	@echo "$(GREEN)Available targets:$(RESET)"
-	@echo "  make benchmark          - Run all benchmarks (train + encoding)"
+	@echo "  make benchmark          - Run ALL benchmarks (train + encoding + web)"
 	@echo "  make benchmark-quick    - PyAOT vs TokenDagger (hyperfine, ~10s)"
 	@echo "  make benchmark-train    - BPE training (3 libraries, ~30s)"
-	@echo "  make benchmark-encoding - PyAOT vs tiktoken (hyperfine, ~20s)"
-	@echo "  make benchmark-web      - Web/WASM benchmark (hyperfine, ~15s)"
+	@echo "  make benchmark-encoding - Encoding (5 libraries w/ TokenDagger, ~20s)"
+	@echo "  make benchmark-web      - Web/WASM benchmark (4 libraries, ~15s)"
 	@echo "  make test-correctness   - Verify PyAOT matches tiktoken (583+ tests)"
 	@echo ""
 	@echo "$(GREEN)Build targets:$(RESET)"
@@ -31,8 +31,8 @@ help:
 	@echo "  make clean              - Clean build artifacts"
 	@echo ""
 
-# Run all benchmarks (skip web - too slow)
-benchmark: benchmark-train benchmark-encoding
+# Run all benchmarks (train + encoding + web)
+benchmark: benchmark-train benchmark-encoding benchmark-web
 
 # Training benchmarks (PyAOT vs HuggingFace vs SentencePiece)
 benchmark-train:
@@ -52,13 +52,13 @@ benchmark-quick: build
 	@./bench_hyperfine.sh
 	@echo ""
 
-# Native encoding benchmarks (PyAOT vs tiktoken - 60K iterations)
-benchmark-encoding: build
+# Native encoding benchmarks (5 libraries: rs-bpe, tiktoken, TokenDagger, HuggingFace, PyAOT)
+benchmark-encoding:
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-	@echo "$(GREEN)⚡ Encoding Benchmark: PyAOT vs tiktoken (hyperfine)$(RESET)"
+	@echo "$(GREEN)🚀 Encoding Benchmark: 5 libraries$(RESET)"
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo ""
-	@./bench_encoding.sh
+	@./BENCHMARK.sh
 	@echo ""
 
 # Test correctness (comprehensive: 583 benchmark texts + edge cases)

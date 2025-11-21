@@ -5,8 +5,8 @@ set -e
 
 echo "⚡ BPE Training Benchmark (hyperfine)"
 echo "============================================================"
-echo "Training: 583 diverse texts (200K chars), vocab 2048"
-echo "Following industry standards: realistic diverse corpus"
+echo "Training: 583 texts × vocab 32000 × 30 iterations"
+echo "Python startup overhead ~2% with 30 training runs"
 echo ""
 
 # Generate benchmark data if needed
@@ -24,7 +24,7 @@ if [ ! -f zig-out/bin/bench_train ]; then
 fi
 
 cat > /tmp/bench_hf_train.py << 'PYEOF'
-import time, json
+import json
 from tokenizers import Tokenizer, models, trainers
 
 # Load realistic benchmark data
@@ -32,23 +32,20 @@ with open('benchmark_data.json') as f:
     data = json.load(f)
     texts = data['texts']
 
-VOCAB_SIZE = 2048
+VOCAB_SIZE = 32000
 
-tokenizer = Tokenizer(models.BPE(unk_token="[UNK]"))
-trainer = trainers.BpeTrainer(
-    vocab_size=VOCAB_SIZE,
-    special_tokens=["[UNK]", "[PAD]"]
-)
-
-start = time.time()
-tokenizer.train_from_iterator(texts, trainer=trainer)
-elapsed = time.time() - start
-
-print(f"{int(elapsed * 1000)}ms")
+# Train 30 times to amortize Python startup overhead
+for _ in range(30):
+    tokenizer = Tokenizer(models.BPE(unk_token="[UNK]"))
+    trainer = trainers.BpeTrainer(
+        vocab_size=VOCAB_SIZE,
+        special_tokens=["[UNK]", "[PAD]"]
+    )
+    tokenizer.train_from_iterator(texts, trainer=trainer)
 PYEOF
 
 cat > /tmp/bench_spm_train.py << 'PYEOF'
-import time, json
+import json
 import sentencepiece as spm
 import tempfile
 import os
@@ -58,30 +55,29 @@ with open('benchmark_data.json') as f:
     data = json.load(f)
     texts = data['texts']
 
-# Write training data
+# Write training data once
 with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
     for text in texts:
         f.write(text + "\n")
     temp_file = f.name
 
-# Train
-start = time.time()
-spm.SentencePieceTrainer.train(
-    input=temp_file,
-    model_prefix='temp_spm',
-    vocab_size=100,  # BPE mode limit
-    model_type='bpe'
-)
-elapsed = time.time() - start
+# Train 30 times to amortize Python startup overhead
+for i in range(30):
+    spm.SentencePieceTrainer.train(
+        input=temp_file,
+        model_prefix=f'temp_spm_{i}',
+        vocab_size=100,  # BPE mode limit
+        model_type='bpe',
+        minloglevel=2  # Suppress logs
+    )
+    # Cleanup immediately
+    if os.path.exists(f'temp_spm_{i}.model'):
+        os.unlink(f'temp_spm_{i}.model')
+    if os.path.exists(f'temp_spm_{i}.vocab'):
+        os.unlink(f'temp_spm_{i}.vocab')
 
-# Cleanup
+# Cleanup temp file
 os.unlink(temp_file)
-if os.path.exists('temp_spm.model'):
-    os.unlink('temp_spm.model')
-if os.path.exists('temp_spm.vocab'):
-    os.unlink('temp_spm.vocab')
-
-print(f"{int(elapsed * 1000)}ms")
 PYEOF
 
 # Run hyperfine
