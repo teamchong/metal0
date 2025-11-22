@@ -491,6 +491,7 @@ pub const Trainer = struct {
             .split_table = split_table,
             .pattern_str = pattern_str,
             .trie = trie,
+            .aho_corasick = null, // Not needed for trainer
             .allocator = self.allocator,
         };
     }

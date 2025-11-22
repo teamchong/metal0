@@ -8,6 +8,7 @@ const BacktrackEncoder = @import("backtrack_encoder.zig").BacktrackEncoder;
 const encodeGreedy = @import("greedy_encoder.zig").encodeGreedy;
 const encodeOptimized = @import("optimized_hashmap_encoder.zig").encodeOptimized;
 const cl100k_splitter = @import("cl100k_splitter.zig");
+const AhoCorasick = @import("aho_corasick.zig").AhoCorasick;
 
 /// A byte pair in the BPE vocabulary
 pub const Pair = struct {
@@ -330,6 +331,24 @@ fn buildSplitTable(
     }
 }
 
+/// Build Aho-Corasick automaton from vocab for fast longest-match lookup
+fn buildAhoCorasick(vocab_r: *const std.AutoHashMap(u32, []const u8), allocator: Allocator) !?AhoCorasick {
+    // Collect all patterns and token IDs
+    var patterns = std.ArrayList([]const u8){};
+    defer patterns.deinit(allocator);
+    var token_ids = std.ArrayList(u32){};
+    defer token_ids.deinit(allocator);
+
+    var it = vocab_r.iterator();
+    while (it.next()) |entry| {
+        try patterns.append(allocator, entry.value_ptr.*);
+        try token_ids.append(allocator, entry.key_ptr.*);
+    }
+
+    // Build automaton
+    return try AhoCorasick.build(allocator, patterns.items, token_ids.items);
+}
+
 /// Port of rs-bpe's is_valid_token_pair (lines 112-148)
 fn isValidTokenPair(
     pair_lookup: *const std.HashMap(Pair, u32, PairContext, std.hash_map.default_max_load_percentage),
@@ -398,6 +417,7 @@ pub const Tokenizer = struct {
     split_table: std.AutoHashMap(u32, Pair), // For merge validation: token -> (left, right)
     pattern_str: []const u8,
     trie: ?*TrieNode, // Fast longest-match lookup (optional - uses lots of memory)
+    aho_corasick: ?AhoCorasick, // Fast vocab lookup for backtracking encoder
     allocator: Allocator,
 
     pub fn initFromData(json_data: []const u8, allocator: Allocator) !Tokenizer {
@@ -492,6 +512,9 @@ pub const Tokenizer = struct {
 
         const trie: ?*TrieNode = null;
 
+        // Build Aho-Corasick automaton for fast vocab lookup
+        const aho_corasick = try buildAhoCorasick(&vocab_r, allocator);
+
         const pattern_str = try allocator.dupe(u8,
             "'s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^[:alnum:][:space:]]+| +[[:space:]]*| +"
         );
@@ -504,6 +527,7 @@ pub const Tokenizer = struct {
             .split_table = split_table,
             .pattern_str = pattern_str,
             .trie = trie,
+            .aho_corasick = aho_corasick,
             .allocator = allocator,
         };
     }
@@ -576,6 +600,9 @@ pub const Tokenizer = struct {
         // Skip trie (use vocab-based BPE)
         const trie: ?*TrieNode = null;
 
+        // Build Aho-Corasick automaton for fast vocab lookup
+        const aho_corasick = try buildAhoCorasick(&vocab_r, allocator);
+
         // Default GPT-4 pattern
         const pattern_str = try allocator.dupe(u8,
             "'s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^[:alnum:][:space:]]+| +[[:space:]]*| +"
@@ -589,6 +616,7 @@ pub const Tokenizer = struct {
             .split_table = split_table,
             .pattern_str = pattern_str,
             .trie = trie,
+            .aho_corasick = aho_corasick,
             .allocator = allocator,
         };
     }
@@ -606,6 +634,10 @@ pub const Tokenizer = struct {
         self.allocator.free(self.pattern_str);
         if (self.trie) |trie| {
             trie.deinit();
+        }
+        if (self.aho_corasick) |*ac| {
+            var ac_mut = ac.*;
+            ac_mut.deinit();
         }
     }
 

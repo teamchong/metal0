@@ -159,9 +159,9 @@ const Builder = struct {
     fn init(allocator: Allocator) Builder {
         return .{
             .allocator = allocator,
-            .nfa_states = std.ArrayList(NFAState).init(allocator),
-            .patterns = std.ArrayList([]const u8).init(allocator),
-            .token_ids = std.ArrayList(u32).init(allocator),
+            .nfa_states = std.ArrayList(NFAState){},
+            .patterns = std.ArrayList([]const u8){},
+            .token_ids = std.ArrayList(u32){},
         };
     }
 
@@ -169,15 +169,15 @@ const Builder = struct {
         for (self.nfa_states.items) |*state| {
             state.deinit();
         }
-        self.nfa_states.deinit();
-        self.patterns.deinit();
-        self.token_ids.deinit();
+        self.nfa_states.deinit(self.allocator);
+        self.patterns.deinit(self.allocator);
+        self.token_ids.deinit(self.allocator);
     }
 
     /// Build NFA (trie + failure links)
     fn buildNFA(self: *Builder, patterns: []const []const u8, token_ids: []const u32) !void {
         // Add root state
-        try self.nfa_states.append(NFAState.init(self.allocator));
+        try self.nfa_states.append(self.allocator, NFAState.init(self.allocator));
 
         // Build trie
         for (patterns, 0..) |pattern, i| {
@@ -197,7 +197,7 @@ const Builder = struct {
                 // Create new state
                 const new_id = @as(u32, @intCast(self.nfa_states.items.len));
                 entry.value_ptr.* = new_id;
-                try self.nfa_states.append(NFAState.init(self.allocator));
+                try self.nfa_states.append(self.allocator, NFAState.init(self.allocator));
             }
             state_id = entry.value_ptr.*;
         }
@@ -207,15 +207,15 @@ const Builder = struct {
     }
 
     fn buildFailureLinks(self: *Builder) !void {
-        var queue = std.ArrayList(u32).init(self.allocator);
-        defer queue.deinit();
+        var queue = std.ArrayList(u32){};
+        defer queue.deinit(self.allocator);
 
         // Initialize: root's children fail to root
         var it = self.nfa_states.items[ROOT_STATE_IDX].children.iterator();
         while (it.next()) |entry| {
             const child_id = entry.value_ptr.*;
             self.nfa_states.items[child_id].fail = ROOT_STATE_IDX;
-            try queue.append(child_id);
+            try queue.append(self.allocator, child_id);
         }
 
         // BFS to build failure links
@@ -245,7 +245,7 @@ const Builder = struct {
                     }
                 }
 
-                try queue.append(child_id);
+                try queue.append(self.allocator, child_id);
             }
         }
     }
@@ -255,26 +255,26 @@ const Builder = struct {
         var helper = BuildHelper.init(self.allocator);
         defer helper.deinit();
 
-        var states = std.ArrayList(State).init(self.allocator);
-        errdefer states.deinit();
+        var states = std.ArrayList(State){};
+        errdefer states.deinit(self.allocator);
 
         // Preallocate
-        try states.ensureTotalCapacity(self.nfa_states.items.len * 2);
+        try states.ensureTotalCapacity(self.allocator, self.nfa_states.items.len * 2);
 
         // Add root
-        try states.append(State{});
+        try states.append(self.allocator, State{});
 
         // Process each NFA state
         for (self.nfa_states.items, 0..) |*nfa_state, nfa_id| {
             if (nfa_state.children.count() == 0) continue;
 
             // Get sorted labels
-            var labels = std.ArrayList(u8).init(self.allocator);
-            defer labels.deinit();
+            var labels = std.ArrayList(u8){};
+            defer labels.deinit(self.allocator);
 
             var it = nfa_state.children.keyIterator();
             while (it.next()) |c| {
-                try labels.append(c.*);
+                try labels.append(self.allocator, c.*);
             }
             std.sort.insertion(u8, labels.items, {}, std.sort.asc(u8));
 
@@ -289,7 +289,7 @@ const Builder = struct {
 
                 // Ensure capacity
                 while (states.items.len <= child_idx) {
-                    try states.append(State{});
+                    try states.append(self.allocator, State{});
                 }
 
                 states.items[child_idx].setCheck(c);
@@ -302,7 +302,7 @@ const Builder = struct {
             try helper.markUsedBase(base);
         }
 
-        return try states.toOwnedSlice();
+        return try states.toOwnedSlice(self.allocator);
     }
 
     /// Port of find_base() - find conflict-free base value
@@ -322,14 +322,14 @@ const Builder = struct {
     }
 
     fn buildOutputs(self: *Builder) ![]u32 {
-        var outputs = std.ArrayList(u32).init(self.allocator);
-        errdefer outputs.deinit();
+        var outputs = std.ArrayList(u32){};
+        errdefer outputs.deinit(self.allocator);
 
         for (self.nfa_states.items) |*nfa_state| {
-            try outputs.append(nfa_state.output);
+            try outputs.append(self.allocator, nfa_state.output);
         }
 
-        return try outputs.toOwnedSlice();
+        return try outputs.toOwnedSlice(self.allocator);
     }
 };
 
