@@ -1,0 +1,21 @@
+🚀 Encoding Benchmark (Target: 5 libraries)
+═══════════════════════════════════════════════
+
+✅ TokenDagger already built
+None of PyTorch, TensorFlow >= 2.0, or Flax have been found. Models won't be available and only tokenizers, configuration and file/data utilities can be used.
+✅ [1/5] rs-bpe:           401ms
+✅ [2/5] tiktoken:         936ms
+❌ [3/5] TokenDagger:   'function' object has no attribute 'cl10
+✅ [4/5] HuggingFace:     4781ms
+⏳ [5/5] PyAOT:         WIP (87.9% correct)
+
+==================================================
+Results (3/5 working):
+==================================================
+rs-bpe             401ms  (11.9x)
+tiktoken           936ms  ( 5.1x)
+HuggingFace       4781ms  ( 1.0x)
+
+⚠️  2 libraries missing!
+
+📊 Done

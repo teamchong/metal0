@@ -803,38 +803,39 @@ pub const Tokenizer = struct {
 
     /// Trie-based longest-match encoding (fast + correct)
     /// Falls back to HashMap if trie not available (WASM)
+    /// EXACT PORT of rs-bpe encode() - line 171-175
     pub fn encode(self: *Tokenizer, text: []const u8) ![]u32 {
-        @setRuntimeSafety(false); // Unsafe speed!
+        @setRuntimeSafety(false);
 
-        // Split text to get chunk boundaries
+        // Split text (rs-bpe line 172)
         const chunks = try cl100k_splitter.split(self.allocator, text);
         defer self.allocator.free(chunks);
 
-        // Build boundary positions (byte offsets where merges cannot cross)
-        var boundaries = std.AutoHashMap(usize, void).init(self.allocator);
-        defer boundaries.deinit();
+        // Encode each piece via backtracking (rs-bpe line 173)
+        var result = std.ArrayList(u32){};
+        try result.ensureTotalCapacity(self.allocator, text.len / 4);
+        errdefer result.deinit(self.allocator);
 
-        var byte_pos: usize = 0;
         for (chunks) |chunk| {
-            byte_pos += chunk.len;
-            try boundaries.put(byte_pos, {}); // Mark end of each chunk
+            const tokens = try self.encodeViaBacktracking(chunk);
+            defer self.allocator.free(tokens);
+            try result.appendSlice(self.allocator, tokens);
         }
 
-        // Convert all bytes to initial tokens (1 byte = 1 token)
-        var tokens = std.ArrayList(u32){};
-        try tokens.ensureTotalCapacity(self.allocator, text.len);
-        errdefer tokens.deinit(self.allocator);
+        return try result.toOwnedSlice(self.allocator);
+    }
 
-        for (text) |byte| {
-            const byte_slice = @as(*const [1]u8, &byte)[0..1];
-            const rank = self.vocab.get(byte_slice) orelse byte; // Fallback to byte value
-            try tokens.append(self.allocator, rank);
-        }
+    /// Port of rs-bpe's encode_via_backtracking
+    fn encodeViaBacktracking(self: *Tokenizer, text: []const u8) ![]u32 {
+        var encoder = try BacktrackEncoder.init(
+            self.allocator,
+            text,
+            &self.vocab,
+            &self.vocab_r,
+        );
+        defer encoder.deinit();
 
-        // Apply merges globally, respecting chunk boundaries
-        try self.applyMergesWithBoundaries(&tokens, &boundaries);
-
-        return try tokens.toOwnedSlice(self.allocator);
+        return try encoder.encode();
     }
 
     /// Apply BPE merges to entire text, but skip merges across chunk boundaries
