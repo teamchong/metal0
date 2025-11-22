@@ -72,4 +72,16 @@ _prototype/
 .build*/
 
 .claude/
-CLAUDE.md.build*/
+
+# Test binaries
+test_ac_*
+test_correctness*
+test_vocab_*
+test_pool
+test_glob
+test_string_builder
+
+# Debug/backup files
+repro_*.zig
+*_backup.zig
+*_original.zig
