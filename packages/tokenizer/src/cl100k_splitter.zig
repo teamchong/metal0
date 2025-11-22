@@ -5,35 +5,59 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const unicode = std.unicode;
 
+/// Zero-allocation iterator for splitting text into chunks
+pub const ChunkIterator = struct {
+    text: []const u8,
+    pos: usize,
+
+    pub fn init(text: []const u8) ChunkIterator {
+        return .{ .text = text, .pos = 0 };
+    }
+
+    pub fn next(self: *ChunkIterator) ?[]const u8 {
+        @setRuntimeSafety(false);
+
+        if (self.pos >= self.text.len) return null;
+
+        const start = self.pos;
+
+        // Try each pattern in order (MUST match regex pattern order!)
+        if (tryContraction(self.text, &self.pos)) {
+            return self.text[start..self.pos];
+        } else if (tryLetterSequence(self.text, &self.pos)) {
+            return self.text[start..self.pos];
+        } else if (tryNumberSequence(self.text, &self.pos)) {
+            return self.text[start..self.pos];
+        } else if (tryNonAlphanumeric(self.text, &self.pos)) {
+            return self.text[start..self.pos];
+        } else if (tryWhitespace(self.text, &self.pos)) {
+            return self.text[start..self.pos];
+        } else {
+            // Fallback: take one byte
+            self.pos += 1;
+            return self.text[start..self.pos];
+        }
+    }
+};
+
+/// Create an iterator for the text (zero allocations)
+pub fn chunks(text: []const u8) ChunkIterator {
+    return ChunkIterator.init(text);
+}
+
+/// DEPRECATED: Allocates an array of chunks (kept for backwards compatibility)
 pub fn split(allocator: Allocator, text: []const u8) ![][]const u8 {
     @setRuntimeSafety(false); // UNSAFE: Max speed!
 
-    var chunks = std.ArrayList([]const u8){};
-    errdefer chunks.deinit(allocator);
+    var chunk_list = std.ArrayList([]const u8){};
+    errdefer chunk_list.deinit(allocator);
 
-    var pos: usize = 0;
-    while (pos < text.len) {
-        const start = pos;
-
-        // Try each pattern in order (MUST match regex pattern order!)
-        if (tryContraction(text, &pos)) {
-            try chunks.append(allocator, text[start..pos]);
-        } else if (tryLetterSequence(text, &pos)) {
-            try chunks.append(allocator, text[start..pos]);
-        } else if (tryNumberSequence(text, &pos)) {
-            try chunks.append(allocator, text[start..pos]);
-        } else if (tryNonAlphanumeric(text, &pos)) {
-            try chunks.append(allocator, text[start..pos]);
-        } else if (tryWhitespace(text, &pos)) {
-            try chunks.append(allocator, text[start..pos]);
-        } else {
-            // Fallback: take one byte
-            pos += 1;
-            try chunks.append(allocator, text[start..pos]);
-        }
+    var iter = chunks(text);
+    while (iter.next()) |chunk| {
+        try chunk_list.append(allocator, chunk);
     }
 
-    return try chunks.toOwnedSlice(allocator);
+    return try chunk_list.toOwnedSlice(allocator);
 }
 
 /// Contractions - comptime array for fast lookup

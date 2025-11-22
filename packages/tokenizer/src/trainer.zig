@@ -483,6 +483,8 @@ pub const Trainer = struct {
 
         const split_table = std.AutoHashMap(u32, @import("tokenizer.zig").Pair).init(self.allocator);
 
+        const next_prefix_match = try self.allocator.alloc(u32, 0); // Empty for trainer
+
         return Tokenizer{
             .vocab = vocab,
             .vocab_r = vocab_r,
@@ -492,6 +494,7 @@ pub const Trainer = struct {
             .pattern_str = pattern_str,
             .trie = trie,
             .aho_corasick = null, // Not needed for trainer
+            .next_prefix_match = next_prefix_match,
             .allocator = self.allocator,
         };
     }
