@@ -643,62 +643,92 @@ pub const Tokenizer = struct {
         return try tokens.toOwnedSlice(self.allocator);
     }
 
-    /// Vocab-based BPE merging (tiktoken style)
+    /// Vocab-based BPE merging (tiktoken style) - OPTIMIZED O(n²)
+    /// Uses skip array to avoid O(n) shifting on every merge
     fn applyMergesHashMap(self: *Tokenizer, tokens: []u32) !usize {
         @setRuntimeSafety(false);
 
         if (tokens.len < 2) return tokens.len;
 
-        var current_len = tokens.len;
-        var merge_buffer: [512]u8 = undefined; // Buffer for concatenating bytes
+        // Skip array: -1 = active, >= 0 = merged (skipped)
+        var skip_buffer: [4096]i32 = undefined;
+        var skip = skip_buffer[0..tokens.len];
+        @memset(skip, -1); // All active initially
 
-        while (true) {
+        var merge_buffer: [512]u8 = undefined;
+        var active_count = tokens.len;
+
+        while (active_count > 1) {
             var best_rank: u32 = std.math.maxInt(u32);
             var best_new_token: u32 = 0;
             var best_pos: usize = 0;
 
-            // Scan all adjacent pairs and find lowest-rank merge
+            // Scan active pairs (skip merged positions)
             var i: usize = 0;
-            while (i + 1 < current_len) : (i += 1) {
+            while (i < tokens.len) {
+                if (skip[i] >= 0) {
+                    i += 1;
+                    continue;
+                }
+
+                // Find next active position
+                var next = i + 1;
+                while (next < tokens.len and skip[next] >= 0) : (next += 1) {}
+                if (next >= tokens.len) break;
+
                 const left_token = tokens[i];
-                const right_token = tokens[i + 1];
+                const right_token = tokens[next];
 
-                // Get bytes for each token
-                const left_bytes = self.vocab_r.get(left_token) orelse continue;
-                const right_bytes = self.vocab_r.get(right_token) orelse continue;
+                const left_bytes = self.vocab_r.get(left_token) orelse {
+                    i = next;
+                    continue;
+                };
+                const right_bytes = self.vocab_r.get(right_token) orelse {
+                    i = next;
+                    continue;
+                };
 
-                // Concatenate and look up in vocab
                 const total_len = left_bytes.len + right_bytes.len;
-                if (total_len > merge_buffer.len) continue; // Skip if too large
+                if (total_len <= merge_buffer.len) {
+                    @memcpy(merge_buffer[0..left_bytes.len], left_bytes);
+                    @memcpy(merge_buffer[left_bytes.len..total_len], right_bytes);
 
-                @memcpy(merge_buffer[0..left_bytes.len], left_bytes);
-                @memcpy(merge_buffer[left_bytes.len..total_len], right_bytes);
-
-                if (self.vocab.get(merge_buffer[0..total_len])) |merged_rank| {
-                    // Lower rank = higher priority
-                    if (merged_rank < best_rank) {
-                        best_rank = merged_rank;
-                        best_new_token = merged_rank;
-                        best_pos = i;
+                    if (self.vocab.get(merge_buffer[0..total_len])) |merged_rank| {
+                        if (merged_rank < best_rank) {
+                            best_rank = merged_rank;
+                            best_new_token = merged_rank;
+                            best_pos = i;
+                        }
                     }
                 }
+
+                i = next;
             }
 
-            // No more merges possible
             if (best_rank == std.math.maxInt(u32)) break;
 
-            // Apply the merge: replace (left, right) with merged token
+            // Apply merge: replace left with merged, mark right as skipped
             tokens[best_pos] = best_new_token;
 
-            // Shift remaining tokens left
-            i = best_pos + 1;
-            while (i + 1 < current_len) : (i += 1) {
-                tokens[i] = tokens[i + 1];
+            // Find next active and mark as merged
+            var next_active = best_pos + 1;
+            while (next_active < tokens.len and skip[next_active] >= 0) : (next_active += 1) {}
+            if (next_active < tokens.len) {
+                skip[next_active] = @intCast(next_active);
+                active_count -= 1;
             }
-            current_len -= 1;
         }
 
-        return current_len;
+        // Compact: collect only active tokens
+        var write_pos: usize = 0;
+        for (tokens, 0..) |token, i| {
+            if (skip[i] < 0) {
+                tokens[write_pos] = token;
+                write_pos += 1;
+            }
+        }
+
+        return write_pos;
     }
 
     fn applyMergesHashMapArrayList(self: *Tokenizer, tokens: *std.ArrayList(u32)) !void {

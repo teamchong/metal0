@@ -4,6 +4,20 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+// Copy Pair from tokenizer.zig to avoid circular import
+const Pair = struct {
+    left: u32,
+    right: u32,
+};
+const PairContext = struct {
+    pub fn hash(_: PairContext, p: Pair) u64 {
+        return (@as(u64, p.left) << 32) | p.right;
+    }
+    pub fn eql(_: PairContext, a: Pair, b: Pair) bool {
+        return a.left == b.left and a.right == b.right;
+    }
+};
+
 pub const BacktrackEncoder = struct {
     allocator: Allocator,
     text: []const u8,
