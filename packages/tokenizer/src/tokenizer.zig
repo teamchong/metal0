@@ -806,24 +806,106 @@ pub const Tokenizer = struct {
     pub fn encode(self: *Tokenizer, text: []const u8) ![]u32 {
         @setRuntimeSafety(false); // Unsafe speed!
 
-        // EXPERIMENT: Try WITHOUT splitting to see if that's the bottleneck
-        return try self.encodeHashMap(text);
+        // Split text to get chunk boundaries
+        const chunks = try cl100k_splitter.split(self.allocator, text);
+        defer self.allocator.free(chunks);
 
-        // Split text using cl100k_base pattern
-        // const chunks = try cl100k_splitter.split(self.allocator, text);
-        // defer self.allocator.free(chunks);
+        // Build boundary positions (byte offsets where merges cannot cross)
+        var boundaries = std.AutoHashMap(usize, void).init(self.allocator);
+        defer boundaries.deinit();
 
-        // // Pre-allocate result (estimate: 1 token per 4 bytes)
-        // var result = std.ArrayList(u32){};
-        // try result.ensureTotalCapacity(self.allocator, text.len / 4);
-        // errdefer result.deinit(self.allocator);
+        var byte_pos: usize = 0;
+        for (chunks) |chunk| {
+            byte_pos += chunk.len;
+            try boundaries.put(byte_pos, {}); // Mark end of each chunk
+        }
 
-        // // Encode each chunk inline (avoid 30k allocations!)
-        // for (chunks) |chunk| {
-        //     try self.encodeChunkInline(chunk, &result);
-        // }
+        // Convert all bytes to initial tokens (1 byte = 1 token)
+        var tokens = std.ArrayList(u32){};
+        try tokens.ensureTotalCapacity(self.allocator, text.len);
+        errdefer tokens.deinit(self.allocator);
 
-        // return try result.toOwnedSlice(self.allocator);
+        for (text) |byte| {
+            const byte_slice = @as(*const [1]u8, &byte)[0..1];
+            const rank = self.vocab.get(byte_slice) orelse byte; // Fallback to byte value
+            try tokens.append(self.allocator, rank);
+        }
+
+        // Apply merges globally, respecting chunk boundaries
+        try self.applyMergesWithBoundaries(&tokens, &boundaries);
+
+        return try tokens.toOwnedSlice(self.allocator);
+    }
+
+    /// Apply BPE merges to entire text, but skip merges across chunk boundaries
+    fn applyMergesWithBoundaries(
+        self: *Tokenizer,
+        tokens: *std.ArrayList(u32),
+        boundaries: *const std.AutoHashMap(usize, void),
+    ) !void {
+        @setRuntimeSafety(false);
+
+        if (tokens.items.len < 2) return;
+
+        var merge_buffer: [512]u8 = undefined;
+
+        // Track byte position after each token ends
+        // byte_positions[i] = byte offset right after token i ends
+        var byte_positions = std.ArrayList(usize){};
+        defer byte_positions.deinit(self.allocator);
+
+        // Initial: each token = 1 byte, so token i ends at byte i+1
+        for (0..tokens.items.len) |i| {
+            try byte_positions.append(self.allocator, i + 1);
+        }
+
+        while (true) {
+            var best_rank: u32 = std.math.maxInt(u32);
+            var best_new_token: u32 = 0;
+            var best_pos: usize = 0;
+
+            // Scan all adjacent pairs
+            var i: usize = 0;
+            while (i + 1 < tokens.items.len) : (i += 1) {
+                // Check if boundary exists between token i and i+1
+                // Token i ends at byte_positions[i], token i+1 starts there
+                if (boundaries.contains(byte_positions.items[i])) {
+                    continue; // Skip merge across chunk boundary
+                }
+
+                const left_token = tokens.items[i];
+                const right_token = tokens.items[i + 1];
+
+                const left_bytes = self.vocab_r.get(left_token) orelse continue;
+                const right_bytes = self.vocab_r.get(right_token) orelse continue;
+
+                const total_len = left_bytes.len + right_bytes.len;
+                if (total_len > merge_buffer.len) continue;
+
+                @memcpy(merge_buffer[0..left_bytes.len], left_bytes);
+                @memcpy(merge_buffer[left_bytes.len..total_len], right_bytes);
+
+                if (self.vocab.get(merge_buffer[0..total_len])) |merged_rank| {
+                    if (merged_rank < best_rank) {
+                        best_rank = merged_rank;
+                        best_new_token = merged_rank;
+                        best_pos = i;
+                    }
+                }
+            }
+
+            if (best_rank == std.math.maxInt(u32)) break;
+
+            // Apply merge: token at best_pos now represents both tokens
+            tokens.items[best_pos] = best_new_token;
+
+            // Update byte position: merged token ends where right token ended
+            byte_positions.items[best_pos] = byte_positions.items[best_pos + 1];
+
+            // Remove the right token
+            _ = tokens.orderedRemove(best_pos + 1);
+            _ = byte_positions.orderedRemove(best_pos + 1);
+        }
     }
 
     /// Encode a single chunk directly into result array (zero-copy)
