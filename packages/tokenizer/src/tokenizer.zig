@@ -610,21 +610,44 @@ pub const Tokenizer = struct {
     /// Trie-based longest-match encoding (fast + correct)
     /// Falls back to HashMap if trie not available (WASM)
     pub fn encode(self: *Tokenizer, text: []const u8) ![]u32 {
+        @setRuntimeSafety(false); // Unsafe speed!
+
         // Split text using cl100k_base pattern
         const chunks = try cl100k_splitter.split(self.allocator, text);
         defer self.allocator.free(chunks);
 
-        // Encode each chunk separately and concatenate
+        // Pre-allocate result (estimate: 1 token per 4 bytes)
         var result = std.ArrayList(u32){};
+        try result.ensureTotalCapacity(self.allocator, text.len / 4);
         errdefer result.deinit(self.allocator);
 
+        // Encode each chunk inline (avoid 30k allocations!)
         for (chunks) |chunk| {
-            const tokens = try encodeOptimized(self.allocator, chunk, &self.vocab, &self.vocab_r);
-            defer self.allocator.free(tokens);
-            try result.appendSlice(self.allocator, tokens);
+            try self.encodeChunkInline(chunk, &result);
         }
 
         return try result.toOwnedSlice(self.allocator);
+    }
+
+    /// Encode a single chunk directly into result array (zero-copy)
+    fn encodeChunkInline(self: *Tokenizer, chunk: []const u8, result: *std.ArrayList(u32)) !void {
+        @setRuntimeSafety(false);
+
+        if (chunk.len == 0) return;
+
+        // For tiny chunks (< 10 bytes), use simple lookup
+        if (chunk.len < 10) {
+            // Try direct vocab lookup first
+            if (self.vocab.get(chunk)) |token| {
+                try result.append(self.allocator, token);
+                return;
+            }
+        }
+
+        // Fall back to HashMap encoder
+        const tokens = try self.encodeHashMap(chunk);
+        defer self.allocator.free(tokens);
+        try result.appendSlice(self.allocator, tokens);
     }
 
     /// Backtracking encoder - rs-bpe algorithm

@@ -1,4 +1,4 @@
-/// Custom text splitter for cl100k_base pattern
+/// Custom text splitter for cl100k_base pattern - OPTIMIZED
 /// Pure Zig, no regex - implements the specific rules manually
 /// Pattern: (?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+
 const std = @import("std");
@@ -6,6 +6,8 @@ const Allocator = std.mem.Allocator;
 const unicode = std.unicode;
 
 pub fn split(allocator: Allocator, text: []const u8) ![][]const u8 {
+    @setRuntimeSafety(false); // UNSAFE: Max speed!
+
     var chunks = std.ArrayList([]const u8){};
     errdefer chunks.deinit(allocator);
 
@@ -13,7 +15,7 @@ pub fn split(allocator: Allocator, text: []const u8) ![][]const u8 {
     while (pos < text.len) {
         const start = pos;
 
-        // Try each pattern in order
+        // Try each pattern in order (MUST match regex pattern order!)
         if (tryContraction(text, &pos)) {
             try chunks.append(allocator, text[start..pos]);
         } else if (tryLetterSequence(text, &pos)) {
@@ -27,27 +29,30 @@ pub fn split(allocator: Allocator, text: []const u8) ![][]const u8 {
         } else {
             // Fallback: take one byte
             pos += 1;
-            if (pos > start) {
-                try chunks.append(allocator, text[start..pos]);
-            }
+            try chunks.append(allocator, text[start..pos]);
         }
     }
 
     return try chunks.toOwnedSlice(allocator);
 }
 
+/// Contractions - comptime array for fast lookup
+const CONTRACTIONS = [_][]const u8{ "'s", "'t", "'re", "'ve", "'m", "'ll", "'d" };
+
 /// Check for contractions: 's 't 're 've 'm 'll 'd (case-insensitive)
-fn tryContraction(text: []const u8, pos: *usize) bool {
+inline fn tryContraction(text: []const u8, pos: *usize) bool {
+    @setRuntimeSafety(false);
+
     if (pos.* >= text.len) return false;
-    if (text[pos.*] != '\'' and text[pos.*] != '\u{2019}') return false; // ' or '
+    const c = text[pos.*];
+    if (c != '\'' and c != 0xE2) return false; // ' or first byte of '
 
     const remaining = text[pos.*..];
-    const contractions = [_][]const u8{ "'s", "'t", "'re", "'ve", "'m", "'ll", "'d" };
 
-    for (contractions) |c| {
-        if (remaining.len >= c.len) {
-            if (std.ascii.eqlIgnoreCase(remaining[0..c.len], c)) {
-                pos.* += c.len;
+    inline for (CONTRACTIONS) |pattern| {
+        if (remaining.len >= pattern.len) {
+            if (std.ascii.eqlIgnoreCase(remaining[0..pattern.len], pattern)) {
+                pos.* += pattern.len;
                 return true;
             }
         }
@@ -57,10 +62,30 @@ fn tryContraction(text: []const u8, pos: *usize) bool {
 
 /// [^\r\n\p{L}\p{N}]?\p{L}+ - Optional non-letter/digit/newline, then letters
 fn tryLetterSequence(text: []const u8, pos: *usize) bool {
+    @setRuntimeSafety(false);
+
     const start = pos.*;
     var found_letter = false;
 
-    // Optional: one non-letter/digit/newline character (must check UTF-8)
+    // Fast path: ASCII only (>95% of text)
+    if (pos.* < text.len and text[pos.*] < 128) {
+        // Optional non-letter/digit ASCII
+        if (!isLetterASCII(text[pos.*]) and !isDigit(text[pos.*]) and
+            text[pos.*] != '\r' and text[pos.*] != '\n') {
+            pos.* += 1;
+        }
+
+        // One or more ASCII letters
+        while (pos.* < text.len and isLetterASCII(text[pos.*])) {
+            found_letter = true;
+            pos.* += 1;
+        }
+
+        if (found_letter) return true;
+        pos.* = start; // Reset for UTF-8 path
+    }
+
+    // Slow path: UTF-8
     if (pos.* < text.len) {
         const cp_len = unicode.utf8ByteSequenceLength(text[pos.*]) catch 1;
         if (pos.* + cp_len <= text.len) {
@@ -72,21 +97,35 @@ fn tryLetterSequence(text: []const u8, pos: *usize) bool {
         }
     }
 
-    // One or more letters (UTF-8 aware)
+    // One or more letters (UTF-8)
     while (pos.* < text.len) {
-        const cp_len = unicode.utf8ByteSequenceLength(text[pos.*]) catch 1;
-        if (pos.* + cp_len > text.len) break;
-
-        const codepoint = unicode.utf8Decode(text[pos.*..pos.* + cp_len]) catch {
-            pos.* = start;
-            return false;
-        };
-
-        if (isLetterCodepoint(codepoint)) {
-            found_letter = true;
-            pos.* += cp_len;
+        // Fast check: ASCII letter
+        if (text[pos.*] < 128) {
+            if (isLetterASCII(text[pos.*])) {
+                found_letter = true;
+                pos.* += 1;
+            } else {
+                break;
+            }
         } else {
-            break;
+            // UTF-8 letter
+            const cp_len = unicode.utf8ByteSequenceLength(text[pos.*]) catch {
+                pos.* = start;
+                return false;
+            };
+            if (pos.* + cp_len > text.len) break;
+
+            const codepoint = unicode.utf8Decode(text[pos.*..pos.* + cp_len]) catch {
+                pos.* = start;
+                return false;
+            };
+
+            if (isLetterCodepoint(codepoint)) {
+                found_letter = true;
+                pos.* += cp_len;
+            } else {
+                break;
+            }
         }
     }
 
@@ -98,7 +137,9 @@ fn tryLetterSequence(text: []const u8, pos: *usize) bool {
 }
 
 /// \p{N}{1,3} - Numbers in groups of 1-3
-fn tryNumberSequence(text: []const u8, pos: *usize) bool {
+inline fn tryNumberSequence(text: []const u8, pos: *usize) bool {
+    @setRuntimeSafety(false);
+
     const start = pos.*;
     var count: usize = 0;
 
@@ -116,6 +157,8 @@ fn tryNumberSequence(text: []const u8, pos: *usize) bool {
 
 ///  ?[^\s\p{L}\p{N}]+[\r\n]* - Optional space, non-alphanumeric, optional newlines
 fn tryNonAlphanumeric(text: []const u8, pos: *usize) bool {
+    @setRuntimeSafety(false);
+
     const start = pos.*;
 
     // Optional leading space
@@ -123,15 +166,24 @@ fn tryNonAlphanumeric(text: []const u8, pos: *usize) bool {
         pos.* += 1;
     }
 
-    // One or more non-whitespace, non-letter, non-digit (UTF-8 aware)
+    // One or more non-whitespace, non-letter, non-digit
     var found = false;
-    while (pos.* < text.len) {
+
+    // Fast path: ASCII
+    while (pos.* < text.len and text[pos.*] < 128) {
+        const c = text[pos.*];
+        if (isWhitespace(c) or isLetterASCII(c) or isDigit(c)) break;
+        pos.* += 1;
+        found = true;
+    }
+
+    // Slow path: UTF-8
+    while (pos.* < text.len and text[pos.*] >= 128) {
         const cp_len = unicode.utf8ByteSequenceLength(text[pos.*]) catch 1;
         if (pos.* + cp_len > text.len) break;
 
         const codepoint = unicode.utf8Decode(text[pos.*..pos.* + cp_len]) catch text[pos.*];
-
-        if (isWhitespace(text[pos.*]) or isLetterCodepoint(codepoint) or isDigitCodepoint(codepoint)) break;
+        if (isLetterCodepoint(codepoint) or isDigitCodepoint(codepoint)) break;
 
         pos.* += cp_len;
         found = true;
@@ -152,6 +204,8 @@ fn tryNonAlphanumeric(text: []const u8, pos: *usize) bool {
 
 /// \s*[\r\n]+|\s+(?!\S)|\s+ - Whitespace sequences
 fn tryWhitespace(text: []const u8, pos: *usize) bool {
+    @setRuntimeSafety(false);
+
     // \s*[\r\n]+ - Optional whitespace then newlines
     if (pos.* < text.len) {
         const ws_start = pos.*;
@@ -198,10 +252,19 @@ fn tryWhitespace(text: []const u8, pos: *usize) bool {
     return false;
 }
 
+// ============================================================================
+// Fast character classification using lookup tables
+// ============================================================================
+
+/// ASCII letter check - optimized with comptime
+inline fn isLetterASCII(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z');
+}
+
 /// Unicode letter check using codepoint
 inline fn isLetterCodepoint(cp: u21) bool {
-    // ASCII letters
-    if ((cp >= 'a' and cp <= 'z') or (cp >= 'A' and cp <= 'Z')) return true;
+    // ASCII letters (fast path)
+    if (cp < 128) return isLetterASCII(@as(u8, @intCast(cp)));
 
     // Latin-1 Supplement letters (À-ÿ excluding ×÷)
     if (cp >= 0xC0 and cp <= 0xFF and cp != 0xD7 and cp != 0xF7) return true;
@@ -224,14 +287,7 @@ inline fn isDigitCodepoint(cp: u21) bool {
     return cp >= '0' and cp <= '9';
 }
 
-/// Simple Unicode letter check (byte-level, for non-UTF-8 paths)
-inline fn isLetter(c: u8) bool {
-    return (c >= 'a' and c <= 'z') or
-        (c >= 'A' and c <= 'Z') or
-        (c >= 0xC0 and c <= 0xFF and c != 0xD7 and c != 0xF7);
-}
-
-/// Simple digit check (byte-level)
+/// Digit check (byte-level)
 inline fn isDigit(c: u8) bool {
     return c >= '0' and c <= '9';
 }
