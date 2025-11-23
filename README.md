@@ -181,12 +181,14 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on App
 
 **Web/WASM Encoding (583 texts × 1000 iterations):**
 
-| Library | Time | Status |
-|---------|------|--------|
-| **PyAOT (WASM)** | **48.5ms** | ✅ 100% correct |
-| @anthropic-ai/tokenizer (JS) | TBD | - |
-| gpt-tokenizer (JS) | TBD | - |
-| tiktoken (Node) | TBD | - |
+| Library | Time | Size | Status |
+|---------|------|------|--------|
+| **PyAOT (WASM)** | **48.5ms** | **46KB** | ✅ 100% correct |
+| @anthropic-ai/tokenizer (JS) | TBD | TBD | - |
+| gpt-tokenizer (JS) | TBD | TBD | - |
+| tiktoken (Node) | TBD | TBD | - |
+
+**Note:** PyAOT WASM built with `-ORelease Small` for minimal size.
 
 **BPE Training (583 texts × vocab 32000 × 30 runs):**
 
