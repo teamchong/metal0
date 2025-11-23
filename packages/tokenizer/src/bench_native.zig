@@ -2,9 +2,7 @@ const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = std.heap.c_allocator;
 
     // Load cl100k_base with full BPE vocab
     var tokenizer = try Tokenizer.init("dist/cl100k_base_full.json", allocator);

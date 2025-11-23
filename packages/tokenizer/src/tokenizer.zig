@@ -77,7 +77,7 @@ pub const Tokenizer = struct {
             .aho_corasick = data.aho_corasick,
             .next_prefix_match = data.next_prefix_match,
             .allocator = data.allocator,
-            .encode_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+            .encode_arena = std.heap.ArenaAllocator.init(std.heap.c_allocator),
         };
     }
 
@@ -94,7 +94,7 @@ pub const Tokenizer = struct {
             .aho_corasick = data.aho_corasick,
             .next_prefix_match = data.next_prefix_match,
             .allocator = data.allocator,
-            .encode_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+            .encode_arena = std.heap.ArenaAllocator.init(std.heap.c_allocator),
         };
     }
 
