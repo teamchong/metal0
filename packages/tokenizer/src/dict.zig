@@ -15,14 +15,14 @@ const WyhashContext = struct {
     }
 };
 
-/// Python dict type (optimized with wyhash - 2-3x faster iteration than StringHashMap!)
+/// Python dict type (optimized with wyhash - faster iteration than StringHashMap!)
 pub const PyDict = struct {
     map: std.HashMap([]const u8, *runtime.PyObject, WyhashContext, std.hash_map.default_max_load_percentage),
 
     pub fn create(allocator: std.mem.Allocator) !*runtime.PyObject {
         const obj = try allocator.create(runtime.PyObject);
         const dict_data = try allocator.create(PyDict);
-        dict_data.map = std.StringHashMap(*runtime.PyObject).init(allocator);
+        dict_data.map = std.HashMap([]const u8, *runtime.PyObject, WyhashContext, std.hash_map.default_max_load_percentage).init(allocator);
 
         obj.* = runtime.PyObject{
             .ref_count = 1,
@@ -36,7 +36,7 @@ pub const PyDict = struct {
     pub fn createWithCapacity(allocator: std.mem.Allocator, capacity: usize) !*runtime.PyObject {
         const obj = try allocator.create(runtime.PyObject);
         const dict_data = try allocator.create(PyDict);
-        dict_data.map = std.StringHashMap(*runtime.PyObject).init(allocator);
+        dict_data.map = std.HashMap([]const u8, *runtime.PyObject, WyhashContext, std.hash_map.default_max_load_percentage).init(allocator);
         try dict_data.map.ensureTotalCapacity(@intCast(capacity));
 
         obj.* = runtime.PyObject{

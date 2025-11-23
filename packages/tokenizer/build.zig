@@ -7,12 +7,13 @@ pub fn build(b: *std.Build) void {
     // Build-time algorithm selection (industry standard: -D flag)
     // Users can opt-in to each algorithm individually:
     //   -Dinclude_bpe=true        (default: true)
-    //   -Dinclude_wordpiece=true  (default: false)
-    //   -Dinclude_unigram=true    (default: false)
+    //   -Dinclude_wordpiece=true  (default: true)
+    //   -Dinclude_unigram=true    (default: true)
+    // All algorithms included by default - dead code elimination removes unused ones
 
     const include_bpe = b.option(bool, "include_bpe", "Include BPE algorithm") orelse true;
-    const include_wordpiece = b.option(bool, "include_wordpiece", "Include WordPiece algorithm") orelse false;
-    const include_unigram = b.option(bool, "include_unigram", "Include Unigram algorithm") orelse false;
+    const include_wordpiece = b.option(bool, "include_wordpiece", "Include WordPiece algorithm") orelse true;
+    const include_unigram = b.option(bool, "include_unigram", "Include Unigram algorithm") orelse true;
 
     // Determine if multiple algorithms included (runtime selection needed)
     const included_count = @as(u8, if (include_bpe) 1 else 0) +

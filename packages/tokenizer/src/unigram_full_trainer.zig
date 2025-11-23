@@ -464,23 +464,14 @@ pub const UnigramTrainer = struct {
         const desired_vocab_size = (self.config.vocab_size * 11) / 10;  // 1.1x target
         std.debug.print("[PROFILE] Target vocab: {d}, Desired: {d}\n", .{self.config.vocab_size, desired_vocab_size});
 
-        // Create cached lattices once (huge speedup - reuse across EM iterations)
-        const start_cache = std.time.nanoTimestamp();
-        var cached_lattices = try self.allocator.alloc(Lattice, sentences.len);
-        defer {
-            for (cached_lattices) |*lattice| {
+        // Lattice caching (created lazily on first EM iteration)
+        var cached_lattices_opt: ?[]Lattice = null;
+        defer if (cached_lattices_opt) |cached| {
+            for (cached) |*lattice| {
                 lattice.deinit();
             }
-            self.allocator.free(cached_lattices);
-        }
-
-        // Initialize lattices for each sentence (structure only, no nodes yet)
-        for (sentences, 0..) |sentence, i| {
-            // Use dummy bos/eos IDs - will be set correctly by first populateNodes call
-            cached_lattices[i] = try Lattice.init(self.allocator, sentence.text, 0, 1);
-        }
-        const cache_ms = @divFloor(std.time.nanoTimestamp() - start_cache, 1_000_000);
-        std.debug.print("[PROFILE] Lattice cache creation: {d}ms ({d} lattices)\n", .{cache_ms, cached_lattices.len});
+            self.allocator.free(cached);
+        };
 
         // 2. EM iterations
         var em_iteration: u32 = 0;
@@ -507,9 +498,21 @@ pub const UnigramTrainer = struct {
                 var model = try Unigram.init(self.allocator, vocab, 0);
                 defer model.deinit();
 
+                // TODO: Lattice caching disabled (causes hang - needs clearNodes debugging)
+                // if (cached_lattices_opt == null and em_iteration == 1 and iter == 0) {
+                //     const start_cache = std.time.nanoTimestamp();
+                //     var cached_lattices = try self.allocator.alloc(Lattice, sentences.len);
+                //     for (sentences, 0..) |sentence, i| {
+                //         cached_lattices[i] = try Lattice.init(self.allocator, sentence.text, model.bos_id, model.eos_id);
+                //     }
+                //     const cache_ms = @divFloor(std.time.nanoTimestamp() - start_cache, 1_000_000);
+                //     std.debug.print("[PROFILE] Lattice cache creation: {d}ms ({d} lattices)\n", .{cache_ms, cached_lattices.len});
+                //     cached_lattices_opt = cached_lattices;
+                // }
+
                 // E-step (with cached lattices for massive speedup)
                 const start_estep = std.time.nanoTimestamp();
-                const e_result = try self.runEStep(&model, sentences, cached_lattices);
+                const e_result = try self.runEStep(&model, sentences, cached_lattices_opt);
                 const expected = e_result[1];
                 defer self.allocator.free(expected);
                 const estep_ms = @divFloor(std.time.nanoTimestamp() - start_estep, 1_000_000);
