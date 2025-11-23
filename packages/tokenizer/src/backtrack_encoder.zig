@@ -154,6 +154,7 @@ pub const BacktrackEncoder = struct {
 
     /// Port of rs-bpe step() (lines 37-70)
     pub fn step(self: *BacktrackEncoder) ?u32 {
+        @setRuntimeSafety(false);
         var token = self.next_token orelse return null;
         const last = if (self.tokens.items.len > 0) self.tokens.items[self.tokens.items.len - 1] else null;
 
@@ -194,6 +195,7 @@ pub const BacktrackEncoder = struct {
 
     /// Encode full text (call step() until done)
     pub fn encode(self: *BacktrackEncoder) ![]u32 {
+        @setRuntimeSafety(false);
         while (self.step()) |_| {}
 
         // Copy result to result_allocator (important when using arena)
@@ -229,6 +231,7 @@ fn isValidTokenPairImpl(
     token1_arg: u32,
     token2_arg: u32,
 ) bool {
+    @setRuntimeSafety(false);
     var token1 = token1_arg;
     var token2 = token2_arg;
     var limit: u32 = std.math.maxInt(u32);
