@@ -61,6 +61,19 @@ const NEEDS_ESCAPE: [256]bool = blk: {
     break :blk table;
 };
 
+/// Comptime lookup table for escape sequences (eliminates switch!)
+const ESCAPE_SEQUENCES: [256][]const u8 = blk: {
+    var table: [256][]const u8 = [_][]const u8{""} ** 256;
+    table['"'] = "\\\"";
+    table['\\'] = "\\\\";
+    table['\x08'] = "\\b";
+    table['\x0C'] = "\\f";
+    table['\n'] = "\\n";
+    table['\r'] = "\\r";
+    table['\t'] = "\\t";
+    break :blk table;
+};
+
 /// Direct stringify - writes to ArrayList without writer() overhead
 fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     switch (obj.type_id) {
@@ -132,19 +145,14 @@ fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), allocat
                 try buffer.appendSlice(allocator, str[start..i]);
             }
 
-            switch (c) {
-                '"' => try buffer.appendSlice(allocator, "\\\""),
-                '\\' => try buffer.appendSlice(allocator, "\\\\"),
-                '\x08' => try buffer.appendSlice(allocator, "\\b"),
-                '\x0C' => try buffer.appendSlice(allocator, "\\f"),
-                '\n' => try buffer.appendSlice(allocator, "\\n"),
-                '\r' => try buffer.appendSlice(allocator, "\\r"),
-                '\t' => try buffer.appendSlice(allocator, "\\t"),
-                else => {
-                    var buf: [6]u8 = undefined;
-                    const formatted = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch unreachable;
-                    try buffer.appendSlice(allocator, formatted);
-                },
+            // Use lookup table for common escapes, fallback to \uXXXX for others
+            const escape_seq = ESCAPE_SEQUENCES[c];
+            if (escape_seq.len > 0) {
+                try buffer.appendSlice(allocator, escape_seq);
+            } else {
+                var buf: [6]u8 = undefined;
+                const formatted = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch unreachable;
+                try buffer.appendSlice(allocator, formatted);
             }
 
             start = i + 1;
