@@ -81,16 +81,13 @@ test_pool
 test_glob
 test_string_builder
 
-# Benchmark binaries (should only be in benchmarks/ dir)
+# Benchmark binaries (compiled to benchmarks/.build/)
 /fibonacci
 /fibonacci_*
 /hello
 /hello_*
 /*.rmeta
-benchmarks/fibonacci_go
-benchmarks/fibonacci_rust
-benchmarks/hello_go
-benchmarks/hello_rust
+benchmarks/.build/
 
 # Debug/backup files
 repro_*.zig
