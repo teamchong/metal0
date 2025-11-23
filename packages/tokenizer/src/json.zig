@@ -29,11 +29,116 @@ pub fn dumps(obj: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyO
     var buffer = try std.ArrayList(u8).initCapacity(allocator, estimated_size);
     defer buffer.deinit(allocator);
 
-    try stringifyPyObject(obj, buffer.writer(allocator));
+    // Direct buffer access - bypass writer() overhead!
+    try stringifyPyObjectDirect(obj, &buffer, allocator);
 
     const result_str = try buffer.toOwnedSlice(allocator);
     // Use createOwned to take ownership without duplicating (avoids memory leak)
     return try runtime.PyString.createOwned(allocator, result_str);
+}
+
+/// Direct stringify - writes to ArrayList without writer() overhead
+fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
+    switch (obj.type_id) {
+        .none => try buffer.appendSlice(allocator, "null"),
+        .bool => {
+            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
+            if (data.value != 0) {
+                try buffer.appendSlice(allocator, "true");
+            } else {
+                try buffer.appendSlice(allocator, "false");
+            }
+        },
+        .int => {
+            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
+            var buf: [32]u8 = undefined;
+            const formatted = std.fmt.bufPrint(&buf, "{d}", .{data.value}) catch unreachable;
+            try buffer.appendSlice(allocator, formatted);
+        },
+        .float => try buffer.appendSlice(allocator, "0.0"),
+        .string => {
+            const data: *runtime.PyString = @ptrCast(@alignCast(obj.data));
+            try buffer.append(allocator, '"');
+            try writeEscapedStringDirect(data.data, buffer, allocator);
+            try buffer.append(allocator, '"');
+        },
+        .list => {
+            const data: *runtime.PyList = @ptrCast(@alignCast(obj.data));
+            try buffer.append(allocator, '[');
+            for (data.items.items, 0..) |item, i| {
+                if (i > 0) try buffer.append(allocator, ',');
+                try stringifyPyObjectDirect(item, buffer, allocator);
+            }
+            try buffer.append(allocator, ']');
+        },
+        .tuple => {
+            const data: *runtime.PyTuple = @ptrCast(@alignCast(obj.data));
+            try buffer.append(allocator, '[');
+            for (data.items, 0..) |item, i| {
+                if (i > 0) try buffer.append(allocator, ',');
+                try stringifyPyObjectDirect(item, buffer, allocator);
+            }
+            try buffer.append(allocator, ']');
+        },
+        .dict => {
+            const data: *runtime.PyDict = @ptrCast(@alignCast(obj.data));
+            try buffer.append(allocator, '{');
+            var it = data.map.iterator();
+            var first = true;
+            while (it.next()) |entry| {
+                if (!first) try buffer.append(allocator, ',');
+                first = false;
+                try buffer.append(allocator, '"');
+                try writeEscapedStringDirect(entry.key_ptr.*, buffer, allocator);
+                try buffer.append(allocator, '"');
+                try buffer.append(allocator, ':');
+                try stringifyPyObjectDirect(entry.value_ptr.*, buffer, allocator);
+            }
+            try buffer.append(allocator, '}');
+        },
+    }
+}
+
+/// Write escaped string directly to ArrayList
+fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
+    var start: usize = 0;
+    var i: usize = 0;
+
+    while (i < str.len) : (i += 1) {
+        const c = str[i];
+        const needs_escape = switch (c) {
+            '"', '\\', '\x08', '\x0C', '\n', '\r', '\t' => true,
+            0x00...0x07, 0x0B, 0x0E...0x1F => true,
+            else => false,
+        };
+
+        if (needs_escape) {
+            if (start < i) {
+                try buffer.appendSlice(allocator, str[start..i]);
+            }
+
+            switch (c) {
+                '"' => try buffer.appendSlice(allocator, "\\\""),
+                '\\' => try buffer.appendSlice(allocator, "\\\\"),
+                '\x08' => try buffer.appendSlice(allocator, "\\b"),
+                '\x0C' => try buffer.appendSlice(allocator, "\\f"),
+                '\n' => try buffer.appendSlice(allocator, "\\n"),
+                '\r' => try buffer.appendSlice(allocator, "\\r"),
+                '\t' => try buffer.appendSlice(allocator, "\\t"),
+                else => {
+                    var buf: [6]u8 = undefined;
+                    const formatted = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch unreachable;
+                    try buffer.appendSlice(allocator, formatted);
+                },
+            }
+
+            start = i + 1;
+        }
+    }
+
+    if (start < str.len) {
+        try buffer.appendSlice(allocator, str[start..]);
+    }
 }
 
 /// Estimate JSON size for buffer pre-allocation (avoids ArrayList growth)

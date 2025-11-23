@@ -8,8 +8,16 @@
 
 const std = @import("std");
 
-// Forward declare runtime types (will be available at import time)
-const PyObject = anyopaque;  // Placeholder - actual type from runtime
+// Import actual runtime types
+// Note: This assumes runtime is available in parent directory
+const runtime_impl = @import("../../runtime/src/runtime.zig");
+
+// Re-export for convenience
+pub const PyObject = runtime_impl.PyObject;
+pub const PyInt = runtime_impl.PyInt;
+pub const PyFloat = runtime_impl.PyFloat;
+pub const PyString = runtime_impl.PyString;
+pub const NumpyArray = runtime_impl.NumpyArray;
 const Allocator = std.mem.Allocator;
 
 /// Python type identifiers for marshaling
@@ -72,27 +80,62 @@ pub const FunctionSpec = struct {
 pub fn MarshalPyToC(comptime py_type: PyType, comptime c_type: type) type {
     return struct {
         pub fn extract(py_obj: *PyObject, allocator: Allocator) !c_type {
+            _ = allocator; // May be needed for some types
+
             return switch (py_type) {
                 .int => {
                     // Extract PyInt → i64/i32
-                    // TODO: Actual implementation will use runtime.PyInt
-                    unreachable; // Placeholder
+                    if (py_obj.type_id != .int) return error.TypeError;
+                    const py_int = @as(*PyInt, @ptrCast(@alignCast(py_obj.data)));
+
+                    // Handle different target types
+                    if (c_type == i64) {
+                        return py_int.value;
+                    } else if (c_type == i32) {
+                        return @intCast(py_int.value);
+                    } else if (c_type == c_int) {
+                        return @intCast(py_int.value);
+                    } else {
+                        @compileError("Unsupported integer type: " ++ @typeName(c_type));
+                    }
                 },
                 .float => {
                     // Extract PyFloat → f64
-                    unreachable; // Placeholder
+                    if (py_obj.type_id != .float) return error.TypeError;
+                    const py_float = @as(*PyFloat, @ptrCast(@alignCast(py_obj.data)));
+
+                    if (c_type == f64) {
+                        return py_float.value;
+                    } else if (c_type == f32) {
+                        return @floatCast(py_float.value);
+                    } else {
+                        @compileError("Unsupported float type: " ++ @typeName(c_type));
+                    }
                 },
                 .numpy_array => {
                     // Extract NumpyArray → []f64
-                    // const arr = try runtime.numpy_array.extractArray(py_obj);
-                    // return arr.data;
-                    unreachable; // Placeholder
+                    if (py_obj.type_id != .numpy_array) return error.TypeError;
+                    const arr = try runtime_impl.numpy_array.extractArray(py_obj);
+
+                    if (c_type == []f64 or c_type == []const f64) {
+                        return arr.data;
+                    } else if (c_type == *NumpyArray) {
+                        return arr;
+                    } else {
+                        @compileError("Unsupported numpy_array target type: " ++ @typeName(c_type));
+                    }
                 },
                 .string => {
                     // Extract PyString → []const u8
-                    unreachable; // Placeholder
+                    if (py_obj.type_id != .string) return error.TypeError;
+                    const py_str = @as(*PyString, @ptrCast(@alignCast(py_obj.data)));
+                    return py_str.data;
                 },
-                else => @compileError("Unsupported Python type for extraction"),
+                .pyobject => {
+                    // Pass through PyObject* unchanged
+                    return py_obj;
+                },
+                else => @compileError("Unsupported Python type for extraction: " ++ @tagName(py_type)),
             };
         }
     };
@@ -104,27 +147,63 @@ pub fn MarshalCToPy(comptime py_type: PyType, comptime c_type: type) type {
         pub fn wrap(c_value: c_type, allocator: Allocator) !*PyObject {
             return switch (py_type) {
                 .int => {
-                    // Wrap i64 → PyInt
-                    // return try runtime.PyInt.create(allocator, c_value);
-                    unreachable; // Placeholder
+                    // Wrap i64/i32 → PyInt
+                    const int_val: i64 = if (c_type == i64)
+                        c_value
+                    else if (c_type == i32 or c_type == c_int)
+                        @intCast(c_value)
+                    else
+                        @compileError("Cannot wrap " ++ @typeName(c_type) ++ " as int");
+
+                    return try PyInt.create(allocator, int_val);
                 },
                 .float => {
-                    // Wrap f64 → PyFloat
-                    // return try runtime.PyFloat.create(allocator, c_value);
-                    unreachable; // Placeholder
+                    // Wrap f64/f32 → PyFloat
+                    const float_val: f64 = if (c_type == f64)
+                        c_value
+                    else if (c_type == f32)
+                        @floatCast(c_value)
+                    else
+                        @compileError("Cannot wrap " ++ @typeName(c_type) ++ " as float");
+
+                    return try PyFloat.create(allocator, float_val);
                 },
                 .numpy_array => {
-                    // Wrap []f64 → NumpyArray → PyObject
-                    // const arr = try runtime.NumpyArray.fromSlice(allocator, c_value);
-                    // return try runtime.numpy_array.createPyObject(allocator, arr);
-                    unreachable; // Placeholder
+                    // Wrap []f64 or *NumpyArray → PyObject
+                    if (c_type == []f64 or c_type == []const f64) {
+                        const arr = try NumpyArray.fromSlice(allocator, c_value);
+                        return try runtime_impl.numpy_array.createPyObject(allocator, arr);
+                    } else if (c_type == *NumpyArray) {
+                        return try runtime_impl.numpy_array.createPyObject(allocator, c_value);
+                    } else {
+                        @compileError("Cannot wrap " ++ @typeName(c_type) ++ " as numpy_array");
+                    }
+                },
+                .string => {
+                    // Wrap []const u8 → PyString
+                    if (c_type == []const u8 or c_type == []u8) {
+                        return try PyString.create(allocator, c_value);
+                    } else {
+                        @compileError("Cannot wrap " ++ @typeName(c_type) ++ " as string");
+                    }
                 },
                 .void => {
                     // Return None
-                    // return runtime.PyNone;
-                    unreachable; // Placeholder
+                    _ = c_value; // Ignore void value
+                    // TODO: Implement PyNone singleton
+                    const none_obj = try allocator.create(PyObject);
+                    none_obj.* = .{
+                        .ref_count = 1,
+                        .type_id = .none,
+                        .data = undefined, // None has no data
+                    };
+                    return none_obj;
                 },
-                else => @compileError("Unsupported Python type for wrapping"),
+                .pyobject => {
+                    // Pass through PyObject* unchanged
+                    return c_value;
+                },
+                else => @compileError("Unsupported Python type for wrapping: " ++ @tagName(py_type)),
             };
         }
     };
@@ -230,9 +309,70 @@ pub fn comptimeBatchGenerate(comptime specs: []const FunctionSpec) type {
     }
 }
 
+test "marshal PyFloat to f64" {
+    const allocator = std.testing.allocator;
+
+    // Create PyFloat
+    const py_float = try PyFloat.create(allocator, 42.5);
+    defer allocator.destroy(py_float);
+
+    // Extract using comptime marshaler
+    const Marshaler = MarshalPyToC(.float, f64);
+    const c_value = try Marshaler.extract(py_float, allocator);
+
+    try std.testing.expectEqual(@as(f64, 42.5), c_value);
+}
+
+test "marshal f64 to PyFloat" {
+    const allocator = std.testing.allocator;
+
+    // Wrap using comptime marshaler
+    const Wrapper = MarshalCToPy(.float, f64);
+    const py_obj = try Wrapper.wrap(123.456, allocator);
+    defer allocator.destroy(py_obj);
+
+    // Verify
+    try std.testing.expectEqual(PyObject.TypeId.float, py_obj.type_id);
+    const py_float = @as(*PyFloat, @ptrCast(@alignCast(py_obj.data)));
+    try std.testing.expectEqual(@as(f64, 123.456), py_float.value);
+}
+
+test "marshal PyInt to i64" {
+    const allocator = std.testing.allocator;
+
+    const py_int = try PyInt.create(allocator, 99);
+    defer allocator.destroy(py_int);
+
+    const Marshaler = MarshalPyToC(.int, i64);
+    const c_value = try Marshaler.extract(py_int, allocator);
+
+    try std.testing.expectEqual(@as(i64, 99), c_value);
+}
+
+test "marshal NumpyArray to []f64" {
+    const allocator = std.testing.allocator;
+
+    // Create NumpyArray
+    const data = [_]f64{ 1.0, 2.0, 3.0, 4.0 };
+    const arr = try NumpyArray.fromSlice(allocator, &data);
+    const py_obj = try runtime_impl.numpy_array.createPyObject(allocator, arr);
+    defer {
+        const extracted = runtime_impl.numpy_array.extractArray(py_obj) catch unreachable;
+        extracted.deinit();
+        allocator.destroy(py_obj);
+    }
+
+    // Extract using comptime marshaler
+    const Marshaler = MarshalPyToC(.numpy_array, []f64);
+    const c_array = try Marshaler.extract(py_obj, allocator);
+
+    try std.testing.expectEqual(@as(usize, 4), c_array.len);
+    try std.testing.expectEqual(@as(f64, 1.0), c_array[0]);
+    try std.testing.expectEqual(@as(f64, 4.0), c_array[3]);
+}
+
 test "comptime wrapper architecture" {
     // This test validates the comptime architecture compiles
-    // Actual runtime tests will come when integrated with runtime
     const spec = FunctionSpec{
         .c_func_name = "test_func",
         .py_func_name = "test.func",
