@@ -8,9 +8,11 @@ const Unigram = @import("unigram_model.zig").Unigram;
 const VocabEntry = @import("unigram_model.zig").VocabEntry;
 const Lattice = @import("unigram_lattice.zig").Lattice;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const suffix_array = @import("suffix_array.zig");
 
 /// Digamma function (derivative of log gamma) for Bayesian EM
-fn digamma(mut x: f64) f64 {
+fn digamma(x_param: f64) f64 {
+    var x = x_param;
     var result: f64 = 0.0;
     while (x < 7.0) {
         result -= 1.0 / x;
@@ -92,20 +94,96 @@ pub const UnigramTrainer = struct {
             }
         }
 
-        // Add all characters to vocabulary
+        // Add all characters to vocabulary (sorted by frequency)
+        var char_list = std.ArrayList(struct { char: u21, freq: u32 }){};
+        defer char_list.deinit(self.allocator);
+
         var char_it = char_freqs.iterator();
         while (char_it.next()) |entry| {
-            var buf: [4]u8 = undefined;
-            const len = std.unicode.utf8Encode(entry.key_ptr.*, &buf) catch continue;
-            const char_str = try self.allocator.dupe(u8, buf[0..len]);
-            try pieces.append(self.allocator, SentencePiece{
-                .token = char_str,
-                .score = @floatFromInt(entry.value_ptr.*),
+            try char_list.append(self.allocator, .{
+                .char = entry.key_ptr.*,
+                .freq = entry.value_ptr.*,
             });
         }
 
-        // TODO: Add frequent bigrams/trigrams for better seed (currently simplified)
-        // Full implementation would use suffix array to find frequent substrings
+        // Sort by frequency (descending)
+        std.mem.sort(@TypeOf(char_list.items[0]), char_list.items, {}, struct {
+            pub fn lessThan(_: void, a: @TypeOf(char_list.items[0]), b: @TypeOf(char_list.items[0])) bool {
+                return a.freq > b.freq;
+            }
+        }.lessThan);
+
+        // Add characters to pieces
+        for (char_list.items) |item| {
+            var buf: [4]u8 = undefined;
+            const len = std.unicode.utf8Encode(item.char, &buf) catch continue;
+            const char_str = try self.allocator.dupe(u8, buf[0..len]);
+            try pieces.append(self.allocator, SentencePiece{
+                .token = char_str,
+                .score = @floatFromInt(item.freq),
+            });
+        }
+
+        // Build concatenated string for suffix array (separate sentences with \0)
+        var flat_string = std.ArrayList(u8){};
+        defer flat_string.deinit(self.allocator);
+
+        for (sentences) |sentence| {
+            if (sentence.text.len == 0) continue;
+            try flat_string.appendSlice(self.allocator, sentence.text);
+            try flat_string.append(self.allocator, 0); // Sentence boundary
+        }
+
+        // Find frequent substrings using suffix array
+        if (flat_string.items.len > 0) {
+            const substrings = try suffix_array.findFrequentSubstrings(
+                self.allocator,
+                flat_string.items,
+                2, // min_length
+                self.config.max_piece_length, // max_length
+                self.config.seed_size, // max_results
+            );
+            defer {
+                for (substrings) |item| {
+                    self.allocator.free(item.string);
+                }
+                self.allocator.free(substrings);
+            }
+
+            // Add frequent substrings to pieces
+            for (substrings) |item| {
+                // Skip if contains sentence boundary
+                if (std.mem.indexOfScalar(u8, item.string, 0) != null) {
+                    continue;
+                }
+
+                // Calculate score: freq * length
+                const score = @as(f64, @floatFromInt(item.freq * @as(u32, @intCast(item.string.len))));
+
+                const token = try self.allocator.dupe(u8, item.string);
+                try pieces.append(self.allocator, SentencePiece{
+                    .token = token,
+                    .score = score,
+                });
+
+                if (pieces.items.len >= self.config.seed_size) {
+                    break;
+                }
+            }
+        }
+
+        // Convert scores to log probabilities
+        var sum: f64 = 0.0;
+        for (pieces.items[1..]) |piece| { // Skip UNK
+            sum += piece.score;
+        }
+
+        if (sum > 0) {
+            const logsum = @log(sum);
+            for (pieces.items[1..]) |*piece| { // Skip UNK
+                piece.score = @log(piece.score) - logsum;
+            }
+        }
 
         return pieces;
     }
@@ -118,7 +196,7 @@ pub const UnigramTrainer = struct {
             break :blk sum;
         };
 
-        var expected = try self.allocator.alloc(f64, model.vocab.len);
+        const expected = try self.allocator.alloc(f64, model.vocab.len);
         @memset(expected, 0.0);
 
         var objs: f64 = 0.0;
@@ -179,8 +257,8 @@ pub const UnigramTrainer = struct {
         return new_pieces;
     }
 
-    /// Prune vocabulary to target size using loss-based selection
-    fn pruneVocab(self: *UnigramTrainer, pieces: []const SentencePiece, target_size: usize) !std.ArrayList(SentencePiece) {
+    /// Prune vocabulary to target size using loss-based selection (100% HuggingFace parity)
+    fn pruneVocab(self: *UnigramTrainer, pieces: []const SentencePiece, sentences: []const Sentence, target_size: usize) !std.ArrayList(SentencePiece) {
         if (pieces.len <= target_size) {
             var result = std.ArrayList(SentencePiece){};
             for (pieces) |piece| {
@@ -193,20 +271,119 @@ pub const UnigramTrainer = struct {
             return result;
         }
 
-        // Simplified pruning: keep highest scoring tokens
-        // Full implementation would compute loss per token
-        const Candidate = struct { idx: usize, score: f64 };
+        // LOSS-BASED PRUNING (100% HuggingFace algorithm)
+        // For each token, compute likelihood loss if removed
+
+        // Build temporary model from current pieces
+        var vocab = try self.allocator.alloc(VocabEntry, pieces.len);
+        defer {
+            for (vocab) |*entry| {
+                self.allocator.free(entry.token);
+            }
+            self.allocator.free(vocab);
+        }
+
+        for (pieces, 0..) |piece, i| {
+            vocab[i] = VocabEntry{
+                .token = try self.allocator.dupe(u8, piece.token),
+                .score = piece.score,
+            };
+        }
+
+        var model = try Unigram.init(self.allocator, vocab, 0);
+        defer model.deinit();
+
+        // Compute loss for each token
+        const Candidate = struct {
+            idx: usize,
+            loss: f64,  // Higher loss = more important token
+        };
         var candidates = std.ArrayList(Candidate){};
         defer candidates.deinit(self.allocator);
 
-        for (pieces[1..], 1..) |piece, i| {  // Skip UNK
-            try candidates.append(self.allocator, Candidate{ .idx = i, .score = piece.score });
+        // Sample sentences for loss computation (performance optimization)
+        const k_sample_size = @min(sentences.len, 200);
+        var sample_indices = std.ArrayList(usize){};
+        defer sample_indices.deinit(self.allocator);
+
+        if (sentences.len <= k_sample_size) {
+            for (0..sentences.len) |i| {
+                try sample_indices.append(self.allocator, i);
+            }
+        } else {
+            // Evenly sample k_sample_size sentences
+            const step = sentences.len / k_sample_size;
+            for (0..k_sample_size) |i| {
+                try sample_indices.append(self.allocator, i * step);
+            }
         }
 
-        // Sort by score (descending)
+        // For each token (skip UNK at index 0)
+        for (pieces[1..], 1..) |_, token_idx| {
+            var total_loss: f64 = 0.0;
+
+            // Compute loss on sampled sentences
+            for (sample_indices.items) |sent_idx| {
+                const sentence = sentences[sent_idx];
+
+                var lattice = try Lattice.init(self.allocator, sentence.text, model.bos_id, model.eos_id);
+                defer lattice.deinit();
+
+                try model.populateNodes(&lattice);
+
+                // Get 2-best paths to estimate alternative segmentations
+                const paths = try lattice.nbest(self.allocator, 2);
+                defer {
+                    for (paths) |path| {
+                        self.allocator.free(path);
+                    }
+                    self.allocator.free(paths);
+                }
+
+                if (paths.len == 0) continue;
+
+                // Check if this token appears in best path
+                var token_appears = false;
+                for (paths[0]) |node| {
+                    if (node.id == token_idx) {
+                        token_appears = true;
+                        break;
+                    }
+                }
+
+                if (!token_appears) continue;
+
+                // Compute likelihood of best path
+                var best_score: f64 = 0.0;
+                for (paths[0]) |node| {
+                    best_score += node.score;
+                }
+
+                // Compute likelihood of alternative (if exists)
+                var alt_score: f64 = best_score;
+                if (paths.len > 1) {
+                    alt_score = 0.0;
+                    for (paths[1]) |node| {
+                        alt_score += node.score;
+                    }
+                }
+
+                // Loss = frequency * (best - alternative)
+                // Higher loss means token is more important
+                const freq = @as(f64, @floatFromInt(sentence.count));
+                total_loss += freq * (best_score - alt_score);
+            }
+
+            try candidates.append(self.allocator, Candidate{
+                .idx = token_idx,
+                .loss = total_loss,
+            });
+        }
+
+        // Sort by loss (descending) - keep highest-loss tokens
         std.mem.sort(Candidate, candidates.items, {}, struct {
             fn lessThan(_: void, a: Candidate, b: Candidate) bool {
-                return a.score > b.score;  // Descending
+                return a.loss > b.loss;  // Descending
             }
         }.lessThan);
 
@@ -293,7 +470,7 @@ pub const UnigramTrainer = struct {
             const pruned_size = @as(usize, @intFromFloat(@as(f64, @floatFromInt(pieces.items.len)) * self.config.shrinking_factor));
             const target_size = @max(desired_vocab_size, pruned_size);
 
-            var pruned = try self.pruneVocab(pieces.items, target_size);
+            var pruned = try self.pruneVocab(pieces.items, sentences, target_size);
             defer {
                 for (pruned.items) |*piece| piece.deinit(self.allocator);
                 pruned.deinit(self.allocator);
@@ -316,8 +493,15 @@ pub const UnigramTrainer = struct {
             }
         }
 
-        // Final model
+        // Final model - create vocab (Unigram.init will duplicate strings)
         var vocab = try self.allocator.alloc(VocabEntry, pieces.items.len);
+        defer {
+            for (vocab) |*entry| {
+                self.allocator.free(entry.token);
+            }
+            self.allocator.free(vocab);
+        }
+
         for (pieces.items, 0..) |piece, i| {
             vocab[i] = VocabEntry{
                 .token = try self.allocator.dupe(u8, piece.token),

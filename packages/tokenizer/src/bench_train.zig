@@ -1,7 +1,16 @@
 const std = @import("std");
-const Trainer = @import("trainer.zig").Trainer;
+const build_options = @import("build_options");
+const trainer_mod = @import("trainer.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const allocator_helper = @import("allocator_helper.zig");
+
+// Algorithm selection based on build options
+const Trainer = if (build_options.runtime_selection)
+    // Multiple algorithms included - use runtime selection
+    trainer_mod.RuntimeTrainer
+else
+    // Single algorithm - use comptime selection (smallest binary)
+    trainer_mod.TrainerFor(std.meta.stringToEnum(trainer_mod.Algorithm, build_options.default_algorithm) orelse .BPE);
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

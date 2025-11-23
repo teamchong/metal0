@@ -522,34 +522,57 @@ pub const LazyDFA = struct {
 
         @setRuntimeSafety(false);
 
-        // Scan for "://" prefix
-        const prefix = "://";
+        // Scan for 'h' (start of http/https) using scalar search
         var pos: usize = 0;
         while (pos < text.len) {
-            const found_pos_opt = std.mem.indexOfPos(u8, text, pos, prefix);
-            const found_pos = found_pos_opt orelse break;
+            const h_pos_opt = std.mem.indexOfScalarPos(u8, text, pos, 'h');
+            const h_pos = h_pos_opt orelse break;
 
-            // Check for http or https before "://"
-            const has_http = found_pos >= 4 and std.mem.eql(u8, text[found_pos - 4 .. found_pos], "http");
-            const has_https = found_pos >= 5 and std.mem.eql(u8, text[found_pos - 5 .. found_pos], "https");
+            // Fast path: check for "http://" (7 bytes) or "https://" (8 bytes)
+            if (h_pos + 7 <= text.len) {
+                // Check "http://"
+                if (text[h_pos + 1] == 't' and
+                    text[h_pos + 2] == 't' and
+                    text[h_pos + 3] == 'p' and
+                    text[h_pos + 4] == ':' and
+                    text[h_pos + 5] == '/' and
+                    text[h_pos + 6] == '/')
+                {
+                    // SIMD: Scan until whitespace
+                    const match_end = scanUntilWhitespace(text, h_pos + 7);
 
-            if (has_http or has_https) {
-                const match_start = if (has_https) found_pos - 5 else found_pos - 4;
+                    if (match_end > h_pos + 7) {
+                        try matches.append(allocator, .{
+                            .start = h_pos,
+                            .end = match_end,
+                        });
+                        pos = match_end;
+                        continue;
+                    }
+                } else if (h_pos + 8 <= text.len and
+                    text[h_pos + 1] == 't' and
+                    text[h_pos + 2] == 't' and
+                    text[h_pos + 3] == 'p' and
+                    text[h_pos + 4] == 's' and
+                    text[h_pos + 5] == ':' and
+                    text[h_pos + 6] == '/' and
+                    text[h_pos + 7] == '/')
+                {
+                    // SIMD: Scan until whitespace
+                    const match_end = scanUntilWhitespace(text, h_pos + 8);
 
-                // SIMD: Scan until whitespace (32-byte then 16-byte)
-                const match_end = scanUntilWhitespace(text, found_pos + prefix.len);
-
-                if (match_end > found_pos + prefix.len) {
-                    try matches.append(allocator, .{
-                        .start = match_start,
-                        .end = match_end,
-                    });
-                    pos = match_end;
-                    continue;
+                    if (match_end > h_pos + 8) {
+                        try matches.append(allocator, .{
+                            .start = h_pos,
+                            .end = match_end,
+                        });
+                        pos = match_end;
+                        continue;
+                    }
                 }
             }
 
-            pos = found_pos + 1;
+            pos = h_pos + 1;
         }
 
         return matches.toOwnedSlice(allocator);

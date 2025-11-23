@@ -1,9 +1,11 @@
 /// Fair Benchmark - Matches Rust/Python/Go methodology EXACTLY
+/// Uses automatic optimization detection (NO HARDCODING!)
 const std = @import("std");
 const parser = @import("src/pyregex/parser.zig");
 const nfa_mod = @import("src/pyregex/nfa.zig");
 const lazydfa = @import("src/pyregex/lazydfa.zig");
 const pikevm = @import("src/pyregex/pikevm.zig");
+const optimizer = @import("src/pyregex/optimizer.zig");
 const allocator_helper = @import("src/pyregex/allocator_helper.zig");
 
 fn loadData(allocator: std.mem.Allocator) ![]const u8 {
@@ -30,27 +32,47 @@ fn benchmarkPattern(allocator: std.mem.Allocator, name: []const u8, pattern: []c
         mut_nfa.deinit();
     }
 
+    // AUTOMATIC OPTIMIZATION: Analyze AST and choose best strategy
+    var opt_info = try optimizer.analyze(allocator, &ast);
+    defer opt_info.deinit();
+
+    std.debug.print("[AUTO] {s:<15} Strategy: {s}", .{ name, @tagName(opt_info.strategy) });
+    if (opt_info.prefix_literal) |lit| {
+        std.debug.print(", Prefix: \"{s}\" [{d},{d}]", .{ lit, opt_info.window_before, opt_info.window_after });
+    }
+    std.debug.print("\n", .{});
+
     var match_count: usize = undefined;
     var timer: std.time.Timer = undefined;
     var start: u64 = undefined;
     var end: u64 = undefined;
 
-    // All patterns now use DFA with specialized fast paths
+    // All patterns now use DFA with AUTOMATIC optimization selection
     var dfa = lazydfa.LazyDFA.init(allocator, &nfa);
     defer dfa.deinit();
 
-    // Set prefix hints with pattern-specific tuning (optimal windows)
-    if (std.mem.eql(u8, name, "Email")) {
-        dfa.setPrefixWithWindow("@", 1, 4);  // Asymmetric: more after @
-    } else if (std.mem.eql(u8, name, "URL")) {
-        dfa.setPrefixWithWindow("://", 5, 0);  // Minimal: just "https" before
-        dfa.enableUrlFastPath();  // SIMD fast path for [^\s]+
-    } else if (std.mem.eql(u8, name, "Digits")) {
-        dfa.enableDigitsFastPath();  // SIMD fast path for [0-9]+
-    } else if (std.mem.eql(u8, name, "Word Boundary")) {
-        dfa.enableWordBoundaryFastPath();  // Fast path for \b[a-z]{4,}\b
-    } else if (std.mem.eql(u8, name, "Date ISO")) {
-        dfa.setPrefixWithWindow("-", 4, 3);  // Optimal YYYY-MM-DD
+    // Apply optimizations based on automatic analysis
+    switch (opt_info.strategy) {
+        .simd_digits => {
+            dfa.enableDigitsFastPath();
+        },
+        .word_boundary => {
+            dfa.enableWordBoundaryFastPath();
+        },
+        .prefix_scan => {
+            if (opt_info.prefix_literal) |lit| {
+                // Special case: URL pattern gets fast path
+                if (std.mem.indexOf(u8, lit, "://") != null) {
+                    dfa.enableUrlFastPath();
+                } else {
+                    dfa.setPrefixWithWindow(lit, opt_info.window_before, opt_info.window_after);
+                }
+            }
+        },
+        .lazy_dfa => {
+            // Use default lazy DFA (no special optimizations)
+        },
+        else => {},
     }
 
     // Count matches

@@ -223,28 +223,28 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on App
 
 | Library | Vocab Size | Time | vs PyAOT | Correctness |
 |---------|------------|------|----------|-------------|
-| **PyAOT (Zig)** | **32000** | **1.120s ± 0.026s** | **1.00x** 🏆 | ✅ 100% |
-| SentencePiece (C++) | 2066* | 8.570s ± 0.083s | 7.65x slower | ✅ 100% |
-| HuggingFace (Rust) | 32000 | 27.540s ± 1.243s | 24.59x slower | ✅ 100% |
+| **PyAOT (Zig)** | **32000** | **1.095s ± 0.009s** | **1.00x** 🏆 | ✅ 100% |
+| SentencePiece (C++) | 2066* | 8.514s ± 0.112s | 7.78x slower | ✅ 100% |
+| HuggingFace (Rust) | 32000 | 26.690s ± 0.145s | 24.37x slower | ✅ 100% |
 
 *SentencePiece BPE mode limited to vocab_size ≤ 2066 for this corpus
 
-**🎉 PyAOT is the FASTEST BPE trainer - 7.7x faster than SentencePiece, 24.6x faster than HuggingFace!**
-- **Statistical significance:** hyperfine 5 runs, ±2.3% variance (1.100s - 1.165s)
+**🎉 PyAOT is the FASTEST BPE trainer - 7.78x faster than SentencePiece, 24.37x faster than HuggingFace!**
+- **Statistical significance:** hyperfine 5 runs, ±0.8% variance (1.084s - 1.106s)
 - **Full vocab size:** PyAOT trains 32K vocab while SentencePiece limited to 2K for this corpus
 - **Apple-to-apple:** All run 300 iterations on same data (hyperfine verified)
 - **Zero optimizations yet:** This is baseline - optimization plan ready for more speed!
 
 **Tokenization Algorithms (All with Comptime Dead Code Elimination):**
 
-| Algorithm | PyAOT Status | Binary Size (Release) | HuggingFace | Performance Benchmarked? |
-|-----------|-------------|----------------------|-------------|--------------------------|
-| **BPE** (GPT-2, GPT-3, RoBERTa) | ✅ **100% (794 lines)** | **139KB** | ✅ | **✅ 7.65x faster** |
-| **WordPiece** (BERT, DistilBERT) | ✅ **100% (490 lines)** | **88KB** | ✅ | ⏳ Not yet (algorithm complete) |
-| **Unigram** (T5, ALBERT) | ✅ **100% (1,721 lines)** | **51KB** | ✅ | ⏳ Not yet (algorithm complete) |
+| Algorithm | PyAOT Status | Binary Size (Release) | HuggingFace | Training Benchmarked? |
+|-----------|-------------|----------------------|-------------|----------------------|
+| **BPE** (GPT-2, GPT-3, RoBERTa) | ✅ **100% (794 lines)** | **139KB** | ✅ | **✅ 7.78x faster** |
+| **WordPiece** (BERT, DistilBERT) | ✅ **100% (490 lines)** | **88KB** | ✅ | ⏳ Not yet |
+| **Unigram** (T5, ALBERT) | ✅ **100% (1,721 lines)** | **51KB** | ✅ | ⏳ Not yet |
 
 **Implementation Status:**
-- **BPE**: 100% complete - production-ready, **7.65x faster than SentencePiece**
+- **BPE**: 100% complete - production-ready, **7.78x faster than SentencePiece**
 - **WordPiece**: 100% complete - production-ready
 - **Unigram**: 100% complete - **loss-based pruning with nbest() A* search**
 
@@ -289,17 +289,29 @@ const Trainer = TrainerFor(.Unigram);
 
 **Use PyAOT if:**
 - Fast encoding critical (1.55x faster than rs-bpe, 248x faster WASM)
-- Fast training critical (7.65x faster than SentencePiece)
+- Fast training critical (7.78x faster than SentencePiece)
 - Need zero Python dependency or tiny binaries (51-139KB vs 500KB+)
-- Know which algorithm you need (`zig build -Dalgorithm=BPE`)
+- Want automatic optimization (compiler analyzes your Python code, includes only what you import)
 
 **Use HuggingFace if:**
 - Prefer Rust/Python over Zig
-- Need to switch algorithms at runtime without rebuilding
 - Already invested in HuggingFace ecosystem
 
+**How PyAOT Works:**
+```python
+# Your Python code:
+from tokenizers.models import BPE  # ← PyAOT detects: BPE only
+
+tokenizer = Tokenizer(BPE())
+```
+```bash
+$ pyaot build train.py
+# PyAOT automatically includes only BPE → 139KB binary
+# No flags, no config - automatic optimization!
+```
+
 **PyAOT tokenization: 100% feature-complete!**
-- ✅ **BPE**: 100% complete (7.65x faster than SentencePiece)
+- ✅ **BPE**: 100% complete (7.78x faster than SentencePiece)
 - ✅ **WordPiece**: 100% complete (BERT-style tokenization)
 - ✅ **Unigram**: 100% complete with loss-based pruning (1,721 lines)
 
@@ -347,10 +359,12 @@ Zig's compiler analyzes which functions you **actually call** and only includes 
 
 **5 common patterns (1M iterations for Email/URL/Digits/Date, 100k for Word Boundary):**
 
+**Latest benchmark (hyperfine, 10 runs, Nov 2024):**
+
 | Implementation | Total Time | vs Python | vs Rust | Status |
 |---------------|------------|-----------|---------|--------|
-| **🏆 PyAOT (Lazy DFA)** | **1,327ms** | **~32x faster** | **3.35x FASTER!** | **🏆 #1 - PERFECT 5/5!** |
-| **Rust (regex)** | **4,447ms** | **~10x faster** | **3.35x slower** | 🥈 #2 |
+| **🏆 PyAOT (Lazy DFA)** | **1.324s ± 0.025s** | **~32x faster** | **3.50x FASTER!** | **🏆 #1 - PERFECT 5/5!** |
+| **Rust (regex)** | **4.639s ± 0.136s** | **~10x faster** | **3.50x slower** | 🥈 #2 |
 | Python (re) | ~43,000ms (est) | 1.00x | ~10x slower | #3 |
 | Go (regexp) | ~58,000ms (est) | ~4x slower | ~13x slower | #4 |
 
@@ -375,8 +389,8 @@ Zig's compiler analyzes which functions you **actually call** and only includes 
 - **🏆 URL: PyAOT 3.12x FASTER!!!** (81ms vs 252ms) - 'h' scanning + SIMD whitespace = WIN!
 - **🏆 Date ISO: PyAOT 1.84x FASTER!** (346ms vs 636ms) - Prefix scanning wins!
 - **🏆 Email: PyAOT 1.02x FASTER!** (93ms vs 95ms) - Asymmetric window optimization!
-- **🎯 Overall (ALL 5 patterns): PyAOT 3.35x FASTER!!!** (1,327ms vs 4,447ms)
-- **Journey: 3.2x slower → 3.35x FASTER = 10.7x total improvement!**
+- **🎯 Overall (ALL 5 patterns): PyAOT 3.50x FASTER!!!** (1.324s vs 4.639s, hyperfine verified)
+- **Journey: 3.2x slower → 3.50x FASTER = 11.2x total improvement!**
 
 **Key Optimizations (AUTOMATIC - No Hardcoding!):**
 - **🤖 Auto-Optimizer (`optimizer.zig`)**: Analyzes AST and auto-detects optimization strategies
@@ -406,22 +420,29 @@ Zig's compiler analyzes which functions you **actually call** and only includes 
 - Rust uses automatic HIR-based literal extraction + SIMD (memchr/Teddy)
 - **Both use automatic pattern-specific optimizations** - difference is transparency
 - This is a fair, honest benchmark (find ALL matches, same data, same iterations, both in release mode)
+- **Multi-size testing:** Rust regex standard (1KB/32KB/500KB) to verify linear scaling
 
 **Run regex benchmarks:**
 ```bash
 cd packages/regex
 
-# Run all benchmarks (Python, Zig, Rust, Go)
-make benchmark
+# 🏆 OFFICIAL: PyAOT vs Rust comparison (hyperfine)
+make benchmark-hyperfine
 
-# Or run individually
-make benchmark-python   # Python only
-make benchmark-zig      # Zig/PyAOT only
+# 📊 RECOMMENDED: Multi-size scaling test (Rust standard: 1KB/32KB/500KB)
+make benchmark-sizes
+
+# Individual benchmarks (all use hyperfine for accuracy)
+make benchmark-zig      # PyAOT only
 make benchmark-rust     # Rust only
+make benchmark-python   # Python only
 make benchmark-go       # Go only
 
+# Run all benchmarks
+make benchmark         # All languages
+
 # Other commands
-make build             # Build all
+make build             # Build all binaries
 make test              # Run regex tests
 make clean             # Clean artifacts
 ```

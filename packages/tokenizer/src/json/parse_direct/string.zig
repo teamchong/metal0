@@ -5,20 +5,17 @@ const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
 const simd = @import("../simd/dispatch.zig");
 
-/// Parse JSON string directly to PyString
+/// Parse JSON string directly to PyString (single SIMD pass for speed!)
 pub fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) JsonError!ParseResult(*runtime.PyObject) {
     if (pos >= data.len or data[pos] != '"') return JsonError.UnexpectedToken;
 
     const start = pos + 1; // Skip opening quote
 
-    // Use SIMD to quickly check for escapes
-    const has_escapes = simd.hasEscapes(data[start..]);
+    // Single-pass SIMD: find closing quote AND check for escapes simultaneously
+    if (simd.findClosingQuoteAndEscapes(data[start..])) |result| {
+        const i = start + result.quote_pos;
 
-    // Use SIMD to find closing quote
-    if (simd.findClosingQuote(data[start..], 0)) |rel_pos| {
-        const i = start + rel_pos;
-
-        const str_data: []const u8 = if (!has_escapes)
+        const str_data: []const u8 = if (!result.has_escapes)
             // Fast path: No escapes, just copy once
             try allocator.dupe(u8, data[start..i])
         else

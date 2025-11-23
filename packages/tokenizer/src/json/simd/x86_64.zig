@@ -203,3 +203,8 @@ test "hasEscapesAvx2" {
     try std.testing.expect(!hasEscapesAvx2("hello world"));
     try std.testing.expect(hasEscapesAvx2("hello\\nworld"));
 }
+
+pub fn findClosingQuoteAndEscapesAvx2(data: []const u8) ?@import("dispatch.zig").QuoteAndEscapeResult {
+    // Use scalar implementation (SIMD escape tracking is complex, scalar is proven correct)
+    return scalar.findClosingQuoteAndEscapes(data);
+}

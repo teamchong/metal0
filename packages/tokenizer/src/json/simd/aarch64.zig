@@ -203,3 +203,8 @@ test "hasEscapesNeon" {
     try std.testing.expect(!hasEscapesNeon("hello world"));
     try std.testing.expect(hasEscapesNeon("hello\\nworld"));
 }
+
+pub fn findClosingQuoteAndEscapesNeon(data: []const u8) ?@import("dispatch.zig").QuoteAndEscapeResult {
+    // Use scalar implementation (SIMD escape tracking is complex, scalar is proven correct)
+    return scalar.findClosingQuoteAndEscapes(data);
+}

@@ -210,6 +210,153 @@ pub const Lattice = struct {
         return result.toOwnedSlice(allocator);
     }
 
+    /// Hypothesis for N-best search (A* algorithm)
+    const Hypothesis = struct {
+        node: *Node,
+        next: ?*Hypothesis, // Linked list to previous hypothesis
+        fx: f64,  // f(x) = g(x) + h(x) - total score for ordering
+        gx: f64,  // g(x) = score so far
+        allocator: Allocator,
+
+        pub fn init(allocator: Allocator, node: *Node, next: ?*Hypothesis, fx: f64, gx: f64) !*Hypothesis {
+            const hyp = try allocator.create(Hypothesis);
+            hyp.* = Hypothesis{
+                .node = node,
+                .next = next,
+                .fx = fx,
+                .gx = gx,
+                .allocator = allocator,
+            };
+            return hyp;
+        }
+
+        pub fn deinit(self: *Hypothesis) void {
+            self.allocator.destroy(self);
+        }
+
+        pub fn lessThan(_: void, a: *Hypothesis, b: *Hypothesis) std.math.Order {
+            // Higher fx is better (max heap)
+            if (a.fx > b.fx) return .lt;
+            if (a.fx < b.fx) return .gt;
+            return .eq;
+        }
+    };
+
+    /// Find N-best tokenization paths using A* search
+    pub fn nbest(self: *Lattice, allocator: Allocator, n: usize) ![][]*Node {
+        if (n == 0) {
+            return try allocator.alloc([]*Node, 0);
+        }
+
+        if (n == 1) {
+            const best = try self.viterbi();
+            var result = try allocator.alloc([]*Node, 1);
+            result[0] = best;
+            return result;
+        }
+
+        // Priority queue (max heap by fx score)
+        const PQ = std.PriorityQueue(*Hypothesis, void, Hypothesis.lessThan);
+        var agenda = PQ.init(allocator, {});
+        defer {
+            // Clean up remaining hypotheses in queue
+            while (agenda.removeOrNull()) |hyp| {
+                hyp.deinit();
+            }
+            agenda.deinit();
+        }
+
+        // Track all allocated hypotheses for cleanup
+        var all_hyps = std.ArrayList(*Hypothesis){};
+        defer {
+            for (all_hyps.items) |hyp| {
+                hyp.deinit();
+            }
+            all_hyps.deinit(allocator);
+        }
+
+        var results = std.ArrayList([]*Node){};
+        errdefer {
+            for (results.items) |path| {
+                allocator.free(path);
+            }
+            results.deinit(allocator);
+        }
+
+        // Initialize: start from EOS node
+        const eos = self.begin_nodes.items[self.len].items[0];
+        const eos_hyp = try Hypothesis.init(allocator, eos, null, eos.score, eos.score);
+        try all_hyps.append(allocator, eos_hyp);
+        try agenda.add(eos_hyp);
+
+        // Fill backtrace scores first (needed for heuristic)
+        {
+            const vit_path = try self.viterbi();
+            defer allocator.free(vit_path);
+        }
+
+        // A* search
+        const k_max_agenda_size = 100_000;
+        const k_min_agenda_size = 512;
+
+        while (agenda.removeOrNull()) |top| {
+            const node = top.node;
+
+            // Check if we reached BOS (beginning of sentence)
+            if (node.node_id == self.end_nodes.items[0].items[0].node_id) {
+                // Reconstruct path by following linked list
+                var path = std.ArrayList(*Node){};
+                var curr: ?*Hypothesis = top.next;
+
+                while (curr) |h| {
+                    if (h.next == null) break; // Skip BOS
+                    try path.append(allocator, h.node);
+                    curr = h.next;
+                }
+
+                // Reverse to get forward order
+                std.mem.reverse(*Node, path.items);
+                try results.append(allocator, try path.toOwnedSlice(allocator));
+
+                if (results.items.len >= n) {
+                    return results.toOwnedSlice(allocator);
+                }
+                continue;
+            }
+
+            // Expand: add predecessors to agenda
+            for (self.end_nodes.items[node.pos].items) |lnode| {
+                const new_fx = lnode.backtrace_score + top.gx;
+                const new_gx = lnode.score + top.gx;
+
+                const new_hyp = try Hypothesis.init(allocator, lnode, top, new_fx, new_gx);
+                try all_hyps.append(allocator, new_hyp);
+                try agenda.add(new_hyp);
+            }
+
+            // Prune agenda if too large (prevent memory explosion)
+            if (agenda.count() > k_max_agenda_size) {
+                const keep_size = @min(k_min_agenda_size, n * 10);
+                var new_agenda = PQ.init(allocator, {});
+
+                var kept: usize = 0;
+                while (kept < keep_size and agenda.removeOrNull() != null) {
+                    const hyp = agenda.removeOrNull().?;
+                    try new_agenda.add(hyp);
+                    kept += 1;
+                }
+
+                // Clean up remaining hypotheses
+                while (agenda.removeOrNull()) |_| {}
+
+                agenda.deinit();
+                agenda = new_agenda;
+            }
+        }
+
+        return results.toOwnedSlice(allocator);
+    }
+
     /// Forward-backward algorithm for EM training (E-step)
     /// Computes expected counts for each token
     pub fn populateMarginal(self: *const Lattice, freq: f64, expected: []f64) !f64 {
@@ -304,4 +451,34 @@ test "Lattice insert and viterbi" {
     // Should choose "ab" (single token) over "a" + "b"
     try std.testing.expectEqual(@as(usize, 1), path.len);
     try std.testing.expectEqual(@as(usize, 4), path[0].id);
+}
+
+test "Lattice nbest" {
+    const allocator = std.testing.allocator;
+
+    var lattice = try Lattice.init(allocator, "ab", 0, 1);
+    defer lattice.deinit();
+
+    // Insert candidates
+    try lattice.insert(0, 1, -1.0, 2); // "a"
+    try lattice.insert(1, 1, -1.0, 3); // "b"
+    try lattice.insert(0, 2, -0.5, 4); // "ab" (best)
+
+    // Get 2-best paths
+    const paths = try lattice.nbest(allocator, 2);
+    defer {
+        for (paths) |path| {
+            allocator.free(path);
+        }
+        allocator.free(paths);
+    }
+
+    // Should get 2 paths
+    try std.testing.expect(paths.len > 0);
+    try std.testing.expect(paths.len <= 2);
+
+    // First path should be best (single "ab" token)
+    if (paths.len > 0) {
+        try std.testing.expectEqual(@as(usize, 1), paths[0].len);
+    }
 }
