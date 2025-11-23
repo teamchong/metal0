@@ -7,15 +7,22 @@ const Allocator = std.mem.Allocator;
 
 // External dependencies
 const BacktrackEncoder = @import("backtrack_encoder.zig").BacktrackEncoder;
+const StackEncoder = @import("stack_encoder.zig");
 const encodeGreedy = @import("greedy_encoder.zig").encodeGreedy;
 const encodeOptimized = @import("optimized_hashmap_encoder.zig").encodeOptimized;
 const cl100k_splitter = @import("cl100k_splitter.zig");
 const AhoCorasick = @import("aho_corasick.zig").AhoCorasick;
 
+// Comptime-generated specialized stack encoders (zero heap allocation!)
+const SmallEncoder = StackEncoder.BacktrackEncoder(4 * 1024); // 4KB chunks
+const MediumEncoder = StackEncoder.BacktrackEncoder(16 * 1024); // 16KB chunks
+const LargeEncoder = StackEncoder.BacktrackEncoder(64 * 1024); // 64KB chunks
+
 // Re-export modular components
 const helpers = @import("tokenizer_helpers.zig");
 pub const Pair = helpers.Pair;
 pub const PairContext = helpers.PairContext;
+pub const StringHashContext = helpers.StringHashContext;
 pub const BitField = helpers.BitField;
 pub const TrieNode = helpers.TrieNode;
 pub const countPairsSIMD = helpers.countPairsSIMD;
@@ -276,24 +283,66 @@ pub const Tokenizer = struct {
         return try result.toOwnedSlice(self.allocator);
     }
 
-    /// Port of rs-bpe's encode_via_backtracking with arena allocator
+    /// ZERO-ALLOCATION stack-based encoding with comptime specialization
+    /// Uses size-specialized stack encoders to eliminate malloc/free overhead
     fn encodeViaBacktrackingArena(self: *Tokenizer, text: []const u8, arena: Allocator) ![]u32 {
+        _ = arena; // Not used in stack-based version
         if (text.len == 0) return try self.allocator.alloc(u32, 0);
 
         // Use Aho-Corasick + split_table + pair_lookup if available
         if (self.aho_corasick) |*ac| {
-            var encoder = try BacktrackEncoder.initArena(
-                arena,
-                self.allocator,
-                text,
-                ac,
-                &self.vocab_r,
-                @ptrCast(&self.split_table),
-                @ptrCast(&self.merges_map),
-                self.next_prefix_match,
-            );
-            defer encoder.deinit();
-            return try encoder.encode();
+            @setRuntimeSafety(false);
+
+            // Runtime dispatch to comptime-optimized stack encoders
+            return switch (text.len) {
+                0...4096 => blk: {
+                    var enc = try SmallEncoder.init(
+                        text,
+                        ac,
+                        &self.vocab_r,
+                        @ptrCast(&self.split_table),
+                        @ptrCast(&self.merges_map),
+                        self.next_prefix_match,
+                    );
+                    break :blk try enc.encode(self.allocator);
+                },
+                4097...16384 => blk: {
+                    var enc = try MediumEncoder.init(
+                        text,
+                        ac,
+                        &self.vocab_r,
+                        @ptrCast(&self.split_table),
+                        @ptrCast(&self.merges_map),
+                        self.next_prefix_match,
+                    );
+                    break :blk try enc.encode(self.allocator);
+                },
+                16385...65536 => blk: {
+                    var enc = try LargeEncoder.init(
+                        text,
+                        ac,
+                        &self.vocab_r,
+                        @ptrCast(&self.split_table),
+                        @ptrCast(&self.merges_map),
+                        self.next_prefix_match,
+                    );
+                    break :blk try enc.encode(self.allocator);
+                },
+                else => {
+                    // Fall back to heap-based encoder for huge chunks (rare)
+                    var encoder = try BacktrackEncoder.init(
+                        self.allocator,
+                        text,
+                        ac,
+                        &self.vocab_r,
+                        @ptrCast(&self.split_table),
+                        @ptrCast(&self.merges_map),
+                        self.next_prefix_match,
+                    );
+                    defer encoder.deinit();
+                    return try encoder.encode();
+                },
+            };
         }
 
         // Fallback: HashMap encoder (slow but works without Aho-Corasick)

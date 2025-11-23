@@ -19,5 +19,20 @@ bench_cl100k
 test_tokendagger
 bench_tokendagger_pure.c
 
+# Test binaries
+test_ac_*
+test_correctness*
+test_vocab_*
+test_pool
+test_glob
+test_string_builder
+test_debug
+test_splitter
+
+# Debug/backup files
+repro_*.zig
+*_backup.zig
+*_original.zig
+
 # Temp files
 temp_spm.*

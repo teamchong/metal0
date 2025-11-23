@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 const helpers = @import("tokenizer_helpers.zig");
 const Pair = helpers.Pair;
 const PairContext = helpers.PairContext;
+const StringHashContext = helpers.StringHashContext;
 const TrieNode = helpers.TrieNode;
 const builder = @import("tokenizer_builder.zig");
 const AhoCorasick = @import("aho_corasick.zig").AhoCorasick;

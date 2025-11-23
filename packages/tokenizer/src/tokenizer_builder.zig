@@ -7,6 +7,7 @@ const AhoCorasick = @import("aho_corasick.zig").AhoCorasick;
 const helpers = @import("tokenizer_helpers.zig");
 const Pair = helpers.Pair;
 const PairContext = helpers.PairContext;
+const StringHashContext = helpers.StringHashContext;
 
 /// Build split_table by reverse-engineering vocab (port of rs-bpe lines 289-320)
 pub fn buildSplitTable(
