@@ -3,6 +3,7 @@
 /// Simplified port from HuggingFace tokenizers/src/models/unigram/trainer.rs
 
 const std = @import("std");
+const hashmap_helper = @import("hashmap_helper.zig");
 const Allocator = std.mem.Allocator;
 const Unigram = @import("unigram_model.zig").Unigram;
 const VocabEntry = @import("unigram_model.zig").VocabEntry;
@@ -137,7 +138,7 @@ pub const UnigramTrainer = struct {
 
         // Generate ALL character n-grams (2 to max_piece_length) from all sentences
         // This creates a large initial vocabulary for EM to prune
-        var ngram_freqs = std.StringHashMap(u32).init(self.allocator);
+        var ngram_freqs = hashmap_helper.StringHashMap(u32).init(self.allocator);
         defer ngram_freqs.deinit();
 
         for (sentences) |sentence| {

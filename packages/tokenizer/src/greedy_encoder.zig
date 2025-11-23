@@ -2,12 +2,13 @@
 /// No backtracking - just matches longest token at each position
 /// Fast but may not be 100% correct without pair validation
 const std = @import("std");
+const hashmap_helper = @import("hashmap_helper.zig");
 const Allocator = std.mem.Allocator;
 
 pub fn encodeGreedy(
     allocator: Allocator,
     text: []const u8,
-    vocab: *const std.StringHashMap(u32),
+    vocab: *const hashmap_helper.StringHashMap(u32),
 ) ![]u32 {
     var tokens = std.ArrayList(u32){};
     try tokens.ensureTotalCapacity(allocator, text.len / 3);

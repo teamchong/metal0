@@ -78,12 +78,12 @@ for i in range(300):
 os.unlink(temp_file)
 PYEOF
 
-# Run hyperfine
+# Run hyperfine (use ALGORITHM env var to select Unigram)
 hyperfine \
     --warmup 1 \
     --runs 5 \
     --export-markdown bench_unigram_results.md \
-    --command-name "PyAOT (Zig)" './zig-out/bin/bench_train' \
+    --command-name "PyAOT (Zig)" 'ALGORITHM=Unigram ./zig-out/bin/bench_train' \
     --command-name "HuggingFace (Rust)" 'python3 /tmp/bench_hf_unigram.py' \
     --command-name "SentencePiece (C++)" 'python3 /tmp/bench_spm_unigram.py'
 

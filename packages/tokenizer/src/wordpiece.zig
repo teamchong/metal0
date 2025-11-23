@@ -1,6 +1,7 @@
 /// WordPiece tokenizer - used by BERT, DistilBERT
 /// Comptime: Only compiled in if you use Trainer(.WordPiece) or encode with WordPiece
 const std = @import("std");
+const hashmap_helper = @import("hashmap_helper.zig");
 const Allocator = std.mem.Allocator;
 
 /// WordPiece trainer configuration
@@ -15,7 +16,7 @@ pub const Config = struct {
 
 /// WordPiece vocabulary and model
 pub const WordPiece = struct {
-    vocab: std.StringHashMap(u32), // token -> id
+    vocab: hashmap_helper.StringHashMap(u32), // token -> id
     vocab_r: std.AutoHashMap(u32, []const u8), // id -> token
     config: Config,
     allocator: Allocator,
@@ -24,7 +25,7 @@ pub const WordPiece = struct {
 
     pub fn init(allocator: Allocator, config: Config) WordPiece {
         return WordPiece{
-            .vocab = std.StringHashMap(u32).init(allocator),
+            .vocab = hashmap_helper.StringHashMap(u32).init(allocator),
             .vocab_r = std.AutoHashMap(u32, []const u8).init(allocator),
             .config = config,
             .allocator = allocator,
@@ -50,7 +51,7 @@ pub const WordPiece = struct {
         try self.initVocabulary(texts);
 
         // Count word frequencies
-        var word_counts = std.StringHashMap(u32).init(self.allocator);
+        var word_counts = hashmap_helper.StringHashMap(u32).init(self.allocator);
         defer {
             var it = word_counts.iterator();
             while (it.next()) |entry| {
@@ -145,8 +146,8 @@ pub const WordPiece = struct {
 
     /// Find most frequent adjacent TOKEN pair in words
     /// CRITICAL: This must tokenize with current vocab, not just look at characters!
-    fn findBestPair(self: *WordPiece, word_counts: *std.StringHashMap(u32)) !?[]const u8 {
-        var pair_counts = std.StringHashMap(u32).init(self.allocator);
+    fn findBestPair(self: *WordPiece, word_counts: *hashmap_helper.StringHashMap(u32)) !?[]const u8 {
+        var pair_counts = hashmap_helper.StringHashMap(u32).init(self.allocator);
         defer {
             var it = pair_counts.iterator();
             while (it.next()) |entry| {

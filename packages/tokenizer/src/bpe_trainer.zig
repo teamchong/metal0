@@ -7,6 +7,7 @@ const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Word = @import("bpe_word.zig").Word;
 const Pair = @import("bpe_word.zig").Pair;
 const Change = @import("bpe_word.zig").Change;
+const hashmap_helper = @import("hashmap_helper.zig");
 
 /// Merge result (pair → new_id)
 const MergeResult = struct {
@@ -47,7 +48,7 @@ pub const BpeTrainer = struct {
 
     // Training state
     allocator: Allocator,
-    word_counts: std.StringHashMap(u64),
+    word_counts: hashmap_helper.StringHashMap(u64),
 
     pub fn init(vocab_size: usize, allocator: Allocator) !BpeTrainer {
         return BpeTrainer{
@@ -60,7 +61,7 @@ pub const BpeTrainer = struct {
             .end_of_word_suffix = null,
             .max_token_length = null,
             .allocator = allocator,
-            .word_counts = std.StringHashMap(u64).init(allocator),
+            .word_counts = hashmap_helper.StringHashMap(u64).init(allocator),
         };
     }
 
@@ -72,7 +73,7 @@ pub const BpeTrainer = struct {
     /// Add special tokens to vocabulary
     fn addSpecialTokens(
         self: *BpeTrainer,
-        word_to_id: *std.StringHashMap(u32),
+        word_to_id: *hashmap_helper.StringHashMap(u32),
         id_to_word: *std.ArrayList([]const u8),
     ) !void {
         for (self.special_tokens) |token| {
@@ -88,7 +89,7 @@ pub const BpeTrainer = struct {
     /// Compute initial alphabet from word counts
     fn computeAlphabet(
         self: *BpeTrainer,
-        word_to_id: *std.StringHashMap(u32),
+        word_to_id: *hashmap_helper.StringHashMap(u32),
         id_to_word: *std.ArrayList([]const u8),
     ) !void {
         // Count character frequencies
@@ -172,7 +173,7 @@ pub const BpeTrainer = struct {
     /// Tokenize words into Word objects using current vocabulary
     fn tokenizeWords(
         self: *BpeTrainer,
-        word_to_id: *const std.StringHashMap(u32),
+        word_to_id: *const hashmap_helper.StringHashMap(u32),
         id_to_word: *const std.ArrayList([]const u8),
     ) !struct { words: []Word, counts: []u64 } {
         _ = id_to_word;
@@ -311,7 +312,7 @@ pub const BpeTrainer = struct {
             }
         }
 
-        var word_to_id = std.StringHashMap(u32).init(self.allocator);
+        var word_to_id = hashmap_helper.StringHashMap(u32).init(self.allocator);
         defer word_to_id.deinit();
 
         var id_to_word = std.ArrayList([]const u8){};
@@ -472,7 +473,7 @@ pub const BpeTrainer = struct {
     /// Build a Tokenizer from training results
     fn buildTokenizer(
         self: *BpeTrainer,
-        word_to_id: *const std.StringHashMap(u32),
+        word_to_id: *const hashmap_helper.StringHashMap(u32),
         id_to_word: *const std.ArrayList([]const u8),
         merge_list: []const MergeResult,
     ) !Tokenizer {

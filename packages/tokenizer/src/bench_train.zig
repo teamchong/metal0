@@ -105,7 +105,7 @@ pub fn main() !void {
         var i: usize = 0;
         while (i < 300) : (i += 1) {
             var trainer = if (build_options.runtime_selection)
-                try Trainer.init(VOCAB_SIZE, allocator, std.meta.stringToEnum(trainer_mod.Algorithm, build_options.default_algorithm) orelse .BPE)
+                try Trainer.init(VOCAB_SIZE, allocator, selected_algorithm)
             else
                 try Trainer.init(VOCAB_SIZE, allocator);
             const result = try trainer.trainFromIterator(texts.items);

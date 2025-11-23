@@ -1,12 +1,13 @@
 /// Optimized HashMap BPE encoder without O(n³) array shifting
 /// Uses skip-list approach: mark positions as merged instead of shifting
 const std = @import("std");
+const hashmap_helper = @import("hashmap_helper.zig");
 const Allocator = std.mem.Allocator;
 
 pub fn encodeOptimized(
     allocator: Allocator,
     text: []const u8,
-    vocab: *const std.StringHashMap(u32),
+    vocab: *const hashmap_helper.StringHashMap(u32),
     vocab_r: *const std.AutoHashMap(u32, []const u8),
 ) ![]u32 {
     if (text.len == 0) return &[_]u32{};

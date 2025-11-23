@@ -3,6 +3,7 @@
 /// Ported from HuggingFace tokenizers/src/models/unigram/model.rs (640 lines)
 
 const std = @import("std");
+const hashmap_helper = @import("hashmap_helper.zig");
 const Allocator = std.mem.Allocator;
 const Lattice = @import("unigram_lattice.zig").Lattice;
 const Trie = @import("unigram_trie.zig").Trie;
@@ -22,7 +23,7 @@ pub const VocabEntry = struct {
 /// Unigram model for encoding sentences
 pub const Unigram = struct {
     vocab: []VocabEntry,        // Vocabulary with log probabilities
-    token_to_ids: std.StringHashMap(u32), // Token → ID mapping
+    token_to_ids: hashmap_helper.StringHashMap(u32), // Token → ID mapping
     trie: Trie(u8),             // Prefix trie for efficient lookup
     min_score: f64,             // Minimum score in vocabulary
     unk_id: ?usize,             // Unknown token ID
@@ -54,7 +55,7 @@ pub const Unigram = struct {
         }
 
         // Build token → ID map
-        var token_to_ids = std.StringHashMap(u32).init(allocator);
+        var token_to_ids = hashmap_helper.StringHashMap(u32).init(allocator);
         errdefer token_to_ids.deinit();
 
         // Build trie
