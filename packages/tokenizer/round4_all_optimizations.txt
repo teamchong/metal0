@@ -1,0 +1,54 @@
+[0;33m🔨 Building native binaries...[0m
+[0;32m✅ Build complete:[0m
+   - tokenizer_bench
+   - bench_native
+   - bench_train
+   - test_correctness
+
+[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[0;32m⚡ Quick Benchmark: PyAOT vs TokenDagger (hyperfine)[0m
+[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+
+⚡ Quick Benchmark (for rapid iteration)
+═══════════════════════════════════════
+Testing: PyAOT, rs-bpe, TokenDagger, tiktoken
+Iterations: 100 (vs 1000 in full benchmark)
+
+Running hyperfine (583 texts × 100 iterations, 3 runs)...
+
+Benchmark 1: PyAOT
+  Time (mean ± σ):      22.6 ms ±   0.9 ms    [User: 17.4 ms, System: 3.7 ms]
+  Range (min … max):    21.6 ms …  23.3 ms    3 runs
+ 
+  Warning: Ignoring non-zero exit code.
+ 
+Benchmark 2: rs-bpe
+  Time (mean ± σ):     668.1 ms ±  90.8 ms    [User: 642.3 ms, System: 18.6 ms]
+  Range (min … max):   611.6 ms … 772.8 ms    3 runs
+ 
+  Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the '--warmup' or '--prepare' options.
+ 
+Benchmark 3: TokenDagger
+  Time (mean ± σ):     983.0 ms ±  10.9 ms    [User: 928.1 ms, System: 44.9 ms]
+  Range (min … max):   970.7 ms … 991.5 ms    3 runs
+ 
+Benchmark 4: tiktoken
+  Time (mean ± σ):      1.476 s ±  0.007 s    [User: 1.437 s, System: 0.031 s]
+  Range (min … max):    1.471 s …  1.484 s    3 runs
+ 
+Summary
+  PyAOT ran
+   29.56 ± 4.18 times faster than rs-bpe
+   43.49 ± 1.75 times faster than TokenDagger
+   65.32 ± 2.55 times faster than tiktoken
+
+📊 Quick results (100 iterations):
+| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
+|:---|---:|---:|---:|---:|
+| `PyAOT` | 22.6 ± 0.9 | 21.6 | 23.3 | 1.00 |
+| `rs-bpe` | 668.1 ± 90.8 | 611.6 | 772.8 | 29.56 ± 4.18 |
+| `TokenDagger` | 983.0 ± 10.9 | 970.7 | 991.5 | 43.49 ± 1.75 |
+| `tiktoken` | 1476.4 ± 7.0 | 1470.6 | 1484.2 | 65.32 ± 2.55 |
+
+💡 For full benchmark (1000 iterations): make benchmark-encoding
+
