@@ -110,6 +110,14 @@ fn stringifyPyObject(obj: *runtime.PyObject, writer: anytype) !void {
 
             for (data.items.items, 0..) |item, i| {
                 if (i > 0) try writer.writeByte(',');
+
+                // Prefetch next item while processing current (cache optimization!)
+                if (i + 1 < data.items.items.len) {
+                    const next_item = data.items.items[i + 1];
+                    @prefetch(next_item, .{});
+                    @prefetch(next_item.data, .{});
+                }
+
                 try stringifyPyObject(item, writer);
             }
 

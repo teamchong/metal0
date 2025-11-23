@@ -135,53 +135,61 @@ pub const UnigramTrainer = struct {
             });
         }
 
-        // Build concatenated string for suffix array (separate sentences with \0)
-        var flat_string = std.ArrayList(u8){};
-        defer flat_string.deinit(self.allocator);
+        // Generate ALL character n-grams (2 to max_piece_length) from all sentences
+        // This creates a large initial vocabulary for EM to prune
+        var ngram_freqs = std.StringHashMap(u32).init(self.allocator);
+        defer ngram_freqs.deinit();
 
         for (sentences) |sentence| {
             if (sentence.text.len == 0) continue;
-            try flat_string.appendSlice(self.allocator, sentence.text);
-            try flat_string.append(self.allocator, 0); // Sentence boundary
-        }
 
-        // Find frequent substrings using suffix array
-        if (flat_string.items.len > 0) {
-            const substrings = try suffix_array.findFrequentSubstrings(
-                self.allocator,
-                flat_string.items,
-                2, // min_length
-                self.config.max_piece_length, // max_length
-                self.config.seed_size, // max_results
-            );
-            defer {
-                for (substrings) |item| {
-                    self.allocator.free(item.string);
+            // Generate all n-grams of length 2 to max_piece_length
+            var len: usize = 2;
+            while (len <= self.config.max_piece_length and len <= sentence.text.len) : (len += 1) {
+                var pos: usize = 0;
+                while (pos + len <= sentence.text.len) : (pos += 1) {
+                    const ngram = sentence.text[pos..pos + len];
+
+                    // Skip n-grams with null bytes (from our own sentence boundaries)
+                    if (std.mem.indexOfScalar(u8, ngram, 0) != null) {
+                        continue;
+                    }
+
+                    const entry = try ngram_freqs.getOrPut(ngram);
+                    if (!entry.found_existing) {
+                        entry.key_ptr.* = try self.allocator.dupe(u8, ngram);
+                        entry.value_ptr.* = 0;
+                    }
+                    entry.value_ptr.* += sentence.count;
+
+                    // Stop if we have enough pieces
+                    if (ngram_freqs.count() >= self.config.seed_size) {
+                        break;
+                    }
                 }
-                self.allocator.free(substrings);
-            }
-
-            // Add frequent substrings to pieces
-            for (substrings) |item| {
-                // Skip if contains sentence boundary
-                if (std.mem.indexOfScalar(u8, item.string, 0) != null) {
-                    continue;
-                }
-
-                // Calculate score: freq * length
-                const score = @as(f64, @floatFromInt(item.freq * @as(u32, @intCast(item.string.len))));
-
-                const token = try self.allocator.dupe(u8, item.string);
-                try pieces.append(self.allocator, SentencePiece{
-                    .token = token,
-                    .score = score,
-                });
-
-                if (pieces.items.len >= self.config.seed_size) {
+                if (ngram_freqs.count() >= self.config.seed_size) {
                     break;
                 }
             }
+            if (ngram_freqs.count() >= self.config.seed_size) {
+                break;
+            }
         }
+
+        // Convert ngram map to pieces list
+        var ngram_it = ngram_freqs.iterator();
+        while (ngram_it.next()) |entry| {
+            // Score: frequency * length
+            const score = @as(f64, @floatFromInt(entry.value_ptr.* * @as(u32, @intCast(entry.key_ptr.*.len))));
+
+            try pieces.append(self.allocator, SentencePiece{
+                .token = entry.key_ptr.*, // Transfer ownership
+                .score = score,
+            });
+        }
+
+        // Don't free the keys - ownership transferred to pieces
+        ngram_freqs.clearRetainingCapacity();
 
         // Convert scores to log probabilities
         var sum: f64 = 0.0;
