@@ -455,9 +455,8 @@ pub const UnigramTrainer = struct {
         const seed_ms = @divFloor(std.time.nanoTimestamp() - start_seed, 1_000_000);
         std.debug.print("[PROFILE] Seed generation: {d}ms ({d} pieces)\n", .{seed_ms, pieces.items.len});
 
-        // Start with smaller desired size to allow multiple EM iterations
-        // HuggingFace uses (vocab_size * 1.1), but with our seed generation we need lower target
-        const desired_vocab_size = (self.config.vocab_size * 8) / 10;  // 0.8x target = 25,600
+        // Target vocabulary size for EM convergence
+        const desired_vocab_size = (self.config.vocab_size * 11) / 10;  // 1.1x target
         std.debug.print("[PROFILE] Target vocab: {d}, Desired: {d}\n", .{self.config.vocab_size, desired_vocab_size});
 
         // Lattice caching disabled - adds overhead without benefit (only 1 EM iteration)

@@ -63,53 +63,57 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
             const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
             var buf: [32]u8 = undefined;
             const formatted = std.fmt.bufPrint(&buf, "{d}", .{data.value}) catch unreachable;
-            try buffer.appendSlice(allocator, formatted);
+            const slice = buffer.addManyAsSlice(allocator, formatted.len) catch unreachable;
+            @memcpy(slice, formatted);
         },
-        .float => try buffer.appendSlice(allocator, "0.0"),
+        .float => {
+            const slice = buffer.addManyAsSlice(allocator, JSON_ZERO.len) catch unreachable;
+            @memcpy(slice, JSON_ZERO);
+        },
         .string => {
             const data: *runtime.PyString = @ptrCast(@alignCast(obj.data));
-            try buffer.append(allocator, '"');
+            (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = '"';
             try writeEscapedStringDirect(data.data, buffer, allocator);
-            try buffer.append(allocator, '"');
+            (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = '"';
         },
         .list => {
             const data: *runtime.PyList = @ptrCast(@alignCast(obj.data));
-            try buffer.append(allocator, '[');
+            (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = '[';
             for (data.items.items, 0..) |item, i| {
-                if (i > 0) try buffer.append(allocator, ',');
+                if (i > 0) (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = ',';
                 try stringifyPyObjectDirect(item, buffer, allocator);
             }
-            try buffer.append(allocator, ']');
+            (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = ']';
         },
         .tuple => {
             const data: *runtime.PyTuple = @ptrCast(@alignCast(obj.data));
-            try buffer.append(allocator, '[');
+            (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = '[';
             for (data.items, 0..) |item, i| {
-                if (i > 0) try buffer.append(allocator, ',');
+                if (i > 0) (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = ',';
                 try stringifyPyObjectDirect(item, buffer, allocator);
             }
-            try buffer.append(allocator, ']');
+            (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = ']';
         },
         .dict => {
             const data: *runtime.PyDict = @ptrCast(@alignCast(obj.data));
-            try buffer.append(allocator, '{');
+            (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = '{';
             var it = data.map.iterator();
             var first = true;
             while (it.next()) |entry| {
-                if (!first) try buffer.append(allocator, ',');
+                if (!first) (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = ',';
                 first = false;
-                try buffer.append(allocator, '"');
+                (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = '"';
                 try writeEscapedStringDirect(entry.key_ptr.*, buffer, allocator);
-                try buffer.append(allocator, '"');
-                try buffer.append(allocator, ':');
+                (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = '"';
+                (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = ':';
                 try stringifyPyObjectDirect(entry.value_ptr.*, buffer, allocator);
             }
-            try buffer.append(allocator, '}');
+            (buffer.addManyAsSlice(allocator, 1) catch unreachable)[0] = '}';
         },
     }
 }
 
-/// Write escaped string directly to ArrayList
+/// Write escaped string directly to ArrayList - using @memcpy for speed
 fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     var start: usize = 0;
     var i: usize = 0;
@@ -123,31 +127,42 @@ fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), allocat
         };
 
         if (needs_escape) {
+            // Flush clean segment with @memcpy
             if (start < i) {
-                try buffer.appendSlice(allocator, str[start..i]);
+                const len = i - start;
+                const slice = buffer.addManyAsSlice(allocator, len) catch unreachable;
+                @memcpy(slice, str[start..i]);
             }
 
-            switch (c) {
-                '"' => try buffer.appendSlice(allocator, "\\\""),
-                '\\' => try buffer.appendSlice(allocator, "\\\\"),
-                '\x08' => try buffer.appendSlice(allocator, "\\b"),
-                '\x0C' => try buffer.appendSlice(allocator, "\\f"),
-                '\n' => try buffer.appendSlice(allocator, "\\n"),
-                '\r' => try buffer.appendSlice(allocator, "\\r"),
-                '\t' => try buffer.appendSlice(allocator, "\\t"),
-                else => {
+            // Write escape with @memcpy
+            const escape: []const u8 = switch (c) {
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\x08' => "\\b",
+                '\x0C' => "\\f",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                else => blk: {
                     var buf: [6]u8 = undefined;
                     const formatted = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch unreachable;
-                    try buffer.appendSlice(allocator, formatted);
+                    const slice = buffer.addManyAsSlice(allocator, formatted.len) catch unreachable;
+                    @memcpy(slice, formatted);
+                    start = i + 1;
+                    continue;
                 },
-            }
-
+            };
+            const slice = buffer.addManyAsSlice(allocator, escape.len) catch unreachable;
+            @memcpy(slice, escape);
             start = i + 1;
         }
     }
 
+    // Flush remaining with @memcpy
     if (start < str.len) {
-        try buffer.appendSlice(allocator, str[start..]);
+        const len = str.len - start;
+        const slice = buffer.addManyAsSlice(allocator, len) catch unreachable;
+        @memcpy(slice, str[start..]);
     }
 }
 
