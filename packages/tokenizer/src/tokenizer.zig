@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
 
 // External dependencies
 const BacktrackEncoder = @import("backtrack_encoder.zig").BacktrackEncoder;
+const HeapEncoder = @import("heap_encoder.zig").HeapEncoder;
 const StackEncoder = @import("stack_encoder.zig");
 const encodeGreedy = @import("greedy_encoder.zig").encodeGreedy;
 const encodeOptimized = @import("optimized_hashmap_encoder.zig").encodeOptimized;
