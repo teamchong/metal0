@@ -4,7 +4,7 @@ set -e
 
 echo "⚡ Web/Node.js Benchmark: All 4 Libraries (realistic corpus)"
 echo "============================================================"
-echo "Encoding: 583 diverse texts (200K chars) × 100 iterations"
+echo "Encoding: 583 diverse texts (200K chars) × 300 iterations"
 echo "Fair comparison: all libraries use same iteration count"
 echo ""
 
