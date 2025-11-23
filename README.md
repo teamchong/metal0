@@ -165,7 +165,7 @@ Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM6
 - **Fibonacci:** 30.72x faster than CPython, beats Rust/Go (verified benchmark)
 - **Tokenizer:** 1.55x faster than Rust rs-bpe (fastest BPE encoder)
 - **JSON:** Currently slower than Rust/Python on large documents - optimization in progress
-- **Startup:** 20x faster instant binary execution
+- **Startup:** 7.8x faster instant binary execution (3.0ms vs 23.5ms)
 - **Range:** Varies by workload - fastest on compute-heavy tasks
 
 ### JSON Benchmark (100K iterations × 62KB realistic JSON)
