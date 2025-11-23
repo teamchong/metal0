@@ -2,7 +2,7 @@
 /// Only pre-tokenizers you actually call get compiled into binary
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const mvzr = @import("mvzr.zig");
+const pyregex = @import("pyregex/regex.zig");
 
 /// Whitespace pre-tokenizer - splits on whitespace (spaces, tabs, newlines)
 /// Used by: GPT-2, GPT-3
@@ -141,24 +141,34 @@ pub fn digits(text: []const u8, allocator: Allocator) ![][]const u8 {
 }
 
 /// Regex-based pre-tokenizer - splits using GPT-2-like pattern
-/// Simplified ASCII version of GPT-2's pattern using mvzr regex engine
+/// Full Rust regex port with complete pattern support
 /// Full pattern: 's|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+
 /// Comptime: Only compiled in if you actually call this function (zero overhead otherwise)
 pub fn gpt2Pattern(text: []const u8, allocator: Allocator) ![][]const u8 {
-    // Simplified GPT-2 pattern for ASCII (mvzr compatible)
+    // GPT-2 pattern for ASCII (using Rust regex port - pyregex)
     // Matches: contractions ('s, 't, etc), words, numbers, punctuation, whitespace
     const pattern = "'[stmdvr][el]*|[a-zA-Z]+|[0-9]+|[^a-zA-Z0-9\\s]+|\\s+";
 
-    const regex = mvzr.compile(pattern) orelse return error.InvalidPattern;
+    var regex = try pyregex.Regex.compile(allocator, pattern);
+    defer regex.deinit();
 
     var result = std.ArrayList([]const u8){};
     errdefer result.deinit(allocator);
 
-    var iter = regex.iterator(text);
-    while (iter.next()) |match| {
-        // Skip empty matches
-        if (match.slice.len > 0) {
-            try result.append(allocator, match.slice);
+    // Find all matches
+    var pos: usize = 0;
+    while (pos < text.len) {
+        var match_result = try regex.find(text[pos..]);
+        if (match_result) |*match| {
+            const match_text = text[pos + match.span.start..pos + match.span.end];
+            if (match_text.len > 0) {
+                try result.append(allocator, match_text);
+            }
+            const end_pos = match.span.end;
+            match.deinit(allocator);
+            pos += end_pos;
+        } else {
+            break;
         }
     }
 

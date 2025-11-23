@@ -58,9 +58,9 @@ benchmark-python:
 	@echo "$(YELLOW)Running Python benchmark...$(NC)"
 	@python3 bench_python.py
 
-benchmark-zig: build-zig
-	@echo "$(YELLOW)Running Zig benchmark...$(NC)"
-	@./zig-out/bin/bench_zig
+benchmark-zig:
+	@echo "$(YELLOW)Running PyAOT Regex Benchmark...$(NC)"
+	@zig run -O ReleaseFast BENCHMARK.zig
 
 benchmark-rust: build-rust
 	@echo "$(YELLOW)Running Rust benchmark...$(NC)"

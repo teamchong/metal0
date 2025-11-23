@@ -85,7 +85,7 @@ func main() {
 	fmt.Println()
 
 	for _, bench := range benchmarks {
-		benchmarkPattern(bench.name, bench.pattern, text, 10000)
+		benchmarkPattern(bench.name, bench.pattern, text, 100000)
 	}
 
 	for i := range make([]byte, 70) {

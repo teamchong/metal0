@@ -6,36 +6,113 @@ cd "$(dirname "$0")"
 
 echo "📊 JSON Parse & Stringify Benchmark"
 echo "═══════════════════════════════════"
-echo "Operations: Parse JSON × 10000 | Stringify × 10000"
-echo "Languages: Zig, Rust, Python, Go"
+echo "Operations: Parse JSON × 100K | Stringify × 100K"
+echo "Data: 62KB realistic JSON with nested structures"
+echo "Total: 6.2GB processed per benchmark (100K × 62KB)"
 echo ""
 
-# Create sample JSON data if not exists
+# Create realistic large JSON data if not exists
 if [ ! -f sample.json ]; then
-    cat > sample.json <<'EOF'
-{
-  "name": "PyAOT Tokenizer",
-  "version": "1.0.0",
-  "description": "Fast BPE tokenizer in Zig",
-  "performance": {
-    "encoding": "2.489s",
-    "vs_rs_bpe": "1.55x faster",
-    "correctness": true
-  },
-  "features": ["BPE encoding", "Training", "WASM support"],
-  "benchmarks": [
-    {"library": "PyAOT", "time": 2.489},
-    {"library": "rs-bpe", "time": 3.866},
-    {"library": "tiktoken", "time": 9.311}
-  ],
-  "metadata": {
-    "author": "PyAOT Team",
-    "license": "MIT",
-    "repo": "https://github.com/teamchong/pyaot"
-  }
+    python3 <<'PYGEN'
+import json
+
+# Generate realistic large JSON data (~10-15KB)
+data = {
+    "metadata": {
+        "version": "2.0.0",
+        "timestamp": "2025-01-23T12:00:00Z",
+        "source": "PyAOT Benchmark",
+        "description": "Realistic JSON benchmark data with various structures and data types for fair performance comparison across libraries"
+    },
+    "users": [
+        {
+            "id": i,
+            "name": f"User {i}",
+            "email": f"user{i}@example.com",
+            "active": i % 2 == 0,
+            "score": float(i * 3.14159),
+            "tags": ["python", "rust", "zig"] if i % 3 == 0 else ["go", "typescript"],
+            "profile": {
+                "bio": f"This is a longer biography text for user {i} with various characters: \n\t• Special chars: \"quoted\", \\backslash\\, /slash/\n\t• Unicode: 世界 🌍\n\t• Numbers and symbols: $100, 50%, #hashtag",
+                "settings": {
+                    "notifications": True,
+                    "theme": "dark" if i % 2 == 0 else "light",
+                    "language": "en-US"
+                }
+            }
+        }
+        for i in range(50)
+    ],
+    "products": [
+        {
+            "sku": f"PROD-{i:04d}",
+            "name": f"Product {i}",
+            "description": "Long product description with multiple lines.\nThis includes features like:\n- Fast performance\n- Easy integration\n- Cross-platform support\n- Unicode: 日本語, Español, 中文",
+            "price": round(19.99 + i * 5.50, 2),
+            "inStock": i % 3 != 0,
+            "categories": ["electronics", "software", "tools"],
+            "reviews": [
+                {
+                    "rating": 4.5,
+                    "comment": "Great product! Works as expected.",
+                    "reviewer": f"reviewer{j}@test.com"
+                }
+                for j in range(3)
+            ]
+        }
+        for i in range(30)
+    ],
+    "analytics": {
+        "daily_stats": [
+            {
+                "date": f"2025-01-{day:02d}",
+                "visits": 1000 + day * 50,
+                "conversions": 10 + day,
+                "revenue": round(500.50 + day * 25.75, 2),
+                "metrics": {
+                    "bounce_rate": 0.35 + day * 0.01,
+                    "avg_session": 180 + day * 5,
+                    "pages_per_session": 3.5 + day * 0.1
+                }
+            }
+            for day in range(1, 32)
+        ],
+        "traffic_sources": {
+            "direct": 45.2,
+            "search": 28.7,
+            "social": 15.3,
+            "referral": 8.5,
+            "email": 2.3
+        }
+    },
+    "configuration": {
+        "api_endpoints": [
+            "https://api.example.com/v1/users",
+            "https://api.example.com/v1/products",
+            "https://api.example.com/v1/orders"
+        ],
+        "features": {
+            "authentication": True,
+            "caching": True,
+            "rate_limiting": True,
+            "compression": True
+        },
+        "limits": {
+            "max_requests_per_minute": 1000,
+            "max_payload_size_mb": 10,
+            "timeout_seconds": 30
+        }
+    }
 }
-EOF
-    echo "✅ Created sample.json"
+
+with open('sample.json', 'w', encoding='utf-8') as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+
+# Print size
+import os
+size_kb = os.path.getsize('sample.json') / 1024
+print(f"✅ Created sample.json ({size_kb:.1f} KB)")
+PYGEN
 fi
 
 # Build Zig PARSE benchmark
@@ -53,7 +130,7 @@ pub fn main() !void {
     const json_data = try file.readToEndAlloc(allocator, 1024 * 1024);
     defer allocator.free(json_data);
 
-    for (0..10000) |_| {
+    for (0..100_000) |_| {
         const parsed = try std.json.parseFromSlice(
             std.json.Value,
             allocator,
@@ -93,7 +170,7 @@ use std::fs;
 fn main() {
     let json_data = fs::read_to_string("sample.json").expect("Failed to read");
 
-    for _ in 0..10000 {
+    for _ in 0..100_000 {
         let _parsed: serde_json::Value = serde_json::from_str(&json_data).expect("Failed to parse");
     }
 }
@@ -138,7 +215,7 @@ fn main() {
     let json_data = fs::read_to_string("sample.json").expect("Failed to read");
     let parsed: serde_json::Value = serde_json::from_str(&json_data).expect("Failed to parse");
 
-    for _ in 0..10000 {
+    for _ in 0..100_000 {
         let _stringified = serde_json::to_string(&parsed).expect("Failed to stringify");
     }
 }
@@ -171,7 +248,7 @@ import (
 func main() {
     data, _ := os.ReadFile("sample.json")
 
-    for i := 0; i < 10000; i++ {
+    for i := 0; i < 100000; i++ {
         var parsed interface{}
         json.Unmarshal(data, &parsed)
     }
@@ -207,7 +284,7 @@ func main() {
     var parsed interface{}
     json.Unmarshal(data, &parsed)
 
-    for i := 0; i < 10000; i++ {
+    for i := 0; i < 100000; i++ {
         json.Marshal(parsed)
     }
 }
@@ -230,7 +307,7 @@ import json
 with open('sample.json') as f:
     json_data = f.read()
 
-for _ in range(10000):
+for _ in range(100_000):
     parsed = json.loads(json_data)
 PYEOF
 
@@ -243,7 +320,7 @@ with open('sample.json') as f:
 
 parsed = json.loads(json_data)
 
-for _ in range(10000):
+for _ in range(100_000):
     stringified = json.dumps(parsed)
 PYEOF
 

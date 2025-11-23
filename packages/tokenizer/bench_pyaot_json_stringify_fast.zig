@@ -11,37 +11,22 @@ pub fn main() !void {
     // Use comptime-selected allocator (C alloc on native, GPA on WASM)
     const allocator = allocator_helper.getBenchmarkAllocator(gpa);
 
-    // Create a PyObject structure to stringify
-    // {"name":"test","value":123,"active":true,"items":[1,2,3]}
-    const dict_obj = try runtime.PyDict.create(allocator);
-    defer runtime.decref(dict_obj, allocator);
+    // Load sample.json and parse it once
+    const file = try std.fs.cwd().openFile("sample.json", .{});
+    defer file.close();
+    const json_data = try file.readToEndAlloc(allocator, 1024 * 1024);
+    defer allocator.free(json_data);
 
-    // Add "name": "test"
-    const val_name = try runtime.PyString.create(allocator, "test");
-    try runtime.PyDict.set(dict_obj, "name", val_name);
+    const json_str = try runtime.PyString.create(allocator, json_data);
+    defer runtime.decref(json_str, allocator);
 
-    // Add "value": 123
-    const val_value = try runtime.PyInt.create(allocator, 123);
-    try runtime.PyDict.set(dict_obj, "value", val_value);
+    const parsed_obj = try json_module.loads(json_str, allocator);
+    defer runtime.decref(parsed_obj, allocator);
 
-    // Add "active": true
-    const val_active = try runtime.PyInt.create(allocator, 1);
-    try runtime.PyDict.set(dict_obj, "active", val_active);
-
-    // Add "items": [1,2,3]
-    const list_obj = try runtime.PyList.create(allocator);
-    const item1 = try runtime.PyInt.create(allocator, 1);
-    const item2 = try runtime.PyInt.create(allocator, 2);
-    const item3 = try runtime.PyInt.create(allocator, 3);
-    try runtime.PyList.append(list_obj, item1);
-    try runtime.PyList.append(list_obj, item2);
-    try runtime.PyList.append(list_obj, item3);
-    try runtime.PyDict.set(dict_obj, "items", list_obj);
-
-    // Stringify 10000 times
+    // Stringify 100K times (62KB JSON = 6.2GB total data)
     var i: usize = 0;
-    while (i < 10000) : (i += 1) {
-        const json_str = try json_module.dumps(dict_obj, allocator);
-        runtime.decref(json_str, allocator);
+    while (i < 100_000) : (i += 1) {
+        const stringified = try json_module.dumps(parsed_obj, allocator);
+        runtime.decref(stringified, allocator);
     }
 }

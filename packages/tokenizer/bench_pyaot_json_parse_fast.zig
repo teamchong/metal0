@@ -11,7 +11,7 @@ pub fn main() !void {
     // Use comptime-selected allocator (C alloc on native, GPA on WASM)
     const allocator = allocator_helper.getBenchmarkAllocator(gpa);
 
-    const file = try std.fs.cwd().openFile("simple.json", .{});
+    const file = try std.fs.cwd().openFile("sample.json", .{});
     defer file.close();
     const json_data = try file.readToEndAlloc(allocator, 1024 * 1024);
     defer allocator.free(json_data);
@@ -20,9 +20,9 @@ pub fn main() !void {
     const json_str = try runtime.PyString.create(allocator, json_data);
     defer runtime.decref(json_str, allocator);
 
-    // Parse 10000 times
+    // Parse 100K times (62KB JSON = 6.2GB total data)
     var i: usize = 0;
-    while (i < 10000) : (i += 1) {
+    while (i < 100_000) : (i += 1) {
         const parsed = try json_module.loads(json_str, allocator);
         runtime.decref(parsed, allocator);
     }

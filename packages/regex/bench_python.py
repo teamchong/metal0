@@ -7,7 +7,7 @@ def load_data():
     with open('bench_data.txt', 'r') as f:
         return f.read()
 
-def benchmark_pattern(name, pattern, text, iterations=10000):
+def benchmark_pattern(name, pattern, text, iterations=100000):
     regex = re.compile(pattern)
 
     # Warmup
