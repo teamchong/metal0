@@ -120,6 +120,36 @@ pub const Lattice = struct {
         self.end_nodes.deinit(self.allocator);
     }
 
+    /// Clear all nodes from lattice (for reuse with different vocabulary)
+    /// Keeps sentence structure intact - just clears token nodes
+    pub fn clearNodes(self: *Lattice) void {
+        // Free all nodes except BOS/EOS (first 2 nodes)
+        // Actually, BOS/EOS are at index 0 and 1, but let's just free all and recreate
+        for (self.nodes.items) |node| {
+            self.allocator.destroy(node);
+        }
+        self.nodes.clearRetainingCapacity();
+
+        // Clear begin_nodes and end_nodes lists
+        for (self.begin_nodes.items) |*list| {
+            list.clearRetainingCapacity();
+        }
+        for (self.end_nodes.items) |*list| {
+            list.clearRetainingCapacity();
+        }
+
+        // Recreate BOS and EOS nodes (required for lattice to work)
+        const bos = self.allocator.create(Node) catch unreachable;
+        bos.* = Node.init(self.bos_id, 0, 0, 0, 0.0);
+        self.nodes.append(self.allocator, bos) catch unreachable;
+        self.begin_nodes.items[0].append(self.allocator, bos) catch unreachable;
+
+        const eos = self.allocator.create(Node) catch unreachable;
+        eos.* = Node.init(self.eos_id, 1, self.len, 0, 0.0);
+        self.nodes.append(self.allocator, eos) catch unreachable;
+        self.end_nodes.items[self.len].append(self.allocator, eos) catch unreachable;
+    }
+
     /// Insert a token candidate into the lattice
     pub fn insert(self: *Lattice, pos: usize, length: usize, score: f64, id: usize) !void {
         const node_id = self.nodes.items.len;

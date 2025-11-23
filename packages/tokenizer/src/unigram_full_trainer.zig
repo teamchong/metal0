@@ -208,7 +208,8 @@ pub const UnigramTrainer = struct {
     }
 
     /// E-step: Compute expected counts using forward-backward algorithm
-    fn runEStep(self: *UnigramTrainer, model: *const Unigram, sentences: []const Sentence) !struct { f64, []f64 } {
+    /// Uses cached lattices if provided (massive speedup)
+    fn runEStep(self: *UnigramTrainer, model: *const Unigram, sentences: []const Sentence, cached_lattices: ?[]Lattice) !struct { f64, []f64 } {
         const all_sentence_freq: u32 = blk: {
             var sum: u32 = 0;
             for (sentences) |s| sum += s.count;
@@ -220,18 +221,35 @@ pub const UnigramTrainer = struct {
 
         var objs: f64 = 0.0;
 
-        for (sentences) |sentence| {
-            var lattice = try Lattice.init(self.allocator, sentence.text, model.bos_id, model.eos_id);
-            defer lattice.deinit();
+        if (cached_lattices) |lattices| {
+            // Use cached lattices (just update nodes + run forward-backward)
+            for (sentences, lattices) |sentence, *lattice| {
+                // Clear previous nodes and repopulate with current model
+                lattice.clearNodes();
+                try model.populateNodes(lattice);
 
-            try model.populateNodes(&lattice);
+                const z = try lattice.populateMarginal(@floatFromInt(sentence.count), expected);
+                if (std.math.isNan(z)) {
+                    return error.NanLikelihood;
+                }
 
-            const z = try lattice.populateMarginal(@floatFromInt(sentence.count), expected);
-            if (std.math.isNan(z)) {
-                return error.NanLikelihood;
+                objs -= z / @as(f64, @floatFromInt(all_sentence_freq));
             }
+        } else {
+            // No cache - create lattices fresh (original behavior)
+            for (sentences) |sentence| {
+                var lattice = try Lattice.init(self.allocator, sentence.text, model.bos_id, model.eos_id);
+                defer lattice.deinit();
 
-            objs -= z / @as(f64, @floatFromInt(all_sentence_freq));
+                try model.populateNodes(&lattice);
+
+                const z = try lattice.populateMarginal(@floatFromInt(sentence.count), expected);
+                if (std.math.isNan(z)) {
+                    return error.NanLikelihood;
+                }
+
+                objs -= z / @as(f64, @floatFromInt(all_sentence_freq));
+            }
         }
 
         return .{ objs, expected };
@@ -446,6 +464,24 @@ pub const UnigramTrainer = struct {
         const desired_vocab_size = (self.config.vocab_size * 11) / 10;  // 1.1x target
         std.debug.print("[PROFILE] Target vocab: {d}, Desired: {d}\n", .{self.config.vocab_size, desired_vocab_size});
 
+        // Create cached lattices once (huge speedup - reuse across EM iterations)
+        const start_cache = std.time.nanoTimestamp();
+        var cached_lattices = try self.allocator.alloc(Lattice, sentences.len);
+        defer {
+            for (cached_lattices) |*lattice| {
+                lattice.deinit();
+            }
+            self.allocator.free(cached_lattices);
+        }
+
+        // Initialize lattices for each sentence (structure only, no nodes yet)
+        for (sentences, 0..) |sentence, i| {
+            // Use dummy bos/eos IDs - will be set correctly by first populateNodes call
+            cached_lattices[i] = try Lattice.init(self.allocator, sentence.text, 0, 1);
+        }
+        const cache_ms = @divFloor(std.time.nanoTimestamp() - start_cache, 1_000_000);
+        std.debug.print("[PROFILE] Lattice cache creation: {d}ms ({d} lattices)\n", .{cache_ms, cached_lattices.len});
+
         // 2. EM iterations
         var em_iteration: u32 = 0;
         while (pieces.items.len > desired_vocab_size) {
@@ -471,9 +507,9 @@ pub const UnigramTrainer = struct {
                 var model = try Unigram.init(self.allocator, vocab, 0);
                 defer model.deinit();
 
-                // E-step
+                // E-step (with cached lattices for massive speedup)
                 const start_estep = std.time.nanoTimestamp();
-                const e_result = try self.runEStep(&model, sentences);
+                const e_result = try self.runEStep(&model, sentences, cached_lattices);
                 const expected = e_result[1];
                 defer self.allocator.free(expected);
                 const estep_ms = @divFloor(std.time.nanoTimestamp() - start_estep, 1_000_000);
