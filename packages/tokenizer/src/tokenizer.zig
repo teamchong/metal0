@@ -273,54 +273,62 @@ pub const Tokenizer = struct {
         }
     }
 
-    /// Trie-based longest-match encoding (fast + correct)
-    /// Falls back to HashMap if trie not available (WASM)
-    /// Encode using HashMap BPE (100% correct, 33x slower than rs-bpe)
-    /// OPTIMIZED: Uses zero-allocation iterator + Arena allocator + buffer pooling
+    /// Encode text to token IDs
+    ///
+    /// IMPORTANT: Returned slice is valid until next encode() call
+    /// or until tokenizer.deinit(). Do not free the returned slice.
+    ///
+    /// Example:
+    ///   const tokens1 = try tokenizer.encode("hello");
+    ///   // use tokens1...
+    ///   const tokens2 = try tokenizer.encode("world");
+    ///   // tokens1 now invalid! Use tokens2
+    ///
+    /// Implementation uses arena allocator for zero-cost returns on cache hits.
+    /// Trie-based longest-match encoding (fast + correct).
+    /// Falls back to HashMap if trie not available (WASM).
     pub fn encode(self: *Tokenizer, text: []const u8) ![]u32 {
         @setRuntimeSafety(false);
+
+        // Reset arena (keeps capacity, fast O(1) operation)
+        _ = self.encode_arena.reset(.retain_capacity);
+        const arena = self.encode_arena.allocator();
 
         // Check full encoding cache first (for text < 1024 bytes)
         const should_cache = text.len < 1024;
         if (should_cache) {
-            var cache = getEncodeCache(self.allocator);
-            if (cache.get(text)) |cached_tokens| {
-                // Cache hit! Clone and return
-                const result = try self.allocator.alloc(u32, cached_tokens.len);
+            var encode_cache = getEncodeCache(self.allocator);
+            if (encode_cache.get(text)) |cached_tokens| {
+                // Cache hit! Allocate from arena (fast, bulk-freed on next encode)
+                const result = try arena.alloc(u32, cached_tokens.len);
                 @memcpy(result, cached_tokens);
                 return result;
             }
         }
 
         // Cache miss - perform encoding
-        // Reset arena (keeps capacity, fast O(1) operation)
-        defer _ = self.encode_arena.reset(.retain_capacity);
-        const arena_alloc = self.encode_arena.allocator();
-
-        // Get buffer from pool (reuse after warmup)
-        var result = try getResultBuffer(self.allocator);
-        defer releaseResultBuffer(result) catch {};
+        var result = std.ArrayList(u32){};
 
         // Larger pre-allocation (2x for safety margin)
-        try result.ensureTotalCapacity(self.allocator, text.len * 2);
+        try result.ensureTotalCapacity(arena, text.len * 2);
 
         // Iterate through chunks (zero allocations for splitting!)
         var chunk_iter = cl100k_splitter.chunks(text);
         while (chunk_iter.next()) |chunk| {
-            const chunk_tokens = try self.encodeViaBacktrackingArena(chunk, arena_alloc);
-            try result.appendSlice(self.allocator, chunk_tokens);
+            const chunk_tokens = try self.encodeViaBacktrackingArena(chunk, arena);
+            try result.appendSlice(arena, chunk_tokens);
         }
 
-        // Return exact-sized copy (skip toOwnedSlice's shrink operation)
+        // Return arena-allocated slice
         const items = result.items[0..result.items.len];
-        const owned = try self.allocator.dupe(u32, items);
+        const owned = try arena.dupe(u32, items);
 
         // Cache result before returning (if small enough)
         if (should_cache and owned.len < 256) {
-            var cache = getEncodeCache(self.allocator);
+            var encode_cache = getEncodeCache(self.allocator);
             const cached_text = try self.allocator.dupe(u8, text);
             const cached_tokens = try self.allocator.dupe(u32, owned);
-            cache.put(cached_text, cached_tokens) catch {}; // Ignore cache errors
+            encode_cache.put(cached_text, cached_tokens) catch {}; // Ignore cache errors
         }
 
         return owned;
@@ -329,17 +337,16 @@ pub const Tokenizer = struct {
     /// ZERO-ALLOCATION stack-based encoding with comptime specialization
     /// Uses size-specialized stack encoders to eliminate malloc/free overhead
     fn encodeViaBacktrackingArena(self: *Tokenizer, text: []const u8, arena: Allocator) ![]u32 {
-        _ = arena; // Not used in stack-based version
-        if (text.len == 0) return try self.allocator.alloc(u32, 0);
+        if (text.len == 0) return try arena.alloc(u32, 0);
 
         // Check LRU cache first (3-5x speedup for common chunks)
         // Only cache small chunks (< 1024 bytes) to avoid memory bloat
         const should_cache = text.len < 1024;
         if (should_cache) {
-            var cache = getTokenCache(self.allocator);
-            if (cache.get(text)) |cached_tokens| {
-                // Cache hit! Return copy
-                const result = try self.allocator.alloc(u32, cached_tokens.len);
+            var token_cache = getTokenCache(self.allocator);
+            if (token_cache.get(text)) |cached_tokens| {
+                // Cache hit! Return arena copy
+                const result = try arena.alloc(u32, cached_tokens.len);
                 @memcpy(result, cached_tokens);
                 return result;
             }
@@ -363,7 +370,7 @@ pub const Tokenizer = struct {
                         @ptrCast(&self.merges_map),
                         self.next_prefix_match,
                     );
-                    break :blk try enc.encode(self.allocator);
+                    break :blk try enc.encode(arena);
                 },
                 4097...16384 => blk: {
                     var enc = try MediumEncoder.init(
@@ -374,7 +381,7 @@ pub const Tokenizer = struct {
                         @ptrCast(&self.merges_map),
                         self.next_prefix_match,
                     );
-                    break :blk try enc.encode(self.allocator);
+                    break :blk try enc.encode(arena);
                 },
                 16385...65536 => blk: {
                     var enc = try LargeEncoder.init(
@@ -385,12 +392,12 @@ pub const Tokenizer = struct {
                         @ptrCast(&self.merges_map),
                         self.next_prefix_match,
                     );
-                    break :blk try enc.encode(self.allocator);
+                    break :blk try enc.encode(arena);
                 },
                 else => blk: {
                     // Fall back to heap-based encoder for huge chunks (rare)
                     var encoder = try BacktrackEncoder.init(
-                        self.allocator,
+                        arena,
                         text,
                         ac,
                         &self.vocab_r,
@@ -409,11 +416,11 @@ pub const Tokenizer = struct {
 
         // Cache result if small enough (avoid caching large chunks)
         if (should_cache and tokens.len < 256) {
-            var cache = getTokenCache(self.allocator);
+            var token_cache = getTokenCache(self.allocator);
             // Allocate persistent copies for cache
             const cached_text = try self.allocator.dupe(u8, text);
             const cached_tokens = try self.allocator.dupe(u32, tokens);
-            cache.put(cached_text, cached_tokens) catch {}; // Ignore cache put errors
+            token_cache.put(cached_text, cached_tokens) catch {}; // Ignore cache put errors
         }
 
         return tokens;

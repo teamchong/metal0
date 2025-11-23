@@ -50,8 +50,7 @@ pub fn main() !void {
 
     for (0..iterations) |_| {
         for (texts.items) |text| {
-            const tokens = try tokenizer.encode(text);
-            allocator.free(tokens);
+            _ = try tokenizer.encode(text);
         }
     }
 

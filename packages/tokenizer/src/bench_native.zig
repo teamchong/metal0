@@ -18,8 +18,7 @@ pub fn main() !void {
     {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
-            const tokens = try tokenizer.encode(TEXT);
-            allocator.free(tokens);
+            _ = try tokenizer.encode(TEXT);
         }
     }
 
@@ -28,8 +27,7 @@ pub fn main() !void {
     const start = std.time.nanoTimestamp();
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
-        const tokens = try tokenizer.encode(TEXT);
-        allocator.free(tokens);
+        _ = try tokenizer.encode(TEXT);
     }
     const end = std.time.nanoTimestamp();
     const elapsed_ms = @divFloor(end - start, 1_000_000);
