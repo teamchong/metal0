@@ -37,49 +37,12 @@ const isValidTokenPair = builder.isValidTokenPair;
 
 const parser = @import("tokenizer_parser.zig");
 
-// Thread-local LRU cache for encoding results (1024 entries, ~500KB)
-// Provides 3-5x speedup by caching common words/phrases
-threadlocal var token_cache: ?LruCache([]const u8, []const u32) = null;
-threadlocal var cache_allocator: ?Allocator = null;
-
-fn getTokenCache(allocator: Allocator) *LruCache([]const u8, []const u32) {
-    if (token_cache == null) {
-        token_cache = LruCache([]const u8, []const u32).init(allocator, 1024);
-        cache_allocator = allocator;
-    }
-    return &token_cache.?;
-}
-
-// Thread-local pool for result ArrayLists - eliminates allocations after warmup
-// Agent 1 optimization: 20% gain by reusing buffers
-threadlocal var result_pool: ?std.ArrayList(std.ArrayList(u32)) = null;
-threadlocal var pool_allocator: ?Allocator = null;
-
-fn getResultBuffer(allocator: Allocator) !*std.ArrayList(u32) {
-    if (result_pool == null) {
-        result_pool = std.ArrayList(std.ArrayList(u32)){};
-        pool_allocator = allocator;
-    }
-
-    // Try to reuse from pool
-    if (result_pool.?.items.len > 0) {
-        var buf = &result_pool.?.items[result_pool.?.items.len - 1];
-        _ = result_pool.?.pop();
-        buf.clearRetainingCapacity();
-        return buf;
-    }
-
-    // Pool empty, create new
-    var new_buf = try pool_allocator.?.create(std.ArrayList(u32));
-    new_buf.* = std.ArrayList(u32){};
-    try new_buf.ensureTotalCapacity(allocator, 8192); // Large initial capacity
-    return new_buf;
-}
-
-fn releaseResultBuffer(buf: *std.ArrayList(u32)) !void {
-    // Return to pool for reuse
-    try result_pool.?.append(pool_allocator.?, buf.*);
-}
+// Thread-local caching and pooling
+const cache = @import("tokenizer_cache.zig");
+const getTokenCache = cache.getTokenCache;
+const getEncodeCache = cache.getEncodeCache;
+const getResultBuffer = cache.getResultBuffer;
+const releaseResultBuffer = cache.releaseResultBuffer;
 
 pub const Tokenizer = struct {
     vocab: std.StringHashMap(u32),
@@ -317,15 +280,28 @@ pub const Tokenizer = struct {
     pub fn encode(self: *Tokenizer, text: []const u8) ![]u32 {
         @setRuntimeSafety(false);
 
+        // Check full encoding cache first (for text < 1024 bytes)
+        const should_cache = text.len < 1024;
+        if (should_cache) {
+            var cache = getEncodeCache(self.allocator);
+            if (cache.get(text)) |cached_tokens| {
+                // Cache hit! Clone and return
+                const result = try self.allocator.alloc(u32, cached_tokens.len);
+                @memcpy(result, cached_tokens);
+                return result;
+            }
+        }
+
+        // Cache miss - perform encoding
         // Reset arena (keeps capacity, fast O(1) operation)
         defer _ = self.encode_arena.reset(.retain_capacity);
         const arena_alloc = self.encode_arena.allocator();
 
-        // Get buffer from pool (reuse after warmup - Agent 1 optimization)
+        // Get buffer from pool (reuse after warmup)
         var result = try getResultBuffer(self.allocator);
         defer releaseResultBuffer(result) catch {};
 
-        // Larger pre-allocation (2x for safety margin - Agent 1 optimization)
+        // Larger pre-allocation (2x for safety margin)
         try result.ensureTotalCapacity(self.allocator, text.len * 2);
 
         // Iterate through chunks (zero allocations for splitting!)
@@ -337,7 +313,17 @@ pub const Tokenizer = struct {
 
         // Return exact-sized copy (skip toOwnedSlice's shrink operation)
         const items = result.items[0..result.items.len];
-        return try self.allocator.dupe(u32, items);
+        const owned = try self.allocator.dupe(u32, items);
+
+        // Cache result before returning (if small enough)
+        if (should_cache and owned.len < 256) {
+            var cache = getEncodeCache(self.allocator);
+            const cached_text = try self.allocator.dupe(u8, text);
+            const cached_tokens = try self.allocator.dupe(u32, owned);
+            cache.put(cached_text, cached_tokens) catch {}; // Ignore cache errors
+        }
+
+        return owned;
     }
 
     /// ZERO-ALLOCATION stack-based encoding with comptime specialization
