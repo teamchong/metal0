@@ -183,15 +183,16 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on App
 | Library | Time | vs PyAOT | Size |
 |---------|------|----------|------|
 | **PyAOT (WASM)** | **50.2ms ± 1.2ms** | **1.00x** 🏆 | **46KB** |
-| gpt-tokenizer (JS) | 491.9ms ± 15.1ms | 9.81x slower | - |
-| @anthropic-ai/tokenizer (JS) | 4.271s ± 0.039s | 85.14x slower | - |
-| tiktoken (Node) | 5.804s ± 0.034s | 115.71x slower | - |
+| gpt-tokenizer (JS) | 491.9ms ± 15.1ms | 9.81x slower | 1.1MB |
+| @anthropic-ai/tokenizer (JS) | 4.271s ± 0.039s | 85.14x slower | 8.6MB |
+| tiktoken (WASM) | 5.804s ± 0.034s | 115.71x slower | 1.0MB |
 
-**🎉 PyAOT is 10-115x faster than all JS/Node libraries!**
+**🎉 PyAOT WASM dominates: 10-116x faster, 22-187x smaller!**
+- **116x faster than tiktoken WASM** (50.2ms vs 5.8s)
 - **85x faster than @anthropic-ai/tokenizer**
-- **116x faster than tiktoken**
 - **10x faster than gpt-tokenizer**
-- WASM built with `-OReleaseSmall` for minimal 46KB size
+- **22x smaller than tiktoken WASM** (46KB vs 1.0MB)
+- **187x smaller than @anthropic-ai** (46KB vs 8.6MB)
 
 **BPE Training (583 texts × 30 runs):**
 
