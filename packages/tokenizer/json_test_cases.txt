@@ -1,0 +1,26 @@
+# JSON Correctness Test Cases
+# Format: name | json_string | expected_output
+
+null|null|null
+true|true|true
+false|false|false
+zero|0|0
+positive_int|42|42
+negative_int|-123|-123
+large_int|999999999|999999999
+empty_string|""|""
+simple_string|"hello"|"hello"
+string_with_spaces|"hello world"|"hello world"
+string_with_newline|"hello\nworld"|"hello\nworld"
+string_with_tab|"hello\tworld"|"hello\tworld"
+string_with_quotes|"hello \"world\""|"hello \"world\""
+string_with_backslash|"hello\\world"|"hello\\world"
+string_with_unicode|"hello \u4e16\u754c"|"hello \u4e16\u754c"
+empty_array|[]|[]
+simple_array|[1, 2, 3]|[1,2,3]
+mixed_array|[1, "two", true, null]|[1,"two",true,null]
+nested_array|[[1, 2], [3, 4]]|[[1,2],[3,4]]
+empty_object|{}|{}
+simple_object|{"name": "test", "value": 123}|{"name":"test","value":123}
+nested_object|{"outer": {"inner": "value"}}|{"outer":{"inner":"value"}}
+complex_object|{"string": "value", "number": 42, "bool": true, "null": null, "array": [1, 2, 3], "object": {"nested": "data"}}|{"string":"value","number":42,"bool":true,"null":null,"array":[1,2,3],"object":{"nested":"data"}}

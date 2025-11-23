@@ -1,5 +1,6 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const json_string = @import("json_string.zig");
 
 /// Save tokenizer to JSON file (HuggingFace-compatible format)
 pub fn saveToFile(self: *const Tokenizer, path: []const u8) !void {
@@ -16,15 +17,9 @@ pub fn saveToFile(self: *const Tokenizer, path: []const u8) !void {
         if (!first) try buf.appendSlice(self.allocator, ",");
         first = false;
 
-        // Escape special chars in JSON
-        try buf.append(self.allocator, '"');
-        for (entry.key_ptr.*) |byte| {
-            if (byte == '"' or byte == '\\') {
-                try buf.append(self.allocator, '\\');
-            }
-            try buf.append(self.allocator, byte);
-        }
-        try std.fmt.format(buf.writer(self.allocator), "\":{d}", .{entry.value_ptr.*});
+        // Write JSON-escaped key
+        try json_string.writeJSONString(entry.key_ptr.*, buf.writer(self.allocator));
+        try std.fmt.format(buf.writer(self.allocator), ":{d}", .{entry.value_ptr.*});
     }
 
     try buf.appendSlice(self.allocator, "},\"merges\":[");
@@ -36,17 +31,11 @@ pub fn saveToFile(self: *const Tokenizer, path: []const u8) !void {
         const left_str = self.vocab_r.get(merge.left) orelse "";
         const right_str = self.vocab_r.get(merge.right) orelse "";
 
-        try buf.appendSlice(self.allocator, "[\"");
-        for (left_str) |byte| {
-            if (byte == '"' or byte == '\\') try buf.append(self.allocator, '\\');
-            try buf.append(self.allocator, byte);
-        }
-        try buf.appendSlice(self.allocator, "\",\"");
-        for (right_str) |byte| {
-            if (byte == '"' or byte == '\\') try buf.append(self.allocator, '\\');
-            try buf.append(self.allocator, byte);
-        }
-        try buf.appendSlice(self.allocator, "\"]");
+        try buf.append(self.allocator, '[');
+        try json_string.writeJSONString(left_str, buf.writer(self.allocator));
+        try buf.append(self.allocator, ',');
+        try json_string.writeJSONString(right_str, buf.writer(self.allocator));
+        try buf.append(self.allocator, ']');
     }
 
     try buf.appendSlice(self.allocator, "]}}");

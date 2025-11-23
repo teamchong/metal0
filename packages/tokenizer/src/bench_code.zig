@@ -1,10 +1,11 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer").Tokenizer;
+const allocator_helper = @import("allocator_helper.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
 
     // Read test code
     const code = @embedFile("../../../test_code.py");

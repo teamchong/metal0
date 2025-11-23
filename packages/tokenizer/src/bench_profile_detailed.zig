@@ -1,5 +1,6 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const allocator_helper = @import("allocator_helper.zig");
 
 // Global timing counters (thread-local in production)
 var time_regex_split: u64 = 0;
@@ -14,7 +15,7 @@ var time_total_encode: u64 = 0;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
 
     // Load test data
     const test_file = try std.fs.cwd().readFileAlloc(allocator, "data/test_data.json", 10 * 1024 * 1024);

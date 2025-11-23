@@ -1,0 +1,11 @@
+[package]
+name = "regex-bench"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "bench_rust"
+path = "bench_rust.rs"
+
+[dependencies]
+regex = "1.10"

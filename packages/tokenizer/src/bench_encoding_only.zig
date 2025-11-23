@@ -1,10 +1,11 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const allocator_helper = @import("allocator_helper.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
 
     // Load benchmark data (583 texts)
     const file = try std.fs.cwd().openFile("benchmark_data.json", .{});

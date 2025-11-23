@@ -1,5 +1,6 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const allocator_helper = @import("allocator_helper.zig");
 
 // Global counters for allocation tracking
 var alloc_count: usize = 0;
@@ -46,7 +47,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    var counting = CountingAllocator{ .parent = gpa.allocator() };
+    var counting = CountingAllocator{ .parent = allocator_helper.getBenchmarkAllocator(gpa) };
     const allocator = counting.allocator();
 
     // Load tokenizer

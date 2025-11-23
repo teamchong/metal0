@@ -1,10 +1,11 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const allocator_helper = @import("allocator_helper.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
 
     var tokenizer = try Tokenizer.init("cl100k_base.json", allocator);
     defer tokenizer.deinit();

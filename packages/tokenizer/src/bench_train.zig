@@ -1,12 +1,13 @@
 const std = @import("std");
 const Trainer = @import("trainer.zig").Trainer;
+const allocator_helper = @import("allocator_helper.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
 
-    const VOCAB_SIZE = 2048;
+    const VOCAB_SIZE = 32000;
 
     // Load realistic benchmark data
     const file = try std.fs.cwd().openFile("benchmark_data.json", .{});

@@ -25,8 +25,8 @@ echo "   3. gpt-tokenizer (JS)"
 echo "   4. tiktoken (Node)"
 echo ""
 
-# Run hyperfine with ALL 4 libraries
-hyperfine \
+# Run hyperfine with ALL 4 libraries (3 minute timeout per run)
+timeout 180 hyperfine \
     --warmup 1 \
     --runs 5 \
     --export-markdown bench_web_results.md \

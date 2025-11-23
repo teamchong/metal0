@@ -1,4 +1,4 @@
-.PHONY: help benchmark benchmark-train benchmark-encoding benchmark-web benchmark-quick test-correctness build build-wasm clean
+.PHONY: help benchmark benchmark-train benchmark-encoding benchmark-web benchmark-json benchmark-quick test-correctness build build-wasm clean
 
 # Colors for output
 GREEN := \033[0;32m
@@ -19,10 +19,11 @@ help:
 	@echo ""
 	@echo "$(GREEN)Available targets:$(RESET)"
 	@echo "  make benchmark-quick    - ⚡ Quick (3 libs, 100 iter, ~5s) - for rapid iteration"
-	@echo "  make benchmark          - Run ALL benchmarks (train + encoding + web)"
+	@echo "  make benchmark          - Run ALL benchmarks (train + encoding + web + json)"
 	@echo "  make benchmark-train    - BPE training (3 libraries)"
 	@echo "  make benchmark-encoding - Encoding (5 libraries w/ PyAOT, TokenDagger)"
 	@echo "  make benchmark-web      - Web/WASM benchmark (4 libraries)"
+	@echo "  make benchmark-json     - JSON parse+stringify (Zig vs Rust vs Python vs Go)"
 	@echo "  make test-correctness   - Verify PyAOT matches tiktoken (583+ tests)"
 	@echo ""
 	@echo "$(GREEN)Build targets:$(RESET)"
@@ -31,8 +32,8 @@ help:
 	@echo "  make clean              - Clean build artifacts"
 	@echo ""
 
-# Run all benchmarks (train + encoding + web)
-benchmark: benchmark-train benchmark-encoding benchmark-web
+# Run all benchmarks (train + encoding + web + json)
+benchmark: benchmark-train benchmark-encoding benchmark-web benchmark-json
 
 # Training benchmarks (PyAOT vs HuggingFace vs SentencePiece)
 benchmark-train:
@@ -78,6 +79,16 @@ benchmark-web: build-wasm
 	@echo ""
 	@chmod +x bench_web.sh
 	@./bench_web.sh
+	@echo ""
+
+# JSON parse+stringify benchmarks
+benchmark-json:
+	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
+	@echo "$(GREEN)📊 JSON Parse+Stringify Benchmark (hyperfine)$(RESET)"
+	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
+	@echo ""
+	@chmod +x bench_json.sh
+	@./bench_json.sh
 	@echo ""
 
 # Build all native binaries (no build.zig - direct zig commands)

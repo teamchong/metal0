@@ -1,5 +1,6 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const allocator_helper = @import("allocator_helper.zig");
 
 pub fn main() !void {
     // Use GPA with verbose leak detection
@@ -13,7 +14,7 @@ pub fn main() !void {
         }
     }
 
-    const allocator = gpa.allocator();
+    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
 
     // Load tokenizer and measure initialization
     const init_start = std.time.nanoTimestamp();

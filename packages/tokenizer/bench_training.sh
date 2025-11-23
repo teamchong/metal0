@@ -5,7 +5,8 @@ set -e
 
 echo "⚡ BPE Training Benchmark (hyperfine)"
 echo "============================================================"
-echo "Training: 583 texts × vocab 32000 × 30 iterations"
+echo "Training: 583 texts × 30 iterations"
+echo "PyAOT/HF: vocab 32000 | SentencePiece: vocab 2066 (BPE max)"
 echo "Python startup overhead ~2% with 30 training runs"
 echo ""
 
@@ -62,11 +63,12 @@ with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
     temp_file = f.name
 
 # Train 30 times to amortize Python startup overhead
+# SentencePiece BPE max vocab for this corpus: 2066
 for i in range(30):
     spm.SentencePieceTrainer.train(
         input=temp_file,
         model_prefix=f'temp_spm_{i}',
-        vocab_size=100,  # BPE mode limit
+        vocab_size=2066,  # Maximum for this corpus
         model_type='bpe',
         minloglevel=2  # Suppress logs
     )

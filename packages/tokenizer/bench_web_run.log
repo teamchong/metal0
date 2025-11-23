@@ -1,0 +1,25 @@
+[0;33m🔨 Building WASM tokenizer...[0m
+[0;32m✅ WASM build complete[0m
+
+[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[0;32m🌐 Web/WASM Benchmark (hyperfine)[0m
+[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+
+⚡ Web/Node.js Benchmark: All 4 Libraries (realistic corpus)
+============================================================
+Encoding: 583 diverse texts (200K chars) × 1000 iterations
+Node.js startup overhead <2% with 1000 iterations
+
+📊 Benchmarking ALL 4 libraries:
+   1. PyAOT (WASM)
+   2. @anthropic-ai/tokenizer (JS)
+   3. gpt-tokenizer (JS)
+   4. tiktoken (Node)
+
+Benchmark 1: PyAOT (WASM)
+  Time (mean ± σ):      50.6 ms ±   1.4 ms    [User: 52.2 ms, System: 8.6 ms]
+  Range (min … max):    48.8 ms …  52.7 ms    5 runs
+ 
+  Warning: Ignoring non-zero exit code.
+ 
+Benchmark 2: @anthropic-ai/tokenizer (JS)

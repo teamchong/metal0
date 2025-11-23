@@ -5,9 +5,15 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Trainer = @import("trainer.zig").Trainer;
+const allocator_helper = @import("allocator_helper.zig");
 
 // Global allocator for Python integration
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+
+/// Get optimal allocator (comptime selection for WASM compatibility)
+fn getAllocator() std.mem.Allocator {
+    return allocator_helper.getBenchmarkAllocator(gpa);
+}
 
 /// Opaque handle for Python
 const TokenizerHandle = opaque {};
@@ -15,7 +21,7 @@ const TrainerHandle = opaque {};
 
 /// Create tokenizer from file
 export fn tokenizer_new(path: [*:0]const u8) ?*TokenizerHandle {
-    const allocator = gpa.allocator();
+    const allocator = getAllocator();
 
     const tokenizer = allocator.create(Tokenizer) catch return null;
     tokenizer.* = Tokenizer.init(
@@ -31,7 +37,7 @@ export fn tokenizer_new(path: [*:0]const u8) ?*TokenizerHandle {
 
 /// Free tokenizer
 export fn tokenizer_free(handle: *TokenizerHandle) void {
-    const allocator = gpa.allocator();
+    const allocator = getAllocator();
     const tokenizer: *Tokenizer = @ptrCast(@alignCast(handle));
     tokenizer.deinit();
     allocator.destroy(tokenizer);
@@ -56,7 +62,7 @@ export fn tokenizer_encode(
 
 /// Free tokens array
 export fn tokenizer_free_tokens(tokens: [*]u32, len: usize) void {
-    const allocator = gpa.allocator();
+    const allocator = getAllocator();
     allocator.free(tokens[0..len]);
 }
 
@@ -80,13 +86,13 @@ export fn tokenizer_decode(
 
 /// Free text array
 export fn tokenizer_free_text(text: [*]u8, len: usize) void {
-    const allocator = gpa.allocator();
+    const allocator = getAllocator();
     allocator.free(text[0..len]);
 }
 
 /// Create trainer
 export fn trainer_new(vocab_size: u32) ?*TrainerHandle {
-    const allocator = gpa.allocator();
+    const allocator = getAllocator();
 
     const trainer = allocator.create(Trainer) catch return null;
     trainer.* = Trainer.init(vocab_size, allocator) catch {
@@ -99,7 +105,7 @@ export fn trainer_new(vocab_size: u32) ?*TrainerHandle {
 
 /// Free trainer
 export fn trainer_free(handle: *TrainerHandle) void {
-    const allocator = gpa.allocator();
+    const allocator = getAllocator();
     const trainer: *Trainer = @ptrCast(@alignCast(handle));
     trainer.deinit();
     allocator.destroy(trainer);
@@ -111,7 +117,7 @@ export fn trainer_train(
     texts: [*]const [*:0]const u8,
     num_texts: usize,
 ) ?*TokenizerHandle {
-    const allocator = gpa.allocator();
+    const allocator = getAllocator();
     const trainer: *Trainer = @ptrCast(@alignCast(handle));
 
     // Convert C strings to Zig slices

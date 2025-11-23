@@ -65,7 +65,10 @@ pub const Trainer = struct {
 
         std.debug.print("Found {} unique words\n", .{word_counts.count()});
 
-        // Step 2: Convert to Word structs
+        // Step 2: Convert to Word structs and track used bytes
+        var used_bytes = std.AutoHashMap(u8, void).init(self.allocator);
+        defer used_bytes.deinit();
+
         var words = try std.ArrayList(Word).initCapacity(self.allocator, word_counts.count());
         defer {
             for (words.items) |*word| word.deinit(self.allocator);
@@ -77,6 +80,7 @@ pub const Trainer = struct {
             const ids = try self.allocator.alloc(u32, entry.key_ptr.*.len);
             for (entry.key_ptr.*, 0..) |byte, i| {
                 ids[i] = byte;
+                try used_bytes.put(byte, {});
             }
 
             try words.append(self.allocator, Word{
@@ -106,15 +110,25 @@ pub const Trainer = struct {
             defer pair_counts.deinit();
             total_count_time += std.time.nanoTimestamp() - count_start;
 
-            // Find best pair (max frequency)
+            // Find best pair (max frequency, with deterministic tie-breaking)
             var best_pair: ?Pair = null;
             var best_freq: i32 = 0;
 
             var it = pair_counts.iterator();
             while (it.next()) |entry| {
-                if (entry.value_ptr.* > best_freq) {
-                    best_freq = entry.value_ptr.*;
-                    best_pair = entry.key_ptr.*;
+                const freq = entry.value_ptr.*;
+                const pair = entry.key_ptr.*;
+
+                // Select if higher frequency, or same frequency but lexicographically smaller
+                if (freq > best_freq) {
+                    best_freq = freq;
+                    best_pair = pair;
+                } else if (freq == best_freq and best_pair != null) {
+                    // Tie-breaker: prefer lower (left, right) tuple
+                    const curr = best_pair.?;
+                    if (pair.left < curr.left or (pair.left == curr.left and pair.right < curr.right)) {
+                        best_pair = pair;
+                    }
                 }
             }
 
@@ -158,7 +172,7 @@ pub const Trainer = struct {
         std.debug.print("    - Applying merges: {}ms ({d:.1}%)\n", .{ apply_ms, @as(f64, @floatFromInt(apply_ms)) * 100.0 / @as(f64, @floatFromInt(total_merge_ms)) });
 
         // Step 4: Build tokenizer (transfers ownership of merges)
-        const tokenizer = try self.buildTokenizer(merges);
+        const tokenizer = try self.buildTokenizer(merges, used_bytes);
 
         // Don't free merges - ownership transferred to tokenizer
         // merges.deinit() would double-free!
@@ -167,39 +181,36 @@ pub const Trainer = struct {
     }
 
     /// Collect word counts from texts (FAST - minimal allocations!)
+    /// Each text is treated as a single word (matches HuggingFace behavior)
     fn collectWordCounts(
         self: *Trainer,
         texts: []const []const u8,
     ) !std.StringHashMap(i32) {
         var word_counts = std.StringHashMap(i32).init(self.allocator);
 
-        // Simple whitespace splitting - but FAST!
+        // Each text is a separate "word" for BPE (matches HuggingFace)
         for (texts) |text| {
-            var it = std.mem.splitScalar(u8, text, ' ');
-            while (it.next()) |word| {
-                if (word.len == 0) continue;
+            if (text.len == 0) continue;
 
-                // Try to get existing entry first (most common case after first pass)
-                const gop = try word_counts.getOrPut(word);
+            // Try to get existing entry first
+            const gop = try word_counts.getOrPut(text);
 
-                if (gop.found_existing) {
-                    // Word exists - just increment count (NO allocation!)
-                    gop.value_ptr.* += 1;
-                } else {
-                    // New word - allocate ONCE
-                    const word_copy = try self.allocator.dupe(u8, word);
-                    // Update the key to point to our copy
-                    gop.key_ptr.* = word_copy;
-                    gop.value_ptr.* = 1;
-                }
+            if (gop.found_existing) {
+                // Text exists - just increment count (NO allocation!)
+                gop.value_ptr.* += 1;
+            } else {
+                // New text - allocate ONCE
+                const text_copy = try self.allocator.dupe(u8, text);
+                gop.key_ptr.* = text_copy;
+                gop.value_ptr.* = 1;
             }
         }
 
         return word_counts;
     }
 
-    /// Build tokenizer from learned merges
-    fn buildTokenizer(self: *Trainer, merges: std.ArrayList(Pair)) !Tokenizer {
+    /// Build tokenizer from learned merges (only include used bytes in vocab)
+    fn buildTokenizer(self: *Trainer, merges: std.ArrayList(Pair), used_bytes: std.AutoHashMap(u8, void)) !Tokenizer {
         var vocab = std.HashMap(
             []const u8,
             u32,
@@ -214,31 +225,68 @@ pub const Trainer = struct {
             std.hash_map.default_max_load_percentage,
         ).initContext(self.allocator, FnvHashContext(Pair){});
 
-        // Add base vocabulary (256 bytes)
+        // Build temporary vocab_r with original IDs for merge reconstruction
+        var temp_vocab_r = std.AutoHashMap(u32, []const u8).init(self.allocator);
+        defer temp_vocab_r.deinit();
+
+        // Add all 256 bytes to temp_vocab_r (for reconstruction)
         var i: u32 = 0;
         while (i < 256) : (i += 1) {
             const key = try self.allocator.alloc(u8, 1);
             key[0] = @intCast(i);
-            try vocab.put(key, i);
-            try vocab_r.put(i, key);
+            try temp_vocab_r.put(i, key);
         }
 
-        // Add merged tokens - reconstruct string for each merge
+        // Reconstruct merged tokens using original IDs
         for (merges.items, 0..) |pair, idx| {
-            try merges_map.put(pair, @intCast(idx));
+            const left_str = temp_vocab_r.get(pair.left) orelse return error.InvalidMerge;
+            const right_str = temp_vocab_r.get(pair.right) orelse return error.InvalidMerge;
 
-            // Reconstruct the merged token string by looking up left + right
-            const left_str = vocab_r.get(pair.left) orelse return error.InvalidMerge;
-            const right_str = vocab_r.get(pair.right) orelse return error.InvalidMerge;
-
-            // Concatenate left + right
             const merged_str = try self.allocator.alloc(u8, left_str.len + right_str.len);
             @memcpy(merged_str[0..left_str.len], left_str);
             @memcpy(merged_str[left_str.len..], right_str);
 
-            // Add to vocab_r with new token ID
-            const token_id: u32 = 256 + @as(u32, @intCast(idx));
-            try vocab_r.put(token_id, merged_str);
+            const new_token_id = 256 + @as(u32, @intCast(idx));
+            try temp_vocab_r.put(new_token_id, merged_str);
+        }
+
+        // Build mapping from old IDs to new sequential IDs
+        var old_to_new = std.AutoHashMap(u32, u32).init(self.allocator);
+        defer old_to_new.deinit();
+
+        var next_id: u32 = 0;
+
+        // Add used bytes with sequential IDs
+        i = 0;
+        while (i < 256) : (i += 1) {
+            if (used_bytes.contains(@intCast(i))) {
+                const str = temp_vocab_r.get(i).?;
+                try old_to_new.put(i, next_id);
+                try vocab.put(str, next_id);
+                try vocab_r.put(next_id, str);
+                next_id += 1;
+            }
+        }
+
+        // Add merged tokens with sequential IDs
+        for (0..merges.items.len) |idx| {
+            const original_id = 256 + @as(u32, @intCast(idx));
+            const str = temp_vocab_r.get(original_id).?;
+            try old_to_new.put(original_id, next_id);
+            try vocab.put(str, next_id);
+            try vocab_r.put(next_id, str);
+            next_id += 1;
+        }
+
+        // Remap merge pairs to use new sequential IDs
+        for (merges.items) |*pair| {
+            pair.left = old_to_new.get(pair.left) orelse pair.left;
+            pair.right = old_to_new.get(pair.right) orelse pair.right;
+        }
+
+        // Build merges_map with remapped IDs
+        for (merges.items, 0..) |pair, idx| {
+            try merges_map.put(pair, @intCast(idx));
         }
 
         const pattern_str = try self.allocator.dupe(u8, self.pattern_str);

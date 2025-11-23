@@ -4,6 +4,7 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Trainer = @import("trainer.zig").Trainer;
+const allocator_helper = @import("allocator_helper.zig");
 
 /// Comptime-validated unsafe optimization
 /// Zig guarantees this is safe at compile time!
@@ -38,8 +39,10 @@ fn simdAdd(comptime T: type, comptime len: comptime_int, a: [len]T, b: [len]T) [
 }
 
 pub fn main() !void {
-    // Use c_allocator (jemalloc/system allocator) for better perf
-    const allocator = std.heap.c_allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    // Use optimal allocator (C allocator on native, GPA on WASM)
+    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
 
     std.debug.print("\n🚀 PyAOT Tokenizer Benchmark\n", .{});
     std.debug.print("=" ** 60 ++ "\n\n", .{});
