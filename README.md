@@ -97,32 +97,23 @@ Python's distribution and deployment challenges solved.
 
 ## Feature Coverage
 
-**✅ Fully Supported:**
-- Type-hinted functions and classes
-- Basic types: int, float, str, bool
-- Collections: list, dict, tuple
-- Control flow: if/elif/else, for, while
-- Functions: def, return, closures
-- Classes: __init__, methods, single inheritance
-- String operations: f-strings, methods
-- List/dict comprehensions
-- Operators: arithmetic, comparison, logical
-- Imports: modules, from...import
+**✅ Working:**
+- Functions, classes, control flow
+- Basic types: int, float, str, bool, list, dict
+- List/dict comprehensions, f-strings
+- Type annotations (PEP 526)
+- Imports, modules
 
-**🚧 Partial Support:**
-- Decorators (basic only)
-- Exception handling (limited)
-- Built-in functions (subset)
-- Standard library (growing)
+**🚧 Building:**
+- Closures, decorators, exception handling
+- Async/await, parallelism, multithreading
+- Full standard library (rebuilding in Zig)
+- NumPy, scientific computing, GPU
+- All Python features
 
-**❌ Not Supported (Static Compilation):**
-- eval()/exec() - dynamic code execution
-- Runtime __getattr__/__setattr__
-- Metaclasses and dynamic classes
-- Multiple inheritance (yet)
-- Reflection/introspection
+**Goal:** Full Python compatibility - everything will be supported.
 
-See [examples/comprehensive_demo.py](examples/comprehensive_demo.py) for complete feature showcase.
+See [examples/comprehensive_demo.py](examples/comprehensive_demo.py) for current features.
 
 ## Quick Start
 
