@@ -96,7 +96,16 @@ pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
             .string => {
                 const data: *PyString = @ptrCast(@alignCast(obj.data));
                 allocator.free(data.data);
-                allocator.destroy(data);
+
+                // OPTIMIZATION: Free combined PyObject+PyString struct
+                // Get pointer to start of combined allocation (obj is first field)
+                const Combined = struct {
+                    obj: PyObject,
+                    str: PyString,
+                };
+                const combined: *Combined = @ptrCast(@alignCast(obj));
+                allocator.destroy(combined);
+                return; // Don't destroy obj again - already freed as part of combined
             },
             .dict => {
                 const data: *PyDict = @ptrCast(@alignCast(obj.data));

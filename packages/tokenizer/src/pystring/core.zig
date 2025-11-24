@@ -25,16 +25,21 @@ pub const PyString = struct {
     /// Create PyString taking ownership of already-allocated memory (no duplication)
     /// IMPORTANT: Caller must ensure owned_str is allocated with the same allocator
     pub fn createOwned(allocator: std.mem.Allocator, owned_str: []const u8) !*PyObject {
-        const obj = try allocator.create(PyObject);
-        const str_data = try allocator.create(PyString);
-        str_data.data = owned_str; // Take ownership, no duplication
+        // OPTIMIZATION: Single allocation for PyObject + PyString together
+        // This improves cache locality and reduces allocation overhead
+        const Combined = struct {
+            obj: PyObject,
+            str: PyString,
+        };
 
-        obj.* = PyObject{
+        const combined = try allocator.create(Combined);
+        combined.str.data = owned_str; // Take ownership, no duplication
+        combined.obj = PyObject{
             .ref_count = 1,
             .type_id = .string,
-            .data = str_data,
+            .data = &combined.str,
         };
-        return obj;
+        return &combined.obj;
     }
 
     pub fn getValue(obj: *PyObject) []const u8 {
