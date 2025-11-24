@@ -155,51 +155,32 @@ pub const UnigramTrainer = struct {
         // Use suffix arrays to find FREQUENT substrings (like HuggingFace)
         // This is much more selective than exhaustive n-gram generation
 
-        // Try per-sentence SA-IS to avoid cross-sentence patterns
-        // Deduplicate while aggregating frequencies
-        var substr_map = std.StringHashMap(u32).init(self.allocator);
-        defer substr_map.deinit();
+        // Per-sentence SA-IS to avoid cross-sentence artifacts
+        var all_substrings = std.ArrayList(sais.SubstringFreq){};
+        defer all_substrings.deinit(self.allocator);
 
         std.debug.print("[PROFILE] Running SA-IS on {d} sentences individually\n", .{sentences.len});
 
-        var total_found: usize = 0;
         for (sentences) |sentence| {
-            if (sentence.text.len < 2) continue; // Skip very short sentences
+            if (sentence.text.len < 2) continue;
 
             const substr_list = try sais.findFrequentSubstrings(
                 self.allocator,
                 sentence.text,
                 2, // min_length
-                1000, // max_length - allow longer pieces (HF default)
+                1000, // max_length
                 100000, // max_results per sentence
             );
             defer self.allocator.free(substr_list);
 
             for (substr_list) |substr| {
-                // Aggregate frequencies across sentences
+                const copy = try self.allocator.dupe(u8, substr.string);
                 const weighted_freq = substr.freq * sentence.count;
-                const entry = try substr_map.getOrPut(substr.string);
-                if (entry.found_existing) {
-                    entry.value_ptr.* += weighted_freq;
-                } else {
-                    const key_copy = try self.allocator.dupe(u8, substr.string);
-                    entry.key_ptr.* = key_copy;
-                    entry.value_ptr.* = weighted_freq;
-                }
-                total_found += 1;
+                try all_substrings.append(self.allocator, sais.SubstringFreq{
+                    .string = copy,
+                    .freq = weighted_freq,
+                });
             }
-        }
-
-        // Convert map to array
-        var all_substrings = std.ArrayList(sais.SubstringFreq){};
-        defer all_substrings.deinit(self.allocator);
-
-        var substr_it = substr_map.iterator();
-        while (substr_it.next()) |entry| {
-            try all_substrings.append(self.allocator, sais.SubstringFreq{
-                .string = entry.key_ptr.*,  // Transfer ownership
-                .freq = entry.value_ptr.*,
-            });
         }
 
         const frequent_substrings = try self.allocator.alloc(sais.SubstringFreq, all_substrings.items.len);
@@ -211,15 +192,15 @@ pub const UnigramTrainer = struct {
             self.allocator.free(frequent_substrings);
         }
 
-        std.debug.print("[PROFILE] Found {d} frequent substrings ({d} raw) across all sentences\n", .{frequent_substrings.len, total_found});
+        std.debug.print("[PROFILE] Found {d} frequent substrings via per-sentence SA-IS\n", .{frequent_substrings.len});
 
         // Convert suffix array results to pieces
         // Suffix array already sorted by score (freq * length)
         var skipped_null: usize = 0;
         var skipped_lowfreq: usize = 0;
         for (frequent_substrings) |substr| {
-            // Skip substrings with separator bytes (0xFF sentence separators)
-            if (std.mem.indexOfScalar(u8, substr.string, 0xFF) != null) {
+            // Skip substrings with separator bytes ('\0' sentence separators)
+            if (std.mem.indexOfScalar(u8, substr.string, 0) != null) {
                 skipped_null += 1;
                 continue;
             }
@@ -501,8 +482,9 @@ pub const UnigramTrainer = struct {
 
         var sum: f64 = 0.0;
 
-        // HuggingFace threshold: filter out tokens with expected frequency < 0.5
-        const expected_frequency_threshold = 0.5;
+        // EXPERIMENTAL: Lower threshold to keep more tokens
+        // HuggingFace uses 0.5, but we're trying 0.0001 to reach 751 tokens
+        const expected_frequency_threshold = 0.0001;
 
         var filtered_count: usize = 0;
         var max_freq: f64 = 0.0;

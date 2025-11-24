@@ -488,8 +488,8 @@ pub fn findFrequentSubstrings(
 
         const substring = text[offset..offset + len];
 
-        // Check for separator bytes (0xFF sentence separators)
-        if (std.mem.indexOfScalar(u8, substring, 0xFF) != null) {
+        // Check for separator bytes ('\0' sentence separators, matching HuggingFace)
+        if (std.mem.indexOfScalar(u8, substring, 0) != null) {
             filtered_null += 1;
             continue;
         }
