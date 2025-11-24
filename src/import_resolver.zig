@@ -314,10 +314,31 @@ pub fn resolveImport(
     allocator: std.mem.Allocator,
 ) !?[]const u8 {
     // Try different search paths in order of priority:
+    // 0. Compiled modules in build/lib.{platform}/ (FIRST!)
     // 1. Same directory as source file (if provided)
     // 2. Current working directory
     // 3. examples/ directory (for backward compatibility)
     // 4. Site-packages directories
+
+    // FIRST: Check if already compiled to .so in build/
+    const arch = switch (builtin.cpu.arch) {
+        .x86_64 => "x86_64",
+        .aarch64 => "arm64",
+        else => "unknown",
+    };
+    const compiled_paths = [_][]const u8{
+        try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}/{s}.cpython-312-darwin.so", .{ arch, module_name }),
+        try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}/{s}/__init__.cpython-312-darwin.so", .{ arch, module_name }),
+    };
+
+    for (compiled_paths) |compiled_path| {
+        std.fs.cwd().access(compiled_path, .{}) catch {
+            allocator.free(compiled_path);
+            continue;
+        };
+        // Found compiled module - return it!
+        return compiled_path;
+    }
 
     var search_paths = std.ArrayList([]const u8){};
     defer search_paths.deinit(allocator);
