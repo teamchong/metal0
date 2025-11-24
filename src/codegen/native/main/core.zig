@@ -140,6 +140,10 @@ pub const NativeCodegen = struct {
     // Track C libraries needed for linking (from C extension imports)
     c_libraries: std.ArrayList([]const u8),
 
+    // Track comptime eval() calls (string literal arguments that can be compiled at comptime)
+    // Maps source code string -> void (e.g., "1 + 2" -> {})
+    comptime_evals: FnvVoidMap,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -190,6 +194,7 @@ pub const NativeCodegen = struct {
             .imported_modules = FnvVoidMap.init(allocator),
             .mutation_info = null,
             .c_libraries = std.ArrayList([]const u8){},
+            .comptime_evals = FnvVoidMap.init(allocator),
         };
         return self;
     }
@@ -295,6 +300,13 @@ pub const NativeCodegen = struct {
 
         // Clean up c_libraries list (strings are not owned, just references)
         self.c_libraries.deinit(self.allocator);
+
+        // Clean up comptime_evals tracking
+        var comptime_iter = self.comptime_evals.keyIterator();
+        while (comptime_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.comptime_evals.deinit();
 
         self.allocator.destroy(self);
     }
