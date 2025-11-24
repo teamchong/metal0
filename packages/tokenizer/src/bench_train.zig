@@ -120,9 +120,15 @@ pub fn main() !void {
         std.debug.print("{d}ms\n", .{elapsed_ms});
     } else {
         // BPE/WordPiece return regular Tokenizer
+        // Use environment variable for iteration count (default: 300)
+        const iterations = if (std.posix.getenv("ITERATIONS")) |iter_str|
+            std.fmt.parseInt(usize, iter_str, 10) catch 300
+        else
+            300;
+
         var last_tokenizer: ?Tokenizer = null;
         var i: usize = 0;
-        while (i < 300) : (i += 1) {
+        while (i < iterations) : (i += 1) {
             var trainer = if (build_options.runtime_selection)
                 try Trainer.init(VOCAB_SIZE, allocator, selected_algorithm)
             else

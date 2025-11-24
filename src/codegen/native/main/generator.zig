@@ -212,10 +212,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
     }
 
-    // Close module struct
+    // Close module struct (only if we opened one)
     if (self.mode == .module) {
-        self.dedent();
-        try self.emit("};\n");
+        if (self.module_name != null) {
+            self.dedent();
+            try self.emit("};\n");
+        }
         // Module mode doesn't generate main, just return
         return self.output.toOwnedSlice(self.allocator);
     }

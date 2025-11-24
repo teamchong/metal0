@@ -67,6 +67,12 @@ pub const BpeTrainer = struct {
 
     pub fn deinit(self: *BpeTrainer) void {
         self.initial_alphabet.deinit();
+
+        // Free word_counts keys (owned strings from line 309-310)
+        var it = self.word_counts.keyIterator();
+        while (it.next()) |key| {
+            self.allocator.free(key.*);
+        }
         self.word_counts.deinit();
     }
 
@@ -466,6 +472,12 @@ pub const BpeTrainer = struct {
                         .count = @intCast(count),
                     });
                 }
+            }
+
+            // Free inner HashMaps before clearing
+            var clear_it = pair_state.where_to_update.valueIterator();
+            while (clear_it.next()) |inner_map| {
+                inner_map.deinit();
             }
             pair_state.where_to_update.clearRetainingCapacity();
         }
