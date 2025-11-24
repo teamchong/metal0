@@ -119,4 +119,40 @@ pub fn build(b: *std.Build) void {
     const run_goroutine_basic_tests = b.addRunArtifact(goroutine_basic_tests);
     const goroutine_basic_test_step = b.step("test-goroutines-basic", "Run basic goroutine tests");
     goroutine_basic_test_step.dependOn(&run_goroutine_basic_tests.step);
+
+    // Work-stealing benchmark
+    const bench_work_stealing = b.addExecutable(.{
+        .name = "bench_work_stealing",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/bench_work_stealing.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    bench_work_stealing.root_module.addImport("scheduler", scheduler_module);
+    bench_work_stealing.root_module.addImport("green_thread", green_thread_module);
+
+    b.installArtifact(bench_work_stealing);
+
+    const run_bench_work_stealing = b.addRunArtifact(bench_work_stealing);
+    const bench_work_stealing_step = b.step("bench-work-stealing", "Run work-stealing benchmark");
+    bench_work_stealing_step.dependOn(&run_bench_work_stealing.step);
+
+    // Test anonymous struct spawn
+    const test_spawn_anonymous = b.addExecutable(.{
+        .name = "test_spawn_anonymous",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path(".claude/1/test_spawn_anonymous.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_spawn_anonymous.root_module.addImport("scheduler", scheduler_module);
+    test_spawn_anonymous.root_module.addImport("green_thread", green_thread_module);
+
+    b.installArtifact(test_spawn_anonymous);
+
+    const run_test_spawn_anonymous = b.addRunArtifact(test_spawn_anonymous);
+    const test_spawn_anonymous_step = b.step("test-spawn-anonymous", "Test spawn with anonymous struct");
+    test_spawn_anonymous_step.dependOn(&run_test_spawn_anonymous.step);
 }

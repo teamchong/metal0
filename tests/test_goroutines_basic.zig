@@ -5,14 +5,19 @@ const GreenThread = @import("green_thread").GreenThread;
 test "thread state transitions" {
     const allocator = std.testing.allocator;
 
+    const Context = struct {
+        dummy: u8,
+    };
+
     const StateFunc = struct {
-        fn func(thread: *GreenThread) void {
-            _ = thread;
+        fn func(ctx: ?*anyopaque) void {
+            _ = ctx;
             // Simple function
         }
     };
 
-    const thread = try GreenThread.init(allocator, 1, StateFunc.func);
+    var context = Context{ .dummy = 0 };
+    const thread = try GreenThread.init(allocator, 1, StateFunc.func, &context);
     defer thread.deinit(allocator);
 
     try std.testing.expectEqual(GreenThread.State.ready, thread.state);
@@ -31,17 +36,20 @@ test "spawn 100 green threads" {
 
     var counter: usize = 0;
 
-    const CounterFunc = struct {
-        fn run(thread: *GreenThread) void {
-            const c: *usize = @alignCast(@ptrCast(thread.result.?));
-            _ = @atomicRmw(usize, c, .Add, 1, .seq_cst);
-        }
+    const Context = struct {
+        counter: *usize,
     };
+
+    const increment = struct {
+        fn run(ctx: *Context) void {
+            _ = @atomicRmw(usize, ctx.counter, .Add, 1, .seq_cst);
+        }
+    }.run;
 
     var i: usize = 0;
     while (i < 100) : (i += 1) {
-        const thread = try sched.spawn(CounterFunc.run);
-        thread.result = @ptrCast(&counter);
+        const ctx = Context{ .counter = &counter };
+        _ = try sched.spawn(increment, ctx);
     }
 
     sched.waitAll();
@@ -58,17 +66,20 @@ test "spawn 1000 green threads" {
 
     var counter: usize = 0;
 
-    const CounterFunc = struct {
-        fn run(thread: *GreenThread) void {
-            const c: *usize = @alignCast(@ptrCast(thread.result.?));
-            _ = @atomicRmw(usize, c, .Add, 1, .seq_cst);
-        }
+    const Context = struct {
+        counter: *usize,
     };
+
+    const increment = struct {
+        fn run(ctx: *Context) void {
+            _ = @atomicRmw(usize, ctx.counter, .Add, 1, .seq_cst);
+        }
+    }.run;
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        const thread = try sched.spawn(CounterFunc.run);
-        thread.result = @ptrCast(&counter);
+        const ctx = Context{ .counter = &counter };
+        _ = try sched.spawn(increment, ctx);
     }
 
     sched.waitAll();
@@ -85,14 +96,16 @@ test "concurrent increments with work" {
 
     var shared_counter: usize = 0;
 
-    const IncrementFunc = struct {
-        fn run(thread: *GreenThread) void {
-            const c: *usize = @alignCast(@ptrCast(thread.result.?));
+    const Context = struct {
+        counter: *usize,
+    };
 
+    const work = struct {
+        fn run(ctx: *Context) void {
             // Multiple increments per thread with work
             var j: usize = 0;
             while (j < 10) : (j += 1) {
-                _ = @atomicRmw(usize, c, .Add, 1, .seq_cst);
+                _ = @atomicRmw(usize, ctx.counter, .Add, 1, .seq_cst);
                 // Small amount of work
                 var k: usize = 0;
                 while (k < 100) : (k += 1) {
@@ -100,12 +113,11 @@ test "concurrent increments with work" {
                 }
             }
         }
-    };
+    }.run;
 
     var i: usize = 0;
     while (i < 100) : (i += 1) {
-        const thread = try sched.spawn(IncrementFunc.run);
-        thread.result = @ptrCast(&shared_counter);
+        _ = try sched.spawn(work, Context{ .counter = &shared_counter });
     }
 
     sched.waitAll();
@@ -117,12 +129,12 @@ test "memory usage per thread" {
     const allocator = std.testing.allocator;
 
     const TestFunc = struct {
-        fn func(thread: *GreenThread) void {
-            _ = thread;
+        fn func(ctx: ?*anyopaque) void {
+            _ = ctx;
         }
     };
 
-    const thread = try GreenThread.init(allocator, 1, TestFunc.func);
+    const thread = try GreenThread.init(allocator, 1, TestFunc.func, null);
     defer thread.deinit(allocator);
 
     // Stack should be 4KB
@@ -143,12 +155,15 @@ test "work stealing with multiple queues" {
         std.atomic.Value(usize).init(0),
     };
 
-    const WorkFunc = struct {
-        fn run(thread: *GreenThread) void {
-            const cs: *[4]std.atomic.Value(usize) = @alignCast(@ptrCast(thread.result.?));
-            const idx = thread.id % 4;
+    const Context = struct {
+        counters: *[4]std.atomic.Value(usize),
+        task_id: usize,
+    };
 
-            _ = cs[idx].fetchAdd(1, .seq_cst);
+    const work = struct {
+        fn run(ctx: *Context) void {
+            const idx = ctx.task_id % 4;
+            _ = ctx.counters[idx].fetchAdd(1, .seq_cst);
 
             // Simulate work
             var j: usize = 0;
@@ -156,13 +171,12 @@ test "work stealing with multiple queues" {
                 std.mem.doNotOptimizeAway(&j);
             }
         }
-    };
+    }.run;
 
     // Spawn tasks
     var i: usize = 0;
     while (i < 400) : (i += 1) {
-        const thread = try sched.spawn(WorkFunc.run);
-        thread.result = @ptrCast(&counters);
+        _ = try sched.spawn(work, Context{ .counters = &counters, .task_id = i });
     }
 
     sched.waitAll();

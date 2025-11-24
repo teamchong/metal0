@@ -52,6 +52,12 @@ pub const WorkQueue = struct {
         return self.tasks.items.len;
     }
 
+    /// Lock-free size check (may be stale, used for work-stealing heuristics)
+    pub fn size(self: *const WorkQueue) usize {
+        // Direct read without lock - acceptable race for heuristic checks
+        return self.tasks.items.len;
+    }
+
     pub fn isEmpty(self: *WorkQueue) bool {
         return self.len() == 0;
     }
