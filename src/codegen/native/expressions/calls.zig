@@ -116,17 +116,17 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         try self.output.appendSlice(self.allocator, attr.attr);
         try self.output.appendSlice(self.allocator, "(");
 
-        for (call.args, 0..) |arg, i| {
-            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-            try genExpr(self, arg);
-        }
-
-        // For module calls, add allocator as last argument
+        // For module calls, add allocator as first argument
         if (is_module_call) {
+            try self.output.appendSlice(self.allocator, "allocator");
             if (call.args.len > 0) {
                 try self.output.appendSlice(self.allocator, ", ");
             }
-            try self.output.appendSlice(self.allocator, "allocator");
+        }
+
+        for (call.args, 0..) |arg, i| {
+            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+            try genExpr(self, arg);
         }
 
         try self.output.appendSlice(self.allocator, ")");

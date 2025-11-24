@@ -1,0 +1,4756 @@
+{
+  "version": "1.0",
+  "truncation": null,
+  "padding": null,
+  "added_tokens": [],
+  "normalizer": null,
+  "pre_tokenizer": null,
+  "post_processor": null,
+  "decoder": null,
+  "model": {
+    "type": "BPE",
+    "dropout": null,
+    "unk_token": null,
+    "continuing_subword_prefix": null,
+    "end_of_word_suffix": null,
+    "fuse_unk": false,
+    "byte_fallback": false,
+    "ignore_merges": false,
+    "vocab": {
+      "\n": 0,
+      " ": 1,
+      "!": 2,
+      "$": 3,
+      "%": 4,
+      "'": 5,
+      "(": 6,
+      ")": 7,
+      "+": 8,
+      ",": 9,
+      "-": 10,
+      ".": 11,
+      "0": 12,
+      "1": 13,
+      "2": 14,
+      "3": 15,
+      "4": 16,
+      "5": 17,
+      "7": 18,
+      "8": 19,
+      ":": 20,
+      "<": 21,
+      "=": 22,
+      ">": 23,
+      "A": 24,
+      "C": 25,
+      "D": 26,
+      "E": 27,
+      "F": 28,
+      "H": 29,
+      "I": 30,
+      "J": 31,
+      "M": 32,
+      "O": 33,
+      "P": 34,
+      "S": 35,
+      "T": 36,
+      "U": 37,
+      "_": 38,
+      "a": 39,
+      "b": 40,
+      "c": 41,
+      "d": 42,
+      "e": 43,
+      "f": 44,
+      "g": 45,
+      "h": 46,
+      "i": 47,
+      "j": 48,
+      "k": 49,
+      "l": 50,
+      "m": 51,
+      "n": 52,
+      "o": 53,
+      "p": 54,
+      "q": 55,
+      "r": 56,
+      "s": 57,
+      "t": 58,
+      "u": 59,
+      "v": 60,
+      "w": 61,
+      "x": 62,
+      "y": 63,
+      "z": 64,
+      "{": 65,
+      "}": 66,
+      " a": 67,
+      "in": 68,
+      "e ": 69,
+      "re": 70,
+      "s ": 71,
+      "d ": 72,
+      "ti": 73,
+      "th": 74,
+      "en": 75,
+      "on": 76,
+      "t ": 77,
+      "or": 78,
+      "er": 79,
+      "y ": 80,
+      "ing": 81,
+      "ro": 82,
+      "ar": 83,
+      "al": 84,
+      " an": 85,
+      "ed ": 86,
+      "st": 87,
+      "el": 88,
+      ". ": 89,
+      "an": 90,
+      "the ": 91,
+      "tion": 92,
+      "ci": 93,
+      "co": 94,
+      "to": 95,
+      "es ": 96,
+      "si": 97,
+      "fi": 98,
+      "ing ": 99,
+      " and ": 100,
+      " p": 101,
+      "ac": 102,
+      " b": 103,
+      "at": 104,
+      "in ": 105,
+      "it": 106,
+      "es": 107,
+      "ou": 108,
+      "ex": 109,
+      "  ": 110,
+      "Th": 111,
+      "ol": 112,
+      "ear": 113,
+      "al ": 114,
+      "ation": 115,
+      "et": 116,
+      " s": 117,
+      " ac": 118,
+      "f ": 119,
+      "The ": 120,
+      "to ": 121,
+      "ec": 122,
+      "ul": 123,
+      "men": 124,
+      "op": 125,
+      "ed": 126,
+      "oo": 127,
+      "pro": 128,
+      ", ": 129,
+      "ver": 130,
+      "res": 131,
+      "ll": 132,
+      "ts ": 133,
+      "rea": 134,
+      "ell": 135,
+      "com": 136,
+      "bl": 137,
+      "s. ": 138,
+      "con": 139,
+      "s a": 140,
+      "gy ": 141,
+      "ho": 142,
+      "of ": 143,
+      "or ": 144,
+      "ly ": 145,
+      "we": 146,
+      "the c": 147,
+      "ur": 148,
+      "gh": 149,
+      "ic": 150,
+      "un": 151,
+      "fic": 152,
+      "us": 153,
+      "de": 154,
+      " par": 155,
+      "gn": 156,
+      "sign": 157,
+      "ere": 158,
+      "per": 159,
+      "ble ": 160,
+      "cien": 161,
+      "cal": 162,
+      "ati": 163,
+      "is ": 164,
+      "ific": 165,
+      "m ": 166,
+      "su": 167,
+      "ment": 168,
+      "ted ": 169,
+      "ve ": 170,
+      "int": 171,
+      "gre": 172,
+      "sts a": 173,
+      "hi": 174,
+      "ook": 175,
+      "able ": 176,
+      "ew": 177,
+      "new": 178,
+      "tl": 179,
+      "ves ": 180,
+      "wi": 181,
+      "ini": 182,
+      "bon": 183,
+      "ma": 184,
+      "pl": 185,
+      "ci(": 186,
+      "acci(": 187,
+      "    ": 188,
+      "bonacci(": 189,
+      ") ": 190,
+      "ces": 191,
+      "ge": 192,
+      "th ": 193,
+      "ros": 194,
+      "ant ": 195,
+      " acros": 196,
+      "signific": 197,
+      "for ": 198,
+      "rep": 199,
+      "ener": 200,
+      " parti": 201,
+      "energy ": 202,
+      "ch": 203,
+      "ef": 204,
+      "year": 205,
+      "ach": 206,
+      "lation": 207,
+      "relation": 208,
+      " bet": 209,
+      "ween": 210,
+      " between": 211,
+      "en s": 212,
+      "the cor": 213,
+      "_fi": 214,
+      "ath": 215,
+      "cul": 216,
+      "e_fi": 217,
+      "hel": 218,
+      "il": 219,
+      "uc": 220,
+      "stor": 221,
+      "ate_fi": 222,
+      "ity": 223,
+      "ood": 224,
+      "calcul": 225,
+      "ate_fibonacci(": 226,
+      "calculate_fibonacci(": 227,
+      "igh": 228,
+      "sy": 229,
+      "reak": 230,
+      "st ": 231,
+      "the": 232,
+      "ent ": 233,
+      "ating ": 234,
+      "prov": 235,
+      "ce": 236,
+      "out ": 237,
+      "met": 238,
+      "tcom": 239,
+      "es in ": 240,
+      "outcom": 241,
+      "mental ": 242,
+      "significant ": 243,
+      "am": 244,
+      "fro": 245,
+      "pac": 246,
+      "tre": 247,
+      "rop": 248,
+      "ant": 249,
+      "cip": 250,
+      "ata": 251,
+      "es and ": 252,
+      " acces": 253,
+      "resul": 254,
+      "repor": 255,
+      " particip": 256,
+      "from ": 257,
+      " accessi": 258,
+      "Its ": 259,
+      "book": 260,
+      "da": 261,
+      "di": 262,
+      "ding": 263,
+      "ever": 264,
+      "each": 265,
+      "hed ": 266,
+      "man": 267,
+      "ner": 268,
+      "over": 269,
+      "ogy ": 270,
+      "ugh": 271,
+      "thro": 272,
+      "ess ": 273,
+      "ology ": 274,
+      "hoto": 275,
+      "through": 276,
+      " de": 277,
+      "% ": 278,
+      "cy": 279,
+      "cell": 280,
+      "for": 281,
+      "mar": 282,
+      "ta": 283,
+      "ven": 284,
+      "y a": 285,
+      "ficien": 286,
+      "ed a": 287,
+      "ly d": 288,
+      "cienti": 289,
+      "efficien": 290,
+      "efficiency": 291,
+      "\n    ": 292,
+      " calculate_fibonacci(": 293,
+      ". P": 294,
+      " m": 295,
+      "duc": 296,
+      "hl": 297,
+      "ligh": 298,
+      "mon": 299,
+      "orop": 300,
+      ". The ": 301,
+      "in the ": 302,
+      "ll m": 303,
+      "ical ": 304,
+      "hlorop": 305,
+      " com": 306,
+      "cl": 307,
+      "e and ": 308,
+      "gen": 309,
+      "hy": 310,
+      "im": 311,
+      "lan": 312,
+      "mi": 313,
+      "s, ": 314,
+      "se and ": 315,
+      "tr": 316,
+      "wing ": 317,
+      "ely ": 318,
+      "tion ": 319,
+      " bi": 320,
+      "with ": 321,
+      "initi": 322,
+      "plex": 323,
+      " across a": 324,
+      "improv": 325,
+      "s, with ": 326,
+      ", a": 327,
+      "bout ": 328,
+      "gin": 329,
+      "it ": 330,
+      "ning": 331,
+      "s and ": 332,
+      "ter": 333,
+      "ue ": 334,
+      "uth": 335,
+      "vel": 336,
+      " about ": 337,
+      "aly": 338,
+      " analy": 339,
+      "ed in ": 340,
+      "expl": 341,
+      "earning": 342,
+      "oper": 343,
+      "ust ": 344,
+      "mak": 345,
+      "the a": 346,
+      "s. The ": 347,
+      "if ": 348,
+      " st": 349,
+      " co": 350,
+      " ur": 351,
+      " gre": 352,
+      ",5": 353,
+      "-b": 354,
+      "00": 355,
+      "2,5": 356,
+      "Data": 357,
+      "ban": 358,
+      "bil": 359,
+      "dy ": 360,
+      "eal": 361,
+      "eing ": 362,
+      "gge": 363,
+      "heal": 364,
+      "k accessi": 365,
+      "osi": 366,
+      "p between": 367,
+      "posi": 368,
+      "sti": 369,
+      "sco": 370,
+      "shi": 371,
+      "s acros": 372,
+      "tw": 373,
+      "udy ": 374,
+      "well": 375,
+      "y. The ": 376,
+      " area": 377,
+      "ines ": 378,
+      "s tw": 379,
+      "ties ": 380,
+      "tive ": 381,
+      "study ": 382,
+      "elve ": 383,
+      "an area": 384,
+      "cities ": 385,
+      " and repor": 386,
+      "itan area": 387,
+      "exam": 388,
+      "This ": 389,
+      "olitan area": 390,
+      "ected ": 391,
+      "llected ": 392,
+      "s. Data": 393,
+      "ly significant ": 394,
+      " park accessi": 395,
+      "cally significant ": 396,
+      "atisti": 397,
+      "sugge": 398,
+      "ted well": 399,
+      "sts a st": 400,
+      "th outcom": 401,
+      "relation between": 402,
+      "relationshi": 403,
+      "en spac": 404,
+      "the correlation between": 405,
+      "ity and repor": 406,
+      "metrop": 407,
+      "es in metrop": 408,
+      "mental heal": 409,
+      "ants acros": 410,
+      "es and mental heal": 411,
+      " participants acros": 412,
+      "from 2,5": 413,
+      " collected ": 414,
+      " urban": 415,
+      " green spac": 416,
+      "-being ": 417,
+      "00 participants acros": 418,
+      "bility and repor": 419,
+      "p between park accessi": 420,
+      "positive ": 421,
+      "scores": 422,
+      "ines the correlation between": 423,
+      "s twelve ": 424,
+      "study exam": 425,
+      "cities sugge": 426,
+      "This study exam": 427,
+      "olitan areas. Data": 428,
+      "cally significant positive ": 429,
+      "atistically significant positive ": 430,
+      "ted well-being ": 431,
+      "sts a statistically significant positive ": 432,
+      "th outcomes in metrop": 433,
+      "relationship between park accessi": 434,
+      "es and mental health outcomes in metrop": 435,
+      "from 2,500 participants acros": 436,
+      " collected from 2,500 participants acros": 437,
+      " urban green spac": 438,
+      "bility and reported well-being ": 439,
+      "ines the correlation between urban green spac": 440,
+      "s twelve cities sugge": 441,
+      "This study examines the correlation between urban green spac": 442,
+      "olitan areas. Data collected from 2,500 participants acros": 443,
+      "sts a statistically significant positive relationship between park accessi": 444,
+      "es and mental health outcomes in metropolitan areas. Data collected from 2,500 participants acros": 445,
+      "bility and reported well-being scores": 446,
+      "s twelve cities suggests a statistically significant positive relationship between park accessi": 447,
+      "This study examines the correlation between urban green spaces and mental health outcomes in metropolitan areas. Data collected from 2,500 participants acros": 448,
+      "s twelve cities suggests a statistically significant positive relationship between park accessibility and reported well-being scores": 449,
+      "This study examines the correlation between urban green spaces and mental health outcomes in metropolitan areas. Data collected from 2,500 participants across twelve cities suggests a statistically significant positive relationship between park accessibility and reported well-being scores": 450,
+      " o": 451,
+      " fi": 452,
+      " of ": 453,
+      " the c": 454,
+      " int": 455,
+      ")\n": 456,
+      "10": 457,
+      ":\n    ": 458,
+      "= ": 459,
+      "Ma": 460,
+      "Stre": 461,
+      "aper": 462,
+      "do": 463,
+      "ds. The ": 464,
+      "et ": 465,
+      "eath": 466,
+      "ff": 467,
+      "ft": 468,
+      "f a": 469,
+      "ged ": 470,
+      "isi": 471,
+      "ies": 472,
+      "lds. The ": 473,
+      "leath": 474,
+      "mell": 475,
+      "n ": 476,
+      "n-": 477,
+      "nt ": 478,
+      "paper": 479,
+      "smell": 480,
+      "tal ": 481,
+      "tor ": 482,
+      "tur": 483,
+      "visi": 484,
+      "wor": 485,
+      "who": 486,
+      "wood": 487,
+      " at ": 488,
+      " a p": 489,
+      "inding": 490,
+      "e st": 491,
+      "retur": 492,
+      "s gre": 493,
+      "d co": 494,
+      "d book": 495,
+      "d wood": 496,
+      "en the c": 497,
+      "ortal ": 498,
+      "er b": 499,
+      "y year": 500,
+      "y visi": 501,
+      "ed ever": 502,
+      "ing do": 503,
+      " and leath": 504,
+      " pus": 505,
+      " book": 506,
+      "in Stre": 507,
+      "old book": 508,
+      "eted ever": 509,
+      "to di": 510,
+      "open the c": 511,
+      ", each": 512,
+      "s. Its ": 513,
+      "weath": 514,
+      "untl": 515,
+      "erent ": 516,
+      "ered wood": 517,
+      "ves hel": 518,
+      "for over": 519,
+      "en shel": 520,
+      "the corner": 521,
+      "stories": 522,
+      "store st": 523,
+      "ood at ": 524,
+      "reaking do": 525,
+      "hed open the c": 526,
+      "ess stories": 527,
+      " calculate_fibonacci(n-": 528,
+      " of a": 529,
+      " fift": 530,
+      " of Ma": 531,
+      "et for over": 532,
+      "fferent ": 533,
+      "ged paper": 534,
+      "lds. The smell": 535,
+      "tor who": 536,
+      "worlds. The smell": 537,
+      " a portal ": 538,
+      "indings gre": 539,
+      "d countl": 540,
+      "er bindings gre": 541,
+      "y years. Its ": 542,
+      "y visitor who": 543,
+      " and leather bindings gre": 544,
+      " pushed open the c": 545,
+      " book a portal ": 546,
+      "in Street for over": 547,
+      "old bookstore st": 548,
+      "eted every visitor who": 549,
+      "to different ": 550,
+      ", each book a portal ": 551,
+      "weathered wood": 552,
+      "ves held countl": 553,
+      "en shelves held countl": 554,
+      "the corner of Ma": 555,
+      "ood at the corner of Ma": 556,
+      "reaking door": 557,
+      "ess stories, each book a portal ": 558,
+      " of aged paper": 559,
+      " fifty years. Its ": 560,
+      "worlds. The smell of aged paper": 561,
+      " and leather bindings greeted every visitor who": 562,
+      " pushed open the creaking door": 563,
+      "in Street for over fifty years. Its ": 564,
+      "old bookstore stood at the corner of Ma": 565,
+      "to different worlds. The smell of aged paper": 566,
+      "weathered wooden shelves held countl": 567,
+      "ess stories, each book a portal to different worlds. The smell of aged paper": 568,
+      " and leather bindings greeted every visitor who pushed open the creaking door": 569,
+      "in Street for over fifty years. Its weathered wooden shelves held countl": 570,
+      "old bookstore stood at the corner of Main Street for over fifty years. Its weathered wooden shelves held countl": 571,
+      "ess stories, each book a portal to different worlds. The smell of aged paper and leather bindings greeted every visitor who pushed open the creaking door": 572,
+      "old bookstore stood at the corner of Main Street for over fifty years. Its weathered wooden shelves held countless stories, each book a portal to different worlds. The smell of aged paper and leather bindings greeted every visitor who pushed open the creaking door": 573,
+      " f": 574,
+      " the ": 575,
+      " in ": 576,
+      " cell": 577,
+      "47": 578,
+      "Scienti": 579,
+      "aci": 580,
+      "ail": 581,
+      "ce ": 582,
+      "cur": 583,
+      "ced a": 584,
+      "eves ": 585,
+      "hn": 586,
+      "ket": 587,
+      "lity": 588,
+      "nou": 589,
+      "near": 590,
+      "ntl": 591,
+      "nced a": 592,
+      "tec": 593,
+      "vol": 594,
+      "vail": 595,
+      "renew": 596,
+      "rentl": 597,
+      "s cur": 598,
+      "on the ": 599,
+      "t the ": 600,
+      "ar p": 601,
+      "al p": 602,
+      " annou": 603,
+      "el de": 604,
+      "anel de": 605,
+      "the per": 606,
+      "tional p": 607,
+      "toda": 608,
+      "ing the per": 609,
+      " break": 610,
+      "oubl": 611,
+      "olar p": 612,
+      "earch": 613,
+      " solar p": 614,
+      " achi": 615,
+      ", near": 616,
+      "research": 617,
+      "conven": 618,
+      "of conven": 619,
+      "ic cell": 620,
+      "sign achi": 621,
+      "sts at the ": 622,
+      "able energy ": 623,
+      "able on the ": 624,
+      "new solar p": 625,
+      "mance ": 626,
+      "ology toda": 627,
+      "hotovol": 628,
+      "through in ": 629,
+      "% efficiency": 630,
+      "formance ": 631,
+      "market": 632,
+      "taic cell": 633,
+      "y avail": 634,
+      "ly doubl": 635,
+      "y. The new solar p": 636,
+      "This study examines the correlation between urban green spaces and mental health outcomes in metropolitan areas. Data collected from 2,500 participants across twelve cities suggests a statistically significant positive relationship between park accessibility and reported well-being scores.": 637,
+      " faci": 638,
+      "47% efficiency": 639,
+      "Scientists at the ": 640,
+      "eves 47% efficiency": 641,
+      "hnology toda": 642,
+      "lity annou": 643,
+      "nced a break": 644,
+      "technology toda": 645,
+      "renewable energy ": 646,
+      "rently avail": 647,
+      "s currently avail": 648,
+      "anel design achi": 649,
+      "tional photovol": 650,
+      "ing the performance ": 651,
+      ", nearly doubl": 652,
+      "research faci": 653,
+      "of conventional photovol": 654,
+      "able on the market": 655,
+      "through in renewable energy ": 656,
+      "taic cells currently avail": 657,
+      "y. The new solar panel design achi": 658,
+      "Scientists at the research faci": 659,
+      "eves 47% efficiency, nearly doubl": 660,
+      "lity announced a break": 661,
+      "technology today. The new solar panel design achi": 662,
+      "ing the performance of conventional photovol": 663,
+      "through in renewable energy technology today. The new solar panel design achi": 664,
+      "taic cells currently available on the market": 665,
+      "Scientists at the research facility announced a break": 666,
+      "eves 47% efficiency, nearly doubling the performance of conventional photovol": 667,
+      "through in renewable energy technology today. The new solar panel design achieves 47% efficiency, nearly doubling the performance of conventional photovol": 668,
+      "Scientists at the research facility announced a breakthrough in renewable energy technology today. The new solar panel design achieves 47% efficiency, nearly doubling the performance of conventional photovol": 669,
+      "Scientists at the research facility announced a breakthrough in renewable energy technology today. The new solar panel design achieves 47% efficiency, nearly doubling the performance of conventional photovoltaic cells currently available on the market": 670,
+      "s.": 671,
+      "The old bookstore stood at the corner of Main Street for over fifty years. Its weathered wooden shelves held countless stories, each book a portal to different worlds. The smell of aged paper and leather bindings greeted every visitor who pushed open the creaking door": 672,
+      "Scientists at the research facility announced a breakthrough in renewable energy technology today. The new solar panel design achieves 47% efficiency, nearly doubling the performance of conventional photovoltaic cells currently available on the market.": 673,
+      " tre": 674,
+      "% s": 675,
+      "78": 676,
+      "Chlorop": 677,
+      "Si": 678,
+      "Un": 679,
+      "as": 680,
+      "at ": 681,
+      "asu": 682,
+      "asts a": 683,
+      "age": 684,
+      "bs": 685,
+      "b s": 686,
+      "cas": 687,
+      "de ": 688,
+      "der": 689,
+      "ding ": 690,
+      "em": 691,
+      "easu": 692,
+      "fec": 693,
+      "fun": 694,
+      "gl": 695,
+      "ies ": 696,
+      "ial ": 697,
+      "jor": 698,
+      "l. P": 699,
+      "lasts a": 700,
+      "mp": 701,
+      "mal": 702,
+      "mat": 703,
+      "mini": 704,
+      "nthe": 705,
+      "ox": 706,
+      "photo": 707,
+      "rat": 708,
+      "ric": 709,
+      "rst ": 710,
+      "sing ": 711,
+      "t, ": 712,
+      "uco": 713,
+      "wer": 714,
+      "ygen": 715,
+      " a com": 716,
+      "into ": 717,
+      "inical ": 718,
+      "e mini": 719,
+      "red ": 720,
+      "reac": 721,
+      "reduc": 722,
+      "s th": 723,
+      "s is ": 724,
+      "timat": 725,
+      "th. ": 726,
+      "thin the ": 727,
+      "t pro": 728,
+      "t energy ": 729,
+      "t ligh": 730,
+      "orb s": 731,
+      "eries ": 732,
+      "y of ": 733,
+      "ed pro": 734,
+      "stan": 735,
+      "strat": 736,
+      "the pro": 737,
+      "the new": 738,
+      "tions. ": 739,
+      "col. P": 740,
+      "tom ": 741,
+      "to bi": 742,
+      "tocol. P": 743,
+      "es improv": 744,
+      "es gl": 745,
+      "sis is ": 746,
+      "first ": 747,
+      " and man": 748,
+      "atmen": 749,
+      "ity of ": 750,
+      "olec": 751,
+      "ation. P": 752,
+      " series ": 753,
+      "ules in ": 754,
+      "ultimat": 755,
+      "educ": 756,
+      "ed across a": 757,
+      "produc": 758,
+      "vert ligh": 759,
+      "ts con": 760,
+      "ts for ": 761,
+      "ts wer": 762,
+      "howing ": 763,
+      "of reac": 764,
+      "the chlorop": 765,
+      "unligh": 766,
+      "demon": 767,
+      "atient ": 768,
+      "able in the ": 769,
+      "within the ": 770,
+      "major": 771,
+      "cess th": 772,
+      "energy through": 773,
+      "chem": 774,
+      "effec": 775,
+      "symp": 776,
+      "synthe": 777,
+      "ating the pro": 778,
+      "metric": 779,
+      "outcomes improv": 780,
+      "mental to bi": 781,
+      "significant symp": 782,
+      "results for ": 783,
+      "damental to bi": 784,
+      "ology educ": 785,
+      "month. ": 786,
+      "ll measu": 787,
+      "ll molec": 788,
+      "ical energy through": 789,
+      "clinical ": 790,
+      "hyll molec": 791,
+      "lants con": 792,
+      "mising ": 793,
+      "se and ox": 794,
+      "trial ": 795,
+      "ely produc": 796,
+      "tion within the ": 797,
+      "initiating the pro": 798,
+      "plex series ": 799,
+      "s, with 78": 800,
+      " treatmen": 801,
+      "% showing ": 802,
+      "Chlorophyll molec": 803,
+      "Side ": 804,
+      "Under": 805,
+      "at ultimat": 806,
+      "ageable in the ": 807,
+      "bsorb s": 808,
+      "cases": 809,
+      "ding photo": 810,
+      "fundamental to bi": 811,
+      "lasts absorb s": 812,
+      "mal and man": 813,
+      "t, initiating the pro": 814,
+      "ucose and ox": 815,
+      "ygen.": 816,
+      " a complex series ": 817,
+      "into chem": 818,
+      "e minimal and man": 819,
+      "red metric": 820,
+      "reduction within the ": 821,
+      "t protocol. P": 822,
+      "t energy into chem": 823,
+      "ed promising ": 824,
+      "standing photo": 825,
+      "strated promising ": 826,
+      "the new treatmen": 827,
+      "tions. Chlorophyll molec": 828,
+      "tom reduction within the ": 829,
+      "es glucose and ox": 830,
+      "sis is fundamental to bi": 831,
+      "first month. ": 832,
+      "ity of cases": 833,
+      "ation. Plants con": 834,
+      "ules in the chlorop": 835,
+      "ed across all measu": 836,
+      "vert light energy into chem": 837,
+      "ts were minimal and man": 838,
+      "of reactions. Chlorophyll molec": 839,
+      "unlight, initiating the pro": 840,
+      "demonstrated promising ": 841,
+      "atient outcomes improv": 842,
+      "majority of cases": 843,
+      "cess that ultimat": 844,
+      "effects were minimal and man": 845,
+      "synthesis is fundamental to bi": 846,
+      "significant symptom reduction within the ": 847,
+      "results for the new treatmen": 848,
+      "ology education. Plants con": 849,
+      "ical energy through a complex series ": 850,
+      "clinical trial ": 851,
+      "ely produces glucose and ox": 852,
+      "s, with 78% showing ": 853,
+      "Side effects were minimal and man": 854,
+      "Understanding photo": 855,
+      "ageable in the majority of cases": 856,
+      "lasts absorb sunlight, initiating the pro": 857,
+      "red metrics, with 78% showing ": 858,
+      "t protocol. Patient outcomes improv": 859,
+      "first month. Side effects were minimal and man": 860,
+      "ules in the chloroplasts absorb sunlight, initiating the pro": 861,
+      "ed across all measured metrics, with 78% showing ": 862,
+      "vert light energy into chemical energy through a complex series ": 863,
+      "of reactions. Chlorophyll molecules in the chloroplasts absorb sunlight, initiating the pro": 864,
+      "demonstrated promising results for the new treatmen": 865,
+      "cess that ultimately produces glucose and ox": 866,
+      "synthesis is fundamental to biology education. Plants con": 867,
+      "significant symptom reduction within the first month. Side effects were minimal and man": 868,
+      "clinical trial demonstrated promising results for the new treatmen": 869,
+      "Understanding photosynthesis is fundamental to biology education. Plants con": 870,
+      "t protocol. Patient outcomes improved across all measured metrics, with 78% showing ": 871,
+      "vert light energy into chemical energy through a complex series of reactions. Chlorophyll molecules in the chloroplasts absorb sunlight, initiating the pro": 872,
+      "cess that ultimately produces glucose and oxygen.": 873,
+      "significant symptom reduction within the first month. Side effects were minimal and manageable in the majority of cases": 874,
+      "clinical trial demonstrated promising results for the new treatment protocol. Patient outcomes improved across all measured metrics, with 78% showing ": 875,
+      "Understanding photosynthesis is fundamental to biology education. Plants convert light energy into chemical energy through a complex series of reactions. Chlorophyll molecules in the chloroplasts absorb sunlight, initiating the pro": 876,
+      "clinical trial demonstrated promising results for the new treatment protocol. Patient outcomes improved across all measured metrics, with 78% showing significant symptom reduction within the first month. Side effects were minimal and manageable in the majority of cases": 877,
+      "Understanding photosynthesis is fundamental to biology education. Plants convert light energy into chemical energy through a complex series of reactions. Chlorophyll molecules in the chloroplasts absorb sunlight, initiating the process that ultimately produces glucose and oxygen.": 878,
+      " $": 879,
+      " ex": 880,
+      " The ": 881,
+      " to ": 882,
+      " initi": 883,
+      "! The ": 884,
+      "'r": 885,
+      "(b": 886,
+      ", and ": 887,
+      "-year": 888,
+      "-over": 889,
+      ".8": 890,
+      "12": 891,
+      "23": 892,
+      "4.8": 893,
+      "An": 894,
+      "A. ": 895,
+      "Ex": 896,
+      "High": 897,
+      "Just ": 898,
+      "Oper": 899,
+      "Py": 900,
+      "Sec": 901,
+      "ag": 902,
+      "ain": 903,
+      "ay ": 904,
+      "bm": 905,
+      "br": 906,
+      "by": 907,
+      "be ": 908,
+      "b de": 909,
+      "by a": 910,
+      "bit ": 911,
+      "cs ": 912,
+      "ced ": 913,
+      "crea": 914,
+      "cho": 915,
+      "d a": 916,
+      "dific": 917,
+      "data": 918,
+      "dely ": 919,
+      "e. ": 920,
+      "eco": 921,
+      "em ": 922,
+      "ement": 923,
+      "egin": 924,
+      "fo": 925,
+      "fini": 926,
+      "gr": 927,
+      "gu": 928,
+      "gro": 929,
+      "here": 930,
+      "iz": 931,
+      "ien": 932,
+      "ion": 933,
+      "iver": 934,
+      "igen": 935,
+      "ibr": 936,
+      "kn": 937,
+      "king ": 938,
+      "lac": 939,
+      "led": 940,
+      "learning": 941,
+      "libr": 942,
+      "mo": 943,
+      "ming ": 944,
+      "ms and ": 945,
+      "must ": 946,
+      "nta": 947,
+      "ow": 948,
+      "oth": 949,
+      "pu": 950,
+      "pec": 951,
+      "pts ": 952,
+      "pprov": 953,
+      "qu": 954,
+      "rti": 955,
+      "r p": 956,
+      "rit": 957,
+      "sed ": 958,
+      "sent ": 959,
+      "spac": 960,
+      "shed ": 961,
+      "scienti": 962,
+      "s, a": 963,
+      "ten": 964,
+      "ting": 965,
+      "tation": 966,
+      "tati": 967,
+      "ves and ": 968,
+      "way ": 969,
+      "writ": 970,
+      "x and ": 971,
+      "yon": 972,
+      "you": 973,
+      "ynta": 974,
+      "zing ": 975,
+      "zation": 976,
+      " ast": 977,
+      " ama": 978,
+      "iness ": 979,
+      "ined in ": 980,
+      "increa": 981,
+      "e in ": 982,
+      "e it": 983,
+      "e is ": 984,
+      "e int": 985,
+      "e for": 986,
+      "e expl": 987,
+      "remen": 988,
+      "recom": 989,
+      "reach": 990,
+      "reven": 991,
+      "s ou": 992,
+      "s to ": 993,
+      "s com": 994,
+      "s repor": 995,
+      "s improv": 996,
+      "d ch": 997,
+      "tit": 998,
+      "timi": 999
+    },
+    "merges": [
+      [
+        " ",
+        "a"
+      ],
+      [
+        "i",
+        "n"
+      ],
+      [
+        "e",
+        " "
+      ],
+      [
+        "r",
+        "e"
+      ],
+      [
+        "s",
+        " "
+      ],
+      [
+        "d",
+        " "
+      ],
+      [
+        "t",
+        "i"
+      ],
+      [
+        "t",
+        "h"
+      ],
+      [
+        "e",
+        "n"
+      ],
+      [
+        "o",
+        "n"
+      ],
+      [
+        "t",
+        " "
+      ],
+      [
+        "o",
+        "r"
+      ],
+      [
+        "e",
+        "r"
+      ],
+      [
+        "y",
+        " "
+      ],
+      [
+        "in",
+        "g"
+      ],
+      [
+        "r",
+        "o"
+      ],
+      [
+        "a",
+        "r"
+      ],
+      [
+        "a",
+        "l"
+      ],
+      [
+        " a",
+        "n"
+      ],
+      [
+        "e",
+        "d "
+      ],
+      [
+        "s",
+        "t"
+      ],
+      [
+        "e",
+        "l"
+      ],
+      [
+        ".",
+        " "
+      ],
+      [
+        "a",
+        "n"
+      ],
+      [
+        "th",
+        "e "
+      ],
+      [
+        "ti",
+        "on"
+      ],
+      [
+        "c",
+        "i"
+      ],
+      [
+        "c",
+        "o"
+      ],
+      [
+        "t",
+        "o"
+      ],
+      [
+        "e",
+        "s "
+      ],
+      [
+        "s",
+        "i"
+      ],
+      [
+        "f",
+        "i"
+      ],
+      [
+        "ing",
+        " "
+      ],
+      [
+        " an",
+        "d "
+      ],
+      [
+        " ",
+        "p"
+      ],
+      [
+        "a",
+        "c"
+      ],
+      [
+        " ",
+        "b"
+      ],
+      [
+        "a",
+        "t"
+      ],
+      [
+        "in",
+        " "
+      ],
+      [
+        "i",
+        "t"
+      ],
+      [
+        "e",
+        "s"
+      ],
+      [
+        "o",
+        "u"
+      ],
+      [
+        "e",
+        "x"
+      ],
+      [
+        " ",
+        " "
+      ],
+      [
+        "T",
+        "h"
+      ],
+      [
+        "o",
+        "l"
+      ],
+      [
+        "e",
+        "ar"
+      ],
+      [
+        "al",
+        " "
+      ],
+      [
+        "a",
+        "tion"
+      ],
+      [
+        "e",
+        "t"
+      ],
+      [
+        " ",
+        "s"
+      ],
+      [
+        " a",
+        "c"
+      ],
+      [
+        "f",
+        " "
+      ],
+      [
+        "Th",
+        "e "
+      ],
+      [
+        "to",
+        " "
+      ],
+      [
+        "e",
+        "c"
+      ],
+      [
+        "u",
+        "l"
+      ],
+      [
+        "m",
+        "en"
+      ],
+      [
+        "o",
+        "p"
+      ],
+      [
+        "e",
+        "d"
+      ],
+      [
+        "o",
+        "o"
+      ],
+      [
+        "p",
+        "ro"
+      ],
+      [
+        ",",
+        " "
+      ],
+      [
+        "v",
+        "er"
+      ],
+      [
+        "re",
+        "s"
+      ],
+      [
+        "l",
+        "l"
+      ],
+      [
+        "t",
+        "s "
+      ],
+      [
+        "re",
+        "a"
+      ],
+      [
+        "el",
+        "l"
+      ],
+      [
+        "co",
+        "m"
+      ],
+      [
+        "b",
+        "l"
+      ],
+      [
+        "s",
+        ". "
+      ],
+      [
+        "c",
+        "on"
+      ],
+      [
+        "s",
+        " a"
+      ],
+      [
+        "g",
+        "y "
+      ],
+      [
+        "h",
+        "o"
+      ],
+      [
+        "o",
+        "f "
+      ],
+      [
+        "or",
+        " "
+      ],
+      [
+        "l",
+        "y "
+      ],
+      [
+        "w",
+        "e"
+      ],
+      [
+        "the ",
+        "c"
+      ],
+      [
+        "u",
+        "r"
+      ],
+      [
+        "g",
+        "h"
+      ],
+      [
+        "i",
+        "c"
+      ],
+      [
+        "u",
+        "n"
+      ],
+      [
+        "fi",
+        "c"
+      ],
+      [
+        "u",
+        "s"
+      ],
+      [
+        "d",
+        "e"
+      ],
+      [
+        " p",
+        "ar"
+      ],
+      [
+        "g",
+        "n"
+      ],
+      [
+        "si",
+        "gn"
+      ],
+      [
+        "e",
+        "re"
+      ],
+      [
+        "p",
+        "er"
+      ],
+      [
+        "bl",
+        "e "
+      ],
+      [
+        "ci",
+        "en"
+      ],
+      [
+        "c",
+        "al"
+      ],
+      [
+        "a",
+        "ti"
+      ],
+      [
+        "i",
+        "s "
+      ],
+      [
+        "i",
+        "fic"
+      ],
+      [
+        "m",
+        " "
+      ],
+      [
+        "s",
+        "u"
+      ],
+      [
+        "men",
+        "t"
+      ],
+      [
+        "t",
+        "ed "
+      ],
+      [
+        "v",
+        "e "
+      ],
+      [
+        "in",
+        "t"
+      ],
+      [
+        "g",
+        "re"
+      ],
+      [
+        "st",
+        "s a"
+      ],
+      [
+        "h",
+        "i"
+      ],
+      [
+        "oo",
+        "k"
+      ],
+      [
+        "a",
+        "ble "
+      ],
+      [
+        "e",
+        "w"
+      ],
+      [
+        "n",
+        "ew"
+      ],
+      [
+        "t",
+        "l"
+      ],
+      [
+        "v",
+        "es "
+      ],
+      [
+        "w",
+        "i"
+      ],
+      [
+        "in",
+        "i"
+      ],
+      [
+        "b",
+        "on"
+      ],
+      [
+        "m",
+        "a"
+      ],
+      [
+        "p",
+        "l"
+      ],
+      [
+        "ci",
+        "("
+      ],
+      [
+        "ac",
+        "ci("
+      ],
+      [
+        "  ",
+        "  "
+      ],
+      [
+        "bon",
+        "acci("
+      ],
+      [
+        ")",
+        " "
+      ],
+      [
+        "c",
+        "es"
+      ],
+      [
+        "g",
+        "e"
+      ],
+      [
+        "th",
+        " "
+      ],
+      [
+        "ro",
+        "s"
+      ],
+      [
+        "an",
+        "t "
+      ],
+      [
+        " ac",
+        "ros"
+      ],
+      [
+        "sign",
+        "ific"
+      ],
+      [
+        "f",
+        "or "
+      ],
+      [
+        "re",
+        "p"
+      ],
+      [
+        "en",
+        "er"
+      ],
+      [
+        " par",
+        "ti"
+      ],
+      [
+        "ener",
+        "gy "
+      ],
+      [
+        "c",
+        "h"
+      ],
+      [
+        "e",
+        "f"
+      ],
+      [
+        "y",
+        "ear"
+      ],
+      [
+        "ac",
+        "h"
+      ],
+      [
+        "l",
+        "ation"
+      ],
+      [
+        "re",
+        "lation"
+      ],
+      [
+        " b",
+        "et"
+      ],
+      [
+        "we",
+        "en"
+      ],
+      [
+        " bet",
+        "ween"
+      ],
+      [
+        "en",
+        " s"
+      ],
+      [
+        "the c",
+        "or"
+      ],
+      [
+        "_",
+        "fi"
+      ],
+      [
+        "a",
+        "th"
+      ],
+      [
+        "c",
+        "ul"
+      ],
+      [
+        "e",
+        "_fi"
+      ],
+      [
+        "h",
+        "el"
+      ],
+      [
+        "i",
+        "l"
+      ],
+      [
+        "u",
+        "c"
+      ],
+      [
+        "st",
+        "or"
+      ],
+      [
+        "at",
+        "e_fi"
+      ],
+      [
+        "it",
+        "y"
+      ],
+      [
+        "oo",
+        "d"
+      ],
+      [
+        "cal",
+        "cul"
+      ],
+      [
+        "ate_fi",
+        "bonacci("
+      ],
+      [
+        "calcul",
+        "ate_fibonacci("
+      ],
+      [
+        "i",
+        "gh"
+      ],
+      [
+        "s",
+        "y"
+      ],
+      [
+        "rea",
+        "k"
+      ],
+      [
+        "s",
+        "t "
+      ],
+      [
+        "th",
+        "e"
+      ],
+      [
+        "en",
+        "t "
+      ],
+      [
+        "at",
+        "ing "
+      ],
+      [
+        "pro",
+        "v"
+      ],
+      [
+        "c",
+        "e"
+      ],
+      [
+        "ou",
+        "t "
+      ],
+      [
+        "m",
+        "et"
+      ],
+      [
+        "t",
+        "com"
+      ],
+      [
+        "es ",
+        "in "
+      ],
+      [
+        "ou",
+        "tcom"
+      ],
+      [
+        "ment",
+        "al "
+      ],
+      [
+        "signific",
+        "ant "
+      ],
+      [
+        "a",
+        "m"
+      ],
+      [
+        "f",
+        "ro"
+      ],
+      [
+        "p",
+        "ac"
+      ],
+      [
+        "t",
+        "re"
+      ],
+      [
+        "ro",
+        "p"
+      ],
+      [
+        "an",
+        "t"
+      ],
+      [
+        "ci",
+        "p"
+      ],
+      [
+        "at",
+        "a"
+      ],
+      [
+        "es",
+        " and "
+      ],
+      [
+        " ac",
+        "ces"
+      ],
+      [
+        "res",
+        "ul"
+      ],
+      [
+        "rep",
+        "or"
+      ],
+      [
+        " parti",
+        "cip"
+      ],
+      [
+        "fro",
+        "m "
+      ],
+      [
+        " acces",
+        "si"
+      ],
+      [
+        "I",
+        "ts "
+      ],
+      [
+        "b",
+        "ook"
+      ],
+      [
+        "d",
+        "a"
+      ],
+      [
+        "d",
+        "i"
+      ],
+      [
+        "d",
+        "ing"
+      ],
+      [
+        "e",
+        "ver"
+      ],
+      [
+        "e",
+        "ach"
+      ],
+      [
+        "h",
+        "ed "
+      ],
+      [
+        "m",
+        "an"
+      ],
+      [
+        "n",
+        "er"
+      ],
+      [
+        "o",
+        "ver"
+      ],
+      [
+        "o",
+        "gy "
+      ],
+      [
+        "u",
+        "gh"
+      ],
+      [
+        "th",
+        "ro"
+      ],
+      [
+        "es",
+        "s "
+      ],
+      [
+        "ol",
+        "ogy "
+      ],
+      [
+        "ho",
+        "to"
+      ],
+      [
+        "thro",
+        "ugh"
+      ],
+      [
+        " ",
+        "de"
+      ],
+      [
+        "%",
+        " "
+      ],
+      [
+        "c",
+        "y"
+      ],
+      [
+        "c",
+        "ell"
+      ],
+      [
+        "f",
+        "or"
+      ],
+      [
+        "m",
+        "ar"
+      ],
+      [
+        "t",
+        "a"
+      ],
+      [
+        "v",
+        "en"
+      ],
+      [
+        "y",
+        " a"
+      ],
+      [
+        "fi",
+        "cien"
+      ],
+      [
+        "ed",
+        " a"
+      ],
+      [
+        "ly ",
+        "d"
+      ],
+      [
+        "cien",
+        "ti"
+      ],
+      [
+        "ef",
+        "ficien"
+      ],
+      [
+        "efficien",
+        "cy"
+      ],
+      [
+        "\n",
+        "    "
+      ],
+      [
+        " ",
+        "calculate_fibonacci("
+      ],
+      [
+        ". ",
+        "P"
+      ],
+      [
+        " ",
+        "m"
+      ],
+      [
+        "d",
+        "uc"
+      ],
+      [
+        "h",
+        "l"
+      ],
+      [
+        "l",
+        "igh"
+      ],
+      [
+        "m",
+        "on"
+      ],
+      [
+        "or",
+        "op"
+      ],
+      [
+        ". ",
+        "The "
+      ],
+      [
+        "in ",
+        "the "
+      ],
+      [
+        "ll",
+        " m"
+      ],
+      [
+        "ic",
+        "al "
+      ],
+      [
+        "hl",
+        "orop"
+      ],
+      [
+        " ",
+        "com"
+      ],
+      [
+        "c",
+        "l"
+      ],
+      [
+        "e",
+        " and "
+      ],
+      [
+        "g",
+        "en"
+      ],
+      [
+        "h",
+        "y"
+      ],
+      [
+        "i",
+        "m"
+      ],
+      [
+        "l",
+        "an"
+      ],
+      [
+        "m",
+        "i"
+      ],
+      [
+        "s",
+        ", "
+      ],
+      [
+        "s",
+        "e and "
+      ],
+      [
+        "t",
+        "r"
+      ],
+      [
+        "w",
+        "ing "
+      ],
+      [
+        "el",
+        "y "
+      ],
+      [
+        "tion",
+        " "
+      ],
+      [
+        " b",
+        "i"
+      ],
+      [
+        "wi",
+        "th "
+      ],
+      [
+        "ini",
+        "ti"
+      ],
+      [
+        "pl",
+        "ex"
+      ],
+      [
+        " acros",
+        "s a"
+      ],
+      [
+        "im",
+        "prov"
+      ],
+      [
+        "s, ",
+        "with "
+      ],
+      [
+        ",",
+        " a"
+      ],
+      [
+        "b",
+        "out "
+      ],
+      [
+        "g",
+        "in"
+      ],
+      [
+        "i",
+        "t "
+      ],
+      [
+        "n",
+        "ing"
+      ],
+      [
+        "s",
+        " and "
+      ],
+      [
+        "t",
+        "er"
+      ],
+      [
+        "u",
+        "e "
+      ],
+      [
+        "u",
+        "th"
+      ],
+      [
+        "v",
+        "el"
+      ],
+      [
+        " a",
+        "bout "
+      ],
+      [
+        "al",
+        "y"
+      ],
+      [
+        " an",
+        "aly"
+      ],
+      [
+        "ed ",
+        "in "
+      ],
+      [
+        "ex",
+        "pl"
+      ],
+      [
+        "ear",
+        "ning"
+      ],
+      [
+        "op",
+        "er"
+      ],
+      [
+        "us",
+        "t "
+      ],
+      [
+        "ma",
+        "k"
+      ],
+      [
+        "the",
+        " a"
+      ],
+      [
+        "s. ",
+        "The "
+      ],
+      [
+        "i",
+        "f "
+      ],
+      [
+        " ",
+        "st"
+      ],
+      [
+        " ",
+        "co"
+      ],
+      [
+        " ",
+        "ur"
+      ],
+      [
+        " ",
+        "gre"
+      ],
+      [
+        ",",
+        "5"
+      ],
+      [
+        "-",
+        "b"
+      ],
+      [
+        "0",
+        "0"
+      ],
+      [
+        "2",
+        ",5"
+      ],
+      [
+        "D",
+        "ata"
+      ],
+      [
+        "b",
+        "an"
+      ],
+      [
+        "b",
+        "il"
+      ],
+      [
+        "d",
+        "y "
+      ],
+      [
+        "e",
+        "al"
+      ],
+      [
+        "e",
+        "ing "
+      ],
+      [
+        "g",
+        "ge"
+      ],
+      [
+        "h",
+        "eal"
+      ],
+      [
+        "k",
+        " accessi"
+      ],
+      [
+        "o",
+        "si"
+      ],
+      [
+        "p",
+        " between"
+      ],
+      [
+        "p",
+        "osi"
+      ],
+      [
+        "s",
+        "ti"
+      ],
+      [
+        "s",
+        "co"
+      ],
+      [
+        "s",
+        "hi"
+      ],
+      [
+        "s",
+        " acros"
+      ],
+      [
+        "t",
+        "w"
+      ],
+      [
+        "u",
+        "dy "
+      ],
+      [
+        "w",
+        "ell"
+      ],
+      [
+        "y",
+        ". The "
+      ],
+      [
+        " a",
+        "rea"
+      ],
+      [
+        "in",
+        "es "
+      ],
+      [
+        "s ",
+        "tw"
+      ],
+      [
+        "ti",
+        "es "
+      ],
+      [
+        "ti",
+        "ve "
+      ],
+      [
+        "st",
+        "udy "
+      ],
+      [
+        "el",
+        "ve "
+      ],
+      [
+        "an",
+        " area"
+      ],
+      [
+        "ci",
+        "ties "
+      ],
+      [
+        " and ",
+        "repor"
+      ],
+      [
+        "it",
+        "an area"
+      ],
+      [
+        "ex",
+        "am"
+      ],
+      [
+        "Th",
+        "is "
+      ],
+      [
+        "ol",
+        "itan area"
+      ],
+      [
+        "ec",
+        "ted "
+      ],
+      [
+        "ll",
+        "ected "
+      ],
+      [
+        "s. ",
+        "Data"
+      ],
+      [
+        "ly ",
+        "significant "
+      ],
+      [
+        " par",
+        "k accessi"
+      ],
+      [
+        "cal",
+        "ly significant "
+      ],
+      [
+        "ati",
+        "sti"
+      ],
+      [
+        "su",
+        "gge"
+      ],
+      [
+        "ted ",
+        "well"
+      ],
+      [
+        "sts a",
+        " st"
+      ],
+      [
+        "th ",
+        "outcom"
+      ],
+      [
+        "relation",
+        " between"
+      ],
+      [
+        "relation",
+        "shi"
+      ],
+      [
+        "en s",
+        "pac"
+      ],
+      [
+        "the cor",
+        "relation between"
+      ],
+      [
+        "ity",
+        " and repor"
+      ],
+      [
+        "met",
+        "rop"
+      ],
+      [
+        "es in ",
+        "metrop"
+      ],
+      [
+        "mental ",
+        "heal"
+      ],
+      [
+        "ant",
+        "s acros"
+      ],
+      [
+        "es and ",
+        "mental heal"
+      ],
+      [
+        " particip",
+        "ants acros"
+      ],
+      [
+        "from ",
+        "2,5"
+      ],
+      [
+        " co",
+        "llected "
+      ],
+      [
+        " ur",
+        "ban"
+      ],
+      [
+        " gre",
+        "en spac"
+      ],
+      [
+        "-b",
+        "eing "
+      ],
+      [
+        "00",
+        " participants acros"
+      ],
+      [
+        "bil",
+        "ity and repor"
+      ],
+      [
+        "p between",
+        " park accessi"
+      ],
+      [
+        "posi",
+        "tive "
+      ],
+      [
+        "sco",
+        "res"
+      ],
+      [
+        "ines ",
+        "the correlation between"
+      ],
+      [
+        "s tw",
+        "elve "
+      ],
+      [
+        "study ",
+        "exam"
+      ],
+      [
+        "cities ",
+        "sugge"
+      ],
+      [
+        "This ",
+        "study exam"
+      ],
+      [
+        "olitan area",
+        "s. Data"
+      ],
+      [
+        "cally significant ",
+        "positive "
+      ],
+      [
+        "atisti",
+        "cally significant positive "
+      ],
+      [
+        "ted well",
+        "-being "
+      ],
+      [
+        "sts a st",
+        "atistically significant positive "
+      ],
+      [
+        "th outcom",
+        "es in metrop"
+      ],
+      [
+        "relationshi",
+        "p between park accessi"
+      ],
+      [
+        "es and mental heal",
+        "th outcomes in metrop"
+      ],
+      [
+        "from 2,5",
+        "00 participants acros"
+      ],
+      [
+        " collected ",
+        "from 2,500 participants acros"
+      ],
+      [
+        " urban",
+        " green spac"
+      ],
+      [
+        "bility and repor",
+        "ted well-being "
+      ],
+      [
+        "ines the correlation between",
+        " urban green spac"
+      ],
+      [
+        "s twelve ",
+        "cities sugge"
+      ],
+      [
+        "This study exam",
+        "ines the correlation between urban green spac"
+      ],
+      [
+        "olitan areas. Data",
+        " collected from 2,500 participants acros"
+      ],
+      [
+        "sts a statistically significant positive ",
+        "relationship between park accessi"
+      ],
+      [
+        "es and mental health outcomes in metrop",
+        "olitan areas. Data collected from 2,500 participants acros"
+      ],
+      [
+        "bility and reported well-being ",
+        "scores"
+      ],
+      [
+        "s twelve cities sugge",
+        "sts a statistically significant positive relationship between park accessi"
+      ],
+      [
+        "This study examines the correlation between urban green spac",
+        "es and mental health outcomes in metropolitan areas. Data collected from 2,500 participants acros"
+      ],
+      [
+        "s twelve cities suggests a statistically significant positive relationship between park accessi",
+        "bility and reported well-being scores"
+      ],
+      [
+        "This study examines the correlation between urban green spaces and mental health outcomes in metropolitan areas. Data collected from 2,500 participants acros",
+        "s twelve cities suggests a statistically significant positive relationship between park accessibility and reported well-being scores"
+      ],
+      [
+        " ",
+        "o"
+      ],
+      [
+        " ",
+        "fi"
+      ],
+      [
+        " ",
+        "of "
+      ],
+      [
+        " ",
+        "the c"
+      ],
+      [
+        " ",
+        "int"
+      ],
+      [
+        ")",
+        "\n"
+      ],
+      [
+        "1",
+        "0"
+      ],
+      [
+        ":",
+        "\n    "
+      ],
+      [
+        "=",
+        " "
+      ],
+      [
+        "M",
+        "a"
+      ],
+      [
+        "S",
+        "tre"
+      ],
+      [
+        "a",
+        "per"
+      ],
+      [
+        "d",
+        "o"
+      ],
+      [
+        "d",
+        "s. The "
+      ],
+      [
+        "e",
+        "t "
+      ],
+      [
+        "e",
+        "ath"
+      ],
+      [
+        "f",
+        "f"
+      ],
+      [
+        "f",
+        "t"
+      ],
+      [
+        "f",
+        " a"
+      ],
+      [
+        "g",
+        "ed "
+      ],
+      [
+        "i",
+        "si"
+      ],
+      [
+        "i",
+        "es"
+      ],
+      [
+        "l",
+        "ds. The "
+      ],
+      [
+        "l",
+        "eath"
+      ],
+      [
+        "m",
+        "ell"
+      ],
+      [
+        "n",
+        " "
+      ],
+      [
+        "n",
+        "-"
+      ],
+      [
+        "n",
+        "t "
+      ],
+      [
+        "p",
+        "aper"
+      ],
+      [
+        "s",
+        "mell"
+      ],
+      [
+        "t",
+        "al "
+      ],
+      [
+        "t",
+        "or "
+      ],
+      [
+        "t",
+        "ur"
+      ],
+      [
+        "v",
+        "isi"
+      ],
+      [
+        "w",
+        "or"
+      ],
+      [
+        "w",
+        "ho"
+      ],
+      [
+        "w",
+        "ood"
+      ],
+      [
+        " a",
+        "t "
+      ],
+      [
+        " a",
+        " p"
+      ],
+      [
+        "in",
+        "ding"
+      ],
+      [
+        "e ",
+        "st"
+      ],
+      [
+        "re",
+        "tur"
+      ],
+      [
+        "s ",
+        "gre"
+      ],
+      [
+        "d ",
+        "co"
+      ],
+      [
+        "d ",
+        "book"
+      ],
+      [
+        "d ",
+        "wood"
+      ],
+      [
+        "en",
+        " the c"
+      ],
+      [
+        "or",
+        "tal "
+      ],
+      [
+        "er",
+        " b"
+      ],
+      [
+        "y ",
+        "year"
+      ],
+      [
+        "y ",
+        "visi"
+      ],
+      [
+        "ed ",
+        "ever"
+      ],
+      [
+        "ing ",
+        "do"
+      ],
+      [
+        " and ",
+        "leath"
+      ],
+      [
+        " p",
+        "us"
+      ],
+      [
+        " b",
+        "ook"
+      ],
+      [
+        "in ",
+        "Stre"
+      ],
+      [
+        "ol",
+        "d book"
+      ],
+      [
+        "et",
+        "ed ever"
+      ],
+      [
+        "to ",
+        "di"
+      ],
+      [
+        "op",
+        "en the c"
+      ],
+      [
+        ", ",
+        "each"
+      ],
+      [
+        "s. ",
+        "Its "
+      ],
+      [
+        "we",
+        "ath"
+      ],
+      [
+        "un",
+        "tl"
+      ],
+      [
+        "ere",
+        "nt "
+      ],
+      [
+        "ere",
+        "d wood"
+      ],
+      [
+        "ves ",
+        "hel"
+      ],
+      [
+        "for ",
+        "over"
+      ],
+      [
+        "en s",
+        "hel"
+      ],
+      [
+        "the cor",
+        "ner"
+      ],
+      [
+        "stor",
+        "ies"
+      ],
+      [
+        "stor",
+        "e st"
+      ],
+      [
+        "ood",
+        " at "
+      ],
+      [
+        "reak",
+        "ing do"
+      ],
+      [
+        "hed ",
+        "open the c"
+      ],
+      [
+        "ess ",
+        "stories"
+      ],
+      [
+        " calculate_fibonacci(",
+        "n-"
+      ],
+      [
+        " o",
+        "f a"
+      ],
+      [
+        " fi",
+        "ft"
+      ],
+      [
+        " of ",
+        "Ma"
+      ],
+      [
+        "et ",
+        "for over"
+      ],
+      [
+        "ff",
+        "erent "
+      ],
+      [
+        "ged ",
+        "paper"
+      ],
+      [
+        "lds. The ",
+        "smell"
+      ],
+      [
+        "tor ",
+        "who"
+      ],
+      [
+        "wor",
+        "lds. The smell"
+      ],
+      [
+        " a p",
+        "ortal "
+      ],
+      [
+        "inding",
+        "s gre"
+      ],
+      [
+        "d co",
+        "untl"
+      ],
+      [
+        "er b",
+        "indings gre"
+      ],
+      [
+        "y year",
+        "s. Its "
+      ],
+      [
+        "y visi",
+        "tor who"
+      ],
+      [
+        " and leath",
+        "er bindings gre"
+      ],
+      [
+        " pus",
+        "hed open the c"
+      ],
+      [
+        " book",
+        " a portal "
+      ],
+      [
+        "in Stre",
+        "et for over"
+      ],
+      [
+        "old book",
+        "store st"
+      ],
+      [
+        "eted ever",
+        "y visitor who"
+      ],
+      [
+        "to di",
+        "fferent "
+      ],
+      [
+        ", each",
+        " book a portal "
+      ],
+      [
+        "weath",
+        "ered wood"
+      ],
+      [
+        "ves hel",
+        "d countl"
+      ],
+      [
+        "en shel",
+        "ves held countl"
+      ],
+      [
+        "the corner",
+        " of Ma"
+      ],
+      [
+        "ood at ",
+        "the corner of Ma"
+      ],
+      [
+        "reaking do",
+        "or"
+      ],
+      [
+        "ess stories",
+        ", each book a portal "
+      ],
+      [
+        " of a",
+        "ged paper"
+      ],
+      [
+        " fift",
+        "y years. Its "
+      ],
+      [
+        "worlds. The smell",
+        " of aged paper"
+      ],
+      [
+        " and leather bindings gre",
+        "eted every visitor who"
+      ],
+      [
+        " pushed open the c",
+        "reaking door"
+      ],
+      [
+        "in Street for over",
+        " fifty years. Its "
+      ],
+      [
+        "old bookstore st",
+        "ood at the corner of Ma"
+      ],
+      [
+        "to different ",
+        "worlds. The smell of aged paper"
+      ],
+      [
+        "weathered wood",
+        "en shelves held countl"
+      ],
+      [
+        "ess stories, each book a portal ",
+        "to different worlds. The smell of aged paper"
+      ],
+      [
+        " and leather bindings greeted every visitor who",
+        " pushed open the creaking door"
+      ],
+      [
+        "in Street for over fifty years. Its ",
+        "weathered wooden shelves held countl"
+      ],
+      [
+        "old bookstore stood at the corner of Ma",
+        "in Street for over fifty years. Its weathered wooden shelves held countl"
+      ],
+      [
+        "ess stories, each book a portal to different worlds. The smell of aged paper",
+        " and leather bindings greeted every visitor who pushed open the creaking door"
+      ],
+      [
+        "old bookstore stood at the corner of Main Street for over fifty years. Its weathered wooden shelves held countl",
+        "ess stories, each book a portal to different worlds. The smell of aged paper and leather bindings greeted every visitor who pushed open the creaking door"
+      ],
+      [
+        " ",
+        "f"
+      ],
+      [
+        " ",
+        "the "
+      ],
+      [
+        " ",
+        "in "
+      ],
+      [
+        " ",
+        "cell"
+      ],
+      [
+        "4",
+        "7"
+      ],
+      [
+        "S",
+        "cienti"
+      ],
+      [
+        "a",
+        "ci"
+      ],
+      [
+        "a",
+        "il"
+      ],
+      [
+        "c",
+        "e "
+      ],
+      [
+        "c",
+        "ur"
+      ],
+      [
+        "c",
+        "ed a"
+      ],
+      [
+        "e",
+        "ves "
+      ],
+      [
+        "h",
+        "n"
+      ],
+      [
+        "k",
+        "et"
+      ],
+      [
+        "l",
+        "ity"
+      ],
+      [
+        "n",
+        "ou"
+      ],
+      [
+        "n",
+        "ear"
+      ],
+      [
+        "n",
+        "tl"
+      ],
+      [
+        "n",
+        "ced a"
+      ],
+      [
+        "t",
+        "ec"
+      ],
+      [
+        "v",
+        "ol"
+      ],
+      [
+        "v",
+        "ail"
+      ],
+      [
+        "re",
+        "new"
+      ],
+      [
+        "re",
+        "ntl"
+      ],
+      [
+        "s ",
+        "cur"
+      ],
+      [
+        "on",
+        " the "
+      ],
+      [
+        "t ",
+        "the "
+      ],
+      [
+        "ar",
+        " p"
+      ],
+      [
+        "al",
+        " p"
+      ],
+      [
+        " an",
+        "nou"
+      ],
+      [
+        "el",
+        " de"
+      ],
+      [
+        "an",
+        "el de"
+      ],
+      [
+        "the ",
+        "per"
+      ],
+      [
+        "tion",
+        "al p"
+      ],
+      [
+        "to",
+        "da"
+      ],
+      [
+        "ing ",
+        "the per"
+      ],
+      [
+        " b",
+        "reak"
+      ],
+      [
+        "ou",
+        "bl"
+      ],
+      [
+        "ol",
+        "ar p"
+      ],
+      [
+        "ear",
+        "ch"
+      ],
+      [
+        " s",
+        "olar p"
+      ],
+      [
+        " ac",
+        "hi"
+      ],
+      [
+        ", ",
+        "near"
+      ],
+      [
+        "res",
+        "earch"
+      ],
+      [
+        "con",
+        "ven"
+      ],
+      [
+        "of ",
+        "conven"
+      ],
+      [
+        "ic",
+        " cell"
+      ],
+      [
+        "sign",
+        " achi"
+      ],
+      [
+        "sts a",
+        "t the "
+      ],
+      [
+        "able ",
+        "energy "
+      ],
+      [
+        "able ",
+        "on the "
+      ],
+      [
+        "new",
+        " solar p"
+      ],
+      [
+        "man",
+        "ce "
+      ],
+      [
+        "ology ",
+        "toda"
+      ],
+      [
+        "hoto",
+        "vol"
+      ],
+      [
+        "through",
+        " in "
+      ],
+      [
+        "% ",
+        "efficiency"
+      ],
+      [
+        "for",
+        "mance "
+      ],
+      [
+        "mar",
+        "ket"
+      ],
+      [
+        "ta",
+        "ic cell"
+      ],
+      [
+        "y a",
+        "vail"
+      ],
+      [
+        "ly d",
+        "oubl"
+      ],
+      [
+        "y. The ",
+        "new solar p"
+      ],
+      [
+        "This study examines the correlation between urban green spaces and mental health outcomes in metropolitan areas. Data collected from 2,500 participants across twelve cities suggests a statistically significant positive relationship between park accessibility and reported well-being scores",
+        "."
+      ],
+      [
+        " f",
+        "aci"
+      ],
+      [
+        "47",
+        "% efficiency"
+      ],
+      [
+        "Scienti",
+        "sts at the "
+      ],
+      [
+        "eves ",
+        "47% efficiency"
+      ],
+      [
+        "hn",
+        "ology toda"
+      ],
+      [
+        "lity",
+        " annou"
+      ],
+      [
+        "nced a",
+        " break"
+      ],
+      [
+        "tec",
+        "hnology toda"
+      ],
+      [
+        "renew",
+        "able energy "
+      ],
+      [
+        "rentl",
+        "y avail"
+      ],
+      [
+        "s cur",
+        "rently avail"
+      ],
+      [
+        "anel de",
+        "sign achi"
+      ],
+      [
+        "tional p",
+        "hotovol"
+      ],
+      [
+        "ing the per",
+        "formance "
+      ],
+      [
+        ", near",
+        "ly doubl"
+      ],
+      [
+        "research",
+        " faci"
+      ],
+      [
+        "of conven",
+        "tional photovol"
+      ],
+      [
+        "able on the ",
+        "market"
+      ],
+      [
+        "through in ",
+        "renewable energy "
+      ],
+      [
+        "taic cell",
+        "s currently avail"
+      ],
+      [
+        "y. The new solar p",
+        "anel design achi"
+      ],
+      [
+        "Scientists at the ",
+        "research faci"
+      ],
+      [
+        "eves 47% efficiency",
+        ", nearly doubl"
+      ],
+      [
+        "lity annou",
+        "nced a break"
+      ],
+      [
+        "technology toda",
+        "y. The new solar panel design achi"
+      ],
+      [
+        "ing the performance ",
+        "of conventional photovol"
+      ],
+      [
+        "through in renewable energy ",
+        "technology today. The new solar panel design achi"
+      ],
+      [
+        "taic cells currently avail",
+        "able on the market"
+      ],
+      [
+        "Scientists at the research faci",
+        "lity announced a break"
+      ],
+      [
+        "eves 47% efficiency, nearly doubl",
+        "ing the performance of conventional photovol"
+      ],
+      [
+        "through in renewable energy technology today. The new solar panel design achi",
+        "eves 47% efficiency, nearly doubling the performance of conventional photovol"
+      ],
+      [
+        "Scientists at the research facility announced a break",
+        "through in renewable energy technology today. The new solar panel design achieves 47% efficiency, nearly doubling the performance of conventional photovol"
+      ],
+      [
+        "Scientists at the research facility announced a breakthrough in renewable energy technology today. The new solar panel design achieves 47% efficiency, nearly doubling the performance of conventional photovol",
+        "taic cells currently available on the market"
+      ],
+      [
+        "s",
+        "."
+      ],
+      [
+        "The ",
+        "old bookstore stood at the corner of Main Street for over fifty years. Its weathered wooden shelves held countless stories, each book a portal to different worlds. The smell of aged paper and leather bindings greeted every visitor who pushed open the creaking door"
+      ],
+      [
+        "Scientists at the research facility announced a breakthrough in renewable energy technology today. The new solar panel design achieves 47% efficiency, nearly doubling the performance of conventional photovoltaic cells currently available on the market",
+        "."
+      ],
+      [
+        " ",
+        "tre"
+      ],
+      [
+        "%",
+        " s"
+      ],
+      [
+        "7",
+        "8"
+      ],
+      [
+        "C",
+        "hlorop"
+      ],
+      [
+        "S",
+        "i"
+      ],
+      [
+        "U",
+        "n"
+      ],
+      [
+        "a",
+        "s"
+      ],
+      [
+        "a",
+        "t "
+      ],
+      [
+        "a",
+        "su"
+      ],
+      [
+        "a",
+        "sts a"
+      ],
+      [
+        "a",
+        "ge"
+      ],
+      [
+        "b",
+        "s"
+      ],
+      [
+        "b",
+        " s"
+      ],
+      [
+        "c",
+        "as"
+      ],
+      [
+        "d",
+        "e "
+      ],
+      [
+        "d",
+        "er"
+      ],
+      [
+        "d",
+        "ing "
+      ],
+      [
+        "e",
+        "m"
+      ],
+      [
+        "e",
+        "asu"
+      ],
+      [
+        "f",
+        "ec"
+      ],
+      [
+        "f",
+        "un"
+      ],
+      [
+        "g",
+        "l"
+      ],
+      [
+        "i",
+        "es "
+      ],
+      [
+        "i",
+        "al "
+      ],
+      [
+        "j",
+        "or"
+      ],
+      [
+        "l",
+        ". P"
+      ],
+      [
+        "l",
+        "asts a"
+      ],
+      [
+        "m",
+        "p"
+      ],
+      [
+        "m",
+        "al"
+      ],
+      [
+        "m",
+        "at"
+      ],
+      [
+        "m",
+        "ini"
+      ],
+      [
+        "n",
+        "the"
+      ],
+      [
+        "o",
+        "x"
+      ],
+      [
+        "p",
+        "hoto"
+      ],
+      [
+        "r",
+        "at"
+      ],
+      [
+        "r",
+        "ic"
+      ],
+      [
+        "r",
+        "st "
+      ],
+      [
+        "s",
+        "ing "
+      ],
+      [
+        "t",
+        ", "
+      ],
+      [
+        "u",
+        "co"
+      ],
+      [
+        "w",
+        "er"
+      ],
+      [
+        "y",
+        "gen"
+      ],
+      [
+        " a",
+        " com"
+      ],
+      [
+        "in",
+        "to "
+      ],
+      [
+        "in",
+        "ical "
+      ],
+      [
+        "e ",
+        "mini"
+      ],
+      [
+        "re",
+        "d "
+      ],
+      [
+        "re",
+        "ac"
+      ],
+      [
+        "re",
+        "duc"
+      ],
+      [
+        "s ",
+        "th"
+      ],
+      [
+        "s ",
+        "is "
+      ],
+      [
+        "ti",
+        "mat"
+      ],
+      [
+        "th",
+        ". "
+      ],
+      [
+        "th",
+        "in the "
+      ],
+      [
+        "t ",
+        "pro"
+      ],
+      [
+        "t ",
+        "energy "
+      ],
+      [
+        "t ",
+        "ligh"
+      ],
+      [
+        "or",
+        "b s"
+      ],
+      [
+        "er",
+        "ies "
+      ],
+      [
+        "y ",
+        "of "
+      ],
+      [
+        "ed ",
+        "pro"
+      ],
+      [
+        "st",
+        "an"
+      ],
+      [
+        "st",
+        "rat"
+      ],
+      [
+        "the ",
+        "pro"
+      ],
+      [
+        "the ",
+        "new"
+      ],
+      [
+        "tion",
+        "s. "
+      ],
+      [
+        "co",
+        "l. P"
+      ],
+      [
+        "to",
+        "m "
+      ],
+      [
+        "to",
+        " bi"
+      ],
+      [
+        "to",
+        "col. P"
+      ],
+      [
+        "es ",
+        "improv"
+      ],
+      [
+        "es ",
+        "gl"
+      ],
+      [
+        "si",
+        "s is "
+      ],
+      [
+        "fi",
+        "rst "
+      ],
+      [
+        " and ",
+        "man"
+      ],
+      [
+        "at",
+        "men"
+      ],
+      [
+        "it",
+        "y of "
+      ],
+      [
+        "ol",
+        "ec"
+      ],
+      [
+        "ation",
+        ". P"
+      ],
+      [
+        " s",
+        "eries "
+      ],
+      [
+        "ul",
+        "es in "
+      ],
+      [
+        "ul",
+        "timat"
+      ],
+      [
+        "ed",
+        "uc"
+      ],
+      [
+        "ed",
+        " across a"
+      ],
+      [
+        "pro",
+        "duc"
+      ],
+      [
+        "ver",
+        "t ligh"
+      ],
+      [
+        "ts ",
+        "con"
+      ],
+      [
+        "ts ",
+        "for "
+      ],
+      [
+        "ts ",
+        "wer"
+      ],
+      [
+        "ho",
+        "wing "
+      ],
+      [
+        "of ",
+        "reac"
+      ],
+      [
+        "the c",
+        "hlorop"
+      ],
+      [
+        "un",
+        "ligh"
+      ],
+      [
+        "de",
+        "mon"
+      ],
+      [
+        "ati",
+        "ent "
+      ],
+      [
+        "able ",
+        "in the "
+      ],
+      [
+        "wi",
+        "thin the "
+      ],
+      [
+        "ma",
+        "jor"
+      ],
+      [
+        "ces",
+        "s th"
+      ],
+      [
+        "energy ",
+        "through"
+      ],
+      [
+        "ch",
+        "em"
+      ],
+      [
+        "ef",
+        "fec"
+      ],
+      [
+        "sy",
+        "mp"
+      ],
+      [
+        "sy",
+        "nthe"
+      ],
+      [
+        "ating ",
+        "the pro"
+      ],
+      [
+        "met",
+        "ric"
+      ],
+      [
+        "outcom",
+        "es improv"
+      ],
+      [
+        "mental ",
+        "to bi"
+      ],
+      [
+        "significant ",
+        "symp"
+      ],
+      [
+        "resul",
+        "ts for "
+      ],
+      [
+        "da",
+        "mental to bi"
+      ],
+      [
+        "ology ",
+        "educ"
+      ],
+      [
+        "mon",
+        "th. "
+      ],
+      [
+        "ll m",
+        "easu"
+      ],
+      [
+        "ll m",
+        "olec"
+      ],
+      [
+        "ical ",
+        "energy through"
+      ],
+      [
+        "cl",
+        "inical "
+      ],
+      [
+        "hy",
+        "ll molec"
+      ],
+      [
+        "lan",
+        "ts con"
+      ],
+      [
+        "mi",
+        "sing "
+      ],
+      [
+        "se and ",
+        "ox"
+      ],
+      [
+        "tr",
+        "ial "
+      ],
+      [
+        "ely ",
+        "produc"
+      ],
+      [
+        "tion ",
+        "within the "
+      ],
+      [
+        "initi",
+        "ating the pro"
+      ],
+      [
+        "plex",
+        " series "
+      ],
+      [
+        "s, with ",
+        "78"
+      ],
+      [
+        " tre",
+        "atmen"
+      ],
+      [
+        "% s",
+        "howing "
+      ],
+      [
+        "Chlorop",
+        "hyll molec"
+      ],
+      [
+        "Si",
+        "de "
+      ],
+      [
+        "Un",
+        "der"
+      ],
+      [
+        "at ",
+        "ultimat"
+      ],
+      [
+        "age",
+        "able in the "
+      ],
+      [
+        "bs",
+        "orb s"
+      ],
+      [
+        "cas",
+        "es"
+      ],
+      [
+        "ding ",
+        "photo"
+      ],
+      [
+        "fun",
+        "damental to bi"
+      ],
+      [
+        "lasts a",
+        "bsorb s"
+      ],
+      [
+        "mal",
+        " and man"
+      ],
+      [
+        "t, ",
+        "initiating the pro"
+      ],
+      [
+        "uco",
+        "se and ox"
+      ],
+      [
+        "ygen",
+        "."
+      ],
+      [
+        " a com",
+        "plex series "
+      ],
+      [
+        "into ",
+        "chem"
+      ],
+      [
+        "e mini",
+        "mal and man"
+      ],
+      [
+        "red ",
+        "metric"
+      ],
+      [
+        "reduc",
+        "tion within the "
+      ],
+      [
+        "t pro",
+        "tocol. P"
+      ],
+      [
+        "t energy ",
+        "into chem"
+      ],
+      [
+        "ed pro",
+        "mising "
+      ],
+      [
+        "stan",
+        "ding photo"
+      ],
+      [
+        "strat",
+        "ed promising "
+      ],
+      [
+        "the new",
+        " treatmen"
+      ],
+      [
+        "tions. ",
+        "Chlorophyll molec"
+      ],
+      [
+        "tom ",
+        "reduction within the "
+      ],
+      [
+        "es gl",
+        "ucose and ox"
+      ],
+      [
+        "sis is ",
+        "fundamental to bi"
+      ],
+      [
+        "first ",
+        "month. "
+      ],
+      [
+        "ity of ",
+        "cases"
+      ],
+      [
+        "ation. P",
+        "lants con"
+      ],
+      [
+        "ules in ",
+        "the chlorop"
+      ],
+      [
+        "ed across a",
+        "ll measu"
+      ],
+      [
+        "vert ligh",
+        "t energy into chem"
+      ],
+      [
+        "ts wer",
+        "e minimal and man"
+      ],
+      [
+        "of reac",
+        "tions. Chlorophyll molec"
+      ],
+      [
+        "unligh",
+        "t, initiating the pro"
+      ],
+      [
+        "demon",
+        "strated promising "
+      ],
+      [
+        "atient ",
+        "outcomes improv"
+      ],
+      [
+        "major",
+        "ity of cases"
+      ],
+      [
+        "cess th",
+        "at ultimat"
+      ],
+      [
+        "effec",
+        "ts were minimal and man"
+      ],
+      [
+        "synthe",
+        "sis is fundamental to bi"
+      ],
+      [
+        "significant symp",
+        "tom reduction within the "
+      ],
+      [
+        "results for ",
+        "the new treatmen"
+      ],
+      [
+        "ology educ",
+        "ation. Plants con"
+      ],
+      [
+        "ical energy through",
+        " a complex series "
+      ],
+      [
+        "clinical ",
+        "trial "
+      ],
+      [
+        "ely produc",
+        "es glucose and ox"
+      ],
+      [
+        "s, with 78",
+        "% showing "
+      ],
+      [
+        "Side ",
+        "effects were minimal and man"
+      ],
+      [
+        "Under",
+        "standing photo"
+      ],
+      [
+        "ageable in the ",
+        "majority of cases"
+      ],
+      [
+        "lasts absorb s",
+        "unlight, initiating the pro"
+      ],
+      [
+        "red metric",
+        "s, with 78% showing "
+      ],
+      [
+        "t protocol. P",
+        "atient outcomes improv"
+      ],
+      [
+        "first month. ",
+        "Side effects were minimal and man"
+      ],
+      [
+        "ules in the chlorop",
+        "lasts absorb sunlight, initiating the pro"
+      ],
+      [
+        "ed across all measu",
+        "red metrics, with 78% showing "
+      ],
+      [
+        "vert light energy into chem",
+        "ical energy through a complex series "
+      ],
+      [
+        "of reactions. Chlorophyll molec",
+        "ules in the chloroplasts absorb sunlight, initiating the pro"
+      ],
+      [
+        "demonstrated promising ",
+        "results for the new treatmen"
+      ],
+      [
+        "cess that ultimat",
+        "ely produces glucose and ox"
+      ],
+      [
+        "synthesis is fundamental to bi",
+        "ology education. Plants con"
+      ],
+      [
+        "significant symptom reduction within the ",
+        "first month. Side effects were minimal and man"
+      ],
+      [
+        "clinical trial ",
+        "demonstrated promising results for the new treatmen"
+      ],
+      [
+        "Understanding photo",
+        "synthesis is fundamental to biology education. Plants con"
+      ],
+      [
+        "t protocol. Patient outcomes improv",
+        "ed across all measured metrics, with 78% showing "
+      ],
+      [
+        "vert light energy into chemical energy through a complex series ",
+        "of reactions. Chlorophyll molecules in the chloroplasts absorb sunlight, initiating the pro"
+      ],
+      [
+        "cess that ultimately produces glucose and ox",
+        "ygen."
+      ],
+      [
+        "significant symptom reduction within the first month. Side effects were minimal and man",
+        "ageable in the majority of cases"
+      ],
+      [
+        "clinical trial demonstrated promising results for the new treatmen",
+        "t protocol. Patient outcomes improved across all measured metrics, with 78% showing "
+      ],
+      [
+        "Understanding photosynthesis is fundamental to biology education. Plants con",
+        "vert light energy into chemical energy through a complex series of reactions. Chlorophyll molecules in the chloroplasts absorb sunlight, initiating the pro"
+      ],
+      [
+        "clinical trial demonstrated promising results for the new treatment protocol. Patient outcomes improved across all measured metrics, with 78% showing ",
+        "significant symptom reduction within the first month. Side effects were minimal and manageable in the majority of cases"
+      ],
+      [
+        "Understanding photosynthesis is fundamental to biology education. Plants convert light energy into chemical energy through a complex series of reactions. Chlorophyll molecules in the chloroplasts absorb sunlight, initiating the pro",
+        "cess that ultimately produces glucose and oxygen."
+      ],
+      [
+        " ",
+        "$"
+      ],
+      [
+        " ",
+        "ex"
+      ],
+      [
+        " ",
+        "The "
+      ],
+      [
+        " ",
+        "to "
+      ],
+      [
+        " ",
+        "initi"
+      ],
+      [
+        "!",
+        " The "
+      ],
+      [
+        "'",
+        "r"
+      ],
+      [
+        "(",
+        "b"
+      ],
+      [
+        ",",
+        " and "
+      ],
+      [
+        "-",
+        "year"
+      ],
+      [
+        "-",
+        "over"
+      ],
+      [
+        ".",
+        "8"
+      ],
+      [
+        "1",
+        "2"
+      ],
+      [
+        "2",
+        "3"
+      ],
+      [
+        "4",
+        ".8"
+      ],
+      [
+        "A",
+        "n"
+      ],
+      [
+        "A",
+        ". "
+      ],
+      [
+        "E",
+        "x"
+      ],
+      [
+        "H",
+        "igh"
+      ],
+      [
+        "J",
+        "ust "
+      ],
+      [
+        "O",
+        "per"
+      ],
+      [
+        "P",
+        "y"
+      ],
+      [
+        "S",
+        "ec"
+      ],
+      [
+        "a",
+        "g"
+      ],
+      [
+        "a",
+        "in"
+      ],
+      [
+        "a",
+        "y "
+      ],
+      [
+        "b",
+        "m"
+      ],
+      [
+        "b",
+        "r"
+      ],
+      [
+        "b",
+        "y"
+      ],
+      [
+        "b",
+        "e "
+      ],
+      [
+        "b",
+        " de"
+      ],
+      [
+        "b",
+        "y a"
+      ],
+      [
+        "b",
+        "it "
+      ],
+      [
+        "c",
+        "s "
+      ],
+      [
+        "c",
+        "ed "
+      ],
+      [
+        "c",
+        "rea"
+      ],
+      [
+        "c",
+        "ho"
+      ],
+      [
+        "d",
+        " a"
+      ],
+      [
+        "d",
+        "ific"
+      ],
+      [
+        "d",
+        "ata"
+      ],
+      [
+        "d",
+        "ely "
+      ],
+      [
+        "e",
+        ". "
+      ],
+      [
+        "e",
+        "co"
+      ],
+      [
+        "e",
+        "m "
+      ],
+      [
+        "e",
+        "ment"
+      ],
+      [
+        "e",
+        "gin"
+      ],
+      [
+        "f",
+        "o"
+      ],
+      [
+        "f",
+        "ini"
+      ],
+      [
+        "g",
+        "r"
+      ],
+      [
+        "g",
+        "u"
+      ],
+      [
+        "g",
+        "ro"
+      ],
+      [
+        "h",
+        "ere"
+      ],
+      [
+        "i",
+        "z"
+      ],
+      [
+        "i",
+        "en"
+      ],
+      [
+        "i",
+        "on"
+      ],
+      [
+        "i",
+        "ver"
+      ],
+      [
+        "i",
+        "gen"
+      ],
+      [
+        "i",
+        "br"
+      ],
+      [
+        "k",
+        "n"
+      ],
+      [
+        "k",
+        "ing "
+      ],
+      [
+        "l",
+        "ac"
+      ],
+      [
+        "l",
+        "ed"
+      ],
+      [
+        "l",
+        "earning"
+      ],
+      [
+        "l",
+        "ibr"
+      ],
+      [
+        "m",
+        "o"
+      ],
+      [
+        "m",
+        "ing "
+      ],
+      [
+        "m",
+        "s and "
+      ],
+      [
+        "m",
+        "ust "
+      ],
+      [
+        "n",
+        "ta"
+      ],
+      [
+        "o",
+        "w"
+      ],
+      [
+        "o",
+        "th"
+      ],
+      [
+        "p",
+        "u"
+      ],
+      [
+        "p",
+        "ec"
+      ],
+      [
+        "p",
+        "ts "
+      ],
+      [
+        "p",
+        "prov"
+      ],
+      [
+        "q",
+        "u"
+      ],
+      [
+        "r",
+        "ti"
+      ],
+      [
+        "r",
+        " p"
+      ],
+      [
+        "r",
+        "it"
+      ],
+      [
+        "s",
+        "ed "
+      ],
+      [
+        "s",
+        "ent "
+      ],
+      [
+        "s",
+        "pac"
+      ],
+      [
+        "s",
+        "hed "
+      ],
+      [
+        "s",
+        "cienti"
+      ],
+      [
+        "s",
+        ", a"
+      ],
+      [
+        "t",
+        "en"
+      ],
+      [
+        "t",
+        "ing"
+      ],
+      [
+        "t",
+        "ation"
+      ],
+      [
+        "t",
+        "ati"
+      ],
+      [
+        "v",
+        "es and "
+      ],
+      [
+        "w",
+        "ay "
+      ],
+      [
+        "w",
+        "rit"
+      ],
+      [
+        "x",
+        " and "
+      ],
+      [
+        "y",
+        "on"
+      ],
+      [
+        "y",
+        "ou"
+      ],
+      [
+        "y",
+        "nta"
+      ],
+      [
+        "z",
+        "ing "
+      ],
+      [
+        "z",
+        "ation"
+      ],
+      [
+        " a",
+        "st"
+      ],
+      [
+        " a",
+        "ma"
+      ],
+      [
+        "in",
+        "ess "
+      ],
+      [
+        "in",
+        "ed in "
+      ],
+      [
+        "in",
+        "crea"
+      ],
+      [
+        "e ",
+        "in "
+      ],
+      [
+        "e ",
+        "it"
+      ],
+      [
+        "e ",
+        "is "
+      ],
+      [
+        "e ",
+        "int"
+      ],
+      [
+        "e ",
+        "for"
+      ],
+      [
+        "e ",
+        "expl"
+      ],
+      [
+        "re",
+        "men"
+      ],
+      [
+        "re",
+        "com"
+      ],
+      [
+        "re",
+        "ach"
+      ],
+      [
+        "re",
+        "ven"
+      ],
+      [
+        "s ",
+        "ou"
+      ],
+      [
+        "s ",
+        "to "
+      ],
+      [
+        "s ",
+        "com"
+      ],
+      [
+        "s ",
+        "repor"
+      ],
+      [
+        "s ",
+        "improv"
+      ],
+      [
+        "d ",
+        "ch"
+      ],
+      [
+        "ti",
+        "t"
+      ],
+      [
+        "ti",
+        "mi"
+      ]
+    ]
+  }
+}

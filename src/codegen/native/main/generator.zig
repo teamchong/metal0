@@ -209,6 +209,24 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             }
             try statements.genFunctionDef(self, stmt.function_def);
             try self.emit("\n");
+        } else if (stmt == .assign) {
+            if (self.mode == .module) {
+                // In module mode, export constants as pub const
+                try self.emitIndent();
+                try self.emit("pub const ");
+                // Generate target name
+                for (stmt.assign.targets, 0..) |target, i| {
+                    if (target == .name) {
+                        try self.emit(target.name.id);
+                    }
+                    if (i < stmt.assign.targets.len - 1) {
+                        try self.emit(", ");
+                    }
+                }
+                try self.emit(" = ");
+                try expressions.genExpr(self, stmt.assign.value.*);
+                try self.emit(";\n");
+            }
         }
     }
 
