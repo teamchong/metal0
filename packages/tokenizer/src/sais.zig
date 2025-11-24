@@ -465,7 +465,7 @@ pub fn findFrequentSubstrings(
 
     var filtered_len: usize = 0;
     var filtered_offset: usize = 0;
-    var filtered_null: usize = 0;
+    const filtered_null: usize = 0; // Not filtering nulls in sais.zig anymore
     var filtered_seen: usize = 0;
 
     for (0..node_num) |i| {
@@ -488,11 +488,12 @@ pub fn findFrequentSubstrings(
 
         const substring = text[offset..offset + len];
 
-        // Check for separator bytes ('\0' sentence separators, matching HuggingFace)
-        if (std.mem.indexOfScalar(u8, substring, 0) != null) {
-            filtered_null += 1;
-            continue;
-        }
+        // NOTE: Don't filter '\0' here - let caller decide
+        // HuggingFace's esaxx returns all substrings, filtering happens in trainer
+        // if (std.mem.indexOfScalar(u8, substring, 0) != null) {
+        //     filtered_null += 1;
+        //     continue;
+        // }
 
         const entry = try seen.getOrPut(substring);
         if (!entry.found_existing) {

@@ -2,6 +2,7 @@
 const conversions = @import("builtins/conversions.zig");
 const math = @import("builtins/math.zig");
 const collections = @import("builtins/collections.zig");
+const eval_exec = @import("builtins/eval.zig");
 
 // Re-export all functions
 pub const genLen = conversions.genLen;
@@ -11,6 +12,10 @@ pub const genFloat = conversions.genFloat;
 pub const genBool = conversions.genBool;
 pub const genType = conversions.genType;
 pub const genIsinstance = conversions.genIsinstance;
+
+// Dynamic execution
+pub const genEval = eval_exec.genEval;
+pub const genExec = eval_exec.genExec;
 
 pub const genAbs = math.genAbs;
 pub const genMin = math.genMin;

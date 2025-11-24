@@ -11,6 +11,9 @@ const pytuple = @import("pytuple.zig");
 /// Export string utilities for native codegen
 pub const string_utils = @import("string_utils.zig");
 
+/// Export AST executor for eval() support
+pub const ast_executor = @import("ast_executor.zig");
+
 /// Export comptime type inference helpers
 const comptime_helpers = @import("comptime_helpers.zig");
 pub const InferListType = comptime_helpers.InferListType;
@@ -366,13 +369,14 @@ pub const PyDict = dict_module.PyDict;
 pub const numpy_array = @import("numpy_array.zig");
 pub const NumpyArray = numpy_array.NumpyArray;
 
-// HTTP, async, JSON, regex, and eval modules
+// HTTP, async, JSON, regex, and dynamic execution modules
 pub const http = @import("http.zig");
 pub const async_runtime = @import("async.zig");
 pub const json = @import("json.zig");
 pub const re = @import("re.zig");
 pub const math = @import("math.zig");
 pub const eval_module = @import("eval.zig");
+pub const exec_module = @import("exec.zig");
 
 // Export convenience functions
 pub const httpGet = http.getAsPyString;
@@ -385,10 +389,9 @@ pub const reCompile = re.compile;
 pub const reSearch = re.search;
 pub const reMatch = re.match;
 
-// Eval convenience exports
+// Dynamic execution exports
 pub const eval = eval_module.eval;
-pub const exec = eval_module.exec;
-pub const compile = eval_module.compile;
+pub const exec = exec_module.exec;
 
 /// Format dict as Python dict string: {key: value, ...}
 /// Supports both StringHashMap and ArrayList(KV) for dict comprehensions
