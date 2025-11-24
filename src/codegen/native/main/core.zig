@@ -120,6 +120,10 @@ pub const NativeCodegen = struct {
     // Maps function name -> void (e.g., "greet" -> {})
     functions_needing_allocator: FnvVoidMap,
 
+    // Track async functions (for calling with _async suffix)
+    // Maps function name -> void (e.g., "fetch_data" -> {})
+    async_functions: FnvVoidMap,
+
     // Track imported module names (for mymath.add() -> needs allocator)
     // Maps module name -> void (e.g., "mymath" -> {})
     imported_modules: FnvVoidMap,
@@ -176,6 +180,7 @@ pub const NativeCodegen = struct {
             .from_imports = std.ArrayList(FromImportInfo){},
             .from_import_needs_allocator = FnvVoidMap.init(allocator),
             .functions_needing_allocator = FnvVoidMap.init(allocator),
+            .async_functions = FnvVoidMap.init(allocator),
             .imported_modules = FnvVoidMap.init(allocator),
             .mutation_info = null,
             .c_libraries = std.ArrayList([]const u8){},
@@ -256,6 +261,13 @@ pub const NativeCodegen = struct {
             self.allocator.free(key.*);
         }
         self.functions_needing_allocator.deinit();
+
+        // Clean up async_functions tracking
+        var async_iter = self.async_functions.keyIterator();
+        while (async_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.async_functions.deinit();
 
         // Clean up imported_modules tracking
         var imported_iter = self.imported_modules.keyIterator();

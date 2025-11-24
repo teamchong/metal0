@@ -23,6 +23,12 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         try self.functions_needing_allocator.put(func_name_copy, {});
     }
 
+    // Track async functions (for calling with _async suffix)
+    if (func.is_async) {
+        const func_name_copy = try self.allocator.dupe(u8, func.name);
+        try self.async_functions.put(func_name_copy, {});
+    }
+
     // Generate function signature
     try signature.genFunctionSignature(self, func, needs_allocator);
 

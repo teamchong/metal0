@@ -66,7 +66,9 @@ fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!v
     try genExpr(self, await_node.value.*);
     try self.output.appendSlice(self.allocator, ";\n");
     try self.output.appendSlice(self.allocator, "    try runtime.scheduler.wait(__thread);\n");
-    try self.output.appendSlice(self.allocator, "    break :blk __thread.result orelse unreachable;\n");
+    // Cast result to expected type (TODO: infer from type system)
+    try self.output.appendSlice(self.allocator, "    const __result = __thread.result orelse unreachable;\n");
+    try self.output.appendSlice(self.allocator, "    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
     try self.output.appendSlice(self.allocator, "})");
 }
 

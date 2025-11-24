@@ -405,11 +405,11 @@ pub const math = @import("math.zig");
 pub const eval_module = @import("eval.zig");
 pub const exec_module = @import("exec.zig");
 
-// Green thread runtime stubs (until goroutine runtime is implemented)
-const green_thread_stub = @import("green_thread_stub.zig");
-pub const GreenThread = green_thread_stub.GreenThread;
-pub const Scheduler = green_thread_stub.Scheduler;
+// Green thread runtime (real M:N scheduler)
+pub const GreenThread = @import("green_thread.zig").GreenThread;
+pub const Scheduler = @import("scheduler.zig").Scheduler;
 pub var scheduler: Scheduler = undefined;
+pub var scheduler_initialized = false;
 
 // Export convenience functions
 pub const httpGet = http.getAsPyString;

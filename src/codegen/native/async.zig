@@ -5,7 +5,7 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 /// Generate code for asyncio.run(main())
-/// Maps to: initialize scheduler, spawn main, wait for completion
+/// Maps to: initialize scheduler once, spawn main, wait for completion
 pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // TODO: Error handling
@@ -13,12 +13,20 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     try self.output.appendSlice(self.allocator, "{\n");
-    try self.output.appendSlice(self.allocator, "    const __num_threads = std.Thread.getCpuCount() catch 8;\n");
-    try self.output.appendSlice(self.allocator, "    runtime.scheduler = try runtime.Scheduler.init(allocator, __num_threads);\n");
-    try self.output.appendSlice(self.allocator, "    defer runtime.scheduler.shutdown();\n");
+
+    // Initialize scheduler once (global singleton)
+    try self.output.appendSlice(self.allocator, "    if (!runtime.scheduler_initialized) {\n");
+    try self.output.appendSlice(self.allocator, "        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
+    try self.output.appendSlice(self.allocator, "        runtime.scheduler = try runtime.Scheduler.init(allocator, __num_threads);\n");
+    try self.output.appendSlice(self.allocator, "        runtime.scheduler_initialized = true;\n");
+    try self.output.appendSlice(self.allocator, "    }\n");
+
+    // Spawn main coroutine
     try self.output.appendSlice(self.allocator, "    const __main_thread = ");
     try self.genExpr(args[0]); // This calls foo_async() which spawns
     try self.output.appendSlice(self.allocator, ";\n");
+
+    // Wait for completion
     try self.output.appendSlice(self.allocator, "    try runtime.scheduler.wait(__main_thread);\n");
     try self.output.appendSlice(self.allocator, "}");
 }
@@ -95,12 +103,19 @@ pub fn genAsyncioQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 }
 
 /// Generate code for await expression
-/// Maps to: try await expression
+/// Maps to: wait for green thread and extract result
 pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    // In Zig, async functions return !void or !T
-    // We use 'try await' to handle errors
-    try self.output.appendSlice(self.allocator, "try await ");
+    try self.output.appendSlice(self.allocator, "(blk: {\n");
+    try self.output.appendSlice(self.allocator, "    const __thread = ");
     try self.genExpr(expr);
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    try runtime.scheduler.wait(__thread);\n");
+
+    // Cast result to expected type
+    // For now, assume i64 return type (TODO: infer from type system)
+    try self.output.appendSlice(self.allocator, "    const __result = __thread.result orelse unreachable;\n");
+    try self.output.appendSlice(self.allocator, "    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
+    try self.output.appendSlice(self.allocator, "})");
 }
 
 /// Check if a function is async (has 'async' keyword in decorator or name)

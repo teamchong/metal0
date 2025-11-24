@@ -1,4 +1,4 @@
-.PHONY: help build install verify test test-zig test-correctness-full format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines
+.PHONY: help build install verify test test-zig test-correctness-full test-runtime test-asyncio test-all format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines benchmark-quick benchmark-full help-testing
 
 help:
 	@echo "PyAOT Commands"
@@ -9,10 +9,16 @@ help:
 	@echo "verify                  - Verify installation is working"
 	@echo "test                    - Run pytest regression tests"
 	@echo "test-zig                - Run Zig runtime tests"
+	@echo "test-runtime            - Test standalone Zig runtime (goroutines)"
+	@echo "test-asyncio            - Test Python asyncio integration"
+	@echo "test-all                - Run all tests (runtime + asyncio)"
 	@echo "test-correctness-full   - Run comprehensive BPE correctness tests (583+ tests)"
 	@echo "format-zig              - Format Zig code"
 	@echo "lint-zig                - Check Zig code formatting"
 	@echo "clean                   - Remove build artifacts"
+	@echo "benchmark-quick         - Quick benchmark (simple + CPU-bound)"
+	@echo "benchmark-full          - Full benchmark suite vs Go"
+	@echo "help-testing            - Show testing & benchmarking help"
 
 build:
 	@echo "🔨 Building pyaot compiler (debug mode)..."
@@ -247,3 +253,65 @@ benchmark-goroutines:
 	@echo ""
 	@echo "💡 Note: Memory benchmark requires manual run (see examples/bench_memory.py)"
 	@echo "💡 Note: Web benchmark requires aiohttp (see examples/bench_web.py)"
+
+# Test targets
+.PHONY: test-runtime
+test-runtime:
+	@echo "=== Testing Standalone Runtime ==="
+	zig test tests/test_goroutines_basic.zig
+	zig test tests/test_goroutines.zig
+
+.PHONY: test-asyncio
+test-asyncio:
+	@echo "=== Testing AsyncIO Implementation ==="
+	@echo "\n1. Integration tests..."
+	zig build
+	./zig-out/bin/pyaot tests/test_asyncio_integration.py
+
+	@echo "\n2. Performance tests..."
+	./zig-out/bin/pyaot tests/test_asyncio_performance.py
+
+	@echo "\n3. Existing tests..."
+	./zig-out/bin/pyaot tests/test_async_basic.py
+	./zig-out/bin/pyaot tests/test_asyncio.py
+
+.PHONY: test-all
+test-all: test-runtime test-asyncio
+	@echo "\n✅ All tests complete!"
+
+# Benchmark targets
+.PHONY: benchmark-quick
+benchmark-quick:
+	@echo "=== Quick Benchmark (Simple + CPU-bound) ==="
+	@echo "Building..."
+	zig build -Doptimize=ReleaseFast
+	./zig-out/bin/pyaot build examples/bench_simple.py ./bench_simple --binary
+	./zig-out/bin/pyaot build examples/bench_cpu_bound.py ./bench_cpu_bound --binary
+	go build -o bench_simple_go examples/bench_simple_go.go
+	go build -o bench_cpu_bound_go examples/bench_cpu_bound_go.go
+
+	@echo "\n1. Simple (10 tasks):"
+	@echo "PyAOT:"
+	@time ./bench_simple
+	@echo "\nGo:"
+	@time ./bench_simple_go
+
+	@echo "\n2. CPU-bound (100 parallel):"
+	@echo "PyAOT:"
+	@time ./bench_cpu_bound
+	@echo "\nGo:"
+	@time ./bench_cpu_bound_go
+
+.PHONY: benchmark-full
+benchmark-full: benchmark-goroutines
+	@echo "Full benchmark suite - see results above"
+
+# Help target
+.PHONY: help-testing
+help-testing:
+	@echo "Testing & Benchmarking:"
+	@echo "  make test-runtime       - Test standalone Zig runtime"
+	@echo "  make test-asyncio       - Test Python asyncio integration"
+	@echo "  make test-all           - Run all tests"
+	@echo "  make benchmark-quick    - Quick benchmark (2 tests)"
+	@echo "  make benchmark-full     - Full benchmark suite vs Go"

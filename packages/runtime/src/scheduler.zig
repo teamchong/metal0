@@ -69,10 +69,16 @@ pub const Scheduler = struct {
         _ = self.active_threads.fetchAdd(1, .monotonic);
 
         // Schedule worker to run this task
-        self.pool.spawn(workerRunTask, .{ self, queue_idx }) catch |err| {
-            _ = self.active_threads.fetchSub(1, .monotonic);
-            return err;
+        const WorkerContext = struct {
+            scheduler: *Scheduler,
+            worker_id: usize,
+
+            pub fn run(sched: *Scheduler, wid: usize) void {
+                sched.workerRunTask(wid);
+            }
         };
+
+        try self.pool.spawn(WorkerContext.run, .{ self, queue_idx });
 
         return thread;
     }

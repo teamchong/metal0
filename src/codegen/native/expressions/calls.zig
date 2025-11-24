@@ -236,12 +236,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Check if this is a from-imported function that needs allocator
         const from_import_needs_alloc = self.from_import_needs_allocator.contains(func_name);
 
-        // Add 'try' if function needs allocator (can return errors)
-        if (user_func_needs_alloc) {
+        // Check if this is an async function (needs _async suffix)
+        const is_async_func = self.async_functions.contains(func_name);
+
+        // Add 'try' if function needs allocator or is async (both return errors)
+        if (user_func_needs_alloc or is_async_func) {
             try self.output.appendSlice(self.allocator, "try ");
         }
 
+        // Async functions need _async suffix for the wrapper function
         try self.output.appendSlice(self.allocator, func_name);
+        if (is_async_func) {
+            try self.output.appendSlice(self.allocator, "_async");
+        }
         try self.output.appendSlice(self.allocator, "(");
 
         // For user-defined functions: inject allocator as FIRST argument
