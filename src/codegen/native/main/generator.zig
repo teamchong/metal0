@@ -209,6 +209,24 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 4: Define __name__ constant (for if __name__ == "__main__" support)
     try self.emit("const __name__ = \"__main__\";\n\n");
 
+    // PHASE 4.1: Emit source directory for runtime eval subprocess
+    // This allows eval() to spawn pyaot subprocess with correct import paths
+    if (source_file_dir) |dir| {
+        try self.emit("// PyAOT metadata for runtime eval subprocess\n");
+        try self.emit("pub const __pyaot_source_dir: []const u8 = \"");
+        // Escape any special characters in the path
+        for (dir) |c| {
+            if (c == '\\') {
+                try self.emit("\\\\");
+            } else if (c == '"') {
+                try self.emit("\\\"");
+            } else {
+                try self.output.append(self.allocator, c);
+            }
+        }
+        try self.emit("\";\n\n");
+    }
+
     // PHASE 5: Generate imports, class and function definitions (before main)
     // In module mode, wrap functions in pub struct
     if (self.mode == .module) {

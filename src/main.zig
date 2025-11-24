@@ -14,6 +14,7 @@ pub const CompileOptions = struct {
     mode: []const u8, // "run" or "build"
     binary: bool = false, // --binary flag
     force: bool = false, // --force/-f flag
+    emit_bytecode: bool = false, // --emit-bytecode flag (for runtime eval subprocess)
 };
 
 // Re-export commonly used functions

@@ -57,6 +57,8 @@ pub fn main() !void {
             opts.binary = true;
         } else if (std.mem.eql(u8, arg, "--force") or std.mem.eql(u8, arg, "-f")) {
             opts.force = true;
+        } else if (std.mem.eql(u8, arg, "--emit-bytecode")) {
+            opts.emit_bytecode = true;
         } else if (std.mem.startsWith(u8, arg, "--")) {
             std.debug.print("Unknown flag: {s}\n", .{arg});
             try utils.printUsage();
