@@ -11,7 +11,11 @@ const body = @import("generators/body.zig");
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
     // Check if function needs allocator parameter
-    const needs_allocator = allocator_analyzer.functionNeedsAllocator(func);
+    const needs_allocator_analysis = allocator_analyzer.functionNeedsAllocator(func);
+
+    // In module mode, ALL functions get allocator for consistency at module boundaries
+    // In script mode, only functions that need it get allocator
+    const needs_allocator = if (self.mode == .module) true else needs_allocator_analysis;
 
     // Track this function if it needs allocator (for call site generation)
     if (needs_allocator) {
@@ -23,7 +27,7 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     try signature.genFunctionSignature(self, func, needs_allocator);
 
     // Generate function body
-    try body.genFunctionBody(self, func);
+    try body.genFunctionBody(self, func, needs_allocator, needs_allocator_analysis);
 
     // Register decorated functions for application in main()
     if (func.decorators.len > 0) {

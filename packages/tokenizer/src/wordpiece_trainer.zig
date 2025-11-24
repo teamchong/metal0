@@ -37,7 +37,7 @@ pub const WordPieceTrainer = struct {
         };
 
         var wordpiece = WordPiece.init(self.allocator, config);
-        errdefer wordpiece.deinit();
+        defer wordpiece.deinit();
 
         // Train on texts
         try wordpiece.train(texts);

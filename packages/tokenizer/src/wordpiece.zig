@@ -33,11 +33,15 @@ pub const WordPiece = struct {
     }
 
     pub fn deinit(self: *WordPiece) void {
+        // Free vocab keys
         var it = self.vocab.iterator();
         while (it.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
         }
         self.vocab.deinit();
+
+        // Free vocab_r values (same owned strings, don't double-free)
+        // Note: vocab and vocab_r share the same string pointers, so we only free once
         self.vocab_r.deinit();
     }
 

@@ -33,18 +33,28 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         inlined_modules.deinit(self.allocator);
     }
 
-    // Compile each imported module as struct
+    // Generate @import() statements for compiled modules
     for (imported_modules.items) |mod_name| {
-        const struct_code: []const u8 = imports.compileModuleAsStruct(
-            mod_name,
-            source_file_dir,
-            self.allocator,
-            self.type_inferrer
-        ) catch {
-            // Module compilation failed - likely external package, skip it
+        // Skip if external module (no .build/ file)
+        const import_path = try std.fmt.allocPrint(self.allocator, "./{s}.zig", .{mod_name});
+        defer self.allocator.free(import_path);
+
+        // Check if module was compiled to .build/
+        const build_path = try std.fmt.allocPrint(self.allocator, ".build/{s}.zig", .{mod_name});
+        defer self.allocator.free(build_path);
+
+        std.fs.cwd().access(build_path, .{}) catch {
+            // Module not in .build/, skip it
             continue;
         };
-        try inlined_modules.append(self.allocator, struct_code);
+
+        // Generate import statement
+        const import_stmt = try std.fmt.allocPrint(
+            self.allocator,
+            "const {s} = @import(\"{s}\");\n",
+            .{ mod_name, import_path }
+        );
+        try inlined_modules.append(self.allocator, import_stmt);
     }
 
     // PHASE 2: Register all classes for inheritance support

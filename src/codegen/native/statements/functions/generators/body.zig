@@ -25,11 +25,22 @@ pub fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
 }
 
 /// Generate function body with scope management
-pub fn genFunctionBody(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
+pub fn genFunctionBody(
+    self: *NativeCodegen,
+    func: ast.Node.FunctionDef,
+    has_allocator_param: bool,
+    actually_uses_allocator: bool,
+) CodegenError!void {
     self.indent();
 
     // Push new scope for function body
     try self.pushScope();
+
+    // If allocator param was added but not actually used, suppress warning
+    if (has_allocator_param and !actually_uses_allocator) {
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "_ = allocator;\n");
+    }
 
     // Declare function parameters in the scope so closures can capture them
     for (func.args) |arg| {
