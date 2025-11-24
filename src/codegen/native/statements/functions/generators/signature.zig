@@ -66,6 +66,12 @@ pub fn genFunctionSignature(
     func: ast.Node.FunctionDef,
     needs_allocator: bool,
 ) CodegenError!void {
+    // For async functions, generate wrapper that returns a Task
+    if (func.is_async) {
+        try genAsyncFunctionSignature(self, func, needs_allocator);
+        return;
+    }
+
     // Generate function signature: fn name(param: type, ...) return_type {
     try self.emit("fn ");
     try self.emit(func.name);
@@ -117,6 +123,42 @@ pub fn genFunctionSignature(
 
     // Determine return type based on type annotation or return statements
     try genReturnType(self, func, needs_allocator);
+}
+
+/// Generate async function signature that returns a Task
+fn genAsyncFunctionSignature(
+    self: *NativeCodegen,
+    func: ast.Node.FunctionDef,
+    needs_allocator: bool,
+) CodegenError!void {
+    _ = needs_allocator; // Async functions always need allocator
+    // async def foo() returns runtime.async_runtime.Task
+    try self.emit("fn ");
+    try self.emit(func.name);
+    try self.emit("(");
+
+    // Async functions ALWAYS need allocator for task spawning
+    try self.emit("allocator: std.mem.Allocator");
+
+    if (func.args.len > 0) {
+        try self.emit(", ");
+    }
+
+    // Generate parameters
+    for (func.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try self.emit(arg.name);
+        try self.emit(": ");
+
+        if (arg.type_annotation) |_| {
+            const zig_type = pythonTypeToZig(arg.type_annotation);
+            try self.emit(zig_type);
+        } else {
+            try self.emit("i64");
+        }
+    }
+
+    try self.emit(") !runtime.async_runtime.Task {\n");
 }
 
 /// Generate return type for function signature

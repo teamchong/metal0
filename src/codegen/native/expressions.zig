@@ -53,8 +53,17 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .subscript => |s| try misc.genSubscript(self, s),
         .attribute => |a| try misc.genAttribute(self, a),
         .lambda => |lam| lambda_mod.genLambda(self, lam) catch {},
+        .await_expr => |a| try genAwait(self, a),
         else => {},
     }
+}
+
+/// Generate await expression
+fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!void {
+    // await task() -> runtime.async_runtime.wait(task())
+    try self.output.appendSlice(self.allocator, "runtime.async_runtime.wait(");
+    try genExpr(self, await_node.value.*);
+    try self.output.appendSlice(self.allocator, ")");
 }
 
 /// Convert Python format specifier to Zig format specifier

@@ -116,7 +116,6 @@ test "PyValue basic operations" {
 
     const v_int = PyValue{ .int = 42 };
     const v_float = PyValue{ .float = 3.14 };
-    const v_str = PyValue{ .string = "hello" };
     const v_bool = PyValue{ .bool = true };
     const v_none = PyValue{ .none = {} };
 

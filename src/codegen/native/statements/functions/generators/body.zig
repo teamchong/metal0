@@ -31,6 +31,12 @@ pub fn genFunctionBody(
     has_allocator_param: bool,
     actually_uses_allocator: bool,
 ) CodegenError!void {
+    // For async functions, generate task spawn wrapper
+    if (func.is_async) {
+        try genAsyncFunctionBody(self, func);
+        return;
+    }
+
     self.indent();
 
     // Push new scope for function body
@@ -54,6 +60,97 @@ pub fn genFunctionBody(
 
     // Pop scope when exiting function
     self.popScope();
+
+    var builder = CodeBuilder.init(self);
+    _ = try builder.endBlock();
+}
+
+/// Generate async function body (spawns task on runtime)
+fn genAsyncFunctionBody(
+    self: *NativeCodegen,
+    func: ast.Node.FunctionDef,
+) CodegenError!void {
+    self.indent();
+
+    // Get or create global runtime
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "const rt = runtime.async_runtime.getRuntime(allocator);\n");
+
+    // Create task context struct with captured params
+    if (func.args.len > 0) {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const Context = struct {{\n", .{});
+        self.indent();
+
+        for (func.args) |arg| {
+            try self.emitIndent();
+            const zig_type = signature.pythonTypeToZig(arg.type_annotation);
+            try self.output.writer(self.allocator).print("{s}: {s},\n", .{ arg.name, zig_type });
+        }
+
+        self.dedent();
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "};\n");
+
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "const ctx = try allocator.create(Context);\n");
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "ctx.* = .{\n");
+        self.indent();
+
+        for (func.args) |arg| {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print(".{s} = {s},\n", .{ arg.name, arg.name });
+        }
+
+        self.dedent();
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "};\n");
+    }
+
+    // Define task function
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const task_fn = struct {{\n", .{});
+    self.indent();
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "fn run(data: *anyopaque) void {\n");
+    self.indent();
+
+    // Cast context
+    if (func.args.len > 0) {
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "const ctx = @as(*Context, @ptrCast(@alignCast(data)));\n");
+    } else {
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "_ = data;\n");
+    }
+
+    // Generate function body
+    try self.pushScope();
+    for (func.args) |arg| {
+        try self.declareVar(arg.name);
+    }
+
+    for (func.body) |stmt| {
+        try self.generateStmt(stmt);
+    }
+
+    self.popScope();
+
+    self.dedent();
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}.run;\n");
+
+    // Spawn task
+    try self.emitIndent();
+    if (func.args.len > 0) {
+        try self.output.appendSlice(self.allocator, "return try rt.spawn(task_fn, ctx);\n");
+    } else {
+        try self.output.appendSlice(self.allocator, "return try rt.spawn(task_fn, undefined);\n");
+    }
 
     var builder = CodeBuilder.init(self);
     _ = try builder.endBlock();

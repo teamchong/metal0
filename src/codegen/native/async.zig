@@ -5,24 +5,23 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 /// Generate code for asyncio.run(main())
-/// Maps to: runtime.async_runtime.run(allocator, main)
+/// Maps to: runtime.asyncio.run(allocator, main_coro)
 pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // TODO: Error handling
         return;
     }
 
-    // Use runtime const (already imported in header)
-    try self.output.appendSlice(self.allocator, "runtime.async_runtime.run(allocator, ");
+    try self.output.appendSlice(self.allocator, "try runtime.asyncio.run(allocator, ");
     try self.genExpr(args[0]);
     try self.output.appendSlice(self.allocator, ")");
 }
 
 /// Generate code for asyncio.gather(*tasks)
-/// Maps to: runtime.async_runtime.gather(allocator, tasks)
+/// Maps to: runtime.asyncio.gather(tasks)
 pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate array of tasks
-    try self.output.appendSlice(self.allocator, "runtime.async_runtime.gather(allocator, &[_]runtime.async_runtime.Task{");
+    try self.output.appendSlice(self.allocator, "try runtime.asyncio.gather(&[_]*runtime.asyncio.Task{");
 
     for (args, 0..) |arg, i| {
         if (i > 0) try self.output.appendSlice(self.allocator, ", ");
@@ -33,28 +32,45 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
 }
 
 /// Generate code for asyncio.create_task(coro)
-/// Maps to: runtime.async_runtime.spawn(allocator, coro)
+/// Maps to: runtime.asyncio.createTask(allocator, coro)
 pub fn genAsyncioCreateTask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // TODO: Error handling
         return;
     }
 
-    try self.output.appendSlice(self.allocator, "runtime.async_runtime.spawn(allocator, ");
+    try self.output.appendSlice(self.allocator, "try runtime.asyncio.createTask(allocator, ");
     try self.genExpr(args[0]);
     try self.output.appendSlice(self.allocator, ")");
 }
 
 /// Generate code for asyncio.sleep(seconds)
-/// Maps to: runtime.async_runtime.sleepAsync(seconds)
+/// Maps to: runtime.asyncio.sleep(seconds)
 pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // TODO: Error handling
         return;
     }
 
-    try self.output.appendSlice(self.allocator, "runtime.async_runtime.sleepAsync(");
+    try self.output.appendSlice(self.allocator, "try runtime.asyncio.sleep(");
     try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for asyncio.Queue(maxsize)
+/// Maps to: runtime.asyncio.Queue(i64).init(allocator, maxsize)
+pub fn genAsyncioQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    // Generate Queue instantiation
+    // TODO: Infer element type from usage; for now use i64
+    try self.output.appendSlice(self.allocator, "try runtime.asyncio.Queue(i64).init(allocator, ");
+
+    if (args.len > 0) {
+        try self.genExpr(args[0]);
+    } else {
+        // Default maxsize is 0 (unbuffered)
+        try self.output.appendSlice(self.allocator, "0");
+    }
+
     try self.output.appendSlice(self.allocator, ")");
 }
 

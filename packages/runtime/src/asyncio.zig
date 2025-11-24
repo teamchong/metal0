@@ -1,117 +1,109 @@
 /// Python asyncio module implementation
-/// Built on top of our EventLoop (inspired by Bun)
+/// Simplified for AOT - Queue only, no full async/await
 const std = @import("std");
-const runtime = @import("runtime.zig");
-const EventLoop = @import("../../async_runtime/src/EventLoop.zig");
 
-/// Global event loop instance
-var global_loop: ?*EventLoop = null;
-var global_allocator: std.mem.Allocator = undefined;
-
-/// Initialize asyncio module
-pub fn init(allocator: std.mem.Allocator) !void {
-    global_allocator = allocator;
-}
-
-/// Get or create event loop
-fn getEventLoop() !*EventLoop {
-    if (global_loop == null) {
-        const loop = try global_allocator.create(EventLoop);
-        loop.* = try EventLoop.init(global_allocator);
-        global_loop = loop;
-    }
-    return global_loop.?;
-}
-
-/// asyncio.run(coro) - Run coroutine to completion
-pub fn run(allocator: std.mem.Allocator, coro: *runtime.PyObject) !*runtime.PyObject {
+/// Placeholder stubs for async functions (not fully implemented)
+pub fn run(allocator: std.mem.Allocator, coro: anytype) !void {
     _ = allocator;
-    const loop = try getEventLoop();
-
-    // TODO: Execute coroutine
     _ = coro;
-
-    // Run event loop
-    try loop.run();
-
-    // Return None for now
-    return try runtime.PyObject.none(allocator);
 }
 
-/// asyncio.sleep(seconds) - Async sleep
-pub fn sleep(allocator: std.mem.Allocator, seconds: f64) !*runtime.PyObject {
-    const loop = try getEventLoop();
-
-    const delay_ns: i64 = @intFromFloat(seconds * @as(f64, std.time.ns_per_s));
-
-    var completed = false;
-    const callback = struct {
-        fn cb(data: *anyopaque) void {
-            const ptr = @as(*bool, @ptrCast(@alignCast(data)));
-            ptr.* = true;
-        }
-    }.cb;
-
-    try loop.scheduleTimer(delay_ns, callback, &completed);
-
-    // Return None
-    return try runtime.PyObject.none(allocator);
+pub fn sleep(seconds: f64) !void {
+    _ = seconds;
 }
 
-/// asyncio.create_task(coro) - Create task from coroutine
-pub fn createTask(allocator: std.mem.Allocator, coro: *runtime.PyObject) !*runtime.PyObject {
-    const loop = try getEventLoop();
-
-    const callback = struct {
-        fn cb(data: *anyopaque) void {
-            const obj = @as(*runtime.PyObject, @ptrCast(@alignCast(data)));
-            _ = obj;
-            // TODO: Execute coroutine
-        }
-    }.cb;
-
-    try loop.queueTask(callback, coro);
-
-    // Return task object (for now, just return the coro)
-    return coro;
-}
-
-/// asyncio.gather(*awaitables) - Run multiple coroutines concurrently
-pub fn gather(allocator: std.mem.Allocator, awaitables: *runtime.PyList) !*runtime.PyObject {
+pub fn createTask(allocator: std.mem.Allocator, coro: anytype) !void {
     _ = allocator;
-    const loop = try getEventLoop();
-
-    // Queue all awaitables as tasks
-    for (awaitables.items.items) |item| {
-        const callback = struct {
-            fn cb(data: *anyopaque) void {
-                const obj = @as(*runtime.PyObject, @ptrCast(@alignCast(data)));
-                _ = obj;
-                // TODO: Execute awaitable
-            }
-        }.cb;
-
-        try loop.queueTask(callback, item);
-    }
-
-    // Return list of results (TODO: implement properly)
-    return @ptrCast(awaitables);
+    _ = coro;
 }
 
-/// Cleanup asyncio module
-pub fn deinit() void {
-    if (global_loop) |loop| {
-        loop.deinit();
-        global_allocator.destroy(loop);
-        global_loop = null;
-    }
+pub fn gather(tasks: anytype) !void {
+    _ = tasks;
+}
+
+/// asyncio.Queue - Simplified synchronous queue for AOT compilation
+pub fn Queue(comptime T: type) type {
+    return struct {
+        buffer: []T,
+        capacity: usize,
+        head: usize,
+        tail: usize,
+        size: usize,
+        allocator: std.mem.Allocator,
+
+        const Self = @This();
+
+        /// Create queue with maxsize
+        pub fn init(allocator: std.mem.Allocator, maxsize: usize) !*Self {
+            const self = try allocator.create(Self);
+            const buf = try allocator.alloc(T, maxsize);
+            self.* = Self{
+                .buffer = buf,
+                .capacity = maxsize,
+                .head = 0,
+                .tail = 0,
+                .size = 0,
+                .allocator = allocator,
+            };
+            return self;
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.buffer);
+            self.allocator.destroy(self);
+        }
+
+        /// Non-blocking put
+        pub fn put_nowait(self: *Self, item: T) !void {
+            if (self.size >= self.capacity) return error.QueueFull;
+            self.buffer[self.tail] = item;
+            self.tail = (self.tail + 1) % self.capacity;
+            self.size += 1;
+        }
+
+        /// Non-blocking get
+        pub fn get_nowait(self: *Self) !T {
+            if (self.size == 0) return error.QueueEmpty;
+            const item = self.buffer[self.head];
+            self.head = (self.head + 1) % self.capacity;
+            self.size -= 1;
+            return item;
+        }
+
+        /// Check if queue is empty
+        pub fn empty(self: *Self) bool {
+            return self.size == 0;
+        }
+
+        /// Check if queue is full
+        pub fn full(self: *Self) bool {
+            return self.size >= self.capacity;
+        }
+
+        /// Get current queue size
+        pub fn qsize(self: *Self) usize {
+            return self.size;
+        }
+    };
 }
 
 // Tests
-test "asyncio.sleep" {
-    try init(std.testing.allocator);
-    defer deinit();
+test "asyncio.Queue basic" {
+    const testing = std.testing;
+    const IntQueue = Queue(i64);
 
-    const result = try sleep(std.testing.allocator, 0.01);
-    _ = result;
+    var queue = try IntQueue.init(testing.allocator, 10);
+    defer queue.deinit();
+
+    try testing.expect(queue.empty());
+    try testing.expect(!queue.full());
+    try testing.expectEqual(@as(usize, 0), queue.qsize());
+
+    // Put/get
+    try queue.put_nowait(42);
+    try testing.expectEqual(@as(usize, 1), queue.qsize());
+
+    const val = try queue.get_nowait();
+    try testing.expectEqual(@as(i64, 42), val);
+    try testing.expect(queue.empty());
 }

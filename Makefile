@@ -1,4 +1,4 @@
-.PHONY: help build install verify test test-zig test-correctness-full format-zig lint-zig clean run benchmark benchmark-computational
+.PHONY: help build install verify test test-zig test-correctness-full format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler
 
 help:
 	@echo "PyAOT Commands"
@@ -123,3 +123,70 @@ benchmark-computational:
 		'./bench_computational_go' \
 		'./bench_computational_rust' \
 		'python3 examples/bench_computational.py'
+
+benchmark-concurrency:
+	@echo "🔧 Async/Await Concurrency Benchmark"
+	@echo "(M:N scheduled tasks - like Go goroutines)"
+	@echo ""
+	# Check dependencies
+	@command -v go >/dev/null 2>&1 || { echo "❌ go not found. Install: brew install go"; exit 1; }
+	@command -v python3 >/dev/null 2>&1 || { echo "❌ python3 not found. Install: brew install python3"; exit 1; }
+
+	@echo "✅ All dependencies found"
+	@echo ""
+	@echo "🔨 Building benchmarks (RELEASE mode)..."
+
+	# PyAOT (ReleaseFast build!)
+	@echo "  Building PyAOT async (ReleaseFast)..."
+	@zig build -Doptimize=ReleaseFast
+	@./zig-out/bin/pyaot build examples/bench_concurrency.py --binary
+
+	# Go
+	@echo "  Building Go goroutines..."
+	@go build -o bench_concurrency_go examples/bench_concurrency_go.go
+
+	@echo ""
+	@echo "🔥 Running concurrency benchmarks..."
+	@echo ""
+	@echo "=== PyAOT M:N Runtime (10k tasks) ==="
+	@./build/lib.macosx-11.0-arm64/bench_concurrency
+	@echo ""
+	@echo "=== Go Goroutines (10k tasks) ==="
+	@./bench_concurrency_go
+	@echo ""
+	@echo "=== CPython asyncio (10k tasks) ==="
+	@python3 examples/bench_concurrency.py
+
+benchmark-scheduler:
+	@echo "🔧 Asyncio Scheduler Benchmark"
+	@echo "(100k tasks, EventLoop vs Go goroutines)"
+	@echo ""
+	# Check dependencies
+	@command -v hyperfine >/dev/null 2>&1 || { echo "❌ hyperfine not found. Install: brew install hyperfine"; exit 1; }
+	@command -v go >/dev/null 2>&1 || { echo "❌ go not found. Install: brew install go"; exit 1; }
+
+	@echo "✅ Dependencies found"
+	@echo ""
+	@echo "🔨 Building benchmarks (RELEASE mode)..."
+
+	# PyAOT (ReleaseFast)
+	@echo "  Building PyAOT asyncio (ReleaseFast)..."
+	@zig build -Doptimize=ReleaseFast
+	@./zig-out/bin/pyaot build examples/bench_scheduler.py --binary
+
+	# Go
+	@echo "  Building Go goroutines..."
+	@go build -o bench_scheduler_go examples/bench_scheduler_go.go
+
+	@echo ""
+	@echo "🔥 Running scheduler benchmarks..."
+	@echo ""
+	@echo "=== PyAOT EventLoop (100k tasks) ==="
+	@./build/lib.macosx-11.0-arm64/bench_scheduler || echo "Binary location may vary"
+	@echo ""
+	@echo "=== Go Goroutines (100k tasks) ==="
+	@./bench_scheduler_go
+	@echo ""
+	@echo "💡 PyAOT uses EventLoop (single-threaded, cooperative)"
+	@echo "💡 Go uses M:N scheduler (multi-threaded, preemptive)"
+	@echo "💡 EventLoop should be faster for I/O-bound tasks"

@@ -101,6 +101,10 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
                     try async_mod.genAsyncioSleep(self, call.args);
                     return true;
                 }
+                if (std.mem.eql(u8, func_name, "Queue")) {
+                    try async_mod.genAsyncioQueue(self, call.args);
+                    return true;
+                }
             }
 
             // NumPy module functions
@@ -362,6 +366,44 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
         }
         if (std.mem.eql(u8, method_name, "items")) {
             try methods.genItems(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+
+        // Queue methods (asyncio.Queue)
+        if (std.mem.eql(u8, method_name, "put_nowait")) {
+            try self.output.appendSlice(self.allocator, "try ");
+            const parent = @import("expressions.zig");
+            try parent.genExpr(self, call.func.attribute.value.*);
+            try self.output.appendSlice(self.allocator, ".put_nowait(");
+            if (call.args.len > 0) {
+                try parent.genExpr(self, call.args[0]);
+            }
+            try self.output.appendSlice(self.allocator, ")");
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "get_nowait")) {
+            try self.output.appendSlice(self.allocator, "try ");
+            const parent = @import("expressions.zig");
+            try parent.genExpr(self, call.func.attribute.value.*);
+            try self.output.appendSlice(self.allocator, ".get_nowait()");
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "empty")) {
+            const parent = @import("expressions.zig");
+            try parent.genExpr(self, call.func.attribute.value.*);
+            try self.output.appendSlice(self.allocator, ".empty()");
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "full")) {
+            const parent = @import("expressions.zig");
+            try parent.genExpr(self, call.func.attribute.value.*);
+            try self.output.appendSlice(self.allocator, ".full()");
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "qsize")) {
+            const parent = @import("expressions.zig");
+            try parent.genExpr(self, call.func.attribute.value.*);
+            try self.output.appendSlice(self.allocator, ".qsize()");
             return true;
         }
 
