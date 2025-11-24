@@ -553,7 +553,23 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
   - Data pipelines (5-10x faster via right-sized buffers + fast paths)
   - AI inference (2x faster for common prompts via layer pruning)
 
-**Phase 4: Advanced**
+**Phase 4: Dynamic Features (Self-Hosting)**
+- [ ] `eval()` and `exec()` support via AST executor
+  - **Architecture:** Reuse existing parser/runtime, skip codegen
+  - Parse string → AST → Execute directly (call existing runtime functions)
+  - Works in WASM + Native (no JIT needed)
+  - Binary size: +200KB for AST executor
+  - Performance: 2-5x faster than CPython (interpreted), static code unchanged (8-40x)
+  - Reuses 100% of existing runtime (512 C API functions, all stdlib modules)
+- [ ] `importlib.import_module()` support
+  - Dynamic module loading at runtime
+  - Compile-on-demand for pure Python modules
+  - Direct C library calls for extension modules
+- [ ] `compile()` support
+  - Compile Python strings to executable AST
+  - Cache compiled AST for repeated execution
+
+**Phase 5: Advanced**
 - [ ] WebAssembly target
 - [ ] Goroutines and channels
 - [ ] REPL
@@ -650,12 +666,24 @@ pyaot/
 ```
 
 **Compilation Pipeline:**
+
+**Static Code (AOT):**
 1. **Lexer**: Python source → Tokens
 2. **Parser**: Tokens → AST (native Zig structures)
 3. **Type Inference**: Analyze types for optimization
 4. **Comptime Evaluation**: Constant folding, compile-time evaluation
 5. **Codegen**: AST → Zig source code (with library mappings)
-6. **Zig Compiler**: Zig code → Native binary
+6. **Zig Compiler**: Zig code → Native binary (8-40x faster)
+
+**Dynamic Code (eval/exec) - Planned:**
+1. **Lexer**: Python string → Tokens (reuse existing)
+2. **Parser**: Tokens → AST (reuse existing)
+3. **AST Executor**: Execute AST directly, calling existing runtime functions
+   - No codegen needed (skip steps 3-6)
+   - Calls same 512 runtime functions as compiled code
+   - Works in WASM + Native
+   - +200KB binary size
+   - 2-5x faster than CPython (vs 8-40x for static code)
 
 ## Development
 

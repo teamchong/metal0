@@ -24,6 +24,18 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
             const module_name = attr.value.name.id;
             const func_name = attr.attr;
 
+            // Check for importlib.import_module() (defensive - import already blocked)
+            if (std.mem.eql(u8, module_name, "importlib") and
+                std.mem.eql(u8, func_name, "import_module"))
+            {
+                std.debug.print("\nError: importlib.import_module() not supported in AOT compilation\n", .{});
+                std.debug.print("   |\n", .{});
+                std.debug.print("   = PyAOT resolves all imports at compile time\n", .{});
+                std.debug.print("   = Dynamic runtime module loading not supported\n", .{});
+                std.debug.print("   = Suggestion: Use static imports (import json) instead\n", .{});
+                return error.OutOfMemory;
+            }
+
             // Build full function name (e.g., "numpy.sum")
             var full_name_buf: [256]u8 = undefined;
             const full_name = std.fmt.bufPrint(
@@ -397,10 +409,41 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
             try builtins.genIsinstance(self, call.args);
             return true;
         }
+
+        // Dynamic features - emit user-friendly errors
+        if (std.mem.eql(u8, func_name, "eval") or
+            std.mem.eql(u8, func_name, "exec") or
+            std.mem.eql(u8, func_name, "compile") or
+            std.mem.eql(u8, func_name, "__import__"))
+        {
+            reportDynamicFeatureError(func_name);
+            return error.OutOfMemory; // Abort compilation
+        }
     }
 
     // No dispatch handler found - use fallback
     return false;
+}
+
+/// Report user-friendly error for dynamic features not supported in AOT
+fn reportDynamicFeatureError(func_name: []const u8) void {
+    std.debug.print("\n", .{});
+    std.debug.print("Error: {s}() not supported in AOT compilation\n", .{func_name});
+    std.debug.print("\n", .{});
+
+    // Emit specific error message based on function
+    if (std.mem.eql(u8, func_name, "eval") or std.mem.eql(u8, func_name, "exec") or std.mem.eql(u8, func_name, "compile")) {
+        std.debug.print("  PyAOT compiles to native code ahead-of-time.\n", .{});
+        std.debug.print("  {s}() requires Python runtime at execution time.\n", .{func_name});
+        std.debug.print("\n", .{});
+        std.debug.print("  Suggestion: Use compile-time constants or refactor code.\n", .{});
+    } else if (std.mem.eql(u8, func_name, "__import__")) {
+        std.debug.print("  PyAOT resolves all imports at compile time.\n", .{});
+        std.debug.print("  Dynamic runtime module loading not supported.\n", .{});
+        std.debug.print("\n", .{});
+        std.debug.print("  Suggestion: Use static imports (import module_name).\n", .{});
+    }
+    std.debug.print("\n", .{});
 }
 
 /// Generate direct C library call (zero PyObject* overhead)
