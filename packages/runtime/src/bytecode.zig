@@ -4,6 +4,7 @@ const std = @import("std");
 const ast_executor = @import("ast_executor.zig");
 const PyObject = @import("runtime.zig").PyObject;
 const PyInt = @import("pyint.zig").PyInt;
+const PyBool = @import("pybool.zig").PyBool;
 
 /// Bytecode instruction opcodes
 pub const OpCode = enum(u8) {
@@ -275,6 +276,13 @@ pub const VM = struct {
                 .Mod => try self.binaryOp(.Mod),
                 .Pow => try self.binaryOp(.Pow),
 
+                .Eq => try self.compareOp(.Eq),
+                .NotEq => try self.compareOp(.NotEq),
+                .Lt => try self.compareOp(.Lt),
+                .Gt => try self.compareOp(.Gt),
+                .LtE => try self.compareOp(.LtE),
+                .GtE => try self.compareOp(.GtE),
+
                 .Return => {
                     if (self.stack.items.len == 0) return error.EmptyStack;
                     return self.stack.pop() orelse return error.EmptyStack;
@@ -311,6 +319,29 @@ pub const VM = struct {
         };
 
         const result = try PyInt.create(self.allocator, result_val);
+        try self.stack.append(self.allocator, result);
+    }
+
+    fn compareOp(self: *VM, op: OpCode) !void {
+        if (self.stack.items.len < 2) return error.StackUnderflow;
+
+        const right = self.stack.pop() orelse return error.StackUnderflow;
+        const left = self.stack.pop() orelse return error.StackUnderflow;
+
+        const left_val = PyInt.getValue(left);
+        const right_val = PyInt.getValue(right);
+
+        const result_val: bool = switch (op) {
+            .Eq => left_val == right_val,
+            .NotEq => left_val != right_val,
+            .Lt => left_val < right_val,
+            .Gt => left_val > right_val,
+            .LtE => left_val <= right_val,
+            .GtE => left_val >= right_val,
+            else => return error.UnsupportedOp,
+        };
+
+        const result = try PyBool.create(self.allocator, result_val);
         try self.stack.append(self.allocator, result);
     }
 };

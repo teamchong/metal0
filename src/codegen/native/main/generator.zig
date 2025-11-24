@@ -100,6 +100,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     if (analysis.needs_string_utils) {
         try self.emit("const string_utils = @import(\"string_utils.zig\");\n");
     }
+    if (analysis.needs_hashmap_helper) {
+        try self.emit("const hashmap_helper = @import(\"./utils/hashmap_helper.zig\");\n");
+    }
 
     // PHASE 3.5: Generate C library imports (if any detected)
     if (self.import_ctx) |ctx| {
@@ -355,6 +358,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("const runtime = @import(\"./runtime.zig\");\n");
         if (analysis.needs_string_utils) {
             try self.emit("const string_utils = @import(\"string_utils.zig\");\n");
+        }
+        if (analysis.needs_hashmap_helper) {
+            try self.emit("const hashmap_helper = @import(\"./utils/hashmap_helper.zig\");\n");
         }
         try self.emit("\n");
 

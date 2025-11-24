@@ -11,6 +11,7 @@ pub const ModuleAnalysis = struct {
     needs_allocator: bool = false,
     needs_runtime: bool = false,
     needs_string_utils: bool = false,
+    needs_hashmap_helper: bool = false,
 
     /// Merge two analyses
     pub fn merge(self: *ModuleAnalysis, other: ModuleAnalysis) void {
@@ -20,6 +21,7 @@ pub const ModuleAnalysis = struct {
         self.needs_allocator = self.needs_allocator or other.needs_allocator;
         self.needs_runtime = self.needs_runtime or other.needs_runtime;
         self.needs_string_utils = self.needs_string_utils or other.needs_string_utils;
+        self.needs_hashmap_helper = self.needs_hashmap_helper or other.needs_hashmap_helper;
     }
 };
 
@@ -266,6 +268,7 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
         .dict => |dict| {
             // Dicts need allocator for HashMap.init()
             analysis.needs_allocator = true;
+            analysis.needs_hashmap_helper = true;
 
             for (dict.keys) |key| {
                 const key_analysis = try analyzeExpr(key);
@@ -296,6 +299,7 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
         .dictcomp => |dictcomp| {
             // Dict comprehensions need allocator for HashMap operations
             analysis.needs_allocator = true;
+            analysis.needs_hashmap_helper = true;
 
             const key_analysis = try analyzeExpr(dictcomp.key.*);
             analysis.merge(key_analysis);

@@ -321,7 +321,7 @@ pub fn formatPyObject(obj: *PyObject, allocator: std.mem.Allocator) ![]const u8 
     return switch (obj.type_id) {
         .string => blk: {
             const str_data: *PyString = @ptrCast(@alignCast(obj.data));
-            break :blk str_data.data;
+            break :blk try allocator.dupe(u8, str_data.data);
         },
         .int => blk: {
             const int_data: *PyInt = @ptrCast(@alignCast(obj.data));
@@ -335,7 +335,8 @@ pub fn formatPyObject(obj: *PyObject, allocator: std.mem.Allocator) ![]const u8 
         },
         .bool => blk: {
             const bool_data: *PyBool = @ptrCast(@alignCast(obj.data));
-            break :blk if (bool_data.value) "True" else "False";
+            const str = if (bool_data.value) "True" else "False";
+            break :blk try allocator.dupe(u8, str);
         },
         .dict => blk: {
             const dict_data: *PyDict = @ptrCast(@alignCast(obj.data));
@@ -372,7 +373,7 @@ pub fn formatPyObject(obj: *PyObject, allocator: std.mem.Allocator) ![]const u8 
             try buf.appendSlice(allocator, "}");
             break :blk try buf.toOwnedSlice(allocator);
         },
-        else => "<object>",
+        else => try allocator.dupe(u8, "<object>"),
     };
 }
 
