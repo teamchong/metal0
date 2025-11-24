@@ -67,4 +67,56 @@ pub fn build(b: *std.Build) void {
     const run_runtime_tests = b.addRunArtifact(runtime_tests);
     const test_step = b.step("test-zig", "Run Zig runtime unit tests");
     test_step.dependOn(&run_runtime_tests.step);
+
+    // Green thread runtime modules
+    const green_thread_module = b.createModule(.{
+        .root_source_file = b.path("packages/runtime/src/green_thread.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const work_queue_module = b.createModule(.{
+        .root_source_file = b.path("packages/runtime/src/work_queue.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    work_queue_module.addImport("green_thread", green_thread_module);
+
+    const scheduler_module = b.createModule(.{
+        .root_source_file = b.path("packages/runtime/src/scheduler.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    scheduler_module.addImport("green_thread", green_thread_module);
+    scheduler_module.addImport("work_queue", work_queue_module);
+
+    // Goroutine tests
+    const goroutine_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/test_goroutines.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    goroutine_tests.root_module.addImport("scheduler", scheduler_module);
+    goroutine_tests.root_module.addImport("green_thread", green_thread_module);
+
+    const run_goroutine_tests = b.addRunArtifact(goroutine_tests);
+    const goroutine_test_step = b.step("test-goroutines", "Run goroutine runtime tests");
+    goroutine_test_step.dependOn(&run_goroutine_tests.step);
+
+    // Basic goroutine tests (smaller, faster)
+    const goroutine_basic_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/test_goroutines_basic.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    goroutine_basic_tests.root_module.addImport("scheduler", scheduler_module);
+    goroutine_basic_tests.root_module.addImport("green_thread", green_thread_module);
+
+    const run_goroutine_basic_tests = b.addRunArtifact(goroutine_basic_tests);
+    const goroutine_basic_test_step = b.step("test-goroutines-basic", "Run basic goroutine tests");
+    goroutine_basic_test_step.dependOn(&run_goroutine_basic_tests.step);
 }

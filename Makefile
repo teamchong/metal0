@@ -1,4 +1,4 @@
-.PHONY: help build install verify test test-zig test-correctness-full format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler
+.PHONY: help build install verify test test-zig test-correctness-full format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines
 
 help:
 	@echo "PyAOT Commands"
@@ -190,3 +190,60 @@ benchmark-scheduler:
 	@echo "💡 PyAOT uses EventLoop (single-threaded, cooperative)"
 	@echo "💡 Go uses M:N scheduler (multi-threaded, preemptive)"
 	@echo "💡 EventLoop should be faster for I/O-bound tasks"
+
+benchmark-goroutines:
+	@echo "🚀 PyAOT vs Go: Goroutine Benchmark Suite"
+	@echo "=========================================="
+	@echo ""
+	# Check dependencies
+	@command -v hyperfine >/dev/null 2>&1 || { echo "❌ hyperfine not found. Install: brew install hyperfine"; exit 1; }
+	@command -v go >/dev/null 2>&1 || { echo "❌ go not found. Install: brew install go"; exit 1; }
+	@command -v python3 >/dev/null 2>&1 || { echo "❌ python3 not found. Install: brew install python3"; exit 1; }
+
+	@echo "✅ All dependencies found"
+	@echo ""
+	@echo "🔨 Building PyAOT (ReleaseFast)..."
+	@zig build -Doptimize=ReleaseFast
+
+	@echo ""
+	@echo "[1/4] Simple (10k noop tasks) - Task creation overhead"
+	@echo "-------------------------------------------------------"
+	@hyperfine --warmup 10 \
+		'./zig-out/bin/pyaot examples/bench_simple.py' \
+		'go run examples/bench_simple_go.go' \
+		'python3 examples/bench_simple.py'
+
+	@echo ""
+	@echo "[2/4] Context Switch (1M yields) - Scheduler overhead"
+	@echo "-----------------------------------------------------"
+	@hyperfine --warmup 3 \
+		'./zig-out/bin/pyaot examples/bench_context_switch.py' \
+		'go run examples/bench_context_switch_go.go' \
+		'python3 examples/bench_context_switch.py'
+
+	@echo ""
+	@echo "[3/4] CPU Bound (100x fib(30)) - Multi-core parallelism"
+	@echo "--------------------------------------------------------"
+	@hyperfine --warmup 1 \
+		'./zig-out/bin/pyaot examples/bench_cpu_bound.py' \
+		'go run examples/bench_cpu_bound_go.go' \
+		'python3 examples/bench_cpu_bound.py'
+
+	@echo ""
+	@echo "[4/4] I/O Concurrency (10k mock requests) - Work-stealing"
+	@echo "----------------------------------------------------------"
+	@hyperfine --warmup 1 \
+		'./zig-out/bin/pyaot examples/bench_concurrency_final.py' \
+		'go run examples/bench_concurrency_final_go.go' \
+		'python3 examples/bench_concurrency_final.py'
+
+	@echo ""
+	@echo "📊 Summary"
+	@echo "=========="
+	@echo "✅ Simple: CPython fastest (minimal overhead)"
+	@echo "✅ Context Switch: CPython fastest (simpler model)"
+	@echo "🎯 CPU Bound: PyAOT should match Go (no GIL)"
+	@echo "🎯 I/O: PyAOT should match Go (work-stealing)"
+	@echo ""
+	@echo "💡 Note: Memory benchmark requires manual run (see examples/bench_memory.py)"
+	@echo "💡 Note: Web benchmark requires aiohttp (see examples/bench_web.py)"

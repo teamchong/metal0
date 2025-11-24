@@ -5,29 +5,45 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 /// Generate code for asyncio.run(main())
-/// Maps to: runtime.asyncio.run(allocator, main_coro)
+/// Maps to: initialize scheduler, spawn main, wait for completion
 pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // TODO: Error handling
         return;
     }
 
-    try self.output.appendSlice(self.allocator, "try runtime.asyncio.run(allocator, ");
-    try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ")");
+    try self.output.appendSlice(self.allocator, "{\n");
+    try self.output.appendSlice(self.allocator, "    const __num_threads = std.Thread.getCpuCount() catch 8;\n");
+    try self.output.appendSlice(self.allocator, "    runtime.scheduler = try runtime.Scheduler.init(allocator, __num_threads);\n");
+    try self.output.appendSlice(self.allocator, "    defer runtime.scheduler.shutdown();\n");
+    try self.output.appendSlice(self.allocator, "    const __main_thread = ");
+    try self.genExpr(args[0]); // This calls foo_async() which spawns
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    try runtime.scheduler.wait(__main_thread);\n");
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for asyncio.gather(*tasks)
-/// Maps to: runtime.asyncio.gather(tasks)
+/// Maps to: spawn all, wait for all
 pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // Generate array of tasks
-    try self.output.appendSlice(self.allocator, "try runtime.asyncio.gather(&[_]*runtime.asyncio.Task{");
+    try self.output.appendSlice(self.allocator, "(blk: {\n");
+    try self.output.appendSlice(self.allocator, "    var __threads = std.ArrayList(*runtime.GreenThread).init(allocator);\n");
+    try self.output.appendSlice(self.allocator, "    defer __threads.deinit();\n");
 
-    for (args, 0..) |arg, i| {
-        if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+    // Spawn all tasks
+    for (args) |arg| {
+        try self.output.appendSlice(self.allocator, "    try __threads.append(");
         try self.genExpr(arg);
+        try self.output.appendSlice(self.allocator, ");\n");
     }
 
+    // Wait for all and collect results
+    try self.output.appendSlice(self.allocator, "    var __results = std.ArrayList(runtime.PyValue).init(allocator);\n");
+    try self.output.appendSlice(self.allocator, "    for (__threads.items) |__t| {\n");
+    try self.output.appendSlice(self.allocator, "        try runtime.scheduler.wait(__t);\n");
+    try self.output.appendSlice(self.allocator, "        try __results.append(__t.result orelse runtime.PyValue{.none = {}});\n");
+    try self.output.appendSlice(self.allocator, "    }\n");
+    try self.output.appendSlice(self.allocator, "    break :blk __results.items;\n");
     try self.output.appendSlice(self.allocator, "})");
 }
 
@@ -45,16 +61,20 @@ pub fn genAsyncioCreateTask(self: *NativeCodegen, args: []ast.Node) CodegenError
 }
 
 /// Generate code for asyncio.sleep(seconds)
-/// Maps to: runtime.asyncio.sleep(seconds)
+/// Maps to: sleep + yield to scheduler
 pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // TODO: Error handling
         return;
     }
 
-    try self.output.appendSlice(self.allocator, "try runtime.asyncio.sleep(");
+    try self.output.appendSlice(self.allocator, "{\n");
+    try self.output.appendSlice(self.allocator, "    const __duration_ns = @as(i64, @intFromFloat(");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ")");
+    try self.output.appendSlice(self.allocator, " * 1_000_000_000));\n");
+    try self.output.appendSlice(self.allocator, "    std.time.sleep(@intCast(__duration_ns));\n");
+    try self.output.appendSlice(self.allocator, "    runtime.scheduler.yield();\n");
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for asyncio.Queue(maxsize)

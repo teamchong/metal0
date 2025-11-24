@@ -125,26 +125,20 @@ pub fn genFunctionSignature(
     try genReturnType(self, func, needs_allocator);
 }
 
-/// Generate async function signature that returns a Task
+/// Generate async function signature that spawns green threads
 fn genAsyncFunctionSignature(
     self: *NativeCodegen,
     func: ast.Node.FunctionDef,
     needs_allocator: bool,
 ) CodegenError!void {
     _ = needs_allocator; // Async functions always need allocator
-    // async def foo() returns runtime.async_runtime.Task
+
+    // Generate wrapper function that spawns green thread
     try self.emit("fn ");
     try self.emit(func.name);
-    try self.emit("(");
+    try self.emit("_async(");
 
-    // Async functions ALWAYS need allocator for task spawning
-    try self.emit("allocator: std.mem.Allocator");
-
-    if (func.args.len > 0) {
-        try self.emit(", ");
-    }
-
-    // Generate parameters
+    // Generate parameters for wrapper
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
         try self.emit(arg.name);
@@ -158,7 +152,52 @@ fn genAsyncFunctionSignature(
         }
     }
 
-    try self.emit(") !runtime.async_runtime.Task {\n");
+    try self.emit(") !*runtime.GreenThread {\n");
+    try self.emit("    return try runtime.scheduler.spawn(");
+    try self.emit(func.name);
+    try self.emit("_impl, .{");
+
+    // Pass parameters to implementation
+    for (func.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try self.emit(arg.name);
+    }
+
+    try self.emit("});\n");
+    try self.emit("}\n\n");
+
+    // Generate implementation function
+    try self.emit("fn ");
+    try self.emit(func.name);
+    try self.emit("_impl(");
+
+    // Generate parameters for implementation
+    for (func.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try self.emit(arg.name);
+        try self.emit(": ");
+
+        if (arg.type_annotation) |_| {
+            const zig_type = pythonTypeToZig(arg.type_annotation);
+            try self.emit(zig_type);
+        } else {
+            try self.emit("i64");
+        }
+    }
+
+    try self.emit(") !");
+
+    // Determine return type for implementation
+    if (func.return_type) |_| {
+        const zig_return_type = pythonTypeToZig(func.return_type);
+        try self.emit(zig_return_type);
+    } else if (hasReturnStatement(func.body)) {
+        try self.emit("i64");
+    } else {
+        try self.emit("void");
+    }
+
+    try self.emit(" {\n");
 }
 
 /// Generate return type for function signature

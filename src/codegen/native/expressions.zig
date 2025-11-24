@@ -60,10 +60,14 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
 
 /// Generate await expression
 fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!void {
-    // await task() -> runtime.async_runtime.wait(task())
-    try self.output.appendSlice(self.allocator, "runtime.async_runtime.wait(");
+    // await expr → wait for green thread and get result
+    try self.output.appendSlice(self.allocator, "(blk: {\n");
+    try self.output.appendSlice(self.allocator, "    const __thread = ");
     try genExpr(self, await_node.value.*);
-    try self.output.appendSlice(self.allocator, ")");
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    try runtime.scheduler.wait(__thread);\n");
+    try self.output.appendSlice(self.allocator, "    break :blk __thread.result orelse unreachable;\n");
+    try self.output.appendSlice(self.allocator, "})");
 }
 
 /// Convert Python format specifier to Zig format specifier
