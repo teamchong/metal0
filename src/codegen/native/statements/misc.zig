@@ -373,7 +373,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 .float => "{s}", // Use formatFloat for Python-style float printing
                 .bool => "{s}", // formatAny() returns string for bool
                 .string => "{s}",
-                .unknown => "{s}", // PyObjects - use formatPyObject
+                .unknown => "{any}", // Unknown types - let Zig infer format
                 else => "{any}", // Other types - let Zig handle them
             };
             try self.output.appendSlice(self.allocator, fmt);
@@ -385,19 +385,17 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         try self.output.appendSlice(self.allocator, "\\n\", .{");
 
-        // Generate arguments - wrap bools and PyObjects with formatter
+        // Generate arguments - wrap bools only, use native types directly
         for (args, 0..) |arg, i| {
             const arg_type = try self.type_inferrer.inferExpr(arg);
             if (arg_type == .bool) {
                 try self.output.appendSlice(self.allocator, "runtime.formatAny(");
                 try self.genExpr(arg);
                 try self.output.appendSlice(self.allocator, ")");
-            } else if (arg_type == .unknown) {
-                // PyObjects - format them properly
-                try self.output.appendSlice(self.allocator, "try runtime.formatPyObject(");
-                try self.genExpr(arg);
-                try self.output.appendSlice(self.allocator, ", allocator)");
             } else {
+                // For all other types (including .unknown), use directly
+                // Native types are already correctly typed
+                // Unknown types will be handled by Zig's {any} formatter
                 try self.genExpr(arg);
             }
             if (i < args.len - 1) {

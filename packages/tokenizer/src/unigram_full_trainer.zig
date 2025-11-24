@@ -360,23 +360,37 @@ pub const UnigramTrainer = struct {
             }
         } else {
             // No cache - create lattices fresh with arena allocator for performance
+            var total_init_ns: i128 = 0;
+            var total_populate_ns: i128 = 0;
+            var total_marginal_ns: i128 = 0;
+
             for (sentences) |sentence| {
                 // Use arena allocator for node allocations (1.2-2x faster)
                 var arena = std.heap.ArenaAllocator.init(self.allocator);
                 defer arena.deinit();
 
+                const t0 = std.time.nanoTimestamp();
                 var lattice = try Lattice.initWithArena(self.allocator, sentence.text, model.bos_id, model.eos_id, &arena);
                 defer lattice.deinit();
+                const t1 = std.time.nanoTimestamp();
+                total_init_ns += t1 - t0;
 
                 try model.populateNodes(&lattice);
+                const t2 = std.time.nanoTimestamp();
+                total_populate_ns += t2 - t1;
 
                 const z = try lattice.populateMarginal(@floatFromInt(sentence.count), expected);
                 if (std.math.isNan(z)) {
                     return error.NanLikelihood;
                 }
+                const t3 = std.time.nanoTimestamp();
+                total_marginal_ns += t3 - t2;
 
                 objs -= z / @as(f64, @floatFromInt(all_sentence_freq));
             }
+
+            std.debug.print("[E-STEP PROFILE] init={d}ms populate={d}ms marginal={d}ms\n",
+                .{@divFloor(total_init_ns, 1_000_000), @divFloor(total_populate_ns, 1_000_000), @divFloor(total_marginal_ns, 1_000_000)});
         }
 
         return .{ objs, expected };
