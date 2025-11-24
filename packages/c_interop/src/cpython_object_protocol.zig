@@ -300,56 +300,36 @@ export fn PyObject_Hash(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 // ============================================================================
-// TEST STUBS (for unit testing only)
-// ============================================================================
-
-// Stub implementations for testing
-fn Py_INCREF_stub(obj: *cpython.PyObject) callconv(.c) void {
-    obj.ob_refcnt += 1;
-}
-fn Py_DECREF_stub(obj: *cpython.PyObject) callconv(.c) void {
-    obj.ob_refcnt -= 1;
-}
-fn PyErr_SetString_stub(exc: *cpython.PyObject, msg: [*:0]const u8) callconv(.c) void {
-    _ = exc;
-    _ = msg;
-}
-fn PyErr_Occurred_stub() callconv(.c) ?*cpython.PyObject {
-    return null;
-}
-fn PyUnicode_FromString_stub(str: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    _ = str;
-    return null;
-}
-
-comptime {
-    if (@import("builtin").is_test) {
-        @export(Py_INCREF_stub, .{ .name = "Py_INCREF", .linkage = .strong });
-        @export(Py_DECREF_stub, .{ .name = "Py_DECREF", .linkage = .strong });
-        @export(PyErr_SetString_stub, .{ .name = "PyErr_SetString", .linkage = .strong });
-        @export(PyErr_Occurred_stub, .{ .name = "PyErr_Occurred", .linkage = .strong });
-        @export(PyUnicode_FromString_stub, .{ .name = "PyUnicode_FromString", .linkage = .strong });
-
-        // Create stub exception objects
-        var PyExc_TypeError_stub = cpython.PyObject{ .ob_refcnt = 1, .ob_type = undefined };
-        var PyExc_AttributeError_stub = cpython.PyObject{ .ob_refcnt = 1, .ob_type = undefined };
-        @export(&PyExc_TypeError_stub, .{ .name = "PyExc_TypeError", .linkage = .strong });
-        @export(&PyExc_AttributeError_stub, .{ .name = "PyExc_AttributeError", .linkage = .strong });
-    }
-}
-
-// ============================================================================
 // TESTS
 // ============================================================================
 
-test "PyObject protocol basic structure" {
+test "PyObject protocol functions exist" {
     const testing = std.testing;
 
-    // Verify that functions are exported
-    // Actual functionality tests require full type implementation
-    _ = PyObject_Call;
-    _ = PyObject_GetAttr;
-    _ = PyObject_Hash;
+    // Verify that all functions are defined and can be referenced
+    // Actual functionality tests require linking with full CPython implementation
+    const funcs = .{
+        PyObject_Call,
+        PyObject_CallObject,
+        PyObject_GetAttr,
+        PyObject_GetAttrString,
+        PyObject_SetAttr,
+        PyObject_SetAttrString,
+        PyObject_HasAttr,
+        PyObject_HasAttrString,
+        PyObject_Str,
+        PyObject_Repr,
+        PyObject_Type,
+        PyObject_IsTrue,
+        PyObject_Not,
+        PyObject_RichCompare,
+        PyObject_Hash,
+    };
+
+    // 15 functions total
+    inline for (funcs) |func| {
+        _ = func;
+    }
 
     try testing.expect(true);
 }
