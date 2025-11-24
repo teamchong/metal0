@@ -142,6 +142,43 @@ print(words[0])  # Hello
 # String methods: upper, lower, split, strip, replace, find, count
 ```
 
+### 5. Module Imports
+
+Import and use local Python modules - compiled recursively.
+
+**mymodule.py:**
+```python
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+def add(a: int, b: int) -> int:
+    return a + b
+
+VERSION = "1.0.0"
+```
+
+**main.py:**
+```python
+import mymodule
+
+result = mymodule.greet("World")
+print(result)  # Hello, World!
+
+num = mymodule.add(5, 3)
+print(num)  # 8
+
+print("Version:", mymodule.VERSION)  # Version: 1.0.0
+```
+
+**Compile:**
+```bash
+pyaot main.py --binary
+# Scans imports recursively
+# Compiles mymodule.py → .build/mymodule.zig
+# Compiles main.py → .build/main.zig
+# Links everything → single binary
+```
+
 ## Performance
 
 Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM64 (Apple Silicon).
@@ -452,14 +489,22 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 - ✅ F-strings (full lexer → parser → codegen)
 - ✅ Lambdas and closures
 
-**Import System (NEW!):**
+**Import System (Bun-style Compilation):**
+- ✅ Recursive import scanning - discovers all dependencies
+- ✅ Per-module compilation - each `.py` compiles to `.zig`
 - ✅ Local module imports (`import mymodule`)
 - ✅ Package support with `__init__.py`
 - ✅ Nested submodules (`package.submod.function()`)
-- ✅ Site-packages discovery
-- ✅ Stdlib discovery
-- ✅ Single-file bundling (Bun-style nested structs)
-- ✅ Variable type tracking from module calls
+- ✅ Module constants exported (`VERSION`, `__name__`)
+- ✅ Site-packages and stdlib discovery
+- ✅ Zero runtime overhead - pure static linking
+
+**How it works:**
+1. Scanner finds all `import` statements recursively
+2. Each module compiles to `.build/module_name.zig`
+3. Main file uses `@import("./module.zig")` to link
+4. Zig compiler optimizes the entire graph
+5. Single native binary output
 
 **Data Types:**
 - ✅ Lists (literals, indexing, slicing, comprehensions)
