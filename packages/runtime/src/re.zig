@@ -3,10 +3,9 @@
 const std = @import("std");
 const runtime = @import("runtime.zig");
 
-// Import the regex engine from packages/regex
-// Note: This assumes regex package is in the import path
-// For now, we'll use a relative path until build.zig is updated
-const regex_impl = @import("../../regex/src/pyregex/regex.zig");
+// Import the regex engine
+// When copied to .build/, the path is ./regex/src/pyregex/regex.zig
+const regex_impl = @import("regex/src/pyregex/regex.zig");
 
 pub const Regex = regex_impl.Regex;
 pub const Match = regex_impl.Match;

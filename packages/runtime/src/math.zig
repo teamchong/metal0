@@ -197,12 +197,12 @@ pub fn copysign(x: f64, y: f64) f64 {
 }
 
 /// Conversion
-pub fn degrees(radians: f64) f64 {
-    return radians * (180.0 / std.math.pi);
+pub fn degrees(rad: f64) f64 {
+    return rad * (180.0 / std.math.pi);
 }
 
-pub fn radians(degrees_val: f64) f64 {
-    return degrees_val * (std.math.pi / 180.0);
+pub fn radians(deg: f64) f64 {
+    return deg * (std.math.pi / 180.0);
 }
 
 /// Error function (erf) and complementary error function (erfc)
