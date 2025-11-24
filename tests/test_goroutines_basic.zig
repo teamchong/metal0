@@ -26,6 +26,7 @@ test "spawn 100 green threads" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 4);
+    try sched.start();
     defer sched.deinit();
 
     var counter: usize = 0;
@@ -52,6 +53,7 @@ test "spawn 1000 green threads" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 8);
+    try sched.start();
     defer sched.deinit();
 
     var counter: usize = 0;
@@ -78,6 +80,7 @@ test "concurrent increments with work" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 4);
+    try sched.start();
     defer sched.deinit();
 
     var shared_counter: usize = 0;
@@ -130,6 +133,7 @@ test "work stealing with multiple queues" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 4);
+    try sched.start();
     defer sched.deinit();
 
     var counters = [_]std.atomic.Value(usize){

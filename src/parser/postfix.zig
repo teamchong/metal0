@@ -318,7 +318,7 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
             .Await => {
                 _ = self.advance();
                 const value_ptr = try self.allocator.create(ast.Node);
-                value_ptr.* = try parsePrimary(self);
+                value_ptr.* = try parsePostfix(self);
                 return ast.Node{
                     .await_expr = .{
                         .value = value_ptr,
