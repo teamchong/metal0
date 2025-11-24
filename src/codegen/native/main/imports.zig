@@ -130,6 +130,7 @@ fn compileModuleAsStructWithPrefix(
                     try std.fmt.allocPrint(allocator, "{s}.{s}.{s}", .{ prefix, module_name, func.name })
                 else
                     try std.fmt.allocPrint(allocator, "{s}.{s}", .{ module_name, func.name });
+
                 try type_inf.func_return_types.put(qualified_name, return_type);
                 // Note: qualified_name is kept allocated for the lifetime of the map
             }

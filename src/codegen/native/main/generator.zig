@@ -10,6 +10,12 @@ const statements = @import("../statements.zig");
 const expressions = @import("../expressions.zig");
 const import_resolver = @import("../../../import_resolver.zig");
 
+// Comptime constants for code generation (zero runtime cost)
+const BUILD_DIR = ".build";
+const MODULE_EXT = ".zig";
+const IMPORT_PREFIX = "./";
+const MAIN_NAME = "__main__";
+
 /// Generate native Zig code for module
 pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 1: Analyze module to determine requirements
@@ -36,11 +42,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // Generate @import() statements for compiled modules
     for (imported_modules.items) |mod_name| {
         // Skip if external module (no .build/ file)
-        const import_path = try std.fmt.allocPrint(self.allocator, "./{s}.zig", .{mod_name});
+        const import_path = try std.fmt.allocPrint(self.allocator, IMPORT_PREFIX ++ "{s}" ++ MODULE_EXT, .{mod_name});
         defer self.allocator.free(import_path);
 
-        // Check if module was compiled to .build/
-        const build_path = try std.fmt.allocPrint(self.allocator, ".build/{s}.zig", .{mod_name});
+        // Check if module was compiled to .build/ (uses comptime constants)
+        const build_path = try std.fmt.allocPrint(self.allocator, BUILD_DIR ++ "/{s}" ++ MODULE_EXT, .{mod_name});
         defer self.allocator.free(build_path);
 
         std.fs.cwd().access(build_path, .{}) catch {
