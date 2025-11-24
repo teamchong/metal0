@@ -20,6 +20,7 @@ const import_scanner = @import("../import_scanner.zig");
 fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8) ![]const u8 {
     const arch = utils.getArch();
     const platform_dir = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}", .{arch});
+    defer allocator.free(platform_dir);
 
     // Create build directory
     std.fs.cwd().makePath(platform_dir) catch |err| {
@@ -278,6 +279,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         // Create build/lib.{platform}/ directory (industry standard)
         const arch = utils.getArch();
         const platform_dir = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}", .{arch});
+        defer allocator.free(platform_dir);
 
         std.fs.cwd().makePath(platform_dir) catch |err| {
             if (err != error.PathAlreadyExists) return err;

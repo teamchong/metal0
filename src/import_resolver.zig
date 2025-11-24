@@ -313,7 +313,7 @@ fn isBuiltinModule(module_name: []const u8) bool {
         "json",    "http",    "asyncio",  "re",
         "numpy",   "sqlite3", "zlib",     "ssl",
         "pathlib", "urllib",  "datetime", "importlib",
-        "sys",
+        "sys",     "time",
     };
     for (builtins) |builtin_module| {
         if (std.mem.eql(u8, module_name, builtin_module)) {

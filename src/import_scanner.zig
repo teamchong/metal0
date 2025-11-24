@@ -145,6 +145,7 @@ fn extractImports(allocator: std.mem.Allocator, source: []const u8) ![][]const u
         // If parsing fails, return empty list
         return imports.toOwnedSlice(allocator);
     };
+    defer tree.deinit(allocator);
 
     // Find all import nodes
     switch (tree) {

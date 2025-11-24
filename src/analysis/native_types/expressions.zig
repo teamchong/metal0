@@ -82,9 +82,21 @@ pub fn inferExpr(
         },
         .attribute => |a| blk: {
             // Infer attribute type: obj.attr
-            // Heuristic: Check all known classes for a field with this name
-            // This works when field names are unique across classes
+            // Special case: module attributes (sys.platform, sys.version_info)
             if (a.value.* == .name) {
+                const module_name = a.value.name.id;
+                if (std.mem.eql(u8, module_name, "sys")) {
+                    if (std.mem.eql(u8, a.attr, "platform")) {
+                        break :blk .{ .string = .literal };
+                    } else if (std.mem.eql(u8, a.attr, "version_info")) {
+                        break :blk .unknown; // struct type
+                    } else if (std.mem.eql(u8, a.attr, "argv")) {
+                        break :blk .unknown; // [][]const u8
+                    }
+                }
+
+                // Heuristic: Check all known classes for a field with this name
+                // This works when field names are unique across classes
                 var class_it = class_fields.iterator();
                 while (class_it.next()) |class_entry| {
                     if (class_entry.value_ptr.fields.get(a.attr)) |field_type| {
