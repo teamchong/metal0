@@ -47,7 +47,12 @@ pub fn main() !void {
 
     const texts_json = parsed.value.object.get("texts").?.array;
     var texts = std.ArrayList([]const u8){};
-    defer texts.deinit(allocator);
+    defer {
+        for (texts.items) |text| {
+            allocator.free(text);
+        }
+        texts.deinit(allocator);
+    }
 
     for (texts_json.items) |text_value| {
         const text = text_value.string;
