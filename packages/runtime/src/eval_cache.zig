@@ -5,9 +5,10 @@ const builtin = @import("builtin");
 const ast_executor = @import("ast_executor.zig");
 const bytecode = @import("bytecode.zig");
 const PyObject = @import("runtime.zig").PyObject;
+const hashmap_helper = @import("../../src/utils/hashmap_helper.zig");
 
 /// Global eval cache - maps source code to compiled bytecode
-var eval_cache: ?std.StringHashMap(bytecode.BytecodeProgram) = null;
+var eval_cache: ?hashmap_helper.StringHashMap(bytecode.BytecodeProgram) = null;
 var cache_mutex: std.Thread.Mutex = .{};
 
 /// Initialize eval cache (call once at startup)
@@ -16,7 +17,7 @@ pub fn initCache(allocator: std.mem.Allocator) !void {
     defer cache_mutex.unlock();
 
     if (eval_cache == null) {
-        eval_cache = std.StringHashMap(bytecode.BytecodeProgram).init(allocator);
+        eval_cache = hashmap_helper.StringHashMap(bytecode.BytecodeProgram).init(allocator);
     }
 }
 

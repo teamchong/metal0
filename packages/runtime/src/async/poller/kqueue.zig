@@ -35,7 +35,7 @@ pub const KqueuePoller = struct {
         return KqueuePoller{
             .kq_fd = kq_fd,
             .events = events,
-            .ready_events = std.ArrayList(common.Event){},
+            .ready_events = std.ArrayList(common.Event).init(allocator),
             .allocator = allocator,
             .stats = std.mem.zeroes(common.PollerStats),
         };

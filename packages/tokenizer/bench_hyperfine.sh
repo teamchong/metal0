@@ -55,7 +55,7 @@ cat > bench_pyaot_json_stringify_quick.zig <<'ZIGEOF'
 const std = @import("std");
 const runtime = @import("src/runtime.zig");
 const json_module = @import("src/json.zig");
-const allocator_helper = @import("src/allocator_helper.zig");
+const allocator_helper = @import("../../src/utils/allocator_helper.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

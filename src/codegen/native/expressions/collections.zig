@@ -6,6 +6,7 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
+const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
 
 /// Check if a node is a compile-time constant (can use comptime)
 fn isComptimeConstant(node: ast.Node) bool {
@@ -232,7 +233,7 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
     // Empty dict
     if (dict.keys.len == 0) {
-        try self.output.appendSlice(self.allocator, "std.StringHashMap(i64).init(allocator)");
+        try self.output.appendSlice(self.allocator, "hashmap_helper.StringHashMap(i64).init(allocator)");
         return;
     }
 
@@ -300,7 +301,7 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
         try self.output.appendSlice(self.allocator, "const V = comptime runtime.InferDictValueType(@TypeOf(_kvs));\n");
 
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "var _dict = std.StringHashMap(V).init(allocator);\n");
+        try self.output.appendSlice(self.allocator, "var _dict = hashmap_helper.StringHashMap(V).init(allocator);\n");
 
         // Inline loop - unrolled at compile time
         try self.emitIndent();
@@ -394,7 +395,7 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
     }
 
     // Generate: cast_blk: {
-    //   var map = std.StringHashMap(T).init(allocator);
+    //   var map = hashmap_helper.StringHashMap(T).init(allocator);
     //   try map.put("key", value);
     //   break :blk map;
     // }
@@ -402,7 +403,7 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
     try self.output.appendSlice(self.allocator, "blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "var map = std.StringHashMap(");
+    try self.output.appendSlice(self.allocator, "var map = hashmap_helper.StringHashMap(");
     try val_type.toZigType(self.allocator, &self.output);
     try self.output.appendSlice(self.allocator, ").init(allocator);\n");
 

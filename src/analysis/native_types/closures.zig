@@ -1,9 +1,10 @@
 /// Closure analysis - detect captured variables in nested functions
 const std = @import("std");
+const hashmap_helper = @import("../../utils/hashmap_helper.zig");
 const ast = @import("../../ast.zig");
 
 /// Find all variables used in an expression
-fn findUsedVars(node: ast.Node, vars: *std.StringHashMap(void), allocator: std.mem.Allocator) !void {
+fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), allocator: std.mem.Allocator) !void {
     switch (node) {
         .name => |n| {
             try vars.put(n.id, {});
@@ -89,7 +90,7 @@ fn findUsedVars(node: ast.Node, vars: *std.StringHashMap(void), allocator: std.m
 }
 
 /// Find all variables used in a statement
-fn findUsedVarsInStmt(node: ast.Node, vars: *std.StringHashMap(void), allocator: std.mem.Allocator) !void {
+fn findUsedVarsInStmt(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), allocator: std.mem.Allocator) !void {
     switch (node) {
         .assign => |a| {
             try findUsedVars(a.value.*, vars, allocator);
@@ -161,7 +162,7 @@ fn findUsedVarsInStmt(node: ast.Node, vars: *std.StringHashMap(void), allocator:
 }
 
 /// Find all locally defined variables in a function
-fn findLocalVars(func: ast.Node.FunctionDef, vars: *std.StringHashMap(void), _: std.mem.Allocator) !void {
+fn findLocalVars(func: ast.Node.FunctionDef, vars: *hashmap_helper.StringHashMap(void), _: std.mem.Allocator) !void {
     // Add function parameters
     for (func.args) |arg| {
         try vars.put(arg.name, {});
@@ -195,13 +196,13 @@ fn findLocalVars(func: ast.Node.FunctionDef, vars: *std.StringHashMap(void), _: 
 /// Analyze a nested function to find captured variables
 pub fn analyzeClosure(
     func: ast.Node.FunctionDef,
-    parent_locals: std.StringHashMap(void),
+    parent_locals: hashmap_helper.StringHashMap(void),
     allocator: std.mem.Allocator,
 ) ![][]const u8 {
-    var used = std.StringHashMap(void).init(allocator);
+    var used = hashmap_helper.StringHashMap(void).init(allocator);
     defer used.deinit();
 
-    var local = std.StringHashMap(void).init(allocator);
+    var local = hashmap_helper.StringHashMap(void).init(allocator);
     defer local.deinit();
 
     // Find all used variables
@@ -227,7 +228,7 @@ pub fn analyzeClosure(
 /// Recursively analyze nested functions and populate captured_vars
 pub fn analyzeNestedFunctions(
     stmts: []ast.Node,
-    parent_locals: ?std.StringHashMap(void),
+    parent_locals: ?hashmap_helper.StringHashMap(void),
     allocator: std.mem.Allocator,
 ) !void {
     for (stmts) |*stmt| {
@@ -240,7 +241,7 @@ pub fn analyzeNestedFunctions(
             }
 
             // Build local var set for this function (includes parent scope)
-            var locals = std.StringHashMap(void).init(allocator);
+            var locals = hashmap_helper.StringHashMap(void).init(allocator);
             defer locals.deinit();
 
             // Include parent locals so nested closures can capture from grandparent scopes

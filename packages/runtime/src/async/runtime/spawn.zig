@@ -200,7 +200,7 @@ pub const BatchSpawner = struct {
     pub fn init(allocator: std.mem.Allocator, spawner: *TaskSpawner) BatchSpawner {
         return BatchSpawner{
             .spawner = spawner,
-            .tasks = std.ArrayList(*Task){},
+            .tasks = std.ArrayList(*Task).init(allocator),
             .allocator = allocator,
         };
     }

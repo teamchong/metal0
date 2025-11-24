@@ -153,17 +153,26 @@ fn genAsyncFunctionSignature(
     }
 
     try self.emit(") !*runtime.GreenThread {\n");
-    try self.emit("    return try runtime.scheduler.spawn(");
-    try self.emit(func.name);
-    try self.emit("_impl, .{");
 
-    // Pass parameters to implementation
-    for (func.args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
-        try self.emit(arg.name);
+    // Use spawn0() for zero-parameter functions, spawn() for functions with parameters
+    if (func.args.len == 0) {
+        try self.emit("    return try runtime.scheduler.spawn0(");
+        try self.emit(func.name);
+        try self.emit("_impl);\n");
+    } else {
+        try self.emit("    return try runtime.scheduler.spawn(");
+        try self.emit(func.name);
+        try self.emit("_impl, .{");
+
+        // Pass parameters to implementation
+        for (func.args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try self.emit(arg.name);
+        }
+
+        try self.emit("});\n");
     }
 
-    try self.emit("});\n");
     try self.emit("}\n\n");
 
     // Generate implementation function

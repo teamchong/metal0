@@ -114,7 +114,7 @@ pub const ArenaPool = struct {
     /// Initialize arena pool
     pub fn init(allocator: std.mem.Allocator) ArenaPool {
         return ArenaPool{
-            .arenas = std.ArrayList(*TaskArena){},
+            .arenas = std.ArrayList(*TaskArena).init(allocator),
             .backing = allocator,
             .mutex = std.Thread.Mutex{},
             .total_created = 0,

@@ -5,6 +5,7 @@ const skipWhitespace = @import("../value.zig").skipWhitespace;
 const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
 const parseString = @import("string.zig").parseString;
+const hashmap_helper = @import("../../../../../src/utils/hashmap_helper.zig");
 
 // Forward declaration - will be set by parse.zig
 var parseValueFn: ?*const fn ([]const u8, usize, std.mem.Allocator) JsonError!ParseResult(JsonValue) = null;
@@ -17,7 +18,7 @@ pub fn setParseValueFn(func: *const fn ([]const u8, usize, std.mem.Allocator) Js
 pub fn parseObject(data: []const u8, pos: usize, allocator: std.mem.Allocator) JsonError!ParseResult(JsonValue) {
     if (pos >= data.len or data[pos] != '{') return JsonError.UnexpectedToken;
 
-    var object = std.StringHashMap(JsonValue).init(allocator);
+    var object = hashmap_helper.StringHashMap(JsonValue).init(allocator);
     errdefer {
         var it = object.valueIterator();
         while (it.next()) |val| {

@@ -3,6 +3,7 @@
 //! Original implementation in Rust (sais.rs)
 
 const std = @import("std");
+const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
 const Allocator = std.mem.Allocator;
 
 // Type aliases matching Rust implementation
@@ -55,7 +56,7 @@ fn induceSA(
     var index = buckets[c1];
     suffix_array[index] = if (j > 0 and string[j - 1] < c1) ~j else j;
     index += 1;
-    
+
     for (0..n) |i| {
         j = suffix_array[i];
         suffix_array[i] = ~j;
@@ -71,13 +72,13 @@ fn induceSA(
             index += 1;
         }
     }
-    
+
     // Compute SA - second pass
     getCounts(string, counts);
     getBuckets(counts, buckets, true);
     c1 = 0;
     index = buckets[c1];
-    
+
     var i: usize = n;
     while (i > 0) {
         i -= 1;
@@ -438,19 +439,10 @@ pub fn findFrequentSubstrings(
     var depth_hist = [_]usize{0} ** 10; // 0, 1, 2-5, 6-10, 11-20, 21-50, 51-100, 101-200, 201+
     for (0..node_num) |i| {
         const d = depth[i];
-        if (d == 0) depth_hist[0] += 1
-        else if (d == 1) depth_hist[1] += 1
-        else if (d <= 5) depth_hist[2] += 1
-        else if (d <= 10) depth_hist[3] += 1
-        else if (d <= 20) depth_hist[4] += 1
-        else if (d <= 50) depth_hist[5] += 1
-        else if (d <= 100) depth_hist[6] += 1
-        else if (d <= 200) depth_hist[7] += 1
-        else depth_hist[8] += 1;
+        if (d == 0) depth_hist[0] += 1 else if (d == 1) depth_hist[1] += 1 else if (d <= 5) depth_hist[2] += 1 else if (d <= 10) depth_hist[3] += 1 else if (d <= 20) depth_hist[4] += 1 else if (d <= 50) depth_hist[5] += 1 else if (d <= 100) depth_hist[6] += 1 else if (d <= 200) depth_hist[7] += 1 else depth_hist[8] += 1;
     }
-    std.debug.print("[SA DEBUG] ESA node_num: {d}, text_len: {d}\n", .{node_num, n});
-    std.debug.print("[SA DEBUG] Depth dist: 0={d}, 1={d}, 2-5={d}, 6-10={d}, 11-20={d}, 21-50={d}, 51-100={d}, 101-200={d}, 201+={d}\n",
-        .{depth_hist[0], depth_hist[1], depth_hist[2], depth_hist[3], depth_hist[4], depth_hist[5], depth_hist[6], depth_hist[7], depth_hist[8]});
+    std.debug.print("[SA DEBUG] ESA node_num: {d}, text_len: {d}\n", .{ node_num, n });
+    std.debug.print("[SA DEBUG] Depth dist: 0={d}, 1={d}, 2-5={d}, 6-10={d}, 11-20={d}, 21-50={d}, 51-100={d}, 101-200={d}, 201+={d}\n", .{ depth_hist[0], depth_hist[1], depth_hist[2], depth_hist[3], depth_hist[4], depth_hist[5], depth_hist[6], depth_hist[7], depth_hist[8] });
 
     // Extract frequent substrings from ESA nodes
     // Match esaxx behavior: ONE substring per node at depth[i] length
@@ -460,7 +452,7 @@ pub fn findFrequentSubstrings(
         results.deinit(allocator);
     }
 
-    var seen = std.StringHashMap(void).init(allocator);
+    var seen = hashmap_helper.StringHashMap(void).init(allocator);
     defer seen.deinit();
 
     var filtered_len: usize = 0;
@@ -486,7 +478,7 @@ pub fn findFrequentSubstrings(
             continue;
         }
 
-        const substring = text[offset..offset + len];
+        const substring = text[offset .. offset + len];
 
         // NOTE: Don't filter '\0' here - let caller decide
         // HuggingFace's esaxx returns all substrings, filtering happens in trainer
@@ -511,8 +503,7 @@ pub fn findFrequentSubstrings(
         }
     }
 
-    std.debug.print("[SA DEBUG] Filtered: len={d}, offset={d}, null={d}, seen={d}, kept={d}\n",
-        .{filtered_len, filtered_offset, filtered_null, filtered_seen, results.items.len});
+    std.debug.print("[SA DEBUG] Filtered: len={d}, offset={d}, null={d}, seen={d}, kept={d}\n", .{ filtered_len, filtered_offset, filtered_null, filtered_seen, results.items.len });
 
     // Sort by score
     std.mem.sort(SubstringFreq, results.items, {}, struct {

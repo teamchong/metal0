@@ -1,8 +1,9 @@
 /// Analyze variable mutations to determine if lists need ArrayList vs fixed array
 const std = @import("std");
 const ast = @import("../../ast.zig");
+const hashmap_helper = @import("../../utils/hashmap_helper.zig");
 
-pub const MutationMap = std.StringHashMap(MutationInfo);
+pub const MutationMap = hashmap_helper.StringHashMap(MutationInfo);
 
 pub const MutationType = enum {
     list_append,
@@ -27,8 +28,8 @@ pub const MutationInfo = struct {
 };
 
 /// Analyze all mutations in a module and return a map of variable name -> mutation info
-pub fn analyzeMutations(module: ast.Node.Module, allocator: std.mem.Allocator) !std.StringHashMap(MutationInfo) {
-    var mutations = std.StringHashMap(MutationInfo).init(allocator);
+pub fn analyzeMutations(module: ast.Node.Module, allocator: std.mem.Allocator) !hashmap_helper.StringHashMap(MutationInfo) {
+    var mutations = hashmap_helper.StringHashMap(MutationInfo).init(allocator);
 
     for (module.body) |stmt| {
         try collectMutations(stmt, &mutations, allocator);
@@ -40,7 +41,7 @@ pub fn analyzeMutations(module: ast.Node.Module, allocator: std.mem.Allocator) !
 /// Recursively collect mutations from statements
 fn collectMutations(
     stmt: ast.Node,
-    mutations: *std.StringHashMap(MutationInfo),
+    mutations: *hashmap_helper.StringHashMap(MutationInfo),
     allocator: std.mem.Allocator,
 ) !void {
     switch (stmt) {
@@ -130,7 +131,7 @@ fn collectMutations(
 /// Check if an expression contains a mutation
 fn checkExprForMutation(
     expr: ast.Node,
-    mutations: *std.StringHashMap(MutationInfo),
+    mutations: *hashmap_helper.StringHashMap(MutationInfo),
     allocator: std.mem.Allocator,
 ) error{OutOfMemory}!void {
     switch (expr) {
@@ -225,7 +226,7 @@ fn checkExprForMutation(
 fn recordMutation(
     var_name: []const u8,
     mutation_type: MutationType,
-    mutations: *std.StringHashMap(MutationInfo),
+    mutations: *hashmap_helper.StringHashMap(MutationInfo),
     allocator: std.mem.Allocator,
 ) !void {
     var info = mutations.get(var_name) orelse MutationInfo{
@@ -239,7 +240,7 @@ fn recordMutation(
 }
 
 /// Check if a variable has any list mutations
-pub fn hasListMutation(mutations: std.StringHashMap(MutationInfo), var_name: []const u8) bool {
+pub fn hasListMutation(mutations: hashmap_helper.StringHashMap(MutationInfo), var_name: []const u8) bool {
     const info = mutations.get(var_name) orelse return false;
     if (!info.is_mutated) return false;
 
@@ -261,7 +262,7 @@ pub fn hasListMutation(mutations: std.StringHashMap(MutationInfo), var_name: []c
 }
 
 /// Check if a variable has any dict mutations
-pub fn hasDictMutation(mutations: std.StringHashMap(MutationInfo), var_name: []const u8) bool {
+pub fn hasDictMutation(mutations: hashmap_helper.StringHashMap(MutationInfo), var_name: []const u8) bool {
     const info = mutations.get(var_name) orelse return false;
     if (!info.is_mutated) return false;
 

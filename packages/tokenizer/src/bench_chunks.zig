@@ -1,6 +1,6 @@
 const std = @import("std");
 const cl100k_splitter = @import("cl100k_splitter.zig");
-const allocator_helper = @import("allocator_helper.zig");
+const allocator_helper = @import("../../src/utils/allocator_helper.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

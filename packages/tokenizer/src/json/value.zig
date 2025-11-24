@@ -1,6 +1,7 @@
 /// JSON value representation - optimized for direct PyObject conversion
 const std = @import("std");
 const runtime = @import("../runtime.zig");
+const hashmap_helper = @import("../../../../src/utils/hashmap_helper.zig");
 
 /// Minimal intermediate representation - converts to PyObject ASAP
 /// This is only used during parsing to build nested structures
@@ -11,7 +12,7 @@ pub const JsonValue = union(enum) {
     number_float: f64,
     string: []const u8, // Points into source JSON (zero-copy)
     array: std.ArrayList(JsonValue),
-    object: std.StringHashMap(JsonValue),
+    object: hashmap_helper.StringHashMap(JsonValue),
 
     /// Convert JsonValue to PyObject - main conversion point
     pub fn toPyObject(self: *const JsonValue, allocator: std.mem.Allocator) !*runtime.PyObject {

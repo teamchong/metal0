@@ -1,11 +1,12 @@
 const std = @import("std");
+const hashmap_helper = @import("../../../../src/utils/hashmap_helper.zig");
 
 /// Named capture group support for regex patterns
 /// Supports both Python-style (?P<name>...) and .NET-style (?<name>...)
 pub const NamedCaptureRegistry = struct {
     allocator: std.mem.Allocator,
     /// Maps capture group names to indices
-    name_to_index: std.StringHashMap(usize),
+    name_to_index: hashmap_helper.StringHashMap(usize),
     /// Maps indices to names (for reverse lookup)
     index_to_name: std.AutoHashMap(usize, []const u8),
     next_index: usize,
@@ -13,7 +14,7 @@ pub const NamedCaptureRegistry = struct {
     pub fn init(allocator: std.mem.Allocator) NamedCaptureRegistry {
         return .{
             .allocator = allocator,
-            .name_to_index = std.StringHashMap(usize).init(allocator),
+            .name_to_index = hashmap_helper.StringHashMap(usize).init(allocator),
             .index_to_name = std.AutoHashMap(usize, []const u8).init(allocator),
             .next_index = 0,
         };

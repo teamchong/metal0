@@ -93,6 +93,85 @@ pub const Scheduler = struct {
         return thread;
     }
 
+    /// Spawn a green thread from a function with NO parameters
+    /// Use this for simple async functions that don't need context
+    pub fn spawn0(
+        self: *Scheduler,
+        comptime func: anytype,
+    ) !*GreenThread {
+        // Validate function signature
+        const func_info = @typeInfo(@TypeOf(func));
+        if (func_info != .@"fn") {
+            @compileError("spawn0 expects a function");
+        }
+
+        const params = func_info.@"fn".params;
+        if (params.len != 0) {
+            @compileError("spawn0 requires function with 0 parameters. Use spawn() for functions with context.");
+        }
+
+        // Extract return type
+        const return_type_opt = func_info.@"fn".return_type;
+        const return_type = if (return_type_opt) |rt| rt else void;
+
+        // Create wrapper that calls the function and stores result
+        const Wrapper = struct {
+            thread_ptr: *GreenThread,
+            allocator: std.mem.Allocator,
+
+            fn call(ctx: ?*anyopaque) void {
+                const wrapper: *@This() = @ptrCast(@alignCast(ctx.?));
+                const result = func() catch |err| {
+                    std.debug.print("Error in spawned function: {}\n", .{err});
+                    return;
+                };
+
+                // Store result if function returns a value
+                if (return_type != void and return_type != @TypeOf(error{}!void)) {
+                    const result_ptr = wrapper.allocator.create(@TypeOf(result)) catch return;
+                    result_ptr.* = result;
+                    wrapper.thread_ptr.result = @ptrCast(result_ptr);
+                }
+            }
+
+            fn cleanup(thread: *GreenThread, allocator: std.mem.Allocator) void {
+                if (thread.user_context) |user_ctx| {
+                    const wrapper: *@This() = @ptrCast(@alignCast(user_ctx));
+                    allocator.destroy(wrapper);
+                }
+                // Result is stored directly in thread.result, cleaned by thread.deinit
+            }
+        };
+
+        const id = self.next_id.fetchAdd(1, .monotonic);
+
+        // Create thread first so we can pass it to the wrapper
+        const thread = try GreenThread.init(
+            self.allocator,
+            id,
+            Wrapper.call,
+            null, // Will set user_context after creating wrapper
+            Wrapper.cleanup,
+        );
+
+        // Create wrapper context
+        const wrapper = try self.allocator.create(Wrapper);
+        wrapper.* = .{
+            .thread_ptr = thread,
+            .allocator = self.allocator,
+        };
+        thread.user_context = @ptrCast(wrapper);
+
+        // Round-robin assignment to queues
+        const queue_idx = @as(usize, @intCast(id % self.num_workers));
+        try self.queues[queue_idx].push(thread);
+
+        // Increment counter (workers will pick it up)
+        _ = self.active_threads.fetchAdd(1, .acq_rel);
+
+        return thread;
+    }
+
     /// Spawn a green thread with type-safe context (comptime generic)
     pub fn spawn(
         self: *Scheduler,

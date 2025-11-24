@@ -202,6 +202,9 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     // Copy c_interop directory to build dir
     try copyCInteropDir(allocator, build_dir);
 
+    // Copy utils directory to build dir (for hashmap_helper, wyhash)
+    try copySrcUtilsDir(allocator, build_dir);
+
     // Copy any compiled modules from .build/ to per-process build dir
     if (std.fs.cwd().openDir(".build", .{ .iterate = true })) |build_iter_dir| {
         var mut_dir = build_iter_dir;
@@ -435,6 +438,54 @@ fn copyCInteropDir(allocator: std.mem.Allocator, build_dir: []const u8) !void {
             defer allocator.free(new_src);
             const new_dst = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dst_dir_path, entry.name });
             try copyDirRecursive(allocator, new_src, new_dst);
+        }
+    }
+}
+
+/// Copy src/utils directory to .build for hashmap_helper, wyhash
+fn copySrcUtilsDir(allocator: std.mem.Allocator, build_dir: []const u8) !void {
+    const src_dir_path = "src/utils";
+
+    // Copy to main build dir
+    const dst_paths = [_][]const u8{
+        try std.fmt.allocPrint(allocator, "{s}/utils", .{build_dir}),
+        try std.fmt.allocPrint(allocator, "{s}/http/utils", .{build_dir}),
+        try std.fmt.allocPrint(allocator, "{s}/json/utils", .{build_dir}),
+    };
+    defer for (dst_paths) |path| allocator.free(path);
+
+    for (dst_paths) |dst_dir_path| {
+        // Create destination directory
+        std.fs.cwd().makeDir(dst_dir_path) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+
+        // Copy all .zig files from src/utils
+        {
+            var src_dir = std.fs.cwd().openDir(src_dir_path, .{ .iterate = true }) catch |err| {
+                if (err == error.FileNotFound) continue;
+                return err;
+            };
+            defer src_dir.close();
+
+            var iterator = src_dir.iterate();
+            while (try iterator.next()) |entry| {
+                if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
+                    const src_file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ src_dir_path, entry.name });
+                    defer allocator.free(src_file_path);
+                    const dst_file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dst_dir_path, entry.name });
+                    defer allocator.free(dst_file_path);
+
+                    const src_file = try std.fs.cwd().openFile(src_file_path, .{});
+                    defer src_file.close();
+                    const dst_file = try std.fs.cwd().createFile(dst_file_path, .{});
+                    defer dst_file.close();
+
+                    const content = try src_file.readToEndAlloc(allocator, 1024 * 1024);
+                    defer allocator.free(content);
+                    try dst_file.writeAll(content);
+                }
+            }
         }
     }
 }

@@ -1,7 +1,7 @@
 /// Optimized HashMap BPE encoder without O(n³) array shifting
 /// Uses skip-list approach: mark positions as merged instead of shifting
 const std = @import("std");
-const hashmap_helper = @import("hashmap_helper.zig");
+const hashmap_helper = @import("../../src/utils/hashmap_helper.zig");
 const Allocator = std.mem.Allocator;
 
 pub fn encodeOptimized(

@@ -7,6 +7,7 @@ const ast = @import("ast.zig");
 const common = @import("common.zig");
 const optimizer = @import("optimizer.zig");
 const backtrack = @import("backtrack.zig");
+const hashmap_helper = @import("../../../../src/utils/hashmap_helper.zig");
 
 /// Represents a match result from a regex operation
 pub const Match = struct {
@@ -49,7 +50,7 @@ pub const Regex = struct {
     capture_count: usize,
     flags: common.CompileFlags,
     opt_info: optimizer.OptimizationInfo,
-    named_captures: std.StringHashMap(usize), // name -> capture_index mapping
+    named_captures: hashmap_helper(usize), // name -> capture_index mapping
 
     /// Compile a regex pattern with default flags
     pub fn compile(allocator: std.mem.Allocator, pattern: []const u8) !Regex {
@@ -83,7 +84,7 @@ pub const Regex = struct {
         errdefer opt_info.deinit(allocator);
 
         // Collect named captures from AST
-        var named_captures = std.StringHashMap(usize).init(allocator);
+        var named_captures = hashmap_helper(usize).init(allocator);
         errdefer named_captures.deinit();
         try collectNamedCaptures(tree.root, &named_captures);
 
@@ -92,12 +93,7 @@ pub const Regex = struct {
 
         if (needs_backtracking) {
             // Use backtracking engine
-            var backtrack_engine = try backtrack.BacktrackEngine.init(
-                allocator,
-                tree.root,
-                tree.capture_count,
-                flags
-            );
+            var backtrack_engine = try backtrack.BacktrackEngine.init(allocator, tree.root, tree.capture_count, flags);
             errdefer backtrack_engine.deinit();
 
             // Create a dummy NFA (not used)
@@ -682,11 +678,11 @@ fn requiresBacktracking(node: *ast.Node) bool {
         // Recursively check compound nodes
         .concat => {
             return requiresBacktracking(node.data.concat.left) or
-                   requiresBacktracking(node.data.concat.right);
+                requiresBacktracking(node.data.concat.right);
         },
         .alternation => {
             return requiresBacktracking(node.data.alternation.left) or
-                   requiresBacktracking(node.data.alternation.right);
+                requiresBacktracking(node.data.alternation.right);
         },
         .group => return requiresBacktracking(node.data.group.child),
 
@@ -696,7 +692,7 @@ fn requiresBacktracking(node: *ast.Node) bool {
 }
 
 /// Helper function to recursively collect named captures from AST
-fn collectNamedCaptures(node: *ast.Node, map: *std.StringHashMap(usize)) !void {
+fn collectNamedCaptures(node: *ast.Node, map: *hashmap_helper(usize)) !void {
     switch (node.node_type) {
         .group => {
             const group = node.data.group;

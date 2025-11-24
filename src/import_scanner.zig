@@ -4,6 +4,7 @@ const ast = @import("ast.zig");
 const parser = @import("parser.zig");
 const lexer = @import("lexer.zig");
 const import_resolver = @import("import_resolver.zig");
+const hashmap_helper = @import("utils/hashmap_helper.zig");
 
 pub const ModuleInfo = struct {
     path: []const u8, // Full path to .py file
@@ -48,12 +49,12 @@ fn isPycacheDir(path: []const u8) bool {
 }
 
 pub const ImportGraph = struct {
-    modules: std.StringHashMap(ModuleInfo),
+    modules: hashmap_helper.StringHashMap(ModuleInfo),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) ImportGraph {
         return .{
-            .modules = std.StringHashMap(ModuleInfo).init(allocator),
+            .modules = hashmap_helper.StringHashMap(ModuleInfo).init(allocator),
             .allocator = allocator,
         };
     }
@@ -71,7 +72,7 @@ pub const ImportGraph = struct {
     pub fn scanRecursive(
         self: *ImportGraph,
         file_path: []const u8,
-        visited: *std.StringHashMap(void),
+        visited: *hashmap_helper.StringHashMap(void),
     ) !void {
         // Skip non-.py files - optimized with comptime length check
         if (!isPythonFileRuntime(file_path)) return;

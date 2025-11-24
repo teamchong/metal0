@@ -4,6 +4,7 @@ const Request = @import("request.zig").Request;
 const Response = @import("response.zig").Response;
 const Method = @import("request.zig").Method;
 const Status = @import("response.zig").Status;
+const hashmap_helper = @import("../../../../src/utils/hashmap_helper.zig");
 const Future = @import("../async/future.zig").Future;
 const Task = @import("../async/task.zig").Task;
 const runtime = @import("../async/runtime.zig");
@@ -27,14 +28,14 @@ pub const AsyncClient = struct {
     allocator: std.mem.Allocator,
     poller: *Poller,
     timeout_ms: u64,
-    default_headers: std.StringHashMap([]const u8),
+    default_headers: hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator, poller: *Poller) AsyncClient {
         return .{
             .allocator = allocator,
             .poller = poller,
             .timeout_ms = 30000, // 30 second default timeout
-            .default_headers = std.StringHashMap([]const u8).init(allocator),
+            .default_headers = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 

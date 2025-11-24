@@ -4,7 +4,7 @@ const parser = @import("src/pyregex/parser.zig");
 const nfa_mod = @import("src/pyregex/nfa.zig");
 const lazydfa = @import("src/pyregex/lazydfa.zig");
 const optimizer = @import("src/pyregex/optimizer.zig");
-const allocator_helper = @import("src/pyregex/allocator_helper.zig");
+const allocator_helper = @import("../../src/utils/allocator_helper.zig");
 
 fn testPattern(allocator: std.mem.Allocator, name: []const u8, pattern: []const u8, text: []const u8) !void {
     var p = parser.Parser.init(allocator, pattern);

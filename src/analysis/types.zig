@@ -1,4 +1,5 @@
 const std = @import("std");
+const hashmap_helper = @import("../utils/hashmap_helper.zig");
 const ast = @import("../ast.zig");
 
 /// Variable lifetime information for optimization
@@ -45,13 +46,13 @@ pub const ExpressionChain = struct {
 
 /// Complete semantic analysis information
 pub const SemanticInfo = struct {
-    lifetimes: std.StringHashMap(VariableLifetime),
+    lifetimes: hashmap_helper.StringHashMap(VariableLifetime),
     expr_chains: std.ArrayList(ExpressionChain),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) SemanticInfo {
         return .{
-            .lifetimes = std.StringHashMap(VariableLifetime).init(allocator),
+            .lifetimes = hashmap_helper.StringHashMap(VariableLifetime).init(allocator),
             .expr_chains = std.ArrayList(ExpressionChain){},
             .allocator = allocator,
         };

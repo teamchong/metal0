@@ -5,6 +5,7 @@ const Response = @import("response.zig").Response;
 const Method = @import("request.zig").Method;
 const Status = @import("response.zig").Status;
 const ConnectionPool = @import("pool.zig").ConnectionPool;
+const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
 
 pub const ClientError = error{
     InvalidUrl,
@@ -18,14 +19,14 @@ pub const Client = struct {
     allocator: std.mem.Allocator,
     pool: ConnectionPool,
     timeout_ms: u64,
-    default_headers: std.StringHashMap([]const u8),
+    default_headers: hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) Client {
         return .{
             .allocator = allocator,
             .pool = ConnectionPool.init(allocator, 100), // Max 100 connections
             .timeout_ms = 30000, // 30 second default timeout
-            .default_headers = std.StringHashMap([]const u8).init(allocator),
+            .default_headers = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 

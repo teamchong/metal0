@@ -6,6 +6,7 @@ const CodegenError = @import("../../../main.zig").CodegenError;
 const CodeBuilder = @import("../../../code_builder.zig").CodeBuilder;
 const self_analyzer = @import("../self_analyzer.zig");
 const signature = @import("signature.zig");
+const hashmap_helper = @import("../../../../../utils/hashmap_helper.zig");
 
 /// Check if a method mutates self (assigns to self.field)
 pub fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
@@ -152,7 +153,7 @@ pub fn genClassFields(self: *NativeCodegen, init: ast.Node.FunctionDef) CodegenE
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "// Dynamic attributes dictionary\n");
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "__dict__: std.StringHashMap(runtime.PyValue),\n");
+    try self.output.appendSlice(self.allocator, "__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 }
 
 /// Infer parameter type by looking at how it's used in __init__
@@ -236,7 +237,7 @@ pub fn genInitMethod(
 
     // Initialize __dict__ for dynamic attributes
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, ".__dict__ = std.StringHashMap(runtime.PyValue).init(allocator),\n");
+    try self.output.appendSlice(self.allocator, ".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(allocator),\n");
 
     self.dedent();
     try self.emitIndent();

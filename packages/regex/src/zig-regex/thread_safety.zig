@@ -1,4 +1,5 @@
 const std = @import("std");
+const hashmap_helper = @import("../../../../src/utils/hashmap_helper.zig");
 
 /// Thread safety documentation and guarantees for the regex library.
 ///
@@ -197,13 +198,13 @@ pub fn RegexCache(comptime Regex: type) type {
             regex: Regex,
         };
 
-        cache: std.StringHashMap(Regex),
+        cache: hashmap_helper.StringHashMap(Regex),
         allocator: std.mem.Allocator,
         initialized: bool = false,
 
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
-                .cache = std.StringHashMap(Regex).init(allocator),
+                .cache = hashmap_helper.StringHashMap(Regex).init(allocator),
                 .allocator = allocator,
                 .initialized = true,
             };

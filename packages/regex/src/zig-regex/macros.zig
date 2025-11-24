@@ -1,4 +1,5 @@
 const std = @import("std");
+const hashmap_helper = @import("../../../../src/utils/hashmap_helper.zig");
 
 /// Regex macro system for pattern composition and reusability
 /// Allows defining named patterns that can be referenced in other patterns
@@ -10,12 +11,12 @@ const std = @import("std");
 ///   const expanded = try macros.expand("${word} ${digit}+"); // -> "[a-zA-Z]+ [0-9]+"
 pub const MacroRegistry = struct {
     allocator: std.mem.Allocator,
-    macros: std.StringHashMap([]const u8),
+    macros: hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) MacroRegistry {
         return .{
             .allocator = allocator,
-            .macros = std.StringHashMap([]const u8).init(allocator),
+            .macros = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 

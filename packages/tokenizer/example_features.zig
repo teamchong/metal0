@@ -6,7 +6,7 @@ const pre_tokenizers = @import("src/pre_tokenizers.zig");
 const normalizers = @import("src/normalizers.zig");
 const post_processors = @import("src/post_processors.zig");
 const decoders = @import("src/decoders.zig");
-const allocator_helper = @import("src/allocator_helper.zig");
+const allocator_helper = @import("../src/utils/allocator_helper.zig");
 
 /// EXAMPLE 1: Basic BPE (no features used)
 /// Binary size: ~46KB (same as before - ZERO overhead!)

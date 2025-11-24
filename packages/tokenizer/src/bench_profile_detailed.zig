@@ -1,6 +1,6 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
-const allocator_helper = @import("allocator_helper.zig");
+const allocator_helper = @import("../../src/utils/allocator_helper.zig");
 
 // Global timing counters (thread-local in production)
 var time_regex_split: u64 = 0;

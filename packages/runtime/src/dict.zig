@@ -2,15 +2,16 @@
 /// Separated from runtime.zig for better code organization
 const std = @import("std");
 const runtime = @import("runtime.zig");
+const hashmap_helper = @import("../../src/utils/hashmap_helper.zig");
 
 /// Python dict type (simplified - using StringHashMap)
 pub const PyDict = struct {
-    map: std.StringHashMap(*runtime.PyObject),
+    map: hashmap_helper.StringHashMap(*runtime.PyObject),
 
     pub fn create(allocator: std.mem.Allocator) !*runtime.PyObject {
         const obj = try allocator.create(runtime.PyObject);
         const dict_data = try allocator.create(PyDict);
-        dict_data.map = std.StringHashMap(*runtime.PyObject).init(allocator);
+        dict_data.map = hashmap_helper.StringHashMap(*runtime.PyObject).init(allocator);
 
         obj.* = runtime.PyObject{
             .ref_count = 1,

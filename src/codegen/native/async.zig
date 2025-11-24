@@ -29,7 +29,7 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.output.appendSlice(self.allocator, ";\n");
 
     // Wait for completion
-    try self.output.appendSlice(self.allocator, "    try runtime.scheduler.wait(__main_thread);\n");
+    try self.output.appendSlice(self.allocator, "    runtime.scheduler.wait(__main_thread);\n");
     try self.output.appendSlice(self.allocator, "}");
 }
 
@@ -50,7 +50,7 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     // Wait for all and collect results
     try self.output.appendSlice(self.allocator, "    var __results = std.ArrayList(runtime.PyValue).init(allocator);\n");
     try self.output.appendSlice(self.allocator, "    for (__threads.items) |__t| {\n");
-    try self.output.appendSlice(self.allocator, "        try runtime.scheduler.wait(__t);\n");
+    try self.output.appendSlice(self.allocator, "        runtime.scheduler.wait(__t);\n");
     try self.output.appendSlice(self.allocator, "        try __results.append(__t.result orelse runtime.PyValue{.none = {}});\n");
     try self.output.appendSlice(self.allocator, "    }\n");
     try self.output.appendSlice(self.allocator, "    break :blk __results.items;\n");
@@ -147,7 +147,7 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     try self.output.appendSlice(self.allocator, "    const __thread = ");
     try self.genExpr(expr);
     try self.output.appendSlice(self.allocator, ";\n");
-    try self.output.appendSlice(self.allocator, "    try runtime.scheduler.wait(__thread);\n");
+    try self.output.appendSlice(self.allocator, "    runtime.scheduler.wait(__thread);\n");
 
     // Cast result to expected type
     // For now, assume i64 return type (TODO: infer from type system)

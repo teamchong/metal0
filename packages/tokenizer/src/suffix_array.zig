@@ -4,8 +4,8 @@
 /// Algorithm: SA-IS (Suffix Array Induced Sorting) - O(n) time
 /// Reference: https://zork.net/~st/jottings/sais.html
 /// HuggingFace uses esaxx_rs which implements this algorithm
-
 const std = @import("std");
+const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
 const Allocator = std.mem.Allocator;
 
 /// Substring with its frequency count
@@ -100,7 +100,7 @@ pub fn findFrequentSubstrings(
     }
 
     // Track seen substrings (borrows strings from results, doesn't own them)
-    var seen = std.StringHashMap(void).init(allocator);
+    var seen = hashmap_helper.StringHashMap(void).init(allocator);
     defer seen.deinit();
 
     // Scan through LCP array to find repeated substrings
@@ -134,7 +134,7 @@ pub fn findFrequentSubstrings(
                 continue;
             }
 
-            const substring = text[suffix_start..suffix_start + len];
+            const substring = text[suffix_start .. suffix_start + len];
 
             // Add to results if not seen before
             const entry = try seen.getOrPut(substring);
@@ -170,7 +170,7 @@ pub fn findFrequentSubstrings(
         }
     }.lessThan);
 
-    std.debug.print("[SA DEBUG] LCP groups processed: {d}, Unique substrings extracted: {d}\n", .{lcp_groups_found, results.items.len});
+    std.debug.print("[SA DEBUG] LCP groups processed: {d}, Unique substrings extracted: {d}\n", .{ lcp_groups_found, results.items.len });
 
     // Transfer ownership to caller
     const final = try allocator.alloc(SubstringFreq, results.items.len);

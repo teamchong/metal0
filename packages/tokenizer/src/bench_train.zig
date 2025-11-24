@@ -3,7 +3,7 @@ const build_options = @import("build_options");
 const trainer_mod = @import("trainer.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const UnigramTokenizer = @import("unigram_tokenizer.zig").UnigramTokenizer;
-const allocator_helper = @import("allocator_helper.zig");
+const allocator_helper = @import("../../src/utils/allocator_helper.zig");
 // Removed ThreadPool - using std.Thread directly
 
 // Algorithm selection based on build options

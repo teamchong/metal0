@@ -1,7 +1,7 @@
 /// WordPiece tokenizer - used by BERT, DistilBERT
 /// Comptime: Only compiled in if you use Trainer(.WordPiece) or encode with WordPiece
 const std = @import("std");
-const hashmap_helper = @import("hashmap_helper.zig");
+const hashmap_helper = @import("../../src/utils/hashmap_helper.zig");
 const Allocator = std.mem.Allocator;
 
 /// WordPiece trainer configuration

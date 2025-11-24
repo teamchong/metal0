@@ -207,8 +207,8 @@ pub const MachinePool = struct {
 
     pub fn init(allocator: std.mem.Allocator, max_machines: usize) MachinePool {
         return MachinePool{
-            .machines = std.ArrayList(*Machine){},
-            .idle_machines = std.ArrayList(*Machine){},
+            .machines = std.ArrayList(*Machine).init(allocator),
+            .idle_machines = std.ArrayList(*Machine).init(allocator),
             .allocator = allocator,
             .next_id = 0,
             .max_machines = max_machines,

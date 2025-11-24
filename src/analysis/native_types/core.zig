@@ -1,4 +1,5 @@
 const std = @import("std");
+const hashmap_helper = @import("../../utils/hashmap_helper.zig");
 const ast = @import("../../ast.zig");
 
 /// Check if a list contains only literal values (candidates for array optimization)
@@ -47,7 +48,7 @@ pub fn allSameType(elements: []ast.Node) bool {
 pub const StringKind = enum {
     literal, // Compile-time "hello" - can be optimized
     runtime, // Dynamically allocated (from methods, concat, etc.)
-    slice,   // []const u8 slice from operations
+    slice, // []const u8 slice from operations
 
     /// All string kinds map to []const u8 in Zig
     pub fn toZigType(self: StringKind) []const u8 {
@@ -152,7 +153,7 @@ pub const NativeType = union(enum) {
                 try buf.appendSlice(allocator, ")");
             },
             .dict => |kv| {
-                try buf.appendSlice(allocator, "std.StringHashMap(");
+                try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(");
                 try kv.value.toZigType(allocator, buf);
                 try buf.appendSlice(allocator, ")");
             },

@@ -99,7 +99,7 @@ pub const WakerList = struct {
 
     pub fn init(allocator: std.mem.Allocator) WakerList {
         return WakerList{
-            .wakers = std.ArrayList(WakerData){},
+            .wakers = std.ArrayList(WakerData).init(allocator),
             .allocator = allocator,
             .mutex = std.Thread.Mutex{},
         };
@@ -304,7 +304,7 @@ pub const WakerQueue = struct {
 
     pub fn init(allocator: std.mem.Allocator) WakerQueue {
         return WakerQueue{
-            .queue = std.ArrayList(WakerData){},
+            .queue = std.ArrayList(WakerData).init(allocator),
             .allocator = allocator,
             .mutex = std.Thread.Mutex{},
         };

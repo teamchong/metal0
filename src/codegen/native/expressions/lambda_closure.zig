@@ -1,6 +1,7 @@
 /// Enhanced lambda with closure support using Zig comptime
 /// Handles: lambda returning lambda, variable capture, higher-order functions
 const std = @import("std");
+const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
 const ast = @import("../../../ast.zig");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
@@ -36,7 +37,7 @@ fn isVarReferenced(self: *NativeCodegen, var_name: []const u8, node: ast.Node) C
         .name => |n| return std.mem.eql(u8, n.id, var_name),
         .binop => |b| {
             return (try isVarReferenced(self, var_name, b.left.*)) or
-                   (try isVarReferenced(self, var_name, b.right.*));
+                (try isVarReferenced(self, var_name, b.right.*));
         },
         .call => |c| {
             if (try isVarReferenced(self, var_name, c.func.*)) return true;
@@ -144,7 +145,7 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
 
     // Initialize captured fields
     for (captured_vars) |var_name| {
-        try closure_code.writer(self.allocator).print("        .{s} = {s},\n", .{var_name, var_name});
+        try closure_code.writer(self.allocator).print("        .{s} = {s},\n", .{ var_name, var_name });
     }
 
     try closure_code.appendSlice(self.allocator, "    };\n}\n\n");
@@ -343,7 +344,7 @@ fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8
         .bool => "bool",
         .string => "[]const u8",
         .list => |_| "std.ArrayList(i64)",
-        .dict => "std.StringHashMap(i64)",
+        .dict => "hashmap_helper.StringHashMap(i64)",
         else => "i64",
     };
 }

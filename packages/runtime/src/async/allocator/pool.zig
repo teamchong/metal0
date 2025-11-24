@@ -158,7 +158,7 @@ pub fn DynamicPool(comptime T: type, comptime initial_capacity: usize) type {
         pub fn init(allocator: std.mem.Allocator) Self {
             return Self{
                 .static_pool = Pool(T, initial_capacity).init(),
-                .overflow = std.ArrayList(*T){},
+                .overflow = std.ArrayList(*T).init(allocator),
                 .allocator = allocator,
                 .total_overflow = 0,
             };

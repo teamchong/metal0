@@ -2,6 +2,7 @@
 /// Generates anonymous functions as named functions with function pointers
 /// With closure support using Zig structs
 const std = @import("std");
+const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
 const ast = @import("../../../ast.zig");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
@@ -247,7 +248,7 @@ fn analyzeParamUsage(self: *NativeCodegen, param_name: []const u8, node: ast.Nod
                         // Heuristic: if used with string operations elsewhere, it's string
                         return "[]const u8";
                     } else if (index_type == .string) {
-                        return "std.StringHashMap(i64)"; // Dict access
+                        return "hashmap_helper.StringHashMap(i64)"; // Dict access
                     }
                 }
                 return "[]const u8"; // Default for subscript
@@ -278,19 +279,14 @@ fn analyzeParamUsage(self: *NativeCodegen, param_name: []const u8, node: ast.Nod
         .attribute => |attr| {
             if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, param_name)) {
                 // Check common string methods
-                const string_methods = [_][]const u8{
-                    "upper", "lower", "strip", "split", "replace",
-                    "startswith", "endswith", "find", "index"
-                };
+                const string_methods = [_][]const u8{ "upper", "lower", "strip", "split", "replace", "startswith", "endswith", "find", "index" };
                 for (string_methods) |method| {
                     if (std.mem.eql(u8, attr.attr, method)) {
                         return "[]const u8";
                     }
                 }
                 // Check list methods
-                const list_methods = [_][]const u8{
-                    "append", "pop", "extend", "remove", "clear", "sort"
-                };
+                const list_methods = [_][]const u8{ "append", "pop", "extend", "remove", "clear", "sort" };
                 for (list_methods) |method| {
                     if (std.mem.eql(u8, attr.attr, method)) {
                         return "std.ArrayList(i64)";
@@ -379,7 +375,7 @@ fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8
         .bool => "bool",
         .string => "[]const u8",
         .list => |_| "std.ArrayList(i64)", // Simplified - would need element type
-        .dict => "std.StringHashMap(i64)", // Simplified
+        .dict => "hashmap_helper.StringHashMap(i64)", // Simplified
         else => "i64", // Fallback
     };
 }

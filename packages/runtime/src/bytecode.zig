@@ -65,8 +65,8 @@ pub const Compiler = struct {
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return .{
-            .instructions = std.ArrayList(Instruction){},
-            .constants = std.ArrayList(Constant){},
+            .instructions = std.ArrayList(Instruction).init(allocator),
+            .constants = std.ArrayList(Constant).init(allocator),
             .allocator = allocator,
         };
     }
@@ -130,7 +130,7 @@ pub const VM = struct {
 
     pub fn init(allocator: std.mem.Allocator) VM {
         return .{
-            .stack = std.ArrayList(*PyObject){},
+            .stack = std.ArrayList(*PyObject).init(allocator),
             .allocator = allocator,
         };
     }

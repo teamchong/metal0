@@ -1,5 +1,6 @@
 /// HTTP Request type with zero-copy parsing
 const std = @import("std");
+const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
 const runtime = @import("../runtime.zig");
 
 pub const Method = enum {
@@ -36,12 +37,12 @@ pub const Method = enum {
 };
 
 pub const Headers = struct {
-    map: std.StringHashMap([]const u8),
+    map: hashmap_helper.StringHashMap([]const u8),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Headers {
         return .{
-            .map = std.StringHashMap([]const u8).init(allocator),
+            .map = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .allocator = allocator,
         };
     }

@@ -1,5 +1,6 @@
 /// Core compilation functions
 const std = @import("std");
+const hashmap_helper = @import("../utils/hashmap_helper.zig");
 const ast = @import("../ast.zig");
 const lexer = @import("../lexer.zig");
 const parser = @import("../parser.zig");
@@ -225,12 +226,7 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     for (tree.module.body) |stmt| {
         if (stmt == .import_stmt) {
             const module_name = stmt.import_stmt.module;
-            _ = imports_mod.compileModuleAsStruct(
-                module_name,
-                source_file_dir,
-                aa,
-                &type_inferrer
-            ) catch |err| {
+            _ = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer) catch |err| {
                 std.debug.print("Warning: Could not pre-compile module {s}: {}\n", .{ module_name, err });
                 continue;
             };
@@ -340,7 +336,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     var import_graph = import_scanner.ImportGraph.init(allocator);
     defer import_graph.deinit();
 
-    var visited = std.StringHashMap(void).init(allocator);
+    var visited = hashmap_helper.StringHashMap(void).init(allocator);
     defer visited.deinit();
 
     // Scan all imports recursively
@@ -387,12 +383,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     for (tree.module.body) |stmt| {
         if (stmt == .import_stmt) {
             const module_name = stmt.import_stmt.module;
-            const compiled = imports_mod.compileModuleAsStruct(
-                module_name,
-                source_file_dir,
-                allocator,
-                &type_inferrer
-            ) catch |err| {
+            const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, allocator, &type_inferrer) catch |err| {
                 std.debug.print("Warning: Could not pre-compile module {s}: {}\n", .{ module_name, err });
                 continue;
             };

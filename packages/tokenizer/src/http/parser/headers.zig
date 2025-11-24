@@ -1,6 +1,7 @@
 /// Fast HTTP header parser with SIMD optimization
 const std = @import("std");
 const Headers = @import("../request.zig").Headers;
+const hashmap_helper = @import("../../../../../src/utils/hashmap_helper.zig");
 
 /// Parse HTTP headers from raw bytes
 pub fn parseHeaders(allocator: std.mem.Allocator, data: []const u8) !Headers {
@@ -89,8 +90,8 @@ pub fn isFormData(headers: *const Headers) bool {
 }
 
 /// Parse cookie header into key-value pairs
-pub fn parseCookies(allocator: std.mem.Allocator, headers: *const Headers) !std.StringHashMap([]const u8) {
-    var cookies = std.StringHashMap([]const u8).init(allocator);
+pub fn parseCookies(allocator: std.mem.Allocator, headers: *const Headers) !hashmap_helper.StringHashMap([]const u8) {
+    var cookies = hashmap_helper.StringHashMap([]const u8).init(allocator);
     errdefer cookies.deinit();
 
     const cookie_header = headers.get("Cookie") orelse return cookies;

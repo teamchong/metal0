@@ -2,7 +2,7 @@
 /// No backtracking - just matches longest token at each position
 /// Fast but may not be 100% correct without pair validation
 const std = @import("std");
-const hashmap_helper = @import("hashmap_helper.zig");
+const hashmap_helper = @import("../../src/utils/hashmap_helper.zig");
 const Allocator = std.mem.Allocator;
 
 pub fn encodeGreedy(
