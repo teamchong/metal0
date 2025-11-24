@@ -95,6 +95,35 @@ Python's distribution and deployment challenges solved.
 - Building stdlib in Zig (CPython C extensions not compatible yet)
 - Early alpha - not production ready
 
+## Feature Coverage
+
+**✅ Fully Supported:**
+- Type-hinted functions and classes
+- Basic types: int, float, str, bool
+- Collections: list, dict, tuple
+- Control flow: if/elif/else, for, while
+- Functions: def, return, closures
+- Classes: __init__, methods, single inheritance
+- String operations: f-strings, methods
+- List/dict comprehensions
+- Operators: arithmetic, comparison, logical
+- Imports: modules, from...import
+
+**🚧 Partial Support:**
+- Decorators (basic only)
+- Exception handling (limited)
+- Built-in functions (subset)
+- Standard library (growing)
+
+**❌ Not Supported (Static Compilation):**
+- eval()/exec() - dynamic code execution
+- Runtime __getattr__/__setattr__
+- Metaclasses and dynamic classes
+- Multiple inheritance (yet)
+- Reflection/introspection
+
+See [examples/comprehensive_demo.py](examples/comprehensive_demo.py) for complete feature showcase.
+
 ## Quick Start
 
 ```bash
