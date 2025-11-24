@@ -138,6 +138,42 @@ inline fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), 
     var start: usize = 0;
     var i: usize = 0;
 
+    // Unroll loop by 4 to reduce branch prediction overhead
+    while (i + 4 <= str.len) {
+        const c0 = str[i];
+        const c1 = str[i + 1];
+        const c2 = str[i + 2];
+        const c3 = str[i + 3];
+
+        if (!NEEDS_ESCAPE[c0] and !NEEDS_ESCAPE[c1] and !NEEDS_ESCAPE[c2] and !NEEDS_ESCAPE[c3]) {
+            i += 4;
+            continue;
+        }
+
+        // At least one needs escape, process individually
+        while (i < str.len) : (i += 1) {
+            const c = str[i];
+            if (NEEDS_ESCAPE[c]) {
+                if (start < i) {
+                    try buffer.appendSlice(allocator, str[start..i]);
+                }
+
+                const escape_seq = ESCAPE_SEQUENCES[c];
+                if (escape_seq.len > 0) {
+                    try buffer.appendSlice(allocator, escape_seq);
+                } else {
+                    var buf: [6]u8 = undefined;
+                    const formatted = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch unreachable;
+                    try buffer.appendSlice(allocator, formatted);
+                }
+
+                start = i + 1;
+            }
+        }
+        break;
+    }
+
+    // Handle remaining bytes
     while (i < str.len) : (i += 1) {
         const c = str[i];
         if (NEEDS_ESCAPE[c]) {
@@ -145,7 +181,6 @@ inline fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), 
                 try buffer.appendSlice(allocator, str[start..i]);
             }
 
-            // Use lookup table for common escapes, fallback to \uXXXX for others
             const escape_seq = ESCAPE_SEQUENCES[c];
             if (escape_seq.len > 0) {
                 try buffer.appendSlice(allocator, escape_seq);
