@@ -11,10 +11,25 @@ const allocator = std.heap.c_allocator;
 extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
 extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
 
+/// Py_buffer structure (from cpython_buffer.zig)
+const Py_buffer = extern struct {
+    buf: ?*anyopaque,
+    obj: ?*cpython.PyObject,
+    len: isize,
+    itemsize: isize,
+    readonly: c_int,
+    ndim: c_int,
+    format: ?[*:0]u8,
+    shape: ?[*]isize,
+    strides: ?[*]isize,
+    suboffsets: ?[*]isize,
+    internal: ?*anyopaque,
+};
+
 /// Memory view object
 pub const PyMemoryViewObject = extern struct {
     ob_base: cpython.PyObject,
-    view: cpython.Py_buffer,
+    view: Py_buffer,
 };
 
 /// Create memory view from buffer
