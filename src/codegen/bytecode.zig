@@ -174,11 +174,19 @@ pub const Compiler = struct {
 };
 
 /// Compile Python source to bytecode
+/// For eval-style expressions, appends newline if needed (parser expects statement termination)
 pub fn compileSource(allocator: std.mem.Allocator, source: []const u8) !BytecodeProgram {
     const lexer_mod = @import("../lexer.zig");
     const parser_mod = @import("../parser.zig");
 
-    var lex = try lexer_mod.Lexer.init(allocator, source);
+    // For eval expressions, ensure source ends with newline (parser expects statement termination)
+    const eval_source = if (source.len > 0 and source[source.len - 1] != '\n')
+        try std.mem.concat(allocator, u8, &.{ source, "\n" })
+    else
+        try allocator.dupe(u8, source);
+    defer allocator.free(eval_source);
+
+    var lex = try lexer_mod.Lexer.init(allocator, eval_source);
     defer lex.deinit();
 
     const tokens = try lex.tokenize();
