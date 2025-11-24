@@ -50,11 +50,21 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    const numeric_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/test_numeric.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    numeric_tests.root_module.addImport("collections", collections_mod);
+
     const test_step = b.step("test", "Run c_interop unit tests");
     test_step.dependOn(&b.addRunArtifact(tests).step);
     test_step.dependOn(&b.addRunArtifact(registry_tests).step);
     test_step.dependOn(&b.addRunArtifact(object_protocol_tests).step);
     test_step.dependOn(&b.addRunArtifact(unicode_tests).step);
+    test_step.dependOn(&b.addRunArtifact(numeric_tests).step);
 
     // PyDict test executable
     const test_dict_exe = b.addExecutable(.{

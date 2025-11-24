@@ -25,8 +25,8 @@ pub const iterator_impl = @import("iterator_impl.zig");
 pub const exception_impl = @import("exception_impl.zig");
 pub const traceback_impl = @import("traceback_impl.zig");
 
-// Numeric types (will be created by Agent 2)
-// pub const numeric_impl = @import("numeric_impl.zig");
+// Numeric types
+pub const numeric_impl = @import("numeric_impl.zig");
 
 /// Helper types for common use cases
 pub const DictImpl = dict_impl.DictImpl;
@@ -37,7 +37,7 @@ pub const BufferImpl = buffer_impl.BufferImpl;
 pub const IteratorImpl = iterator_impl.IteratorImpl;
 pub const ExceptionImpl = exception_impl.ExceptionImpl;
 pub const TracebackImpl = traceback_impl.TracebackImpl;
-// pub const NumericImpl = numeric_impl.NumericImpl; // Agent 2 will add
+pub const NumericImpl = numeric_impl.NumericImpl;
 
 /// Re-export common configs from exception_impl
 pub const SimpleExceptionConfig = exception_impl.SimpleExceptionConfig;

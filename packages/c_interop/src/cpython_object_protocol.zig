@@ -13,15 +13,15 @@ const std = @import("std");
 const cpython = @import("cpython_object.zig");
 
 // External dependencies (implemented in other modules)
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
-extern fn PyErr_SetString(*cpython.PyObject, [*:0]const u8) callconv(.c) void;
-extern fn PyErr_Occurred() callconv(.c) ?*cpython.PyObject;
+extern fn Py_INCREF(?*cpython.PyObject) callconv(.c) void;
+extern fn Py_DECREF(?*cpython.PyObject) callconv(.c) void;
+extern fn PyErr_SetString(*cpython.PyTypeObject, [*:0]const u8) callconv(.c) void;
+extern fn PyErr_Occurred() callconv(.c) ?*cpython.PyTypeObject;
 extern fn PyUnicode_FromString([*:0]const u8) callconv(.c) ?*cpython.PyObject;
 
-// Exception types (will be defined in cpython_errors.zig)
-extern var PyExc_TypeError: cpython.PyObject;
-extern var PyExc_AttributeError: cpython.PyObject;
+// Exception types (defined in pyobject_exceptions.zig)
+extern var PyExc_TypeError: cpython.PyTypeObject;
+extern var PyExc_AttributeError: cpython.PyTypeObject;
 
 /// ============================================================================
 /// FUNCTION CALLING

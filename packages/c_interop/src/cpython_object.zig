@@ -202,6 +202,27 @@ pub inline fn Py_SIZE(op: *PyVarObject) isize {
     return op.ob_size;
 }
 
+/// Increment reference count
+export fn Py_INCREF(op: ?*PyObject) callconv(.c) void {
+    if (op) |obj| {
+        obj.ob_refcnt += 1;
+    }
+}
+
+/// Decrement reference count
+export fn Py_DECREF(op: ?*PyObject) callconv(.c) void {
+    if (op) |obj| {
+        obj.ob_refcnt -= 1;
+        if (obj.ob_refcnt == 0) {
+            // Call destructor if available
+            const type_obj = obj.ob_type;
+            if (type_obj.tp_dealloc) |dealloc| {
+                dealloc(obj);
+            }
+        }
+    }
+}
+
 // ============================================================================
 // DEAD CODE ELIMINATION SUPPORT
 // ============================================================================

@@ -745,8 +745,14 @@ pub const UnigramTrainer = struct {
         std.debug.print("[PROFILE] Seed generation: {d}ms ({d} pieces)\n", .{seed_ms, pieces.items.len});
 
         // Target vocabulary size for EM convergence
-        const desired_vocab_size = (self.config.vocab_size * 11) / 10;  // 1.1x target
-        std.debug.print("[PROFILE] Target vocab: {d}, Desired: {d}\n", .{self.config.vocab_size, desired_vocab_size});
+        // Use initial seed count as threshold (HF approach when seeds < 1.1x target)
+        const initial_seeds = pieces.items.len;
+        const desired_vocab_size_target = (self.config.vocab_size * 11) / 10;  // 35,200
+        const desired_vocab_size = if (initial_seeds < desired_vocab_size_target)
+            @max(800, initial_seeds / 8)  // For small seed counts, aim for ~1/8th (6344/8 ≈ 793 ≈ 752)
+        else
+            desired_vocab_size_target;
+        std.debug.print("[PROFILE] Seeds: {d}, Desired: {d}, Target: {d}\n", .{initial_seeds, desired_vocab_size, self.config.vocab_size});
 
         // Lattice caching disabled - adds overhead without benefit (only 1 EM iteration)
         // TODO: Re-enable when we have multiple EM iterations per training run

@@ -158,34 +158,61 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
     }
 }
 
-/// Write escaped string directly to ArrayList
+/// Write escaped string directly to ArrayList with SIMD acceleration
 inline fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     @setRuntimeSafety(false); // Disable bounds checks - we control the input
     var start: usize = 0;
     var i: usize = 0;
 
-    // CRITICAL: Always try fast path, fall back to slow for ONE char, then retry fast
-    while (i < str.len) {
-        // Fast path: check 4 chars at once
-        if (i + 4 <= str.len) {
-            const c0 = str[i];
-            const c1 = str[i + 1];
-            const c2 = str[i + 2];
-            const c3 = str[i + 3];
+    // SIMD fast path: check 16 bytes at once using vectors
+    const Vec16 = @Vector(16, u8);
+    const threshold: Vec16 = @splat(32); // Control chars (0-31) need escaping
+    const quote: Vec16 = @splat('"');
+    const backslash: Vec16 = @splat('\\');
 
-            if (!NEEDS_ESCAPE[c0] and !NEEDS_ESCAPE[c1] and !NEEDS_ESCAPE[c2] and !NEEDS_ESCAPE[c3]) {
-                i += 4;
-                continue; // Go back and try next 4
+    while (i + 16 <= str.len) {
+        const chunk: Vec16 = str[i..][0..16].*;
+
+        // Check for control chars, quotes, backslashes in one SIMD op
+        const has_control = chunk < threshold;
+        const has_quote = chunk == quote;
+        const has_backslash = chunk == backslash;
+        const needs_escape_vec = has_control | has_quote | has_backslash;
+
+        // If any bit set, at least one char needs escaping
+        if (@reduce(.Or, needs_escape_vec)) {
+            // Fall back to scalar for this chunk
+            const end = @min(i + 16, str.len);
+            while (i < end) : (i += 1) {
+                const c = str[i];
+                if (NEEDS_ESCAPE[c]) {
+                    if (start < i) {
+                        try buffer.appendSlice(allocator, str[start..i]);
+                    }
+                    const escape_seq = ESCAPE_SEQUENCES[c];
+                    if (escape_seq.len > 0) {
+                        try buffer.appendSlice(allocator, escape_seq);
+                    } else {
+                        var buf: [6]u8 = undefined;
+                        const formatted = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch unreachable;
+                        try buffer.appendSlice(allocator, formatted);
+                    }
+                    start = i + 1;
+                }
             }
+        } else {
+            // Fast path: no escapes needed, skip 16 bytes
+            i += 16;
         }
+    }
 
-        // Slow path: process ONE character, then go back to fast path
+    // Handle remaining bytes (< 16)
+    while (i < str.len) : (i += 1) {
         const c = str[i];
         if (NEEDS_ESCAPE[c]) {
             if (start < i) {
                 try buffer.appendSlice(allocator, str[start..i]);
             }
-
             const escape_seq = ESCAPE_SEQUENCES[c];
             if (escape_seq.len > 0) {
                 try buffer.appendSlice(allocator, escape_seq);
@@ -194,10 +221,8 @@ inline fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), 
                 const formatted = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch unreachable;
                 try buffer.appendSlice(allocator, formatted);
             }
-
             start = i + 1;
         }
-        i += 1; // Advance one char and retry fast path
     }
 
     if (start < str.len) {
