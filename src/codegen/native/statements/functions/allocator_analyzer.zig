@@ -91,16 +91,7 @@ fn exprNeedsAllocator(expr: ast.Node) bool {
             }
             return false;
         },
-        .dict => |d| {
-            // Check if any keys or values need allocator
-            for (d.keys) |key| {
-                if (exprNeedsAllocator(key)) return true;
-            }
-            for (d.values) |val| {
-                if (exprNeedsAllocator(val)) return true;
-            }
-            return false;
-        },
+        .dict => true, // Dict literals always need allocator for HashMap creation
         .tuple => |t| {
             // Check if any elements need allocator
             for (t.elts) |elt| {
