@@ -34,6 +34,38 @@ Python at native speed. Zero overhead.
 - Smaller than Python WASM (no interpreter)
 - Fast startup, tiny binary size
 
+📦 **Write Once, Run Everywhere**
+- Compile Python to native libraries for **any language**
+- Use from JavaScript (npm), C# (NuGet), Rust (crates.io), Go, Swift
+- Single Python codebase → multi-platform distribution
+- No runtime dependencies in target language
+
+```python
+# Write Python once
+def greet(name: str) -> str:
+    return f"Hello {name}!"
+```
+
+```javascript
+// Use from JavaScript (npm)
+import { greet } from '@yourname/app';
+console.log(greet("World"));
+```
+
+```csharp
+// Use from C# (NuGet)
+using YourName.App;
+Console.WriteLine(AppLib.Greet("World"));
+```
+
+```rust
+// Use from Rust (crates.io)
+extern crate yourname_app;
+println!("{}", yourname_app::greet("World"));
+```
+
+**Planned targets:** WASM, npm (Node.js), NuGet (.NET), crates.io (Rust), Swift, Go modules
+
 ## Why PyAOT?
 
 Python's distribution and deployment challenges solved.
@@ -74,6 +106,7 @@ Python's distribution and deployment challenges solved.
 
 **✅ Perfect For:**
 - **CLI tools** - <1ms startup vs Python's 50ms, single binary
+- **Libraries for other languages** - Compile Python → use from JS/C#/Rust/Go
 - **Serverless functions** - 50x faster cold start, no pip install
 - **Embedded systems** - Predictable memory, no interpreter
 - **IP protection** - Native code distribution, source not exposed
