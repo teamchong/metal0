@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     // Create collections module (shared dict/set/etc implementations)
     const collections_mod = b.addModule("collections", .{
-        .root_source_file = b.path("../collections/dict_impl.zig"),
+        .root_source_file = b.path("../collections/collections.zig"),
     });
 
     // Create c_interop module

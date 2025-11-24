@@ -195,17 +195,23 @@ pub const UnigramTrainer = struct {
 
         // Convert suffix array results to pieces
         // Suffix array already sorted by score (freq * length)
+        var skipped_null: usize = 0;
+        var skipped_lowfreq: usize = 0;
         for (frequent_substrings) |substr| {
             // Skip substrings with null bytes (sentence separators)
             if (std.mem.indexOfScalar(u8, substr.string, 0) != null) {
+                skipped_null += 1;
                 continue;
             }
 
-            // Filter by minimum frequency
-            const min_freq: u32 = 2; // Keep substrings that appear at least twice
-            if (substr.freq < min_freq) {
-                continue;
-            }
+            // HuggingFace doesn't filter by frequency - keep all (even freq=1)
+            // They rely on EM to filter out low-value pieces
+            // const min_freq: u32 = 2;
+            // if (substr.freq < min_freq) {
+            //     skipped_lowfreq += 1;
+            //     continue;
+            // }
+            skipped_lowfreq = 0; // Not filtering by freq
 
             // Score: frequency * length (same as HuggingFace)
             const score = @as(f64, @floatFromInt(substr.freq * @as(u32, @intCast(substr.string.len))));
@@ -218,6 +224,7 @@ pub const UnigramTrainer = struct {
         }
 
         std.debug.print("[PROFILE] Seed generation complete: {d} pieces (from {d} frequent substrings)\n", .{pieces.items.len, frequent_substrings.len});
+        std.debug.print("[PROFILE] Filtered out: {d} with null bytes, {d} low frequency\n", .{skipped_null, skipped_lowfreq});
 
         // Convert scores to log probabilities
         var sum: f64 = 0.0;

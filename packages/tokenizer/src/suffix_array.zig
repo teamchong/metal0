@@ -105,6 +105,7 @@ pub fn findFrequentSubstrings(
 
     // Scan through LCP array to find repeated substrings
     var i: usize = 1;
+    var lcp_groups_found: usize = 0;
     while (i < lcp.len) : (i += 1) {
         const common_len = lcp[i];
         if (common_len < min_length) {
@@ -121,29 +122,39 @@ pub fn findFrequentSubstrings(
             freq += 1;
         }
 
-        // Extract substring of LCP length
-        // HuggingFace's esaxx extracts based on LCP groups, not all lengths
-        if (suffix_start + common_len > text.len or common_len > max_length) {
-            i = j - 1;
-            continue;
+        lcp_groups_found += 1;
+
+        // Extract ALL substring lengths from min_length to common_len
+        // esaxx returns substrings of various lengths, not just maximal LCP
+        const max_extract_len = @min(common_len, max_length);
+
+        var len = min_length;
+        while (len <= max_extract_len) : (len += 1) {
+            if (suffix_start + len > text.len) {
+                continue;
+            }
+
+            const substring = text[suffix_start..suffix_start + len];
+
+            // Add to results if not seen before
+            const entry = try seen.getOrPut(substring);
+            if (!entry.found_existing) {
+                const substring_copy = try allocator.dupe(u8, substring);
+                errdefer allocator.free(substring_copy);
+
+                try results.append(allocator, SubstringFreq{
+                    .string = substring_copy,
+                    .freq = freq,
+                });
+
+                if (results.items.len >= max_results) {
+                    break;
+                }
+            }
         }
 
-        const substring = text[suffix_start..suffix_start + common_len];
-
-        // Add to results if not seen before
-        const entry = try seen.getOrPut(substring);
-        if (!entry.found_existing) {
-            const substring_copy = try allocator.dupe(u8, substring);
-            errdefer allocator.free(substring_copy);
-
-            try results.append(allocator, SubstringFreq{
-                .string = substring_copy,
-                .freq = freq,
-            });
-
-            if (results.items.len >= max_results) {
-                break;
-            }
+        if (results.items.len >= max_results) {
+            break;
         }
 
         // Skip past this group
@@ -158,6 +169,8 @@ pub fn findFrequentSubstrings(
             return score_a > score_b; // Descending
         }
     }.lessThan);
+
+    std.debug.print("[SA DEBUG] LCP groups processed: {d}, Unique substrings extracted: {d}\n", .{lcp_groups_found, results.items.len});
 
     // Transfer ownership to caller
     const final = try allocator.alloc(SubstringFreq, results.items.len);

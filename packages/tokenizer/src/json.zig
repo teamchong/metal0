@@ -23,6 +23,13 @@ pub fn loads(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtim
 /// Serialize PyObject to JSON string
 /// Python: json.dumps(obj) -> str
 pub fn dumps(obj: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
+    const json_str = try dumpsDirect(obj, allocator);
+    return try runtime.PyString.createOwned(allocator, json_str);
+}
+
+/// FAST PATH: Serialize directly to string WITHOUT PyObject wrapper
+/// This is what Rust does - direct string return!
+pub fn dumpsDirect(obj: *runtime.PyObject, allocator: std.mem.Allocator) ![]const u8 {
     // Start with 64KB buffer - matches typical JSON output size, eliminates growth
     var buffer = try std.ArrayList(u8).initCapacity(allocator, 65536);
 
@@ -32,12 +39,10 @@ pub fn dumps(obj: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyO
         return err;
     };
 
-    const result_str = buffer.toOwnedSlice(allocator) catch |err| {
+    return buffer.toOwnedSlice(allocator) catch |err| {
         buffer.deinit(allocator);
         return err;
     };
-
-    return try runtime.PyString.createOwned(allocator, result_str);
 }
 
 /// Comptime string table - avoids strlen at runtime
@@ -45,20 +50,6 @@ const JSON_NULL = "null";
 const JSON_TRUE = "true";
 const JSON_FALSE = "false";
 const JSON_ZERO = "0.0";
-
-/// Fake accessor: inline getter for int value
-inline fn getIntValue(obj: *runtime.PyObject) i64 {
-    @setRuntimeSafety(false);
-    const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
-    return data.value;
-}
-
-/// Fake accessor: inline getter for string value
-inline fn getStringValue(obj: *runtime.PyObject) []const u8 {
-    @setRuntimeSafety(false);
-    const data: *runtime.PyString = @ptrCast(@alignCast(obj.data));
-    return data.data;
-}
 
 /// Comptime lookup table for escape detection (much faster than switch!)
 const NEEDS_ESCAPE: [256]bool = blk: {
@@ -99,17 +90,20 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
     switch (obj.type_id) {
         .none => try buffer.appendSlice(allocator, JSON_NULL),
         .bool => {
-            try buffer.appendSlice(allocator, if (getIntValue(obj) != 0) JSON_TRUE else JSON_FALSE);
+            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
+            try buffer.appendSlice(allocator, if (data.value != 0) JSON_TRUE else JSON_FALSE);
         },
         .int => {
+            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
             var buf: [32]u8 = undefined;
-            const formatted = std.fmt.bufPrint(&buf, "{d}", .{getIntValue(obj)}) catch unreachable;
+            const formatted = std.fmt.bufPrint(&buf, "{d}", .{data.value}) catch unreachable;
             try buffer.appendSlice(allocator, formatted);
         },
         .float => try buffer.appendSlice(allocator, JSON_ZERO),
         .string => {
+            const data: *runtime.PyString = @ptrCast(@alignCast(obj.data));
             try buffer.append(allocator, '"');
-            try writeEscapedStringDirect(getStringValue(obj), buffer, allocator);
+            try writeEscapedStringDirect(data.data, buffer, allocator);
             try buffer.append(allocator, '"');
         },
         .list => {

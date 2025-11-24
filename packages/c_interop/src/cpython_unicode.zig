@@ -71,6 +71,9 @@ fn ensureUnicodeTypeInit() void {
         .tp_str = unicode_str,
         .tp_getattro = null,
         .tp_setattro = null,
+        .tp_as_number = null,
+        .tp_as_sequence = null,
+        .tp_as_buffer = null,
     };
 
     unicode_type_initialized = true;

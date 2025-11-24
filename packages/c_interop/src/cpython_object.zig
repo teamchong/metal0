@@ -249,6 +249,9 @@ test "type checking macros" {
         .tp_str = null,
         .tp_getattro = null,
         .tp_setattro = null,
+        .tp_as_number = null,
+        .tp_as_sequence = null,
+        .tp_as_buffer = null,
     };
 
     var obj = PyObject{
