@@ -79,9 +79,12 @@ pub const ImportGraph = struct {
         // Recursively scan imports
         const dir = std.fs.path.dirname(file_path);
         for (imports) |import_name| {
-            if (try import_resolver.resolveImport(import_name, dir, self.allocator)) |resolved| {
+            if (try import_resolver.resolveImportSource(import_name, dir, self.allocator)) |resolved| {
+                std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, resolved });
                 defer self.allocator.free(resolved);
                 try self.scanRecursive(resolved, visited);
+            } else {
+                std.debug.print("  Skipped import (external): {s}\n", .{import_name});
             }
         }
     }

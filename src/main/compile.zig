@@ -82,12 +82,12 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
         try type_inferrer.analyze(tree.module);
     }
 
-    // Generate Zig code in module mode
+    // Generate Zig code in module mode (top-level exports, no struct wrapper)
     var codegen = try native_codegen.NativeCodegen.init(allocator, &type_inferrer, &semantic_info);
     defer codegen.deinit();
 
     codegen.mode = .module;
-    codegen.module_name = mod_name;
+    codegen.module_name = null; // No struct wrapper - export functions at top level
 
     const zig_code = if (tree == .module)
         try codegen.generate(tree.module)
@@ -354,7 +354,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         if (std.mem.eql(u8, module_path, opts.input_file)) continue;
 
         // Compile module
-        try compileModule(allocator, module_path, "");
+        std.debug.print("  Compiling module: {s}\n", .{module_path});
+        compileModule(allocator, module_path, "") catch |err| {
+            std.debug.print("  Warning: Failed to compile module {s}: {}\n", .{ module_path, err });
+            continue;
+        };
     }
 
     // PHASE 2.5: C Library Import Detection
@@ -401,6 +405,18 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     var native_gen = try native_codegen.NativeCodegen.init(allocator, &type_inferrer, &semantic_info);
     defer native_gen.deinit();
 
+    // Set mode: shared library (.so) = module mode, binary/run = script mode
+    if (!opts.binary and std.mem.eql(u8, opts.mode, "build")) {
+        native_gen.mode = .module;
+        // Extract module name from input file
+        const basename = std.fs.path.basename(opts.input_file);
+        const mod_name = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
+            basename[0..idx]
+        else
+            basename;
+        native_gen.module_name = mod_name;
+    }
+
     // Pass import context to codegen
     native_gen.setImportContext(&import_ctx);
 
@@ -410,14 +426,18 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     const zig_code = try native_gen.generate(tree.module);
     defer allocator.free(zig_code);
 
-    // Native codegen always produces binaries (not shared libraries)
-    std.debug.print("Compiling to native binary...\n", .{});
-
     // Get C libraries collected during import processing
     const c_libs = try native_gen.c_libraries.toOwnedSlice(allocator);
     defer allocator.free(c_libs);
 
-    try compiler.compileZig(allocator, zig_code, bin_path, c_libs);
+    // Compile to shared library (.so) or binary
+    if (!opts.binary and std.mem.eql(u8, opts.mode, "build")) {
+        std.debug.print("Compiling to shared library...\n", .{});
+        try compiler.compileZigSharedLib(allocator, zig_code, bin_path, c_libs);
+    } else {
+        std.debug.print("Compiling to native binary...\n", .{});
+        try compiler.compileZig(allocator, zig_code, bin_path, c_libs);
+    }
 
     std.debug.print("✓ Compiled successfully to: {s}\n", .{bin_path});
 
