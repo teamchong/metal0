@@ -49,6 +49,12 @@ pub fn build(b: *std.Build) void {
         }),
     });
     bench_train.root_module.addOptions("build_options", options);
+
+    // Link esaxx-rs FFI library
+    bench_train.addLibraryPath(.{ .cwd_relative = "/tmp/esaxx-ffi/target/release" });
+    bench_train.linkSystemLibrary("esaxx_ffi");
+    bench_train.linkLibC();
+
     b.installArtifact(bench_train);
 
     // Install step with helpful message

@@ -6,6 +6,7 @@ const std = @import("std");
 const hashmap_helper = @import("hashmap_helper.zig");
 // Use SA-IS implementation instead of simple O(n² log n) suffix array
 const sais = @import("sais.zig");
+const esaxx_ffi = @import("esaxx_ffi.zig");
 const Allocator = std.mem.Allocator;
 const Unigram = @import("unigram_model.zig").Unigram;
 const VocabEntry = @import("unigram_model.zig").VocabEntry;
@@ -151,70 +152,76 @@ pub const UnigramTrainer = struct {
                 .score = @floatFromInt(item.freq),
             });
         }
+        const num_chars = pieces.items.len - 1; // -1 for UNK
+        std.debug.print("[PROFILE] Added {d} characters to seeds\n", .{num_chars});
 
         // Use suffix arrays to find FREQUENT substrings (like HuggingFace)
         // This is much more selective than exhaustive n-gram generation
 
-        // Per-sentence SA-IS to avoid cross-sentence artifacts
-        var all_substrings = std.ArrayList(sais.SubstringFreq){};
-        defer all_substrings.deinit(self.allocator);
-
-        std.debug.print("[PROFILE] Running SA-IS on {d} sentences individually\n", .{sentences.len});
-
+        // Use concatenation with '\0' separator (EXACTLY like HuggingFace)
+        // See: tokenizers/src/models/unigram/trainer.rs:201-219
+        var total_len: usize = 0;
         for (sentences) |sentence| {
-            if (sentence.text.len < 2) continue;
-
-            const substr_list = try sais.findFrequentSubstrings(
-                self.allocator,
-                sentence.text,
-                2, // min_length
-                1000, // max_length
-                100000, // max_results per sentence
-            );
-            defer self.allocator.free(substr_list);
-
-            for (substr_list) |substr| {
-                const copy = try self.allocator.dupe(u8, substr.string);
-                const weighted_freq = substr.freq * sentence.count;
-                try all_substrings.append(self.allocator, sais.SubstringFreq{
-                    .string = copy,
-                    .freq = weighted_freq,
-                });
-            }
+            if (sentence.text.len == 0) continue;
+            total_len += sentence.text.len + 1; // +1 for '\0' separator
         }
 
-        const frequent_substrings = try self.allocator.alloc(sais.SubstringFreq, all_substrings.items.len);
-        @memcpy(frequent_substrings, all_substrings.items);
+        var concat_text = try self.allocator.alloc(u8, total_len);
+        defer self.allocator.free(concat_text);
+
+        var pos: usize = 0;
+        for (sentences) |sentence| {
+            if (sentence.text.len == 0) continue;
+            @memcpy(concat_text[pos..pos + sentence.text.len], sentence.text);
+            pos += sentence.text.len;
+            concat_text[pos] = 0; // '\0' separator
+            pos += 1;
+        }
+
+        std.debug.print("[PROFILE] Concatenated {d} sentences into {d} bytes\n", .{sentences.len, concat_text.len});
+
+        // Use esaxx-rs FFI for exact HuggingFace parity
+        std.debug.print("[PROFILE] Calling esaxx-rs via FFI...\n", .{});
+        const frequent_substrings = try esaxx_ffi.extractSubstrings(
+            self.allocator,
+            concat_text,
+        );
         defer {
-            for (frequent_substrings) |substr| {
-                self.allocator.free(substr.string);
+            for (frequent_substrings) |*substr| {
+                substr.deinit(self.allocator);
             }
             self.allocator.free(frequent_substrings);
         }
 
-        std.debug.print("[PROFILE] Found {d} frequent substrings via per-sentence SA-IS\n", .{frequent_substrings.len});
+        std.debug.print("[PROFILE] Found {d} substrings from esaxx-rs\n", .{frequent_substrings.len});
 
         // Convert suffix array results to pieces
-        // Suffix array already sorted by score (freq * length)
+        // EXACTLY matching HuggingFace trainer.rs:238-272
+        var skipped_len: usize = 0;
         var skipped_null: usize = 0;
-        var skipped_lowfreq: usize = 0;
+        var skipped_maxlen: usize = 0;
+        const seed_size: usize = 1_000_000; // HuggingFace default
+
         for (frequent_substrings) |substr| {
-            // Skip substrings with separator bytes ('\0' sentence separators)
+            // Filter 1: len <= 1 (line 241-242)
+            if (substr.string.len <= 1) {
+                skipped_len += 1;
+                continue;
+            }
+
+            // Filter 2: contains '\0' (line 244-245)
             if (std.mem.indexOfScalar(u8, substr.string, 0) != null) {
                 skipped_null += 1;
                 continue;
             }
 
-            // HuggingFace doesn't filter by frequency - keep all (even freq=1)
-            // They rely on EM to filter out low-value pieces
-            // const min_freq: u32 = 2;
-            // if (substr.freq < min_freq) {
-            //     skipped_lowfreq += 1;
-            //     continue;
-            // }
-            skipped_lowfreq = 0; // Not filtering by freq
+            // Filter 3: is_valid_sentencepiece checks max_piece_length (line 106-107)
+            if (substr.string.len > self.config.max_piece_length) {
+                skipped_maxlen += 1;
+                continue;
+            }
 
-            // Score: frequency * length (same as HuggingFace)
+            // Score: frequency * length (line 250)
             const score = @as(f64, @floatFromInt(substr.freq * @as(u32, @intCast(substr.string.len))));
 
             const token_copy = try self.allocator.dupe(u8, substr.string);
@@ -222,10 +229,16 @@ pub const UnigramTrainer = struct {
                 .token = token_copy,
                 .score = score,
             });
+
+            // Limit to seed_size (line 270-272)
+            if (pieces.items.len - 1 >= seed_size) { // -1 for UNK token
+                break;
+            }
         }
 
-        std.debug.print("[PROFILE] Seed generation complete: {d} pieces (from {d} frequent substrings)\n", .{pieces.items.len, frequent_substrings.len});
-        std.debug.print("[PROFILE] Filtered out: {d} with null bytes, {d} low frequency\n", .{skipped_null, skipped_lowfreq});
+        const num_substrings = pieces.items.len - num_chars - 1; // -1 for UNK
+        std.debug.print("[PROFILE] Added {d} substrings from esaxx (total seeds: {d})\n", .{num_substrings, pieces.items.len});
+        std.debug.print("[PROFILE] Filtered: {d} len<=1, {d} with \\0, {d} len>{d}\n", .{skipped_len, skipped_null, skipped_maxlen, self.config.max_piece_length});
 
         // Sample first 10 seeds for debugging
         std.debug.print("[DEBUG] First 10 seeds:\n", .{});
@@ -482,9 +495,8 @@ pub const UnigramTrainer = struct {
 
         var sum: f64 = 0.0;
 
-        // EXPERIMENTAL: Lower threshold to keep more tokens
-        // HuggingFace uses 0.5, but we're trying 0.0001 to reach 751 tokens
-        const expected_frequency_threshold = 0.0001;
+        // HuggingFace threshold: filter out tokens with expected frequency < 0.5
+        const expected_frequency_threshold = 0.5;
 
         var filtered_count: usize = 0;
         var max_freq: f64 = 0.0;

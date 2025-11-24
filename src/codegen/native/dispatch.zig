@@ -410,10 +410,20 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
             return true;
         }
 
-        // Dynamic features - emit user-friendly errors
-        if (std.mem.eql(u8, func_name, "eval") or
-            std.mem.eql(u8, func_name, "exec") or
-            std.mem.eql(u8, func_name, "compile") or
+        // eval() - wire to AST executor
+        if (std.mem.eql(u8, func_name, "eval")) {
+            try builtins.genEval(self, call.args);
+            return true;
+        }
+
+        // exec() - similar to eval but no return value
+        if (std.mem.eql(u8, func_name, "exec")) {
+            try builtins.genExec(self, call.args);
+            return true;
+        }
+
+        // Dynamic features still not supported - emit errors
+        if (std.mem.eql(u8, func_name, "compile") or
             std.mem.eql(u8, func_name, "__import__"))
         {
             reportDynamicFeatureError(func_name);
