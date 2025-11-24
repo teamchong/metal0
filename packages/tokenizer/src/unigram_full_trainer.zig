@@ -4,7 +4,8 @@
 
 const std = @import("std");
 const hashmap_helper = @import("hashmap_helper.zig");
-const suffix_array = @import("suffix_array.zig");
+// Use SA-IS implementation instead of simple O(n² log n) suffix array
+const sais = @import("sais.zig");
 const Allocator = std.mem.Allocator;
 const Unigram = @import("unigram_model.zig").Unigram;
 const VocabEntry = @import("unigram_model.zig").VocabEntry;
@@ -154,36 +155,55 @@ pub const UnigramTrainer = struct {
         // Use suffix arrays to find FREQUENT substrings (like HuggingFace)
         // This is much more selective than exhaustive n-gram generation
 
-        // Concatenate all sentences into one text for suffix array
-        var total_len: usize = 0;
-        for (sentences) |sentence| {
-            total_len += sentence.text.len + 1; // +1 for separator
-        }
+        // Try per-sentence SA-IS to avoid cross-sentence patterns
+        // Deduplicate while aggregating frequencies
+        var substr_map = std.StringHashMap(u32).init(self.allocator);
+        defer substr_map.deinit();
 
-        var concat_text = try self.allocator.alloc(u8, total_len);
-        defer self.allocator.free(concat_text);
+        std.debug.print("[PROFILE] Running SA-IS on {d} sentences individually\n", .{sentences.len});
 
-        var pos: usize = 0;
+        var total_found: usize = 0;
         for (sentences) |sentence| {
-            @memcpy(concat_text[pos..pos + sentence.text.len], sentence.text);
-            pos += sentence.text.len;
-            if (pos < total_len) {
-                concat_text[pos] = 0; // Sentence separator
-                pos += 1;
+            if (sentence.text.len < 2) continue; // Skip very short sentences
+
+            const substr_list = try sais.findFrequentSubstrings(
+                self.allocator,
+                sentence.text,
+                2, // min_length
+                1000, // max_length - allow longer pieces (HF default)
+                100000, // max_results per sentence
+            );
+            defer self.allocator.free(substr_list);
+
+            for (substr_list) |substr| {
+                // Aggregate frequencies across sentences
+                const weighted_freq = substr.freq * sentence.count;
+                const entry = try substr_map.getOrPut(substr.string);
+                if (entry.found_existing) {
+                    entry.value_ptr.* += weighted_freq;
+                } else {
+                    const key_copy = try self.allocator.dupe(u8, substr.string);
+                    entry.key_ptr.* = key_copy;
+                    entry.value_ptr.* = weighted_freq;
+                }
+                total_found += 1;
             }
         }
 
-        std.debug.print("[PROFILE] Concatenated {d} sentences into {d} bytes\n", .{sentences.len, concat_text.len});
+        // Convert map to array
+        var all_substrings = std.ArrayList(sais.SubstringFreq){};
+        defer all_substrings.deinit(self.allocator);
 
-        // Extract frequent substrings using suffix array
-        // Need enough seeds to trigger EM iterations (> desired_vocab_size)
-        const frequent_substrings = try suffix_array.findFrequentSubstrings(
-            self.allocator,
-            concat_text,
-            2, // min_length
-            self.config.max_piece_length, // max_length
-            1000000, // max_results - allow many to ensure we get enough seeds
-        );
+        var substr_it = substr_map.iterator();
+        while (substr_it.next()) |entry| {
+            try all_substrings.append(self.allocator, sais.SubstringFreq{
+                .string = entry.key_ptr.*,  // Transfer ownership
+                .freq = entry.value_ptr.*,
+            });
+        }
+
+        const frequent_substrings = try self.allocator.alloc(sais.SubstringFreq, all_substrings.items.len);
+        @memcpy(frequent_substrings, all_substrings.items);
         defer {
             for (frequent_substrings) |substr| {
                 self.allocator.free(substr.string);
@@ -191,15 +211,15 @@ pub const UnigramTrainer = struct {
             self.allocator.free(frequent_substrings);
         }
 
-        std.debug.print("[PROFILE] Found {d} frequent substrings via suffix array\n", .{frequent_substrings.len});
+        std.debug.print("[PROFILE] Found {d} frequent substrings ({d} raw) across all sentences\n", .{frequent_substrings.len, total_found});
 
         // Convert suffix array results to pieces
         // Suffix array already sorted by score (freq * length)
         var skipped_null: usize = 0;
         var skipped_lowfreq: usize = 0;
         for (frequent_substrings) |substr| {
-            // Skip substrings with null bytes (sentence separators)
-            if (std.mem.indexOfScalar(u8, substr.string, 0) != null) {
+            // Skip substrings with separator bytes (0xFF sentence separators)
+            if (std.mem.indexOfScalar(u8, substr.string, 0xFF) != null) {
                 skipped_null += 1;
                 continue;
             }
@@ -225,6 +245,12 @@ pub const UnigramTrainer = struct {
 
         std.debug.print("[PROFILE] Seed generation complete: {d} pieces (from {d} frequent substrings)\n", .{pieces.items.len, frequent_substrings.len});
         std.debug.print("[PROFILE] Filtered out: {d} with null bytes, {d} low frequency\n", .{skipped_null, skipped_lowfreq});
+
+        // Sample first 10 seeds for debugging
+        std.debug.print("[DEBUG] First 10 seeds:\n", .{});
+        for (pieces.items[1..@min(11, pieces.items.len)], 1..) |piece, i| {
+            std.debug.print("  [{d}] \"{s}\" (score={d:.2})\n", .{i, piece.token, piece.score});
+        }
 
         // Convert scores to log probabilities
         var sum: f64 = 0.0;
@@ -478,6 +504,10 @@ pub const UnigramTrainer = struct {
         // HuggingFace threshold: filter out tokens with expected frequency < 0.5
         const expected_frequency_threshold = 0.5;
 
+        var filtered_count: usize = 0;
+        var max_freq: f64 = 0.0;
+        var min_nonzero_freq: f64 = std.math.inf(f64);
+
         // M-step: Filter tokens and update scores based on expected counts
         for (pieces, expected, 0..) |piece, freq, i| {
             // Always keep UNK (index 0)
@@ -490,8 +520,13 @@ pub const UnigramTrainer = struct {
                 continue;
             }
 
+            // Track stats
+            if (freq > max_freq) max_freq = freq;
+            if (freq > 0.0 and freq < min_nonzero_freq) min_nonzero_freq = freq;
+
             // Filter: Only keep tokens with expected frequency >= 0.5 (HuggingFace parity)
             if (freq < expected_frequency_threshold) {
+                filtered_count += 1;
                 continue;
             }
 
@@ -509,7 +544,8 @@ pub const UnigramTrainer = struct {
             piece.score = digamma(piece.score) - logsum;
         }
 
-        std.debug.print("[DEBUG] M-step filtered: {d} kept (from {d} pieces)\n", .{new_pieces.items.len, pieces.len});
+        std.debug.print("[DEBUG] M-step: {d} filtered, {d} kept (from {d} pieces) | max_freq={d:.2}, min_nonzero={d:.6}\n",
+            .{filtered_count, new_pieces.items.len, pieces.len, max_freq, min_nonzero_freq});
         return new_pieces;
     }
 
@@ -745,14 +781,8 @@ pub const UnigramTrainer = struct {
         std.debug.print("[PROFILE] Seed generation: {d}ms ({d} pieces)\n", .{seed_ms, pieces.items.len});
 
         // Target vocabulary size for EM convergence
-        // Use initial seed count as threshold (HF approach when seeds < 1.1x target)
-        const initial_seeds = pieces.items.len;
-        const desired_vocab_size_target = (self.config.vocab_size * 11) / 10;  // 35,200
-        const desired_vocab_size = if (initial_seeds < desired_vocab_size_target)
-            @max(800, initial_seeds / 8)  // For small seed counts, aim for ~1/8th (6344/8 ≈ 793 ≈ 752)
-        else
-            desired_vocab_size_target;
-        std.debug.print("[PROFILE] Seeds: {d}, Desired: {d}, Target: {d}\n", .{initial_seeds, desired_vocab_size, self.config.vocab_size});
+        const desired_vocab_size = (self.config.vocab_size * 11) / 10;  // 1.1x target (HuggingFace default)
+        std.debug.print("[PROFILE] Seeds: {d}, Desired: {d}, Target: {d}\n", .{pieces.items.len, desired_vocab_size, self.config.vocab_size});
 
         // Lattice caching disabled - adds overhead without benefit (only 1 EM iteration)
         // TODO: Re-enable when we have multiple EM iterations per training run
@@ -830,6 +860,8 @@ pub const UnigramTrainer = struct {
             const start_prune = std.time.nanoTimestamp();
             const pruned_size = @as(usize, @intFromFloat(@as(f64, @floatFromInt(pieces.items.len)) * self.config.shrinking_factor));
             const target_size = @max(desired_vocab_size, pruned_size);
+            std.debug.print("[PRUNE DEBUG] pieces={d}, shrinking_factor={d}, pruned_size={d}, desired={d}, target={d}\n",
+                .{pieces.items.len, self.config.shrinking_factor, pruned_size, desired_vocab_size, target_size});
 
             var pruned = try self.pruneVocab(pieces.items, sentences, target_size);
             defer {
