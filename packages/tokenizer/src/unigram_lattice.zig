@@ -320,13 +320,7 @@ pub const Lattice = struct {
         // Priority queue (max heap by fx score)
         const PQ = std.PriorityQueue(*Hypothesis, void, Hypothesis.lessThan);
         var agenda = PQ.init(allocator, {});
-        defer {
-            // Clean up remaining hypotheses in queue
-            while (agenda.removeOrNull()) |hyp| {
-                hyp.deinit();
-            }
-            agenda.deinit();
-        }
+        defer agenda.deinit();
 
         // Track all allocated hypotheses for cleanup
         var all_hyps = std.ArrayList(*Hypothesis){};
