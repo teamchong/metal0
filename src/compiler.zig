@@ -28,10 +28,10 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
 
         const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
         defer src.close();
+        const content = try src.readToEndAlloc(aa, 1024 * 1024);
+
         const dst = try std.fs.cwd().createFile(dst_path, .{});
         defer dst.close();
-
-        const content = try src.readToEndAlloc(aa, 1024 * 1024);
         try dst.writeAll(content);
     }
 
@@ -46,27 +46,30 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     try copyCInteropDir(aa, build_dir);
 
     // Copy any compiled modules from .build/ to per-process build dir
-    if (std.fs.cwd().openDir(".build", .{ .iterate = true })) |build_iter_dir| {
-        var mut_dir = build_iter_dir;
-        defer mut_dir.close();
-        var walker = mut_dir.iterate();
-        while (try walker.next()) |entry| {
-            if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
-                const src_path = try std.fmt.allocPrint(aa, ".build/{s}", .{entry.name});
-                const dst_path = try std.fmt.allocPrint(aa, "{s}/{s}", .{ build_dir, entry.name });
+    // (Skip this if build_dir is .build itself to avoid copying files to themselves)
+    if (!std.mem.eql(u8, build_dir, ".build")) {
+        if (std.fs.cwd().openDir(".build", .{ .iterate = true })) |build_iter_dir| {
+            var mut_dir = build_iter_dir;
+            defer mut_dir.close();
+            var walker = mut_dir.iterate();
+            while (try walker.next()) |entry| {
+                if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
+                    const src_path = try std.fmt.allocPrint(aa, ".build/{s}", .{entry.name});
+                    const dst_path = try std.fmt.allocPrint(aa, "{s}/{s}", .{ build_dir, entry.name });
 
-                const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
-                defer src.close();
-                const dst = try std.fs.cwd().createFile(dst_path, .{});
-                defer dst.close();
+                    const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
+                    defer src.close();
+                    const dst = try std.fs.cwd().createFile(dst_path, .{});
+                    defer dst.close();
 
-                const mod_content = try src.readToEndAlloc(aa, 1024 * 1024);
-                try dst.writeAll(mod_content);
+                    const mod_content = try src.readToEndAlloc(aa, 1024 * 1024);
+                    try dst.writeAll(mod_content);
+                }
             }
+        } else |err| {
+            // If .build doesn't exist, that's fine - no modules to copy
+            if (err != error.FileNotFound) return err;
         }
-    } else |err| {
-        // If .build doesn't exist, that's fine - no modules to copy
-        if (err != error.FileNotFound) return err;
     }
 
     // Write Zig code to temporary file
@@ -79,6 +82,14 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     // defer std.fs.deleteFileAbsolute(tmp_path) catch {};
 
     try tmp_file.writeAll(zig_code);
+
+    // DEBUG: Verify runtime files before zig compilation
+    {
+        const check = try std.fs.cwd().openFile(".build/runtime.zig", .{});
+        defer check.close();
+        const stat = try check.stat();
+        std.debug.print("RIGHT BEFORE ZIG: .build/runtime.zig is {d} bytes\n", .{stat.size});
+    }
 
     // Shell out to zig build-exe
     const zig_path = try findZigBinary(aa);
@@ -147,7 +158,6 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
 /// Compile Zig source code to shared library (.so/.dylib)
 pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, c_libraries: []const []const u8) !void {
     const build_dir = try getBuildDir(allocator);
-    defer allocator.free(build_dir);
 
     // Create build directory if it doesn't exist
     std.fs.cwd().makeDir(build_dir) catch |err| {
@@ -163,13 +173,13 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
         defer allocator.free(dst_path);
 
         const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
-        defer src.close();
-        const dst = try std.fs.cwd().createFile(dst_path, .{});
-        defer dst.close();
-
         const content = try src.readToEndAlloc(allocator, 1024 * 1024);
         defer allocator.free(content);
+        src.close();
+
+        const dst = try std.fs.cwd().createFile(dst_path, .{});
         try dst.writeAll(content);
+        dst.close();
     }
 
     // Copy runtime subdirectories to .build

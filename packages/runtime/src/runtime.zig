@@ -371,6 +371,7 @@ pub const http = @import("http.zig");
 pub const async_runtime = @import("async.zig");
 pub const json = @import("json.zig");
 pub const re = @import("re.zig");
+pub const math = @import("math.zig");
 pub const eval_module = @import("eval.zig");
 
 // Export convenience functions
