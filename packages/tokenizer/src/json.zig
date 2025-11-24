@@ -25,11 +25,18 @@ pub fn loads(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtim
 pub fn dumps(obj: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
     // Start with 4KB buffer, let it grow naturally (avoid estimation overhead)
     var buffer = try std.ArrayList(u8).initCapacity(allocator, 4096);
-    defer buffer.deinit(allocator);
 
-    try stringifyPyObjectDirect(obj, &buffer, allocator);
+    // Manual error handling to avoid defer overhead
+    stringifyPyObjectDirect(obj, &buffer, allocator) catch |err| {
+        buffer.deinit(allocator);
+        return err;
+    };
 
-    const result_str = try buffer.toOwnedSlice(allocator);
+    const result_str = buffer.toOwnedSlice(allocator) catch |err| {
+        buffer.deinit(allocator);
+        return err;
+    };
+
     return try runtime.PyString.createOwned(allocator, result_str);
 }
 
