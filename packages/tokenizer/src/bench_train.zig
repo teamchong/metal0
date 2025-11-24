@@ -4,7 +4,7 @@ const trainer_mod = @import("trainer.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const UnigramTokenizer = @import("unigram_tokenizer.zig").UnigramTokenizer;
 const allocator_helper = @import("allocator_helper.zig");
-const ThreadPool = @import("../../threading/src/ThreadPool.zig");
+const ThreadPool = @import("threading");
 
 // Algorithm selection based on build options
 const Trainer = if (build_options.runtime_selection)

@@ -1045,10 +1045,8 @@ pub const Node = struct {
 const std = @import("std");
 const Atomic = std.atomic.Value;
 
-const bun = @import("bun");
-const Environment = bun.Environment;
-const Output = bun.Output;
-const assert = bun.assert;
+// Removed Bun dependencies - use std equivalents
+const assert = std.debug.assert;
 
-const Futex = bun.threading.Futex;
-const WaitGroup = bun.threading.WaitGroup;
+const Futex = std.Thread.Futex;
+const WaitGroup = std.Thread.WaitGroup;

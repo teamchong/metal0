@@ -6,7 +6,7 @@ const UnigramTokenizer = @import("unigram_tokenizer.zig").UnigramTokenizer;
 const BpeTrainer = @import("bpe_trainer.zig").BpeTrainer;
 const WordPieceTrainer = @import("wordpiece_trainer.zig").WordPieceTrainer;
 const UnigramTrainer = @import("unigram_full_trainer.zig").UnigramTrainer;
-const ThreadPool = @import("../../threading/src/ThreadPool.zig");
+const ThreadPool = @import("threading");
 
 /// Result type for RuntimeTrainer (handles different tokenizer types)
 pub const TokenizerResult = union(Algorithm) {

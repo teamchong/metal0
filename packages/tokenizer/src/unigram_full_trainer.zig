@@ -8,7 +8,7 @@ const Allocator = std.mem.Allocator;
 const Unigram = @import("unigram_model.zig").Unigram;
 const VocabEntry = @import("unigram_model.zig").VocabEntry;
 const Lattice = @import("unigram_lattice.zig").Lattice;
-const ThreadPool = @import("../../threading/src/ThreadPool.zig");
+// Using std.Thread directly instead of ThreadPool (simpler, no Bun dependencies)
 const UnigramTokenizer = @import("unigram_tokenizer.zig").UnigramTokenizer;
 const suffix_array = @import("suffix_array.zig");
 
@@ -58,7 +58,7 @@ pub const UnigramTrainerConfig = struct {
 pub const UnigramTrainer = struct {
     config: UnigramTrainerConfig,
     allocator: Allocator,
-    thread_pool: ?*ThreadPool,
+    enable_parallel: bool,
 
     /// Initialize with vocab size (matches BPE/WordPiece API)
     pub fn init(vocab_size: usize, allocator: Allocator) !UnigramTrainer {
@@ -67,18 +67,18 @@ pub const UnigramTrainer = struct {
                 .vocab_size = @intCast(vocab_size),
             },
             .allocator = allocator,
-            .thread_pool = null,
+            .enable_parallel = false,
         };
     }
 
-    /// Initialize with thread pool for parallel training
-    pub fn initWithThreadPool(vocab_size: usize, allocator: Allocator, thread_pool: *ThreadPool) !UnigramTrainer {
+    /// Initialize with parallelization enabled
+    pub fn initWithThreadPool(vocab_size: usize, allocator: Allocator, _: anytype) !UnigramTrainer {
         return UnigramTrainer{
             .config = UnigramTrainerConfig{
                 .vocab_size = @intCast(vocab_size),
             },
             .allocator = allocator,
-            .thread_pool = thread_pool,
+            .enable_parallel = true,
         };
     }
 
@@ -87,7 +87,7 @@ pub const UnigramTrainer = struct {
         return UnigramTrainer{
             .config = config,
             .allocator = allocator,
-            .thread_pool = null,
+            .enable_parallel = false,
         };
     }
 
