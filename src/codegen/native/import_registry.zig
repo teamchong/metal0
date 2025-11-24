@@ -111,15 +111,18 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("re", .zig_runtime, "runtime.re", null);
 
     // Tier 2: C library wrappers
-    try registry.register("numpy", .c_library, "@import(\"c_interop\").numpy", "blas");
-    try registry.register("sqlite3", .c_library, "@import(\"c_interop\").sqlite3", "sqlite3");
-    try registry.register("zlib", .c_library, "@import(\"c_interop\").zlib", "z");
-    try registry.register("ssl", .c_library, "@import(\"c_interop\").ssl", "ssl");
+    try registry.register("numpy", .c_library, "@import(\"./c_interop/c_interop.zig\").numpy", "blas");
+    try registry.register("sqlite3", .c_library, "@import(\"./c_interop/c_interop.zig\").sqlite3", "sqlite3");
+    try registry.register("zlib", .c_library, "@import(\"./c_interop/c_interop.zig\").zlib", "z");
+    try registry.register("ssl", .c_library, "@import(\"./c_interop/c_interop.zig\").ssl", "ssl");
 
     // Tier 3: Mark as compile_python (will be handled later)
     try registry.register("pathlib", .compile_python, null, null);
     try registry.register("urllib", .compile_python, null, null);
     try registry.register("datetime", .compile_python, null, null);
+
+    // Dynamic features (unsupported - require runtime)
+    try registry.register("importlib", .unsupported, null, null);
 
     return registry;
 }

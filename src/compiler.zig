@@ -404,7 +404,7 @@ fn copyCInteropDir(allocator: std.mem.Allocator, build_dir: []const u8) !void {
     };
     defer src_dir.close();
 
-    // Iterate through files in source directory
+    // Iterate through files and directories
     var iterator = src_dir.iterate();
     while (try iterator.next()) |entry| {
         if (entry.kind == .file) {
@@ -422,6 +422,12 @@ fn copyCInteropDir(allocator: std.mem.Allocator, build_dir: []const u8) !void {
             const content = try src_file.readToEndAlloc(allocator, 10 * 1024 * 1024);
             defer allocator.free(content);
             try dst_file.writeAll(content);
+        } else if (entry.kind == .directory) {
+            // Recursively copy subdirectory
+            const new_src = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ src_dir_path, entry.name });
+            defer allocator.free(new_src);
+            const new_dst = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dst_dir_path, entry.name });
+            try copyDirRecursive(allocator, new_src, new_dst);
         }
     }
 }
