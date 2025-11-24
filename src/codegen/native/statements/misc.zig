@@ -104,10 +104,11 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Check if any arg is string concatenation, allocating method call, list, tuple, dict, bool, float, or unknown (PyObject)
+    // Check if any arg is string concatenation, allocating method call, list, array, tuple, dict, bool, float, or unknown (PyObject)
     var has_string_concat = false;
     var has_allocating_call = false;
     var has_list = false;
+    var has_array = false;
     var has_tuple = false;
     var has_dict = false;
     var has_bool = false;
@@ -129,6 +130,9 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (arg_type == .list) {
             has_list = true;
         }
+        if (arg_type == .array) {
+            has_array = true;
+        }
         if (arg_type == .tuple) {
             has_tuple = true;
         }
@@ -146,24 +150,25 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
 
-    // If we have lists, tuples, dicts, bools, or unknowns (PyObject), handle them specially with custom formatting
-    if (has_list or has_tuple or has_dict or has_bool or has_unknown) {
-        // For lists, we need to print in Python format: [elem1, elem2, ...]
+    // If we have lists, arrays, tuples, dicts, bools, or unknowns (PyObject), handle them specially with custom formatting
+    if (has_list or has_array or has_tuple or has_dict or has_bool or has_unknown) {
+        // For lists and arrays, we need to print in Python format: [elem1, elem2, ...]
         for (args, 0..) |arg, i| {
             const arg_type = try self.type_inferrer.inferExpr(arg);
-            if (arg_type == .list) {
-                // Check if this is an array slice vs ArrayList
+            if (arg_type == .list or arg_type == .array) {
+                // Check if this is an array slice vs ArrayList vs plain array
                 const is_array_slice = isArraySlice(self, arg);
+                const is_plain_array = arg_type == .array;
 
-                // Generate loop to print list elements
+                // Generate loop to print list/array elements
                 try self.output.appendSlice(self.allocator, "{\n");
                 try self.output.appendSlice(self.allocator, "    const __list = ");
                 try self.genExpr(arg);
                 try self.output.appendSlice(self.allocator, ";\n");
                 try self.output.appendSlice(self.allocator, "    std.debug.print(\"[\", .{});\n");
 
-                // Array slices: iterate directly, ArrayList: use .items
-                if (is_array_slice) {
+                // Plain arrays and array slices: iterate directly, ArrayList: use .items
+                if (is_plain_array or is_array_slice) {
                     try self.output.appendSlice(self.allocator, "    for (__list, 0..) |__elem, __idx| {\n");
                 } else {
                     try self.output.appendSlice(self.allocator, "    for (__list.items, 0..) |__elem, __idx| {\n");

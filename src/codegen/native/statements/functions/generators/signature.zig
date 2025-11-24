@@ -157,11 +157,25 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
             try self.emit(param_name);
             try self.emit(") {\n");
         } else {
+            // Try to infer return type from func_return_types
+            const inferred_type = self.type_inferrer.func_return_types.get(func.name);
+            const return_type_str = if (inferred_type) |inf_type| blk: {
+                // Don't use .int or .unknown - those are defaults
+                if (inf_type == .int or inf_type == .unknown) {
+                    break :blk "i64";
+                }
+                break :blk try self.nativeTypeToZigType(inf_type);
+            } else "i64";
+            defer if (inferred_type != null and inferred_type.? != .int and inferred_type.? != .unknown) {
+                self.allocator.free(return_type_str);
+            };
+
             // Add error union if function needs allocator
             if (needs_allocator) {
                 try self.emit("!");
             }
-            try self.emit("i64 {\n"); // Default return type
+            try self.emit(return_type_str);
+            try self.emit(" {\n");
         }
     } else {
         // Functions with allocator but no return still need error union for void

@@ -91,15 +91,16 @@ pub const NativeType = union(enum) {
     class_instance: []const u8, // Instance of a custom class (stores class name)
 
     // Special
+    optional: *const NativeType, // Optional[T] - Zig optional (?T)
     none: void, // void or ?T
     unknown: void, // Fallback to PyObject* (should be rare)
 
-    /// Check if this is a simple type (int, float, bool, string, class_instance)
+    /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
     /// (workaround for semantic analyzer false positives)
     pub fn isSimpleType(self: NativeType) bool {
         return switch (self) {
-            .int, .usize, .float, .bool, .string, .class_instance, .none => true,
+            .int, .usize, .float, .bool, .string, .class_instance, .optional, .none => true,
             else => false,
         };
     }
@@ -181,6 +182,10 @@ pub const NativeType = union(enum) {
                 // For class instances, use the class name as the type (not pointer)
                 try buf.appendSlice(allocator, class_name);
             },
+            .optional => |inner_type| {
+                try buf.appendSlice(allocator, "?");
+                try inner_type.toZigType(allocator, buf);
+            },
             .none => try buf.appendSlice(allocator, "void"),
             .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
         }
@@ -227,20 +232,88 @@ pub const InferError = error{
     OutOfMemory,
 };
 
-/// Convert Python type hint string to NativeType
-/// For composite types like list, returns a marker that needs allocation
+/// Parse type annotation from AST node (handles both simple and generic types)
+/// Examples: int, list[str], dict[str, int]
+pub fn parseTypeAnnotation(node: ast.Node, allocator: std.mem.Allocator) InferError!NativeType {
+    switch (node) {
+        .name => |name| {
+            return pythonTypeHintToNative(name.id, allocator);
+        },
+        .subscript => |subscript| {
+            // Handle generic types like list[int], dict[str, int], Optional[int]
+            if (subscript.value.* != .name) return .unknown;
+            const base_type = subscript.value.name.id;
+
+            if (std.mem.eql(u8, base_type, "list")) {
+                // list[T]
+                const elem_type = try parseSliceType(subscript.slice, allocator);
+                const elem_ptr = try allocator.create(NativeType);
+                elem_ptr.* = elem_type;
+                return .{ .list = elem_ptr };
+            } else if (std.mem.eql(u8, base_type, "dict")) {
+                // dict[K, V]
+                const types = try parseSliceTupleTypes(subscript.slice, allocator);
+                if (types.len == 2) {
+                    const key_ptr = try allocator.create(NativeType);
+                    const val_ptr = try allocator.create(NativeType);
+                    key_ptr.* = types[0];
+                    val_ptr.* = types[1];
+                    return .{ .dict = .{ .key = key_ptr, .value = val_ptr } };
+                }
+            } else if (std.mem.eql(u8, base_type, "Optional")) {
+                // Optional[T]
+                const inner_type = try parseSliceType(subscript.slice, allocator);
+                const inner_ptr = try allocator.create(NativeType);
+                inner_ptr.* = inner_type;
+                return .{ .optional = inner_ptr };
+            }
+            return .unknown;
+        },
+        else => return .unknown,
+    }
+}
+
+/// Parse single type from slice (for list[T])
+fn parseSliceType(slice: ast.Node.Slice, allocator: std.mem.Allocator) InferError!NativeType {
+    switch (slice) {
+        .index => |index| {
+            return parseTypeAnnotation(index.*, allocator);
+        },
+        else => return .unknown,
+    }
+}
+
+/// Parse tuple of types from slice (for dict[K, V])
+fn parseSliceTupleTypes(slice: ast.Node.Slice, allocator: std.mem.Allocator) InferError![]NativeType {
+    switch (slice) {
+        .index => |index| {
+            // Check if index is a tuple
+            if (index.* == .tuple) {
+                const tuple = index.tuple;
+                const types = try allocator.alloc(NativeType, tuple.elts.len);
+                for (tuple.elts, 0..) |elem, i| {
+                    types[i] = try parseTypeAnnotation(elem, allocator);
+                }
+                return types;
+            }
+        },
+        else => {},
+    }
+    return &[_]NativeType{};
+}
+
+/// Convert Python type hint string to NativeType (simple types only)
+/// For composite types like list, use parseTypeAnnotation instead
 pub fn pythonTypeHintToNative(type_hint: ?[]const u8, allocator: std.mem.Allocator) InferError!NativeType {
+    _ = allocator;
     if (type_hint) |hint| {
         if (std.mem.eql(u8, hint, "int")) return .int;
         if (std.mem.eql(u8, hint, "float")) return .float;
         if (std.mem.eql(u8, hint, "bool")) return .bool;
         if (std.mem.eql(u8, hint, "str")) return .{ .string = .runtime };
         if (std.mem.eql(u8, hint, "list")) {
-            // For now, assume list[int] - most common case
-            // TODO: Parse generic type hints like list[str], list[float]
-            const elem_ptr = try allocator.create(NativeType);
-            elem_ptr.* = .int;
-            return .{ .list = elem_ptr };
+            // Generic list without type parameter - assume int
+            return .unknown; // Should use parseTypeAnnotation for proper generic handling
         }
     }
     return .unknown;

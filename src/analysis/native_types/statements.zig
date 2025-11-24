@@ -32,15 +32,9 @@ pub fn visitStmt(
         .ann_assign => |ann_assign| {
             var var_type: NativeType = .unknown;
 
-            // 1. Use annotation if provided (PRIORITY)
+            // 1. Parse annotation if provided (PRIORITY)
             const annot_node = ann_assign.annotation.*;
-            const type_hint: ?[]const u8 = switch (annot_node) {
-                .name => |name| name.id,
-                else => null,
-            };
-            if (type_hint != null) {
-                var_type = try core.pythonTypeHintToNative(type_hint, allocator);
-            }
+            var_type = try core.parseTypeAnnotation(annot_node, allocator);
 
             // 2. Fall back to value inference
             if (var_type == .unknown and ann_assign.value != null) {

@@ -254,6 +254,18 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         try self.output.appendSlice(self.allocator, "_ = ");
     }
 
+    // Discard return values from function calls (Zig requires all non-void values to be used)
+    if (expr == .call and expr.call.func.* == .name) {
+        const func_name = expr.call.func.name.id;
+        // Check if function returns non-void type
+        if (self.type_inferrer.func_return_types.get(func_name)) |return_type| {
+            // Skip void returns
+            if (return_type != .unknown) {
+                try self.output.appendSlice(self.allocator, "_ = ");
+            }
+        }
+    }
+
     const before_len = self.output.items.len;
     try self.genExpr(expr);
 

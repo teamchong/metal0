@@ -57,7 +57,7 @@ pub const TypeInferrer = struct {
         // Register __name__ as a string constant (for if __name__ == "__main__" support)
         try self.var_types.put("__name__", .{ .string = .literal });
 
-        // First pass: Register all function return types
+        // First pass: Register all function return types from annotations
         const arena_alloc = self.arena.allocator();
         for (module.body) |stmt| {
             if (stmt == .function_def) {
@@ -70,6 +70,27 @@ pub const TypeInferrer = struct {
         // Second pass: Analyze all statements
         for (module.body) |stmt| {
             try self.visitStmt(stmt);
+        }
+
+        // Third pass: Infer return types from return statements (for functions without annotations)
+        for (module.body) |stmt| {
+            if (stmt == .function_def) {
+                const func_def = stmt.function_def;
+                const current_type = self.func_return_types.get(func_def.name) orelse .unknown;
+
+                // Only infer if no annotation was provided (type is .int default)
+                if (current_type == .int or current_type == .unknown) {
+                    // Find return statement in function body
+                    for (func_def.body) |body_stmt| {
+                        if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
+                            const return_value = body_stmt.return_stmt.value.?.*;
+                            const inferred_type = try self.inferExpr(return_value);
+                            try self.func_return_types.put(func_def.name, inferred_type);
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 

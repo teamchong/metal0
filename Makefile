@@ -1,4 +1,4 @@
-.PHONY: help build install verify test test-zig test-correctness-full format-zig lint-zig clean run benchmark
+.PHONY: help build install verify test test-zig test-correctness-full format-zig lint-zig clean run benchmark benchmark-computational
 
 help:
 	@echo "PyAOT Commands"
@@ -88,3 +88,38 @@ run:
 
 benchmark:
 	uv run python _prototype/benchmark.py
+
+benchmark-computational:
+	@echo "🔧 Computational Performance Benchmark"
+	@echo "(NOT web server throughput - just function calls)"
+	@echo ""
+	# Check dependencies
+	@command -v hyperfine >/dev/null 2>&1 || { echo "❌ hyperfine not found. Install: brew install hyperfine"; exit 1; }
+	@command -v go >/dev/null 2>&1 || { echo "❌ go not found. Install: brew install go"; exit 1; }
+	@command -v rustc >/dev/null 2>&1 || { echo "❌ rustc not found. Install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"; exit 1; }
+	@command -v python3 >/dev/null 2>&1 || { echo "❌ python3 not found. Install: brew install python3"; exit 1; }
+
+	@echo "✅ All dependencies found"
+	@echo ""
+	@echo "🔨 Building benchmarks (RELEASE mode)..."
+
+	# PyAOT (ReleaseFast build!)
+	@echo "  Building PyAOT (ReleaseFast)..."
+	@zig build -Doptimize=ReleaseFast
+	@./zig-out/bin/pyaot build examples/bench_computational.py --binary
+
+	# Go
+	@echo "  Building Go..."
+	@go build -o bench_computational_go examples/bench_computational_go.go
+
+	# Rust
+	@echo "  Building Rust (-O)..."
+	@rustc -O examples/bench_computational_rust.rs -o bench_computational_rust
+
+	@echo ""
+	@echo "🔥 Running benchmarks with hyperfine..."
+	@hyperfine --warmup 3 \
+		'./build/lib.macosx-11.0-arm64/bench_computational' \
+		'./bench_computational_go' \
+		'./bench_computational_rust' \
+		'python3 examples/bench_computational.py'

@@ -95,6 +95,44 @@ Python's distribution and deployment challenges solved.
 - Building stdlib in Zig (CPython C extensions not compatible yet)
 - Early alpha - not production ready
 
+## Roadmap: Matching Codon
+
+### Flask Example (Q2 2025)
+```python
+from http import Server
+
+app = Server()
+
+@app.route("/")
+def index():
+    return {"message": "Hello", "status": "ok"}
+
+app.run(port=8080)
+```
+
+**Result:** 433KB binary vs 900MB Python Docker
+
+### Parallelism (Q2-Q3 2025)
+```python
+from parallel import pool
+
+@pool.parallel
+def process(items):
+    return [calc(x) for x in items]
+```
+
+**Zig threads > OpenMP** - compile-time race detection
+
+### NumPy (Q3-Q4 2025)
+```python
+import numpy as np
+
+x = np.array([1, 2, 3])
+result = (x + x) * 2
+```
+
+**Pure Zig NumPy** - no FFI bottleneck
+
 ## Feature Coverage
 
 **✅ Working:**

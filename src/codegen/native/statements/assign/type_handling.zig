@@ -66,6 +66,15 @@ pub fn isArrayList(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []co
     if (assign.value.* != .list) return false;
     const list = assign.value.list;
 
+    // Check if variable has explicit list[T] type annotation
+    // Type annotations take priority over value inference
+    const var_type = self.type_inferrer.var_types.get(var_name);
+    if (var_type) |vt| {
+        if (vt == .list) {
+            return true; // Explicit list[T] annotation -> ArrayList
+        }
+    }
+
     // Non-constant lists always become ArrayList
     if (!isConstantList(list) or !allSameType(list.elts)) return true;
 
