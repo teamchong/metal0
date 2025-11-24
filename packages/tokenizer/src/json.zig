@@ -133,7 +133,7 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
 }
 
 /// Write escaped string directly to ArrayList
-fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
+inline fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     @setRuntimeSafety(false); // Disable bounds checks - we control the input
     var start: usize = 0;
     var i: usize = 0;
