@@ -450,6 +450,10 @@ test "PyBool - singletons" {
 }
 
 test "Size optimization - comptime conditional fields" {
+    const PyInt = numeric_types.PyInt;
+    const PyFloat = numeric_types.PyFloat;
+    const PyComplex = numeric_types.PyComplex;
+
     const int_size = @sizeOf(PyInt);
     const float_size = @sizeOf(PyFloat);
     const complex_size = @sizeOf(PyComplex);
@@ -460,6 +464,7 @@ test "Size optimization - comptime conditional fields" {
 }
 
 test "C API - PyInt_FromLong/PyInt_AsLong" {
+    const PyInt = numeric_types.PyInt;
     const obj = numeric_types.PyInt_FromLong(42);
     try testing.expect(obj != null);
 
@@ -472,6 +477,7 @@ test "C API - PyInt_FromLong/PyInt_AsLong" {
 }
 
 test "C API - PyFloat_FromDouble/PyFloat_AsDouble" {
+    const PyFloat = numeric_types.PyFloat;
     const obj = numeric_types.PyFloat_FromDouble(3.14);
     try testing.expect(obj != null);
 
@@ -484,6 +490,7 @@ test "C API - PyFloat_FromDouble/PyFloat_AsDouble" {
 }
 
 test "C API - PyComplex_FromDoubles" {
+    const PyComplex = numeric_types.PyComplex;
     const obj = numeric_types.PyComplex_FromDoubles(3.0, 4.0);
     try testing.expect(obj != null);
 
@@ -507,6 +514,7 @@ test "C API - PyBool_FromLong" {
 }
 
 test "C API - PyNumber_Add (int)" {
+    const PyInt = numeric_types.PyInt;
     const a = numeric_types.PyInt_FromLong(10);
     const b = numeric_types.PyInt_FromLong(5);
 
@@ -526,6 +534,7 @@ test "C API - PyNumber_Add (int)" {
 }
 
 test "C API - PyNumber_Add (float)" {
+    const PyFloat = numeric_types.PyFloat;
     const a = numeric_types.PyFloat_FromDouble(10.5);
     const b = numeric_types.PyFloat_FromDouble(2.5);
 
@@ -545,6 +554,7 @@ test "C API - PyNumber_Add (float)" {
 }
 
 test "C API - PyNumber_Subtract (int)" {
+    const PyInt = numeric_types.PyInt;
     const a = numeric_types.PyInt_FromLong(10);
     const b = numeric_types.PyInt_FromLong(5);
 
@@ -564,6 +574,7 @@ test "C API - PyNumber_Subtract (int)" {
 }
 
 test "C API - PyNumber_Multiply (int)" {
+    const PyInt = numeric_types.PyInt;
     const a = numeric_types.PyInt_FromLong(10);
     const b = numeric_types.PyInt_FromLong(5);
 
@@ -583,6 +594,7 @@ test "C API - PyNumber_Multiply (int)" {
 }
 
 test "C API - PyNumber_Divide (int)" {
+    const PyInt = numeric_types.PyInt;
     const a = numeric_types.PyInt_FromLong(10);
     const b = numeric_types.PyInt_FromLong(5);
 
@@ -602,6 +614,7 @@ test "C API - PyNumber_Divide (int)" {
 }
 
 test "C API - PyNumber_Divide by zero" {
+    const PyInt = numeric_types.PyInt;
     const a = numeric_types.PyInt_FromLong(10);
     const b = numeric_types.PyInt_FromLong(0);
 
