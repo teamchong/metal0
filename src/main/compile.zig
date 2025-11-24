@@ -9,6 +9,7 @@ const native_types = @import("../analysis/native_types.zig");
 const semantic_types = @import("../analysis/types.zig");
 const lifetime_analysis = @import("../analysis/lifetime.zig");
 const native_codegen = @import("../codegen/native/main.zig");
+const bytecode_codegen = @import("../codegen/bytecode.zig");
 const c_interop = @import("c_interop");
 const notebook = @import("../notebook.zig");
 const CompileOptions = @import("../main.zig").CompileOptions;
@@ -253,6 +254,18 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     try compiler.compileZig(allocator, zig_code, bin_path, c_libs);
 }
 
+/// Emit bytecode to stdout (for runtime eval subprocess)
+fn emitBytecode(allocator: std.mem.Allocator, source: []const u8) !void {
+    var program = try bytecode_codegen.compileSource(allocator, source);
+    defer program.deinit();
+
+    const bytes = try program.serialize(allocator);
+    defer allocator.free(bytes);
+
+    // Write to stdout using posix
+    _ = try std.posix.write(std.posix.STDOUT_FILENO, bytes);
+}
+
 pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Check if input is a Jupyter notebook
     if (std.mem.endsWith(u8, opts.input_file, ".ipynb")) {
@@ -262,6 +275,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Read source file
     const source = try std.fs.cwd().readFileAlloc(allocator, opts.input_file, 10 * 1024 * 1024); // 10MB max
     defer allocator.free(source);
+
+    // Handle --emit-bytecode: compile to bytecode and output to stdout
+    if (opts.emit_bytecode) {
+        return try emitBytecode(allocator, source);
+    }
 
     // Determine output path
     const bin_path_allocated = opts.output_file == null;

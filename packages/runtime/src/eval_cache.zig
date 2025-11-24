@@ -7,6 +7,35 @@ const bytecode = @import("bytecode.zig");
 const PyObject = @import("runtime.zig").PyObject;
 const hashmap_helper = @import("../../src/utils/hashmap_helper.zig");
 
+/// Compile Python source via PyAOT subprocess (for dynamic eval)
+/// Spawns: pyaot --emit-bytecode <source>
+/// Returns parsed BytecodeProgram from subprocess stdout
+pub fn compileViaSubprocess(allocator: std.mem.Allocator, source: []const u8) !bytecode.BytecodeProgram {
+    // Build argv: ["pyaot", "--emit-bytecode", source]
+    const argv = [_][]const u8{ "pyaot", "--emit-bytecode", source };
+
+    // Spawn subprocess
+    var child = std.process.Child.init(&argv, allocator);
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
+
+    try child.spawn();
+
+    // Read stdout (bytecode binary)
+    const stdout = child.stdout orelse return error.NoStdout;
+    const bytecode_data = try stdout.readToEndAlloc(allocator, 1024 * 1024); // 1MB max
+    defer allocator.free(bytecode_data);
+
+    // Wait for child
+    const result = try child.wait();
+    if (result.Exited != 0) {
+        return error.SubprocessFailed;
+    }
+
+    // Parse bytecode
+    return bytecode.BytecodeProgram.deserialize(allocator, bytecode_data);
+}
+
 /// LRU cache configuration
 pub const CacheConfig = struct {
     max_entries: usize = 1024,
@@ -203,14 +232,24 @@ pub fn evalCached(allocator: std.mem.Allocator, source: []const u8) !*PyObject {
         return executeTarget(allocator, program);
     }
 
-    // Cache miss - parse and compile
-    const ast = try parseSource(source, allocator);
-    defer allocator.destroy(ast);
+    // Cache miss - try local parse first, fallback to subprocess
+    const program = blk: {
+        // Try local hardcoded patterns first (fast path for known expressions)
+        if (parseSource(source, allocator)) |ast| {
+            defer allocator.destroy(ast);
 
-    var compiler = bytecode.Compiler.init(allocator);
-    defer compiler.deinit();
+            var compiler = bytecode.Compiler.init(allocator);
+            defer compiler.deinit();
 
-    const program = try compiler.compile(ast);
+            break :blk try compiler.compile(ast);
+        } else |err| {
+            if (err == error.NotImplemented) {
+                // Fallback: compile via PyAOT subprocess for full Python support
+                break :blk try compileViaSubprocess(allocator, source);
+            }
+            return err;
+        }
+    };
 
     // Store in cache (thread-safe, LRU handles eviction)
     cache_mutex.lock();

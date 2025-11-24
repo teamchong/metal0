@@ -132,10 +132,15 @@ fn resolveImportInternal(
 ) !?[]const u8 {
     // Try different search paths in order of priority:
     // 0. Compiled modules in build/lib.{platform}/ (if check_compiled)
-    // 1. Same directory as source file (if provided)
+    // 1. Same directory as source file (if provided, or from PYAOT_SOURCE_DIR env)
     // 2. Current working directory
     // 3. examples/ directory (for backward compatibility)
     // 4. Site-packages directories
+
+    // Check PYAOT_SOURCE_DIR env var for runtime eval subprocess
+    // This allows eval() subprocess to use same import paths as main compilation
+    const effective_source_dir: ?[]const u8 = source_file_dir orelse
+        std.posix.getenv("PYAOT_SOURCE_DIR");
 
     // Check compiled modules first (if enabled)
     if (check_compiled) {
@@ -162,8 +167,8 @@ fn resolveImportInternal(
     var search_paths = std.ArrayList([]const u8){};
     defer search_paths.deinit(allocator);
 
-    // Add source file directory as first priority
-    if (source_file_dir) |dir| {
+    // Add source file directory as first priority (uses env var fallback)
+    if (effective_source_dir) |dir| {
         try search_paths.append(allocator, dir);
     }
 
