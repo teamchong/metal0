@@ -172,6 +172,29 @@ export fn PyDict_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return 1;
 }
 
+/// Get item by string key (convenience function)
+export fn PyDict_GetItemString(dict_obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+    const key_obj = PyUnicode_FromString(key);
+    if (key_obj == null) return null;
+
+    const result = PyDict_GetItem(dict_obj, key_obj.?);
+    Py_DECREF(key_obj.?);
+
+    return result;
+}
+
+/// Set item by string key (convenience function)
+export fn PyDict_SetItemString(dict_obj: *cpython.PyObject, key: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
+    const key_obj = PyUnicode_FromString(key);
+    if (key_obj == null) return -1;
+
+    const result = PyDict_SetItem(dict_obj, key_obj.?, value);
+    Py_DECREF(key_obj.?);
+
+    return result;
+}
+
+extern fn PyUnicode_FromString([*:0]const u8) callconv(.c) ?*cpython.PyObject;
 extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
 extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
 
