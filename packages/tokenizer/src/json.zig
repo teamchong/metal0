@@ -97,19 +97,27 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
         },
         .list => {
             const data: *runtime.PyList = @ptrCast(@alignCast(obj_data));
+            const items = data.items.items;
             try buffer.append(allocator, '[');
-            for (data.items.items, 0..) |item, i| {
-                if (i > 0) try buffer.append(allocator, ',');
-                try stringifyPyObjectDirect(item, buffer, allocator);
+            if (items.len > 0) {
+                try stringifyPyObjectDirect(items[0], buffer, allocator);
+                for (items[1..]) |item| {
+                    try buffer.append(allocator, ',');
+                    try stringifyPyObjectDirect(item, buffer, allocator);
+                }
             }
             try buffer.append(allocator, ']');
         },
         .tuple => {
             const data: *runtime.PyTuple = @ptrCast(@alignCast(obj_data));
+            const items = data.items;
             try buffer.append(allocator, '[');
-            for (data.items, 0..) |item, i| {
-                if (i > 0) try buffer.append(allocator, ',');
-                try stringifyPyObjectDirect(item, buffer, allocator);
+            if (items.len > 0) {
+                try stringifyPyObjectDirect(items[0], buffer, allocator);
+                for (items[1..]) |item| {
+                    try buffer.append(allocator, ',');
+                    try stringifyPyObjectDirect(item, buffer, allocator);
+                }
             }
             try buffer.append(allocator, ']');
         },
