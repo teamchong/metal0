@@ -104,7 +104,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Check if any arg is string concatenation, allocating method call, list, tuple, dict, bool, or float
+    // Check if any arg is string concatenation, allocating method call, list, tuple, dict, bool, float, or unknown (PyObject)
     var has_string_concat = false;
     var has_allocating_call = false;
     var has_list = false;
@@ -112,6 +112,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     var has_dict = false;
     var has_bool = false;
     var has_float = false;
+    var has_unknown = false;
     for (args) |arg| {
         if (arg == .binop and arg.binop.op == .Add) {
             const left_type = try self.type_inferrer.inferExpr(arg.binop.left.*);
@@ -140,10 +141,13 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (arg_type == .float) {
             has_float = true;
         }
+        if (arg_type == .unknown) {
+            has_unknown = true;
+        }
     }
 
-    // If we have lists, tuples, dicts, or bools, handle them specially with custom formatting
-    if (has_list or has_tuple or has_dict or has_bool) {
+    // If we have lists, tuples, dicts, bools, or unknowns (PyObject), handle them specially with custom formatting
+    if (has_list or has_tuple or has_dict or has_bool or has_unknown) {
         // For lists, we need to print in Python format: [elem1, elem2, ...]
         for (args, 0..) |arg, i| {
             const arg_type = try self.type_inferrer.inferExpr(arg);
@@ -212,6 +216,16 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, "    const __dict_str = try runtime.formatPyObject(__dict, allocator);\n");
                 try self.output.appendSlice(self.allocator, "    defer allocator.free(__dict_str);\n");
                 try self.output.appendSlice(self.allocator, "    std.debug.print(\"{s}\", .{__dict_str});\n");
+                try self.output.appendSlice(self.allocator, "}\n");
+            } else if (arg_type == .unknown) {
+                // Format unknown types (PyObject from json.loads, etc.) using runtime formatter
+                try self.output.appendSlice(self.allocator, "{\n");
+                try self.output.appendSlice(self.allocator, "    const __pyobj = ");
+                try self.genExpr(arg);
+                try self.output.appendSlice(self.allocator, ";\n");
+                try self.output.appendSlice(self.allocator, "    const __pyobj_str = try runtime.formatPyObject(__pyobj, allocator);\n");
+                try self.output.appendSlice(self.allocator, "    defer allocator.free(__pyobj_str);\n");
+                try self.output.appendSlice(self.allocator, "    std.debug.print(\"{s}\", .{__pyobj_str});\n");
                 try self.output.appendSlice(self.allocator, "}\n");
             } else if (arg_type == .bool) {
                 // Print booleans as Python-style True/False
