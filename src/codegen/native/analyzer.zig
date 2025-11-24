@@ -123,6 +123,13 @@ fn analyzeStmt(node: ast.Node) !ModuleAnalysis {
                 analysis.merge(stmt_analysis);
             }
         },
+        .function_def => |func| {
+            // Analyze function body for imports/requirements
+            for (func.body) |stmt| {
+                const stmt_analysis = try analyzeStmt(stmt);
+                analysis.merge(stmt_analysis);
+            }
+        },
         else => {},
     }
 
