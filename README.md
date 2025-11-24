@@ -4,7 +4,7 @@
 
 Python to Zig AOT compiler. Write Python, run native code.
 
-**31x faster** than CPython | **Beats Rust/Go** | Native binaries
+**30x faster** than CPython | **Beats Rust/Go** | Native binaries
 
 ## Key Features
 
@@ -15,7 +15,7 @@ Python to Zig AOT compiler. Write Python, run native code.
 - Docker images <1MB (FROM scratch) vs 900MB+ Python images
 
 ⚡ **Performance**
-- 31x faster than CPython on average
+- 30x faster than CPython on average
 - Beats Rust JSON by 1.2x (2.85x faster than Python)
 - Zero GIL - true parallelism
 - No GC pauses - manual memory management (Zig)
