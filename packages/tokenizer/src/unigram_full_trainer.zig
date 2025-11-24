@@ -193,10 +193,11 @@ pub const UnigramTrainer = struct {
             const freq = entry.value_ptr.*;
             const len = entry.key_ptr.*.len;
 
-            // HuggingFace filters: skip rare n-grams
-            // Minimum frequency threshold (like HF's suffix array filtering)
-            // Use freq >= 2 to keep enough seeds for EM iterations
-            if (freq < 2) {  // Skip n-grams that appear only once
+            // HuggingFace uses suffix arrays which are VERY selective
+            // Empirical testing: Much higher threshold to force selectivity
+            // Try freq >= 50 to dramatically reduce seed count
+            const min_freq: u32 = 50;
+            if (freq < min_freq) {
                 self.allocator.free(entry.key_ptr.*);
                 continue;
             }

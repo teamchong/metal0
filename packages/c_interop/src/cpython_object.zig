@@ -50,6 +50,38 @@ pub const PyVarObject = extern struct {
 pub const PyNumberMethods = anyopaque;
 pub const PySequenceMethods = anyopaque;
 
+/// Buffer protocol methods
+pub const PyBufferProcs = extern struct {
+    bf_getbuffer: ?*const fn (*PyObject, *Py_buffer, c_int) callconv(.c) c_int,
+    bf_releasebuffer: ?*const fn (*PyObject, *Py_buffer) callconv(.c) void,
+};
+
+/// Buffer protocol flags
+pub const PyBUF_SIMPLE: c_int = 0;
+pub const PyBUF_WRITABLE: c_int = 0x0001;
+pub const PyBUF_FORMAT: c_int = 0x0004;
+pub const PyBUF_ND: c_int = 0x0008;
+pub const PyBUF_STRIDES: c_int = 0x0010 | PyBUF_ND;
+pub const PyBUF_C_CONTIGUOUS: c_int = 0x0020 | PyBUF_STRIDES;
+pub const PyBUF_F_CONTIGUOUS: c_int = 0x0040 | PyBUF_STRIDES;
+pub const PyBUF_ANY_CONTIGUOUS: c_int = 0x0080 | PyBUF_STRIDES;
+pub const PyBUF_INDIRECT: c_int = 0x0100 | PyBUF_STRIDES;
+
+/// CPython buffer view
+pub const Py_buffer = extern struct {
+    buf: ?*anyopaque,
+    obj: ?*PyObject,
+    len: isize,
+    itemsize: isize,
+    readonly: c_int,
+    ndim: c_int,
+    format: ?[*:0]u8,
+    shape: ?[*]isize,
+    strides: ?[*]isize,
+    suboffsets: ?[*]isize,
+    internal: ?*anyopaque,
+};
+
 /// Simplified PyTypeObject for now
 /// Full version has ~50 function pointer slots!
 pub const PyTypeObject = extern struct {
@@ -70,6 +102,7 @@ pub const PyTypeObject = extern struct {
     // Protocol slots
     tp_as_number: ?*PyNumberMethods,
     tp_as_sequence: ?*PySequenceMethods,
+    tp_as_buffer: ?*PyBufferProcs,
 
     // TODO: Add remaining ~40 slots as needed
     // Dead code elimination ensures unused slots don't bloat binary

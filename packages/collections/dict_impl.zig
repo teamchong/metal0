@@ -378,26 +378,19 @@ test "DictImpl - resize" {
     var dict = try Dict.init(std.testing.allocator);
     defer dict.deinit();
 
+    // Use static strings to avoid scope issues
+    const keys = [_][]const u8{ "k0", "k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "k9", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18", "k19" };
+    const values = [_][]const u8{ "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19" };
+
     // Insert many items to trigger resize
-    var i: usize = 0;
-    while (i < 20) : (i += 1) {
-        const key = try std.fmt.allocPrint(std.testing.allocator, "key{d}", .{i});
-        defer std.testing.allocator.free(key);
-
-        const value = try std.fmt.allocPrint(std.testing.allocator, "value{d}", .{i});
-        defer std.testing.allocator.free(value);
-
+    for (keys, values) |key, value| {
         try dict.set(key, value);
     }
 
     try std.testing.expectEqual(@as(usize, 20), dict.size);
 
     // Verify all items still accessible
-    i = 0;
-    while (i < 20) : (i += 1) {
-        const key = try std.fmt.allocPrint(std.testing.allocator, "key{d}", .{i});
-        defer std.testing.allocator.free(key);
-
+    for (keys) |key| {
         try std.testing.expect(dict.contains(key));
     }
 }
