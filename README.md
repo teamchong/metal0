@@ -489,6 +489,14 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 - ✅ F-strings (full lexer → parser → codegen)
 - ✅ Lambdas and closures
 
+**Comptime Type Analysis (Zero Runtime Overhead):**
+- ✅ Comptime type detection (`isNativePrimitive`, `needsAllocator`)
+- ✅ Compile-time function signature optimization
+- ✅ Recursive allocator need analysis
+- ✅ Error union detection at compile time
+- ✅ Print format specifiers from types (`{d}`, `{s}`)
+- All type analysis happens at compile time - zero runtime cost!
+
 **Import System (Bun-style Compilation):**
 - ✅ Recursive import scanning - discovers all dependencies
 - ✅ Per-module compilation - each `.py` compiles to `.zig`
