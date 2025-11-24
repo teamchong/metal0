@@ -49,48 +49,10 @@ pub fn findSpecialCharAvx2(data: []const u8, offset: usize) ?usize {
 
 /// Find closing quote using AVX2, handling escapes
 pub fn findClosingQuoteAvx2(data: []const u8, offset: usize) ?usize {
-    if (data.len - offset < 32) {
-        return scalar.findClosingQuote(data, offset);
-    }
-
-    var i = offset;
-    const end = data.len - 32;
-
-    while (i <= end) : (i += 32) {
-        const chunk: @Vector(32, u8) = data[i..][0..32].*;
-
-        // Find quotes and backslashes
-        const is_quote = chunk == @as(@Vector(32, u8), @splat('"'));
-        const is_backslash = chunk == @as(@Vector(32, u8), @splat('\\'));
-
-        // Check for control characters (< 0x20)
-        const control_threshold: @Vector(32, u8) = @splat(0x20);
-        const is_control = chunk < control_threshold;
-
-        if (@reduce(.Or, is_control)) {
-            // Invalid - control character found
-            return null;
-        }
-
-        if (@reduce(.Or, is_quote | is_backslash)) {
-            // Found quote or escape, process carefully
-            for (0..32) |j| {
-                const pos = i + j;
-                const c = data[pos];
-
-                if (c == '"') {
-                    return pos;
-                } else if (c == '\\') {
-                    // Skip escaped character
-                    i = pos + 1;
-                    if (i >= data.len) return null;
-                    break;
-                }
-            }
-        }
-    }
-
-    return scalar.findClosingQuote(data, i);
+    // IMPORTANT: Escapes make this tricky for SIMD - use scalar for correctness
+    // The SIMD approach has subtle bugs with escape sequences, so we use the
+    // proven scalar implementation which correctly tracks escape state.
+    return scalar.findClosingQuote(data, offset);
 }
 
 /// Validate UTF-8 using AVX2
@@ -240,4 +202,9 @@ test "countMatchingAvx2" {
 test "hasEscapesAvx2" {
     try std.testing.expect(!hasEscapesAvx2("hello world"));
     try std.testing.expect(hasEscapesAvx2("hello\\nworld"));
+}
+
+pub fn findClosingQuoteAndEscapesAvx2(data: []const u8) ?@import("dispatch.zig").QuoteAndEscapeResult {
+    // Use scalar implementation (SIMD escape tracking is complex, scalar is proven correct)
+    return scalar.findClosingQuoteAndEscapes(data);
 }

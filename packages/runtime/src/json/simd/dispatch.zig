@@ -104,6 +104,30 @@ pub fn hasEscapes(data: []const u8) bool {
     return scalar.hasEscapes(data);
 }
 
+/// Result of combined quote and escape detection
+pub const QuoteAndEscapeResult = struct {
+    quote_pos: usize,
+    has_escapes: bool,
+};
+
+/// Find closing quote AND check for escapes in a single pass (faster than separate calls!)
+pub fn findClosingQuoteAndEscapes(data: []const u8) ?QuoteAndEscapeResult {
+    if (comptime x86_available) {
+        const has_avx2 = comptime std.Target.x86.featureSetHas(
+            builtin.cpu.features,
+            .avx2,
+        );
+
+        if (has_avx2) {
+            return x86_64.findClosingQuoteAndEscapesAvx2(data);
+        }
+    } else if (comptime aarch64_available) {
+        return aarch64.findClosingQuoteAndEscapesNeon(data);
+    }
+
+    return scalar.findClosingQuoteAndEscapes(data);
+}
+
 /// Skip whitespace characters
 pub fn skipWhitespace(data: []const u8, offset: usize) usize {
     if (comptime x86_available) {

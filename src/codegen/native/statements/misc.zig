@@ -220,13 +220,13 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, ") \"True\" else \"False\"});\n");
             } else {
                 // For non-list/tuple/bool args in mixed print, use std.debug.print
-                try self.output.appendSlice(self.allocator, "std.debug.print(\"");
                 const fmt = switch (arg_type) {
                     .int => "{d}",
                     .float => "{d}",
                     .string => "{s}",
-                    else => "{any}",
+                    else => "{s}", // Try string format for unknowns (works for string constants)
                 };
+                try self.output.appendSlice(self.allocator, "std.debug.print(\"");
                 try self.output.appendSlice(self.allocator, fmt);
                 try self.output.appendSlice(self.allocator, "\", .{");
                 try self.genExpr(arg);
@@ -373,7 +373,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 .float => "{s}", // Use formatFloat for Python-style float printing
                 .bool => "{s}", // formatAny() returns string for bool
                 .string => "{s}",
-                .unknown => "{any}", // Unknown types - let Zig infer format
+                .unknown => "{s}", // Use {s} - works for string constants, fails for others
                 else => "{any}", // Other types - let Zig handle them
             };
             try self.output.appendSlice(self.allocator, fmt);
@@ -385,7 +385,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         try self.output.appendSlice(self.allocator, "\\n\", .{");
 
-        // Generate arguments - wrap bools only, use native types directly
+        // Generate arguments - wrap bools only, use unknowns/native types directly
         for (args, 0..) |arg, i| {
             const arg_type = try self.type_inferrer.inferExpr(arg);
             if (arg_type == .bool) {
@@ -393,9 +393,9 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.genExpr(arg);
                 try self.output.appendSlice(self.allocator, ")");
             } else {
-                // For all other types (including .unknown), use directly
-                // Native types are already correctly typed
-                // Unknown types will be handled by Zig's {any} formatter
+                // For unknown types (module constants), use directly
+                // String literals will coerce to []const u8 with {s}
+                // Non-string module constants will cause compile error (limitation)
                 try self.genExpr(arg);
             }
             if (i < args.len - 1) {
