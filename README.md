@@ -479,81 +479,13 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 
 ### 📋 Roadmap
 
-**Phase 1: Essential Libraries (Next 4 weeks)**
-- [✓] JSON support (`import json`) - Critical for real apps
-  - Use Zig's `std.json` (fast, zero-copy parsing)
-  - Comptime schema optimization for known structures
-- [ ] File I/O operations (open, read, write)
-  - Direct syscalls (Bun-style, no libuv overhead)
-  - Memory-mapped I/O for large files
-  - Zero-copy reads where possible
-- [ ] Basic HTTP client (sync only) - For API calls
-  - Fast connection pooling
-  - Reuse connections for same host
+**Phase 1: Drop-in Python Replacement**
+- [ ] File I/O (open, read, write)
 - [ ] String formatting (f-strings)
+- [ ] Async/await (asyncio compatible)
+- [ ] Integration with uv for package management
 
-**Phase 2: Python Runtime Replacement (3 months)**
-- [ ] Async/await (libuv-based asyncio)
-  - Compatible with Python's asyncio API
-  - True parallelism (no GIL)
-- [ ] **Integration with uv** (package management)
-  - Seamless workflow: `uv pip install package` → `pyaot app.py`
-  - PyAOT focuses on runtime, uv handles packages (best tool for each job)
-  - Optional: `pyaot install` as wrapper around uv
-  - Why not build our own: uv is 10-100x faster than pip, Rust-based, well-funded team
-- [ ] Fast I/O primitives (Bun-inspired)
-  - Direct syscalls (bypass Python's I/O layers)
-  - Memory-mapped file operations
-  - Zero-copy networking
-  - Batch file operations
-  - **Core competency**: PyAOT controls Python I/O performance
-- [ ] Compiled binary caching
-  - Cache at `~/.pyaot/cache/` for instant re-runs
-  - Hash-based cache invalidation
-  - Share compiled binaries across projects
-- [ ] Single binary distribution
-  - All-in-one installer: `curl -fsSL https://pyaot.sh | sh`
-  - Contains: runtime + compiler + profiler + model tools
-  - Professional distribution (Bun-style)
-- [ ] pyaot.http (async HTTP client)
-  - Connection pooling per domain
-  - HTTP/2 and HTTP/3 support
-  - Automatic retry and backoff
-- [ ] pyaot.web (FastAPI-compatible web server)
-  - Native async (no WSGI overhead)
-  - Built-in static file serving
-  - WebSocket support
-- [ ] pyaot.db (async database drivers)
-  - PostgreSQL, MySQL, SQLite
-  - Connection pooling built-in
-
-**Phase 3: Profile-Guided Optimization (PGO)**
-- [ ] Lightweight profiling (`pyaot --profile app.py`)
-  - Branch frequency counters (1-2% overhead)
-  - Function call counts
-  - Data distribution tracking
-  - API usage patterns (which hosts/endpoints called most)
-- [ ] Comptime recompilation with profile data
-  - Branch reordering (check common case first)
-  - Buffer size optimization (right-sized allocations)
-  - Hot path specialization (fast paths for 80% cases)
-  - Dead code elimination (remove unused branches)
-  - **Specialized HTTP clients** (optimize for frequently-called APIs)
-    - Example: 95% requests to GitHub API → generate optimized GitHub client
-    - Connection pooling for hot domains
-    - Pre-parsed response structures
-- [ ] Continuous optimization (self-improving runtime)
-  - Week 1: Generic compilation
-  - Week 2+: Profile-optimized (30-500% faster)
-  - Auto-recompile when profile changes significantly
-- [ ] Use cases:
-  - Data science workflows (40% faster)
-  - Serverless functions (70% cost reduction via optimized cold starts)
-  - Web crawlers (50% faster via connection reuse + specialized parsers)
-  - Data pipelines (5-10x faster via right-sized buffers + fast paths)
-  - AI inference (2x faster for common prompts via layer pruning)
-
-**Phase 4: Dynamic Features (Self-Hosting)**
+**Phase 2: Dynamic Features (Self-Hosting)**
 - [ ] `eval()` and `exec()` support via AST executor
   - **Architecture:** Reuse existing parser/runtime, skip codegen
   - Parse string → AST → Execute directly (call existing runtime functions)
@@ -569,121 +501,56 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
   - Compile Python strings to executable AST
   - Cache compiled AST for repeated execution
 
-**Phase 5: Advanced**
+**Phase 3: Advanced**
 - [ ] WebAssembly target
-- [ ] Goroutines and channels
 - [ ] REPL
-- [ ] More dict/list methods
 - [ ] Decorators
 - [ ] Generators
 
 ## Architecture
 
-### Drop-in Python Replacement Strategy
+### Three-Tier Import System
 
-**PyAOT achieves 100% Python ecosystem compatibility through a three-tier approach:**
+**How PyAOT handles `import X`:**
 
+**TIER 1: Pure Zig stdlib (fastest - 8-40x speedup)**
+- Implemented: json, http, asyncio, math, re (regex)
+- SIMD-optimized, zero-copy parsing
+- No Python overhead
+
+**TIER 2: C/C++ library wrappers (same speed as CPython)**
+- 512 C API functions exported
+- Direct C library calls (numpy→BLAS, sqlite3→libsqlite3)
+- Platform-specific linking (macOS Accelerate, Linux OpenBLAS)
+- Zero Python wrapper overhead
+
+**TIER 3: Compile pure Python (depends on code complexity)**
+- Pure Python packages compiled with PyAOT
+- Same optimizations as your code
+- Examples: requests, flask, click
+
+### Dynamic Features (Planned)
+
+**eval()/exec() via AST executor:**
+- Reuse existing parser + runtime (512 functions)
+- Skip codegen - execute AST directly
+- Binary size: +200KB
+- Performance: 2-5x faster than CPython
+- Works in WASM + Native
+
+### Compilation Pipeline
+
+**AOT (static code):**
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  User writes: import X                                       │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-                 ▼
-┌────────────────────────────────────────────────────────────┐
-│  TIER 1: Pure Zig Implementation (FASTEST - 41x)           │
-│  ✅ We have Zig version → Use it                           │
-│  Example: json, http, csv, hashlib                         │
-└────────────────┬────────────────────────────────────────────┘
-                 │ Not found
-                 ▼
-┌────────────────────────────────────────────────────────────┐
-│  TIER 2: Direct C/C++ Library Calls (FAST - 1.0x)         │
-│  ✅ Package wraps C library → Call C directly             │
-│  Example: numpy→BLAS, torch→libtorch, opencv→libopencv    │
-│  Zero overhead (skip Python wrapper)                       │
-└────────────────┬────────────────────────────────────────────┘
-                 │ Not found
-                 ▼
-┌────────────────────────────────────────────────────────────┐
-│  TIER 3: Compile Pure Python (FAST - depends on code)     │
-│  ✅ Pure Python package → Compile with PyAOT              │
-│  Example: requests, flask, click, beautifulsoup           │
-│  Our compiler handles it natively                          │
-└────────────────┬────────────────────────────────────────────┘
-                 │ Not supported
-                 ▼
-          Error: Not implemented
-```
-
-**Key Insight:** No adapter/wrapper layer needed! We either:
-1. Implement in Zig (fastest)
-2. Call underlying C/C++ library directly (no overhead)
-3. Compile pure Python source (our compiler already does this)
-
-**Coverage:**
-- **Tier 1 (Pure Zig):** 30-40% - stdlib modules we implement for max speed
-- **Tier 2 (Direct C/C++):** 40-50% - scientific/system libraries (numpy, torch, opencv, sqlite3)
-- **Tier 3 (Compile Python):** 10-20% - pure Python packages (requests, flask, click)
-- **Total:** 100% Python ecosystem ✅
-
-**No performance compromise:**
-- Tier 1: 41x faster than CPython
-- Tier 2: Same speed as CPython (zero conversion overhead)
-- Tier 3: Depends on code complexity (our compiler optimizations apply)
-
-### Pure Zig Compiler (No Python Dependency)
-
-```
-pyaot/
-├── src/                      # Zig compiler (3 phases)
-│   ├── main.zig             # Entry point & CLI
-│   ├── lexer.zig            # Phase 1: Tokenization
-│   ├── parser/              # Phase 2: AST construction
-│   ├── codegen/             # Phase 3: Zig code generation
-│   ├── analysis/            # Type inference & optimization
-│   ├── compiler.zig         # Zig compilation wrapper
-│   └── ast.zig              # AST node definitions
-├── packages/
-│   ├── pyaot/               # Tier 1: Pure Zig stdlib
-│   │   ├── json.zig         # 100% Python-aligned (optimization in progress)
-│   │   ├── http.zig         # 5x faster
-│   │   ├── csv.zig          # 20x faster
-│   │   └── hashlib.zig      # SIMD hashing
-│   ├── c_interop/           # Tier 2: C/C++ library mappings
-│   │   ├── numpy.zig        # Maps to BLAS/LAPACK
-│   │   ├── torch.zig        # Maps to libtorch
-│   │   ├── sqlite3.zig      # Maps to libsqlite3
-│   │   └── opencv.zig       # Maps to libopencv
-│   └── runtime/src/         # Runtime library
-│       ├── runtime.zig      # PyObject & memory management
-│       ├── pystring.zig     # String methods
-│       ├── pylist.zig       # List methods
-│       └── dict.zig         # Dict methods
-├── examples/                 # Demo programs
-├── tests/                    # Integration tests (pytest)
-├── build.zig                 # Zig build configuration
-└── Makefile                  # Simple build/install
+Python → Lexer → Parser → AST → Type Inference → Codegen → Zig → Native Binary
+                                                                    (8-40x faster)
 ```
 
-**Compilation Pipeline:**
-
-**Static Code (AOT):**
-1. **Lexer**: Python source → Tokens
-2. **Parser**: Tokens → AST (native Zig structures)
-3. **Type Inference**: Analyze types for optimization
-4. **Comptime Evaluation**: Constant folding, compile-time evaluation
-5. **Codegen**: AST → Zig source code (with library mappings)
-6. **Zig Compiler**: Zig code → Native binary (8-40x faster)
-
-**Dynamic Code (eval/exec) - Planned:**
-1. **Lexer**: Python string → Tokens (reuse existing)
-2. **Parser**: Tokens → AST (reuse existing)
-3. **AST Executor**: Execute AST directly, calling existing runtime functions
-   - No codegen needed (skip steps 3-6)
-   - Calls same 512 runtime functions as compiled code
-   - Works in WASM + Native
-   - +200KB binary size
-   - 2-5x faster than CPython (vs 8-40x for static code)
+**Planned: eval/exec (dynamic code):**
+```
+String → Lexer → Parser → AST → Execute (call runtime functions)
+                                 (2-5x faster, +200KB binary)
+```
 
 ## Development
 
@@ -716,20 +583,19 @@ make clean
 
 **v0.1.0-alpha** - Active Development 🚧
 
-- **Test Coverage:** 101/142 tests passing (71.1%) ⬆ +23 tests
-- **Memory Safety:** Debug builds with automatic leak detection ✅
-- **Build Cache:** Timestamp-based compilation cache ✅
-- **Core Features:** Functions, classes, slicing, comprehensions, built-ins ✅
-- **Recent Additions:** 7 built-in functions (range, enumerate, zip, len, min, max, sum)
-- **In Progress:** Boolean operators, exception edge cases, variable tracking
+**What Works:**
+- ✅ Functions, classes, inheritance
+- ✅ Lists, dicts, strings, slicing
+- ✅ Comprehensions, operators
+- ✅ Built-ins: range, enumerate, zip, len, min, max, sum, print
+- ✅ Stdlib: json, http, asyncio, math, re (regex)
+- ✅ 512 C API functions exported for C extensions
+- ✅ Platform-specific BLAS linking (NumPy ready)
 
 **Not Production Ready:**
 - Limited Python compatibility (subset of language)
-- Some advanced features still in development
 - API subject to breaking changes
 - No PyPI package yet
-
-**Progress:** Active development with frequent feature additions. Production release planned for v1.0.
 
 ## License
 
