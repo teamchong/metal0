@@ -18,6 +18,7 @@ pub const genIsinstance = conversions.genIsinstance;
 // Dynamic execution
 pub const genEval = eval_exec.genEval;
 pub const genExec = eval_exec.genExec;
+pub const genComptimeEval = eval_exec.genComptimeEval;
 pub const genCompile = compile_mod.genCompile;
 
 pub const genAbs = math.genAbs;

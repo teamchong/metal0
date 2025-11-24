@@ -107,8 +107,18 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         return true;
     }
 
-    // eval() - wire to AST executor
+    // eval() - detect comptime vs runtime
     if (std.mem.eql(u8, func_name, "eval")) {
+        // Check if argument is a string literal (comptime eval candidate)
+        if (call.args.len == 1 and call.args[0] == .constant) {
+            const val = call.args[0].constant.value;
+            if (val == .string) {
+                // String literal - register as comptime eval and generate comptime code
+                try builtins.genComptimeEval(self, val.string);
+                return true;
+            }
+        }
+        // Runtime eval - use AST executor
         try builtins.genEval(self, call.args);
         return true;
     }
