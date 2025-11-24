@@ -23,7 +23,7 @@ print(f"Decoder: {tokenizer.decoder}")
 
 # Create trainer with EXPLICIT config (all defaults visible)
 trainer = trainers.UnigramTrainer(
-    vocab_size=751,  # Match our test
+    vocab_size=32000,  # Standard vocab size
     show_progress=True,
     unk_token="<UNK>",
     max_piece_length=16,  # Default
@@ -33,7 +33,7 @@ trainer = trainers.UnigramTrainer(
 
 # Print all trainer attributes for debugging
 print("\n=== TRAINER CONFIG ===")
-print(f"vocab_size: 751")
+print(f"vocab_size: 32000")
 print(f"max_piece_length: 16")
 print(f"shrinking_factor: 0.75")
 print(f"n_sub_iterations: 2")

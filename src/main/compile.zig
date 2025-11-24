@@ -62,18 +62,21 @@ pub fn compileNotebook(allocator: std.mem.Allocator, opts: CompileOptions) !void
     else
         basename;
 
-    // Determine output path
+    // Determine output path (industry standard: build/lib.{platform}/)
     const bin_path = opts.output_file orelse blk: {
-        // Create .pyaot/ directory if it doesn't exist
-        std.fs.cwd().makeDir(".pyaot") catch |err| {
+        const arch = utils.getArch();
+        const platform_dir = try std.fmt.allocPrint(aa, "build/lib.macosx-11.0-{s}", .{arch});
+
+        // Create build/lib.{platform}/ directory if it doesn't exist
+        std.fs.cwd().makePath(platform_dir) catch |err| {
             if (err != error.PathAlreadyExists) return err;
         };
 
-        const arch = utils.getArch();
+        // Standard naming: module.cpython-{version}-{platform}.so
         const path = if (opts.binary)
-            try std.fmt.allocPrint(aa, ".pyaot/{s}", .{name_no_ext})
+            try std.fmt.allocPrint(aa, "{s}/{s}", .{ platform_dir, name_no_ext })
         else
-            try std.fmt.allocPrint(aa, ".pyaot/{s}_{s}.so", .{ name_no_ext, arch });
+            try std.fmt.allocPrint(aa, "{s}/{s}.cpython-312-darwin.so", .{ platform_dir, name_no_ext });
         break :blk path;
     };
 
@@ -189,19 +192,19 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         else
             basename;
 
-        // Create .pyaot/ directory if it doesn't exist
-        std.fs.cwd().makeDir(".pyaot") catch |err| {
+        // Create build/lib.{platform}/ directory (industry standard)
+        const arch = utils.getArch();
+        const platform_dir = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}", .{arch});
+
+        std.fs.cwd().makePath(platform_dir) catch |err| {
             if (err != error.PathAlreadyExists) return err;
         };
 
-        // Generate output filename with architecture
-        // Binary: name (or name.exe on Windows)
-        // Shared lib: name_x86_64.so (or name_x86_64.dylib on macOS)
-        const arch = utils.getArch();
+        // Standard naming: module.cpython-{version}-{platform}.so
         const path = if (opts.binary)
-            try std.fmt.allocPrint(allocator, ".pyaot/{s}", .{name_no_ext})
+            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ platform_dir, name_no_ext })
         else
-            try std.fmt.allocPrint(allocator, ".pyaot/{s}_{s}.so", .{ name_no_ext, arch });
+            try std.fmt.allocPrint(allocator, "{s}/{s}.cpython-312-darwin.so", .{ platform_dir, name_no_ext });
         break :blk path;
     };
     defer if (bin_path_allocated) allocator.free(bin_path);
