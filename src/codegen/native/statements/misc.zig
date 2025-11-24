@@ -298,7 +298,12 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                     defer parts.deinit(self.allocator);
                     try flattenConcat(self, arg, &parts);
 
-                    try self.output.appendSlice(self.allocator, "try std.mem.concat(allocator, u8, &[_][]const u8{ ");
+                    // Get allocator name based on scope
+                    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
+                    try self.output.appendSlice(self.allocator, "try std.mem.concat(");
+                    try self.output.appendSlice(self.allocator, alloc_name);
+                    try self.output.appendSlice(self.allocator, ", u8, &[_][]const u8{ ");
                     for (parts.items, 0..) |part, i| {
                         if (i > 0) try self.output.appendSlice(self.allocator, ", ");
                         try self.genExpr(part);
@@ -306,7 +311,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                     try self.output.appendSlice(self.allocator, " });\n");
 
                     try self.emitIndent();
-                    try self.output.writer(self.allocator).print("defer allocator.free(_temp{d});\n", .{temp_counter});
+                    try self.output.writer(self.allocator).print("defer {s}.free(_temp{d});\n", .{ alloc_name, temp_counter });
                     temp_counter += 1;
                 }
             }

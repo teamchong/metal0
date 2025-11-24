@@ -5,24 +5,34 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const helpers = @import("assign_helpers.zig");
 
+/// Get the allocator name based on current scope level
+fn getAllocName(self: *NativeCodegen) []const u8 {
+    // In main() (scope 0): use 'allocator' (local variable)
+    // In functions (scope > 0): use '__global_allocator' (module-level)
+    return if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+}
+
 /// Add defer cleanup for string concatenation
 pub fn emitStringConcatDefer(self: *NativeCodegen, var_name: []const u8, is_first_assignment: bool) CodegenError!void {
     if (is_first_assignment) {
+        const alloc_name = getAllocName(self);
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("defer allocator.free({s});\n", .{var_name});
+        try self.output.writer(self.allocator).print("defer {s}.free({s});\n", .{ alloc_name, var_name });
     }
 }
 
 /// Add defer cleanup for ArrayList
 pub fn emitArrayListDefer(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
+    const alloc_name = getAllocName(self);
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("defer {s}.deinit(allocator);\n", .{var_name});
+    try self.output.writer(self.allocator).print("defer {s}.deinit({s});\n", .{ var_name, alloc_name });
 }
 
 /// Add defer cleanup for list comprehensions (return slices, not ArrayLists)
 pub fn emitListCompDefer(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
+    const alloc_name = getAllocName(self);
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("defer allocator.free({s});\n", .{var_name});
+    try self.output.writer(self.allocator).print("defer {s}.free({s});\n", .{ alloc_name, var_name });
 }
 
 /// Check if dict needs complex cleanup (string values that were allocated)
@@ -94,6 +104,7 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
     }
 
     const needs_cleanup = try needsValueCleanup(self, dict, is_comptime_dict);
+    const alloc_name = getAllocName(self);
 
     // If needs value cleanup, free all string values before deinit
     if (needs_cleanup) {
@@ -106,7 +117,7 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
         try self.output.appendSlice(self.allocator, "while (iter.next()) |value| {\n");
         self.indent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "allocator.free(value.*);\n");
+        try self.output.writer(self.allocator).print("{s}.free(value.*);\n", .{alloc_name});
         self.dedent();
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "}\n");
@@ -123,8 +134,9 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
 
 /// Add defer cleanup for allocated strings (upper/lower/replace/sorted/reversed)
 pub fn emitAllocatedStringDefer(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
+    const alloc_name = getAllocName(self);
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("defer allocator.free({s});\n", .{var_name});
+    try self.output.writer(self.allocator).print("defer {s}.free({s});\n", .{ alloc_name, var_name });
 }
 
 /// Emit all appropriate defer cleanups based on assignment properties

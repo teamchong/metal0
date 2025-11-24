@@ -118,8 +118,13 @@ pub fn genStringConcat(self: *NativeCodegen, assign: ast.Node.Assign, var_name: 
 
     try helpers.flattenConcat(self, assign.value.*, &parts);
 
+    // Get allocator name based on scope
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
     // Generate concat with all parts at once
-    try self.output.appendSlice(self.allocator, "try std.mem.concat(allocator, u8, &[_][]const u8{ ");
+    try self.output.appendSlice(self.allocator, "try std.mem.concat(");
+    try self.output.appendSlice(self.allocator, alloc_name);
+    try self.output.appendSlice(self.allocator, ", u8, &[_][]const u8{ ");
     for (parts.items, 0..) |part, i| {
         if (i > 0) try self.output.appendSlice(self.allocator, ", ");
         try self.genExpr(part);

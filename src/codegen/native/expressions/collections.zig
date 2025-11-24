@@ -231,9 +231,16 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 
 /// Generate dict literal as StringHashMap
 pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
+    // Determine which allocator to use based on scope
+    // In main() (scope 0): use 'allocator' (local variable)
+    // In functions (scope > 0): use '__global_allocator' (module-level)
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
     // Empty dict
     if (dict.keys.len == 0) {
-        try self.output.appendSlice(self.allocator, "hashmap_helper.StringHashMap(i64).init(allocator)");
+        try self.output.appendSlice(self.allocator, "hashmap_helper.StringHashMap(i64).init(");
+        try self.output.appendSlice(self.allocator, alloc_name);
+        try self.output.appendSlice(self.allocator, ")");
         return;
     }
 
@@ -301,7 +308,9 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
         try self.output.appendSlice(self.allocator, "const V = comptime runtime.InferDictValueType(@TypeOf(_kvs));\n");
 
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "var _dict = hashmap_helper.StringHashMap(V).init(allocator);\n");
+        try self.output.appendSlice(self.allocator, "var _dict = hashmap_helper.StringHashMap(V).init(");
+        try self.output.appendSlice(self.allocator, alloc_name);
+        try self.output.appendSlice(self.allocator, ");\n");
 
         // Inline loop - unrolled at compile time
         try self.emitIndent();
@@ -405,7 +414,9 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "var map = hashmap_helper.StringHashMap(");
     try val_type.toZigType(self.allocator, &self.output);
-    try self.output.appendSlice(self.allocator, ").init(allocator);\n");
+    try self.output.appendSlice(self.allocator, ").init(");
+    try self.output.appendSlice(self.allocator, alloc_name);
+    try self.output.appendSlice(self.allocator, ");\n");
 
     // Track if we need to convert values to strings
     const need_str_conversion = val_type == .string;
@@ -435,7 +446,9 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
             const value_type = try self.type_inferrer.inferExpr(value);
             if (value_type != .string) {
                 // Convert to string using std.fmt.allocPrint
-                try self.output.appendSlice(self.allocator, "try std.fmt.allocPrint(allocator, ");
+                try self.output.appendSlice(self.allocator, "try std.fmt.allocPrint(");
+                try self.output.appendSlice(self.allocator, alloc_name);
+                try self.output.appendSlice(self.allocator, ", ");
                 switch (value_type) {
                     .int => try self.output.appendSlice(self.allocator, "\"{d}\""),
                     .float => try self.output.appendSlice(self.allocator, "\"{d}\""),
@@ -447,7 +460,9 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
                 try self.output.appendSlice(self.allocator, "})");
             } else if (has_mixed_types) {
                 // For mixed-type dicts, duplicate ALL strings so we can free uniformly
-                try self.output.appendSlice(self.allocator, "try allocator.dupe(u8, ");
+                try self.output.appendSlice(self.allocator, "try ");
+                try self.output.appendSlice(self.allocator, alloc_name);
+                try self.output.appendSlice(self.allocator, ".dupe(u8, ");
                 try genExpr(self, value);
                 try self.output.appendSlice(self.allocator, ")");
             } else {
