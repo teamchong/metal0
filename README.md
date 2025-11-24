@@ -26,6 +26,12 @@ Python to Zig AOT compiler. Write Python, run native code.
 - Single binary deployment
 - Works on bare metal, containers, serverless
 
+🌐 **WASM Support**
+- Native WASM compilation target
+- Smaller than JavaScript bundles (no runtime overhead)
+- Smaller than Python WASM (no interpreter)
+- Fast startup, tiny binary size
+
 ## Quick Start
 
 ```bash
