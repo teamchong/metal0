@@ -141,11 +141,11 @@ fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), allocat
                 try buffer.appendSlice(allocator, str[start..i]);
             }
 
-            // Fast path: 2-byte escapes (most common)
-            if (HAS_TWO_BYTE_ESCAPE[c]) {
-                try buffer.appendSlice(allocator, &TWO_BYTE_ESCAPES[c]);
+            // Use lookup table for common escapes, fallback to \uXXXX for others
+            const escape_seq = ESCAPE_SEQUENCES[c];
+            if (escape_seq.len > 0) {
+                try buffer.appendSlice(allocator, escape_seq);
             } else {
-                // Rare: control characters needing \uXXXX
                 var buf: [6]u8 = undefined;
                 const formatted = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch unreachable;
                 try buffer.appendSlice(allocator, formatted);
