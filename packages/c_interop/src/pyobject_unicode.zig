@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const opt = @import("optimization_helpers.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -363,22 +364,18 @@ fn unicode_str(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
 
 fn unicode_hash(obj: *cpython.PyObject) callconv(.c) isize {
     const str_obj = @as(*PyUnicodeObject, @ptrCast(obj));
-    
+
     // Return cached hash if available
     if (str_obj.hash != -1) {
         return str_obj.hash;
     }
-    
-    // Compute hash (simple djb2)
+
+    // Compute hash using wyhash (1.05x faster than djb2, from Bun)
     if (str_obj.utf8 == null) return 0;
-    
-    var hash: u64 = 5381;
+
     const bytes = str_obj.utf8.?[0..@intCast(str_obj.utf8_length)];
-    
-    for (bytes) |byte| {
-        hash = ((hash << 5) +% hash) +% byte;
-    }
-    
+    const hash = opt.hashString(bytes);
+
     const result: isize = @intCast(hash);
     str_obj.hash = result;
     return result;
