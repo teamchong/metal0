@@ -65,25 +65,25 @@ pub const Compiler = struct {
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return .{
-            .instructions = std.ArrayList(Instruction).init(allocator),
-            .constants = std.ArrayList(Constant).init(allocator),
+            .instructions = std.ArrayList(Instruction){},
+            .constants = std.ArrayList(Constant){},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Compiler) void {
-        self.instructions.deinit();
-        self.constants.deinit();
+        self.instructions.deinit(self.allocator);
+        self.constants.deinit(self.allocator);
     }
 
     /// Compile AST node to bytecode
     pub fn compile(self: *Compiler, node: *const ast_executor.Node) !BytecodeProgram {
         try self.compileNode(node);
-        try self.instructions.append(.{ .op = .Return });
+        try self.instructions.append(self.allocator, .{ .op = .Return });
 
         return .{
-            .instructions = try self.instructions.toOwnedSlice(),
-            .constants = try self.constants.toOwnedSlice(),
+            .instructions = try self.instructions.toOwnedSlice(self.allocator),
+            .constants = try self.constants.toOwnedSlice(self.allocator),
             .allocator = self.allocator,
         };
     }
@@ -92,12 +92,12 @@ pub const Compiler = struct {
         switch (node.*) {
             .constant => |c| {
                 const const_idx = @as(u32, @intCast(self.constants.items.len));
-                try self.constants.append(switch (c.value) {
+                try self.constants.append(self.allocator, switch (c.value) {
                     .int => |i| .{ .int = i },
                     .string => |s| .{ .string = s },
                     else => return error.UnsupportedConstant,
                 });
-                try self.instructions.append(.{ .op = .LoadConst, .arg = const_idx });
+                try self.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx });
             },
 
             .binop => |b| {
@@ -114,9 +114,8 @@ pub const Compiler = struct {
                     .FloorDiv => .FloorDiv,
                     .Mod => .Mod,
                     .Pow => .Pow,
-                    else => return error.UnsupportedOp,
                 };
-                try self.instructions.append(.{ .op = op });
+                try self.instructions.append(self.allocator, .{ .op = op });
             },
 
             else => return error.NotImplemented,
@@ -131,13 +130,13 @@ pub const VM = struct {
 
     pub fn init(allocator: std.mem.Allocator) VM {
         return .{
-            .stack = std.ArrayList(*PyObject).init(allocator),
+            .stack = std.ArrayList(*PyObject){},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *VM) void {
-        self.stack.deinit();
+        self.stack.deinit(self.allocator);
     }
 
     /// Execute bytecode program
@@ -154,7 +153,7 @@ pub const VM = struct {
                         .int => |i| try PyInt.create(self.allocator, i),
                         .string => return error.NotImplemented,
                     };
-                    try self.stack.append(obj);
+                    try self.stack.append(self.allocator, obj);
                 },
 
                 .Add => try self.binaryOp(.Add),
@@ -167,7 +166,7 @@ pub const VM = struct {
 
                 .Return => {
                     if (self.stack.items.len == 0) return error.EmptyStack;
-                    return self.stack.pop();
+                    return self.stack.pop() orelse return error.EmptyStack;
                 },
 
                 else => return error.NotImplemented,
@@ -182,8 +181,8 @@ pub const VM = struct {
     fn binaryOp(self: *VM, op: OpCode) !void {
         if (self.stack.items.len < 2) return error.StackUnderflow;
 
-        const right = self.stack.pop();
-        const left = self.stack.pop();
+        const right = self.stack.pop() orelse return error.StackUnderflow;
+        const left = self.stack.pop() orelse return error.StackUnderflow;
 
         // For MVP: assume both are PyInt
         const left_val = PyInt.getValue(left);
@@ -201,6 +200,6 @@ pub const VM = struct {
         };
 
         const result = try PyInt.create(self.allocator, result_val);
-        try self.stack.append(result);
+        try self.stack.append(self.allocator, result);
     }
 };
