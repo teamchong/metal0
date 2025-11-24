@@ -65,7 +65,7 @@ assert json.dumps("") == '""'
 print("✓ Stringify strings")
 
 # Test 12: Stringify arrays
-assert json.dumps([1, 2, 3]) == "[1,2,3]"
+assert json.dumps([1, 2, 3]) == "[1, 2, 3]"  # Python's default has spaces
 assert json.dumps([]) == "[]"
 print("✓ Stringify arrays")
 

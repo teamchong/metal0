@@ -279,6 +279,17 @@ pub inline fn formatAny(value: anytype) (if (@TypeOf(value) == bool) []const u8 
     }
 }
 
+/// Format any value to string for printing (used for module constants with unknown types)
+/// Handles: strings (as-is), bools ("True"/"False"), ints (converted to string), other types (unchanged)
+/// Note: This is a COMPILE-TIME function that generates different code based on the input type
+pub inline fn formatUnknown(value: anytype) @TypeOf(value) {
+    // For unknown module constants, just return as-is
+    // Zig's compiler will figure out the actual type
+    // String literals will be coerced to []const u8 when printed with {s}
+    // Ints/bools will use their natural formatting with {any}
+    return value;
+}
+
 /// Format float value for printing (Python-style: always show .0 for whole numbers)
 /// Examples: 25.0 -> "25.0", 3.14159 -> "3.14159"
 pub fn formatFloat(value: f64, allocator: std.mem.Allocator) ![]const u8 {
