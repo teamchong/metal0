@@ -83,6 +83,9 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
     const obj_data = obj.data;
     const type_id = obj.type_id;
 
+    // Prefetch data for better cache locality
+    @prefetch(obj_data, .{});
+
     switch (type_id) {
         .none => try buffer.appendSlice(allocator, JSON_NULL),
         .bool => {
