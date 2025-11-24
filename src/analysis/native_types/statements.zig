@@ -30,14 +30,27 @@ pub fn visitStmt(
             }
         },
         .ann_assign => |ann_assign| {
-            // Use annotation for type if provided, otherwise infer from value
-            if (ann_assign.value) |value| {
-                const value_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, value.*);
-                if (ann_assign.target.* == .name) {
-                    try var_types.put(ann_assign.target.name.id, value_type);
-                }
+            var var_type: NativeType = .unknown;
+
+            // 1. Use annotation if provided (PRIORITY)
+            const annot_node = ann_assign.annotation.*;
+            const type_hint: ?[]const u8 = switch (annot_node) {
+                .name => |name| name.id,
+                else => null,
+            };
+            if (type_hint != null) {
+                var_type = try core.pythonTypeHintToNative(type_hint, allocator);
             }
-            // TODO: Parse annotation to determine type explicitly
+
+            // 2. Fall back to value inference
+            if (var_type == .unknown and ann_assign.value != null) {
+                var_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, ann_assign.value.?.*);
+            }
+
+            // 3. Store type
+            if (ann_assign.target.* == .name) {
+                try var_types.put(ann_assign.target.name.id, var_type);
+            }
         },
         .class_def => |class_def| {
             // Track class field types from __init__ parameters
