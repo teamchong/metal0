@@ -6,7 +6,6 @@ const std = @import("std");
 const hashmap_helper = @import("hashmap_helper.zig");
 // Use SA-IS implementation instead of simple O(n² log n) suffix array
 const sais = @import("sais.zig");
-const esaxx_ffi = @import("esaxx_ffi.zig");
 const Allocator = std.mem.Allocator;
 const Unigram = @import("unigram_model.zig").Unigram;
 const VocabEntry = @import("unigram_model.zig").VocabEntry;
@@ -180,20 +179,23 @@ pub const UnigramTrainer = struct {
 
         std.debug.print("[PROFILE] Concatenated {d} sentences into {d} bytes\n", .{sentences.len, concat_text.len});
 
-        // Use esaxx-rs FFI for exact HuggingFace parity
-        std.debug.print("[PROFILE] Calling esaxx-rs via FFI...\n", .{});
-        const frequent_substrings = try esaxx_ffi.extractSubstrings(
+        // Use pure Zig SA-IS implementation
+        std.debug.print("[PROFILE] Calling SA-IS (pure Zig)...\n", .{});
+        const frequent_substrings = try sais.findFrequentSubstrings(
             self.allocator,
             concat_text,
+            2, // min_length (will filter len<=1 later)
+            1000, // max_length (generous, will filter by max_piece_length later)
+            1000000, // max_results (seed_size)
         );
         defer {
-            for (frequent_substrings) |*substr| {
-                substr.deinit(self.allocator);
+            for (frequent_substrings) |substr| {
+                self.allocator.free(substr.string);
             }
             self.allocator.free(frequent_substrings);
         }
 
-        std.debug.print("[PROFILE] Found {d} substrings from esaxx-rs\n", .{frequent_substrings.len});
+        std.debug.print("[PROFILE] Found {d} substrings from SA-IS\n", .{frequent_substrings.len});
 
         // Convert suffix array results to pieces
         // EXACTLY matching HuggingFace trainer.rs:238-272
@@ -780,7 +782,7 @@ pub const UnigramTrainer = struct {
 
         // Lattice caching disabled - adds overhead without benefit (only 1 EM iteration)
         // TODO: Re-enable when we have multiple EM iterations per training run
-        const cached_lattices_opt: ?[]Lattice = null;
+        _ = @TypeOf(null); // Cached lattices not used with parallel E-step
 
         // 2. EM iterations
         var em_iteration: u32 = 0;
@@ -819,9 +821,14 @@ pub const UnigramTrainer = struct {
                 //     cached_lattices_opt = cached_lattices;
                 // }
 
-                // E-step (with cached lattices for massive speedup)
+                // E-step (parallel for speedup)
                 const start_estep = std.time.nanoTimestamp();
-                const e_result = try self.runEStep(&model, sentences, cached_lattices_opt);
+                const all_sentence_freq: u32 = blk: {
+                    var sum: u32 = 0;
+                    for (sentences) |s| sum += s.count;
+                    break :blk sum;
+                };
+                const e_result = try self.runEStepParallel(&model, sentences, all_sentence_freq);
                 const expected = e_result[1];
                 defer self.allocator.free(expected);
                 const estep_ms = @divFloor(std.time.nanoTimestamp() - start_estep, 1_000_000);

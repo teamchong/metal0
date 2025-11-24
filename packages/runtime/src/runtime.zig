@@ -14,6 +14,9 @@ pub const string_utils = @import("string_utils.zig");
 /// Export AST executor for eval() support
 pub const ast_executor = @import("ast_executor.zig");
 
+/// Export dynamic attribute access stubs
+const dynamic_attrs = @import("dynamic_attrs.zig");
+
 /// Export comptime type inference helpers
 const comptime_helpers = @import("comptime_helpers.zig");
 pub const InferListType = comptime_helpers.InferListType;
@@ -392,6 +395,16 @@ pub const reMatch = re.match;
 // Dynamic execution exports
 pub const eval = eval_module.eval;
 pub const exec = exec_module.exec;
+pub const compile_builtin = @import("compile.zig").compile_builtin;
+pub const dynamic_import = @import("dynamic_import.zig").dynamic_import;
+
+// Dynamic attribute access exports
+pub const getattr_builtin = dynamic_attrs.getattr_builtin;
+pub const setattr_builtin = dynamic_attrs.setattr_builtin;
+pub const hasattr_builtin = dynamic_attrs.hasattr_builtin;
+pub const vars_builtin = dynamic_attrs.vars_builtin;
+pub const globals_builtin = dynamic_attrs.globals_builtin;
+pub const locals_builtin = dynamic_attrs.locals_builtin;
 
 /// Format dict as Python dict string: {key: value, ...}
 /// Supports both StringHashMap and ArrayList(KV) for dict comprehensions

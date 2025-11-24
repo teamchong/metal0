@@ -422,12 +422,33 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
             return true;
         }
 
-        // Dynamic features still not supported - emit errors
-        if (std.mem.eql(u8, func_name, "compile") or
-            std.mem.eql(u8, func_name, "__import__"))
-        {
-            reportDynamicFeatureError(func_name);
-            return error.OutOfMemory; // Abort compilation
+        // compile() - compile source code to bytecode
+        if (std.mem.eql(u8, func_name, "compile")) {
+            try builtins.genCompile(self, call.args);
+            return true;
+        }
+
+        // Dynamic attribute access
+        inline for (.{
+            .{ "getattr", builtins.genGetattr },
+            .{ "setattr", builtins.genSetattr },
+            .{ "hasattr", builtins.genHasattr },
+            .{ "vars", builtins.genVars },
+            .{ "globals", builtins.genGlobals },
+            .{ "locals", builtins.genLocals },
+        }) |entry| {
+            if (std.mem.eql(u8, func_name, entry[0])) {
+                try entry[1](self, call.args);
+                return true;
+            }
+        }
+
+        // __import__() - dynamic module import
+        if (std.mem.eql(u8, func_name, "__import__")) {
+            try self.output.appendSlice(self.allocator, "try runtime.dynamic_import(allocator, ");
+            try self.genExpr(call.args[0]);
+            try self.output.appendSlice(self.allocator, ")");
+            return true;
         }
     }
 

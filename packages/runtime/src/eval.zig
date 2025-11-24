@@ -19,16 +19,39 @@ const eval_cache = @import("eval_cache.zig");
 
 /// eval() - Evaluate Python expression and return result as PyObject
 ///
-/// Python signature: eval(source)
+/// Python signature: eval(source) or eval(code_object)
 ///
 /// Example:
 ///   result = eval("1 + 2 * 3")  # Returns PyInt(7)
+///   code = compile("1 + 2", "<string>", "eval")
+///   result = eval(code)  # Returns PyInt(3)
 ///
 /// Implementation:
 /// Uses cached bytecode compilation with comptime target selection
 pub fn eval(
     allocator: std.mem.Allocator,
-    source: []const u8,
+    source: anytype,
 ) anyerror!*@import("runtime.zig").PyObject {
-    return eval_cache.evalCached(allocator, source);
+    const runtime = @import("runtime.zig");
+
+    // Handle both string and PyObject (code object from compile())
+    const T = @TypeOf(source);
+
+    // For MVP: Support string literals, slices, and PyString objects
+    const source_str: []const u8 = if (T == *runtime.PyObject) blk: {
+        // Code object from compile() - for MVP it's a PyString
+        const PyString = runtime.PyString;
+        if (source.type_id != .string) {
+            return error.TypeError;
+        }
+        // Extract PyString from PyObject.data
+        const str_obj = @as(*PyString, @ptrCast(@alignCast(source.data)));
+        break :blk str_obj.data;
+    } else blk: {
+        // String literal (*const [N:0]u8) or slice ([]const u8)
+        // Both coerce to []const u8
+        break :blk source;
+    };
+
+    return eval_cache.evalCached(allocator, source_str);
 }
