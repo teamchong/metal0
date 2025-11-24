@@ -11,17 +11,19 @@ test "spawn 100k green threads" {
 
     var counter: usize = 0;
 
-    const CounterFunc = struct {
-        fn run(thread: *GreenThread) void {
-            const c: *usize = @alignCast(@ptrCast(thread.result.?));
-            _ = @atomicRmw(usize, c, .Add, 1, .seq_cst);
-        }
+    const Context = struct {
+        counter: *usize,
     };
+
+    const increment = struct {
+        fn run(ctx: *Context) void {
+            _ = @atomicRmw(usize, ctx.counter, .Add, 1, .seq_cst);
+        }
+    }.run;
 
     var i: usize = 0;
     while (i < 100_000) : (i += 1) {
-        const thread = try sched.spawn(CounterFunc.run);
-        thread.result = @ptrCast(&counter);
+        _ = try sched.spawn(increment, .{ .counter = &counter });
     }
 
     sched.waitAll();
@@ -38,10 +40,13 @@ test "work stealing functionality" {
 
     var counters = [_]usize{0} ** 4;
 
-    const WorkFunc = struct {
-        fn run(thread: *GreenThread) void {
-            const c: *usize = @alignCast(@ptrCast(thread.result.?));
-            _ = @atomicRmw(usize, c, .Add, 1, .seq_cst);
+    const Context = struct {
+        counter: *usize,
+    };
+
+    const work = struct {
+        fn run(ctx: *Context) void {
+            _ = @atomicRmw(usize, ctx.counter, .Add, 1, .seq_cst);
 
             // Simulate work
             var j: usize = 0;
@@ -49,14 +54,13 @@ test "work stealing functionality" {
                 std.mem.doNotOptimizeAway(&j);
             }
         }
-    };
+    }.run;
 
     // Spawn many tasks to ensure work stealing happens
     var i: usize = 0;
     while (i < 10_000) : (i += 1) {
         const counter_idx = i % 4;
-        const thread = try sched.spawn(WorkFunc.run);
-        thread.result = @ptrCast(&counters[counter_idx]);
+        _ = try sched.spawn(work, .{ .counter = &counters[counter_idx] });
     }
 
     sched.waitAll();
@@ -78,13 +82,13 @@ test "thread state transitions" {
     const allocator = std.testing.allocator;
 
     const StateFunc = struct {
-        fn func(thread: *GreenThread) void {
-            _ = thread;
+        fn func(ctx: ?*anyopaque) void {
+            _ = ctx;
             // Simple function
         }
     };
 
-    const thread = try GreenThread.init(allocator, 1, StateFunc.func);
+    const thread = try GreenThread.init(allocator, 1, StateFunc.func, null);
     defer thread.deinit(allocator);
 
     try std.testing.expectEqual(GreenThread.State.ready, thread.state);
@@ -103,22 +107,23 @@ test "concurrent increments" {
 
     var shared_counter: usize = 0;
 
-    const IncrementFunc = struct {
-        fn run(thread: *GreenThread) void {
-            const c: *usize = @alignCast(@ptrCast(thread.result.?));
+    const Context = struct {
+        counter: *usize,
+    };
 
+    const work = struct {
+        fn run(ctx: *Context) void {
             // Multiple increments per thread
             var j: usize = 0;
             while (j < 10) : (j += 1) {
-                _ = @atomicRmw(usize, c, .Add, 1, .seq_cst);
+                _ = @atomicRmw(usize, ctx.counter, .Add, 1, .seq_cst);
             }
         }
-    };
+    }.run;
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        const thread = try sched.spawn(IncrementFunc.run);
-        thread.result = @ptrCast(&shared_counter);
+        _ = try sched.spawn(work, .{ .counter = &shared_counter });
     }
 
     sched.waitAll();
@@ -143,10 +148,12 @@ test "compute intensive work" {
         .mutex = .{},
     };
 
-    const ComputeFunc = struct {
-        fn run(thread: *GreenThread) void {
-            const r: *Result = @alignCast(@ptrCast(thread.result.?));
+    const Context = struct {
+        result: *Result,
+    };
 
+    const compute = struct {
+        fn run(ctx: *Context) void {
             // Compute sum of squares
             var sum: u64 = 0;
             var j: usize = 0;
@@ -154,16 +161,15 @@ test "compute intensive work" {
                 sum +%= j * j;
             }
 
-            r.mutex.lock();
-            defer r.mutex.unlock();
-            r.sum +%= sum;
+            ctx.result.mutex.lock();
+            defer ctx.result.mutex.unlock();
+            ctx.result.sum +%= sum;
         }
-    };
+    }.run;
 
     var i: usize = 0;
     while (i < 100) : (i += 1) {
-        const thread = try sched.spawn(ComputeFunc.run);
-        thread.result = @ptrCast(&result);
+        _ = try sched.spawn(compute, .{ .result = &result });
     }
 
     sched.waitAll();
@@ -180,12 +186,12 @@ test "memory usage per thread" {
 
     // Create a single green thread and check memory
     const TestFunc = struct {
-        fn func(thread: *GreenThread) void {
-            _ = thread;
+        fn func(ctx: ?*anyopaque) void {
+            _ = ctx;
         }
     };
 
-    const thread = try GreenThread.init(allocator, 1, TestFunc.func);
+    const thread = try GreenThread.init(allocator, 1, TestFunc.func, null);
     defer thread.deinit(allocator);
 
     // Stack should be 4KB
@@ -205,17 +211,19 @@ test "scheduler shutdown" {
 
     var counter: usize = 0;
 
-    const QuickFunc = struct {
-        fn run(thread: *GreenThread) void {
-            const c: *usize = @alignCast(@ptrCast(thread.result.?));
-            _ = @atomicRmw(usize, c, .Add, 1, .seq_cst);
-        }
+    const Context = struct {
+        counter: *usize,
     };
+
+    const increment = struct {
+        fn run(ctx: *Context) void {
+            _ = @atomicRmw(usize, ctx.counter, .Add, 1, .seq_cst);
+        }
+    }.run;
 
     var i: usize = 0;
     while (i < 100) : (i += 1) {
-        const thread = try sched.spawn(QuickFunc.run);
-        thread.result = @ptrCast(&counter);
+        _ = try sched.spawn(increment, .{ .counter = &counter });
     }
 
     sched.waitAll();
@@ -248,25 +256,26 @@ test "multi-core utilization simulation" {
 
     var completed = [_]std.atomic.Value(bool){std.atomic.Value(bool).init(false)} ** 16;
 
-    const CpuFunc = struct {
-        fn run(thread: *GreenThread) void {
-            const flags: *[16]std.atomic.Value(bool) = @alignCast(@ptrCast(thread.result.?));
-            const idx = thread.id % 16;
+    const Context = struct {
+        flags: *[16]std.atomic.Value(bool),
+        idx: usize,
+    };
 
+    const work = struct {
+        fn run(ctx: *Context) void {
             // Simulate CPU-bound work
             var j: usize = 0;
             while (j < 50_000) : (j += 1) {
                 std.mem.doNotOptimizeAway(&j);
             }
 
-            flags[idx].store(true, .release);
+            ctx.flags[ctx.idx].store(true, .release);
         }
-    };
+    }.run;
 
     var i: usize = 0;
     while (i < 16) : (i += 1) {
-        const thread = try sched.spawn(CpuFunc.run);
-        thread.result = @ptrCast(&completed);
+        _ = try sched.spawn(work, .{ .flags = &completed, .idx = i });
     }
 
     sched.waitAll();

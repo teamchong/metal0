@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("../../ast.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
+const async_complexity = @import("../../analysis/async_complexity.zig");
 
 /// Generate code for asyncio.run(main())
 /// Maps to: initialize scheduler once, spawn main, wait for completion
@@ -105,7 +106,43 @@ pub fn genAsyncioQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
 /// Generate code for await expression
 /// Maps to: wait for green thread and extract result
+/// Comptime optimizes simple functions by inlining instead of spawning
 pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    // Check if this is a call to a simple async function that can be inlined
+    if (expr == .call) {
+        const call = expr.call;
+        if (call.func.* == .name) {
+            const func_name = call.func.*.name.id;
+
+            // Look up function definition to analyze complexity
+            if (self.lookupAsyncFunction(func_name)) |func_def| {
+                const complexity = async_complexity.analyzeFunction(func_def);
+
+                // Inline trivial and simple functions
+                if (complexity == .trivial or complexity == .simple) {
+                    try self.output.appendSlice(self.allocator, "(blk: {\n");
+                    try self.output.appendSlice(self.allocator, "    // Comptime inlined async function\n");
+                    try self.output.appendSlice(self.allocator, "    break :blk ");
+                    try self.output.appendSlice(self.allocator, func_name);
+                    try self.output.appendSlice(self.allocator, "_impl(");
+
+                    // Generate args
+                    for (call.args, 0..) |arg, i| {
+                        if (i > 0) {
+                            try self.output.appendSlice(self.allocator, ", ");
+                        }
+                        try self.genExpr(arg);
+                    }
+
+                    try self.output.appendSlice(self.allocator, ");\n");
+                    try self.output.appendSlice(self.allocator, "})");
+                    return;
+                }
+            }
+        }
+    }
+
+    // Fall back to full spawn for complex functions or unknown calls
     try self.output.appendSlice(self.allocator, "(blk: {\n");
     try self.output.appendSlice(self.allocator, "    const __thread = ");
     try self.genExpr(expr);

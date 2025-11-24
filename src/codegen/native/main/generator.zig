@@ -70,6 +70,17 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
     }
 
+    // PHASE 2.1: Register async functions for comptime optimization analysis
+    for (module.body) |stmt| {
+        if (stmt == .function_def) {
+            const func = stmt.function_def;
+            if (func.is_async) {
+                const func_name_copy = try self.allocator.dupe(u8, func.name);
+                try self.async_function_defs.put(func_name_copy, func);
+            }
+        }
+    }
+
     // PHASE 2.5: Analyze mutations for list ArrayList vs fixed array decision
     const mutation_analyzer = @import("../../../analysis/native_types/mutation_analyzer.zig");
     var mutations = try mutation_analyzer.analyzeMutations(module, self.allocator);

@@ -16,6 +16,7 @@ const fnv_hash = @import("../../../utils/fnv_hash.zig");
 const FnvContext = fnv_hash.FnvHashContext([]const u8);
 const FnvVoidMap = std.HashMap([]const u8, void, FnvContext, 80);
 const FnvStringMap = std.HashMap([]const u8, []const u8, FnvContext, 80);
+const FnvFuncDefMap = std.HashMap([]const u8, ast.Node.FunctionDef, FnvContext, 80);
 
 /// Code generation mode
 pub const CodegenMode = enum {
@@ -124,6 +125,10 @@ pub const NativeCodegen = struct {
     // Maps function name -> void (e.g., "fetch_data" -> {})
     async_functions: FnvVoidMap,
 
+    // Track async function definitions (for complexity analysis)
+    // Maps function name -> FunctionDef (e.g., "fetch_data" -> FunctionDef)
+    async_function_defs: FnvFuncDefMap,
+
     // Track imported module names (for mymath.add() -> needs allocator)
     // Maps module name -> void (e.g., "mymath" -> {})
     imported_modules: FnvVoidMap,
@@ -181,6 +186,7 @@ pub const NativeCodegen = struct {
             .from_import_needs_allocator = FnvVoidMap.init(allocator),
             .functions_needing_allocator = FnvVoidMap.init(allocator),
             .async_functions = FnvVoidMap.init(allocator),
+            .async_function_defs = FnvFuncDefMap.init(allocator),
             .imported_modules = FnvVoidMap.init(allocator),
             .mutation_info = null,
             .c_libraries = std.ArrayList([]const u8){},
@@ -269,6 +275,13 @@ pub const NativeCodegen = struct {
         }
         self.async_functions.deinit();
 
+        // Clean up async_function_defs tracking
+        var async_def_iter = self.async_function_defs.keyIterator();
+        while (async_def_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.async_function_defs.deinit();
+
         // Clean up imported_modules tracking
         var imported_iter = self.imported_modules.keyIterator();
         while (imported_iter.next()) |key| {
@@ -320,6 +333,11 @@ pub const NativeCodegen = struct {
     /// Check if variable is an ArrayList (needs .items.len for len())
     pub fn isArrayListVar(self: *NativeCodegen, name: []const u8) bool {
         return self.arraylist_vars.contains(name);
+    }
+
+    /// Look up async function definition for complexity analysis
+    pub fn lookupAsyncFunction(self: *NativeCodegen, name: []const u8) ?ast.Node.FunctionDef {
+        return self.async_function_defs.get(name);
     }
 
     // Helper functions - public for use by statements.zig and expressions.zig

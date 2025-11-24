@@ -5,8 +5,10 @@ pub const GreenThread = struct {
     stack: []align(16) u8,
     state: State,
     result: ?*anyopaque,
-    context: Context,
-    func_ptr: *const fn (*GreenThread) void,
+    cpu_context: CpuContext,
+    user_context: ?*anyopaque,
+    func_ptr: *const fn (?*anyopaque) void,
+    context_cleanup: ?*const fn (*GreenThread, std.mem.Allocator) void, // Optional cleanup for user_context
 
     pub const State = enum {
         ready,
@@ -15,7 +17,7 @@ pub const GreenThread = struct {
         completed,
     };
 
-    pub const Context = struct {
+    pub const CpuContext = struct {
         // Saved registers for context switching
         rsp: usize = 0, // Stack pointer
         rbp: usize = 0, // Base pointer
@@ -29,7 +31,13 @@ pub const GreenThread = struct {
 
     const STACK_SIZE = 4 * 1024; // 4KB per thread
 
-    pub fn init(allocator: std.mem.Allocator, id: u64, func: *const fn (*GreenThread) void) !*GreenThread {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        id: u64,
+        func: *const fn (?*anyopaque) void,
+        user_ctx: ?*anyopaque,
+        cleanup: ?*const fn (*GreenThread, std.mem.Allocator) void,
+    ) !*GreenThread {
         const thread = try allocator.create(GreenThread);
         errdefer allocator.destroy(thread);
 
@@ -41,13 +49,15 @@ pub const GreenThread = struct {
             .stack = stack,
             .state = .ready,
             .result = null,
-            .context = .{},
+            .cpu_context = .{},
+            .user_context = user_ctx,
             .func_ptr = func,
+            .context_cleanup = cleanup,
         };
 
         // Initialize stack pointer to top of stack (stacks grow downward)
-        thread.context.rsp = @intFromPtr(stack.ptr) + stack.len - 16;
-        thread.context.rbp = thread.context.rsp;
+        thread.cpu_context.rsp = @intFromPtr(stack.ptr) + stack.len - 16;
+        thread.cpu_context.rbp = thread.cpu_context.rsp;
 
         return thread;
     }
@@ -59,7 +69,7 @@ pub const GreenThread = struct {
 
     pub fn run(self: *GreenThread) void {
         self.state = .running;
-        self.func_ptr(self);
+        self.func_ptr(self.user_context);
         self.state = .completed;
     }
 
@@ -80,13 +90,13 @@ test "GreenThread basic creation" {
     const allocator = std.testing.allocator;
 
     const TestFunc = struct {
-        fn func(thread: *GreenThread) void {
-            _ = thread;
+        fn func(ctx: ?*anyopaque) void {
+            _ = ctx;
             // Simple test function
         }
     };
 
-    const thread = try GreenThread.init(allocator, 1, TestFunc.func);
+    const thread = try GreenThread.init(allocator, 1, TestFunc.func, null, null);
     defer thread.deinit(allocator);
 
     try std.testing.expectEqual(@as(u64, 1), thread.id);
@@ -97,13 +107,19 @@ test "GreenThread basic creation" {
 test "GreenThread run and complete" {
     const allocator = std.testing.allocator;
 
+    const Context = struct {
+        value: usize,
+    };
+
     const TestFunc = struct {
-        fn func(thread: *GreenThread) void {
-            thread.result = @ptrFromInt(@as(usize, 42));
+        fn func(ctx: ?*anyopaque) void {
+            const context: *Context = @ptrCast(@alignCast(ctx.?));
+            context.value = 42;
         }
     };
 
-    const thread = try GreenThread.init(allocator, 1, TestFunc.func);
+    var context = Context{ .value = 0 };
+    const thread = try GreenThread.init(allocator, 1, TestFunc.func, &context, null);
     defer thread.deinit(allocator);
 
     try std.testing.expectEqual(GreenThread.State.ready, thread.state);
@@ -111,5 +127,5 @@ test "GreenThread run and complete" {
     thread.run();
 
     try std.testing.expectEqual(GreenThread.State.completed, thread.state);
-    try std.testing.expectEqual(@as(usize, 42), @intFromPtr(thread.result.?));
+    try std.testing.expectEqual(@as(usize, 42), context.value);
 }
