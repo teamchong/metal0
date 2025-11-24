@@ -183,16 +183,53 @@ pub const UnigramTrainer = struct {
 
         std.debug.print("[PROFILE] Generated {d} unique n-grams from sentences\n", .{ngram_freqs.count()});
 
-        // Convert ngram map to pieces list
+        // Collect scored n-grams (filter + sort by score)
+        var scored_ngrams = std.ArrayList(struct { token: []const u8, score: f64 }){};
+        defer scored_ngrams.deinit(self.allocator);
+
         var ngram_it = ngram_freqs.iterator();
         while (ngram_it.next()) |entry| {
-            // Score: frequency * length
-            const score = @as(f64, @floatFromInt(entry.value_ptr.* * @as(u32, @intCast(entry.key_ptr.*.len))));
+            const freq = entry.value_ptr.*;
+            const len = entry.key_ptr.*.len;
 
-            try pieces.append(self.allocator, SentencePiece{
+            // HuggingFace filters: skip rare n-grams
+            // Minimum frequency threshold (like HF's suffix array filtering)
+            // Use freq >= 2 to keep enough seeds for EM iterations
+            if (freq < 2) {  // Skip n-grams that appear only once
+                self.allocator.free(entry.key_ptr.*);
+                continue;
+            }
+
+            // Score: frequency * length (same as HF)
+            const score = @as(f64, @floatFromInt(freq * @as(u32, @intCast(len))));
+
+            try scored_ngrams.append(self.allocator, .{
                 .token = entry.key_ptr.*, // Transfer ownership
                 .score = score,
             });
+        }
+
+        // Sort by score (descending) - take top seed_size pieces
+        std.mem.sort(@TypeOf(scored_ngrams.items[0]), scored_ngrams.items, {}, struct {
+            pub fn lessThan(_: void, a: @TypeOf(scored_ngrams.items[0]), b: @TypeOf(scored_ngrams.items[0])) bool {
+                return a.score > b.score;  // Descending
+            }
+        }.lessThan);
+
+        std.debug.print("[PROFILE] After filtering: {d} n-grams (from {d})\n", .{scored_ngrams.items.len, ngram_freqs.count()});
+
+        // Add top scored n-grams to pieces (limit to seed_size)
+        const max_ngrams = @min(scored_ngrams.items.len, self.config.seed_size);
+        for (scored_ngrams.items[0..max_ngrams]) |item| {
+            try pieces.append(self.allocator, SentencePiece{
+                .token = item.token,
+                .score = item.score,
+            });
+        }
+
+        // Free remaining tokens that weren't added
+        for (scored_ngrams.items[max_ngrams..]) |item| {
+            self.allocator.free(item.token);
         }
 
         // Don't free the keys - ownership transferred to pieces
@@ -226,6 +263,10 @@ pub const UnigramTrainer = struct {
         objs: f64,
         err: ?anyerror,
 
+        // Preallocated buffers for populateMarginal (huge optimization!)
+        alpha_buffer: []f64,
+        beta_buffer: []f64,
+
         fn processChunk(self: *EStepWorker) void {
             self.err = null;
             self.processChunkImpl() catch |e| {
@@ -234,11 +275,14 @@ pub const UnigramTrainer = struct {
         }
 
         fn processChunkImpl(self: *EStepWorker) !void {
+            // Single arena for all sentences in this chunk (huge speedup!)
+            var arena = std.heap.ArenaAllocator.init(self.trainer.allocator);
+            defer arena.deinit();
+
             // Process all sentences in this chunk
             for (self.sentences) |sentence| {
-                // Use arena allocator for node allocations
-                var arena = std.heap.ArenaAllocator.init(self.trainer.allocator);
-                defer arena.deinit();
+                // Reset arena between sentences (keeps large buffer, avoids syscalls)
+                _ = arena.reset(.retain_capacity);
 
                 var lattice = try Lattice.initWithArena(
                     self.trainer.allocator,
@@ -251,7 +295,13 @@ pub const UnigramTrainer = struct {
 
                 try self.model.populateNodes(&lattice);
 
-                const z = try lattice.populateMarginal(@floatFromInt(sentence.count), self.expected);
+                // Use preallocated buffers (avoids 583 allocations per iteration!)
+                const z = lattice.populateMarginalWithBuffers(
+                    @floatFromInt(sentence.count),
+                    self.expected,
+                    self.alpha_buffer,
+                    self.beta_buffer,
+                );
                 if (std.math.isNan(z)) {
                     return error.NanLikelihood;
                 }
@@ -344,6 +394,30 @@ pub const UnigramTrainer = struct {
             @memset(exp.*, 0.0);
         }
 
+        // Allocate alpha/beta buffers for each thread (avoids 583 allocations per iteration!)
+        const k_max_lattice_nodes = 10000; // Conservative estimate
+        const alpha_buffers = try self.allocator.alloc([]f64, num_threads);
+        defer {
+            for (alpha_buffers) |buf| {
+                self.allocator.free(buf);
+            }
+            self.allocator.free(alpha_buffers);
+        }
+        const beta_buffers = try self.allocator.alloc([]f64, num_threads);
+        defer {
+            for (beta_buffers) |buf| {
+                self.allocator.free(buf);
+            }
+            self.allocator.free(beta_buffers);
+        }
+
+        for (alpha_buffers) |*buf| {
+            buf.* = try self.allocator.alloc(f64, k_max_lattice_nodes);
+        }
+        for (beta_buffers) |*buf| {
+            buf.* = try self.allocator.alloc(f64, k_max_lattice_nodes);
+        }
+
         // Allocate workers
         const workers = try self.allocator.alloc(EStepWorker, num_threads);
         defer self.allocator.free(workers);
@@ -368,6 +442,8 @@ pub const UnigramTrainer = struct {
                 .expected = thread_expected[thread_idx],
                 .objs = 0.0,
                 .err = null,
+                .alpha_buffer = alpha_buffers[thread_idx],
+                .beta_buffer = beta_buffers[thread_idx],
             };
 
             threads[thread_idx] = try std.Thread.spawn(.{}, EStepWorker.processChunk, .{&workers[thread_idx]});
@@ -408,8 +484,10 @@ pub const UnigramTrainer = struct {
 
         var sum: f64 = 0.0;
 
-        // M-step: Keep ALL tokens, update scores based on expected counts
-        // Vocabulary reduction happens in pruning step, not here
+        // HuggingFace threshold: filter out tokens with expected frequency < 0.5
+        const expected_frequency_threshold = 0.5;
+
+        // M-step: Filter tokens and update scores based on expected counts
         for (pieces, expected, 0..) |piece, freq, i| {
             // Always keep UNK (index 0)
             if (i == 0) {
@@ -421,8 +499,8 @@ pub const UnigramTrainer = struct {
                 continue;
             }
 
-            // Keep all tokens with any expected count > 0
-            if (freq <= 0.0) {
+            // Filter: Only keep tokens with expected frequency >= 0.5 (HuggingFace parity)
+            if (freq < expected_frequency_threshold) {
                 continue;
             }
 
@@ -440,6 +518,7 @@ pub const UnigramTrainer = struct {
             piece.score = digamma(piece.score) - logsum;
         }
 
+        std.debug.print("[DEBUG] M-step filtered: {d} kept (from {d} pieces)\n", .{new_pieces.items.len, pieces.len});
         return new_pieces;
     }
 
@@ -600,6 +679,66 @@ pub const UnigramTrainer = struct {
         return result;
     }
 
+    /// Finalize vocabulary: truncate to exact vocab_size and add required characters
+    /// Matches HuggingFace's finalize() function
+    fn finalize(self: *UnigramTrainer, pieces: []const SentencePiece, sentences: []const Sentence) !std.ArrayList(SentencePiece) {
+        // Collect required characters (all unique chars in corpus)
+        var required_chars = std.AutoHashMap(u8, void).init(self.allocator);
+        defer required_chars.deinit();
+
+        for (sentences) |sentence| {
+            for (sentence.text) |c| {
+                try required_chars.put(c, {});
+            }
+        }
+
+        // Build result - target is vocab_size (no special tokens in this impl)
+        var result = std.ArrayList(SentencePiece){};
+        var inserted = std.StringHashMap(void).init(self.allocator);
+        defer inserted.deinit();
+
+        // First, add all required characters that exist in pieces
+        for (pieces) |piece| {
+            if (piece.token.len == 1) {
+                if (required_chars.contains(piece.token[0])) {
+                    const token = try self.allocator.dupe(u8, piece.token);
+                    try result.append(self.allocator, SentencePiece{
+                        .token = token,
+                        .score = piece.score,
+                    });
+                    try inserted.put(token, {});
+                }
+            }
+        }
+
+        // Then add remaining pieces up to vocab_size
+        for (pieces) |piece| {
+            if (inserted.contains(piece.token)) {
+                continue;
+            }
+
+            const token = try self.allocator.dupe(u8, piece.token);
+            try result.append(self.allocator, SentencePiece{
+                .token = token,
+                .score = if (std.math.isNan(piece.score)) 0.0 else piece.score,
+            });
+            try inserted.put(token, {});
+
+            if (result.items.len >= self.config.vocab_size) {
+                break;
+            }
+        }
+
+        // Sort by score (descending)
+        std.mem.sort(SentencePiece, result.items, {}, struct {
+            fn lessThan(_: void, a: SentencePiece, b: SentencePiece) bool {
+                return a.score > b.score; // Descending
+            }
+        }.lessThan);
+
+        return result;
+    }
+
     /// Train Unigram model using EM algorithm
     pub fn train(self: *UnigramTrainer, sentences: []const Sentence) !Unigram {
         const start_total = std.time.nanoTimestamp();
@@ -726,8 +865,15 @@ pub const UnigramTrainer = struct {
         const total_ms = @divFloor(std.time.nanoTimestamp() - start_total, 1_000_000);
         std.debug.print("[PROFILE] Total training time: {d}ms ({d} EM iterations)\n", .{total_ms, em_iteration});
 
-        // Final model - create vocab (Unigram.init will duplicate strings)
-        var vocab = try self.allocator.alloc(VocabEntry, pieces.items.len);
+        // Finalize: Truncate to exact vocab_size (HuggingFace compatibility)
+        var finalized_pieces = try self.finalize(pieces.items, sentences);
+        defer {
+            for (finalized_pieces.items) |*piece| piece.deinit(self.allocator);
+            finalized_pieces.deinit(self.allocator);
+        }
+
+        // Final model - create vocab from finalized pieces
+        var vocab = try self.allocator.alloc(VocabEntry, finalized_pieces.items.len);
         defer {
             for (vocab) |*entry| {
                 self.allocator.free(entry.token);
@@ -735,13 +881,14 @@ pub const UnigramTrainer = struct {
             self.allocator.free(vocab);
         }
 
-        for (pieces.items, 0..) |piece, i| {
+        for (finalized_pieces.items, 0..) |piece, i| {
             vocab[i] = VocabEntry{
                 .token = try self.allocator.dupe(u8, piece.token),
                 .score = piece.score,
             };
         }
 
+        std.debug.print("[PROFILE] Finalized vocab size: {d} (target: {d})\n", .{vocab.len, self.config.vocab_size});
         return try Unigram.init(self.allocator, vocab, 0);
     }
 

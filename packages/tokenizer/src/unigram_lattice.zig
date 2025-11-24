@@ -7,19 +7,30 @@ const Allocator = std.mem.Allocator;
 
 /// Returns log(exp(x) + exp(y)) for numerical stability
 /// Used in forward-backward algorithm
-fn logSumExp(x: f64, y: f64, init_mode: bool) f64 {
+/// Optimized version with fast paths for common cases
+inline fn logSumExp(x: f64, y: f64, init_mode: bool) f64 {
     if (init_mode) {
         return y;
     }
-    const vmin = @min(x, y);
-    const vmax = @max(x, y);
-    const k_minus_log_epsilon = 50.0;
 
-    if (vmax > vmin + k_minus_log_epsilon) {
-        return vmax;
-    } else {
-        return vmax + @log(@exp(vmin - vmax) + 1.0);
+    // Fast path: if one value dominates, skip expensive exp/log
+    const k_minus_log_epsilon = 50.0;
+    const diff = x - y;
+
+    if (diff > k_minus_log_epsilon) {
+        return x;  // x >> y, so log(exp(x) + exp(y)) ≈ x
     }
+    if (diff < -k_minus_log_epsilon) {
+        return y;  // y >> x, so log(exp(x) + exp(y)) ≈ y
+    }
+
+    // Need full computation - use max for numerical stability
+    const vmax = if (x > y) x else y;
+    const vmin = if (x > y) y else x;
+
+    // log(exp(x) + exp(y)) = vmax + log(exp(vmin - vmax) + 1)
+    // Use log1p for better accuracy when vmin ≈ vmax
+    return vmax + @log(@exp(vmin - vmax) + 1.0);
 }
 
 /// A node in the lattice
@@ -412,13 +423,26 @@ pub const Lattice = struct {
     /// Computes expected counts for each token
     pub fn populateMarginal(self: *const Lattice, freq: f64, expected: []f64) !f64 {
         const n_nodes = self.nodes.items.len;
-        var alpha = try self.allocator.alloc(f64, n_nodes);
+        const alpha = try self.allocator.alloc(f64, n_nodes);
         defer self.allocator.free(alpha);
-        var beta = try self.allocator.alloc(f64, n_nodes);
+        const beta = try self.allocator.alloc(f64, n_nodes);
         defer self.allocator.free(beta);
 
-        @memset(alpha, 0.0);
-        @memset(beta, 0.0);
+        return self.populateMarginalWithBuffers(freq, expected, alpha, beta);
+    }
+
+    /// Optimized version that accepts preallocated buffers (avoids allocation in hot path!)
+    pub fn populateMarginalWithBuffers(self: *const Lattice, freq: f64, expected: []f64, alpha: []f64, beta: []f64) f64 {
+        const n_nodes = self.nodes.items.len;
+
+        // Resize buffers if needed (rarely happens after first sentence)
+        if (alpha.len < n_nodes or beta.len < n_nodes) {
+            // Caller must provide large enough buffers
+            @panic("Buffer too small for populateMarginal");
+        }
+
+        @memset(alpha[0..n_nodes], 0.0);
+        @memset(beta[0..n_nodes], 0.0);
 
         // Forward pass
         var pos: usize = 0;

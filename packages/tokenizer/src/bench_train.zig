@@ -19,7 +19,11 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = allocator_helper.getBenchmarkAllocator(&gpa);
 
-    const VOCAB_SIZE = 32000;
+    // Allow runtime vocab size via VOCAB_SIZE env var (default: 32000)
+    const VOCAB_SIZE = if (std.posix.getenv("VOCAB_SIZE")) |size_str|
+        std.fmt.parseInt(usize, size_str, 10) catch 32000
+    else
+        32000;
 
     // Allow runtime algorithm selection via ALGORITHM env var
     // Example: ALGORITHM=Unigram ./bench_train
@@ -59,9 +63,15 @@ pub fn main() !void {
 
     if (is_unigram) {
         // Unigram returns UnigramTokenizer
+        // Use environment variable for iteration count (default: 300)
+        const iterations = if (std.posix.getenv("ITERATIONS")) |iter_str|
+            std.fmt.parseInt(usize, iter_str, 10) catch 300
+        else
+            300;
+
         var last_tokenizer: ?UnigramTokenizer = null;
         var i: usize = 0;
-        while (i < 300) : (i += 1) {
+        while (i < iterations) : (i += 1) {
             // Use parallel training (enabled by initWithThreadPool)
             var trainer = if (build_options.runtime_selection) blk: {
                 break :blk try Trainer.initWithThreadPool(VOCAB_SIZE, allocator, selected_algorithm, {});
