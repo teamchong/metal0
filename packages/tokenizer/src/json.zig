@@ -81,9 +81,6 @@ const ESCAPE_SEQUENCES: [256][]const u8 = blk: {
 fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     @setRuntimeSafety(false); // Disable ALL safety checks in hot path
 
-    // Prefetch data for better cache locality
-    @prefetch(obj.data, .{});
-
     // Direct switch without caching - let compiler optimize
     switch (obj.type_id) {
         .none => try buffer.appendSlice(allocator, JSON_NULL),

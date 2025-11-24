@@ -4,13 +4,13 @@
 
 const std = @import("std");
 const hashmap_helper = @import("hashmap_helper.zig");
+const suffix_array = @import("suffix_array.zig");
 const Allocator = std.mem.Allocator;
 const Unigram = @import("unigram_model.zig").Unigram;
 const VocabEntry = @import("unigram_model.zig").VocabEntry;
 const Lattice = @import("unigram_lattice.zig").Lattice;
 // Using std.Thread directly instead of ThreadPool (simpler, no Bun dependencies)
 const UnigramTokenizer = @import("unigram_tokenizer.zig").UnigramTokenizer;
-const suffix_array = @import("suffix_array.zig");
 
 /// Digamma function (derivative of log gamma) for Bayesian EM
 fn digamma(x_param: f64) f64 {
@@ -151,37 +151,46 @@ pub const UnigramTrainer = struct {
             });
         }
 
-        // Generate ALL character n-grams (2 to max_piece_length) from all sentences
-        // This creates a large initial vocabulary for EM to prune
-        var ngram_freqs = hashmap_helper.StringHashMap(u32).init(self.allocator);
-        defer ngram_freqs.deinit();
+        // Use suffix arrays to find FREQUENT substrings (like HuggingFace)
+        // This is much more selective than exhaustive n-gram generation
 
+        // Concatenate all sentences into one text for suffix array
+        var total_len: usize = 0;
         for (sentences) |sentence| {
-            if (sentence.text.len == 0) continue;
+            total_len += sentence.text.len + 1; // +1 for separator
+        }
 
-            // Generate all n-grams of length 2 to max_piece_length
-            var len: usize = 2;
-            while (len <= self.config.max_piece_length and len <= sentence.text.len) : (len += 1) {
-                var pos: usize = 0;
-                while (pos + len <= sentence.text.len) : (pos += 1) {
-                    const ngram = sentence.text[pos..pos + len];
+        var concat_text = try self.allocator.alloc(u8, total_len);
+        defer self.allocator.free(concat_text);
 
-                    // Skip n-grams with null bytes (from our own sentence boundaries)
-                    if (std.mem.indexOfScalar(u8, ngram, 0) != null) {
-                        continue;
-                    }
-
-                    const entry = try ngram_freqs.getOrPut(ngram);
-                    if (!entry.found_existing) {
-                        entry.key_ptr.* = try self.allocator.dupe(u8, ngram);
-                        entry.value_ptr.* = 0;
-                    }
-                    entry.value_ptr.* += sentence.count;
-                }
+        var pos: usize = 0;
+        for (sentences) |sentence| {
+            @memcpy(concat_text[pos..pos + sentence.text.len], sentence.text);
+            pos += sentence.text.len;
+            if (pos < total_len) {
+                concat_text[pos] = 0; // Sentence separator
+                pos += 1;
             }
         }
 
-        std.debug.print("[PROFILE] Generated {d} unique n-grams from sentences\n", .{ngram_freqs.count()});
+        std.debug.print("[PROFILE] Concatenated {d} sentences into {d} bytes\n", .{sentences.len, concat_text.len});
+
+        // Extract frequent substrings using suffix array
+        const frequent_substrings = try suffix_array.findFrequentSubstrings(
+            self.allocator,
+            concat_text,
+            2, // min_length
+            self.config.max_piece_length, // max_length
+            100000, // max_results (limit to avoid memory issues)
+        );
+        defer {
+            for (frequent_substrings) |substr| {
+                self.allocator.free(substr.string);
+            }
+            self.allocator.free(frequent_substrings);
+        }
+
+        std.debug.print("[PROFILE] Found {d} frequent substrings via suffix array\n", .{frequent_substrings.len});
 
         // Collect scored n-grams (filter + sort by score)
         const ScoredNgram = struct { token: []const u8, score: f64 };
