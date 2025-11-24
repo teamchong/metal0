@@ -18,6 +18,8 @@ Python to Zig AOT compiler. Write Python, run native code.
 - 31x faster than CPython on average
 - Beats Rust JSON by 1.2x (2.85x faster than Python)
 - Zero GIL - true parallelism
+- No GC pauses - manual memory management (Zig)
+- Memory safety from Zig's compiler checks
 - Native machine code, no interpreter overhead
 
 🎯 **Zero Dependencies**
@@ -65,6 +67,8 @@ Python's distribution and deployment challenges solved.
 | Docker image | 900MB+ | <1MB |
 | Startup time | ~50ms | <1ms |
 | Cross-compile | Complex | zig build |
+
+**See [Distribution Guide](examples/DISTRIBUTION.md) for detailed deployment examples and Docker size comparisons.**
 
 ## Where PyAOT Excels
 
