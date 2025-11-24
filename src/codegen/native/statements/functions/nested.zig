@@ -103,9 +103,8 @@ pub fn genNestedFunctionDef(
     self: *NativeCodegen,
     func: ast.Node.FunctionDef,
 ) CodegenError!void {
-    // Find captured variables
-    const captured_vars = try findCapturedVars(self, func);
-    defer self.allocator.free(captured_vars);
+    // Use captured variables from AST (pre-computed by closure analyzer)
+    const captured_vars = func.captured_vars;
 
     if (captured_vars.len == 0) {
         // No captures - generate as regular local function
@@ -192,10 +191,9 @@ fn genSimpleNestedFunction(
     self.indent();
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("pub fn call(", .{});
-    for (func.args, 0..) |arg, i| {
-        if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-        try self.output.writer(self.allocator).print("{s}: i64", .{arg.name});
+    try self.output.writer(self.allocator).print("pub fn call(_: @This()", .{});
+    for (func.args) |arg| {
+        try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
     }
     try self.output.appendSlice(self.allocator, ") i64 {\n");
 

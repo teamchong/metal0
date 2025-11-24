@@ -366,7 +366,15 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .assert_stmt => |assert_node| try statements.genAssert(self, assert_node),
         .try_stmt => |try_node| try statements.genTry(self, try_node),
         .class_def => |class| try statements.genClassDef(self, class),
-        .function_def => |func| try statements.genNestedFunctionDef(self, func),
+        .function_def => |func| {
+            // Only use nested function generation for truly nested functions
+            if (func.is_nested) {
+                try statements.genNestedFunctionDef(self, func);
+            } else {
+                // Top-level functions use regular generation
+                try statements.genFunctionDef(self, func);
+            }
+        },
         .import_stmt => |import| try statements.genImport(self, import),
         .import_from => |import| try statements.genImportFrom(self, import),
         .pass => try statements.genPass(self),

@@ -14,6 +14,9 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
         // Note: Decorators should be parsed by the caller before calling this function
         // This function only handles the actual function definition
 
+        // Track if this is a nested function
+        const is_nested = self.function_depth > 0;
+
         // Check for 'async' keyword
         const is_async = self.match(.Async);
 
@@ -84,7 +87,10 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
         _ = try self.expect(.Newline);
         _ = try self.expect(.Indent);
 
+        // Increase nesting depth when parsing function body
+        self.function_depth += 1;
         const body = try misc.parseBlock(self);
+        self.function_depth -= 1;
 
         _ = try self.expect(.Dedent);
 
@@ -96,6 +102,7 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
                 .is_async = is_async,
                 .decorators = &[_]ast.Node{}, // Empty decorators for now
                 .return_type = return_type,
+                .is_nested = is_nested,
             },
         };
     }

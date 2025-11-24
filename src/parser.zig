@@ -19,12 +19,14 @@ pub const Parser = struct {
     tokens: []const lexer.Token,
     current: usize,
     allocator: std.mem.Allocator,
+    function_depth: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, tokens: []const lexer.Token) Parser {
         return Parser{
             .tokens = tokens,
             .current = 0,
             .allocator = allocator,
+            .function_depth = 0,
         };
     }
 

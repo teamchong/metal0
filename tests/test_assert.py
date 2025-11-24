@@ -27,9 +27,9 @@ def run_code(code: str) -> tuple[str, str, int, int]:
         py_output = py_result.stdout + py_result.stderr
         py_exit = py_result.returncode
 
-        # Compile and run PyAOT
+        # Compile and run PyAOT (run in project dir for .build/ access)
         compile_result = subprocess.run(
-            ["uv", "run", "python", "-m", "core.compiler", py_file, zy_bin],
+            ["pyaot", "build", py_file, zy_bin, "--binary"],
             capture_output=True,
             text=True,
             timeout=10,

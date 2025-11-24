@@ -113,6 +113,8 @@ pub const Node = union(enum) {
         is_async: bool,
         decorators: []Node,
         return_type: ?[]const u8 = null,
+        is_nested: bool = false,
+        captured_vars: [][]const u8 = &[_][]const u8{},
     };
 
     pub const Lambda = struct {

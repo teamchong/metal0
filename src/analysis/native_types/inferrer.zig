@@ -4,6 +4,7 @@ const core = @import("core.zig");
 const statements = @import("statements.zig");
 const expressions = @import("expressions.zig");
 const fnv_hash = @import("../../utils/fnv_hash.zig");
+const closures = @import("closures.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -57,7 +58,11 @@ pub const TypeInferrer = struct {
         // Register __name__ as a string constant (for if __name__ == "__main__" support)
         try self.var_types.put("__name__", .{ .string = .literal });
 
-        // First pass: Register all function return types from annotations
+        // First pass: Analyze closures (detect captured variables)
+        const body_mut = module.body;
+        try closures.analyzeNestedFunctions(body_mut, null, self.allocator);
+
+        // Second pass: Register all function return types from annotations
         const arena_alloc = self.arena.allocator();
         for (module.body) |stmt| {
             if (stmt == .function_def) {
@@ -67,12 +72,12 @@ pub const TypeInferrer = struct {
             }
         }
 
-        // Second pass: Analyze all statements
+        // Third pass: Analyze all statements
         for (module.body) |stmt| {
             try self.visitStmt(stmt);
         }
 
-        // Third pass: Infer return types from return statements (for functions without annotations)
+        // Fourth pass: Infer return types from return statements (for functions without annotations)
         for (module.body) |stmt| {
             if (stmt == .function_def) {
                 const func_def = stmt.function_def;

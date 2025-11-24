@@ -104,7 +104,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Check if any arg is string concatenation, allocating method call, list, array, tuple, dict, bool, float, or unknown (PyObject)
+    // Check if any arg is string concatenation, allocating method call, list, array, tuple, dict, bool, float, none, or unknown (PyObject)
     var has_string_concat = false;
     var has_allocating_call = false;
     var has_list = false;
@@ -113,6 +113,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     var has_dict = false;
     var has_bool = false;
     var has_float = false;
+    var has_none = false;
     var has_unknown = false;
     for (args) |arg| {
         if (arg == .binop and arg.binop.op == .Add) {
@@ -145,13 +146,16 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (arg_type == .float) {
             has_float = true;
         }
+        if (arg_type == .none) {
+            has_none = true;
+        }
         if (arg_type == .unknown) {
             has_unknown = true;
         }
     }
 
-    // If we have lists, arrays, tuples, dicts, bools, or unknowns (PyObject), handle them specially with custom formatting
-    if (has_list or has_array or has_tuple or has_dict or has_bool or has_unknown) {
+    // If we have lists, arrays, tuples, dicts, bools, none, or unknowns (PyObject), handle them specially with custom formatting
+    if (has_list or has_array or has_tuple or has_dict or has_bool or has_none or has_unknown) {
         // For lists and arrays, we need to print in Python format: [elem1, elem2, ...]
         for (args, 0..) |arg, i| {
             const arg_type = try self.type_inferrer.inferExpr(arg);
@@ -212,15 +216,20 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, "    std.debug.print(\")\", .{});\n");
                 try self.output.appendSlice(self.allocator, "}\n");
             } else if (arg_type == .dict) {
-                // Format dict as Python dict string: {key: value, ...}
-                // Works for both PyObject dicts (from json.loads) and raw dict structs
+                // Format native dict (HashMap) in Python format: {'key': value, ...}
                 try self.output.appendSlice(self.allocator, "{\n");
                 try self.output.appendSlice(self.allocator, "    const __dict = ");
                 try self.genExpr(arg);
                 try self.output.appendSlice(self.allocator, ";\n");
-                try self.output.appendSlice(self.allocator, "    const __dict_str = try runtime.formatPyObject(__dict, allocator);\n");
-                try self.output.appendSlice(self.allocator, "    defer allocator.free(__dict_str);\n");
-                try self.output.appendSlice(self.allocator, "    std.debug.print(\"{s}\", .{__dict_str});\n");
+                try self.output.appendSlice(self.allocator, "    var __dict_iter = __dict.iterator();\n");
+                try self.output.appendSlice(self.allocator, "    var __dict_idx: usize = 0;\n");
+                try self.output.appendSlice(self.allocator, "    std.debug.print(\"{{\", .{});\n");
+                try self.output.appendSlice(self.allocator, "    while (__dict_iter.next()) |__entry| {\n");
+                try self.output.appendSlice(self.allocator, "        if (__dict_idx > 0) std.debug.print(\", \", .{});\n");
+                try self.output.appendSlice(self.allocator, "        std.debug.print(\"'{s}': {d}\", .{__entry.key_ptr.*, __entry.value_ptr.*});\n");
+                try self.output.appendSlice(self.allocator, "        __dict_idx += 1;\n");
+                try self.output.appendSlice(self.allocator, "    }\n");
+                try self.output.appendSlice(self.allocator, "    std.debug.print(\"}}\", .{});\n");
                 try self.output.appendSlice(self.allocator, "}\n");
             } else if (arg_type == .unknown) {
                 // Format unknown types (PyObject from json.loads, etc.) using runtime formatter
@@ -237,6 +246,9 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, "std.debug.print(\"{s}\", .{if (");
                 try self.genExpr(arg);
                 try self.output.appendSlice(self.allocator, ") \"True\" else \"False\"});\n");
+            } else if (arg_type == .none) {
+                // Print None
+                try self.output.appendSlice(self.allocator, "std.debug.print(\"None\", .{});\n");
             } else {
                 // For non-list/tuple/bool args in mixed print, use std.debug.print
                 const fmt = switch (arg_type) {
@@ -440,12 +452,12 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
 
     if (assert_node.msg) |msg| {
         // assert x, "message"
-        try self.output.appendSlice(self.allocator, "std.debug.panic(\"Assertion failed: {s}\", .{");
+        try self.output.appendSlice(self.allocator, "std.debug.panic(\"AssertionError: {s}\", .{");
         try self.genExpr(msg.*);
         try self.output.appendSlice(self.allocator, "});\n");
     } else {
         // assert x
-        try self.output.appendSlice(self.allocator, "std.debug.panic(\"Assertion failed\", .{});\n");
+        try self.output.appendSlice(self.allocator, "std.debug.panic(\"AssertionError\", .{});\n");
     }
 
     self.dedent();
