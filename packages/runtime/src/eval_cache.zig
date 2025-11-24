@@ -56,7 +56,7 @@ pub fn evalCached(allocator: std.mem.Allocator, source: []const u8) !*PyObject {
 
 /// Comptime target selection - WASM vs Native
 fn executeTarget(allocator: std.mem.Allocator, program: *const bytecode.BytecodeProgram) !*PyObject {
-    if (builtin.target.isWasm()) {
+    if (builtin.cpu.arch.isWasm()) {
         // WASM: Use bytecode VM (no JIT possible)
         return executeWasm(allocator, program);
     } else {
