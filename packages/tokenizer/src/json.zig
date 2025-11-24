@@ -23,8 +23,8 @@ pub fn loads(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtim
 /// Serialize PyObject to JSON string
 /// Python: json.dumps(obj) -> str
 pub fn dumps(obj: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
-    const estimated_size = estimateJsonSize(obj);
-    var buffer = try std.ArrayList(u8).initCapacity(allocator, estimated_size);
+    // Start with 4KB buffer, let it grow naturally (avoid estimation overhead)
+    var buffer = try std.ArrayList(u8).initCapacity(allocator, 4096);
     defer buffer.deinit(allocator);
 
     try stringifyPyObjectDirect(obj, &buffer, allocator);
@@ -138,43 +138,22 @@ inline fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), 
     var start: usize = 0;
     var i: usize = 0;
 
-    // Unroll loop by 4 to reduce branch prediction overhead
-    while (i + 4 <= str.len) {
-        const c0 = str[i];
-        const c1 = str[i + 1];
-        const c2 = str[i + 2];
-        const c3 = str[i + 3];
+    // CRITICAL: Always try fast path, fall back to slow for ONE char, then retry fast
+    while (i < str.len) {
+        // Fast path: check 4 chars at once
+        if (i + 4 <= str.len) {
+            const c0 = str[i];
+            const c1 = str[i + 1];
+            const c2 = str[i + 2];
+            const c3 = str[i + 3];
 
-        if (!NEEDS_ESCAPE[c0] and !NEEDS_ESCAPE[c1] and !NEEDS_ESCAPE[c2] and !NEEDS_ESCAPE[c3]) {
-            i += 4;
-            continue;
-        }
-
-        // At least one needs escape, process individually
-        while (i < str.len) : (i += 1) {
-            const c = str[i];
-            if (NEEDS_ESCAPE[c]) {
-                if (start < i) {
-                    try buffer.appendSlice(allocator, str[start..i]);
-                }
-
-                const escape_seq = ESCAPE_SEQUENCES[c];
-                if (escape_seq.len > 0) {
-                    try buffer.appendSlice(allocator, escape_seq);
-                } else {
-                    var buf: [6]u8 = undefined;
-                    const formatted = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch unreachable;
-                    try buffer.appendSlice(allocator, formatted);
-                }
-
-                start = i + 1;
+            if (!NEEDS_ESCAPE[c0] and !NEEDS_ESCAPE[c1] and !NEEDS_ESCAPE[c2] and !NEEDS_ESCAPE[c3]) {
+                i += 4;
+                continue; // Go back and try next 4
             }
         }
-        break;
-    }
 
-    // Handle remaining bytes
-    while (i < str.len) : (i += 1) {
+        // Slow path: process ONE character, then go back to fast path
         const c = str[i];
         if (NEEDS_ESCAPE[c]) {
             if (start < i) {
@@ -192,6 +171,7 @@ inline fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), 
 
             start = i + 1;
         }
+        i += 1; // Advance one char and retry fast path
     }
 
     if (start < str.len) {
