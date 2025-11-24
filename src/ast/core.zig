@@ -283,6 +283,7 @@ pub const Value = union(enum) {
     float: f64,
     string: []const u8,
     bool: bool,
+    none: void,
 };
 
 pub const Arg = struct {

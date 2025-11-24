@@ -1,11 +1,11 @@
 /// Constant value code generation
-/// Handles Python literals: int, float, bool, string
+/// Handles Python literals: int, float, bool, string, none
 const std = @import("std");
 const ast = @import("../../../ast.zig");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
-/// Generate constant values (int, float, bool, string)
+/// Generate constant values (int, float, bool, string, none)
 pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenError!void {
     switch (constant.value) {
         .int => try self.output.writer(self.allocator).print("{d}", .{constant.value.int}),
@@ -18,6 +18,7 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
             }
         },
         .bool => try self.output.appendSlice(self.allocator, if (constant.value.bool) "true" else "false"),
+        .none => try self.output.appendSlice(self.allocator, "{}"), // Zig void literal
         .string => |s| {
             // Strip Python quotes
             const content = if (s.len >= 2) s[1 .. s.len - 1] else s;

@@ -217,6 +217,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, "}\n");
             } else if (arg_type == .dict) {
                 // Format native dict (HashMap) in Python format: {'key': value, ...}
+                // Use comptime to detect value type and format appropriately
                 try self.output.appendSlice(self.allocator, "{\n");
                 try self.output.appendSlice(self.allocator, "    const __dict = ");
                 try self.genExpr(arg);
@@ -226,7 +227,8 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, "    std.debug.print(\"{{\", .{});\n");
                 try self.output.appendSlice(self.allocator, "    while (__dict_iter.next()) |__entry| {\n");
                 try self.output.appendSlice(self.allocator, "        if (__dict_idx > 0) std.debug.print(\", \", .{});\n");
-                try self.output.appendSlice(self.allocator, "        std.debug.print(\"'{s}': {d}\", .{__entry.key_ptr.*, __entry.value_ptr.*});\n");
+                try self.output.appendSlice(self.allocator, "        std.debug.print(\"'{s}': \", .{__entry.key_ptr.*});\n");
+                try self.output.appendSlice(self.allocator, "        runtime.printValue(__entry.value_ptr.*);\n");
                 try self.output.appendSlice(self.allocator, "        __dict_idx += 1;\n");
                 try self.output.appendSlice(self.allocator, "    }\n");
                 try self.output.appendSlice(self.allocator, "    std.debug.print(\"}}\", .{});\n");

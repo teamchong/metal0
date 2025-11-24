@@ -28,6 +28,7 @@ pub const ComptimeEvaluator = struct {
                 .float => |f| ComptimeValue{ .float = f },
                 .bool => |b| ComptimeValue{ .bool = b },
                 .string => |s| ComptimeValue{ .string = s },
+                .none => null, // None cannot be compile-time evaluated
             },
             .binop => |op| self.evalBinOp(op),
             .unaryop => |op| self.evalUnaryOp(op),

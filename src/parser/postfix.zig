@@ -300,10 +300,10 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
             },
             .None => {
                 _ = self.advance();
-                // Represent None as a special constant
+                // Represent None as none constant
                 return ast.Node{
                     .constant = .{
-                        .value = .{ .int = 0 }, // Placeholder
+                        .value = .{ .none = {} },
                     },
                 };
             },

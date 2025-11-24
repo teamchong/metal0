@@ -228,6 +228,7 @@ fn inferConstant(value: ast.Value) InferError!NativeType {
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants
         .bool => .bool,
+        .none => .none,
     };
 }
 
@@ -423,9 +424,16 @@ fn inferCall(
             // Boolean-returning methods
             if (std.mem.eql(u8, attr.attr, "startswith")) return .bool;
             if (std.mem.eql(u8, attr.attr, "endswith")) return .bool;
+            if (std.mem.eql(u8, attr.attr, "isdigit")) return .bool;
+            if (std.mem.eql(u8, attr.attr, "isalpha")) return .bool;
+            if (std.mem.eql(u8, attr.attr, "isalnum")) return .bool;
+            if (std.mem.eql(u8, attr.attr, "isspace")) return .bool;
+            if (std.mem.eql(u8, attr.attr, "islower")) return .bool;
+            if (std.mem.eql(u8, attr.attr, "isupper")) return .bool;
 
             // Integer-returning methods
             if (std.mem.eql(u8, attr.attr, "find")) return .int;
+            if (std.mem.eql(u8, attr.attr, "count")) return .int;
 
             // split() returns list of runtime strings
             if (std.mem.eql(u8, attr.attr, "split")) {

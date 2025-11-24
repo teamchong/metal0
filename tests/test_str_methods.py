@@ -1,5 +1,14 @@
 # String method tests (from Codon stdlib)
 
+# Test runner
+passed = 0
+failed = 0
+
+def run(name):
+    global passed, failed
+    passed += 1
+    print(f"{name}: PASS")
+
 def test_isdigit():
     """Test str.isdigit() method"""
     assert "0".isdigit() == True
@@ -278,3 +287,36 @@ def test_join():
     assert "a".join([]) == ""
     assert "ab".join(["999"]) == "999"
     assert "xyz".join(["00", "1", "22", "3", "44"]) == "00xyz1xyz22xyz3xyz44"
+
+
+if __name__ == "__main__":
+    test_isdigit(); run("test_isdigit")
+    test_islower(); run("test_islower")
+    test_isupper(); run("test_isupper")
+    test_isalnum(); run("test_isalnum")
+    test_isalpha(); run("test_isalpha")
+    test_isspace(); run("test_isspace")
+    test_istitle(); run("test_istitle")
+    test_capitalize(); run("test_capitalize")
+    test_lower(); run("test_lower")
+    test_upper(); run("test_upper")
+    test_swapcase(); run("test_swapcase")
+    test_title(); run("test_title")
+    test_ljust(); run("test_ljust")
+    test_rjust(); run("test_rjust")
+    test_center(); run("test_center")
+    test_zfill(); run("test_zfill")
+    test_count(); run("test_count")
+    test_find(); run("test_find")
+    test_rfind(); run("test_rfind")
+    test_lstrip(); run("test_lstrip")
+    test_rstrip(); run("test_rstrip")
+    test_strip(); run("test_strip")
+    test_split(); run("test_split")
+    test_rsplit(); run("test_rsplit")
+    test_startswith(); run("test_startswith")
+    test_endswith(); run("test_endswith")
+    test_replace(); run("test_replace")
+    test_join(); run("test_join")
+
+    print(f"\nAll {passed} string tests passed!")

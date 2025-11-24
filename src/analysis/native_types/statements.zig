@@ -239,5 +239,6 @@ fn inferConstant(value: ast.Value) InferError!NativeType {
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants
         .bool => .bool,
+        .none => .none,
     };
 }
