@@ -5,6 +5,45 @@ const PyString = core.PyString;
 const runtime = @import("../runtime.zig");
 const PyObject = runtime.PyObject;
 
+/// Comptime lookup tables for ASCII character classes (much faster than function calls!)
+const IS_DIGIT: [256]bool = blk: {
+    var table: [256]bool = [_]bool{false} ** 256;
+    var i: u8 = '0';
+    while (i <= '9') : (i += 1) table[i] = true;
+    break :blk table;
+};
+
+const IS_ALPHA: [256]bool = blk: {
+    var table: [256]bool = [_]bool{false} ** 256;
+    var i: u8 = 'A';
+    while (i <= 'Z') : (i += 1) table[i] = true;
+    i = 'a';
+    while (i <= 'z') : (i += 1) table[i] = true;
+    break :blk table;
+};
+
+const IS_ALNUM: [256]bool = blk: {
+    var table: [256]bool = [_]bool{false} ** 256;
+    var i: u8 = '0';
+    while (i <= '9') : (i += 1) table[i] = true;
+    i = 'A';
+    while (i <= 'Z') : (i += 1) table[i] = true;
+    i = 'a';
+    while (i <= 'z') : (i += 1) table[i] = true;
+    break :blk table;
+};
+
+const IS_SPACE: [256]bool = blk: {
+    var table: [256]bool = [_]bool{false} ** 256;
+    table[' '] = true;
+    table['\t'] = true;
+    table['\n'] = true;
+    table['\r'] = true;
+    table['\x0B'] = true; // vertical tab
+    table['\x0C'] = true; // form feed
+    break :blk table;
+};
+
 pub fn contains(obj: *PyObject, substring: *PyObject) bool {
     std.debug.assert(obj.type_id == .string);
     std.debug.assert(substring.type_id == .string);
@@ -107,31 +146,31 @@ pub fn count_substr(obj: *PyObject, substring: *PyObject) i64 {
 }
 
 pub fn isdigit(obj: *PyObject) bool {
+    @setRuntimeSafety(false); // Hot path - disable bounds checks
     std.debug.assert(obj.type_id == .string);
     const data: *PyString = @ptrCast(@alignCast(obj.data));
     const str = data.data;
 
     if (str.len == 0) return false;
 
+    // Use comptime lookup table (faster than function call!)
     for (str) |c| {
-        if (!std.ascii.isDigit(c)) {
-            return false;
-        }
+        if (!IS_DIGIT[c]) return false;
     }
     return true;
 }
 
 pub fn isalpha(obj: *PyObject) bool {
+    @setRuntimeSafety(false); // Hot path - disable bounds checks
     std.debug.assert(obj.type_id == .string);
     const data: *PyString = @ptrCast(@alignCast(obj.data));
     const str = data.data;
 
     if (str.len == 0) return false;
 
+    // Use comptime lookup table (faster than function call!)
     for (str) |c| {
-        if (!std.ascii.isAlphabetic(c)) {
-            return false;
-        }
+        if (!IS_ALPHA[c]) return false;
     }
     return true;
 }

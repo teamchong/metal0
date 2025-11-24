@@ -6,45 +6,61 @@ const runtime = @import("../runtime.zig");
 const PyObject = runtime.PyObject;
 
 pub fn upper(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
+    @setRuntimeSafety(false); // Hot path - disable bounds checks
     std.debug.assert(obj.type_id == .string);
     const data: *PyString = @ptrCast(@alignCast(obj.data));
 
     const result = try allocator.alloc(u8, data.data.len);
-    for (data.data, 0..) |c, i| {
-        result[i] = std.ascii.toUpper(c);
+
+    // SIMD fast path: process 16 bytes at once
+    const Vec16 = @Vector(16, u8);
+    const lower_a: Vec16 = @splat('a');
+    const lower_z: Vec16 = @splat('z');
+    const case_bit: Vec16 = @splat(32); // 'a' - 'A' = 32
+
+    var i: usize = 0;
+    while (i + 16 <= data.data.len) : (i += 16) {
+        const chunk: Vec16 = data.data[i..][0..16].*;
+        const is_lower = (chunk >= lower_a) & (chunk <= lower_z);
+        const converted = chunk - (case_bit & is_lower); // Subtract 32 if lowercase
+        result[i..][0..16].* = converted;
     }
 
-    const new_obj = try allocator.create(PyObject);
-    const str_data = try allocator.create(PyString);
-    str_data.data = result;
+    // Handle remaining bytes (< 16)
+    while (i < data.data.len) : (i += 1) {
+        result[i] = std.ascii.toUpper(data.data[i]);
+    }
 
-    new_obj.* = PyObject{
-        .ref_count = 1,
-        .type_id = .string,
-        .data = str_data,
-    };
-    return new_obj;
+    return try PyString.createOwned(allocator, result);
 }
 
 pub fn lower(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
+    @setRuntimeSafety(false); // Hot path - disable bounds checks
     std.debug.assert(obj.type_id == .string);
     const data: *PyString = @ptrCast(@alignCast(obj.data));
 
     const result = try allocator.alloc(u8, data.data.len);
-    for (data.data, 0..) |c, i| {
-        result[i] = std.ascii.toLower(c);
+
+    // SIMD fast path: process 16 bytes at once
+    const Vec16 = @Vector(16, u8);
+    const upper_a: Vec16 = @splat('A');
+    const upper_z: Vec16 = @splat('Z');
+    const case_bit: Vec16 = @splat(32); // 'a' - 'A' = 32
+
+    var i: usize = 0;
+    while (i + 16 <= data.data.len) : (i += 16) {
+        const chunk: Vec16 = data.data[i..][0..16].*;
+        const is_upper = (chunk >= upper_a) & (chunk <= upper_z);
+        const converted = chunk + (case_bit & is_upper); // Add 32 if uppercase
+        result[i..][0..16].* = converted;
     }
 
-    const new_obj = try allocator.create(PyObject);
-    const str_data = try allocator.create(PyString);
-    str_data.data = result;
+    // Handle remaining bytes (< 16)
+    while (i < data.data.len) : (i += 1) {
+        result[i] = std.ascii.toLower(data.data[i]);
+    }
 
-    new_obj.* = PyObject{
-        .ref_count = 1,
-        .type_id = .string,
-        .data = str_data,
-    };
-    return new_obj;
+    return try PyString.createOwned(allocator, result);
 }
 
 pub fn capitalize(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
