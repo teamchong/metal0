@@ -23,8 +23,8 @@ pub fn loads(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtim
 /// Serialize PyObject to JSON string
 /// Python: json.dumps(obj) -> str
 pub fn dumps(obj: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
-    // Start with 4KB buffer, let it grow naturally (avoid estimation overhead)
-    var buffer = try std.ArrayList(u8).initCapacity(allocator, 4096);
+    // Start with 64KB buffer - matches typical JSON output size, eliminates growth
+    var buffer = try std.ArrayList(u8).initCapacity(allocator, 65536);
 
     // Manual error handling to avoid defer overhead
     stringifyPyObjectDirect(obj, &buffer, allocator) catch |err| {
