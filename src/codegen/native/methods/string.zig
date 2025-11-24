@@ -69,10 +69,17 @@ pub fn genLower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 pub fn genStrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // strip() takes no arguments
 
-    // Generate: std.mem.trim(u8, text, " \t\n\r")
-    try self.output.appendSlice(self.allocator, "std.mem.trim(u8, ");
+    // Allocate a copy to avoid "Invalid free" when result is used with defer
+    const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
+    try self.output.writer(self.allocator).print("strip_{d}: {{\n", .{label_id});
+    try self.output.appendSlice(self.allocator, "    const _text = ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ", \" \\t\\n\\r\")");
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    const _trimmed = std.mem.trim(u8, _text, \" \\t\\n\\r\");\n");
+    try self.output.appendSlice(self.allocator, "    const _result = try allocator.alloc(u8, _trimmed.len);\n");
+    try self.output.appendSlice(self.allocator, "    @memcpy(_result, _trimmed);\n");
+    try self.output.writer(self.allocator).print("    break :strip_{d} _result;\n", .{label_id});
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for text.replace(old, new)
@@ -292,9 +299,17 @@ pub fn genIsupper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genLstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.output.appendSlice(self.allocator, "std.mem.trimLeft(u8, ");
+    // Allocate a copy to avoid "Invalid free" when result is used with defer
+    const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
+    try self.output.writer(self.allocator).print("lstrip_{d}: {{\n", .{label_id});
+    try self.output.appendSlice(self.allocator, "    const _text = ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ", \" \\t\\n\\r\")");
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    const _trimmed = std.mem.trimLeft(u8, _text, \" \\t\\n\\r\");\n");
+    try self.output.appendSlice(self.allocator, "    const _result = try allocator.alloc(u8, _trimmed.len);\n");
+    try self.output.appendSlice(self.allocator, "    @memcpy(_result, _trimmed);\n");
+    try self.output.writer(self.allocator).print("    break :lstrip_{d} _result;\n", .{label_id});
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for text.rstrip()
@@ -302,9 +317,17 @@ pub fn genLstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 pub fn genRstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.output.appendSlice(self.allocator, "std.mem.trimRight(u8, ");
+    // Allocate a copy to avoid "Invalid free" when result is used with defer
+    const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
+    try self.output.writer(self.allocator).print("rstrip_{d}: {{\n", .{label_id});
+    try self.output.appendSlice(self.allocator, "    const _text = ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ", \" \\t\\n\\r\")");
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    const _trimmed = std.mem.trimRight(u8, _text, \" \\t\\n\\r\");\n");
+    try self.output.appendSlice(self.allocator, "    const _result = try allocator.alloc(u8, _trimmed.len);\n");
+    try self.output.appendSlice(self.allocator, "    @memcpy(_result, _trimmed);\n");
+    try self.output.writer(self.allocator).print("    break :rstrip_{d} _result;\n", .{label_id});
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for text.capitalize()

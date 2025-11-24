@@ -64,8 +64,51 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     const parent = @import("../expressions.zig");
     const genExpr = parent.genExpr;
 
-    // self.x -> self.x (direct translation in Zig)
-    try genExpr(self, attr.value.*);
-    try self.output.appendSlice(self.allocator, ".");
-    try self.output.appendSlice(self.allocator, attr.attr);
+    // Check if this is a known attribute or dynamic attribute
+    const is_dynamic = try isDynamicAttribute(self, attr);
+
+    if (is_dynamic) {
+        // Dynamic attribute: use __dict__.get() and extract value
+        // For now, assume int type. TODO: Add runtime type checking
+        try genExpr(self, attr.value.*);
+        try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.int", .{attr.attr});
+    } else {
+        // Known attribute: direct field access
+        try genExpr(self, attr.value.*);
+        try self.output.appendSlice(self.allocator, ".");
+        try self.output.appendSlice(self.allocator, attr.attr);
+    }
+}
+
+/// Check if attribute is dynamic (not in class fields)
+fn isDynamicAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
+    // Only check for class instance attributes (self.attr or obj.attr)
+    if (attr.value.* != .name) return false;
+
+    const obj_name = attr.value.name.id;
+
+    // Get object type
+    const obj_type = try self.type_inferrer.inferExpr(attr.value.*);
+
+    // Check if it's a class instance
+    if (obj_type != .class_instance) return false;
+
+    const class_name = obj_type.class_instance;
+
+    // Check if class has this field
+    const class_info = self.type_inferrer.class_fields.get(class_name);
+    if (class_info) |info| {
+        // Check if field exists in class
+        if (info.fields.get(attr.attr)) |_| {
+            return false; // Known field
+        }
+    }
+
+    // Check for special module attributes (sys.platform, etc.)
+    if (std.mem.eql(u8, obj_name, "sys")) {
+        return false; // Module attributes are not dynamic
+    }
+
+    // Unknown field - dynamic attribute
+    return true;
 }

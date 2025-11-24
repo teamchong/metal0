@@ -113,6 +113,13 @@ pub fn genClassFields(self: *NativeCodegen, init: ast.Node.FunctionDef) CodegenE
             }
         }
     }
+
+    // Add __dict__ for dynamic attributes (always enabled)
+    try self.output.appendSlice(self.allocator, "\n");
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "// Dynamic attributes dictionary\n");
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "__dict__: std.StringHashMap(runtime.PyValue),\n");
 }
 
 /// Infer parameter type by looking at how it's used in __init__
@@ -193,6 +200,10 @@ pub fn genInitMethod(
             }
         }
     }
+
+    // Initialize __dict__ for dynamic attributes
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, ".__dict__ = std.StringHashMap(runtime.PyValue).init(allocator),\n");
 
     self.dedent();
     try self.emitIndent();

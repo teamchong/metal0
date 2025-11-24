@@ -144,8 +144,16 @@ pub fn genNestedFunctionDef(
     self.indent();
 
     // Generate static function that closure will call
+    // Use unique name based on function name + counter to avoid shadowing
+    const impl_fn_name = try std.fmt.allocPrint(
+        self.allocator,
+        "call_{s}_{d}",
+        .{func.name, self.lambda_counter - 1},
+    );
+    defer self.allocator.free(impl_fn_name);
+
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("fn inner(captures: {s}", .{capture_type_name});
+    try self.output.writer(self.allocator).print("fn {s}(__captures: {s}", .{impl_fn_name, capture_type_name});
 
     for (func.args) |arg| {
         try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
@@ -174,27 +182,35 @@ pub fn genNestedFunctionDef(
     try self.output.appendSlice(self.allocator, "};\n");
 
     // Create closure type using comptime helper based on arg count
+    // Use unique variable name to avoid shadowing nested functions
+    const closure_var_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__closure_{s}_{d}",
+        .{func.name, self.lambda_counter - 1},
+    );
+    defer self.allocator.free(closure_var_name);
+
     try self.emitIndent();
     if (func.args.len == 1) {
         try self.output.writer(self.allocator).print(
             "const {s} = runtime.Closure1({s}, ",
-            .{ func.name, capture_type_name },
+            .{ closure_var_name, capture_type_name },
         );
     } else if (func.args.len == 2) {
         try self.output.writer(self.allocator).print(
             "const {s} = runtime.Closure2({s}, ",
-            .{ func.name, capture_type_name },
+            .{ closure_var_name, capture_type_name },
         );
     } else if (func.args.len == 3) {
         try self.output.writer(self.allocator).print(
             "const {s} = runtime.Closure3({s}, ",
-            .{ func.name, capture_type_name },
+            .{ closure_var_name, capture_type_name },
         );
     } else {
         // Fallback to single arg tuple
         try self.output.writer(self.allocator).print(
             "const {s} = runtime.Closure1({s}, ",
-            .{ func.name, capture_type_name },
+            .{ closure_var_name, capture_type_name },
         );
     }
 
@@ -208,9 +224,16 @@ pub fn genNestedFunctionDef(
     }
 
     // Return type and function
+    const impl_fn_ref = try std.fmt.allocPrint(
+        self.allocator,
+        "call_{s}_{d}",
+        .{func.name, self.lambda_counter - 1},
+    );
+    defer self.allocator.free(impl_fn_ref);
+
     try self.output.writer(self.allocator).print(
-        "i64, {s}.inner){{ .captures = .{{",
-        .{closure_impl_name},
+        "i64, {s}.{s}){{ .captures = .{{",
+        .{closure_impl_name, impl_fn_ref},
     );
 
     // Initialize captures
@@ -219,6 +242,17 @@ pub fn genNestedFunctionDef(
         try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, var_name });
     }
     try self.output.appendSlice(self.allocator, " } };\n");
+
+    // Create alias with original function name
+    const closure_alias_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__closure_{s}_{d}",
+        .{func.name, self.lambda_counter - 1},
+    );
+    defer self.allocator.free(closure_alias_name);
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const {s} = {s};\n", .{func.name, closure_alias_name});
 
     // Mark this variable as a closure so calls use .call() syntax
     const func_name_copy = try self.allocator.dupe(u8, func.name);
@@ -326,7 +360,7 @@ fn genStmtWithCaptureStruct(
     }
 }
 
-/// Generate expression with captured variable references prefixed with "captures."
+/// Generate expression with captured variable references prefixed with "__captures."
 fn genExprWithCaptureStruct(
     self: *NativeCodegen,
     node: ast.Node,
@@ -337,7 +371,7 @@ fn genExprWithCaptureStruct(
             // Check if this variable is captured
             for (captured_vars) |captured| {
                 if (std.mem.eql(u8, n.id, captured)) {
-                    try self.output.appendSlice(self.allocator, "captures.");
+                    try self.output.appendSlice(self.allocator, "__captures.");
                     try self.output.appendSlice(self.allocator, n.id);
                     return;
                 }

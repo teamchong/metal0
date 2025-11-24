@@ -239,9 +239,19 @@ pub fn analyzeNestedFunctions(
                 func.captured_vars = try analyzeClosure(func.*, parent_locals.?, allocator);
             }
 
-            // Build local var set for this function
+            // Build local var set for this function (includes parent scope)
             var locals = std.StringHashMap(void).init(allocator);
             defer locals.deinit();
+
+            // Include parent locals so nested closures can capture from grandparent scopes
+            if (parent_locals) |pl| {
+                var parent_it = pl.keyIterator();
+                while (parent_it.next()) |key| {
+                    try locals.put(key.*, {});
+                }
+            }
+
+            // Add this function's own locals
             try findLocalVars(func.*, &locals, allocator);
 
             // Recursively analyze nested functions in body

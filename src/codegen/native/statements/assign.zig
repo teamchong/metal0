@@ -172,11 +172,35 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 assign.value.*,
             );
         } else if (target == .attribute) {
-            // Handle attribute assignment (self.x = value)
+            // Handle attribute assignment (self.x = value or obj.y = value)
+            const attr = target.attribute;
+
+            // Check if this is a dynamic attribute
+            const is_dynamic = try isDynamicAttrAssign(self, attr);
+
             try self.emitIndent();
-            try self.genExpr(target);
-            try self.output.appendSlice(self.allocator, " = ");
-            try self.genExpr(assign.value.*);
+            if (is_dynamic) {
+                // Dynamic attribute: use __dict__.put() with type wrapping
+                const dyn_value_type = try self.type_inferrer.inferExpr(assign.value.*);
+                const py_value_tag = switch (dyn_value_type) {
+                    .int => "int",
+                    .float => "float",
+                    .bool => "bool",
+                    .string => "string",
+                    else => "int", // Default fallback
+                };
+
+                try self.output.appendSlice(self.allocator, "try ");
+                try self.genExpr(attr.value.*);
+                try self.output.writer(self.allocator).print(".__dict__.put(\"{s}\", runtime.PyValue{{ .{s} = ", .{ attr.attr, py_value_tag });
+                try self.genExpr(assign.value.*);
+                try self.output.appendSlice(self.allocator, " })");
+            } else {
+                // Known attribute: direct assignment
+                try self.genExpr(target);
+                try self.output.appendSlice(self.allocator, " = ");
+                try self.genExpr(assign.value.*);
+            }
             try self.output.appendSlice(self.allocator, ";\n");
         }
     }
@@ -279,6 +303,39 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     } else {
         try self.output.appendSlice(self.allocator, ";\n");
     }
+}
+
+/// Check if attribute assignment is to a dynamic attribute
+fn isDynamicAttrAssign(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
+    // Only check for class instance attributes (self.attr or obj.attr)
+    if (attr.value.* != .name) return false;
+
+    const obj_name = attr.value.name.id;
+
+    // Get object type
+    const obj_type = try self.type_inferrer.inferExpr(attr.value.*);
+
+    // Check if it's a class instance
+    if (obj_type != .class_instance) return false;
+
+    const class_name = obj_type.class_instance;
+
+    // Check if class has this field
+    const class_info = self.type_inferrer.class_fields.get(class_name);
+    if (class_info) |info| {
+        // Check if field exists in class
+        if (info.fields.get(attr.attr)) |_| {
+            return false; // Known field
+        }
+    }
+
+    // Check for special module attributes
+    if (std.mem.eql(u8, obj_name, "sys")) {
+        return false;
+    }
+
+    // Unknown field - dynamic attribute
+    return true;
 }
 
 // Comptime assignment functions moved to assign_comptime.zig

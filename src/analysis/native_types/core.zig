@@ -327,6 +327,7 @@ const FnvTypeMap = std.HashMap([]const u8, NativeType, FnvContext, 80);
 pub const ClassInfo = struct {
     fields: FnvTypeMap,
     methods: FnvTypeMap, // method_name -> return type
+    allow_dynamic_attrs: bool = true, // Enable __dict__ for dynamic attributes
 };
 
 /// Comptime analysis: Does this type need allocator for operations?
