@@ -2,8 +2,7 @@
 
 **v0.1.0-alpha** - Early development, not production-ready
 
-Python AOT compiler.
-Write once, run everywhere at native speed, zero overhead.
+Python at native speed. Zero overhead.
 
 **30x faster** than CPython | **Beats Rust/Go** | Native binaries
 

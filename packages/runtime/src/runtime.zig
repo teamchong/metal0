@@ -17,6 +17,9 @@ pub const ast_executor = @import("ast_executor.zig");
 /// Export dynamic attribute access stubs
 const dynamic_attrs = @import("dynamic_attrs.zig");
 
+/// Export PyValue for dynamic attributes
+pub const PyValue = @import("py_value.zig").PyValue;
+
 /// Export comptime type inference helpers
 const comptime_helpers = @import("comptime_helpers.zig");
 pub const InferListType = comptime_helpers.InferListType;
