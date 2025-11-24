@@ -176,12 +176,13 @@ pub const UnigramTrainer = struct {
         std.debug.print("[PROFILE] Concatenated {d} sentences into {d} bytes\n", .{sentences.len, concat_text.len});
 
         // Extract frequent substrings using suffix array
+        // Need enough seeds to trigger EM iterations (> desired_vocab_size)
         const frequent_substrings = try suffix_array.findFrequentSubstrings(
             self.allocator,
             concat_text,
             2, // min_length
             self.config.max_piece_length, // max_length
-            100000, // max_results (limit to avoid memory issues)
+            1000000, // max_results - allow many to ensure we get enough seeds
         );
         defer {
             for (frequent_substrings) |substr| {
@@ -192,73 +193,31 @@ pub const UnigramTrainer = struct {
 
         std.debug.print("[PROFILE] Found {d} frequent substrings via suffix array\n", .{frequent_substrings.len});
 
-        // Collect scored n-grams (filter + sort by score)
-        const ScoredNgram = struct { token: []const u8, score: f64 };
-        var scored_ngrams = std.ArrayList(ScoredNgram){};
-        defer scored_ngrams.deinit(self.allocator);
-
-        var ngram_it = ngram_freqs.iterator();
-        while (ngram_it.next()) |entry| {
-            const freq = entry.value_ptr.*;
-            const len = entry.key_ptr.*.len;
-
-            // HuggingFace uses suffix arrays which are VERY selective
-            // Empirical testing: Much higher threshold to force selectivity
-            // Try freq >= 50 to dramatically reduce seed count
-            const min_freq: u32 = 50;
-            if (freq < min_freq) {
-                self.allocator.free(entry.key_ptr.*);
+        // Convert suffix array results to pieces
+        // Suffix array already sorted by score (freq * length)
+        for (frequent_substrings) |substr| {
+            // Skip substrings with null bytes (sentence separators)
+            if (std.mem.indexOfScalar(u8, substr.string, 0) != null) {
                 continue;
             }
 
-            // Score: frequency * length (same as HF)
-            const score = @as(f64, @floatFromInt(freq * @as(u32, @intCast(len))));
+            // Filter by minimum frequency
+            const min_freq: u32 = 2; // Keep substrings that appear at least twice
+            if (substr.freq < min_freq) {
+                continue;
+            }
 
-            try scored_ngrams.append(self.allocator, .{
-                .token = entry.key_ptr.*, // Transfer ownership
+            // Score: frequency * length (same as HuggingFace)
+            const score = @as(f64, @floatFromInt(substr.freq * @as(u32, @intCast(substr.string.len))));
+
+            const token_copy = try self.allocator.dupe(u8, substr.string);
+            try pieces.append(self.allocator, SentencePiece{
+                .token = token_copy,
                 .score = score,
             });
         }
 
-        // Sort by score (descending) - take top seed_size pieces
-        std.mem.sort(@TypeOf(scored_ngrams.items[0]), scored_ngrams.items, {}, struct {
-            pub fn lessThan(_: void, a: @TypeOf(scored_ngrams.items[0]), b: @TypeOf(scored_ngrams.items[0])) bool {
-                return a.score > b.score;  // Descending
-            }
-        }.lessThan);
-
-        std.debug.print("[PROFILE] After filtering: {d} n-grams (from {d})\n", .{scored_ngrams.items.len, ngram_freqs.count()});
-
-        // Filter redundant substrings (simple suffix array approximation)
-        // Skip n-grams that are substrings of higher-scoring n-grams
-        // This mimics suffix arrays' substring relationship recognition
-        var kept_ngrams = std.ArrayList(ScoredNgram){};
-        defer kept_ngrams.deinit(self.allocator);
-
-        // Simplified approach: just take top N by score (simpler than full substring filtering)
-        // This is faster and still selective like suffix arrays
-        const target_seeds: usize = 40000;  // Enough to trigger EM but selective
-        for (scored_ngrams.items, 0..) |candidate, i| {
-            if (i >= target_seeds) {
-                // Free remaining
-                self.allocator.free(candidate.token);
-                continue;
-            }
-            try kept_ngrams.append(self.allocator, candidate);
-        }
-
-        std.debug.print("[PROFILE] After substring filtering: {d} seeds (from {d} scored)\n", .{kept_ngrams.items.len, scored_ngrams.items.len});
-
-        // Add filtered n-grams to pieces
-        for (kept_ngrams.items) |item| {
-            try pieces.append(self.allocator, SentencePiece{
-                .token = item.token,
-                .score = item.score,
-            });
-        }
-
-        // Don't free the keys - ownership transferred to pieces
-        ngram_freqs.clearRetainingCapacity();
+        std.debug.print("[PROFILE] Seed generation complete: {d} pieces (from {d} frequent substrings)\n", .{pieces.items.len, frequent_substrings.len});
 
         // Convert scores to log probabilities
         var sum: f64 = 0.0;

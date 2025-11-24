@@ -107,17 +107,12 @@ pub fn findFrequentSubstrings(
     var i: usize = 1;
     while (i < lcp.len) : (i += 1) {
         const common_len = lcp[i];
-        if (common_len < min_length or common_len > max_length) {
+        if (common_len < min_length) {
             continue;
         }
 
         // This suffix shares 'common_len' prefix with previous suffix
         const suffix_start = sa[i];
-        if (suffix_start + common_len > text.len) {
-            continue;
-        }
-
-        const substring = text[suffix_start..suffix_start + common_len];
 
         // Count frequency by counting how many consecutive suffixes share this prefix
         var freq: u32 = 1;
@@ -125,6 +120,15 @@ pub fn findFrequentSubstrings(
         while (j < lcp.len and lcp[j] >= common_len) : (j += 1) {
             freq += 1;
         }
+
+        // Extract substring of LCP length
+        // HuggingFace's esaxx extracts based on LCP groups, not all lengths
+        if (suffix_start + common_len > text.len or common_len > max_length) {
+            i = j - 1;
+            continue;
+        }
+
+        const substring = text[suffix_start..suffix_start + common_len];
 
         // Add to results if not seen before
         const entry = try seen.getOrPut(substring);

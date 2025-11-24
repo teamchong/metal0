@@ -46,6 +46,20 @@ const JSON_TRUE = "true";
 const JSON_FALSE = "false";
 const JSON_ZERO = "0.0";
 
+/// Fake accessor: inline getter for int value
+inline fn getIntValue(obj: *runtime.PyObject) i64 {
+    @setRuntimeSafety(false);
+    const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
+    return data.value;
+}
+
+/// Fake accessor: inline getter for string value
+inline fn getStringValue(obj: *runtime.PyObject) []const u8 {
+    @setRuntimeSafety(false);
+    const data: *runtime.PyString = @ptrCast(@alignCast(obj.data));
+    return data.data;
+}
+
 /// Comptime lookup table for escape detection (much faster than switch!)
 const NEEDS_ESCAPE: [256]bool = blk: {
     var table: [256]bool = [_]bool{false} ** 256;
@@ -85,20 +99,17 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
     switch (obj.type_id) {
         .none => try buffer.appendSlice(allocator, JSON_NULL),
         .bool => {
-            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
-            try buffer.appendSlice(allocator, if (data.value != 0) JSON_TRUE else JSON_FALSE);
+            try buffer.appendSlice(allocator, if (getIntValue(obj) != 0) JSON_TRUE else JSON_FALSE);
         },
         .int => {
-            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
             var buf: [32]u8 = undefined;
-            const formatted = std.fmt.bufPrint(&buf, "{d}", .{data.value}) catch unreachable;
+            const formatted = std.fmt.bufPrint(&buf, "{d}", .{getIntValue(obj)}) catch unreachable;
             try buffer.appendSlice(allocator, formatted);
         },
         .float => try buffer.appendSlice(allocator, JSON_ZERO),
         .string => {
-            const data: *runtime.PyString = @ptrCast(@alignCast(obj.data));
             try buffer.append(allocator, '"');
-            try writeEscapedStringDirect(data.data, buffer, allocator);
+            try writeEscapedStringDirect(getStringValue(obj), buffer, allocator);
             try buffer.append(allocator, '"');
         },
         .list => {
