@@ -383,11 +383,12 @@ pub const PyDict = dict_module.PyDict;
 pub const numpy_array = @import("numpy_array.zig");
 pub const NumpyArray = numpy_array.NumpyArray;
 
-// HTTP, async, JSON, regex, and dynamic execution modules
+// HTTP, async, JSON, regex, sys, and dynamic execution modules
 pub const http = @import("http.zig");
 pub const async_runtime = @import("async.zig");
 pub const json = @import("json.zig");
 pub const re = @import("re.zig");
+pub const sys = @import("sys.zig");
 pub const math = @import("math.zig");
 pub const eval_module = @import("eval.zig");
 pub const exec_module = @import("exec.zig");

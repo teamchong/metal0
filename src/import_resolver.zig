@@ -307,12 +307,13 @@ pub fn findInSitePackages(
 }
 
 /// Check if a module is a built-in Zig module that should not be scanned/compiled
-/// Built-in modules: json, http, asyncio, re, numpy, sqlite3, zlib, ssl
+/// Built-in modules: json, http, asyncio, re, numpy, sqlite3, zlib, ssl, sys
 fn isBuiltinModule(module_name: []const u8) bool {
     const builtins = [_][]const u8{
         "json",    "http",    "asyncio",  "re",
         "numpy",   "sqlite3", "zlib",     "ssl",
         "pathlib", "urllib",  "datetime", "importlib",
+        "sys",
     };
     for (builtins) |builtin_module| {
         if (std.mem.eql(u8, module_name, builtin_module)) {
