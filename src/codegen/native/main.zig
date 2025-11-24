@@ -9,6 +9,7 @@ pub const generator = @import("main/generator.zig");
 
 // Re-export main types
 pub const CodegenError = core.CodegenError;
+pub const CodegenMode = core.CodegenMode;
 pub const DecoratedFunction = core.DecoratedFunction;
 pub const NativeCodegen = core.NativeCodegen;
 

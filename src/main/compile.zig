@@ -47,26 +47,63 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
     const source = try std.fs.cwd().readFileAlloc(allocator, module_path, 10 * 1024 * 1024);
     defer allocator.free(source);
 
-    // Get output path
-    const output_path = try getModuleOutputPath(allocator, module_path);
-    defer allocator.free(output_path);
+    // Get module name from path
+    const basename = std.fs.path.basename(module_path);
+    const mod_name = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
+        basename[0..idx]
+    else
+        basename;
 
-    // Check if already up-to-date
-    const should_compile = try cache.shouldRecompile(allocator, source, output_path);
-    if (!should_compile) {
-        std.debug.print("  ✓ Module up-to-date: {s}\n", .{output_path});
-        return;
+    // Generate Zig code for this module
+    std.debug.print("  Generating Zig for module: {s}\n", .{module_path});
+
+    // Use existing compilation pipeline
+    const lexer_mod = @import("../lexer.zig");
+    const parser_mod = @import("../parser.zig");
+
+    var lex = try lexer_mod.Lexer.init(allocator, source);
+    const tokens = try lex.tokenize();
+    defer allocator.free(tokens);
+
+    var p = parser_mod.Parser.init(allocator, tokens);
+    const tree = try p.parse();
+    defer tree.deinit(allocator);
+
+    // Perform semantic analysis
+    const semantic_types_mod = @import("../analysis/types.zig");
+    const lifetime_analysis_mod = @import("../analysis/lifetime.zig");
+    const native_types_mod = @import("../analysis/native_types.zig");
+
+    var semantic_info = semantic_types_mod.SemanticInfo.init(allocator);
+    _ = try lifetime_analysis_mod.analyzeLifetimes(&semantic_info, tree, 1);
+
+    var type_inferrer = try native_types_mod.TypeInferrer.init(allocator);
+    if (tree == .module) {
+        try type_inferrer.analyze(tree.module);
     }
 
-    std.debug.print("  Compiling module: {s}\n", .{module_path});
+    // Generate Zig code in module mode
+    var codegen = try native_codegen.NativeCodegen.init(allocator, &type_inferrer, &semantic_info);
+    defer codegen.deinit();
 
-    // Compile using existing compilePythonSource (but to shared lib)
-    try compilePythonSource(allocator, source, output_path, "build", false);
+    codegen.mode = .module;
+    codegen.module_name = mod_name;
 
-    // Update cache
-    try cache.updateCache(allocator, source, output_path);
+    const zig_code = if (tree == .module)
+        try codegen.generate(tree.module)
+    else
+        return error.InvalidAST;
+    defer allocator.free(zig_code);
 
-    std.debug.print("  ✓ Module compiled: {s}\n", .{output_path});
+    // Save to .build/module_name.zig
+    const output_path = try std.fmt.allocPrint(allocator, ".build/{s}.zig", .{mod_name});
+    defer allocator.free(output_path);
+
+    const file = try std.fs.cwd().createFile(output_path, .{});
+    defer file.close();
+    try file.writeAll(zig_code);
+
+    std.debug.print("  ✓ Module Zig generated: {s}\n", .{output_path});
 }
 
 /// Compile a Jupyter notebook (.ipynb file)

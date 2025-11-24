@@ -30,7 +30,7 @@ pub fn compileModuleAsStruct(
     source_file_dir: ?[]const u8,
     allocator: std.mem.Allocator,
     main_type_inferrer: ?*@import("../../../analysis/native_types.zig").TypeInferrer,
-) ![]const u8 {
+) anyerror![]const u8 {
     return compileModuleAsStructWithPrefix(module_name, null, source_file_dir, allocator, main_type_inferrer);
 }
 
@@ -40,7 +40,7 @@ fn compileModuleAsStructWithPrefix(
     source_file_dir: ?[]const u8,
     allocator: std.mem.Allocator,
     main_type_inferrer: ?*@import("../../../analysis/native_types.zig").TypeInferrer,
-) ![]const u8 {
+) anyerror![]const u8 {
     // Use arena for intermediate allocations
     // Base allocator used for: return value and qualified_names in type_inferrer
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -58,14 +58,11 @@ fn compileModuleAsStructWithPrefix(
         return error.ModuleNotFound;
     };
 
-    // If it's a compiled .so module, just generate @import() statement
+    // If it's a compiled .so module, import from .build/ instead
     if (std.mem.endsWith(u8, resolved_path, ".so")) {
-        // Generate: const module_name = @import("path/to/module.zig");
-        // Note: .so files are linked, but we reference the .zig source
-        const zig_path = try std.mem.replaceOwned(u8, allocator, resolved_path, ".so", ".zig");
-        defer allocator.free(zig_path);
-
-        return try std.fmt.allocPrint(allocator, "const {s} = @import(\"{s}\");\n", .{ module_name, zig_path });
+        // Module was already compiled to .build/module_name.zig
+        // Generate: const module_name = @import(".build/module_name.zig");
+        return try std.fmt.allocPrint(allocator, "const {s} = @import(\"./{s}.zig\");\n", .{ module_name, module_name });
     }
 
     const py_path = resolved_path;
@@ -113,113 +110,44 @@ fn compileModuleAsStructWithPrefix(
     // Use full codegen to generate proper module code
     var codegen = try NativeCodegen.init(aa, &type_inferrer, &semantic_info);
 
-    // Don't generate imports for inlined modules (they'll use parent scope's imports)
+    // Set mode to module so functions are wrapped in pub struct
+    codegen.mode = .module;
+    codegen.module_name = module_name;
 
-    // Generate only function and class definitions (make all functions pub)
-    for (tree.module.body) |stmt| {
-        if (stmt == .function_def or stmt == .class_def) {
-            // For functions, we need to make them pub
+    // Register function return types in main type inferrer
+    if (main_type_inferrer) |type_inf| {
+        for (tree.module.body) |stmt| {
             if (stmt == .function_def) {
                 const func = stmt.function_def;
-                try codegen.emit("pub ");
-
-                // Generate async keyword if needed
-                if (func.is_async) {
-                    try codegen.emit("async ");
-                }
-
-                try codegen.emit("fn ");
-                try codegen.emit(func.name);
-                try codegen.emit("(");
-
-                // Parameters with type inference
-                for (func.args, 0..) |arg, i| {
-                    if (i > 0) try codegen.emit(", ");
-                    try codegen.emit(arg.name);
-                    try codegen.emit(": ");
-
-                    // Try to infer parameter type
-                    const param_type = type_inferrer.var_types.get(arg.name) orelse native_types_mod.NativeType.int;
-                    const type_str = switch (param_type) {
-                        .int => "i64",
-                        .float => "f64",
-                        .bool => "bool",
-                        .string => "[]const u8",
-                        else => "i64",
-                    };
-                    try codegen.emit(type_str);
-                }
-
-                // Add allocator parameter for module functions
-                if (func.args.len > 0) try codegen.emit(", ");
-                try codegen.emit("allocator: std.mem.Allocator");
-
-                try codegen.emit(") !"); // Add ! for error return
-
                 // Infer return type from function
                 const return_type = if (func.return_type) |ret_type_name|
                     inferReturnTypeFromString(ret_type_name)
                 else
                     native_types_mod.NativeType.int;
 
-                // Register module function return type in main type inferrer
-                if (main_type_inferrer) |type_inf| {
-                    // Format: "module.function" or "parent.module.function" -> return type
-                    const qualified_name = if (parent_prefix) |prefix|
-                        try std.fmt.allocPrint(allocator, "{s}.{s}.{s}", .{ prefix, module_name, func.name })
-                    else
-                        try std.fmt.allocPrint(allocator, "{s}.{s}", .{ module_name, func.name });
-                    try type_inf.func_return_types.put(qualified_name, return_type);
-                    // Note: qualified_name is kept allocated for the lifetime of the map
-                }
-
-                const return_type_str = switch (return_type) {
-                    .int => "i64",
-                    .float => "f64",
-                    .bool => "bool",
-                    .string => "[]const u8",
-                    else => "i64",
-                };
-                try codegen.emit(return_type_str);
-                try codegen.emit(" {\n");
-
-                codegen.indent();
-
-                // Generate function body in a temporary buffer first
-                const saved_output = codegen.output;
-                codegen.output = std.ArrayList(u8){};
-
-                for (func.body) |body_stmt| {
-                    try codegen.generateStmt(body_stmt);
-                }
-
-                const body_code = try codegen.output.toOwnedSlice(aa);
-
-                // Restore original output
-                codegen.output = saved_output;
-
-                // Check if "allocator" was used in the generated body
-                const allocator_used = std.mem.indexOf(u8, body_code, "allocator") != null;
-
-                // If allocator not used, add suppression at start
-                if (!allocator_used) {
-                    try codegen.emitIndent();
-                    try codegen.emit("std.mem.doNotOptimizeAway(&allocator);\n");
-                }
-
-                // Emit the actual body
-                try codegen.output.appendSlice(aa, body_code);
-
-                codegen.dedent();
-                try codegen.emit("}\n\n");
-            } else {
-                // For classes, use the full codegen
-                try statements.genClassDef(codegen, stmt.class_def);
+                // Format: "module.function" or "parent.module.function" -> return type
+                const qualified_name = if (parent_prefix) |prefix|
+                    try std.fmt.allocPrint(allocator, "{s}.{s}.{s}", .{ prefix, module_name, func.name })
+                else
+                    try std.fmt.allocPrint(allocator, "{s}.{s}", .{ module_name, func.name });
+                try type_inf.func_return_types.put(qualified_name, return_type);
+                // Note: qualified_name is kept allocated for the lifetime of the map
             }
         }
     }
 
-    const module_body = try codegen.output.toOwnedSlice(aa);
+    // Use full code generation for the module
+    const module_code = try codegen.generate(tree.module);
+    defer aa.free(module_code);
+
+    // Extract just the module struct (remove leading imports)
+    const module_body = blk: {
+        // Find "pub const module_name = struct {"
+        if (std.mem.indexOf(u8, module_code, "pub const ")) |start| {
+            break :blk module_code[start..];
+        }
+        break :blk module_code;
+    };
 
     // Compile submodules if this is a package
     var submodule_code = std.ArrayList(u8){};
@@ -285,17 +213,33 @@ fn compileModuleAsStructWithPrefix(
         }
     }
 
-    // Wrap in struct with submodules (use base allocator for return value)
+    // Add submodules if needed (use base allocator for return value)
+    if (submodule_code.items.len > 0) {
+        // Need to inject submodules into the struct
+        // Find the closing brace of the struct
+        if (std.mem.lastIndexOf(u8, module_body, "};")) |close_idx| {
+            var struct_code = std.ArrayList(u8){};
+            errdefer struct_code.deinit(allocator);
+
+            try struct_code.writer(allocator).print(
+                "// Inlined module: {s}\n" ++
+                "{s}" ++  // Everything up to closing brace
+                "{s}" ++  // Submodules
+                "}};\n",  // Closing brace
+                .{ module_name, module_body[0..close_idx], submodule_code.items }
+            );
+
+            return try struct_code.toOwnedSlice(allocator);
+        }
+    }
+
+    // No submodules or couldn't find closing brace - return as is
     var struct_code = std.ArrayList(u8){};
     errdefer struct_code.deinit(allocator);
 
     try struct_code.writer(allocator).print(
-        "// Inlined module: {s}\n" ++
-        "const {s} = struct {{\n" ++
-        "{s}" ++  // Main module body
-        "{s}" ++  // Submodules
-        "}};\n\n",
-        .{ module_name, module_name, module_body, submodule_code.items }
+        "// Inlined module: {s}\n{s}",
+        .{ module_name, module_body }
     );
 
     return try struct_code.toOwnedSlice(allocator);

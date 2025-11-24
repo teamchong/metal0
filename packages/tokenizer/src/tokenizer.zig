@@ -116,7 +116,14 @@ pub const Tokenizer = struct {
             self.allocator.free(entry.key_ptr.*);
         }
         self.vocab.deinit();
+
+        // Free vocab_r values (owned strings)
+        var vocab_r_it = self.vocab_r.valueIterator();
+        while (vocab_r_it.next()) |value| {
+            self.allocator.free(value.*);
+        }
         self.vocab_r.deinit();
+
         self.merges.deinit(self.allocator);
         self.merges_map.deinit();
         self.allocator.free(self.split_table);

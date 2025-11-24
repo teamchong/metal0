@@ -401,9 +401,13 @@ pub const BpeTrainer = struct {
             }
 
             const new_token = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ part_a, part_b });
+            errdefer self.allocator.free(new_token);
 
-            // Add to vocab
-            const new_token_id = word_to_id.get(new_token) orelse blk: {
+            // Add to vocab (if it already exists, free the new_token since we don't need it)
+            const new_token_id = if (word_to_id.get(new_token)) |existing_id| blk: {
+                self.allocator.free(new_token); // Already exists, free the allocated string
+                break :blk existing_id;
+            } else blk: {
                 const id: u32 = @intCast(id_to_word.items.len);
                 try id_to_word.append(self.allocator, new_token);
                 try word_to_id.put(new_token, id);
