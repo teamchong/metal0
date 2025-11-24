@@ -29,6 +29,16 @@ pub fn visitStmt(
                 }
             }
         },
+        .ann_assign => |ann_assign| {
+            // Use annotation for type if provided, otherwise infer from value
+            if (ann_assign.value) |value| {
+                const value_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, value.*);
+                if (ann_assign.target.* == .name) {
+                    try var_types.put(ann_assign.target.name.id, value_type);
+                }
+            }
+            // TODO: Parse annotation to determine type explicitly
+        },
         .class_def => |class_def| {
             // Track class field types from __init__ parameters
             var fields = FnvHashMap.init(allocator);

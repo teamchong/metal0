@@ -8,6 +8,46 @@ const Parser = @import("../../parser.zig").Parser;
 pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         const expr = try self.parseExpression();
 
+        // Check for type annotation: x: int = 5
+        if (self.match(.Colon)) {
+            const annotation = try self.parseExpression();
+
+            const target_ptr = try self.allocator.create(ast.Node);
+            target_ptr.* = expr;
+
+            const annotation_ptr = try self.allocator.create(ast.Node);
+            annotation_ptr.* = annotation;
+
+            // Check for assignment value
+            if (self.match(.Eq)) {
+                const value = try self.parseExpression();
+                _ = self.expect(.Newline) catch {};
+
+                const value_ptr = try self.allocator.create(ast.Node);
+                value_ptr.* = value;
+
+                return ast.Node{
+                    .ann_assign = .{
+                        .target = target_ptr,
+                        .annotation = annotation_ptr,
+                        .value = value_ptr,
+                        .simple = true,
+                    },
+                };
+            } else {
+                // Type annotation without assignment (e.g., x: int)
+                _ = self.expect(.Newline) catch {};
+                return ast.Node{
+                    .ann_assign = .{
+                        .target = target_ptr,
+                        .annotation = annotation_ptr,
+                        .value = null,
+                        .simple = true,
+                    },
+                };
+            }
+        }
+
         // Check if this is tuple unpacking (comma-separated targets)
         if (self.check(.Comma)) {
             // Parse comma-separated targets: a, b, c

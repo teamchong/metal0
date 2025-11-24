@@ -356,6 +356,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     switch (node) {
         .assign => |assign| try statements.genAssign(self, assign),
+        .ann_assign => |ann_assign| try statements.genAnnAssign(self, ann_assign),
         .aug_assign => |aug| try statements.genAugAssign(self, aug),
         .expr_stmt => |expr| try statements.genExprStmt(self, expr.value.*),
         .if_stmt => |if_stmt| try statements.genIf(self, if_stmt),

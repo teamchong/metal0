@@ -9,6 +9,25 @@ const deferCleanup = @import("assign_defer.zig");
 const typeHandling = @import("assign/type_handling.zig");
 const valueGen = @import("assign/value_generation.zig");
 
+/// Generate annotated assignment statement (x: int = 5)
+pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) CodegenError!void {
+    // If no value, just a declaration (x: int), skip for now
+    if (ann_assign.value == null) return;
+
+    // Convert to regular assignment and process
+    const targets = try self.allocator.alloc(ast.Node, 1);
+    targets[0] = ann_assign.target.*;
+
+    const assign = ast.Node.Assign{
+        .targets = targets,
+        .value = ann_assign.value.?,
+    };
+    try genAssign(self, assign);
+
+    // Free the temporary targets allocation
+    self.allocator.free(targets);
+}
+
 /// Generate assignment statement with automatic defer cleanup
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
     const value_type = try self.type_inferrer.inferExpr(assign.value.*);

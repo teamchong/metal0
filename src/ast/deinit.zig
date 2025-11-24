@@ -14,6 +14,16 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             deinit(a.value, allocator);
             allocator.destroy(a.value);
         },
+        .ann_assign => |a| {
+            deinit(a.target, allocator);
+            allocator.destroy(a.target);
+            deinit(a.annotation, allocator);
+            allocator.destroy(a.annotation);
+            if (a.value) |v| {
+                deinit(v, allocator);
+                allocator.destroy(v);
+            }
+        },
         .aug_assign => |a| {
             deinit(a.target, allocator);
             allocator.destroy(a.target);

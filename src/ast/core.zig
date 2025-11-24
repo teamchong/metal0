@@ -5,6 +5,7 @@ const fstring = @import("fstring.zig");
 pub const Node = union(enum) {
     module: Module,
     assign: Assign,
+    ann_assign: AnnAssign,
     aug_assign: AugAssign,
     binop: BinOp,
     unaryop: UnaryOp,
@@ -49,6 +50,13 @@ pub const Node = union(enum) {
     pub const Assign = struct {
         targets: []Node,
         value: *Node,
+    };
+
+    pub const AnnAssign = struct {
+        target: *Node,
+        annotation: *Node,
+        value: ?*Node,
+        simple: bool,
     };
 
     pub const AugAssign = struct {

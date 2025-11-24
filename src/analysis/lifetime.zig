@@ -23,6 +23,17 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             line = try analyzeLifetimes(info, assign.value.*, line);
             line += 1;
         },
+        .ann_assign => |ann_assign| {
+            // Record annotated assignment
+            if (ann_assign.target.* == .name) {
+                try info.recordVariableUse(ann_assign.target.name.id, line, true);
+            }
+            // Analyze value expression if present
+            if (ann_assign.value) |value| {
+                line = try analyzeLifetimes(info, value.*, line);
+            }
+            line += 1;
+        },
         .aug_assign => |aug| {
             // Record both use and assignment
             if (aug.target.* == .name) {
