@@ -6,7 +6,7 @@ const UnigramTokenizer = @import("unigram_tokenizer.zig").UnigramTokenizer;
 const BpeTrainer = @import("bpe_trainer.zig").BpeTrainer;
 const WordPieceTrainer = @import("wordpiece_trainer.zig").WordPieceTrainer;
 const UnigramTrainer = @import("unigram_full_trainer.zig").UnigramTrainer;
-const ThreadPool = @import("threading");
+// Removed ThreadPool - using std.Thread directly for parallelization
 
 /// Result type for RuntimeTrainer (handles different tokenizer types)
 pub const TokenizerResult = union(Algorithm) {
@@ -86,7 +86,7 @@ pub const RuntimeTrainer = struct {
         return trainer;
     }
 
-    pub fn initWithThreadPool(vocab_size: usize, allocator: std.mem.Allocator, algorithm: Algorithm, thread_pool: *ThreadPool) !RuntimeTrainer {
+    pub fn initWithThreadPool(vocab_size: usize, allocator: std.mem.Allocator, algorithm: Algorithm, _: anytype) !RuntimeTrainer {
         var trainer = RuntimeTrainer{
             .algorithm = algorithm,
             .allocator = allocator,
@@ -109,7 +109,7 @@ pub const RuntimeTrainer = struct {
             },
             .Unigram => {
                 if (build_options.include_unigram) {
-                    trainer.unigram_trainer = try UnigramTrainer.initWithThreadPool(vocab_size, allocator, thread_pool);
+                    trainer.unigram_trainer = try UnigramTrainer.initWithThreadPool(vocab_size, allocator, {});
                 } else {
                     return error.AlgorithmNotIncluded;
                 }

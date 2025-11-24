@@ -4,7 +4,7 @@ const trainer_mod = @import("trainer.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const UnigramTokenizer = @import("unigram_tokenizer.zig").UnigramTokenizer;
 const allocator_helper = @import("allocator_helper.zig");
-const ThreadPool = @import("threading");
+// Removed ThreadPool - using std.Thread directly
 
 // Algorithm selection based on build options
 const Trainer = if (build_options.runtime_selection)
@@ -58,20 +58,16 @@ pub fn main() !void {
     const is_unigram = selected_algorithm == .Unigram;
 
     if (is_unigram) {
-        // Create thread pool for parallel training
-        const cpu_count = try std.Thread.getCpuCount();
-        var thread_pool = ThreadPool.init(.{ .max_threads = @intCast(cpu_count) });
-        defer thread_pool.deinit();
-
         // Unigram returns UnigramTokenizer
         var last_tokenizer: ?UnigramTokenizer = null;
         var i: usize = 0;
         while (i < 300) : (i += 1) {
+            // Use parallel training (enabled by initWithThreadPool)
             var trainer = if (build_options.runtime_selection) blk: {
-                break :blk try Trainer.initWithThreadPool(VOCAB_SIZE, allocator, selected_algorithm, &thread_pool);
+                break :blk try Trainer.initWithThreadPool(VOCAB_SIZE, allocator, selected_algorithm, {});
             } else blk: {
                 // Comptime selection - Trainer is UnigramTrainer directly
-                break :blk try Trainer.initWithThreadPool(VOCAB_SIZE, allocator, &thread_pool);
+                break :blk try Trainer.initWithThreadPool(VOCAB_SIZE, allocator, {});
             };
             const result = try trainer.trainFromIterator(texts.items);
             trainer.deinit();

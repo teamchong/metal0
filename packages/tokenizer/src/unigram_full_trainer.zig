@@ -214,9 +214,8 @@ pub const UnigramTrainer = struct {
         return pieces;
     }
 
-    /// Parallel E-step task context
-    const EStepTask = struct {
-        task: ThreadPool.Task,
+    /// Parallel E-step worker context
+    const EStepWorker = struct {
         trainer: *UnigramTrainer,
         model: *const Unigram,
         sentences: []const Sentence,
@@ -227,14 +226,14 @@ pub const UnigramTrainer = struct {
         objs: f64,
         err: ?anyerror,
 
-        pub fn callback(task: *ThreadPool.Task) void {
-            const self: *EStepTask = @fieldParentPtr("task", task);
-            self.processChunk() catch |e| {
+        fn processChunk(self: *EStepWorker) void {
+            self.err = null;
+            self.processChunkImpl() catch |e| {
                 self.err = e;
             };
         }
 
-        fn processChunk(self: *EStepTask) !void {
+        fn processChunkImpl(self: *EStepWorker) !void {
             // Process all sentences in this chunk
             for (self.sentences) |sentence| {
                 // Use arena allocator for node allocations
@@ -271,9 +270,9 @@ pub const UnigramTrainer = struct {
             break :blk sum;
         };
 
-        // If thread pool available, use parallel processing
-        if (self.thread_pool) |pool| {
-            return try self.runEStepParallel(model, sentences, all_sentence_freq, pool);
+        // If parallelization enabled, use multi-threading
+        if (self.enable_parallel) {
+            return try self.runEStepParallel(model, sentences, all_sentence_freq);
         }
 
         // Sequential version (original)
@@ -320,13 +319,12 @@ pub const UnigramTrainer = struct {
         return .{ objs, expected };
     }
 
-    /// Parallel E-step implementation
+    /// Parallel E-step implementation using std.Thread
     fn runEStepParallel(
         self: *UnigramTrainer,
         model: *const Unigram,
         sentences: []const Sentence,
         all_sentence_freq: u32,
-        pool: *ThreadPool,
     ) !struct { f64, []f64 } {
         const cpu_count = try std.Thread.getCpuCount();
         const num_threads = @min(cpu_count, 8); // Cap at 8 threads
@@ -346,14 +344,15 @@ pub const UnigramTrainer = struct {
             @memset(exp.*, 0.0);
         }
 
-        // Allocate tasks
-        const tasks = try self.allocator.alloc(EStepTask, num_threads);
-        defer self.allocator.free(tasks);
+        // Allocate workers
+        const workers = try self.allocator.alloc(EStepWorker, num_threads);
+        defer self.allocator.free(workers);
 
-        // Create batch for thread pool
-        var batch = ThreadPool.Batch{};
+        // Allocate threads
+        const threads = try self.allocator.alloc(std.Thread, num_threads);
+        defer self.allocator.free(threads);
 
-        // Split sentences into chunks and create tasks
+        // Split sentences into chunks and spawn threads
         var thread_idx: usize = 0;
         var sent_idx: usize = 0;
         while (thread_idx < num_threads) : (thread_idx += 1) {
@@ -361,8 +360,7 @@ pub const UnigramTrainer = struct {
             const end = @min(start + chunk_size, sentences.len);
             if (start >= sentences.len) break;
 
-            tasks[thread_idx] = EStepTask{
-                .task = ThreadPool.Task{ .callback = EStepTask.callback },
+            workers[thread_idx] = EStepWorker{
                 .trainer = self,
                 .model = model,
                 .sentences = sentences[start..end],
@@ -372,22 +370,21 @@ pub const UnigramTrainer = struct {
                 .err = null,
             };
 
-            batch.push(ThreadPool.Batch{
-                .len = 1,
-                .head = &tasks[thread_idx].task,
-                .tail = &tasks[thread_idx].task,
-            });
+            threads[thread_idx] = try std.Thread.spawn(.{}, EStepWorker.processChunk, .{&workers[thread_idx]});
 
             sent_idx = end;
         }
 
-        // Schedule and wait for all tasks
-        pool.schedule(batch);
-        pool.waitForAll();
+        const actual_threads = thread_idx;
+
+        // Wait for all threads to complete
+        for (threads[0..actual_threads]) |thread| {
+            thread.join();
+        }
 
         // Check for errors
-        for (tasks[0..thread_idx]) |*task| {
-            if (task.err) |e| return e;
+        for (workers[0..actual_threads]) |*worker| {
+            if (worker.err) |e| return e;
         }
 
         // Merge results (reduce)
@@ -395,9 +392,9 @@ pub const UnigramTrainer = struct {
         @memset(total_expected, 0.0);
 
         var total_objs: f64 = 0.0;
-        for (tasks[0..thread_idx]) |*task| {
-            total_objs += task.objs;
-            for (task.expected, 0..) |exp_val, i| {
+        for (workers[0..actual_threads]) |*worker| {
+            total_objs += worker.objs;
+            for (worker.expected, 0..) |exp_val, i| {
                 total_expected[i] += exp_val;
             }
         }

@@ -136,7 +136,6 @@ fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), allocat
 
     while (i < str.len) : (i += 1) {
         const c = str[i];
-        // Lookup table is faster than switch!
         if (NEEDS_ESCAPE[c]) {
             if (start < i) {
                 try buffer.appendSlice(allocator, str[start..i]);
