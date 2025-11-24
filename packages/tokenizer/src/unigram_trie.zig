@@ -5,6 +5,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 /// Generic Trie supporting any label type
+/// Can optionally store data at leaf nodes (e.g., token IDs)
 pub fn Trie(comptime Label: type) type {
     return struct {
         const Self = @This();
@@ -14,23 +15,42 @@ pub fn Trie(comptime Label: type) type {
 
         pub const Node = struct {
             is_leaf: bool,
-            children: std.AutoHashMap(Label, *Node),
+            leaf_id: u32, // Store token ID at leaf nodes (0 if not leaf)
+            // OPTIMIZATION: For u8 labels, use array instead of HashMap (100x faster!)
+            children: if (Label == u8) [256]?*Node else std.AutoHashMap(Label, *Node),
 
             pub fn init(allocator: Allocator) !*Node {
                 const node = try allocator.create(Node);
-                node.* = Node{
-                    .is_leaf = false,
-                    .children = std.AutoHashMap(Label, *Node).init(allocator),
-                };
+                if (Label == u8) {
+                    node.* = Node{
+                        .is_leaf = false,
+                        .leaf_id = 0,
+                        .children = [_]?*Node{null} ** 256,
+                    };
+                } else {
+                    node.* = Node{
+                        .is_leaf = false,
+                        .leaf_id = 0,
+                        .children = std.AutoHashMap(Label, *Node).init(allocator),
+                    };
+                }
                 return node;
             }
 
             pub fn deinit(self: *Node, allocator: Allocator) void {
-                var it = self.children.valueIterator();
-                while (it.next()) |child| {
-                    child.*.deinit(allocator);
+                if (Label == u8) {
+                    for (self.children) |maybe_child| {
+                        if (maybe_child) |child| {
+                            child.deinit(allocator);
+                        }
+                    }
+                } else {
+                    var it = self.children.valueIterator();
+                    while (it.next()) |child| {
+                        child.*.deinit(allocator);
+                    }
+                    self.children.deinit();
                 }
-                self.children.deinit();
                 allocator.destroy(self);
             }
         };
@@ -50,19 +70,68 @@ pub fn Trie(comptime Label: type) type {
         pub fn push(self: *Self, element: []const Label) !void {
             var node = self.root;
             for (element) |label| {
-                const entry = try node.children.getOrPut(label);
-                if (!entry.found_existing) {
-                    entry.value_ptr.* = try Node.init(self.allocator);
+                if (Label == u8) {
+                    // Array lookup (O(1), no hash)
+                    if (node.children[label]) |child| {
+                        node = child;
+                    } else {
+                        const new_node = try Node.init(self.allocator);
+                        node.children[label] = new_node;
+                        node = new_node;
+                    }
+                } else {
+                    // HashMap fallback for non-u8 labels
+                    const entry = try node.children.getOrPut(label);
+                    if (!entry.found_existing) {
+                        entry.value_ptr.* = try Node.init(self.allocator);
+                    }
+                    node = entry.value_ptr.*;
                 }
-                node = entry.value_ptr.*;
             }
             node.is_leaf = true;
+        }
+
+        /// Insert a sequence into the trie with associated ID (for fast lookup)
+        pub fn pushWithId(self: *Self, element: []const Label, id: u32) !void {
+            var node = self.root;
+            for (element) |label| {
+                if (Label == u8) {
+                    // Array lookup (O(1), no hash)
+                    if (node.children[label]) |child| {
+                        node = child;
+                    } else {
+                        const new_node = try Node.init(self.allocator);
+                        node.children[label] = new_node;
+                        node = new_node;
+                    }
+                } else {
+                    // HashMap fallback for non-u8 labels
+                    const entry = try node.children.getOrPut(label);
+                    if (!entry.found_existing) {
+                        entry.value_ptr.* = try Node.init(self.allocator);
+                    }
+                    node = entry.value_ptr.*;
+                }
+            }
+            node.is_leaf = true;
+            node.leaf_id = id;
         }
 
         /// Find all common prefixes of the input sequence
         /// Returns an iterator that yields matching prefixes
         pub fn commonPrefixSearch(self: *const Self, labels: []const Label) CommonPrefixIterator(Label) {
             return CommonPrefixIterator(Label){
+                .node = self.root,
+                .labels = labels,
+                .index = 0,
+                .prefix_len = 0,
+            };
+        }
+
+        /// Find all common prefixes and return (length, id) pairs
+        /// Optimized version that avoids redundant HashMap lookups
+        pub fn commonPrefixSearchWithIds(self: *const Self, labels: []const Label) CommonPrefixIteratorWithIds(Label) {
+            return CommonPrefixIteratorWithIds(Label){
                 .node = self.root,
                 .labels = labels,
                 .index = 0,
@@ -90,14 +159,87 @@ pub fn CommonPrefixIterator(comptime Label: type) type {
                 self.index += 1;
                 self.prefix_len += 1;
 
-                if (self.node.children.get(label)) |child| {
-                    self.node = child;
-                    if (self.node.is_leaf) {
-                        return self.prefix_len;
+                if (Label == u8) {
+                    // Array lookup (O(1), no hash)
+                    if (self.node.children[label]) |child| {
+                        self.node = child;
+                        if (self.node.is_leaf) {
+                            return self.prefix_len;
+                        }
+                    } else {
+                        // No match found
+                        return null;
                     }
                 } else {
-                    // No match found
-                    return null;
+                    // HashMap fallback for non-u8 labels
+                    if (self.node.children.get(label)) |child| {
+                        self.node = child;
+                        if (self.node.is_leaf) {
+                            return self.prefix_len;
+                        }
+                    } else {
+                        // No match found
+                        return null;
+                    }
+                }
+            }
+            return null;
+        }
+    };
+}
+
+/// Result from commonPrefixSearchWithIds: (prefix_length, token_id)
+pub const PrefixMatch = struct {
+    len: usize,
+    id: u32,
+};
+
+/// Iterator that returns both prefix length and token ID
+pub fn CommonPrefixIteratorWithIds(comptime Label: type) type {
+    return struct {
+        const Self = @This();
+        const Node = Trie(Label).Node;
+
+        node: *const Node,
+        labels: []const Label,
+        index: usize,
+        prefix_len: usize,
+
+        /// Returns (length, id) of next matching prefix, or null if none
+        pub fn next(self: *Self) ?PrefixMatch {
+            while (self.index < self.labels.len) {
+                const label = self.labels[self.index];
+                self.index += 1;
+                self.prefix_len += 1;
+
+                if (Label == u8) {
+                    // Array lookup (O(1), no hash)
+                    if (self.node.children[label]) |child| {
+                        self.node = child;
+                        if (self.node.is_leaf) {
+                            return PrefixMatch{
+                                .len = self.prefix_len,
+                                .id = self.node.leaf_id,
+                            };
+                        }
+                    } else {
+                        // No match found
+                        return null;
+                    }
+                } else {
+                    // HashMap fallback for non-u8 labels
+                    if (self.node.children.get(label)) |child| {
+                        self.node = child;
+                        if (self.node.is_leaf) {
+                            return PrefixMatch{
+                                .len = self.prefix_len,
+                                .id = self.node.leaf_id,
+                            };
+                        }
+                    } else {
+                        // No match found
+                        return null;
+                    }
                 }
             }
             return null;

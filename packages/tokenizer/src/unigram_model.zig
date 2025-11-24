@@ -65,7 +65,8 @@ pub const Unigram = struct {
         var min_score: f64 = std.math.inf(f64);
         for (vocab, 0..) |entry, id| {
             try token_to_ids.put(entry.token, @intCast(id));
-            try trie.push(entry.token);
+            // OPTIMIZATION: pushWithId stores ID in trie, avoids HashMap lookup in hot path
+            try trie.pushWithId(entry.token, @intCast(id));
             if (entry.score < min_score) {
                 min_score = entry.score;
             }
@@ -107,17 +108,15 @@ pub const Unigram = struct {
 
             var has_single_node = false;
 
-            // Find all tokens matching this prefix
-            var iter = self.trie.commonPrefixSearch(remaining);
-            while (iter.next()) |prefix_len| {
-                const tok = remaining[0..prefix_len];
-                if (self.token_to_ids.get(tok)) |id| {
-                    const score = self.vocab[id].score;
-                    try lattice.insert(begin_pos, prefix_len, score, id);
+            // OPTIMIZATION: Use commonPrefixSearchWithIds to get ID directly from trie
+            // This avoids millions of HashMap lookups (string comparison is slow!)
+            var iter = self.trie.commonPrefixSearchWithIds(remaining);
+            while (iter.next()) |match| {
+                const score = self.vocab[match.id].score;
+                try lattice.insert(begin_pos, match.len, score, match.id);
 
-                    if (!has_single_node and prefix_len == mblen) {
-                        has_single_node = true;
-                    }
+                if (!has_single_node and match.len == mblen) {
+                    has_single_node = true;
                 }
             }
 
