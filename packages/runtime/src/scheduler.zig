@@ -3,9 +3,9 @@ const GreenThread = @import("green_thread").GreenThread;
 const WorkQueue = @import("work_queue").WorkQueue;
 
 pub const Scheduler = struct {
-    pool: std.Thread.Pool,
-    queues: []WorkQueue,
     allocator: std.mem.Allocator,
+    queues: []WorkQueue,
+    workers: []std.Thread,
     next_id: std.atomic.Value(u64),
     active_threads: std.atomic.Value(usize),
     shutdown_flag: std.atomic.Value(bool),
@@ -17,13 +17,6 @@ pub const Scheduler = struct {
         else
             num_threads;
 
-        var pool: std.Thread.Pool = undefined;
-        try pool.init(.{
-            .allocator = allocator,
-            .n_jobs = thread_count,
-        });
-        errdefer pool.deinit();
-
         const queues = try allocator.alloc(WorkQueue, thread_count);
         errdefer allocator.free(queues);
 
@@ -31,10 +24,13 @@ pub const Scheduler = struct {
             queue.* = WorkQueue.init(allocator);
         }
 
+        const workers = try allocator.alloc(std.Thread, thread_count);
+        errdefer allocator.free(workers);
+
         return Scheduler{
-            .pool = pool,
-            .queues = queues,
             .allocator = allocator,
+            .queues = queues,
+            .workers = workers,
             .next_id = std.atomic.Value(u64).init(1),
             .active_threads = std.atomic.Value(usize).init(0),
             .shutdown_flag = std.atomic.Value(bool).init(false),
@@ -42,20 +38,33 @@ pub const Scheduler = struct {
         };
     }
 
-    pub fn deinit(self: *Scheduler) void {
-        self.shutdown_flag.store(true, .release);
+    pub fn start(self: *Scheduler) !void {
+        // Pre-spawn persistent workers
+        for (0..self.num_workers) |i| {
+            self.workers[i] = try std.Thread.spawn(.{}, workerLoop, .{ self, i });
+        }
+    }
 
-        // Wait for all active threads to complete
+    pub fn deinit(self: *Scheduler) void {
+        // Wait for all active tasks to complete
         while (self.active_threads.load(.acquire) > 0) {
             std.Thread.yield() catch {};
         }
 
+        // Signal workers to stop
+        self.shutdown_flag.store(true, .release);
+
+        // Join all workers
+        for (self.workers) |worker| {
+            worker.join();
+        }
+
+        // Cleanup
         for (self.queues) |*queue| {
             queue.deinit();
         }
         self.allocator.free(self.queues);
-
-        self.pool.deinit();
+        self.allocator.free(self.workers);
     }
 
     pub fn spawn(self: *Scheduler, func: *const fn (*GreenThread) void) !*GreenThread {
@@ -66,42 +75,37 @@ pub const Scheduler = struct {
         const queue_idx = @as(usize, @intCast(id % self.num_workers));
         try self.queues[queue_idx].push(thread);
 
-        _ = self.active_threads.fetchAdd(1, .monotonic);
-
-        // Schedule worker to run this task
-        const WorkerContext = struct {
-            scheduler: *Scheduler,
-            worker_id: usize,
-
-            pub fn run(sched: *Scheduler, wid: usize) void {
-                sched.workerRunTask(wid);
-            }
-        };
-
-        try self.pool.spawn(WorkerContext.run, .{ self, queue_idx });
+        // Increment counter (workers will pick it up)
+        _ = self.active_threads.fetchAdd(1, .acq_rel);
 
         return thread;
     }
 
-    fn workerRunTask(self: *Scheduler, worker_id: usize) void {
-        var local_queue = &self.queues[worker_id];
+    fn workerLoop(self: *Scheduler, worker_id: usize) void {
+        const queue = &self.queues[worker_id];
 
-        // Try to get task from local queue first
-        var task = local_queue.pop();
-
-        // If no local work, try to steal from other queues
-        if (task == null) {
-            task = self.trySteal(worker_id);
-        }
-
-        if (task) |t| {
-            if (t.state == .ready) {
-                t.run();
+        while (!self.shutdown_flag.load(.acquire)) {
+            // Try local queue first (LIFO for cache locality)
+            if (queue.pop()) |task| {
+                if (task.state == .ready) {
+                    task.run();
+                }
+                _ = self.active_threads.fetchSub(1, .release);
+                continue;
             }
-        }
 
-        // Always decrement the counter
-        _ = self.active_threads.fetchSub(1, .monotonic);
+            // Try stealing from other queues (FIFO)
+            if (self.trySteal(worker_id)) |task| {
+                if (task.state == .ready) {
+                    task.run();
+                }
+                _ = self.active_threads.fetchSub(1, .release);
+                continue;
+            }
+
+            // No work available, yield CPU
+            std.Thread.yield() catch {};
+        }
     }
 
     fn trySteal(self: *Scheduler, worker_id: usize) ?*GreenThread {
@@ -152,6 +156,7 @@ test "Scheduler basic spawn" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 2);
+    try sched.start();
     defer sched.deinit();
 
     var counter: usize = 0;
@@ -178,6 +183,7 @@ test "Scheduler many threads" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 4);
+    try sched.start();
     defer sched.deinit();
 
     var counter: usize = 0;

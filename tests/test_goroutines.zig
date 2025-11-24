@@ -6,6 +6,7 @@ test "spawn 100k green threads" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 8);
+    try sched.start();
     defer sched.deinit();
 
     var counter: usize = 0;
@@ -32,6 +33,7 @@ test "work stealing functionality" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 4);
+    try sched.start();
     defer sched.deinit();
 
     var counters = [_]usize{0} ** 4;
@@ -96,6 +98,7 @@ test "concurrent increments" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 8);
+    try sched.start();
     defer sched.deinit();
 
     var shared_counter: usize = 0;
@@ -127,6 +130,7 @@ test "compute intensive work" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 4);
+    try sched.start();
     defer sched.deinit();
 
     const Result = struct {
@@ -197,6 +201,7 @@ test "scheduler shutdown" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 4);
+    try sched.start();
 
     var counter: usize = 0;
 
@@ -224,6 +229,7 @@ test "empty scheduler" {
     const allocator = std.testing.allocator;
 
     var sched = try Scheduler.init(allocator, 2);
+    try sched.start();
     defer sched.deinit();
 
     // No tasks spawned
@@ -237,6 +243,7 @@ test "multi-core utilization simulation" {
 
     const cpu_count = try std.Thread.getCpuCount();
     var sched = try Scheduler.init(allocator, cpu_count);
+    try sched.start();
     defer sched.deinit();
 
     var completed = [_]std.atomic.Value(bool){std.atomic.Value(bool).init(false)} ** 16;

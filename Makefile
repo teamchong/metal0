@@ -1,4 +1,4 @@
-.PHONY: help build install verify test test-zig test-correctness-full test-runtime test-asyncio test-all format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines benchmark-quick benchmark-full help-testing
+.PHONY: help build install verify test test-zig test-correctness-full test-runtime test-asyncio test-all format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines benchmark-quick benchmark-full benchmark-5d benchmark-dashboard help-testing
 
 help:
 	@echo "PyAOT Commands"
@@ -18,6 +18,8 @@ help:
 	@echo "clean                   - Remove build artifacts"
 	@echo "benchmark-quick         - Quick benchmark (simple + CPU-bound)"
 	@echo "benchmark-full          - Full benchmark suite vs Go"
+	@echo "benchmark-5d            - 5-dimensional async benchmark (PyAOT vs Go)"
+	@echo "benchmark-dashboard     - Automated dashboard with JSON export"
 	@echo "help-testing            - Show testing & benchmarking help"
 
 build:
@@ -305,6 +307,17 @@ benchmark-quick:
 .PHONY: benchmark-full
 benchmark-full: benchmark-goroutines
 	@echo "Full benchmark suite - see results above"
+
+.PHONY: benchmark-5d
+benchmark-5d:
+	@echo "Running 5-dimensional benchmark suite..."
+	@chmod +x scripts/benchmark_async_complete.sh
+	@./scripts/benchmark_async_complete.sh
+
+.PHONY: benchmark-dashboard
+benchmark-dashboard:
+	@echo "Running automated benchmark dashboard..."
+	@python3 scripts/benchmark_dashboard.py
 
 # Help target
 .PHONY: help-testing

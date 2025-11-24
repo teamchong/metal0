@@ -18,6 +18,7 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.output.appendSlice(self.allocator, "    if (!runtime.scheduler_initialized) {\n");
     try self.output.appendSlice(self.allocator, "        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
     try self.output.appendSlice(self.allocator, "        runtime.scheduler = try runtime.Scheduler.init(allocator, __num_threads);\n");
+    try self.output.appendSlice(self.allocator, "        try runtime.scheduler.start();\n");
     try self.output.appendSlice(self.allocator, "        runtime.scheduler_initialized = true;\n");
     try self.output.appendSlice(self.allocator, "    }\n");
 
