@@ -218,6 +218,66 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
             try methods.genIsupper(self, call.func.attribute.value.*, call.args);
             return true;
         }
+        if (std.mem.eql(u8, method_name, "lstrip")) {
+            try methods.genLstrip(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "rstrip")) {
+            try methods.genRstrip(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "capitalize")) {
+            try methods.genCapitalize(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "title")) {
+            try methods.genTitle(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "swapcase")) {
+            try methods.genSwapcase(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "index")) {
+            try methods.genStrIndex(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "rfind")) {
+            try methods.genRfind(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "rindex")) {
+            try methods.genRindex(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "ljust")) {
+            try methods.genLjust(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "rjust")) {
+            try methods.genRjust(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "center")) {
+            try methods.genCenter(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "zfill")) {
+            try methods.genZfill(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "isascii")) {
+            try methods.genIsascii(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "istitle")) {
+            try methods.genIstitle(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "isprintable")) {
+            try methods.genIsprintable(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
 
         // List methods
         if (std.mem.eql(u8, method_name, "append")) {

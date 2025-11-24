@@ -20,6 +20,21 @@ pub const genIsalnum = string.genIsalnum;
 pub const genIsspace = string.genIsspace;
 pub const genIslower = string.genIslower;
 pub const genIsupper = string.genIsupper;
+pub const genLstrip = string.genLstrip;
+pub const genRstrip = string.genRstrip;
+pub const genCapitalize = string.genCapitalize;
+pub const genTitle = string.genTitle;
+pub const genSwapcase = string.genSwapcase;
+pub const genStrIndex = string.genIndex;
+pub const genRfind = string.genRfind;
+pub const genRindex = string.genRindex;
+pub const genLjust = string.genLjust;
+pub const genRjust = string.genRjust;
+pub const genCenter = string.genCenter;
+pub const genZfill = string.genZfill;
+pub const genIsascii = string.genIsascii;
+pub const genIstitle = string.genIstitle;
+pub const genIsprintable = string.genIsprintable;
 
 // List methods
 pub const genAppend = list.genAppend;

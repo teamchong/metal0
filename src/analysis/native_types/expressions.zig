@@ -430,10 +430,16 @@ fn inferCall(
             if (std.mem.eql(u8, attr.attr, "isspace")) return .bool;
             if (std.mem.eql(u8, attr.attr, "islower")) return .bool;
             if (std.mem.eql(u8, attr.attr, "isupper")) return .bool;
+            if (std.mem.eql(u8, attr.attr, "isascii")) return .bool;
+            if (std.mem.eql(u8, attr.attr, "istitle")) return .bool;
+            if (std.mem.eql(u8, attr.attr, "isprintable")) return .bool;
 
             // Integer-returning methods
             if (std.mem.eql(u8, attr.attr, "find")) return .int;
             if (std.mem.eql(u8, attr.attr, "count")) return .int;
+            if (std.mem.eql(u8, attr.attr, "index")) return .int;
+            if (std.mem.eql(u8, attr.attr, "rfind")) return .int;
+            if (std.mem.eql(u8, attr.attr, "rindex")) return .int;
 
             // split() returns list of runtime strings
             if (std.mem.eql(u8, attr.attr, "split")) {

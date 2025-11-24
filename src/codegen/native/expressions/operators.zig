@@ -320,6 +320,30 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     }
                 }
             }
+        }
+        // Special handling for None comparisons
+        else if (left_type == .none or right_type == .none) {
+            // None comparisons with mixed types always false for ==, true for !=
+            const left_tag = @as(std.meta.Tag(@TypeOf(left_type)), left_type);
+            const right_tag = @as(std.meta.Tag(@TypeOf(right_type)), right_type);
+            if (left_tag != right_tag) {
+                // One is None, other is not - compile-time false for ==, true for !=
+                switch (op) {
+                    .Eq => try self.output.appendSlice(self.allocator, "false"),
+                    .NotEq => try self.output.appendSlice(self.allocator, "true"),
+                    else => try self.output.appendSlice(self.allocator, "false"),
+                }
+            } else {
+                // Both are None - compare normally
+                try genExpr(self, compare.left.*);
+                const op_str = switch (op) {
+                    .Eq => " == ",
+                    .NotEq => " != ",
+                    else => " == ", // Other comparisons default to ==
+                };
+                try self.output.appendSlice(self.allocator, op_str);
+                try genExpr(self, compare.comparators[i]);
+            }
         } else {
             // Regular comparisons for non-strings
             // Check for type mismatches between usize and i64

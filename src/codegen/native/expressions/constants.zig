@@ -18,7 +18,7 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
             }
         },
         .bool => try self.output.appendSlice(self.allocator, if (constant.value.bool) "true" else "false"),
-        .none => try self.output.appendSlice(self.allocator, "{}"), // Zig void literal
+        .none => try self.output.appendSlice(self.allocator, "null"), // Zig null represents None
         .string => |s| {
             // Strip Python quotes
             const content = if (s.len >= 2) s[1 .. s.len - 1] else s;

@@ -85,6 +85,21 @@ class TestStringMethods:
         ('text = "HeLLo"\nprint(text.swapcase())', "swapcase()"),
         ('text = "hello world"\nprint(text.title())', "title()"),
         ('text = "hi"\nprint(text.center(6))', "center()"),
+        ('text = "  hello  "\nprint(text.lstrip())', "lstrip()"),
+        ('text = "  hello  "\nprint(text.rstrip())', "rstrip()"),
+        ('text = "hello"\nprint(text.index("e"))', "index() found"),
+        ('text = "hello"\nprint(text.index("z"))', "index() not found"),
+        ('text = "hello"\nprint(text.rfind("l"))', "rfind() found"),
+        ('text = "hello"\nprint(text.rfind("z"))', "rfind() not found"),
+        ('text = "hello"\nprint(text.rindex("l"))', "rindex() found"),
+        ('text = "hello"\nprint(text.rindex("z"))', "rindex() not found"),
+        ('text = "hi"\nprint(text.ljust(5))', "ljust()"),
+        ('text = "hi"\nprint(text.rjust(5))', "rjust()"),
+        ('text = "42"\nprint(text.zfill(5))', "zfill()"),
+        ('text = "abc"\nif text.isascii():\n    print("YES")', "isascii() true"),
+        ('text = "Hello World"\nif text.istitle():\n    print("YES")', "istitle() true"),
+        ('text = "hello world"\nif text.istitle():\n    print("YES")\nelse:\n    print("NO")', "istitle() false"),
+        ('text = "abc 123"\nif text.isprintable():\n    print("YES")', "isprintable() true"),
     ])
     def test_string_method(self, code, desc):
         """Test string methods match Python behavior"""
