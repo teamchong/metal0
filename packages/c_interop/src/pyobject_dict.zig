@@ -8,7 +8,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
-const dict_impl = @import("../../collections/dict_impl.zig");
+const dict_impl = @import("collections");
 
 const allocator = std.heap.c_allocator;
 
