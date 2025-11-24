@@ -79,34 +79,31 @@ const ESCAPE_SEQUENCES: [256][]const u8 = blk: {
 
 /// Direct stringify - writes to ArrayList without writer() overhead
 fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
-    // Cache data pointer to reduce indirection
-    const obj_data = obj.data;
-    const type_id = obj.type_id;
-
     // Prefetch data for better cache locality
-    @prefetch(obj_data, .{});
+    @prefetch(obj.data, .{});
 
-    switch (type_id) {
+    // Direct switch without caching - let compiler optimize
+    switch (obj.type_id) {
         .none => try buffer.appendSlice(allocator, JSON_NULL),
         .bool => {
-            const data: *runtime.PyInt = @ptrCast(@alignCast(obj_data));
+            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
             try buffer.appendSlice(allocator, if (data.value != 0) JSON_TRUE else JSON_FALSE);
         },
         .int => {
-            const data: *runtime.PyInt = @ptrCast(@alignCast(obj_data));
+            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
             var buf: [32]u8 = undefined;
             const formatted = std.fmt.bufPrint(&buf, "{d}", .{data.value}) catch unreachable;
             try buffer.appendSlice(allocator, formatted);
         },
         .float => try buffer.appendSlice(allocator, JSON_ZERO),
         .string => {
-            const data: *runtime.PyString = @ptrCast(@alignCast(obj_data));
+            const data: *runtime.PyString = @ptrCast(@alignCast(obj.data));
             try buffer.append(allocator, '"');
             try writeEscapedStringDirect(data.data, buffer, allocator);
             try buffer.append(allocator, '"');
         },
         .list => {
-            const data: *runtime.PyList = @ptrCast(@alignCast(obj_data));
+            const data: *runtime.PyList = @ptrCast(@alignCast(obj.data));
             const items = data.items.items;
             try buffer.append(allocator, '[');
             if (items.len > 0) {
@@ -119,7 +116,7 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
             try buffer.append(allocator, ']');
         },
         .tuple => {
-            const data: *runtime.PyTuple = @ptrCast(@alignCast(obj_data));
+            const data: *runtime.PyTuple = @ptrCast(@alignCast(obj.data));
             const items = data.items;
             try buffer.append(allocator, '[');
             if (items.len > 0) {
@@ -132,7 +129,7 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
             try buffer.append(allocator, ']');
         },
         .dict => {
-            const data: *runtime.PyDict = @ptrCast(@alignCast(obj_data));
+            const data: *runtime.PyDict = @ptrCast(@alignCast(obj.data));
             try buffer.append(allocator, '{');
 
             // Fast path: process first entry without comma check
