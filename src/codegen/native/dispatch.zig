@@ -190,6 +190,34 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
             try methods.genFind(self, call.func.attribute.value.*, call.args);
             return true;
         }
+        if (std.mem.eql(u8, method_name, "count")) {
+            try methods.genCount(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "isdigit")) {
+            try methods.genIsdigit(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "isalpha")) {
+            try methods.genIsalpha(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "isalnum")) {
+            try methods.genIsalnum(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "isspace")) {
+            try methods.genIsspace(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "islower")) {
+            try methods.genIslower(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "isupper")) {
+            try methods.genIsupper(self, call.func.attribute.value.*, call.args);
+            return true;
+        }
 
         // List methods
         if (std.mem.eql(u8, method_name, "append")) {

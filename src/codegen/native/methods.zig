@@ -14,6 +14,12 @@ pub const genStartswith = string.genStartswith;
 pub const genEndswith = string.genEndswith;
 pub const genFind = string.genFind;
 pub const genCount = string.genCount;
+pub const genIsdigit = string.genIsdigit;
+pub const genIsalpha = string.genIsalpha;
+pub const genIsalnum = string.genIsalnum;
+pub const genIsspace = string.genIsspace;
+pub const genIslower = string.genIslower;
+pub const genIsupper = string.genIsupper;
 
 // List methods
 pub const genAppend = list.genAppend;

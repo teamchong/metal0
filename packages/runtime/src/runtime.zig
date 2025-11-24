@@ -23,6 +23,13 @@ pub const InferListType = comptime_helpers.InferListType;
 pub const createListComptime = comptime_helpers.createListComptime;
 pub const InferDictValueType = comptime_helpers.InferDictValueType;
 
+/// Export comptime closure helpers
+pub const closure_impl = @import("closure_impl.zig");
+pub const Closure1 = closure_impl.Closure1;
+pub const Closure2 = closure_impl.Closure2;
+pub const Closure3 = closure_impl.Closure3;
+pub const ZeroClosure = closure_impl.ZeroClosure;
+
 /// Python exception types mapped to Zig errors
 pub const PythonError = error{
     ZeroDivisionError,
@@ -540,6 +547,47 @@ pub fn arrayListGet(comptime T: type, list: std.ArrayList(T), index: i64) Python
     }
 
     return list.items[@intCast(actual_index)];
+}
+
+/// Generic value printer using comptime type detection
+/// Prints any value with Python-style formatting
+pub fn printValue(value: anytype) void {
+    const T = @TypeOf(value);
+    const type_info = @typeInfo(T);
+
+    switch (type_info) {
+        .int, .comptime_int => std.debug.print("{d}", .{value}),
+        .float, .comptime_float => std.debug.print("{d}", .{value}),
+        .bool => std.debug.print("{s}", .{if (value) "True" else "False"}),
+        .pointer => |ptr_info| {
+            if (ptr_info.size == .Slice) {
+                // Check if it's a string ([]const u8 or []u8)
+                if (ptr_info.child == u8) {
+                    std.debug.print("'{s}'", .{value});
+                } else {
+                    // Generic slice/array
+                    std.debug.print("[", .{});
+                    for (value, 0..) |item, i| {
+                        if (i > 0) std.debug.print(", ", .{});
+                        printValue(item);
+                    }
+                    std.debug.print("]", .{});
+                }
+            } else {
+                std.debug.print("{any}", .{value});
+            }
+        },
+        .array => {
+            std.debug.print("[", .{});
+            for (value, 0..) |item, i| {
+                if (i > 0) std.debug.print(", ", .{});
+                printValue(item);
+            }
+            std.debug.print("]", .{});
+        },
+        .void => std.debug.print("None", .{}),
+        else => std.debug.print("{any}", .{value}),
+    }
 }
 
 test "reference counting" {

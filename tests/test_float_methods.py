@@ -1,5 +1,13 @@
 # Float operation tests (from Codon stdlib)
 
+# Test runner
+passed = 0
+
+def run(name):
+    global passed
+    passed += 1
+    print(f"{name}: PASS")
+
 def test_float_arithmetic():
     """Test basic float arithmetic operations"""
     assert 5.5 + 3.2 == 8.7
@@ -97,3 +105,19 @@ def test_float_modulo():
     assert 10.0 % 3.0 == 1.0
     assert 10.5 % 2.0 == 0.5
     assert 7.5 % 2.5 == 0.0
+
+
+if __name__ == "__main__":
+    test_float_arithmetic(); run("test_float_arithmetic")
+    test_float_negative(); run("test_float_negative")
+    test_float_comparison(); run("test_float_comparison")
+    test_float_abs(); run("test_float_abs")
+    test_float_round(); run("test_float_round")
+    test_float_bool(); run("test_float_bool")
+    test_float_zero_operations(); run("test_float_zero_operations")
+    test_float_special_values(); run("test_float_special_values")
+    test_float_mixed_operations(); run("test_float_mixed_operations")
+    test_float_power(); run("test_float_power")
+    test_float_modulo(); run("test_float_modulo")
+
+    print(f"\nAll {passed} float tests passed!")

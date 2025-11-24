@@ -1,5 +1,13 @@
 # Int operation tests (from Codon stdlib)
 
+# Test runner
+passed = 0
+
+def run(name):
+    global passed
+    passed += 1
+    print(f"{name}: PASS")
+
 def test_int_arithmetic():
     """Test basic int arithmetic operations"""
     assert 5 + 3 == 8
@@ -121,3 +129,23 @@ def test_int_large_numbers():
     assert 1000000 + 2000000 == 3000000
     assert 1000000 * 1000 == 1000000000
     assert 2 ** 20 == 1048576
+
+
+if __name__ == "__main__":
+    test_int_arithmetic(); run("test_int_arithmetic")
+    test_int_negative(); run("test_int_negative")
+    test_int_comparison(); run("test_int_comparison")
+    test_int_bitwise_and(); run("test_int_bitwise_and")
+    test_int_bitwise_or(); run("test_int_bitwise_or")
+    test_int_bitwise_xor(); run("test_int_bitwise_xor")
+    test_int_bitwise_not(); run("test_int_bitwise_not")
+    test_int_left_shift(); run("test_int_left_shift")
+    test_int_right_shift(); run("test_int_right_shift")
+    test_int_abs(); run("test_int_abs")
+    test_int_pow(); run("test_int_pow")
+    test_int_divmod(); run("test_int_divmod")
+    test_int_bool(); run("test_int_bool")
+    test_int_zero_operations(); run("test_int_zero_operations")
+    test_int_large_numbers(); run("test_int_large_numbers")
+
+    print(f"\nAll {passed} int tests passed!")

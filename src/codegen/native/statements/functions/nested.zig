@@ -107,59 +107,64 @@ pub fn genNestedFunctionDef(
     const captured_vars = func.captured_vars;
 
     if (captured_vars.len == 0) {
-        // No captures - generate as regular local function
+        // No captures - use ZeroClosure comptime pattern
         try self.emitIndent();
-        try genSimpleNestedFunction(self, func);
+        try genZeroCaptureClosure(self, func);
         return;
     }
 
-    // Generate closure struct
-    const closure_name = try std.fmt.allocPrint(
+    // Generate comptime closure using runtime.Closure1 helper
+    const closure_impl_name = try std.fmt.allocPrint(
         self.allocator,
-        "__Closure_{s}_{d}",
+        "__ClosureImpl_{s}_{d}",
         .{ func.name, self.lambda_counter },
     );
-    defer self.allocator.free(closure_name);
+    defer self.allocator.free(closure_impl_name);
     self.lambda_counter += 1;
 
+    // Generate the capture struct type (must be defined once and reused)
+    const capture_type_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__CaptureType_{s}_{d}",
+        .{ func.name, self.lambda_counter },
+    );
+    defer self.allocator.free(capture_type_name);
+
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{closure_name});
+    try self.output.writer(self.allocator).print("const {s} = struct {{", .{capture_type_name});
+    for (captured_vars, 0..) |var_name, i| {
+        if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+        try self.output.writer(self.allocator).print(" {s}: i64", .{var_name});
+    }
+    try self.output.appendSlice(self.allocator, " };\n");
+
+    // Generate the inner function that takes (captures, args...)
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{closure_impl_name});
     self.indent();
 
-    // Generate captured fields
-    for (captured_vars) |var_name| {
-        // For now, assume captured vars are i64 (simple case)
-        // TODO: Use proper type inference from outer scope
-        try self.emitIndent();
-        try self.output.writer(self.allocator).print("{s}: i64,\n", .{var_name});
-    }
-
-    try self.output.appendSlice(self.allocator, "\n");
-
-    // Generate the function as a method named 'call'
+    // Generate static function that closure will call
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "pub fn call(self: @This()");
+    try self.output.writer(self.allocator).print("fn inner(captures: {s}", .{capture_type_name});
+
     for (func.args) |arg| {
         try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
     }
     try self.output.appendSlice(self.allocator, ") i64 {\n");
 
-    // Generate body with self. prefix for captured vars
-    const saved_indent = self.indent_level;
-    self.indent_level += 1;
-
+    // Generate body with captures. prefix for captured vars
+    self.indent();
     try self.pushScope();
     for (func.args) |arg| {
         try self.declareVar(arg.name);
     }
 
-    // Generate body statements, replacing captured vars with self.var
     for (func.body) |stmt| {
-        try genStmtWithCapture(self, stmt, captured_vars);
+        try genStmtWithCaptureStruct(self, stmt, captured_vars);
     }
 
     self.popScope();
-    self.indent_level = saved_indent;
+    self.dedent();
 
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "}\n");
@@ -168,32 +173,80 @@ pub fn genNestedFunctionDef(
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "};\n");
 
-    // Instantiate closure
+    // Create closure type using comptime helper based on arg count
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("const {s} = {s}{{", .{ func.name, closure_name });
+    if (func.args.len == 1) {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.Closure1({s}, ",
+            .{ func.name, capture_type_name },
+        );
+    } else if (func.args.len == 2) {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.Closure2({s}, ",
+            .{ func.name, capture_type_name },
+        );
+    } else if (func.args.len == 3) {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.Closure3({s}, ",
+            .{ func.name, capture_type_name },
+        );
+    } else {
+        // Fallback to single arg tuple
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.Closure1({s}, ",
+            .{ func.name, capture_type_name },
+        );
+    }
+
+    // Arg types
+    for (func.args, 0..) |_, i| {
+        if (func.args.len > 1 and i > 0) try self.output.appendSlice(self.allocator, ", ");
+        try self.output.appendSlice(self.allocator, "i64");
+        if (func.args.len == 1 or i == func.args.len - 1) {
+            try self.output.appendSlice(self.allocator, ", ");
+        }
+    }
+
+    // Return type and function
+    try self.output.writer(self.allocator).print(
+        "i64, {s}.inner){{ .captures = .{{",
+        .{closure_impl_name},
+    );
+
+    // Initialize captures
     for (captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.output.appendSlice(self.allocator, ", ");
         try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, var_name });
     }
-    try self.output.appendSlice(self.allocator, " };\n");
+    try self.output.appendSlice(self.allocator, " } };\n");
 
-    // Mark this variable as a closure so calls use .func_name() syntax
+    // Mark this variable as a closure so calls use .call() syntax
     const func_name_copy = try self.allocator.dupe(u8, func.name);
     try self.closure_vars.put(func_name_copy, {});
 }
 
-/// Generate simple nested function without captures
-fn genSimpleNestedFunction(
+/// Generate zero-capture closure using comptime ZeroClosure
+fn genZeroCaptureClosure(
     self: *NativeCodegen,
     func: ast.Node.FunctionDef,
 ) CodegenError!void {
-    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{func.name});
+    // Generate the inner function
+    const impl_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__ZeroImpl_{s}_{d}",
+        .{ func.name, self.lambda_counter },
+    );
+    defer self.allocator.free(impl_name);
+    self.lambda_counter += 1;
+
+    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{impl_name});
     self.indent();
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("pub fn call(_: @This()", .{});
-    for (func.args) |arg| {
-        try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
+    try self.output.appendSlice(self.allocator, "fn inner(");
+    for (func.args, 0..) |arg, i| {
+        if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+        try self.output.writer(self.allocator).print("{s}: i64", .{arg.name});
     }
     try self.output.appendSlice(self.allocator, ") i64 {\n");
 
@@ -215,11 +268,44 @@ fn genSimpleNestedFunction(
 
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}{};\n");
+    try self.output.appendSlice(self.allocator, "};\n");
+
+    // Use ZeroClosure for single arg, or struct wrapper for multiple
+    try self.emitIndent();
+    if (func.args.len == 1) {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.ZeroClosure(i64, i64, {s}.inner){{}};\n",
+            .{ func.name, impl_name },
+        );
+    } else {
+        // Multiple args - create wrapper struct
+        try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{func.name});
+        self.indent();
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "pub fn call(_: @This()");
+        for (func.args) |arg| {
+            try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
+        }
+        try self.output.writer(self.allocator).print(") i64 {{\n", .{});
+        self.indent();
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("return {s}.inner(", .{impl_name});
+        for (func.args, 0..) |arg, i| {
+            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+            try self.output.appendSlice(self.allocator, arg.name);
+        }
+        try self.output.appendSlice(self.allocator, ");\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "}\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "}{};\n");
+    }
 }
 
-/// Generate statement with captured variable references prefixed with "self."
-fn genStmtWithCapture(
+/// Generate statement with captured variable references prefixed with "captures."
+fn genStmtWithCaptureStruct(
     self: *NativeCodegen,
     stmt: ast.Node,
     captured_vars: [][]const u8,
@@ -229,7 +315,7 @@ fn genStmtWithCapture(
             try self.emitIndent();
             try self.output.appendSlice(self.allocator, "return ");
             if (ret.value) |val| {
-                try genExprWithCapture(self, val.*, captured_vars);
+                try genExprWithCaptureStruct(self, val.*, captured_vars);
             }
             try self.output.appendSlice(self.allocator, ";\n");
         },
@@ -240,8 +326,8 @@ fn genStmtWithCapture(
     }
 }
 
-/// Generate expression with captured variable references prefixed with "self."
-fn genExprWithCapture(
+/// Generate expression with captured variable references prefixed with "captures."
+fn genExprWithCaptureStruct(
     self: *NativeCodegen,
     node: ast.Node,
     captured_vars: [][]const u8,
@@ -251,7 +337,7 @@ fn genExprWithCapture(
             // Check if this variable is captured
             for (captured_vars) |captured| {
                 if (std.mem.eql(u8, n.id, captured)) {
-                    try self.output.appendSlice(self.allocator, "self.");
+                    try self.output.appendSlice(self.allocator, "captures.");
                     try self.output.appendSlice(self.allocator, n.id);
                     return;
                 }
@@ -260,7 +346,7 @@ fn genExprWithCapture(
         },
         .binop => |b| {
             try self.output.appendSlice(self.allocator, "(");
-            try genExprWithCapture(self, b.left.*, captured_vars);
+            try genExprWithCaptureStruct(self, b.left.*, captured_vars);
 
             const op_str = switch (b.op) {
                 .Add => " + ",
@@ -276,7 +362,7 @@ fn genExprWithCapture(
             };
             try self.output.appendSlice(self.allocator, op_str);
 
-            try genExprWithCapture(self, b.right.*, captured_vars);
+            try genExprWithCaptureStruct(self, b.right.*, captured_vars);
             try self.output.appendSlice(self.allocator, ")");
         },
         .constant => |c| {
@@ -284,11 +370,11 @@ fn genExprWithCapture(
             try expressions.genConstant(self, c);
         },
         .call => |c| {
-            try genExprWithCapture(self, c.func.*, captured_vars);
+            try genExprWithCaptureStruct(self, c.func.*, captured_vars);
             try self.output.appendSlice(self.allocator, "(");
             for (c.args, 0..) |arg, i| {
                 if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-                try genExprWithCapture(self, arg, captured_vars);
+                try genExprWithCaptureStruct(self, arg, captured_vars);
             }
             try self.output.appendSlice(self.allocator, ")");
         },

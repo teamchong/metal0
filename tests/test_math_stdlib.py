@@ -1,6 +1,14 @@
 # Math module tests (from Codon stdlib)
 import math
 
+# Test runner
+passed = 0
+
+def run(name):
+    global passed
+    passed += 1
+    print(f"{name}: PASS")
+
 
 def close(a: float, b: float, epsilon: float = 1e-7):
     """Helper to compare floats with epsilon tolerance"""
@@ -158,3 +166,27 @@ def test_math_isfinite():
     assert math.isfinite(float('nan')) == False
     assert math.isfinite(float('inf')) == False
     assert math.isfinite(float('-inf')) == False
+
+
+if __name__ == "__main__":
+    test_math_constants(); run("test_math_constants")
+    test_math_ceil(); run("test_math_ceil")
+    test_math_floor(); run("test_math_floor")
+    test_math_fabs(); run("test_math_fabs")
+    test_math_fmod(); run("test_math_fmod")
+    test_math_exp(); run("test_math_exp")
+    test_math_log(); run("test_math_log")
+    test_math_log2(); run("test_math_log2")
+    test_math_log10(); run("test_math_log10")
+    test_math_sqrt(); run("test_math_sqrt")
+    test_math_pow(); run("test_math_pow")
+    test_math_degrees(); run("test_math_degrees")
+    test_math_radians(); run("test_math_radians")
+    test_math_sin(); run("test_math_sin")
+    test_math_cos(); run("test_math_cos")
+    test_math_tan(); run("test_math_tan")
+    test_math_isnan(); run("test_math_isnan")
+    test_math_isinf(); run("test_math_isinf")
+    test_math_isfinite(); run("test_math_isfinite")
+
+    print(f"\nAll {passed} math tests passed!")

@@ -149,11 +149,140 @@ pub fn genFind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // For now: compile error - needs loop implementation
-    // TODO: Generate loop to count occurrences
-    _ = obj;
-    try self.output.appendSlice(
-        self.allocator,
-        "@compileError(\"text.count() requires loop codegen, not yet supported\")",
-    );
+    // Generate loop to count occurrences
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.genExpr(obj);
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    const _needle = ");
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    var _count: i64 = 0;\n");
+    try self.output.appendSlice(self.allocator, "    var _pos: usize = 0;\n");
+    try self.output.appendSlice(self.allocator, "    while (_pos < _text.len) {\n");
+    try self.output.appendSlice(self.allocator, "        if (std.mem.indexOf(u8, _text[_pos..], _needle)) |idx| {\n");
+    try self.output.appendSlice(self.allocator, "            _count += 1;\n");
+    try self.output.appendSlice(self.allocator, "            _pos += idx + _needle.len;\n");
+    try self.output.appendSlice(self.allocator, "        } else break;\n");
+    try self.output.appendSlice(self.allocator, "    }\n");
+    try self.output.appendSlice(self.allocator, "    break :blk _count;\n");
+    try self.output.appendSlice(self.allocator, "}");
+}
+
+/// Generate code for text.isdigit()
+/// Returns true if all characters are digits (0-9)
+pub fn genIsdigit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    // SIMD-optimized digit validation using @Vector
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.genExpr(obj);
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    if (_text.len == 0) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    const vec_size = 16;\n");
+    try self.output.appendSlice(self.allocator, "    const zero: @Vector(vec_size, u8) = @splat('0');\n");
+    try self.output.appendSlice(self.allocator, "    const nine: @Vector(vec_size, u8) = @splat('9');\n");
+    try self.output.appendSlice(self.allocator, "    var i: usize = 0;\n");
+    try self.output.appendSlice(self.allocator, "    while (i + vec_size <= _text.len) : (i += vec_size) {\n");
+    try self.output.appendSlice(self.allocator, "        const chunk: @Vector(vec_size, u8) = _text[i..][0..vec_size].*;\n");
+    try self.output.appendSlice(self.allocator, "        const ge_zero = chunk >= zero;\n");
+    try self.output.appendSlice(self.allocator, "        const le_nine = chunk <= nine;\n");
+    try self.output.appendSlice(self.allocator, "        const is_digit = ge_zero & le_nine;\n");
+    try self.output.appendSlice(self.allocator, "        if (!@reduce(.And, is_digit)) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    }\n");
+    try self.output.appendSlice(self.allocator, "    while (i < _text.len) : (i += 1) {\n");
+    try self.output.appendSlice(self.allocator, "        if (!std.ascii.isDigit(_text[i])) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    }\n");
+    try self.output.appendSlice(self.allocator, "    break :blk true;\n");
+    try self.output.appendSlice(self.allocator, "}");
+}
+
+/// Generate code for text.isalpha()
+/// Returns true if all characters are alphabetic
+pub fn genIsalpha(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.genExpr(obj);
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    if (_text.len == 0) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    for (_text) |c| {\n");
+    try self.output.appendSlice(self.allocator, "        if (!std.ascii.isAlphabetic(c)) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    }\n");
+    try self.output.appendSlice(self.allocator, "    break :blk true;\n");
+    try self.output.appendSlice(self.allocator, "}");
+}
+
+/// Generate code for text.isalnum()
+/// Returns true if all characters are alphanumeric
+pub fn genIsalnum(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.genExpr(obj);
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    if (_text.len == 0) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    for (_text) |c| {\n");
+    try self.output.appendSlice(self.allocator, "        if (!std.ascii.isAlphanumeric(c)) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    }\n");
+    try self.output.appendSlice(self.allocator, "    break :blk true;\n");
+    try self.output.appendSlice(self.allocator, "}");
+}
+
+/// Generate code for text.isspace()
+/// Returns true if all characters are whitespace
+pub fn genIsspace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.genExpr(obj);
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    if (_text.len == 0) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    for (_text) |c| {\n");
+    try self.output.appendSlice(self.allocator, "        if (!std.ascii.isWhitespace(c)) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    }\n");
+    try self.output.appendSlice(self.allocator, "    break :blk true;\n");
+    try self.output.appendSlice(self.allocator, "}");
+}
+
+/// Generate code for text.islower()
+/// Returns true if all cased characters are lowercase
+pub fn genIslower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.genExpr(obj);
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    if (_text.len == 0) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    var has_cased = false;\n");
+    try self.output.appendSlice(self.allocator, "    for (_text) |c| {\n");
+    try self.output.appendSlice(self.allocator, "        if (std.ascii.isUpper(c)) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "        if (std.ascii.isLower(c)) has_cased = true;\n");
+    try self.output.appendSlice(self.allocator, "    }\n");
+    try self.output.appendSlice(self.allocator, "    break :blk has_cased;\n");
+    try self.output.appendSlice(self.allocator, "}");
+}
+
+/// Generate code for text.isupper()
+/// Returns true if all cased characters are uppercase
+pub fn genIsupper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.genExpr(obj);
+    try self.output.appendSlice(self.allocator, ";\n");
+    try self.output.appendSlice(self.allocator, "    if (_text.len == 0) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "    var has_cased = false;\n");
+    try self.output.appendSlice(self.allocator, "    for (_text) |c| {\n");
+    try self.output.appendSlice(self.allocator, "        if (std.ascii.isLower(c)) break :blk false;\n");
+    try self.output.appendSlice(self.allocator, "        if (std.ascii.isUpper(c)) has_cased = true;\n");
+    try self.output.appendSlice(self.allocator, "    }\n");
+    try self.output.appendSlice(self.allocator, "    break :blk has_cased;\n");
+    try self.output.appendSlice(self.allocator, "}");
 }

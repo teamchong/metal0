@@ -32,6 +32,11 @@ pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) Codege
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
     const value_type = try self.type_inferrer.inferExpr(assign.value.*);
 
+    // Skip None assignments - void has no runtime representation
+    if (value_type == .none) {
+        return;
+    }
+
     // Handle tuple unpacking: a, b = (1, 2)
     if (assign.targets.len == 1 and assign.targets[0] == .tuple) {
         const target_tuple = assign.targets[0].tuple;

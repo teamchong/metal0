@@ -67,6 +67,7 @@ fn genArrayLiteral(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
         .float => "f64",
         .string => "[]const u8",
         .bool => "bool",
+        .none => "void",
     };
 
     // Emit array literal: [_]T{elem1, elem2, ...}
