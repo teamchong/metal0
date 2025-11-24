@@ -27,9 +27,10 @@ pub fn compileViaSubprocess(allocator: std.mem.Allocator, source: []const u8) !b
     defer allocator.free(bytecode_data);
 
     // Wait for child
-    const result = try child.wait();
-    if (result.Exited != 0) {
-        return error.SubprocessFailed;
+    const term = try child.wait();
+    switch (term) {
+        .Exited => |code| if (code != 0) return error.SubprocessFailed,
+        else => return error.SubprocessFailed,
     }
 
     // Parse bytecode

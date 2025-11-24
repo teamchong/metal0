@@ -428,6 +428,11 @@ pub const exec = exec_module.exec;
 pub const compile_builtin = @import("compile.zig").compile_builtin;
 pub const dynamic_import = @import("dynamic_import.zig").dynamic_import;
 
+// Bytecode execution (for comptime eval)
+pub const bytecode = @import("bytecode.zig");
+pub const BytecodeProgram = bytecode.BytecodeProgram;
+pub const BytecodeVM = bytecode.VM;
+
 // Dynamic attribute access exports
 pub const getattr_builtin = dynamic_attrs.getattr_builtin;
 pub const setattr_builtin = dynamic_attrs.setattr_builtin;
