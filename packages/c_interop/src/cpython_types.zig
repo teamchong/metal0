@@ -3,100 +3,24 @@
 /// Implements PyLong, PyFloat, PyTuple, PyList, PyDict conversions
 /// with C-compatible exports and dead code elimination support.
 ///
-/// Agent 1 (main) implements these while Agent 2 handles ref counting.
+/// PyLong and PyBytes implementations are in separate modules.
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+
+// Import full PyLong and PyBytes implementations
+pub const pylong = @import("pyobject_long.zig");
+pub const pybytes = @import("pyobject_bytes.zig");
 
 /// Global allocator for type conversions (C-compatible)
 const allocator = std.heap.c_allocator;
 
 /// ============================================================================
-/// PYLONG - Integer Conversions (8 functions from auto-generated specs)
+/// PYLONG - Integer Conversions (now in pyobject_long.zig)
 /// ============================================================================
 
-/// Create PyLong from C long
-export fn PyLong_FromLong(value: c_long) callconv(.C) ?*cpython.PyObject {
-    // Allocate PyLongObject
-    const obj = allocator.create(cpython.PyLongObject) catch return null;
-
-    // Initialize with dummy type (TODO: proper type registry)
-    obj.ob_base.ob_base = .{
-        .ob_refcnt = 1,
-        .ob_type = undefined, // TODO: &PyLong_Type
-    };
-    obj.ob_base.ob_size = 1; // Simple case: 1 digit
-
-    // Store value in tag (CPython 3.12+ uses tagged ints)
-    obj.lv_tag = @bitCast(@as(i64, value));
-
-    return @ptrCast(&obj.ob_base.ob_base);
-}
-
-/// Extract C long from PyLong
-export fn PyLong_AsLong(obj: *cpython.PyObject) callconv(.C) c_long {
-    const long_obj = @as(*cpython.PyLongObject, @ptrCast(obj));
-
-    // Extract from tag
-    const value: i64 = @bitCast(long_obj.lv_tag);
-    return @intCast(value);
-}
-
-/// Create PyLong from unsigned long
-export fn PyLong_FromUnsignedLong(value: c_ulong) callconv(.C) ?*cpython.PyObject {
-    const obj = allocator.create(cpython.PyLongObject) catch return null;
-    obj.ob_base.ob_base = .{
-        .ob_refcnt = 1,
-        .ob_type = undefined,
-    };
-    obj.ob_base.ob_size = 1;
-    obj.lv_tag = value;
-    return @ptrCast(&obj.ob_base.ob_base);
-}
-
-/// Create PyLong from long long
-export fn PyLong_FromLongLong(value: c_longlong) callconv(.C) ?*cpython.PyObject {
-    const obj = allocator.create(cpython.PyLongObject) catch return null;
-    obj.ob_base.ob_base = .{
-        .ob_refcnt = 1,
-        .ob_type = undefined,
-    };
-    obj.ob_base.ob_size = 1;
-    obj.lv_tag = @bitCast(@as(i64, @intCast(value)));
-    return @ptrCast(&obj.ob_base.ob_base);
-}
-
-/// Extract long long from PyLong
-export fn PyLong_AsLongLong(obj: *cpython.PyObject) callconv(.C) c_longlong {
-    const long_obj = @as(*cpython.PyLongObject, @ptrCast(obj));
-    const value: i64 = @bitCast(long_obj.lv_tag);
-    return value;
-}
-
-/// Create PyLong from size_t
-export fn PyLong_FromSize_t(value: usize) callconv(.C) ?*cpython.PyObject {
-    const obj = allocator.create(cpython.PyLongObject) catch return null;
-    obj.ob_base.ob_base = .{
-        .ob_refcnt = 1,
-        .ob_type = undefined,
-    };
-    obj.ob_base.ob_size = 1;
-    obj.lv_tag = value;
-    return @ptrCast(&obj.ob_base.ob_base);
-}
-
-/// Extract size_t from PyLong
-export fn PyLong_AsSize_t(obj: *cpython.PyObject) callconv(.C) usize {
-    const long_obj = @as(*cpython.PyLongObject, @ptrCast(obj));
-    return long_obj.lv_tag;
-}
-
-/// Check if object is PyLong
-export fn PyLong_Check(obj: *cpython.PyObject) callconv(.C) c_int {
-    // TODO: Proper type checking with type registry
-    _ = obj;
-    return 1; // Assume true for now
-}
+// All PyLong_* functions are now implemented in pyobject_long.zig
+// They are automatically exported and available to C code
 
 /// ============================================================================
 /// PYFLOAT - Float Conversions (4 functions from auto-generated specs)

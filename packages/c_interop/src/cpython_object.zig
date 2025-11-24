@@ -46,6 +46,10 @@ pub const PyVarObject = extern struct {
 /// PYTYPE OBJECT (Type metadata)
 /// ============================================================================
 
+/// Forward declarations for protocol structs
+pub const PyNumberMethods = anyopaque;
+pub const PySequenceMethods = anyopaque;
+
 /// Simplified PyTypeObject for now
 /// Full version has ~50 function pointer slots!
 pub const PyTypeObject = extern struct {
@@ -63,7 +67,11 @@ pub const PyTypeObject = extern struct {
     tp_getattro: ?*const fn (*PyObject, *PyObject) callconv(.c) *PyObject,
     tp_setattro: ?*const fn (*PyObject, *PyObject, *PyObject) callconv(.c) c_int,
 
-    // TODO: Add remaining ~43 slots as needed
+    // Protocol slots
+    tp_as_number: ?*PyNumberMethods,
+    tp_as_sequence: ?*PySequenceMethods,
+
+    // TODO: Add remaining ~40 slots as needed
     // Dead code elimination ensures unused slots don't bloat binary
 };
 
