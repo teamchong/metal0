@@ -209,7 +209,7 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
 
     // Generate std.fmt.allocPrint call wrapped in a comptime or runtime block
     try self.output.writer(self.allocator).print(
-        "(try std.fmt.allocPrint(allocator, \"{s}\", .{{ {s} }}))",
+        "(try std.fmt.allocPrint(__global_allocator, \"{s}\", .{{ {s} }}))",
         .{ format_buf.items, args_buf.items },
     );
 }

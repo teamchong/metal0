@@ -267,6 +267,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         return self.output.toOwnedSlice(self.allocator);
     }
 
+    // PHASE 5.5: Generate module-level allocator (for async functions and f-strings)
+    try self.emit("\n// Module-level allocator for async functions and f-strings\n");
+    try self.emit("var __global_allocator: std.mem.Allocator = undefined;\n");
+    try self.emit("var __allocator_initialized: bool = false;\n\n");
+
     // PHASE 6: Generate main function (script mode only)
     try self.emit("pub fn main() !void {\n");
     self.indent();
@@ -280,6 +285,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     try self.emit("var allocator = gpa.allocator();\n");  // var instead of const so we can take address
     try self.emitIndent();
     try self.emit("std.mem.doNotOptimizeAway(&allocator);\n");  // Suppress unused warning
+    try self.emit("\n");
+
+    // Initialize module-level allocator
+    try self.emitIndent();
+    try self.emit("__global_allocator = allocator;\n");
+    try self.emitIndent();
+    try self.emit("__allocator_initialized = true;\n");
     try self.emit("\n");
 
     // PHASE 6.5: Apply decorators (after allocator, before other code)

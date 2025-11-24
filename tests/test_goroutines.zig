@@ -88,7 +88,7 @@ test "thread state transitions" {
         }
     };
 
-    const thread = try GreenThread.init(allocator, 1, StateFunc.func, null);
+    const thread = try GreenThread.init(allocator, 1, StateFunc.func, null, null);
     defer thread.deinit(allocator);
 
     try std.testing.expectEqual(GreenThread.State.ready, thread.state);
@@ -191,7 +191,7 @@ test "memory usage per thread" {
         }
     };
 
-    const thread = try GreenThread.init(allocator, 1, TestFunc.func, null);
+    const thread = try GreenThread.init(allocator, 1, TestFunc.func, null, null);
     defer thread.deinit(allocator);
 
     // Stack should be 4KB

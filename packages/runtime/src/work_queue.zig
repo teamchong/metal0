@@ -79,10 +79,10 @@ test "WorkQueue basic operations" {
         }
     };
 
-    const t1 = try GreenThread.init(allocator, 1, TestFunc.func);
+    const t1 = try GreenThread.init(allocator, 1, TestFunc.func, null, null);
     defer t1.deinit(allocator);
 
-    const t2 = try GreenThread.init(allocator, 2, TestFunc.func);
+    const t2 = try GreenThread.init(allocator, 2, TestFunc.func, null, null);
     defer t2.deinit(allocator);
 
     // Push tasks
@@ -110,13 +110,13 @@ test "WorkQueue work stealing" {
         }
     };
 
-    const t1 = try GreenThread.init(allocator, 1, TestFunc.func);
+    const t1 = try GreenThread.init(allocator, 1, TestFunc.func, null, null);
     defer t1.deinit(allocator);
 
-    const t2 = try GreenThread.init(allocator, 2, TestFunc.func);
+    const t2 = try GreenThread.init(allocator, 2, TestFunc.func, null, null);
     defer t2.deinit(allocator);
 
-    const t3 = try GreenThread.init(allocator, 3, TestFunc.func);
+    const t3 = try GreenThread.init(allocator, 3, TestFunc.func, null, null);
     defer t3.deinit(allocator);
 
     // Push tasks

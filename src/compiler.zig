@@ -28,7 +28,12 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
 
         const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
         defer src.close();
-        const content = try src.readToEndAlloc(aa, 1024 * 1024);
+        var content = try src.readToEndAlloc(aa, 1024 * 1024);
+
+        // Patch module imports to file imports for standalone compilation
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"green_thread\")", "@import(\"green_thread.zig\")");
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"work_queue\")", "@import(\"work_queue.zig\")");
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"scheduler\")", "@import(\"scheduler.zig\")");
 
         const dst = try std.fs.cwd().createFile(dst_path, .{});
         defer dst.close();
@@ -104,11 +109,13 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
 
     try args.append(aa, zig_path);
     try args.append(aa, "build-exe");
-    try args.append(aa, tmp_path);
 
     // Add build dir to import path so @import("runtime") finds runtime.zig
     const import_flag = try std.fmt.allocPrint(aa, "-I{s}", .{build_dir});
     try args.append(aa, import_flag);
+
+    // Add main source file
+    try args.append(aa, tmp_path);
 
     try args.append(aa, "-OReleaseFast");
     try args.append(aa, "-lc");

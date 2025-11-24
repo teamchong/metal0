@@ -252,7 +252,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         try self.output.appendSlice(self.allocator, "(");
 
         // For user-defined functions: inject allocator as FIRST argument
-        if (user_func_needs_alloc) {
+        // BUT NOT for async functions - the _async wrapper doesn't take allocator
+        if (user_func_needs_alloc and !is_async_func) {
             try self.output.appendSlice(self.allocator, "allocator");
             if (call.args.len > 0) {
                 try self.output.appendSlice(self.allocator, ", ");
