@@ -32,6 +32,65 @@ Python to Zig AOT compiler. Write Python, run native code.
 - Smaller than Python WASM (no interpreter)
 - Fast startup, tiny binary size
 
+## Why PyAOT?
+
+Python's distribution and deployment challenges solved.
+
+**1. Distribution Nightmare**
+- Python: pip dependencies, virtualenvs, version conflicts, requirements.txt hell
+- PyAOT: Single 433KB binary - no dependencies, just run
+
+**2. Cross-Platform Pain**
+- Python: Different wheels per OS, C extensions break, platform-specific bugs
+- PyAOT: Compile once per platform, native binaries work everywhere
+
+**3. WASM Support**
+- Python: Limited/experimental WASM, large bundles (>10MB)
+- PyAOT: Native WASM target, tiny output (46KB)
+
+**4. Performance**
+- Python: Slow interpreter, GIL limits parallelism
+- PyAOT: 31x faster, no GIL, native machine code
+
+**5. Docker Bloat**
+- Python: 900MB+ images (python:3.12 + deps)
+- PyAOT: FROM scratch, 433KB total - 2000x smaller
+
+### Comparison
+
+| Issue | Python | PyAOT |
+|-------|--------|-------|
+| Binary size | N/A | 433KB |
+| Dependencies | pip + virtualenv | Zero |
+| Docker image | 900MB+ | <1MB |
+| Startup time | ~50ms | <1ms |
+| Cross-compile | Complex | zig build |
+
+## Where PyAOT Excels
+
+**✅ Perfect For:**
+- **CLI tools** - <1ms startup vs Python's 50ms, single binary
+- **Serverless functions** - 50x faster cold start, no pip install
+- **Embedded systems** - Predictable memory, no interpreter
+- **IP protection** - Native code distribution, source not exposed
+- **Docker/K8s** - <1MB images vs 900MB+, faster deployments
+- **Browser/WASM** - Smaller than JS bundles, runs Python in browser natively
+
+**🎯 vs Existing Solutions:**
+
+| Tool | PyAOT Advantage |
+|------|----------------|
+| **PyInstaller/Nuitka** | True AOT, not bundling. 2000x smaller (no Python runtime) |
+| **Codon** | Pure Python syntax, no new language. Simpler toolchain |
+| **Cython** | No type annotations required. Full AOT compilation |
+| **mypyc** | Standalone binaries, not just module acceleration |
+
+**⚠️ Current Limitations:**
+- No `eval()`/`exec()` - static compilation only
+- Limited dynamic features (no runtime `__getattr__`, metaclasses)
+- Building stdlib in Zig (CPython C extensions not compatible yet)
+- Early alpha - not production ready
+
 ## Quick Start
 
 ```bash

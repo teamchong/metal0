@@ -1,0 +1,6 @@
+# Empty for hello_world_simple.py
+# In real apps, this would list:
+# numpy==1.24.0
+# requests==2.31.0
+# flask==3.0.0
+# etc.

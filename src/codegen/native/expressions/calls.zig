@@ -6,6 +6,30 @@ const CodegenError = @import("../main.zig").CodegenError;
 const dispatch = @import("../dispatch.zig");
 const lambda_mod = @import("lambda.zig");
 
+/// Functions that don't require allocator parameter
+const NO_ALLOC_FUNCS = [_][]const u8{
+    "time.time",
+    "time.monotonic",
+    "time.perf_counter",
+    "math.sqrt",
+    "math.sin",
+    "math.cos",
+    "math.tan",
+    "math.log",
+    "math.exp",
+    "math.pow",
+    "math.floor",
+    "math.ceil",
+};
+
+/// Check if qualified function name needs allocator
+fn needsAllocator(qualified_name: []const u8) bool {
+    for (NO_ALLOC_FUNCS) |func| {
+        if (std.mem.eql(u8, qualified_name, func)) return false;
+    }
+    return true; // Default: assume needs allocator
+}
+
 /// Generate function call - dispatches to specialized handlers or fallback
 pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     // Forward declare genExpr - it's in parent module
@@ -88,25 +112,42 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         const attr = call.func.attribute;
 
         // Helper to check if attribute chain starts with imported module
-        const is_module_call = blk: {
+        // Also build qualified name for allocator check
+        var is_module_call = false;
+        var qualified_name: ?[]const u8 = null;
+        {
             var current = attr.value;
             while (true) {
                 if (current.* == .name) {
                     // Found base name - check if it's an imported module
-                    break :blk self.imported_modules.contains(current.name.id);
+                    is_module_call = self.imported_modules.contains(current.name.id);
+                    if (is_module_call) {
+                        // Build qualified name: module.function
+                        qualified_name = std.fmt.allocPrint(
+                            self.allocator,
+                            "{s}.{s}",
+                            .{ current.name.id, attr.attr },
+                        ) catch null;
+                    }
+                    break;
                 } else if (current.* == .attribute) {
                     // Keep traversing the chain
                     current = current.attribute.value;
                 } else {
                     // Not a name or attribute (e.g., a method call result)
-                    break :blk false;
+                    break;
                 }
             }
-            break :blk false;
-        };
+        }
+        defer if (qualified_name) |qn| self.allocator.free(qn);
 
-        // Add 'try' for module calls (they can error)
-        if (is_module_call) {
+        const needs_alloc = if (qualified_name) |qn|
+            needsAllocator(qn)
+        else
+            true;
+
+        // Add 'try' for module calls that need allocator (they can error)
+        if (is_module_call and needs_alloc) {
             try self.output.appendSlice(self.allocator, "try ");
         }
 
@@ -116,8 +157,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         try self.output.appendSlice(self.allocator, attr.attr);
         try self.output.appendSlice(self.allocator, "(");
 
-        // For module calls, add allocator as first argument
-        if (is_module_call) {
+        // For module calls, add allocator as first argument only if needed
+        if (is_module_call and needs_alloc) {
             try self.output.appendSlice(self.allocator, "allocator");
             if (call.args.len > 0) {
                 try self.output.appendSlice(self.allocator, ", ");
