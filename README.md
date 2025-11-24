@@ -2,7 +2,7 @@
 
 **v0.1.0-alpha** - Early development, not production-ready
 
-Python to Zig AOT compiler. Write Python, run native code.
+Python AOT compiler. Write once, run everywhere at native speed
 
 **30x faster** than CPython | **Beats Rust/Go** | Native binaries
 
