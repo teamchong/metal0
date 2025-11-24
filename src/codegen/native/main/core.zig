@@ -20,6 +20,7 @@ const FnvStringMap = std.HashMap([]const u8, []const u8, FnvContext, 80);
 /// Error set for code generation
 pub const CodegenError = error{
     OutOfMemory,
+    UnsupportedModule,
 } || native_types.InferError;
 
 /// Tracks a function with decorators for later application

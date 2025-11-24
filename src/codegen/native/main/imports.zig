@@ -351,7 +351,15 @@ pub fn collectImports(
                     try imports.append(self.allocator, python_module.*);
                 },
                 .unsupported => {
-                    std.debug.print("Warning: Module '{s}' not supported yet\n", .{python_module.*});
+                    std.debug.print("Error: Dynamic imports not supported in AOT compilation\n", .{});
+                    std.debug.print("  --> import {s}\n", .{python_module.*});
+                    std.debug.print("   |\n", .{});
+                    std.debug.print("   = PyAOT resolves all imports at compile time\n", .{});
+                    std.debug.print("   = Dynamic runtime module loading not supported\n", .{});
+                    if (std.mem.eql(u8, python_module.*, "importlib")) {
+                        std.debug.print("   = Suggestion: Use static imports (import json) instead of importlib.import_module('json')\n", .{});
+                    }
+                    return error.UnsupportedModule;
                 },
             }
         } else {
