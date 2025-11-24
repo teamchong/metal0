@@ -116,17 +116,24 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
         .dict => {
             const data: *runtime.PyDict = @ptrCast(@alignCast(obj_data));
             try buffer.append(allocator, '{');
+
+            // Fast path: process first entry without comma check
             var it = data.map.iterator();
-            var first = true;
-            while (it.next()) |entry| {
-                if (!first) try buffer.append(allocator, ',');
-                first = false;
-                try buffer.append(allocator, '"');
+            if (it.next()) |entry| {
+                try buffer.appendSlice(allocator, "\"");
                 try writeEscapedStringDirect(entry.key_ptr.*, buffer, allocator);
-                try buffer.append(allocator, '"');
-                try buffer.append(allocator, ':');
+                try buffer.appendSlice(allocator, "\":");
                 try stringifyPyObjectDirect(entry.value_ptr.*, buffer, allocator);
+
+                // Rest of entries always have comma
+                while (it.next()) |next_entry| {
+                    try buffer.appendSlice(allocator, ",\"");
+                    try writeEscapedStringDirect(next_entry.key_ptr.*, buffer, allocator);
+                    try buffer.appendSlice(allocator, "\":");
+                    try stringifyPyObjectDirect(next_entry.value_ptr.*, buffer, allocator);
+                }
             }
+
             try buffer.append(allocator, '}');
         },
     }
