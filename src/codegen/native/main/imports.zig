@@ -47,16 +47,28 @@ fn compileModuleAsStructWithPrefix(
     defer arena.deinit();
     const aa = arena.allocator();
 
-    // Use import resolver to find the .py file
-    const py_path = try import_resolver.resolveImport(module_name, source_file_dir, aa) orelse {
-        std.debug.print("Error: Cannot find module '{s}.py'\n", .{module_name});
+    // Use import resolver to find the module (prefers compiled .so)
+    const resolved_path = try import_resolver.resolveImport(module_name, source_file_dir, aa) orelse {
+        std.debug.print("Error: Cannot find module '{s}'\n", .{module_name});
         std.debug.print("Searched in: ", .{});
         if (source_file_dir) |dir| {
             std.debug.print("{s}/, ", .{dir});
         }
-        std.debug.print("./, examples/\n", .{});
+        std.debug.print("./, examples/, build/\n", .{});
         return error.ModuleNotFound;
     };
+
+    // If it's a compiled .so module, just generate @import() statement
+    if (std.mem.endsWith(u8, resolved_path, ".so")) {
+        // Generate: const module_name = @import("path/to/module.zig");
+        // Note: .so files are linked, but we reference the .zig source
+        const zig_path = try std.mem.replaceOwned(u8, allocator, resolved_path, ".so", ".zig");
+        defer allocator.free(zig_path);
+
+        return try std.fmt.allocPrint(allocator, "const {s} = @import(\"{s}\");\n", .{ module_name, zig_path });
+    }
+
+    const py_path = resolved_path;
 
     // Analyze if this is a package with submodules
     const pkg_info = try import_resolver.analyzePackage(py_path, aa);
