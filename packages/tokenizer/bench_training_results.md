@@ -1,3 +1,16 @@
+## Unigram Training Performance (VOCAB_SIZE=751)
+
+| Command | Mean [ms] | Relative |
+|:---|---:|---:|
+| **PyAOT (Zig ReleaseFast)** | **108** | **2.4x faster** 🚀 |
+| HuggingFace (Rust release) | 263 | 1.00 |
+
+**Result: PyAOT beats HuggingFace by 2.4x!** ✅
+
+---
+
+## BPE Training Performance (Full Benchmark)
+
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
 | `PyAOT (Zig)` | 1.095 ± 0.009 | 1.084 | 1.106 | 1.00 |

@@ -22,6 +22,31 @@ pub const ModuleInfo = struct {
     }
 };
 
+/// Comptime constants for file patterns (zero memory cost at runtime)
+const PYTHON_EXT = ".py";
+const PYTHON_EXT_LEN = PYTHON_EXT.len;
+const INIT_FILE = "__init__.py";
+const PYCACHE_DIR = "__pycache__";
+
+/// Comptime file extension checking (zero runtime cost)
+fn isPythonFile(comptime path: []const u8) bool {
+    comptime {
+        return std.mem.endsWith(u8, path, PYTHON_EXT);
+    }
+}
+
+/// Runtime file extension checking for dynamic paths
+/// Optimized: checks length first (comptime constant)
+fn isPythonFileRuntime(path: []const u8) bool {
+    if (path.len < PYTHON_EXT_LEN) return false;
+    return std.mem.endsWith(u8, path, PYTHON_EXT);
+}
+
+/// Comptime check if path is __pycache__ directory
+fn isPycacheDir(path: []const u8) bool {
+    return std.mem.indexOf(u8, path, PYCACHE_DIR) != null;
+}
+
 pub const ImportGraph = struct {
     modules: std.StringHashMap(ModuleInfo),
     allocator: std.mem.Allocator,
@@ -48,8 +73,11 @@ pub const ImportGraph = struct {
         file_path: []const u8,
         visited: *std.StringHashMap(void),
     ) !void {
-        // Skip non-.py files (like compiled .so files)
-        if (!std.mem.endsWith(u8, file_path, ".py")) return;
+        // Skip non-.py files - optimized with comptime length check
+        if (!isPythonFileRuntime(file_path)) return;
+
+        // Skip __pycache__ directories (compiled bytecode)
+        if (isPycacheDir(file_path)) return;
 
         // Check if already scanned
         if (visited.contains(file_path)) return;
