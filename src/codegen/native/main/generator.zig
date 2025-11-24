@@ -35,7 +35,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // Compile each imported module as struct
     for (imported_modules.items) |mod_name| {
-        const struct_code = imports.compileModuleAsStruct(
+        const struct_code: []const u8 = imports.compileModuleAsStruct(
             mod_name,
             source_file_dir,
             self.allocator,
@@ -183,6 +183,16 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     try self.emit("const __name__ = \"__main__\";\n\n");
 
     // PHASE 5: Generate imports, class and function definitions (before main)
+    // In module mode, wrap functions in pub struct
+    if (self.mode == .module) {
+        if (self.module_name) |mod_name| {
+            try self.emit("pub const ");
+            try self.emit(mod_name);
+            try self.emit(" = struct {\n");
+            self.indent();
+        }
+    }
+
     for (module.body) |stmt| {
         if (stmt == .import_stmt) {
             try statements.genImport(self, stmt.import_stmt);
@@ -192,12 +202,25 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             try statements.genClassDef(self, stmt.class_def);
             try self.emit("\n");
         } else if (stmt == .function_def) {
+            if (self.mode == .module) {
+                // In module mode, make functions pub
+                try self.emitIndent();
+                try self.emit("pub ");
+            }
             try statements.genFunctionDef(self, stmt.function_def);
             try self.emit("\n");
         }
     }
 
-    // PHASE 6: Generate main function
+    // Close module struct
+    if (self.mode == .module) {
+        self.dedent();
+        try self.emit("};\n");
+        // Module mode doesn't generate main, just return
+        return self.output.toOwnedSlice(self.allocator);
+    }
+
+    // PHASE 6: Generate main function (script mode only)
     try self.emit("pub fn main() !void {\n");
     self.indent();
 

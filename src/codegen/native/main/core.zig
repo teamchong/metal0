@@ -17,6 +17,12 @@ const FnvContext = fnv_hash.FnvHashContext([]const u8);
 const FnvVoidMap = std.HashMap([]const u8, void, FnvContext, 80);
 const FnvStringMap = std.HashMap([]const u8, []const u8, FnvContext, 80);
 
+/// Code generation mode
+pub const CodegenMode = enum {
+    script, // Has main(), runs directly
+    module, // Exports functions, no main()
+};
+
 /// Error set for code generation
 pub const CodegenError = error{
     OutOfMemory,
@@ -41,6 +47,12 @@ pub const NativeCodegen = struct {
     type_inferrer: *TypeInferrer,
     semantic_info: *SemanticInfo,
     indent_level: usize,
+
+    // Codegen mode (script vs module)
+    mode: CodegenMode,
+
+    // Module name (for module mode)
+    module_name: ?[]const u8,
 
     // Symbol table for scope-aware variable tracking
     symbol_table: *SymbolTable,
@@ -140,6 +152,8 @@ pub const NativeCodegen = struct {
             .type_inferrer = type_inferrer,
             .semantic_info = semantic_info,
             .indent_level = 0,
+            .mode = .script,
+            .module_name = null,
             .symbol_table = sym_table,
             .class_registry = cls_registry,
             .unpack_counter = 0,
