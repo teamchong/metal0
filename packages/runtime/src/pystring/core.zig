@@ -22,6 +22,21 @@ pub const PyString = struct {
         return obj;
     }
 
+    /// Create PyString with owned data (takes ownership, no duplication)
+    /// IMPORTANT: Caller must ensure owned_str is allocated with this allocator
+    pub fn createOwned(allocator: std.mem.Allocator, owned_str: []const u8) !*PyObject {
+        const obj = try allocator.create(PyObject);
+        const str_data = try allocator.create(PyString);
+        str_data.data = owned_str;
+
+        obj.* = PyObject{
+            .ref_count = 1,
+            .type_id = .string,
+            .data = str_data,
+        };
+        return obj;
+    }
+
     pub fn getValue(obj: *PyObject) []const u8 {
         std.debug.assert(obj.type_id == .string);
         const data: *PyString = @ptrCast(@alignCast(obj.data));

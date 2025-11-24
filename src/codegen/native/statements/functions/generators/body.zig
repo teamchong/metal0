@@ -97,29 +97,15 @@ pub fn genClassFields(self: *NativeCodegen, init: ast.Node.FunctionDef) CodegenE
                     // Found field: self.x = y
                     const field_name = attr.attr;
 
-                    // Determine field type
-                    // If value is a parameter name, use parameter's type annotation
-                    var field_type_str: []const u8 = "i64"; // default
-                    if (assign.value.* == .name) {
-                        const value_name = assign.value.name.id;
-                        // Look up parameter type
-                        for (init.args) |arg| {
-                            if (std.mem.eql(u8, arg.name, value_name)) {
-                                field_type_str = signature.pythonTypeToZig(arg.type_annotation);
-                                break;
-                            }
-                        }
-                    } else {
-                        // For non-parameter values, try to infer
-                        const inferred = try self.type_inferrer.inferExpr(assign.value.*);
-                        field_type_str = switch (inferred) {
-                            .int => "i64",
-                            .float => "f64",
-                            .bool => "bool",
-                            .string => "[]const u8",
-                            else => "i64",
-                        };
-                    }
+                    // Determine field type by inferring the value's type
+                    const inferred = try self.type_inferrer.inferExpr(assign.value.*);
+                    const field_type_str = switch (inferred) {
+                        .int => "i64",
+                        .float => "f64",
+                        .bool => "bool",
+                        .string => "[]const u8",
+                        else => "i64",
+                    };
 
                     try self.emitIndent();
                     try self.output.writer(self.allocator).print("{s}: {s},\n", .{ field_name, field_type_str });
@@ -127,6 +113,29 @@ pub fn genClassFields(self: *NativeCodegen, init: ast.Node.FunctionDef) CodegenE
             }
         }
     }
+}
+
+/// Infer parameter type by looking at how it's used in __init__
+fn inferParamType(self: *NativeCodegen, init: ast.Node.FunctionDef, param_name: []const u8) ![]const u8 {
+    // Look for assignments like self.field = param_name
+    for (init.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.value.* == .name and std.mem.eql(u8, assign.value.name.id, param_name)) {
+                // Found usage - infer type from the value
+                const inferred = try self.type_inferrer.inferExpr(assign.value.*);
+                return switch (inferred) {
+                    .int => "i64",
+                    .float => "f64",
+                    .bool => "bool",
+                    .string => "[]const u8",
+                    else => "i64",
+                };
+            }
+        }
+    }
+    // Fallback: use i64 as default
+    return "i64";
 }
 
 /// Generate init() method from __init__
@@ -147,8 +156,11 @@ pub fn genInitMethod(
 
         try self.output.writer(self.allocator).print("{s}: ", .{arg.name});
 
-        // Type annotation
-        const param_type = signature.pythonTypeToZig(arg.type_annotation);
+        // Type annotation: prefer type hints, fallback to inference
+        const param_type = if (arg.type_annotation) |_|
+            signature.pythonTypeToZig(arg.type_annotation)
+        else
+            try inferParamType(self, init, arg.name);
         try self.output.appendSlice(self.allocator, param_type);
     }
 

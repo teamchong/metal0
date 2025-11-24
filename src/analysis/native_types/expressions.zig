@@ -278,7 +278,13 @@ fn inferCall(
         const func_name = call.func.name.id;
 
         // Check if this is a class constructor (class_name matches a registered class)
-        if (class_fields.contains(func_name)) {
+        if (class_fields.get(func_name)) |class_info| {
+            // Infer parameter types from call arguments and update class field types
+            // This allows classes without type hints to infer types from usage
+            _ = class_info; // Currently unused, but kept for future enhancements
+
+            // TODO: Record argument types to improve __init__ parameter inference
+            // For now, just return the class instance type
             return .{ .class_instance = func_name };
         }
 

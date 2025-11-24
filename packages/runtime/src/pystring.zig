@@ -13,6 +13,7 @@ pub const PyString = struct {
 
     // Core operations
     pub const create = core.PyString.create;
+    pub const createOwned = core.PyString.createOwned;
     pub const getValue = core.PyString.getValue;
     pub const len = core.PyString.len;
     pub const getItem = core.PyString.getItem;

@@ -306,6 +306,22 @@ pub fn findInSitePackages(
     return null;
 }
 
+/// Check if a module is a built-in Zig module that should not be scanned/compiled
+/// Built-in modules: json, http, asyncio, re, numpy, sqlite3, zlib, ssl
+fn isBuiltinModule(module_name: []const u8) bool {
+    const builtins = [_][]const u8{
+        "json",    "http",    "asyncio",  "re",
+        "numpy",   "sqlite3", "zlib",     "ssl",
+        "pathlib", "urllib",  "datetime", "importlib",
+    };
+    for (builtins) |builtin_module| {
+        if (std.mem.eql(u8, module_name, builtin_module)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Resolve a Python module import to a .py file path
 /// Returns null if module is not a local .py file
 /// Resolve import to source .py file only (for compilation/scanning)
@@ -314,6 +330,11 @@ pub fn resolveImportSource(
     source_file_dir: ?[]const u8,
     allocator: std.mem.Allocator,
 ) !?[]const u8 {
+    // Skip built-in Zig modules (json, http, etc.)
+    if (isBuiltinModule(module_name)) {
+        return null;
+    }
+
     // Skip compiled .so check - only look for .py sources
     return resolveImportInternal(module_name, source_file_dir, allocator, false);
 }

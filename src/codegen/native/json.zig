@@ -20,15 +20,15 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for json.dumps(obj)
-/// Maps to: std.json.stringifyAlloc(allocator, value, .{})
+/// Maps to: runtime.json.dumps(obj, allocator)
 pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // TODO: Error handling
         return;
     }
 
-    // Generate: std.json.stringifyAlloc(allocator, value, .{})
-    try self.output.appendSlice(self.allocator, "std.json.stringifyAlloc(allocator, ");
+    // Generate: try runtime.json.dumps(obj, allocator)
+    try self.output.appendSlice(self.allocator, "try runtime.json.dumps(");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ", .{})");
+    try self.output.appendSlice(self.allocator, ", allocator)");
 }

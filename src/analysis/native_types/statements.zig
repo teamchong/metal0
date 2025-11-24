@@ -49,17 +49,27 @@ pub fn visitStmt(
                                 if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
                                     const field_name = attr.attr;
 
-                                    // Determine field type from parameter type annotation
+                                    // Determine field type from value
+                                    var field_type: NativeType = .unknown;
+
                                     if (assign.value.* == .name) {
+                                        // If assigning from a parameter, use type hint
                                         const value_name = assign.value.name.id;
                                         for (init_fn.args) |arg| {
                                             if (std.mem.eql(u8, arg.name, value_name)) {
-                                                const field_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
-                                                try fields.put(field_name, field_type);
+                                                field_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
                                                 break;
                                             }
                                         }
+                                    } else if (assign.value.* == .constant) {
+                                        // If assigning a constant, infer from literal
+                                        field_type = try inferConstant(assign.value.constant.value);
+                                    } else if (assign.value.* == .dict) {
+                                        // Infer dict type
+                                        field_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
                                     }
+
+                                    try fields.put(field_name, field_type);
                                 }
                             }
                         }

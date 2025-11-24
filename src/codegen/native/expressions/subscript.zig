@@ -82,6 +82,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             const is_dict = (value_type == .dict);
             const is_list = (value_type == .list);
             const is_dataframe = (value_type == .dataframe);
+            const is_unknown_pyobject = (value_type == .unknown);
+
+            // For unknown PyObject types (like json.loads() result), check if index is string → dict access
+            const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
+            const is_likely_dict = is_unknown_pyobject and (index_type == .string);
 
             if (is_dataframe) {
                 // DataFrame column access: df['col'] → df.getColumn("col").?
@@ -89,12 +94,29 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try self.output.appendSlice(self.allocator, ".getColumn(");
                 try genExpr(self, subscript.slice.index.*);
                 try self.output.appendSlice(self.allocator, ").?");
-            } else if (is_dict) {
-                // Dict access: use .get(key).?
-                try genExpr(self, subscript.value.*);
-                try self.output.appendSlice(self.allocator, ".get(");
-                try genExpr(self, subscript.slice.index.*);
-                try self.output.appendSlice(self.allocator, ").?");
+            } else if (is_dict or is_likely_dict) {
+                // Dict access: runtime.PyDict.get(dict, key).?
+                // Need to extract string value from the index expression
+                const index_node = subscript.slice.index.*;
+
+                // Check if index is a string constant
+                const is_string_constant = (index_node == .constant and index_node.constant.value == .string);
+
+                if (is_string_constant) {
+                    // Direct string literal: use it directly
+                    try self.output.appendSlice(self.allocator, "runtime.PyDict.get(");
+                    try genExpr(self, subscript.value.*);
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try genExpr(self, subscript.slice.index.*);
+                    try self.output.appendSlice(self.allocator, ").?");
+                } else {
+                    // Variable or expression: need to get string value from PyString
+                    try self.output.appendSlice(self.allocator, "blk: { const __key = ");
+                    try genExpr(self, subscript.slice.index.*);
+                    try self.output.appendSlice(self.allocator, "; const __key_str = if (__key.type_id == .string) runtime.PyString.getValue(__key) else @panic(\"Dict key must be string\"); break :blk runtime.PyDict.get(");
+                    try genExpr(self, subscript.value.*);
+                    try self.output.appendSlice(self.allocator, ", __key_str).?; }");
+                }
             } else if (is_list) {
                 // Check if this is an array slice variable (not ArrayList)
                 const is_array_slice = blk: {
@@ -114,7 +136,6 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
                 if (is_array_slice or !is_tracked_arraylist) {
                     // Array slice or generic array: direct indexing without bounds check
-                    const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
                     const needs_cast = (index_type == .int);
 
                     if (isNegativeConstant(subscript.slice.index.*)) {
@@ -141,7 +162,6 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     }
                 } else {
                     // ArrayList indexing - use .items with runtime bounds check
-                    const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
                     const needs_cast = (index_type == .int);
 
                     // Generate: blk: { const __list = list; const __idx = idx; if (__idx >= __list.items.len) return error.IndexError; break :blk __list.items[__idx]; }
@@ -197,7 +217,6 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.output.appendSlice(self.allocator, "]; }");
                     } else {
                         // Positive index
-                        const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
                         const needs_cast = (index_type == .int);
 
                         // Check if this is an ArrayList (need .items[idx])

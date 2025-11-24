@@ -30,6 +30,17 @@ pub const PyDict = struct {
         // Note: Caller transfers ownership of value, no incref needed
     }
 
+    /// Set key-value pair with owned key (takes ownership, no duplication)
+    /// IMPORTANT: Caller must ensure owned_key is allocated with dict's allocator
+    pub fn setOwned(obj: *runtime.PyObject, owned_key: []const u8, value: *runtime.PyObject) !void {
+        std.debug.assert(obj.type_id == .dict);
+        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+
+        // Take ownership of key without duplication (zero-copy!)
+        try data.map.put(owned_key, value);
+        // Note: Caller transfers ownership of both key and value
+    }
+
     pub fn get(obj: *runtime.PyObject, key: []const u8) ?*runtime.PyObject {
         std.debug.assert(obj.type_id == .dict);
         const data: *PyDict = @ptrCast(@alignCast(obj.data));
