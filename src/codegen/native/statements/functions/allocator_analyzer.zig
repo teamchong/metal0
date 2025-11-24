@@ -3,10 +3,162 @@
 const std = @import("std");
 const ast = @import("../../../../ast.zig");
 
-/// Check if a function needs an allocator parameter
+/// Check if a function needs an allocator parameter (for error union return type)
 pub fn functionNeedsAllocator(func: ast.Node.FunctionDef) bool {
     for (func.body) |stmt| {
         if (stmtNeedsAllocator(stmt)) return true;
+    }
+    return false;
+}
+
+/// Check if function actually uses the 'allocator' param (not just __global_allocator)
+/// Dict literals use __global_allocator so they don't actually use the param
+pub fn functionActuallyUsesAllocatorParam(func: ast.Node.FunctionDef) bool {
+    for (func.body) |stmt| {
+        if (stmtUsesAllocatorParam(stmt)) return true;
+    }
+    return false;
+}
+
+/// Check if a statement uses the allocator parameter
+fn stmtUsesAllocatorParam(stmt: ast.Node) bool {
+    return switch (stmt) {
+        .expr_stmt => |e| exprUsesAllocatorParam(e.value.*),
+        .assign => |a| exprUsesAllocatorParam(a.value.*),
+        .aug_assign => |a| exprUsesAllocatorParam(a.value.*),
+        .return_stmt => |r| if (r.value) |v| exprUsesAllocatorParam(v.*) else false,
+        .if_stmt => |i| {
+            if (exprUsesAllocatorParam(i.condition.*)) return true;
+            for (i.body) |s| {
+                if (stmtUsesAllocatorParam(s)) return true;
+            }
+            for (i.else_body) |s| {
+                if (stmtUsesAllocatorParam(s)) return true;
+            }
+            return false;
+        },
+        .while_stmt => |w| {
+            if (exprUsesAllocatorParam(w.condition.*)) return true;
+            for (w.body) |s| {
+                if (stmtUsesAllocatorParam(s)) return true;
+            }
+            return false;
+        },
+        .for_stmt => |f| {
+            if (exprUsesAllocatorParam(f.iter.*)) return true;
+            for (f.body) |s| {
+                if (stmtUsesAllocatorParam(s)) return true;
+            }
+            return false;
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| {
+                if (stmtUsesAllocatorParam(s)) return true;
+            }
+            for (t.handlers) |h| {
+                for (h.body) |s| {
+                    if (stmtUsesAllocatorParam(s)) return true;
+                }
+            }
+            return false;
+        },
+        else => false,
+    };
+}
+
+/// Check if an expression actually uses the allocator param
+fn exprUsesAllocatorParam(expr: ast.Node) bool {
+    return switch (expr) {
+        .binop => |b| {
+            // String concatenation uses allocator param
+            if (b.op == .Add) {
+                if (mightBeString(b.left.*) or mightBeString(b.right.*)) {
+                    return true;
+                }
+            }
+            return exprUsesAllocatorParam(b.left.*) or exprUsesAllocatorParam(b.right.*);
+        },
+        .call => |c| callUsesAllocatorParam(c),
+        .fstring => true,
+        .listcomp => true,
+        .dictcomp => true,
+        .list => |l| {
+            for (l.elts) |elt| {
+                if (exprUsesAllocatorParam(elt)) return true;
+            }
+            return false;
+        },
+        // Dict uses __global_allocator, not the passed allocator param
+        .dict => false,
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                if (exprUsesAllocatorParam(elt)) return true;
+            }
+            return false;
+        },
+        .subscript => |s| {
+            if (exprUsesAllocatorParam(s.value.*)) return true;
+            return switch (s.slice) {
+                .index => |idx| exprUsesAllocatorParam(idx.*),
+                .slice => |rng| {
+                    if (rng.lower) |l| if (exprUsesAllocatorParam(l.*)) return true;
+                    if (rng.upper) |u| if (exprUsesAllocatorParam(u.*)) return true;
+                    if (rng.step) |st| if (exprUsesAllocatorParam(st.*)) return true;
+                    return false;
+                },
+            };
+        },
+        .attribute => |a| exprUsesAllocatorParam(a.value.*),
+        .compare => |c| {
+            if (exprUsesAllocatorParam(c.left.*)) return true;
+            for (c.comparators) |comp| {
+                if (exprUsesAllocatorParam(comp)) return true;
+            }
+            return false;
+        },
+        .boolop => |b| {
+            for (b.values) |val| {
+                if (exprUsesAllocatorParam(val)) return true;
+            }
+            return false;
+        },
+        .unaryop => |u| exprUsesAllocatorParam(u.operand.*),
+        else => false,
+    };
+}
+
+/// Check if a call uses allocator param
+fn callUsesAllocatorParam(call: ast.Node.Call) bool {
+    if (call.func.* == .attribute) {
+        const attr = call.func.attribute;
+        const method_name = attr.attr;
+        if (std.mem.eql(u8, method_name, "upper") or
+            std.mem.eql(u8, method_name, "lower") or
+            std.mem.eql(u8, method_name, "strip") or
+            std.mem.eql(u8, method_name, "split") or
+            std.mem.eql(u8, method_name, "replace") or
+            std.mem.eql(u8, method_name, "join") or
+            std.mem.eql(u8, method_name, "format") or
+            std.mem.eql(u8, method_name, "append") or
+            std.mem.eql(u8, method_name, "extend") or
+            std.mem.eql(u8, method_name, "insert"))
+        {
+            return true;
+        }
+    }
+    if (call.func.* == .name) {
+        const func_name = call.func.name.id;
+        if (std.mem.eql(u8, func_name, "str") or
+            std.mem.eql(u8, func_name, "list") or
+            std.mem.eql(u8, func_name, "dict") or
+            std.mem.eql(u8, func_name, "format") or
+            std.mem.eql(u8, func_name, "input"))
+        {
+            return true;
+        }
+    }
+    for (call.args) |arg| {
+        if (exprUsesAllocatorParam(arg)) return true;
     }
     return false;
 }
@@ -91,7 +243,7 @@ fn exprNeedsAllocator(expr: ast.Node) bool {
             }
             return false;
         },
-        .dict => true, // Dict literals always need allocator for HashMap creation
+        .dict => true, // Dict literals need error union return type (HashMap.put can fail)
         .tuple => |t| {
             // Check if any elements need allocator
             for (t.elts) |elt| {

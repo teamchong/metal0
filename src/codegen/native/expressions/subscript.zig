@@ -95,28 +95,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try genExpr(self, subscript.slice.index.*);
                 try self.output.appendSlice(self.allocator, ").?");
             } else if (is_dict or is_likely_dict) {
-                // Dict access: runtime.PyDict.get(dict, key).?
-                // Need to extract string value from the index expression
-                const index_node = subscript.slice.index.*;
-
-                // Check if index is a string constant
-                const is_string_constant = (index_node == .constant and index_node.constant.value == .string);
-
-                if (is_string_constant) {
-                    // Direct string literal: use it directly
-                    try self.output.appendSlice(self.allocator, "runtime.PyDict.get(");
-                    try genExpr(self, subscript.value.*);
-                    try self.output.appendSlice(self.allocator, ", ");
-                    try genExpr(self, subscript.slice.index.*);
-                    try self.output.appendSlice(self.allocator, ").?");
-                } else {
-                    // Variable or expression: need to get string value from PyString
-                    try self.output.appendSlice(self.allocator, "blk: { const __key = ");
-                    try genExpr(self, subscript.slice.index.*);
-                    try self.output.appendSlice(self.allocator, "; const __key_str = if (__key.type_id == .string) runtime.PyString.getValue(__key) else @panic(\"Dict key must be string\"); break :blk runtime.PyDict.get(");
-                    try genExpr(self, subscript.value.*);
-                    try self.output.appendSlice(self.allocator, ", __key_str).?; }");
-                }
+                // Dict access: dict.get(key).? for raw StringHashMap
+                try genExpr(self, subscript.value.*);
+                try self.output.appendSlice(self.allocator, ".get(");
+                try genExpr(self, subscript.slice.index.*);
+                try self.output.appendSlice(self.allocator, ").?");
             } else if (is_list) {
                 // Check if this is an array slice variable (not ArrayList)
                 const is_array_slice = blk: {
