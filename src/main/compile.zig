@@ -14,13 +14,59 @@ const CompileOptions = @import("../main.zig").CompileOptions;
 const utils = @import("utils.zig");
 const cache = @import("cache.zig");
 const import_resolver = @import("../import_resolver.zig");
+const import_scanner = @import("../import_scanner.zig");
+
+/// Get module output path for a compiled .so file
+fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8) ![]const u8 {
+    const arch = utils.getArch();
+    const platform_dir = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}", .{arch});
+
+    // Create build directory
+    std.fs.cwd().makePath(platform_dir) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    // Convert /path/to/module.py -> module
+    const basename = std.fs.path.basename(module_path);
+    const name_no_ext = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
+        basename[0..idx]
+    else
+        basename;
+
+    return try std.fmt.allocPrint(
+        allocator,
+        "{s}/{s}.cpython-312-darwin.so",
+        .{ platform_dir, name_no_ext },
+    );
+}
 
 pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, module_name: []const u8) !void {
-    // Stub for now - compile imported modules as separate shared libraries
-    _ = allocator;
-    _ = module_path;
-    _ = module_name;
-    // TODO: Implement module compilation
+    _ = module_name; // Not used, inferred from path
+
+    // Read module source
+    const source = try std.fs.cwd().readFileAlloc(allocator, module_path, 10 * 1024 * 1024);
+    defer allocator.free(source);
+
+    // Get output path
+    const output_path = try getModuleOutputPath(allocator, module_path);
+    defer allocator.free(output_path);
+
+    // Check if already up-to-date
+    const should_compile = try cache.shouldRecompile(allocator, source, output_path);
+    if (!should_compile) {
+        std.debug.print("  ✓ Module up-to-date: {s}\n", .{output_path});
+        return;
+    }
+
+    std.debug.print("  Compiling module: {s}\n", .{module_path});
+
+    // Compile using existing compilePythonSource (but to shared lib)
+    try compilePythonSource(allocator, source, output_path, "build", false);
+
+    // Update cache
+    try cache.updateCache(allocator, source, output_path);
+
+    std.debug.print("  ✓ Module compiled: {s}\n", .{output_path});
 }
 
 /// Compile a Jupyter notebook (.ipynb file)
@@ -248,6 +294,30 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     if (tree != .module) {
         std.debug.print("Error: Expected module, got {s}\n", .{@tagName(tree)});
         return error.InvalidAST;
+    }
+
+    // PHASE 2.3: Import Dependency Scanning
+    std.debug.print("Scanning imports recursively...\n", .{});
+    var import_graph = import_scanner.ImportGraph.init(allocator);
+    defer import_graph.deinit();
+
+    var visited = std.StringHashMap(void).init(allocator);
+    defer visited.deinit();
+
+    // Scan all imports recursively
+    try import_graph.scanRecursive(opts.input_file, &visited);
+
+    // Compile each imported module in dependency order
+    std.debug.print("Compiling {d} imported modules...\n", .{import_graph.modules.count()});
+    var iter = import_graph.modules.iterator();
+    while (iter.next()) |entry| {
+        const module_path = entry.key_ptr.*;
+
+        // Skip the main file itself
+        if (std.mem.eql(u8, module_path, opts.input_file)) continue;
+
+        // Compile module
+        try compileModule(allocator, module_path, "");
     }
 
     // PHASE 2.5: C Library Import Detection

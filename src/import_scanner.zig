@@ -48,6 +48,9 @@ pub const ImportGraph = struct {
         file_path: []const u8,
         visited: *std.StringHashMap(void),
     ) !void {
+        // Skip non-.py files (like compiled .so files)
+        if (!std.mem.endsWith(u8, file_path, ".py")) return;
+
         // Check if already scanned
         if (visited.contains(file_path)) return;
         try visited.put(file_path, {});
@@ -93,7 +96,12 @@ fn extractImports(allocator: std.mem.Allocator, source: []const u8) ![][]const u
     }
 
     // Tokenize
-    var lex = lexer.Lexer.init(source, allocator);
+    var lex = lexer.Lexer.init(allocator, source) catch {
+        // If lexer init fails, return empty list
+        return imports.toOwnedSlice(allocator);
+    };
+    defer lex.deinit();
+
     const tokens = lex.tokenize() catch {
         // If tokenization fails, return empty list
         return imports.toOwnedSlice(allocator);
