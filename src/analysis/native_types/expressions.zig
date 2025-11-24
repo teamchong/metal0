@@ -349,15 +349,9 @@ fn inferCall(
                 @memcpy(buf[prefix.len + 1..total_len], attr.attr);
                 const qualified_name = buf[0..total_len];
 
-                // DEBUG: Print what we're looking up
-                std.debug.print("[TYPE INFERENCE] Looking up qualified name: '{s}'\n", .{qualified_name});
-
                 // Look up in func_return_types (module.function -> return type)
                 if (func_return_types.get(qualified_name)) |return_type| {
-                    std.debug.print("[TYPE INFERENCE] Found return type: {}\n", .{return_type});
                     return return_type;
-                } else {
-                    std.debug.print("[TYPE INFERENCE] Not found in func_return_types\n", .{});
                 }
             }
         }
