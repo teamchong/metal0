@@ -242,23 +242,20 @@ pub const Lexer = struct {
                 continue;
             }
 
+            // Line continuation: backslash followed by newline
+            // Must check BEFORE tokenizeOperatorOrDelimiter which advances position
+            if (c == '\\' and self.peekAhead(1) == '\n') {
+                _ = self.advance(); // consume '\'
+                _ = self.advance(); // consume '\n'
+                // Don't set at_line_start - continuation means logical line continues
+                continue;
+            }
+
             // Operators and delimiters
             const maybe_token = try self.tokenizeOperatorOrDelimiter(start, start_column, &paren_depth);
             if (maybe_token) |token| {
                 try tokens.append(self.allocator, token);
                 continue;
-            }
-
-            // Line continuation: backslash followed by newline
-            if (c == '\\') {
-                const next = self.peekAhead(1);
-                std.debug.print("DEBUG: backslash found, next char: {?} (0x{?x})\n", .{ next, next });
-                if (next == '\n') {
-                    _ = self.advance(); // consume '\'
-                    _ = self.advance(); // consume '\n'
-                    // Don't set at_line_start - continuation means logical line continues
-                    continue;
-                }
             }
 
             // Unknown character

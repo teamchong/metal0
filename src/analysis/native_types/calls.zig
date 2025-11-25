@@ -70,9 +70,9 @@ const DfColumnMethods = std.StaticStringMap(void).initComptime(.{
     .{ "std", {} },
 });
 
-const FnvContext = fnv_hash.FnvHashContext([]const u8);
-const FnvHashMap = std.HashMap([]const u8, NativeType, FnvContext, 80);
-const FnvClassMap = std.HashMap([]const u8, ClassInfo, FnvContext, 80);
+const hashmap_helper = @import("../../utils/hashmap_helper.zig");
+const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
+const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 
 // Forward declaration for inferExpr (from expressions.zig)
 const expressions = @import("expressions.zig");

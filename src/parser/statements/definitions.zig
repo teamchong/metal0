@@ -213,25 +213,10 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
         }
 
         _ = try self.expect(.Colon);
-
-        // Debug: print next token
-        if (self.peek()) |next_tok| {
-            std.debug.print("parseClassDef after Colon: next token is {s} at line {d}:{d}\n", .{
-                @tagName(next_tok.type), next_tok.line, next_tok.column
-            });
-        }
-
         _ = try self.expect(.Newline);
         _ = try self.expect(.Indent);
 
         const body = try misc.parseBlock(self);
-
-        // Debug: print next token before expecting Dedent
-        if (self.peek()) |next_tok| {
-            std.debug.print("parseClassDef after parseBlock: next token is {s} at line {d}:{d}\n", .{
-                @tagName(next_tok.type), next_tok.line, next_tok.column
-            });
-        }
 
         _ = try self.expect(.Dedent);
 

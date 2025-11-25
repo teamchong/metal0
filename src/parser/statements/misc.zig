@@ -13,18 +13,10 @@ pub fn parseReturn(self: *Parser) ParseError!ast.Node {
         // Check if there's a return value
         if (self.peek()) |tok| {
             if (tok.type != .Newline) {
-                std.debug.print("parseReturn: parsing return value (next tok={s})\n", .{@tagName(tok.type)});
                 const value = try self.parseExpression();
                 value_ptr = try self.allocator.create(ast.Node);
                 value_ptr.?.* = value;
             }
-        }
-
-        // Debug: what's the token before trying to consume Newline?
-        if (self.peek()) |tok| {
-            std.debug.print("parseReturn: before expect Newline, next tok={s} at line {d}:{d}\n", .{
-                @tagName(tok.type), tok.line, tok.column
-            });
         }
 
         _ = self.expect(.Newline) catch {};

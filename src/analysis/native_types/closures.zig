@@ -215,10 +215,9 @@ pub fn analyzeClosure(
 
     // Captured vars = used - local, intersected with parent_locals
     var captures = std.ArrayList([]const u8){};
-    var it = used.keyIterator();
-    while (it.next()) |var_name| {
-        if (!local.contains(var_name.*) and parent_locals.contains(var_name.*)) {
-            try captures.append(allocator, var_name.*);
+    for (used.keys()) |var_name| {
+        if (!local.contains(var_name) and parent_locals.contains(var_name)) {
+            try captures.append(allocator, var_name);
         }
     }
 
@@ -246,9 +245,8 @@ pub fn analyzeNestedFunctions(
 
             // Include parent locals so nested closures can capture from grandparent scopes
             if (parent_locals) |pl| {
-                var parent_it = pl.keyIterator();
-                while (parent_it.next()) |key| {
-                    try locals.put(key.*, {});
+                for (pl.keys()) |key| {
+                    try locals.put(key, {});
                 }
             }
 

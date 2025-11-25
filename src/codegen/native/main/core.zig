@@ -13,17 +13,17 @@ const MethodInfo = symbol_table_mod.MethodInfo;
 const import_registry = @import("../import_registry.zig");
 const fnv_hash = @import("../../../utils/fnv_hash.zig");
 
-const FnvContext = fnv_hash.FnvHashContext([]const u8);
-const FnvVoidMap = std.HashMap([]const u8, void, FnvContext, 80);
-const FnvStringMap = std.HashMap([]const u8, []const u8, FnvContext, 80);
-const FnvFuncDefMap = std.HashMap([]const u8, ast.Node.FunctionDef, FnvContext, 80);
+const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
+const FnvVoidMap = hashmap_helper.StringHashMap(void);
+const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
+const FnvFuncDefMap = hashmap_helper.StringHashMap(ast.Node.FunctionDef);
 
 // Function signature info for default parameter handling
 const FuncSignature = struct {
     total_params: usize,
     required_params: usize, // params without defaults
 };
-const FnvFuncSigMap = std.HashMap([]const u8, FuncSignature, FnvContext, 80);
+const FnvFuncSigMap = hashmap_helper.StringHashMap(FuncSignature);
 
 /// Unittest TestCase class info
 pub const TestClassInfo = struct {
@@ -258,21 +258,18 @@ pub const NativeCodegen = struct {
         self.lambda_functions.deinit(self.allocator);
 
         // Clean up closure tracking HashMaps (free keys)
-        var closure_iter = self.closure_vars.keyIterator();
-        while (closure_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.closure_vars.keys()) |key| {
+            self.allocator.free(key);
         }
         self.closure_vars.deinit();
 
-        var factory_iter = self.closure_factories.keyIterator();
-        while (factory_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.closure_factories.keys()) |key| {
+            self.allocator.free(key);
         }
         self.closure_factories.deinit();
 
-        var lambda_iter = self.lambda_vars.keyIterator();
-        while (lambda_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.lambda_vars.keys()) |key| {
+            self.allocator.free(key);
         }
         self.lambda_vars.deinit();
 
@@ -280,23 +277,20 @@ pub const NativeCodegen = struct {
         self.var_renames.deinit();
 
         // Clean up array vars tracking
-        var array_iter = self.array_vars.keyIterator();
-        while (array_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.array_vars.keys()) |key| {
+            self.allocator.free(key);
         }
         self.array_vars.deinit();
 
         // Clean up array slice vars tracking
-        var slice_iter = self.array_slice_vars.keyIterator();
-        while (slice_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.array_slice_vars.keys()) |key| {
+            self.allocator.free(key);
         }
         self.array_slice_vars.deinit();
 
         // Clean up arraylist vars tracking
-        var arrlist_iter = self.arraylist_vars.keyIterator();
-        while (arrlist_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.arraylist_vars.keys()) |key| {
+            self.allocator.free(key);
         }
         self.arraylist_vars.deinit();
 
@@ -311,51 +305,44 @@ pub const NativeCodegen = struct {
         self.unittest_classes.deinit(self.allocator);
 
         // Clean up functions_needing_allocator tracking
-        var func_alloc_iter = self.functions_needing_allocator.keyIterator();
-        while (func_alloc_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.functions_needing_allocator.keys()) |key| {
+            self.allocator.free(key);
         }
         self.functions_needing_allocator.deinit();
 
         // Clean up async_functions tracking
-        var async_iter = self.async_functions.keyIterator();
-        while (async_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.async_functions.keys()) |key| {
+            self.allocator.free(key);
         }
         self.async_functions.deinit();
 
         // Clean up vararg_functions tracking
-        var vararg_iter = self.vararg_functions.keyIterator();
-        while (vararg_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.vararg_functions.keys()) |key| {
+            self.allocator.free(key);
         }
         self.vararg_functions.deinit();
 
         // Clean up function_signatures tracking
-        var funcsig_iter = self.function_signatures.keyIterator();
-        while (funcsig_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.function_signatures.keys()) |key| {
+            self.allocator.free(key);
         }
         self.function_signatures.deinit();
 
         // Clean up global_vars tracking
-        var global_iter = self.global_vars.keyIterator();
-        while (global_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.global_vars.keys()) |key| {
+            self.allocator.free(key);
         }
         self.global_vars.deinit();
 
         // Clean up async_function_defs tracking
-        var async_def_iter = self.async_function_defs.keyIterator();
-        while (async_def_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.async_function_defs.keys()) |key| {
+            self.allocator.free(key);
         }
         self.async_function_defs.deinit();
 
         // Clean up imported_modules tracking
-        var imported_iter = self.imported_modules.keyIterator();
-        while (imported_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.imported_modules.keys()) |key| {
+            self.allocator.free(key);
         }
         self.imported_modules.deinit();
 
@@ -367,9 +354,8 @@ pub const NativeCodegen = struct {
         self.c_libraries.deinit(self.allocator);
 
         // Clean up comptime_evals tracking
-        var comptime_iter = self.comptime_evals.keyIterator();
-        while (comptime_iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.comptime_evals.keys()) |key| {
+            self.allocator.free(key);
         }
         self.comptime_evals.deinit();
 
@@ -474,9 +460,8 @@ pub const NativeCodegen = struct {
 
     /// Clear global vars (call when exiting function scope)
     pub fn clearGlobalVars(self: *NativeCodegen) void {
-        var iter = self.global_vars.keyIterator();
-        while (iter.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.global_vars.keys()) |key| {
+            self.allocator.free(key);
         }
         self.global_vars.clearRetainingCapacity();
     }

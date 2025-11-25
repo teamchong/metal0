@@ -93,6 +93,7 @@ pub const NativeType = union(enum) {
         key: *const NativeType,
         value: *const NativeType,
     }, // StringHashMap(V)
+    set: *const NativeType, // StringHashMap(void) or AutoHashMap(T, void)
     tuple: []const NativeType, // Zig tuple struct
 
     // Functions
@@ -134,7 +135,7 @@ pub const NativeType = union(enum) {
     /// Comptime check if type needs PyObject wrapping
     pub fn needsPyObjectWrapper(self: NativeType) bool {
         return switch (self) {
-            .unknown, .list, .dict, .tuple => true,
+            .unknown, .list, .dict, .set, .tuple => true,
             else => false,
         };
     }
@@ -173,6 +174,16 @@ pub const NativeType = union(enum) {
                 try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(");
                 try kv.value.toZigType(allocator, buf);
                 try buf.appendSlice(allocator, ")");
+            },
+            .set => |elem_type| {
+                // For string sets use StringHashMap, for others use AutoHashMap
+                if (elem_type.* == .string) {
+                    try buf.appendSlice(allocator, "std.StringHashMap(void)");
+                } else {
+                    try buf.appendSlice(allocator, "std.AutoHashMap(");
+                    try elem_type.toZigType(allocator, buf);
+                    try buf.appendSlice(allocator, ", void)");
+                }
             },
             .tuple => |types| {
                 try buf.appendSlice(allocator, "struct { ");
@@ -346,9 +357,7 @@ pub fn pythonTypeHintToNative(type_hint: ?[]const u8, allocator: std.mem.Allocat
 }
 
 /// Class field and method information
-const fnv_hash = @import("../../utils/fnv_hash.zig");
-const FnvContext = fnv_hash.FnvHashContext([]const u8);
-const FnvTypeMap = std.HashMap([]const u8, NativeType, FnvContext, 80);
+const FnvTypeMap = hashmap_helper.StringHashMap(NativeType);
 
 pub const ClassInfo = struct {
     fields: FnvTypeMap,
