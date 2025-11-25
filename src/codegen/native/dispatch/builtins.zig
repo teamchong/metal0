@@ -25,6 +25,7 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "sum", builtins.genSum },
     .{ "round", builtins.genRound },
     .{ "pow", builtins.genPow },
+    .{ "divmod", builtins.genDivmod },
     // Collections
     .{ "all", builtins.genAll },
     .{ "any", builtins.genAny },

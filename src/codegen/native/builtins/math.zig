@@ -93,3 +93,20 @@ pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit("[0])");
 }
+
+/// Generate code for divmod(a, b)
+/// Returns tuple (a // b, a % b)
+pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 2) return;
+
+    // Generate: .{ @divFloor(a, b), @rem(a, b) }
+    try self.emit(".{ @divFloor(");
+    try self.genExpr(args[0]);
+    try self.emit(", ");
+    try self.genExpr(args[1]);
+    try self.emit("), @rem(");
+    try self.genExpr(args[0]);
+    try self.emit(", ");
+    try self.genExpr(args[1]);
+    try self.emit(") }");
+}

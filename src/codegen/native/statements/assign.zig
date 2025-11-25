@@ -11,7 +11,7 @@ const valueGen = @import("assign/value_generation.zig");
 
 /// Check if an expression references a skipped module (e.g., pytest.main())
 /// This is used to skip code generation for calls to modules that weren't found
-fn exprRefersToSkippedModule(self: *NativeCodegen, expr: ast.Node) bool {
+pub fn exprRefersToSkippedModule(self: *NativeCodegen, expr: ast.Node) bool {
     // Check calls: pytest.main() or pytest.skip()
     if (expr == .call) {
         const func = expr.call.func.*;
@@ -59,6 +59,82 @@ fn exprRefersToSkippedModule(self: *NativeCodegen, expr: ast.Node) bool {
     return false;
 }
 
+/// Check if a statement references a skipped module
+pub fn stmtRefersToSkippedModule(self: *NativeCodegen, stmt: ast.Node) bool {
+    switch (stmt) {
+        .assign => |a| {
+            return exprRefersToSkippedModule(self, a.value.*);
+        },
+        .ann_assign => |ann| {
+            if (ann.value) |val| {
+                return exprRefersToSkippedModule(self, val.*);
+            }
+            return false;
+        },
+        .expr_stmt => |expr| {
+            return exprRefersToSkippedModule(self, expr.value.*);
+        },
+        .return_stmt => |ret| {
+            if (ret.value) |val| {
+                return exprRefersToSkippedModule(self, val.*);
+            }
+            return false;
+        },
+        .if_stmt => |if_s| {
+            // Check condition and all branches
+            if (exprRefersToSkippedModule(self, if_s.condition.*)) return true;
+            for (if_s.body) |s| {
+                if (stmtRefersToSkippedModule(self, s)) return true;
+            }
+            for (if_s.else_body) |s| {
+                if (stmtRefersToSkippedModule(self, s)) return true;
+            }
+            return false;
+        },
+        .for_stmt => |for_s| {
+            if (exprRefersToSkippedModule(self, for_s.iter.*)) return true;
+            for (for_s.body) |s| {
+                if (stmtRefersToSkippedModule(self, s)) return true;
+            }
+            return false;
+        },
+        .while_stmt => |while_s| {
+            if (exprRefersToSkippedModule(self, while_s.condition.*)) return true;
+            for (while_s.body) |s| {
+                if (stmtRefersToSkippedModule(self, s)) return true;
+            }
+            return false;
+        },
+        .try_stmt => |try_s| {
+            for (try_s.body) |s| {
+                if (stmtRefersToSkippedModule(self, s)) return true;
+            }
+            for (try_s.finalbody) |s| {
+                if (stmtRefersToSkippedModule(self, s)) return true;
+            }
+            return false;
+        },
+        .with_stmt => |with_s| {
+            if (exprRefersToSkippedModule(self, with_s.context_expr.*)) return true;
+            for (with_s.body) |s| {
+                if (stmtRefersToSkippedModule(self, s)) return true;
+            }
+            return false;
+        },
+        else => return false,
+    }
+}
+
+/// Check if a function body references any skipped modules
+pub fn functionBodyRefersToSkippedModule(self: *NativeCodegen, body: []const ast.Node) bool {
+    for (body) |stmt| {
+        if (stmtRefersToSkippedModule(self, stmt)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Generate annotated assignment statement (x: int = 5)
 pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) CodegenError!void {
     // If no value, just a declaration (x: int), skip for now
@@ -80,6 +156,11 @@ pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) Codege
 
 /// Generate assignment statement with automatic defer cleanup
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
+    // Skip assignments that reference skipped modules (e.g., result = subprocess.run(...))
+    if (exprRefersToSkippedModule(self, assign.value.*)) {
+        return;
+    }
+
     const value_type = try self.type_inferrer.inferExpr(assign.value.*);
 
     // Handle tuple unpacking: a, b = (1, 2)

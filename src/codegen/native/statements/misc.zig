@@ -122,6 +122,21 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
     try self.emit("}\n");
 }
 
+/// Known Python exception types
+const ExceptionTypes = std.StaticStringMap(void).initComptime(.{
+    .{ "ValueError", {} },
+    .{ "TypeError", {} },
+    .{ "RuntimeError", {} },
+    .{ "KeyError", {} },
+    .{ "IndexError", {} },
+    .{ "ZeroDivisionError", {} },
+    .{ "AttributeError", {} },
+    .{ "NameError", {} },
+    .{ "FileNotFoundError", {} },
+    .{ "IOError", {} },
+    .{ "Exception", {} },
+});
+
 /// Generate raise statement
 /// raise ValueError("msg") => std.debug.panic("ValueError: {s}", .{"msg"})
 /// raise => std.debug.panic("Unhandled exception", .{})
@@ -129,8 +144,28 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
     try self.emitIndent();
 
     if (raise_node.exc) |exc| {
-        // raise Exception("msg")
-        // For now, just panic with the exception type
+        // Check if this is an exception constructor call: raise ValueError("msg")
+        if (exc.* == .call) {
+            const call = exc.call;
+            if (call.func.* == .name) {
+                const exc_name = call.func.name.id;
+                // Check if it's a known exception type
+                if (ExceptionTypes.has(exc_name)) {
+                    // Generate: std.debug.panic("ValueError: {s}", .{"msg"})
+                    try self.emit("std.debug.panic(\"");
+                    try self.emit(exc_name);
+                    if (call.args.len > 0) {
+                        try self.emit(": {s}\", .{");
+                        try self.genExpr(call.args[0]);
+                        try self.emit("});\n");
+                    } else {
+                        try self.emit("\", .{});\n");
+                    }
+                    return;
+                }
+            }
+        }
+        // Fallback for other raise expressions
         try self.emit("std.debug.panic(\"Exception: {any}\", .{");
         try self.genExpr(exc.*);
         try self.emit("});\n");
