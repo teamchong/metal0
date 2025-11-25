@@ -276,6 +276,195 @@ pub fn genNestedFunctionDef(
     try self.closure_vars.put(func_name_copy, {});
 }
 
+/// Generate nested function with outer capture context awareness
+/// This handles the case where a closure is defined inside another closure
+fn genNestedFunctionWithOuterCapture(
+    self: *NativeCodegen,
+    func: ast.Node.FunctionDef,
+    outer_captured_vars: [][]const u8,
+    outer_capture_param: []const u8,
+) CodegenError!void {
+    // Use captured variables from AST (pre-computed by closure analyzer)
+    const captured_vars = func.captured_vars;
+
+    if (captured_vars.len == 0) {
+        // No captures - use ZeroClosure comptime pattern
+        try self.emitIndent();
+        try genZeroCaptureClosure(self, func);
+        return;
+    }
+
+    // Save counter before any nested generation that might increment it
+    const saved_counter = self.lambda_counter;
+    self.lambda_counter += 1;
+
+    // Generate comptime closure using runtime.Closure1 helper
+    const closure_impl_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__ClosureImpl_{s}_{d}",
+        .{ func.name, saved_counter },
+    );
+    defer self.allocator.free(closure_impl_name);
+
+    // Generate the capture struct type (must be defined once and reused)
+    const capture_type_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__CaptureType_{s}_{d}",
+        .{ func.name, saved_counter },
+    );
+    defer self.allocator.free(capture_type_name);
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const {s} = struct {{", .{capture_type_name});
+    for (captured_vars, 0..) |var_name, i| {
+        if (i > 0) try self.emit(", ");
+        try self.output.writer(self.allocator).print(" {s}: i64", .{var_name});
+    }
+    try self.emit(" };\n");
+
+    // Generate the inner function that takes (captures, args...)
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{closure_impl_name});
+    self.indent();
+
+    // Generate static function that closure will call
+    const impl_fn_name = try std.fmt.allocPrint(
+        self.allocator,
+        "call_{s}_{d}",
+        .{func.name, saved_counter},
+    );
+    defer self.allocator.free(impl_fn_name);
+
+    // Use unique capture param name to avoid shadowing in nested closures
+    const capture_param_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__cap_{s}_{d}",
+        .{func.name, saved_counter},
+    );
+    defer self.allocator.free(capture_param_name);
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("fn {s}({s}: {s}", .{impl_fn_name, capture_param_name, capture_type_name});
+
+    for (func.args) |arg| {
+        try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
+    }
+    try self.emit(") i64 {\n");
+
+    // Generate body with captures. prefix for captured vars
+    self.indent();
+    try self.pushScope();
+    for (func.args) |arg| {
+        try self.declareVar(arg.name);
+    }
+
+    for (func.body) |stmt| {
+        try genStmtWithCaptureStruct(self, stmt, captured_vars, capture_param_name);
+    }
+
+    self.popScope();
+    self.dedent();
+
+    try self.emitIndent();
+    try self.emit("}\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+
+    // Create closure type using comptime helper based on arg count
+    const closure_var_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__closure_{s}_{d}",
+        .{func.name, saved_counter},
+    );
+    defer self.allocator.free(closure_var_name);
+
+    try self.emitIndent();
+    if (func.args.len == 0) {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.Closure0({s}, ",
+            .{ closure_var_name, capture_type_name },
+        );
+    } else if (func.args.len == 1) {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.Closure1({s}, ",
+            .{ closure_var_name, capture_type_name },
+        );
+    } else if (func.args.len == 2) {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.Closure2({s}, ",
+            .{ closure_var_name, capture_type_name },
+        );
+    } else if (func.args.len == 3) {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.Closure3({s}, ",
+            .{ closure_var_name, capture_type_name },
+        );
+    } else {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.Closure1({s}, ",
+            .{ closure_var_name, capture_type_name },
+        );
+    }
+
+    // Arg types (skip for zero-arg closures)
+    for (func.args, 0..) |_, i| {
+        if (func.args.len > 1 and i > 0) try self.emit(", ");
+        try self.emit("i64");
+        if (func.args.len == 1 or i == func.args.len - 1) {
+            try self.emit(", ");
+        }
+    }
+
+    // Return type and function
+    const impl_fn_ref = try std.fmt.allocPrint(
+        self.allocator,
+        "call_{s}_{d}",
+        .{func.name, saved_counter},
+    );
+    defer self.allocator.free(impl_fn_ref);
+
+    try self.output.writer(self.allocator).print(
+        "i64, {s}.{s}){{ .captures = .{{",
+        .{closure_impl_name, impl_fn_ref},
+    );
+
+    // Initialize captures - reference outer captured vars through outer capture struct
+    for (captured_vars, 0..) |var_name, i| {
+        if (i > 0) try self.emit(", ");
+        // Check if this var is from outer closure's captures
+        var is_outer_capture = false;
+        for (outer_captured_vars) |outer_var| {
+            if (std.mem.eql(u8, var_name, outer_var)) {
+                is_outer_capture = true;
+                break;
+            }
+        }
+        if (is_outer_capture) {
+            try self.output.writer(self.allocator).print(" .{s} = {s}.{s}", .{ var_name, outer_capture_param, var_name });
+        } else {
+            try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, var_name });
+        }
+    }
+    try self.emit(" } };\n");
+
+    // Create alias with original function name
+    const closure_alias_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__closure_{s}_{d}",
+        .{func.name, saved_counter},
+    );
+    defer self.allocator.free(closure_alias_name);
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const {s} = {s};\n", .{func.name, closure_alias_name});
+
+    // Mark this variable as a closure so calls use .call() syntax
+    const func_name_copy = try self.allocator.dupe(u8, func.name);
+    try self.closure_vars.put(func_name_copy, {});
+}
+
 /// Generate zero-capture closure using comptime ZeroClosure
 fn genZeroCaptureClosure(
     self: *NativeCodegen,
@@ -381,6 +570,29 @@ fn genStmtWithCaptureStruct(
             if (ret.value) |val| {
                 try genExprWithCaptureStruct(self, val.*, captured_vars, capture_param_name);
             }
+            try self.emit(";\n");
+        },
+        .function_def => |func| {
+            // Handle nested function definition within a closure
+            // We need to generate this with awareness of the outer capture context
+            try genNestedFunctionWithOuterCapture(self, func, captured_vars, capture_param_name);
+        },
+        .assign => |assign| {
+            try self.emitIndent();
+            try self.emit("const ");
+            // For simple name target (single target), emit the name
+            if (assign.targets.len == 1 and assign.targets[0] == .name) {
+                try self.emit(assign.targets[0].name.id);
+            } else if (assign.targets.len == 1) {
+                const expressions = @import("../../expressions.zig");
+                try expressions.genExpr(self, assign.targets[0]);
+            } else {
+                // Multiple targets - fallback to regular generation
+                try self.generateStmt(stmt);
+                return;
+            }
+            try self.emit(" = ");
+            try genExprWithCaptureStruct(self, assign.value.*, captured_vars, capture_param_name);
             try self.emit(";\n");
         },
         else => {
