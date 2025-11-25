@@ -1,4 +1,4 @@
-/// Module function dispatchers (json, http, asyncio, numpy, pandas)
+/// Module function dispatchers (json, http, asyncio, numpy, pandas, os)
 const std = @import("std");
 const ast = @import("../../../ast.zig");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
@@ -12,6 +12,9 @@ const numpy_mod = @import("../numpy.zig");
 const pandas_mod = @import("../pandas.zig");
 const unittest_mod = @import("../unittest/mod.zig");
 const re_mod = @import("../re.zig");
+const os_mod = @import("../os.zig");
+const pathlib_mod = @import("../pathlib.zig");
+const datetime_mod = @import("../datetime.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -69,6 +72,41 @@ const ReFuncs = FuncMap.initComptime(.{
     .{ "compile", re_mod.genReCompile },
 });
 
+/// OS module functions
+const OsFuncs = FuncMap.initComptime(.{
+    .{ "getcwd", os_mod.genGetcwd },
+    .{ "chdir", os_mod.genChdir },
+    .{ "listdir", os_mod.genListdir },
+});
+
+/// OS.path module functions
+const OsPathFuncs = FuncMap.initComptime(.{
+    .{ "exists", os_mod.genPathExists },
+    .{ "join", os_mod.genPathJoin },
+    .{ "dirname", os_mod.genPathDirname },
+    .{ "basename", os_mod.genPathBasename },
+});
+
+/// Pathlib module functions
+const PathlibFuncs = FuncMap.initComptime(.{
+    .{ "Path", pathlib_mod.genPath },
+});
+
+/// datetime.datetime module functions (for datetime.datetime.now())
+const DatetimeDatetimeFuncs = FuncMap.initComptime(.{
+    .{ "now", datetime_mod.genDatetimeNow },
+});
+
+/// datetime.date module functions (for datetime.date.today())
+const DatetimeDateFuncs = FuncMap.initComptime(.{
+    .{ "today", datetime_mod.genDateToday },
+});
+
+/// datetime module functions (for datetime.timedelta())
+const DatetimeFuncs = FuncMap.initComptime(.{
+    .{ "timedelta", datetime_mod.genTimedelta },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -80,6 +118,13 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "pd", PandasFuncs },
     .{ "unittest", UnittestFuncs },
     .{ "re", ReFuncs },
+    .{ "os", OsFuncs },
+    .{ "os.path", OsPathFuncs },
+    .{ "path", OsPathFuncs }, // for "from os import path" then path.exists()
+    .{ "pathlib", PathlibFuncs },
+    .{ "datetime", DatetimeFuncs },
+    .{ "datetime.datetime", DatetimeDatetimeFuncs },
+    .{ "datetime.date", DatetimeDateFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
