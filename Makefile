@@ -1,4 +1,4 @@
-.PHONY: help build install verify test test-zig test-correctness-full test-runtime test-asyncio test-all format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines benchmark-quick benchmark-full benchmark-5d benchmark-dashboard benchmark-fib help-testing
+.PHONY: help build install verify test test-zig test-correctness-full test-runtime test-asyncio test-all format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines benchmark-quick benchmark-full benchmark-5d benchmark-dashboard benchmark-fib benchmark-dict benchmark-string help-testing
 
 help:
 	@echo "PyAOT Commands"
@@ -21,6 +21,8 @@ help:
 	@echo "benchmark-5d            - 5-dimensional async benchmark (PyAOT vs Go)"
 	@echo "benchmark-dashboard     - Automated dashboard with JSON export"
 	@echo "benchmark-fib           - Fibonacci benchmark (PyAOT vs CPython)"
+	@echo "benchmark-dict          - Dict benchmark (PyAOT vs CPython)"
+	@echo "benchmark-string        - String benchmark (PyAOT vs CPython)"
 	@echo "help-testing            - Show testing & benchmarking help"
 
 build:
@@ -335,6 +337,38 @@ benchmark-fib:
 	@hyperfine --warmup 3 \
 		'./bench_fib' \
 		'python3 examples/bench_fib.py'
+
+.PHONY: benchmark-dict
+benchmark-dict:
+	@echo "🔧 Dict Benchmark (PyAOT vs CPython)"
+	@echo ""
+	@command -v hyperfine >/dev/null 2>&1 || { echo "❌ hyperfine not found. Install: brew install hyperfine"; exit 1; }
+	@echo "✅ Dependencies found"
+	@echo ""
+	@echo "🔨 Building PyAOT (ReleaseFast)..."
+	@zig build -Doptimize=ReleaseFast
+	@./zig-out/bin/pyaot build examples/bench_dict.py ./bench_dict --binary
+	@echo ""
+	@echo "🔥 Running dict benchmark (1M iterations)..."
+	@hyperfine --warmup 3 \
+		'./bench_dict' \
+		'python3 examples/bench_dict.py'
+
+.PHONY: benchmark-string
+benchmark-string:
+	@echo "🔧 String Benchmark (PyAOT vs CPython)"
+	@echo ""
+	@command -v hyperfine >/dev/null 2>&1 || { echo "❌ hyperfine not found. Install: brew install hyperfine"; exit 1; }
+	@echo "✅ Dependencies found"
+	@echo ""
+	@echo "🔨 Building PyAOT (ReleaseFast)..."
+	@zig build -Doptimize=ReleaseFast
+	@./zig-out/bin/pyaot build examples/bench_string.py ./bench_string --binary
+	@echo ""
+	@echo "🔥 Running string benchmark (10k concatenations)..."
+	@hyperfine --warmup 3 \
+		'./bench_string' \
+		'python3 examples/bench_string.py'
 
 # Help target
 .PHONY: help-testing

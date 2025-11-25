@@ -65,6 +65,7 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
     const parser_mod = @import("../parser.zig");
 
     var lex = try lexer_mod.Lexer.init(allocator, source);
+    defer lex.deinit();
     const tokens = try lex.tokenize();
     defer allocator.free(tokens);
 
@@ -78,9 +79,11 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
     const native_types_mod = @import("../analysis/native_types.zig");
 
     var semantic_info = semantic_types_mod.SemanticInfo.init(allocator);
+    defer semantic_info.deinit();
     _ = try lifetime_analysis_mod.analyzeLifetimes(&semantic_info, tree, 1);
 
     var type_inferrer = try native_types_mod.TypeInferrer.init(allocator);
+    defer type_inferrer.deinit();
     if (tree == .module) {
         try type_inferrer.analyze(tree.module);
     }
