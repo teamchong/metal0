@@ -261,12 +261,31 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
         }
 
         _ = try self.expect(.Colon);
-        _ = try self.expect(.Newline);
-        _ = try self.expect(.Indent);
 
-        const body = try parseBlock(self);
+        // Check if this is a one-liner with (with x: statement)
+        var body: []ast.Node = undefined;
+        if (self.peek()) |next_tok| {
+            const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Return or
+                next_tok.type == .Break or
+                next_tok.type == .Continue or
+                next_tok.type == .Raise or
+                next_tok.type == .Ident; // for assignments and expressions
 
-        _ = try self.expect(.Dedent);
+            if (is_oneliner) {
+                const stmt = try self.parseStatement();
+                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                body_slice[0] = stmt;
+                body = body_slice;
+            } else {
+                _ = try self.expect(.Newline);
+                _ = try self.expect(.Indent);
+                body = try parseBlock(self);
+                _ = try self.expect(.Dedent);
+            }
+        } else {
+            return ParseError.UnexpectedEof;
+        }
 
         return ast.Node{
             .with_stmt = .{
