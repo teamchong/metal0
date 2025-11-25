@@ -41,7 +41,8 @@ pub const ModuleAnalysis = struct {
     needs_json: bool = false,
     needs_http: bool = false,
     needs_async: bool = false,
-    needs_allocator: bool = false,
+    // Always true - most code paths need allocator, DCE removes if truly unused
+    needs_allocator: bool = true,
     needs_runtime: bool = false,
     needs_string_utils: bool = false,
     needs_hashmap_helper: bool = false,

@@ -106,14 +106,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
     }
 
-    // Only import std if we need allocator, print, or other std features
-    if (analysis.needs_allocator or analysis.needs_runtime or analysis.needs_std) {
-        try self.emit("const std = @import(\"std\");\n");
-    }
-    // Only import runtime if async/closures/etc are used, or runtime modules imported
-    if (analysis.needs_runtime or analysis.needs_async or needs_runtime_for_imports) {
-        try self.emit("const runtime = @import(\"./runtime.zig\");\n");
-    }
+    // Always import std and runtime - DCE removes if unused
+    try self.emit("const std = @import(\"std\");\n");
+    try self.emit("const runtime = @import(\"./runtime.zig\");\n");
     if (analysis.needs_string_utils) {
         try self.emit("const string_utils = @import(\"string_utils.zig\");\n");
     }

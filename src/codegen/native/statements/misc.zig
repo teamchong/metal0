@@ -236,15 +236,10 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, "    std.debug.print(\"}}\", .{});\n");
                 try self.output.appendSlice(self.allocator, "}\n");
             } else if (arg_type == .unknown) {
-                // Format unknown types (PyObject from json.loads, etc.) using runtime formatter
-                try self.output.appendSlice(self.allocator, "{\n");
-                try self.output.appendSlice(self.allocator, "    const __pyobj = ");
+                // Use {any} for unknown types - works for any Zig type
+                try self.output.appendSlice(self.allocator, "std.debug.print(\"{any}\", .{");
                 try self.genExpr(arg);
-                try self.output.appendSlice(self.allocator, ";\n");
-                try self.output.appendSlice(self.allocator, "    const __pyobj_str = try runtime.formatPyObject(__pyobj, allocator);\n");
-                try self.output.appendSlice(self.allocator, "    defer allocator.free(__pyobj_str);\n");
-                try self.output.appendSlice(self.allocator, "    std.debug.print(\"{s}\", .{__pyobj_str});\n");
-                try self.output.appendSlice(self.allocator, "}\n");
+                try self.output.appendSlice(self.allocator, "});\n");
             } else if (arg_type == .bool) {
                 // Print booleans as Python-style True/False
                 try self.output.appendSlice(self.allocator, "std.debug.print(\"{s}\", .{if (");
