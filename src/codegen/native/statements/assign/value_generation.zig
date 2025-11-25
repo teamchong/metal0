@@ -64,6 +64,7 @@ pub fn emitVarDeclaration(
 
     // Use renamed version if in var_renames map (for exception handling)
     const actual_name = self.var_renames.get(var_name) orelse var_name;
+
     try self.output.appendSlice(self.allocator, actual_name);
 
     // Only emit type annotation for known types that aren't dicts, dictcomps, lists, tuples, closures, or ArrayLists

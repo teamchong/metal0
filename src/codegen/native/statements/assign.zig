@@ -98,6 +98,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             }
 
             try self.emitIndent();
+
+            // For unused variables, discard with _ = expr; to avoid Zig errors
+            if (is_first_assignment and self.isVarUnused(var_name)) {
+                try self.output.appendSlice(self.allocator, "_ = ");
+                try self.genExpr(assign.value.*);
+                try self.output.appendSlice(self.allocator, ";\n");
+                // Don't declare - variable doesn't exist
+                return;
+            }
+
             if (is_first_assignment) {
                 // First assignment: emit var/const declaration with type annotation
                 try valueGen.emitVarDeclaration(

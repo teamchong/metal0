@@ -339,6 +339,11 @@ pub const NativeCodegen = struct {
         return self.semantic_info.isMutated(var_name);
     }
 
+    /// Check if a variable is unused (assigned but never read)
+    pub fn isVarUnused(self: *NativeCodegen, var_name: []const u8) bool {
+        return self.semantic_info.isUnused(var_name);
+    }
+
     /// Check if a variable is declared as 'global' in current function
     pub fn isGlobalVar(self: *NativeCodegen, var_name: []const u8) bool {
         return self.global_vars.contains(var_name);
