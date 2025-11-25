@@ -2,22 +2,27 @@
 # Run CPython tests against PyAOT
 # Reports which tests pass/fail
 
+cd "$(dirname "$0")/../.."
+
 passed=0
 failed=0
 
 for f in tests/reference/test_*.py; do
-    # Skip if no matching files
     [ -e "$f" ] || continue
-
     name=$(basename "$f")
-    if pyaot "$f" --force 2>&1 | grep -q "successfully"; then
+    if ./zig-out/bin/pyaot "$f" --force 2>&1 | grep -q "successfully"; then
         echo "✓ $name"
         ((passed++))
     else
-        echo "✗ $name"
         ((failed++))
     fi
 done
 
+total=$((passed + failed))
 echo ""
-echo "Summary: $passed passed, $failed failed"
+echo "=== CPython Test Baseline ==="
+echo "Passed: $passed / $total"
+echo "Failed: $failed"
+if [ $total -gt 0 ]; then
+    echo "Pass rate: $((passed * 100 / total))%"
+fi
