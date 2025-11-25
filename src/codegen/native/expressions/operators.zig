@@ -211,32 +211,53 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
 }
 
 /// Generate comparison operations (==, !=, <, <=, >, >=)
+/// Handles Python chained comparisons: 1 < x < 10 becomes (1 < x) and (x < 10)
 pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!void {
     // Check if we're comparing strings (need std.mem.eql instead of ==)
     const left_type = try self.type_inferrer.inferExpr(compare.left.*);
 
+    // For chained comparisons (more than 1 op), wrap everything in parens
+    const is_chained = compare.ops.len > 1;
+    if (is_chained) {
+        try self.emit("(");
+    }
+
     for (compare.ops, 0..) |op, i| {
+        // Add "and" between comparisons for chained comparisons
+        if (i > 0) {
+            try self.emit(" and ");
+        }
+
+        // For chained comparisons, wrap each individual comparison in parens
+        if (is_chained) {
+            try self.emit("(");
+        }
+
         const right_type = try self.type_inferrer.inferExpr(compare.comparators[i]);
+
+        // For chained comparisons after the first, left side is the previous comparator
+        const current_left = if (i == 0) compare.left.* else compare.comparators[i - 1];
+        const current_left_type = if (i == 0) left_type else try self.type_inferrer.inferExpr(compare.comparators[i - 1]);
 
         // Special handling for string comparisons
         // Also handle cases where one side is .unknown (e.g., json.loads) comparing to string
-        const left_is_string = (left_type == .string);
+        const left_is_string = (current_left_type == .string);
         const right_is_string = (right_type == .string);
         const either_string = left_is_string or right_is_string;
-        const neither_unknown = (left_type != .unknown and right_type != .unknown);
+        const neither_unknown = (current_left_type != .unknown and right_type != .unknown);
 
         if ((left_is_string and right_is_string) or (either_string and !neither_unknown)) {
             switch (op) {
                 .Eq => {
                     try self.emit("std.mem.eql(u8, ");
-                    try genExpr(self, compare.left.*);
+                    try genExpr(self, current_left);
                     try self.emit(", ");
                     try genExpr(self, compare.comparators[i]);
                     try self.emit(")");
                 },
                 .NotEq => {
                     try self.emit("!std.mem.eql(u8, ");
-                    try genExpr(self, compare.left.*);
+                    try genExpr(self, current_left);
                     try self.emit(", ");
                     try genExpr(self, compare.comparators[i]);
                     try self.emit(")");
@@ -246,7 +267,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try self.emit("(std.mem.indexOf(u8, ");
                     try genExpr(self, compare.comparators[i]); // haystack
                     try self.emit(", ");
-                    try genExpr(self, compare.left.*); // needle
+                    try genExpr(self, current_left); // needle
                     try self.emit(") != null)");
                 },
                 .NotIn => {
@@ -254,12 +275,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try self.emit("(std.mem.indexOf(u8, ");
                     try genExpr(self, compare.comparators[i]); // haystack
                     try self.emit(", ");
-                    try genExpr(self, compare.left.*); // needle
+                    try genExpr(self, current_left); // needle
                     try self.emit(") == null)");
                 },
                 else => {
                     // String comparison operators other than == and != not supported
-                    try genExpr(self, compare.left.*);
+                    try genExpr(self, current_left);
                     const op_str = switch (op) {
                         .Lt => " < ",
                         .LtEq => " <= ",
@@ -284,7 +305,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try self.emit(", ");
                 try genExpr(self, compare.comparators[i]); // list/slice
                 try self.emit(", ");
-                try genExpr(self, compare.left.*); // item to search for
+                try genExpr(self, current_left); // item to search for
 
                 if (op == .In) {
                     try self.emit(") != null)");
@@ -296,13 +317,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 if (op == .In) {
                     try genExpr(self, compare.comparators[i]); // dict
                     try self.emit(".contains(");
-                    try genExpr(self, compare.left.*); // key
+                    try genExpr(self, current_left); // key
                     try self.emit(")");
                 } else {
                     try self.emit("!");
                     try genExpr(self, compare.comparators[i]); // dict
                     try self.emit(".contains(");
-                    try genExpr(self, compare.left.*); // key
+                    try genExpr(self, current_left); // key
                     try self.emit(")");
                 }
             } else {
@@ -311,14 +332,14 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
                 // String arrays need special handling - can't use indexOfScalar
                 // because strings require std.mem.eql for comparison, not ==
-                if (left_type == .string) {
+                if (current_left_type == .string) {
                     // Generate inline block expression that loops through array
                     try self.emit("(blk: {\n");
                     try self.emit("for (");
                     try genExpr(self, compare.comparators[i]); // array
                     try self.emit(") |__item| {\n");
                     try self.emit("if (std.mem.eql(u8, __item, ");
-                    try genExpr(self, compare.left.*); // search string
+                    try genExpr(self, current_left); // search string
                     try self.emit(")) break :blk true;\n");
                     try self.emit("}\n");
                     try self.emit("break :blk false;\n");
@@ -327,20 +348,20 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     // Handle 'not in' by negating the result
                     if (op == .NotIn) {
                         // Wrap in negation
-                        const current = try self.output.toOwnedSlice(self.allocator);
+                        const current_output = try self.output.toOwnedSlice(self.allocator);
                         try self.emit("!");
-                        try self.emit(current);
+                        try self.emit(current_output);
                     }
                 } else {
                     // Integer and float arrays use indexOfScalar
-                    const elem_type_str = left_type.toSimpleZigType();
+                    const elem_type_str = current_left_type.toSimpleZigType();
 
                     try self.emit("(std.mem.indexOfScalar(");
                     try self.emit(elem_type_str);
                     try self.emit(", &");
                     try genExpr(self, compare.comparators[i]); // array/container
                     try self.emit(", ");
-                    try genExpr(self, compare.left.*); // item to search for
+                    try genExpr(self, current_left); // item to search for
                     if (op == .In) {
                         try self.emit(") != null)");
                     } else {
@@ -350,12 +371,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             }
         }
         // Special handling for None comparisons
-        else if (left_type == .none or right_type == .none) {
+        else if (current_left_type == .none or right_type == .none) {
             // None comparisons with mixed types: result is known at compile time
             // but we must reference the non-None variable to avoid "unused" errors
-            const left_tag = @as(std.meta.Tag(@TypeOf(left_type)), left_type);
+            const cleft_tag = @as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type);
             const right_tag = @as(std.meta.Tag(@TypeOf(right_type)), right_type);
-            if (left_tag != right_tag) {
+            if (cleft_tag != right_tag) {
                 // One is None, other is not - emit block that references the non-None side
                 // The None side (?void) is allowed to be unused
                 const result = switch (op) {
@@ -364,10 +385,10 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     else => "false",
                 };
                 // Reference the non-None variable to mark it as used
-                if (left_type != .none) {
+                if (current_left_type != .none) {
                     // Left is non-None, reference it
                     try self.emit("(blk: { _ = ");
-                    try genExpr(self, compare.left.*);
+                    try genExpr(self, current_left);
                     try self.emitFmt("; break :blk {s}; }})", .{result});
                 } else {
                     // Right is non-None, reference it
@@ -377,7 +398,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 }
             } else {
                 // Both are None - compare normally
-                try genExpr(self, compare.left.*);
+                try genExpr(self, current_left);
                 const op_str = switch (op) {
                     .Eq => " == ",
                     .NotEq => " != ",
@@ -391,7 +412,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         else if (op == .Is or op == .IsNot) {
             // For primitives (int, bool, None), identity is same as equality
             // For objects/slices, compare pointer addresses
-            try genExpr(self, compare.left.*);
+            try genExpr(self, current_left);
             if (op == .Is) {
                 try self.emit(" == ");
             } else {
@@ -401,8 +422,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         } else {
             // Regular comparisons for non-strings
             // Check for type mismatches between usize and i64
-            const left_is_usize = (left_type == .usize);
-            const left_is_int = (left_type == .int);
+            const left_is_usize = (current_left_type == .usize);
+            const left_is_int = (current_left_type == .int);
             const right_is_usize = (right_type == .usize);
             const right_is_int = (right_type == .int);
 
@@ -413,7 +434,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             if (left_is_usize and needs_cast) {
                 try self.emit("@as(i64, @intCast(");
             }
-            try genExpr(self, compare.left.*);
+            try genExpr(self, current_left);
             if (left_is_usize and needs_cast) {
                 try self.emit("))");
             }
@@ -438,6 +459,16 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try self.emit("))");
             }
         }
+
+        // Close individual comparison paren for chained comparisons
+        if (is_chained) {
+            try self.emit(")");
+        }
+    }
+
+    // Close outer paren for chained comparisons
+    if (is_chained) {
+        try self.emit(")");
     }
 }
 

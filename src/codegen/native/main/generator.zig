@@ -43,6 +43,14 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // Generate @import() statements for compiled modules
     for (imported_modules.items) |mod_name| {
+        // Skip modules that use registry imports (zig_runtime or c_library)
+        // These get their import from the registry, not from @import("./mod.zig")
+        if (self.import_registry.lookup(mod_name)) |info| {
+            if (info.strategy == .zig_runtime or info.strategy == .c_library) {
+                continue;
+            }
+        }
+
         // Skip if external module (no .build/ file)
         const import_path = try std.fmt.allocPrint(self.allocator, IMPORT_PREFIX ++ "{s}" ++ MODULE_EXT, .{mod_name});
         defer self.allocator.free(import_path);

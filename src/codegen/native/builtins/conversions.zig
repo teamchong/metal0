@@ -248,8 +248,10 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // - Empty list [] -> false
     // - Zero 0 -> false
     // - Non-zero numbers -> true
+    // Wrap in parens to avoid chained comparison issues when used in expressions
+    try self.emit("(");
     try self.genExpr(args[0]);
-    try self.emit(" != 0");
+    try self.emit(" != 0)");
 }
 
 /// Generate code for type(obj)
