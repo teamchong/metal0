@@ -409,8 +409,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     defer type_inferrer.deinit();
 
     // PHASE 4.5: Pre-compile imported modules to register function return types
-    const source_file_dir_str = ".";
-    const source_file_dir: ?[]const u8 = source_file_dir_str;
+    // Derive source file directory from input file path
+    const source_file_dir: ?[]const u8 = if (std.fs.path.dirname(opts.input_file)) |dir|
+        if (dir.len > 0) dir else "."
+    else
+        ".";
 
     const imports_mod = @import("../codegen/native/main/imports.zig");
 

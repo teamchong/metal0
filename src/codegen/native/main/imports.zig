@@ -58,14 +58,21 @@ fn compileModuleAsStructWithPrefix(
         return error.ModuleNotFound;
     };
 
-    // If it's a compiled .so module, import from .build/ instead
+    // If it's a compiled .so module, still need to register types from source
+    // Try to find the .py source file alongside the .so
+    var py_path_to_use: []const u8 = resolved_path;
     if (std.mem.endsWith(u8, resolved_path, ".so")) {
-        // Module was already compiled to .build/module_name.zig
-        // Generate: const module_name = @import(".build/module_name.zig");
-        return try std.fmt.allocPrint(allocator, "const {s} = @import(\"./{s}.zig\");\n", .{ module_name, module_name });
+        // Try to find the .py source for type registration (skip .so files)
+        const py_source = try import_resolver.resolveImportSource(module_name, source_file_dir, aa);
+        if (py_source) |src| {
+            py_path_to_use = src;
+        } else {
+            // No .py source found - return the import statement and skip type registration
+            return try std.fmt.allocPrint(allocator, "const {s} = @import(\"./{s}.zig\");\n", .{ module_name, module_name });
+        }
     }
 
-    const py_path = resolved_path;
+    const py_path = py_path_to_use;
 
     // Analyze if this is a package with submodules
     const pkg_info = try import_resolver.analyzePackage(py_path, aa);

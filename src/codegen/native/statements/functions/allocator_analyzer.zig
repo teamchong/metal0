@@ -333,6 +333,13 @@ fn callNeedsAllocator(call: ast.Node.Call) bool {
     if (call.func.* == .attribute) {
         const method_name = call.func.attribute.attr;
         if (AllocatorMethods.has(method_name)) return true;
+
+        // Module function call (e.g., test_utils.double(x))
+        // Codegen passes allocator to imported module functions
+        if (call.func.attribute.value.* == .name) {
+            // Any module.function() call will receive allocator param in codegen
+            return true;
+        }
     }
 
     // Check if this is a built-in that needs allocator

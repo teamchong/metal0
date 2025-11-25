@@ -107,4 +107,12 @@ pub const SemanticInfo = struct {
         const lifetime = self.lifetimes.get(name) orelse return false;
         return lifetime.reassignment_count > 0;
     }
+
+    /// Check if a variable is never read (only assigned)
+    /// Returns true if the variable was assigned but never used as a value
+    pub fn isUnused(self: *SemanticInfo, name: []const u8) bool {
+        const lifetime = self.lifetimes.get(name) orelse return false;
+        // If first_assignment == last_use, the variable was only assigned, never read
+        return lifetime.first_assignment == lifetime.last_use and lifetime.first_assignment > 0;
+    }
 };
