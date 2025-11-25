@@ -119,28 +119,31 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Convert number to string
+    // Use scope-aware allocator: __global_allocator in functions, allocator in main()
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
     try self.emit("blk: {\n");
     try self.emit("var buf = std.ArrayList(u8){};\n");
 
     if (arg_type == .int) {
-        try self.emit("try buf.writer(allocator).print(\"{}\", .{");
+        try self.emitFmt("try buf.writer({s}).print(\"{{}}\", .{{", .{alloc_name});
     } else if (arg_type == .float) {
-        try self.emit("try buf.writer(allocator).print(\"{d}\", .{");
+        try self.emitFmt("try buf.writer({s}).print(\"{{d}}\", .{{", .{alloc_name});
     } else if (arg_type == .bool) {
         // Python bool to string: True/False
-        try self.emit("try buf.writer(allocator).print(\"{s}\", .{if (");
+        try self.emitFmt("try buf.writer({s}).print(\"{{s}}\", .{{if (", .{alloc_name});
         try self.genExpr(args[0]);
         try self.emit(") \"True\" else \"False\"});\n");
-        try self.emit("break :blk try buf.toOwnedSlice(allocator);\n");
+        try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
         try self.emit("}");
         return;
     } else {
-        try self.emit("try buf.writer(allocator).print(\"{any}\", .{");
+        try self.emitFmt("try buf.writer({s}).print(\"{{any}}\", .{{", .{alloc_name});
     }
 
     try self.genExpr(args[0]);
     try self.emit("});\n");
-    try self.emit("break :blk try buf.toOwnedSlice(allocator);\n");
+    try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
     try self.emit("}");
 }
 
@@ -291,16 +294,19 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
+    // Use scope-aware allocator: __global_allocator in functions, allocator in main()
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
     // For strings, wrap with quotes: "'string'"
     if (arg_type == .string) {
         try self.emit("blk: {\n");
         try self.emit("var buf = std.ArrayList(u8){};\n");
-        try self.emit("try buf.appendSlice(allocator, \"'\");\n");
-        try self.emit("try buf.appendSlice(allocator, ");
+        try self.emitFmt("try buf.appendSlice({s}, \"'\");\n", .{alloc_name});
+        try self.emitFmt("try buf.appendSlice({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
         try self.emit(");\n");
-        try self.emit("try buf.appendSlice(allocator, \"'\");\n");
-        try self.emit("break :blk try buf.toOwnedSlice(allocator);\n");
+        try self.emitFmt("try buf.appendSlice({s}, \"'\");\n", .{alloc_name});
+        try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
         try self.emit("}");
         return;
     }
@@ -318,15 +324,15 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("var buf = std.ArrayList(u8){};\n");
 
     if (arg_type == .int) {
-        try self.emit("try buf.writer(allocator).print(\"{}\", .{");
+        try self.emitFmt("try buf.writer({s}).print(\"{{}}\", .{{", .{alloc_name});
     } else if (arg_type == .float) {
-        try self.emit("try buf.writer(allocator).print(\"{d}\", .{");
+        try self.emitFmt("try buf.writer({s}).print(\"{{d}}\", .{{", .{alloc_name});
     } else {
-        try self.emit("try buf.writer(allocator).print(\"{any}\", .{");
+        try self.emitFmt("try buf.writer({s}).print(\"{{any}}\", .{{", .{alloc_name});
     }
 
     try self.genExpr(args[0]);
     try self.emit("});\n");
-    try self.emit("break :blk try buf.toOwnedSlice(allocator);\n");
+    try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
     try self.emit("}");
 }

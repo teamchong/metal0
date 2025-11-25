@@ -121,6 +121,10 @@ pub fn deinit(self: *NativeCodegen) void {
     // Clean up mutable_classes (not owned - AST references)
     self.mutable_classes.deinit();
 
+    // Clean up skipped_modules tracking
+    freeMapKeys(self.allocator, &self.skipped_modules);
+    self.skipped_modules.deinit();
+
     self.allocator.destroy(self);
 }
 

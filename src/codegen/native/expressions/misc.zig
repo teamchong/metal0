@@ -68,6 +68,15 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     const parent = @import("../expressions.zig");
     const genExpr = parent.genExpr;
 
+    // Check if this is a Path.parent access (Python property -> Zig method)
+    if (isPathProperty(attr)) {
+        try genExpr(self, attr.value.*);
+        try self.emit(".");
+        try self.emit(attr.attr);
+        try self.emit("()"); // Call as method in Zig
+        return;
+    }
+
     // Check if this is a property method (decorated with @property)
     const is_property = try isPropertyMethod(self, attr);
 
@@ -91,6 +100,31 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         try self.emit(".");
         try self.emit(attr.attr);
     }
+}
+
+/// Check if attribute access is on a Path object accessing a property-like method
+/// In Python, Path.parent is a property; in Zig runtime, it's a method
+fn isPathProperty(attr: ast.Node.Attribute) bool {
+    // Path properties that need to be called as methods
+    const path_properties = [_][]const u8{ "parent", "stem", "suffix", "name" };
+
+    for (path_properties) |prop| {
+        if (std.mem.eql(u8, attr.attr, prop)) {
+            // Check if value is a Path() call or chained Path access
+            if (attr.value.* == .call) {
+                if (attr.value.call.func.* == .name) {
+                    if (std.mem.eql(u8, attr.value.call.func.name.id, "Path")) {
+                        return true;
+                    }
+                }
+            }
+            // Check for chained access like Path(...).parent.parent
+            if (attr.value.* == .attribute) {
+                return isPathProperty(attr.value.attribute);
+            }
+        }
+    }
+    return false;
 }
 
 /// Check if attribute is a @property decorated method

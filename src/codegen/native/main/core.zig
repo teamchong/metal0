@@ -209,6 +209,11 @@ pub const NativeCodegen = struct {
     // Set during function generation, null otherwise
     current_function_name: ?[]const u8,
 
+    // Track skipped modules (external modules not found in registry)
+    // Maps module name -> void (e.g., "pytest" -> {})
+    // Used to skip code that references these modules
+    skipped_modules: FnvVoidMap,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -270,6 +275,7 @@ pub const NativeCodegen = struct {
             .global_vars = FnvVoidMap.init(allocator),
             .current_class_name = null,
             .current_function_name = null,
+            .skipped_modules = FnvVoidMap.init(allocator),
         };
         return self;
     }
@@ -400,6 +406,17 @@ pub const NativeCodegen = struct {
     /// Clear global vars (call when exiting function scope)
     pub fn clearGlobalVars(self: *NativeCodegen) void {
         cleanup.clearGlobalVars(self);
+    }
+
+    /// Check if a module was skipped (external module not found)
+    pub fn isSkippedModule(self: *NativeCodegen, module_name: []const u8) bool {
+        return self.skipped_modules.contains(module_name);
+    }
+
+    /// Mark a module as skipped (external module not found)
+    pub fn markSkippedModule(self: *NativeCodegen, module_name: []const u8) !void {
+        const name_copy = try self.allocator.dupe(u8, module_name);
+        try self.skipped_modules.put(name_copy, {});
     }
 
     /// Check if a class has a specific method (e.g., __getitem__, __len__)
