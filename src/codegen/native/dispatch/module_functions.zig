@@ -79,6 +79,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "pandas", PandasFuncs },
     .{ "pd", PandasFuncs },
     .{ "unittest", UnittestFuncs },
+    .{ "re", ReFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
