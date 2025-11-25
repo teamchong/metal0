@@ -114,6 +114,16 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
             });
         }
 
+        // Parse optional else block (runs if no exception)
+        var else_body: []ast.Node = &[_]ast.Node{};
+        if (self.match(.Else)) {
+            _ = try self.expect(.Colon);
+            _ = try self.expect(.Newline);
+            _ = try self.expect(.Indent);
+            else_body = try parseBlock(self);
+            _ = try self.expect(.Dedent);
+        }
+
         // Parse optional finally block
         var finalbody: []ast.Node = &[_]ast.Node{};
         if (self.match(.Finally)) {
@@ -128,7 +138,7 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
             .try_stmt = .{
                 .body = body,
                 .handlers = try handlers.toOwnedSlice(self.allocator),
-                .else_body = &[_]ast.Node{}, // Not implementing else block
+                .else_body = else_body,
                 .finalbody = finalbody,
             },
         };
