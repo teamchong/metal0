@@ -61,12 +61,14 @@ pub const TypeInferrer = struct {
         // Register __name__ as a string constant (for if __name__ == "__main__" support)
         try self.var_types.put("__name__", .{ .string = .literal });
 
+        // Use arena allocator for closure analysis so captured_vars slices get freed with arena
+        const arena_alloc = self.arena.allocator();
+
         // First pass: Analyze closures (detect captured variables)
         const body_mut = module.body;
-        try closures.analyzeNestedFunctions(body_mut, null, self.allocator);
+        try closures.analyzeNestedFunctions(body_mut, null, arena_alloc);
 
         // Second pass: Register all function return types from annotations
-        const arena_alloc = self.arena.allocator();
         for (module.body) |stmt| {
             if (stmt == .function_def) {
                 const func_def = stmt.function_def;

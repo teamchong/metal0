@@ -205,6 +205,16 @@ pub fn inferCall(
 
         const obj_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, attr.value.*);
 
+        // Class instance method calls (handles chained access like self.foo.get_val())
+        if (obj_type == .class_instance) {
+            const class_name = obj_type.class_instance;
+            if (class_fields.get(class_name)) |class_info| {
+                if (class_info.methods.get(attr.attr)) |method_return_type| {
+                    return method_return_type;
+                }
+            }
+        }
+
         // String methods
         if (obj_type == .string) {
             if (StringMethods.get(attr.attr)) |return_type| {

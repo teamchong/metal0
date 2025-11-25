@@ -403,8 +403,24 @@ pub fn genMethodSignature(
         if (std.mem.eql(u8, arg.name, "self")) continue;
         try self.output.appendSlice(self.allocator, ", ");
         try self.output.writer(self.allocator).print("{s}: ", .{arg.name});
-        const param_type = pythonTypeToZig(arg.type_annotation);
-        try self.output.appendSlice(self.allocator, param_type);
+        // Use anytype for method params without type annotation to support string literals
+        // This lets Zig infer the type from the call site
+        if (arg.type_annotation) |_| {
+            const param_type = pythonTypeToZig(arg.type_annotation);
+            try self.output.appendSlice(self.allocator, param_type);
+        } else if (self.getVarType(arg.name)) |var_type| {
+            // Try inferred type from type inferrer
+            const var_type_tag = @as(std.meta.Tag(@TypeOf(var_type)), var_type);
+            if (var_type_tag != .unknown) {
+                const zig_type = try self.nativeTypeToZigType(var_type);
+                defer self.allocator.free(zig_type);
+                try self.output.appendSlice(self.allocator, zig_type);
+            } else {
+                try self.output.appendSlice(self.allocator, "anytype");
+            }
+        } else {
+            try self.output.appendSlice(self.allocator, "anytype");
+        }
     }
 
     try self.output.appendSlice(self.allocator, ") ");
@@ -418,21 +434,49 @@ pub fn genMethodSignature(
         const zig_return_type = pythonTypeToZig(method.return_type);
         try self.output.appendSlice(self.allocator, zig_return_type);
     } else if (hasReturnStatement(method.body)) {
-        // Try to get inferred return type from class_fields.methods
-        const class_info = self.type_inferrer.class_fields.get(class_name);
-        const inferred_type = if (class_info) |info| info.methods.get(method.name) else null;
+        // Check if method returns a parameter directly (for anytype params)
+        var returned_param_name: ?[]const u8 = null;
+        for (method.body) |stmt| {
+            if (stmt == .return_stmt) {
+                if (stmt.return_stmt.value) |val| {
+                    if (val.* == .name) {
+                        // Check if returned value is a parameter (not 'self')
+                        for (method.args) |arg| {
+                            if (!std.mem.eql(u8, arg.name, "self") and
+                                std.mem.eql(u8, arg.name, val.name.id) and
+                                arg.type_annotation == null)
+                            {
+                                returned_param_name = arg.name;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        if (inferred_type) |inf_type| {
-            // Use inferred type (skip if .int or .unknown - those are defaults)
-            if (inf_type != .int and inf_type != .unknown) {
-                const return_type_str = try self.nativeTypeToZigType(inf_type);
-                defer self.allocator.free(return_type_str);
-                try self.output.appendSlice(self.allocator, return_type_str);
+        if (returned_param_name) |param_name| {
+            // Method returns an anytype param - use @TypeOf(param)
+            try self.output.appendSlice(self.allocator, "@TypeOf(");
+            try self.output.appendSlice(self.allocator, param_name);
+            try self.output.appendSlice(self.allocator, ")");
+        } else {
+            // Try to get inferred return type from class_fields.methods
+            const class_info = self.type_inferrer.class_fields.get(class_name);
+            const inferred_type = if (class_info) |info| info.methods.get(method.name) else null;
+
+            if (inferred_type) |inf_type| {
+                // Use inferred type (skip if .int or .unknown - those are defaults)
+                if (inf_type != .int and inf_type != .unknown) {
+                    const return_type_str = try self.nativeTypeToZigType(inf_type);
+                    defer self.allocator.free(return_type_str);
+                    try self.output.appendSlice(self.allocator, return_type_str);
+                } else {
+                    try self.output.appendSlice(self.allocator, "i64");
+                }
             } else {
                 try self.output.appendSlice(self.allocator, "i64");
             }
-        } else {
-            try self.output.appendSlice(self.allocator, "i64");
         }
     } else {
         try self.output.appendSlice(self.allocator, "void");
