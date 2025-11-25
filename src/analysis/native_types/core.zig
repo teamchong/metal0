@@ -2,6 +2,23 @@ const std = @import("std");
 const hashmap_helper = @import("../../utils/hashmap_helper.zig");
 const ast = @import("../../ast.zig");
 
+/// Generic type base name to handler mapping for DCE optimization
+const GenericTypeHandler = enum { list, dict, optional };
+const generic_type_map = std.StaticStringMap(GenericTypeHandler).initComptime(.{
+    .{ "list", .list },
+    .{ "dict", .dict },
+    .{ "Optional", .optional },
+});
+
+/// Simple type hint to NativeType mapping for DCE optimization
+const SimpleTypeHint = enum { int, float, bool, str };
+const simple_type_map = std.StaticStringMap(SimpleTypeHint).initComptime(.{
+    .{ "int", .int },
+    .{ "float", .float },
+    .{ "bool", .bool },
+    .{ "str", .str },
+});
+
 /// Check if a list contains only literal values (candidates for array optimization)
 pub fn isConstantList(list: ast.Node.List) bool {
     if (list.elts.len == 0) return false; // Empty lists stay dynamic
@@ -245,28 +262,34 @@ pub fn parseTypeAnnotation(node: ast.Node, allocator: std.mem.Allocator) InferEr
             if (subscript.value.* != .name) return .unknown;
             const base_type = subscript.value.name.id;
 
-            if (std.mem.eql(u8, base_type, "list")) {
-                // list[T]
-                const elem_type = try parseSliceType(subscript.slice, allocator);
-                const elem_ptr = try allocator.create(NativeType);
-                elem_ptr.* = elem_type;
-                return .{ .list = elem_ptr };
-            } else if (std.mem.eql(u8, base_type, "dict")) {
-                // dict[K, V]
-                const types = try parseSliceTupleTypes(subscript.slice, allocator);
-                if (types.len == 2) {
-                    const key_ptr = try allocator.create(NativeType);
-                    const val_ptr = try allocator.create(NativeType);
-                    key_ptr.* = types[0];
-                    val_ptr.* = types[1];
-                    return .{ .dict = .{ .key = key_ptr, .value = val_ptr } };
+            if (generic_type_map.get(base_type)) |handler| {
+                switch (handler) {
+                    .list => {
+                        // list[T]
+                        const elem_type = try parseSliceType(subscript.slice, allocator);
+                        const elem_ptr = try allocator.create(NativeType);
+                        elem_ptr.* = elem_type;
+                        return .{ .list = elem_ptr };
+                    },
+                    .dict => {
+                        // dict[K, V]
+                        const types = try parseSliceTupleTypes(subscript.slice, allocator);
+                        if (types.len == 2) {
+                            const key_ptr = try allocator.create(NativeType);
+                            const val_ptr = try allocator.create(NativeType);
+                            key_ptr.* = types[0];
+                            val_ptr.* = types[1];
+                            return .{ .dict = .{ .key = key_ptr, .value = val_ptr } };
+                        }
+                    },
+                    .optional => {
+                        // Optional[T]
+                        const inner_type = try parseSliceType(subscript.slice, allocator);
+                        const inner_ptr = try allocator.create(NativeType);
+                        inner_ptr.* = inner_type;
+                        return .{ .optional = inner_ptr };
+                    },
                 }
-            } else if (std.mem.eql(u8, base_type, "Optional")) {
-                // Optional[T]
-                const inner_type = try parseSliceType(subscript.slice, allocator);
-                const inner_ptr = try allocator.create(NativeType);
-                inner_ptr.* = inner_type;
-                return .{ .optional = inner_ptr };
             }
             return .unknown;
         },
@@ -308,14 +331,16 @@ fn parseSliceTupleTypes(slice: ast.Node.Slice, allocator: std.mem.Allocator) Inf
 pub fn pythonTypeHintToNative(type_hint: ?[]const u8, allocator: std.mem.Allocator) InferError!NativeType {
     _ = allocator;
     if (type_hint) |hint| {
-        if (std.mem.eql(u8, hint, "int")) return .int;
-        if (std.mem.eql(u8, hint, "float")) return .float;
-        if (std.mem.eql(u8, hint, "bool")) return .bool;
-        if (std.mem.eql(u8, hint, "str")) return .{ .string = .runtime };
-        if (std.mem.eql(u8, hint, "list")) {
-            // Generic list without type parameter - assume int
-            return .unknown; // Should use parseTypeAnnotation for proper generic handling
+        if (simple_type_map.get(hint)) |simple| {
+            return switch (simple) {
+                .int => .int,
+                .float => .float,
+                .bool => .bool,
+                .str => .{ .string = .runtime },
+            };
         }
+        // Generic list without type parameter - should use parseTypeAnnotation
+        if (std.mem.eql(u8, hint, "list")) return .unknown;
     }
     return .unknown;
 }

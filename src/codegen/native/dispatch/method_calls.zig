@@ -76,6 +76,32 @@ const PandasColumnMethods = std.StaticStringMap(ColumnHandler).initComptime(.{
     .{ "std", pandas_mod.genColumnStd },
 });
 
+// Special method types for dispatch
+const SpecialMethodType = enum { count, index, get };
+
+// Special methods lookup - O(1)
+const SpecialMethods = std.StaticStringMap(SpecialMethodType).initComptime(.{
+    .{ "count", .count },
+    .{ "index", .index },
+    .{ "get", .get },
+});
+
+// Queue method output patterns
+const QueueMethodOutput = struct {
+    prefix: []const u8,
+    suffix: []const u8,
+    has_arg: bool,
+};
+
+// Queue methods lookup - O(1)
+const QueueMethods = std.StaticStringMap(QueueMethodOutput).initComptime(.{
+    .{ "put_nowait", QueueMethodOutput{ .prefix = "try ", .suffix = ".put_nowait(", .has_arg = true } },
+    .{ "get_nowait", QueueMethodOutput{ .prefix = "try ", .suffix = ".get_nowait()", .has_arg = false } },
+    .{ "empty", QueueMethodOutput{ .prefix = "", .suffix = ".empty()", .has_arg = false } },
+    .{ "full", QueueMethodOutput{ .prefix = "", .suffix = ".full()", .has_arg = false } },
+    .{ "qsize", QueueMethodOutput{ .prefix = "", .suffix = ".qsize()", .has_arg = false } },
+});
+
 /// Try to dispatch method call (obj.method())
 /// Returns true if dispatched successfully
 pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
@@ -125,81 +151,58 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
 /// Handle methods that need special logic (count, index, get)
 fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: []const u8, obj: ast.Node) CodegenError!bool {
-    // count - needs type-based dispatch (list vs string)
-    if (std.mem.eql(u8, method_name, "count")) {
-        const is_list = blk: {
-            if (obj == .name) {
-                const var_name = obj.name.id;
-                if (self.getSymbolType(var_name)) |var_type| {
-                    break :blk var_type == .list;
+    const method_type = SpecialMethods.get(method_name) orelse return false;
+
+    switch (method_type) {
+        .count => {
+            // count - needs type-based dispatch (list vs string)
+            const is_list = blk: {
+                if (obj == .name) {
+                    const var_name = obj.name.id;
+                    if (self.getSymbolType(var_name)) |var_type| {
+                        break :blk var_type == .list;
+                    }
                 }
+                break :blk false;
+            };
+
+            if (is_list) {
+                const genListCount = @import("../methods/list.zig").genCount;
+                try genListCount(self, obj, call.args);
+            } else {
+                try methods.genCount(self, obj, call.args);
             }
-            break :blk false;
-        };
-
-        if (is_list) {
-            const genListCount = @import("../methods/list.zig").genCount;
-            try genListCount(self, obj, call.args);
-        } else {
-            try methods.genCount(self, obj, call.args);
-        }
-        return true;
+        },
+        .index => {
+            // index - string version (genStrIndex) vs list version
+            try methods.genStrIndex(self, obj, call.args);
+        },
+        .get => {
+            // get - only dict.get(key) with args
+            if (call.args.len == 0) return false;
+            try methods.genGet(self, obj, call.args);
+        },
     }
-
-    // index - string version (genStrIndex) vs list version
-    if (std.mem.eql(u8, method_name, "index")) {
-        try methods.genStrIndex(self, obj, call.args);
-        return true;
-    }
-
-    // get - only dict.get(key) with args
-    if (std.mem.eql(u8, method_name, "get") and call.args.len > 0) {
-        try methods.genGet(self, obj, call.args);
-        return true;
-    }
-
-    return false;
+    return true;
 }
 
 /// Handle asyncio.Queue methods
 fn handleQueueMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: []const u8, obj: ast.Node) CodegenError!bool {
+    const queue_method = QueueMethods.get(method_name) orelse return false;
     const parent = @import("../expressions.zig");
 
-    if (std.mem.eql(u8, method_name, "put_nowait")) {
-        try self.output.appendSlice(self.allocator, "try ");
-        try parent.genExpr(self, obj);
-        try self.output.appendSlice(self.allocator, ".put_nowait(");
+    if (queue_method.prefix.len > 0) {
+        try self.output.appendSlice(self.allocator, queue_method.prefix);
+    }
+    try parent.genExpr(self, obj);
+    try self.output.appendSlice(self.allocator, queue_method.suffix);
+
+    if (queue_method.has_arg) {
         if (call.args.len > 0) {
             try parent.genExpr(self, call.args[0]);
         }
         try self.output.appendSlice(self.allocator, ")");
-        return true;
     }
 
-    if (std.mem.eql(u8, method_name, "get_nowait")) {
-        try self.output.appendSlice(self.allocator, "try ");
-        try parent.genExpr(self, obj);
-        try self.output.appendSlice(self.allocator, ".get_nowait()");
-        return true;
-    }
-
-    if (std.mem.eql(u8, method_name, "empty")) {
-        try parent.genExpr(self, obj);
-        try self.output.appendSlice(self.allocator, ".empty()");
-        return true;
-    }
-
-    if (std.mem.eql(u8, method_name, "full")) {
-        try parent.genExpr(self, obj);
-        try self.output.appendSlice(self.allocator, ".full()");
-        return true;
-    }
-
-    if (std.mem.eql(u8, method_name, "qsize")) {
-        try parent.genExpr(self, obj);
-        try self.output.appendSlice(self.allocator, ".qsize()");
-        return true;
-    }
-
-    return false;
+    return true;
 }
