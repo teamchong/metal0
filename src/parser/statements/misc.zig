@@ -77,13 +77,31 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
     pub fn parseTry(self: *Parser) ParseError!ast.Node {
         _ = try self.expect(.Try);
         _ = try self.expect(.Colon);
-        _ = try self.expect(.Newline);
-        _ = try self.expect(.Indent);
 
-        // Parse try block body
-        const body = try parseBlock(self);
+        // Parse try block body - check for one-liner
+        var body: []ast.Node = undefined;
+        if (self.peek()) |next_tok| {
+            const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Return or
+                next_tok.type == .Break or
+                next_tok.type == .Continue or
+                next_tok.type == .Raise or
+                next_tok.type == .Ident; // for assignments and expressions
 
-        _ = try self.expect(.Dedent);
+            if (is_oneliner) {
+                const stmt = try self.parseStatement();
+                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                body_slice[0] = stmt;
+                body = body_slice;
+            } else {
+                _ = try self.expect(.Newline);
+                _ = try self.expect(.Indent);
+                body = try parseBlock(self);
+                _ = try self.expect(.Dedent);
+            }
+        } else {
+            return ParseError.UnexpectedEof;
+        }
 
         // Parse except handlers
         var handlers = std.ArrayList(ast.Node.ExceptHandler){};
@@ -107,12 +125,31 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
             }
 
             _ = try self.expect(.Colon);
-            _ = try self.expect(.Newline);
-            _ = try self.expect(.Indent);
 
-            const handler_body = try parseBlock(self);
+            // Parse except body - check for one-liner
+            var handler_body: []ast.Node = undefined;
+            if (self.peek()) |next_tok| {
+                const is_oneliner = next_tok.type == .Pass or
+                    next_tok.type == .Return or
+                    next_tok.type == .Break or
+                    next_tok.type == .Continue or
+                    next_tok.type == .Raise or
+                    next_tok.type == .Ident; // for assignments and expressions
 
-            _ = try self.expect(.Dedent);
+                if (is_oneliner) {
+                    const stmt = try self.parseStatement();
+                    const handler_slice = try self.allocator.alloc(ast.Node, 1);
+                    handler_slice[0] = stmt;
+                    handler_body = handler_slice;
+                } else {
+                    _ = try self.expect(.Newline);
+                    _ = try self.expect(.Indent);
+                    handler_body = try parseBlock(self);
+                    _ = try self.expect(.Dedent);
+                }
+            } else {
+                return ParseError.UnexpectedEof;
+            }
 
             try handlers.append(self.allocator, ast.Node.ExceptHandler{
                 .type = exc_type,

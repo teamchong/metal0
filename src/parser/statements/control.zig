@@ -167,12 +167,31 @@ pub fn parseFor(self: *Parser) ParseError!ast.Node {
         };
 
         _ = try self.expect(.Colon);
-        _ = try self.expect(.Newline);
-        _ = try self.expect(.Indent);
 
-        const body = try misc.parseBlock(self);
+        // Check if this is a one-liner for (for x in y: statement)
+        var body: []ast.Node = undefined;
+        if (self.peek()) |next_tok| {
+            const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Return or
+                next_tok.type == .Break or
+                next_tok.type == .Continue or
+                next_tok.type == .Raise or
+                next_tok.type == .Ident;
 
-        _ = try self.expect(.Dedent);
+            if (is_oneliner) {
+                const stmt = try self.parseStatement();
+                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                body_slice[0] = stmt;
+                body = body_slice;
+            } else {
+                _ = try self.expect(.Newline);
+                _ = try self.expect(.Indent);
+                body = try misc.parseBlock(self);
+                _ = try self.expect(.Dedent);
+            }
+        } else {
+            return ParseError.UnexpectedEof;
+        }
 
         const target_ptr = try self.allocator.create(ast.Node);
         if (targets.items.len == 1) {
@@ -203,12 +222,31 @@ pub fn parseWhile(self: *Parser) ParseError!ast.Node {
         _ = try self.expect(.While);
         const condition_expr = try self.parseExpression();
         _ = try self.expect(.Colon);
-        _ = try self.expect(.Newline);
-        _ = try self.expect(.Indent);
 
-        const body = try misc.parseBlock(self);
+        // Check if this is a one-liner while (while x: statement)
+        var body: []ast.Node = undefined;
+        if (self.peek()) |next_tok| {
+            const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Return or
+                next_tok.type == .Break or
+                next_tok.type == .Continue or
+                next_tok.type == .Raise or
+                next_tok.type == .Ident;
 
-        _ = try self.expect(.Dedent);
+            if (is_oneliner) {
+                const stmt = try self.parseStatement();
+                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                body_slice[0] = stmt;
+                body = body_slice;
+            } else {
+                _ = try self.expect(.Newline);
+                _ = try self.expect(.Indent);
+                body = try misc.parseBlock(self);
+                _ = try self.expect(.Dedent);
+            }
+        } else {
+            return ParseError.UnexpectedEof;
+        }
 
         const condition_ptr = try self.allocator.create(ast.Node);
         condition_ptr.* = condition_expr;
