@@ -268,6 +268,9 @@ pub fn analyzeNestedFunctions(
                 try analyzeNestedFunctions(handler.body, parent_locals, allocator);
             }
             try analyzeNestedFunctions(stmt.try_stmt.finalbody, parent_locals, allocator);
+        } else if (stmt.* == .class_def) {
+            // Analyze nested functions inside class methods
+            try analyzeNestedFunctions(stmt.class_def.body, parent_locals, allocator);
         }
     }
 }

@@ -76,23 +76,20 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                         }
                     }
 
-                    const field_type_str = switch (inferred) {
-                        .int => "i64",
-                        .float => "f64",
-                        .bool => "bool",
-                        .string => "[]const u8",
-                        else => "i64",
-                    };
+                    // Use nativeTypeToZigType for proper type conversion (handles dict, list, etc.)
+                    const field_type_str = try self.nativeTypeToZigType(inferred);
+                    defer self.allocator.free(field_type_str);
 
                     try self.emitIndent();
                     if (with_defaults) {
                         // Add default value for fields set at runtime (e.g., setUp)
                         const default_val = switch (inferred) {
-                            .int => "0",
+                            .int, .usize => "0",
                             .float => "0.0",
                             .bool => "false",
                             .string => "\"\"",
-                            else => "0",
+                            .dict, .list, .set => ".{}", // Empty struct init
+                            else => "undefined",
                         };
                         try self.output.writer(self.allocator).print("{s}: {s} = {s},\n", .{ field_name, field_type_str, default_val });
                     } else {
@@ -123,13 +120,7 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
     if (constructor_arg_types) |arg_types| {
         if (param_idx < arg_types.len) {
             const inferred = arg_types[param_idx];
-            return switch (inferred) {
-                .int => "i64",
-                .float => "f64",
-                .bool => "bool",
-                .string => "[]const u8",
-                else => "i64",
-            };
+            return try self.nativeTypeToZigType(inferred);
         }
     }
 
@@ -140,13 +131,7 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
             if (assign.value.* == .name and std.mem.eql(u8, assign.value.name.id, param_name)) {
                 // Found usage - infer type from the value
                 const inferred = try self.type_inferrer.inferExpr(assign.value.*);
-                return switch (inferred) {
-                    .int => "i64",
-                    .float => "f64",
-                    .bool => "bool",
-                    .string => "[]const u8",
-                    else => "i64",
-                };
+                return try self.nativeTypeToZigType(inferred);
             }
         }
     }

@@ -28,6 +28,7 @@ pub const InferDictValueType = comptime_helpers.InferDictValueType;
 
 /// Export comptime closure helpers
 pub const closure_impl = @import("closure_impl.zig");
+pub const Closure0 = closure_impl.Closure0;
 pub const Closure1 = closure_impl.Closure1;
 pub const Closure2 = closure_impl.Closure2;
 pub const Closure3 = closure_impl.Closure3;

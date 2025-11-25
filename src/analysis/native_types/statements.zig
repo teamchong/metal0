@@ -280,8 +280,13 @@ pub fn visitStmt(
         },
         .function_def => |func_def| {
             // Register function return type from annotation
+            // BUT don't overwrite if we already have a better inferred type from 4th pass
             const return_type = try core.pythonTypeHintToNative(func_def.return_type, allocator);
-            try func_return_types.put(func_def.name, return_type);
+            const existing = func_return_types.get(func_def.name);
+            if (existing == null or existing.? == .unknown) {
+                // Only set if no existing type or existing is unknown
+                try func_return_types.put(func_def.name, return_type);
+            }
 
             // Register function parameter types from type annotations
             for (func_def.args) |arg| {

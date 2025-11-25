@@ -80,19 +80,16 @@ pub const TypeInferrer = struct {
             try self.collectConstructorArgs(stmt, arena_alloc);
         }
 
-        // Fourth pass: Analyze all statements
-        for (module.body) |stmt| {
-            try self.visitStmt(stmt);
-        }
-
-        // Fifth pass: Infer return types from return statements (for functions without annotations)
+        // Fourth pass: Infer return types from return statements (for functions without annotations)
+        // IMPORTANT: Must run BEFORE statement analysis so variable assignments from function calls
+        // can look up the correct return type.
         for (module.body) |stmt| {
             if (stmt == .function_def) {
                 const func_def = stmt.function_def;
                 const current_type = self.func_return_types.get(func_def.name) orelse .unknown;
 
-                // Only infer if no annotation was provided (type is .int default)
-                if (current_type == .int or current_type == .unknown) {
+                // Only infer if no annotation was provided (type is unknown default)
+                if (current_type == .unknown) {
                     // Find return statement in function body
                     for (func_def.body) |body_stmt| {
                         if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
@@ -104,6 +101,11 @@ pub const TypeInferrer = struct {
                     }
                 }
             }
+        }
+
+        // Fifth pass: Analyze all statements (must run after return type inference)
+        for (module.body) |stmt| {
+            try self.visitStmt(stmt);
         }
     }
 

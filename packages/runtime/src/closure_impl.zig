@@ -45,6 +45,18 @@ pub fn ClosureImpl(comptime config: ClosureConfig) type {
     };
 }
 
+/// Helper to create a closure with no arguments (captures only)
+pub fn Closure0(comptime CaptureT: type, comptime RetT: type, comptime func: fn (CaptureT) RetT) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self) RetT {
+            return func(self.captures);
+        }
+    };
+}
+
 /// Helper to create a closure with single argument
 pub fn Closure1(comptime CaptureT: type, comptime ArgT: type, comptime RetT: type, comptime func: fn (CaptureT, ArgT) RetT) type {
     return struct {

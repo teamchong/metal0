@@ -178,10 +178,42 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 return;
             }
 
-            // Emit value
-            try self.genExpr(assign.value.*);
+            // Check if this is an async function call that needs auto-await
+            const is_async_call = isAsyncFunctionCall(self, assign.value.*);
 
-            try self.output.appendSlice(self.allocator, ";\n");
+            if (is_async_call) {
+                // Auto-await: wrap async call with scheduler init + wait + result extraction
+                try self.output.appendSlice(self.allocator, "(blk: {\n");
+                try self.emitIndent();
+                // Initialize scheduler if needed (first async call)
+                try self.output.appendSlice(self.allocator, "    if (!runtime.scheduler_initialized) {\n");
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "        runtime.scheduler = runtime.Scheduler.init(allocator, __num_threads) catch unreachable;\n");
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "        runtime.scheduler.start() catch unreachable;\n");
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "        runtime.scheduler_initialized = true;\n");
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "    }\n");
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "    const __thread = ");
+                try self.genExpr(assign.value.*);
+                try self.output.appendSlice(self.allocator, ";\n");
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "    runtime.scheduler.wait(__thread);\n");
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "    const __result = __thread.result orelse unreachable;\n");
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "});\n");
+            } else {
+                // Emit value normally
+                try self.genExpr(assign.value.*);
+                try self.output.appendSlice(self.allocator, ";\n");
+            }
 
             // Track variable metadata (ArrayList vars, closures, etc.)
             try valueGen.trackVariableMetadata(
@@ -383,6 +415,18 @@ fn isDynamicAttrAssign(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
 
     // Unknown field - dynamic attribute
     return true;
+}
+
+/// Check if expression is a call to an async function
+fn isAsyncFunctionCall(self: *NativeCodegen, expr: ast.Node) bool {
+    if (expr != .call) return false;
+    const call = expr.call;
+
+    // Only handle direct function calls (name), not method calls
+    if (call.func.* != .name) return false;
+
+    const func_name = call.func.name.id;
+    return self.async_functions.contains(func_name);
 }
 
 // Comptime assignment functions moved to assign_comptime.zig

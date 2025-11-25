@@ -191,7 +191,13 @@ pub fn genNestedFunctionDef(
     defer self.allocator.free(closure_var_name);
 
     try self.emitIndent();
-    if (func.args.len == 1) {
+    if (func.args.len == 0) {
+        // No arguments - use Closure0
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.Closure0({s}, ",
+            .{ closure_var_name, capture_type_name },
+        );
+    } else if (func.args.len == 1) {
         try self.output.writer(self.allocator).print(
             "const {s} = runtime.Closure1({s}, ",
             .{ closure_var_name, capture_type_name },
@@ -214,7 +220,7 @@ pub fn genNestedFunctionDef(
         );
     }
 
-    // Arg types
+    // Arg types (skip for zero-arg closures)
     for (func.args, 0..) |_, i| {
         if (func.args.len > 1 and i > 0) try self.output.appendSlice(self.allocator, ", ");
         try self.output.appendSlice(self.allocator, "i64");
