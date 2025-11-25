@@ -83,7 +83,6 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             const is_dataframe = (value_type == .dataframe);
             const is_unknown_pyobject = (value_type == .unknown);
 
-
             // Check if this variable is tracked as ArrayList (may have .array type but be ArrayList due to mutations)
             const is_tracked_arraylist_early = blk: {
                 if (subscript.value.* == .name) {
