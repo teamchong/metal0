@@ -142,12 +142,17 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
                 continue;
             }
 
-            // Check for *args
+            // Check for *args or keyword-only marker (bare *)
             if (self.match(.Star)) {
-                const arg_name = try self.expect(.Ident);
-                vararg_name = arg_name.lexeme;
+                // Check if this is bare * (keyword-only marker) or *args
+                if (self.current < self.tokens.len and self.tokens[self.current].type == .Ident) {
+                    // *args: has identifier after *
+                    const arg_name = try self.expect(.Ident);
+                    vararg_name = arg_name.lexeme;
+                }
+                // else: bare * is keyword-only marker, just skip it
 
-                // *args can be followed by **kwargs
+                // *args or * can be followed by more parameters or **kwargs
                 if (!self.match(.Comma)) {
                     _ = try self.expect(.RParen);
                     break;

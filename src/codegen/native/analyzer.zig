@@ -288,6 +288,10 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                         const part_analysis = try analyzeExpr(fe.expr.*);
                         analysis.merge(part_analysis);
                     },
+                    .conv_expr => |ce| {
+                        const part_analysis = try analyzeExpr(ce.expr.*);
+                        analysis.merge(part_analysis);
+                    },
                     .literal => {},
                 }
             }

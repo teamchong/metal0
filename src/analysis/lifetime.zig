@@ -305,6 +305,10 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             // Analyze the value being unpacked
             line = try analyzeLifetimes(info, starred.value.*, line);
         },
+        .double_starred => |double_starred| {
+            // Analyze the value being unpacked (kwargs)
+            line = try analyzeLifetimes(info, double_starred.value.*, line);
+        },
         .del_stmt => |del| {
             // Record variable deletion (for completeness, could mark lifetime end)
             for (del.targets) |target| {

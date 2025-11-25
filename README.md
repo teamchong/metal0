@@ -2,7 +2,7 @@
 
 **v0.1.0-alpha** - Early development, not production-ready
 
-Python at native speed. Zero overhead.
+Move Ahead of Time. A zero-overhead Python compiler.
 
 **28x faster** than CPython | **Beats Rust/Go** | Native binaries
 

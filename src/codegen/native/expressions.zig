@@ -66,6 +66,11 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             // Just generate the inner expression (unpacking is handled by call context)
             try genExpr(self, s.value.*);
         },
+        .double_starred => |ds| {
+            // Double starred expression: **expr
+            // Just generate the inner expression (unpacking is handled by call context)
+            try genExpr(self, ds.value.*);
+        },
         .named_expr => |ne| try genNamedExpr(self, ne),
         .if_expr => |ie| try genIfExpr(self, ie),
         else => {},
@@ -234,7 +239,38 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 const saved_output = self.output;
                 self.output = std.ArrayList(u8){};
 
-                try genExpr(self, fe.expr.*);
+                // Handle conversion specifier (!r, !s, !a)
+                // For now, all conversions just pass the value - repr/str/ascii are TODO
+                if (fe.conversion) |_| {
+                    try genExpr(self, fe.expr.*);
+                } else {
+                    try genExpr(self, fe.expr.*);
+                }
+                const expr_code = try self.output.toOwnedSlice(self.allocator);
+                try args_list.append(self.allocator, expr_code);
+
+                self.output = saved_output;
+            },
+            .conv_expr => |ce| {
+                // Expression with conversion but no format spec
+                const expr_type = try self.type_inferrer.inferExpr(ce.expr.*);
+                const format_spec = switch (expr_type) {
+                    .int => "d",
+                    .float => "e",
+                    .string => "s",
+                    .bool => "any",
+                    else => "any",
+                };
+
+                try format_buf.writer(self.allocator).print("{{{s}}}", .{format_spec});
+
+                // Generate expression code
+                const saved_output = self.output;
+                self.output = std.ArrayList(u8){};
+
+                // Handle conversion specifier (!r, !s, !a)
+                // For now, all conversions just pass the value - repr/str/ascii are TODO
+                try genExpr(self, ce.expr.*);
                 const expr_code = try self.output.toOwnedSlice(self.allocator);
                 try args_list.append(self.allocator, expr_code);
 

@@ -11,6 +11,12 @@ pub const FStringPart = union(enum) {
     format_expr: struct {
         expr: *Node,
         format_spec: []const u8,
+        conversion: ?u8 = null, // 'r', 's', or 'a' for !r, !s, !a
+    },
+    // Expression with conversion but no format spec (e.g., {x!r})
+    conv_expr: struct {
+        expr: *Node,
+        conversion: u8, // 'r', 's', or 'a'
     },
 };
 
