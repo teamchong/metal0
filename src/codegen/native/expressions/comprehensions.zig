@@ -144,17 +144,13 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     try self.output.appendSlice(self.allocator, "blk: {\n");
     self.indent();
 
-    // Generate: const KV = struct { key: <type>, value: i64 };
+    // Generate HashMap instead of ArrayList for compatibility with print(dict)
     try self.emitIndent();
     if (key_is_int) {
-        try self.output.appendSlice(self.allocator, "const KV = struct { key: i64, value: i64 };\n");
+        try self.output.appendSlice(self.allocator, "var __dict_result = std.AutoHashMap(i64, i64).init(allocator);\n");
     } else {
-        try self.output.appendSlice(self.allocator, "const KV = struct { key: []const u8, value: i64 };\n");
+        try self.output.appendSlice(self.allocator, "var __dict_result = hashmap_helper.StringHashMap(i64).init(allocator);\n");
     }
-
-    // Generate: var __dict_result = std.ArrayList(KV){};
-    try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "var __dict_result = std.ArrayList(KV){};\n");
 
     // Generate nested loops for each generator
     for (dictcomp.generators, 0..) |gen, gen_idx| {
@@ -239,25 +235,13 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
         }
     }
 
-    // Generate: try __dict_result.append(allocator, .{ .key = <key>, .value = <value> });
+    // Generate: try __dict_result.put(<key>, <value>);
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "try __dict_result.append(allocator, .{ .key = ");
-
-    // Generate key expression based on type
-    if (key_is_int) {
-        // Integer key - emit directly
-        try genExpr(self, dictcomp.key.*);
-    } else if (dictcomp.key.* == .name) {
-        // Variable name, assume string (might need conversion for non-string vars)
-        try genExpr(self, dictcomp.key.*);
-    } else {
-        // Assume it's already a string or constant
-        try genExpr(self, dictcomp.key.*);
-    }
-
-    try self.output.appendSlice(self.allocator, ", .value = ");
+    try self.output.appendSlice(self.allocator, "try __dict_result.put(");
+    try genExpr(self, dictcomp.key.*);
+    try self.output.appendSlice(self.allocator, ", ");
     try genExpr(self, dictcomp.value.*);
-    try self.output.appendSlice(self.allocator, " });\n");
+    try self.output.appendSlice(self.allocator, ");\n");
 
     // Close all if conditions and for loops
     for (dictcomp.generators) |gen| {
