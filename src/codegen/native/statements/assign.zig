@@ -9,6 +9,56 @@ const deferCleanup = @import("assign_defer.zig");
 const typeHandling = @import("assign/type_handling.zig");
 const valueGen = @import("assign/value_generation.zig");
 
+/// Check if an expression references a skipped module (e.g., pytest.main())
+/// This is used to skip code generation for calls to modules that weren't found
+fn exprRefersToSkippedModule(self: *NativeCodegen, expr: ast.Node) bool {
+    // Check calls: pytest.main() or pytest.skip()
+    if (expr == .call) {
+        const func = expr.call.func.*;
+        // Check if func is module.method()
+        if (func == .attribute) {
+            const attr = func.attribute;
+            // Check if base is a name (module name)
+            if (attr.value.* == .name) {
+                const module_name = attr.value.name.id;
+                if (self.isSkippedModule(module_name)) {
+                    return true;
+                }
+            }
+        }
+        // Check if func is a skipped module function directly: pytest()
+        if (func == .name) {
+            const func_name = func.name.id;
+            if (self.isSkippedModule(func_name)) {
+                return true;
+            }
+        }
+    }
+    // Check attribute access: pytest.mark.skip
+    if (expr == .attribute) {
+        var current = expr.attribute.value;
+        while (true) {
+            if (current.* == .name) {
+                if (self.isSkippedModule(current.name.id)) {
+                    return true;
+                }
+                break;
+            } else if (current.* == .attribute) {
+                current = current.attribute.value;
+            } else {
+                break;
+            }
+        }
+    }
+    // Check name references: just using pytest as a variable
+    if (expr == .name) {
+        if (self.isSkippedModule(expr.name.id)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Generate annotated assignment statement (x: int = 5)
 pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) CodegenError!void {
     // If no value, just a declaration (x: int), skip for now
@@ -339,6 +389,11 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
 /// Generate expression statement (expression with semicolon)
 pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    // Skip expression statements that reference skipped modules (e.g., pytest.main())
+    if (exprRefersToSkippedModule(self, expr)) {
+        return;
+    }
+
     try self.emitIndent();
 
     // Special handling for print()

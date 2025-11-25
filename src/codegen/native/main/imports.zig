@@ -344,6 +344,8 @@ pub fn collectImports(
                 } else {
                     // External package not in registry - skip with warning
                     std.debug.print("Warning: External module '{s}' not found, skipping import\n", .{python_module});
+                    // Track this module as skipped so we can skip code that references it
+                    try self.markSkippedModule(python_module);
                 }
             }
         }

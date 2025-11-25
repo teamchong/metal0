@@ -301,6 +301,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // If name starts with uppercase, it's a class constructor
         if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
             // Class instantiation: Counter(10) -> Counter.init(allocator, 10)
+            // For types like Path that return error unions, wrap in (try ...)
+            // to allow chaining like Path(__file__).parent
+            try self.emit("(try ");
             try self.emit(func_name);
             try self.emit(".init(allocator");
 
@@ -319,7 +322,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, kwarg.value);
             }
 
-            try self.emit(")");
+            try self.emit("))");
             return;
         }
 
