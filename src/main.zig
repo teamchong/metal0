@@ -1,7 +1,7 @@
 /// CLI entry point - Re-exports from submodules
 pub const cli = @import("main/cli.zig");
 pub const compile = @import("main/compile.zig");
-pub const cache = @import("main/cache.zig");
+pub const cache = @import("main/compile/cache.zig");
 pub const utils = @import("main/utils.zig");
 
 // Re-export main() for binary entry point

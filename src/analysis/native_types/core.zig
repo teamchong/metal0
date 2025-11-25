@@ -1,65 +1,20 @@
 const std = @import("std");
-const hashmap_helper = @import("../../utils/hashmap_helper.zig");
-const ast = @import("../../ast.zig");
 
-/// Generic type base name to handler mapping for DCE optimization
-const GenericTypeHandler = enum { list, dict, optional };
-const generic_type_map = std.StaticStringMap(GenericTypeHandler).initComptime(.{
-    .{ "list", .list },
-    .{ "dict", .dict },
-    .{ "Optional", .optional },
-});
+// Re-export from split modules
+pub const containers = @import("containers.zig");
+pub const attributes = @import("attributes.zig");
 
-/// Simple type hint to NativeType mapping for DCE optimization
-const SimpleTypeHint = enum { int, float, bool, str };
-const simple_type_map = std.StaticStringMap(SimpleTypeHint).initComptime(.{
-    .{ "int", .int },
-    .{ "float", .float },
-    .{ "bool", .bool },
-    .{ "str", .str },
-});
+// Re-export commonly used types and functions for backwards compatibility
+pub const parseTypeAnnotation = containers.parseTypeAnnotation;
+pub const pythonTypeHintToNative = containers.pythonTypeHintToNative;
+pub const InferError = containers.InferError;
 
-/// Check if a list contains only literal values (candidates for array optimization)
-pub fn isConstantList(list: ast.Node.List) bool {
-    if (list.elts.len == 0) return false; // Empty lists stay dynamic
-
-    for (list.elts) |elem| {
-        // Check if element is a literal constant
-        const is_literal = switch (elem) {
-            .constant => true,
-            else => false,
-        };
-        if (!is_literal) return false;
-    }
-
-    return true;
-}
-
-/// Check if all elements in a list have the same type (homogeneous)
-pub fn allSameType(elements: []ast.Node) bool {
-    if (elements.len == 0) return true;
-
-    // Get type tag of first element
-    const first_const = switch (elements[0]) {
-        .constant => |c| c,
-        else => return false,
-    };
-
-    const first_type_tag = @as(std.meta.Tag(@TypeOf(first_const.value)), first_const.value);
-
-    // Check all other elements match
-    for (elements[1..]) |elem| {
-        const elem_const = switch (elem) {
-            .constant => |c| c,
-            else => return false,
-        };
-
-        const elem_type_tag = @as(std.meta.Tag(@TypeOf(elem_const.value)), elem_const.value);
-        if (elem_type_tag != first_type_tag) return false;
-    }
-
-    return true;
-}
+pub const isConstantList = attributes.isConstantList;
+pub const allSameType = attributes.allSameType;
+pub const ClassInfo = attributes.ClassInfo;
+pub const FunctionSignature = attributes.FunctionSignature;
+pub const needsAllocator = attributes.needsAllocator;
+pub const isErrorUnion = attributes.isErrorUnion;
 
 /// String type kinds for optimization and tracking
 pub const StringKind = enum {
@@ -153,6 +108,9 @@ pub const NativeType = union(enum) {
 
     /// Convert to Zig type string
     pub fn toZigType(self: NativeType, allocator: std.mem.Allocator, buf: *std.ArrayList(u8)) !void {
+        const hashmap_helper = @import("../../utils/hashmap_helper.zig");
+        _ = hashmap_helper;
+
         switch (self) {
             .int => try buf.appendSlice(allocator, "i64"),
             .usize => try buf.appendSlice(allocator, "usize"),
@@ -254,294 +212,14 @@ pub const NativeType = union(enum) {
         // Different incompatible types → fallback to unknown
         return .unknown;
     }
-};
 
-/// Error set for type inference
-pub const InferError = error{
-    OutOfMemory,
-};
-
-/// Parse type annotation from AST node (handles both simple and generic types)
-/// Examples: int, list[str], dict[str, int]
-pub fn parseTypeAnnotation(node: ast.Node, allocator: std.mem.Allocator) InferError!NativeType {
-    switch (node) {
-        .name => |name| {
-            return pythonTypeHintToNative(name.id, allocator);
-        },
-        .subscript => |subscript| {
-            // Handle generic types like list[int], dict[str, int], Optional[int]
-            if (subscript.value.* != .name) return .unknown;
-            const base_type = subscript.value.name.id;
-
-            if (generic_type_map.get(base_type)) |handler| {
-                switch (handler) {
-                    .list => {
-                        // list[T]
-                        const elem_type = try parseSliceType(subscript.slice, allocator);
-                        const elem_ptr = try allocator.create(NativeType);
-                        elem_ptr.* = elem_type;
-                        return .{ .list = elem_ptr };
-                    },
-                    .dict => {
-                        // dict[K, V]
-                        const types = try parseSliceTupleTypes(subscript.slice, allocator);
-                        if (types.len == 2) {
-                            const key_ptr = try allocator.create(NativeType);
-                            const val_ptr = try allocator.create(NativeType);
-                            key_ptr.* = types[0];
-                            val_ptr.* = types[1];
-                            return .{ .dict = .{ .key = key_ptr, .value = val_ptr } };
-                        }
-                    },
-                    .optional => {
-                        // Optional[T]
-                        const inner_type = try parseSliceType(subscript.slice, allocator);
-                        const inner_ptr = try allocator.create(NativeType);
-                        inner_ptr.* = inner_type;
-                        return .{ .optional = inner_ptr };
-                    },
-                }
-            }
-            return .unknown;
-        },
-        else => return .unknown,
-    }
-}
-
-/// Parse single type from slice (for list[T])
-fn parseSliceType(slice: ast.Node.Slice, allocator: std.mem.Allocator) InferError!NativeType {
-    switch (slice) {
-        .index => |index| {
-            return parseTypeAnnotation(index.*, allocator);
-        },
-        else => return .unknown,
-    }
-}
-
-/// Parse tuple of types from slice (for dict[K, V])
-fn parseSliceTupleTypes(slice: ast.Node.Slice, allocator: std.mem.Allocator) InferError![]NativeType {
-    switch (slice) {
-        .index => |index| {
-            // Check if index is a tuple
-            if (index.* == .tuple) {
-                const tuple = index.tuple;
-                const types = try allocator.alloc(NativeType, tuple.elts.len);
-                for (tuple.elts, 0..) |elem, i| {
-                    types[i] = try parseTypeAnnotation(elem, allocator);
-                }
-                return types;
-            }
-        },
-        else => {},
-    }
-    return &[_]NativeType{};
-}
-
-/// Convert Python type hint string to NativeType
-/// Handles both simple types (int, str) and generic types from parser (tuple[str, str], list[int])
-pub fn pythonTypeHintToNative(type_hint: ?[]const u8, allocator: std.mem.Allocator) InferError!NativeType {
-    if (type_hint) |hint| {
-        // Check for simple type first
-        if (simple_type_map.get(hint)) |simple| {
-            return switch (simple) {
-                .int => .int,
-                .float => .float,
-                .bool => .bool,
-                .str => .{ .string = .runtime },
-            };
-        }
-
-        // Check for generic type (contains '[')
-        if (std.mem.indexOf(u8, hint, "[")) |bracket_pos| {
-            const base_type = hint[0..bracket_pos];
-            const end_bracket = std.mem.lastIndexOf(u8, hint, "]") orelse return .unknown;
-            const type_args_str = hint[bracket_pos + 1 .. end_bracket];
-
-            // Handle tuple[T, U, ...]
-            if (std.mem.eql(u8, base_type, "tuple")) {
-                // Parse comma-separated type args
-                var types = std.ArrayList(NativeType){};
-                defer types.deinit(allocator);
-
-                var iter = std.mem.splitSequence(u8, type_args_str, ", ");
-                while (iter.next()) |arg| {
-                    const trimmed = std.mem.trim(u8, arg, " ");
-                    if (trimmed.len > 0) {
-                        const elem_type = try pythonTypeHintToNative(trimmed, allocator);
-                        try types.append(allocator, elem_type);
-                    }
-                }
-
-                if (types.items.len > 0) {
-                    const tuple_types = try allocator.dupe(NativeType, types.items);
-                    return .{ .tuple = tuple_types };
-                }
-                return .unknown;
-            }
-
-            // Handle list[T]
-            if (std.mem.eql(u8, base_type, "list")) {
-                const elem_type = try pythonTypeHintToNative(type_args_str, allocator);
-                const elem_ptr = try allocator.create(NativeType);
-                elem_ptr.* = elem_type;
-                return .{ .list = elem_ptr };
-            }
-
-            // Handle dict[K, V]
-            if (std.mem.eql(u8, base_type, "dict")) {
-                var iter = std.mem.splitSequence(u8, type_args_str, ", ");
-                const key_str = iter.next() orelse return .unknown;
-                const val_str = iter.next() orelse return .unknown;
-
-                const key_type = try pythonTypeHintToNative(std.mem.trim(u8, key_str, " "), allocator);
-                const val_type = try pythonTypeHintToNative(std.mem.trim(u8, val_str, " "), allocator);
-
-                const key_ptr = try allocator.create(NativeType);
-                const val_ptr = try allocator.create(NativeType);
-                key_ptr.* = key_type;
-                val_ptr.* = val_type;
-                return .{ .dict = .{ .key = key_ptr, .value = val_ptr } };
-            }
-
-            // Handle Optional[T]
-            if (std.mem.eql(u8, base_type, "Optional")) {
-                const inner_type = try pythonTypeHintToNative(type_args_str, allocator);
-                const inner_ptr = try allocator.create(NativeType);
-                inner_ptr.* = inner_type;
-                return .{ .optional = inner_ptr };
-            }
-
-            // Handle set[T]
-            if (std.mem.eql(u8, base_type, "set")) {
-                const elem_type = try pythonTypeHintToNative(type_args_str, allocator);
-                const elem_ptr = try allocator.create(NativeType);
-                elem_ptr.* = elem_type;
-                return .{ .set = elem_ptr };
-            }
-        }
-
-        // Generic list without type parameter
-        if (std.mem.eql(u8, hint, "list")) return .unknown;
-        if (std.mem.eql(u8, hint, "tuple")) return .unknown;
-        if (std.mem.eql(u8, hint, "dict")) return .unknown;
-        if (std.mem.eql(u8, hint, "set")) return .unknown;
-    }
-    return .unknown;
-}
-
-/// Class field and method information
-const FnvTypeMap = hashmap_helper.StringHashMap(NativeType);
-
-pub const ClassInfo = struct {
-    fields: FnvTypeMap,
-    methods: FnvTypeMap, // method_name -> return type
-    property_methods: FnvTypeMap, // methods decorated with @property
-    allow_dynamic_attrs: bool = true, // Enable __dict__ for dynamic attributes
-};
-
-/// Comptime analysis: Does this type need allocator for operations?
-/// Leverages Zig's comptime for zero-runtime-cost type analysis
-/// - Analyzed at compile time, no runtime overhead
-/// - Recursively checks composite types
-/// - Used to determine if functions need allocator parameter
-pub fn needsAllocator(self: NativeType) bool {
-    return switch (self) {
-        .string => true, // String operations allocate
-        .list, .dict => true, // Collection operations allocate
-        .array => |arr| arr.element_type.needsAllocator(), // Recursive
-        .tuple => |types| blk: {
-            for (types) |t| {
-                if (t.needsAllocator()) break :blk true;
-            }
-            break :blk false;
-        },
-        .function => |f| f.return_type.needsAllocator(), // Check return type
-        else => false,
-    };
-}
-
-/// Comptime check: Is return type error union?
-pub fn isErrorUnion(self: NativeType) bool {
-    return switch (self) {
-        .string, .list, .dict, .array => true, // These can fail allocation
-        .function => |f| f.return_type.isErrorUnion(),
-        else => false,
-    };
-}
-
-/// Comptime function signature builder
-/// Generates optimal function signature based on type analysis
-pub const FunctionSignature = struct {
-    params: []const NativeType,
-    return_type: NativeType,
-    needs_allocator: bool,
-    is_error_union: bool,
-
-    /// Comptime analysis of function requirements
-    pub fn analyze(params: []const NativeType, ret: NativeType) FunctionSignature {
-        // Check if any parameter or return needs allocator
-        var needs_alloc = ret.needsAllocator();
-        for (params) |p| {
-            if (p.needsAllocator()) {
-                needs_alloc = true;
-                break;
-            }
-        }
-
-        return .{
-            .params = params,
-            .return_type = ret,
-            .needs_allocator = needs_alloc,
-            .is_error_union = ret.isErrorUnion(),
-        };
+    /// Comptime analysis: Does this type need allocator for operations?
+    pub fn needsAllocator(self: NativeType) bool {
+        return attributes.needsAllocator(self);
     }
 
-    /// Generate Zig function signature string (comptime-optimized)
-    pub fn toZigSignature(self: FunctionSignature, func_name: []const u8, allocator: std.mem.Allocator) ![]const u8 {
-        var buf = std.ArrayList(u8){};
-        defer buf.deinit(allocator);
-
-        try buf.appendSlice(allocator, "pub fn ");
-        try buf.appendSlice(allocator, func_name);
-        try buf.appendSlice(allocator, "(");
-
-        // Add allocator parameter if needed (comptime-determined)
-        if (self.needs_allocator) {
-            try buf.appendSlice(allocator, "allocator: std.mem.Allocator");
-            if (self.params.len > 0) {
-                try buf.appendSlice(allocator, ", ");
-            }
-        }
-
-        // Add parameters
-        for (self.params, 0..) |param, i| {
-            const param_name = try std.fmt.allocPrint(allocator, "arg{d}: ", .{i});
-            defer allocator.free(param_name);
-            try buf.appendSlice(allocator, param_name);
-
-            var type_buf = std.ArrayList(u8){};
-            defer type_buf.deinit(allocator);
-            try param.toZigType(allocator, &type_buf);
-            try buf.appendSlice(allocator, type_buf.items);
-
-            if (i < self.params.len - 1) {
-                try buf.appendSlice(allocator, ", ");
-            }
-        }
-
-        try buf.appendSlice(allocator, ") ");
-
-        // Add error union if needed (comptime-determined)
-        if (self.is_error_union) {
-            try buf.appendSlice(allocator, "!");
-        }
-
-        // Add return type
-        var ret_buf = std.ArrayList(u8){};
-        defer ret_buf.deinit(allocator);
-        try self.return_type.toZigType(allocator, &ret_buf);
-        try buf.appendSlice(allocator, ret_buf.items);
-
-        return buf.toOwnedSlice(allocator);
+    /// Comptime check: Is return type error union?
+    pub fn isErrorUnion(self: NativeType) bool {
+        return attributes.isErrorUnion(self);
     }
 };

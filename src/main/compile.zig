@@ -14,34 +14,17 @@ const c_interop = @import("c_interop");
 const notebook = @import("../notebook.zig");
 const CompileOptions = @import("../main.zig").CompileOptions;
 const utils = @import("utils.zig");
-const cache = @import("cache.zig");
 const import_resolver = @import("../import_resolver.zig");
 const import_scanner = @import("../import_scanner.zig");
 const import_registry = @import("../codegen/native/import_registry.zig");
 
-/// Get module output path for a compiled .so file
+// Submodules
+const cache = @import("compile/cache.zig");
+const output = @import("compile/output.zig");
+
+/// Get module output path for a compiled .so file (delegates to output module)
 fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8) ![]const u8 {
-    const arch = utils.getArch();
-    const platform_dir = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}", .{arch});
-    defer allocator.free(platform_dir);
-
-    // Create build directory
-    std.fs.cwd().makePath(platform_dir) catch |err| {
-        if (err != error.PathAlreadyExists) return err;
-    };
-
-    // Convert /path/to/module.py -> module
-    const basename = std.fs.path.basename(module_path);
-    const name_no_ext = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
-        basename[0..idx]
-    else
-        basename;
-
-    return try std.fmt.allocPrint(
-        allocator,
-        "{s}/{s}.cpython-312-darwin.so",
-        .{ platform_dir, name_no_ext },
-    );
+    return output.getModuleOutputPath(allocator, module_path);
 }
 
 pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, module_name: []const u8) !void {
@@ -145,30 +128,8 @@ pub fn compileNotebook(allocator: std.mem.Allocator, opts: CompileOptions) !void
         return;
     }
 
-    // Create a temporary .py file with combined source
-    const basename = std.fs.path.basename(opts.input_file);
-    const name_no_ext = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
-        basename[0..idx]
-    else
-        basename;
-
-    // Determine output path (industry standard: build/lib.{platform}/)
-    const bin_path = opts.output_file orelse blk: {
-        const arch = utils.getArch();
-        const platform_dir = try std.fmt.allocPrint(aa, "build/lib.macosx-11.0-{s}", .{arch});
-
-        // Create build/lib.{platform}/ directory if it doesn't exist
-        std.fs.cwd().makePath(platform_dir) catch |err| {
-            if (err != error.PathAlreadyExists) return err;
-        };
-
-        // Standard naming: module.cpython-{version}-{platform}.so
-        const path = if (opts.binary)
-            try std.fmt.allocPrint(aa, "{s}/{s}", .{ platform_dir, name_no_ext })
-        else
-            try std.fmt.allocPrint(aa, "{s}/{s}.cpython-312-darwin.so", .{ platform_dir, name_no_ext });
-        break :blk path;
-    };
+    // Determine output path
+    const bin_path = try output.getNotebookOutputPath(aa, opts.input_file, opts.output_file, opts.binary);
 
     // Compile combined source directly (skip temp file)
     try compilePythonSource(allocator, combined_source, bin_path, opts.mode, opts.binary);
@@ -298,31 +259,8 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     }
 
     // Determine output path
-    const bin_path_allocated = opts.output_file == null;
-    const bin_path = opts.output_file orelse blk: {
-        const basename = std.fs.path.basename(opts.input_file);
-        const name_no_ext = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
-            basename[0..idx]
-        else
-            basename;
-
-        // Create build/lib.{platform}/ directory (industry standard)
-        const arch = utils.getArch();
-        const platform_dir = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}", .{arch});
-        defer allocator.free(platform_dir);
-
-        std.fs.cwd().makePath(platform_dir) catch |err| {
-            if (err != error.PathAlreadyExists) return err;
-        };
-
-        // Standard naming: module.cpython-{version}-{platform}.so
-        const path = if (opts.binary)
-            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ platform_dir, name_no_ext })
-        else
-            try std.fmt.allocPrint(allocator, "{s}/{s}.cpython-312-darwin.so", .{ platform_dir, name_no_ext });
-        break :blk path;
-    };
-    defer if (bin_path_allocated) allocator.free(bin_path);
+    const bin_path = try output.getFileOutputPath(allocator, opts.input_file, opts.output_file, opts.binary);
+    defer allocator.free(bin_path);
 
     // Check if binary is up-to-date using content hash (unless --force)
     const should_compile = opts.force or try cache.shouldRecompile(allocator, source, bin_path);
@@ -451,13 +389,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // WASM needs script mode (with main/_start entry point)
     if (!opts.binary and !opts.wasm and std.mem.eql(u8, opts.mode, "build")) {
         native_gen.mode = .module;
-        // Extract module name from input file
-        const basename = std.fs.path.basename(opts.input_file);
-        const mod_name = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
-            basename[0..idx]
-        else
-            basename;
-        native_gen.module_name = mod_name;
+        native_gen.module_name = output.getBaseName(opts.input_file);
     }
 
     // Pass import context to codegen
@@ -476,18 +408,8 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Compile to WASM, shared library (.so), or binary
     if (opts.wasm) {
         std.debug.print("Compiling to WebAssembly...\n", .{});
-        // Adjust output path to .wasm extension if not explicitly set
-        const wasm_path = if (opts.output_file != null)
-            bin_path
-        else blk: {
-            const basename = std.fs.path.basename(opts.input_file);
-            const name_no_ext = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
-                basename[0..idx]
-            else
-                basename;
-            break :blk try std.fmt.allocPrint(allocator, "{s}.wasm", .{name_no_ext});
-        };
-        defer if (opts.output_file == null) allocator.free(wasm_path);
+        const wasm_path = try output.getWasmOutputPath(allocator, opts.input_file, opts.output_file);
+        defer allocator.free(wasm_path);
         try compiler.compileWasm(allocator, zig_code, wasm_path);
         std.debug.print("✓ Compiled successfully to: {s}\n", .{wasm_path});
         // WASM cannot be run directly, skip cache and run

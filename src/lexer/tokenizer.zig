@@ -3,7 +3,15 @@ const std = @import("std");
 const Token = @import("../lexer.zig").Token;
 const TokenType = @import("../lexer.zig").TokenType;
 const Lexer = @import("../lexer.zig").Lexer;
-const FStringPart = @import("../lexer.zig").FStringPart;
+
+// Import submodules
+const fstring = @import("tokenizer/fstring.zig");
+const numbers = @import("tokenizer/numbers.zig");
+
+// Re-export functions from submodules
+pub const tokenizeFString = fstring.tokenizeFString;
+pub const tokenizeNumber = numbers.tokenizeNumber;
+pub const isHexDigit = numbers.isHexDigit;
 
 pub fn tokenizeIdentifier(self: *Lexer, start: usize, start_column: usize) !Token {
     while (self.peek()) |c| {
@@ -23,111 +31,6 @@ pub fn tokenizeIdentifier(self: *Lexer, start: usize, start_column: usize) !Toke
         .line = self.line,
         .column = start_column,
     };
-}
-
-pub fn tokenizeNumber(self: *Lexer, start: usize, start_column: usize) !Token {
-    // Check for base prefixes: 0x (hex), 0o (octal), 0b (binary)
-    // peek() returns current char (the '0'), peekAhead(1) returns next char (the prefix)
-    if (self.peek() == '0' and self.peekAhead(1) != null) {
-        const prefix = self.peekAhead(1).?;
-        if (prefix == 'x' or prefix == 'X') {
-            // Hexadecimal: 0x...
-            _ = self.advance(); // consume '0'
-            _ = self.advance(); // consume 'x' or 'X'
-            while (self.peek()) |c| {
-                if (isHexDigit(c)) {
-                    _ = self.advance();
-                } else {
-                    break;
-                }
-            }
-            const lexeme = self.source[start..self.current];
-            return Token{
-                .type = .Number,
-                .lexeme = lexeme,
-                .line = self.line,
-                .column = start_column,
-            };
-        } else if (prefix == 'o' or prefix == 'O') {
-            // Octal: 0o...
-            _ = self.advance(); // consume '0'
-            _ = self.advance(); // consume 'o' or 'O'
-            while (self.peek()) |c| {
-                if (c >= '0' and c <= '7') {
-                    _ = self.advance();
-                } else {
-                    break;
-                }
-            }
-            const lexeme = self.source[start..self.current];
-            return Token{
-                .type = .Number,
-                .lexeme = lexeme,
-                .line = self.line,
-                .column = start_column,
-            };
-        } else if (prefix == 'b' or prefix == 'B') {
-            // Binary: 0b...
-            _ = self.advance(); // consume '0'
-            _ = self.advance(); // consume 'b' or 'B'
-            while (self.peek()) |c| {
-                if (c == '0' or c == '1') {
-                    _ = self.advance();
-                } else {
-                    break;
-                }
-            }
-            const lexeme = self.source[start..self.current];
-            return Token{
-                .type = .Number,
-                .lexeme = lexeme,
-                .line = self.line,
-                .column = start_column,
-            };
-        }
-    }
-
-    // Decimal number
-    while (self.peek()) |c| {
-        if (self.isDigit(c)) {
-            _ = self.advance();
-        } else {
-            break;
-        }
-    }
-
-    // Handle decimal point
-    if (self.peek() == '.' and self.peekAhead(1) != null) {
-        const next = self.peekAhead(1).?;
-        if (self.isDigit(next)) {
-            _ = self.advance(); // consume '.'
-            while (self.peek()) |c| {
-                if (self.isDigit(c)) {
-                    _ = self.advance();
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-
-    // Handle complex number suffix 'j' or 'J'
-    const is_complex = if (self.peek()) |c| (c == 'j' or c == 'J') else false;
-    if (is_complex) {
-        _ = self.advance(); // consume 'j' or 'J'
-    }
-
-    const lexeme = self.source[start..self.current];
-    return Token{
-        .type = if (is_complex) .ComplexNumber else .Number,
-        .lexeme = lexeme,
-        .line = self.line,
-        .column = start_column,
-    };
-}
-
-fn isHexDigit(c: u8) bool {
-    return (c >= '0' and c <= '9') or (c >= 'a' and c <= 'f') or (c >= 'A' and c <= 'F');
 }
 
 pub const StringKind = enum { regular, byte, raw };
@@ -184,141 +87,6 @@ pub fn tokenizeByteString(self: *Lexer, start: usize, start_column: usize) !Toke
 
 pub fn tokenizeRawString(self: *Lexer, start: usize, start_column: usize) !Token {
     return tokenizePrefixedString(self, start, start_column, .raw);
-}
-
-pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
-    const quote = self.advance().?; // Consume opening quote
-    var parts = std.ArrayList(FStringPart){};
-
-    var literal_start = self.current;
-
-    // Parse f-string content
-    while (self.peek() != quote and !self.isAtEnd()) {
-        if (self.peek() == '{') {
-            // Save any pending literal
-            if (self.current > literal_start) {
-                const literal_text = self.source[literal_start..self.current];
-                try parts.append(self.allocator, .{ .literal = literal_text });
-            }
-
-            _ = self.advance(); // consume '{'
-
-            // Check for escaped brace {{
-            if (self.peek() == '{') {
-                _ = self.advance();
-                literal_start = self.current - 1; // Include single '{'
-                continue;
-            }
-
-            // Parse expression inside {}
-            const expr_start = self.current;
-            var brace_depth: usize = 1;
-            var has_format_spec = false;
-            var has_conversion = false;
-            var conversion_char: u8 = 0;
-            var expr_end: usize = 0;
-            var format_spec_start: usize = 0;
-
-            while (brace_depth > 0 and !self.isAtEnd()) {
-                const c = self.peek().?;
-
-                if (c == '{') {
-                    brace_depth += 1;
-                } else if (c == '}') {
-                    brace_depth -= 1;
-                    if (brace_depth == 0) break;
-                } else if (c == '!' and brace_depth == 1 and !has_conversion and !has_format_spec) {
-                    // Conversion specifier !r, !s, or !a
-                    expr_end = self.current;
-                    _ = self.advance(); // consume '!'
-                    const conv = self.peek();
-                    if (conv == 'r' or conv == 's' or conv == 'a') {
-                        has_conversion = true;
-                        conversion_char = conv.?;
-                        _ = self.advance(); // consume conversion char
-                    }
-                    // Continue to check for format spec
-                } else if (c == ':' and brace_depth == 1 and !has_format_spec) {
-                    // Format specifier
-                    has_format_spec = true;
-                    if (!has_conversion) {
-                        expr_end = self.current;
-                    }
-                    _ = self.advance(); // consume ':'
-                    format_spec_start = self.current;
-
-                    // Parse format spec until }
-                    while (self.peek() != '}' and !self.isAtEnd()) {
-                        _ = self.advance();
-                    }
-
-                    const expr_text = self.source[expr_start..expr_end];
-                    const format_spec = self.source[format_spec_start..self.current];
-
-                    try parts.append(self.allocator, .{
-                        .format_expr = .{
-                            .expr = expr_text,
-                            .format_spec = format_spec,
-                            .conversion = if (has_conversion) conversion_char else null,
-                        },
-                    });
-
-                    break;
-                } else {
-                    _ = self.advance();
-                }
-            }
-
-            if (!has_format_spec) {
-                if (!has_conversion) {
-                    expr_end = self.current;
-                }
-                const expr_text = self.source[expr_start..expr_end];
-                if (has_conversion) {
-                    try parts.append(self.allocator, .{ .conv_expr = .{
-                        .expr = expr_text,
-                        .conversion = conversion_char,
-                    } });
-                } else {
-                    try parts.append(self.allocator, .{ .expr = expr_text });
-                }
-            }
-
-            if (self.peek() == '}') {
-                _ = self.advance(); // consume '}'
-            }
-
-            literal_start = self.current;
-        } else if (self.peek() == '\\') {
-            _ = self.advance(); // Consume backslash
-            if (!self.isAtEnd()) {
-                _ = self.advance(); // Consume escaped character
-            }
-        } else {
-            _ = self.advance();
-        }
-    }
-
-    // Save any remaining literal
-    if (self.current > literal_start) {
-        const literal_text = self.source[literal_start..self.current];
-        try parts.append(self.allocator, .{ .literal = literal_text });
-    }
-
-    if (!self.isAtEnd() and self.peek() == quote) {
-        _ = self.advance(); // Consume closing quote
-    }
-
-    const lexeme = self.source[start..self.current];
-    const parts_slice = try parts.toOwnedSlice(self.allocator);
-
-    return Token{
-        .type = .FString,
-        .lexeme = lexeme,
-        .line = self.line,
-        .column = start_column,
-        .fstring_parts = parts_slice,
-    };
 }
 
 pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usize, paren_depth: *usize) !?Token {
