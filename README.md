@@ -10,7 +10,7 @@ Python at native speed. Zero overhead.
 
 🚀 **Single Binary Distribution**
 - No pip, no virtualenv, no dependency hell
-- 433KB native binary - just copy and run
+- 50-70KB native binary - just copy and run
 - Cross-platform: Compile for Linux/macOS/Windows
 - Docker images <1MB (FROM scratch) vs 900MB+ Python images
 
@@ -72,7 +72,7 @@ Python's distribution and deployment challenges solved.
 
 **1. Distribution Nightmare**
 - Python: pip dependencies, virtualenvs, version conflicts, requirements.txt hell
-- PyAOT: Single 433KB binary - no dependencies, just run
+- PyAOT: Single 50-70KB binary - no dependencies, just run
 
 **2. Cross-Platform Pain**
 - Python: Different wheels per OS, C extensions break, platform-specific bugs
@@ -80,7 +80,7 @@ Python's distribution and deployment challenges solved.
 
 **3. WASM Support**
 - Python: Limited/experimental WASM, large bundles (>10MB)
-- PyAOT: Native WASM target, tiny output (46KB)
+- PyAOT: Native WASM target, tiny output (~5KB)
 
 **4. Performance**
 - Python: Slow interpreter, GIL limits parallelism
@@ -88,13 +88,13 @@ Python's distribution and deployment challenges solved.
 
 **5. Docker Bloat**
 - Python: 900MB+ images (python:3.12 + deps)
-- PyAOT: FROM scratch, 433KB total - 2000x smaller
+- PyAOT: FROM scratch, ~200KB total - 4500x smaller
 
 ### Comparison
 
 | Issue | Python | PyAOT |
 |-------|--------|-------|
-| Binary size | N/A | 433KB |
+| Binary size | N/A | 50-400KB |
 | Dependencies | pip + virtualenv | Zero |
 | Docker image | 900MB+ | <1MB |
 | Startup time | ~50ms | <1ms |
@@ -143,7 +143,7 @@ def index():
 app.run(port=8080)
 ```
 
-**Result:** 433KB binary vs 900MB Python Docker
+**Result:** ~200KB binary vs 900MB Python Docker
 
 ### Parallelism (Q2-Q3 2025)
 ```python
@@ -208,7 +208,7 @@ pyaot examples/fibonacci.py
 make install
 ```
 
-This builds an optimized 433KB binary and installs it to `~/.local/bin/pyaot`.
+This builds the PyAOT compiler and installs it to `~/.local/bin/pyaot`.
 
 Make sure `~/.local/bin` is in your PATH:
 ```bash
@@ -310,7 +310,7 @@ print(numbers)
 
 ### 4. String Operations
 
-String manipulation - **8x faster** than CPython.
+String manipulation - **7x faster** than CPython.
 
 ```python
 text = "Hello, World!"
@@ -756,7 +756,7 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
   - Cache compiled AST for repeated execution
 
 **Phase 3: Advanced**
-- [ ] WebAssembly target
+- [x] WebAssembly target (WASI)
 - [ ] REPL
 - [ ] Decorators
 - [ ] Generators

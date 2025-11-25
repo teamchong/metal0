@@ -446,18 +446,32 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
             const value_type = try self.type_inferrer.inferExpr(value);
             if (value_type != .string) {
                 // Convert to string using std.fmt.allocPrint
-                try self.output.appendSlice(self.allocator, "try std.fmt.allocPrint(");
-                try self.output.appendSlice(self.allocator, alloc_name);
-                try self.output.appendSlice(self.allocator, ", ");
-                switch (value_type) {
-                    .int => try self.output.appendSlice(self.allocator, "\"{d}\""),
-                    .float => try self.output.appendSlice(self.allocator, "\"{d}\""),
-                    .bool => try self.output.appendSlice(self.allocator, "\"{any}\""),
-                    else => try self.output.appendSlice(self.allocator, "\"{any}\""),
+                // Use Python-style formatting (True/False/None instead of true/false/null)
+                if (value_type == .bool) {
+                    // Bool: use ternary for Python-style True/False
+                    try self.output.appendSlice(self.allocator, "try ");
+                    try self.output.appendSlice(self.allocator, alloc_name);
+                    try self.output.appendSlice(self.allocator, ".dupe(u8, if (");
+                    try genExpr(self, value);
+                    try self.output.appendSlice(self.allocator, ") \"True\" else \"False\")");
+                } else if (value_type == .none) {
+                    // None: just use literal "None"
+                    try self.output.appendSlice(self.allocator, "try ");
+                    try self.output.appendSlice(self.allocator, alloc_name);
+                    try self.output.appendSlice(self.allocator, ".dupe(u8, \"None\")");
+                } else {
+                    try self.output.appendSlice(self.allocator, "try std.fmt.allocPrint(");
+                    try self.output.appendSlice(self.allocator, alloc_name);
+                    try self.output.appendSlice(self.allocator, ", ");
+                    switch (value_type) {
+                        .int => try self.output.appendSlice(self.allocator, "\"{d}\""),
+                        .float => try self.output.appendSlice(self.allocator, "\"{d}\""),
+                        else => try self.output.appendSlice(self.allocator, "\"{any}\""),
+                    }
+                    try self.output.appendSlice(self.allocator, ", .{");
+                    try genExpr(self, value);
+                    try self.output.appendSlice(self.allocator, "})");
                 }
-                try self.output.appendSlice(self.allocator, ", .{");
-                try genExpr(self, value);
-                try self.output.appendSlice(self.allocator, "})");
             } else if (has_mixed_types) {
                 // For mixed-type dicts, duplicate ALL strings so we can free uniformly
                 try self.output.appendSlice(self.allocator, "try ");
