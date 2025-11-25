@@ -1,10 +1,11 @@
+# =============================================================================
 # Python
+# =============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
 develop-eggs/
 dist/
 downloads/
@@ -27,73 +28,81 @@ venv/
 ENV/
 env/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
+.nox/
 
-# Type checking
+# Type checking / Linting
 .mypy_cache/
 .dmypy.json
 dmypy.json
 .pytype/
+.ruff_cache/
 
-# Zig build artifacts
+# Package managers
+.uv/
+
+# =============================================================================
+# Zig
+# =============================================================================
 zig-cache/
 zig-out/
 .zig-cache/
-
-# Compiled binaries
-output
-fib_binary
-/tmp/
-
-# UV
-uv.lock
-
-# macOS
-.DS_Store
-
-# PyAOT specific
-_prototype/
+*.o
+*.a
+*.lib
 *.zig.o
-*.bak*
-*.before_fix
-.venv/
+
+# =============================================================================
+# IDE / Editor
+# =============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.*.sw?
+
+# =============================================================================
+# macOS
+# =============================================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# =============================================================================
+# Project specific
+# =============================================================================
+
+# PyAOT internal
 .pyaot/
-.build*/
-
 .claude/
+_prototype/
 
-# Test binaries
-test_ac_*
-test_correctness*
-test_vocab_*
-test_pool
-test_glob
-test_string_builder
+# Build output (root level only)
+/build/
 
-# Benchmark output binaries (all bench_* in root)
-bench_*
-*.hash
-
-# Benchmark binaries (compiled to benchmarks/.build/)
+# Compiled binaries (root level)
+/bench_*
+/test_*
 /fibonacci
 /fibonacci_*
 /hello
 /hello_*
 /*.rmeta
+/*.hash
+
+# Benchmark build artifacts
 benchmarks/.build/
 
 # Debug/backup files
+*.bak
+*.bak.*
+*.before_fix
+*_backup.*
+*_original.*
 repro_*.zig
-*_backup.zig
-*_original.zig
