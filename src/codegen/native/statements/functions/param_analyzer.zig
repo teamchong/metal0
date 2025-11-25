@@ -28,7 +28,7 @@ pub fn isParameterUsedInNestedFunction(body: []ast.Node, param_name: []const u8)
 }
 
 /// Check if a name (variable/parameter) is used anywhere in the body
-fn isNameUsedInBody(body: []ast.Node, name: []const u8) bool {
+pub fn isNameUsedInBody(body: []ast.Node, name: []const u8) bool {
     for (body) |stmt| {
         if (isNameUsedInStmt(stmt, name)) return true;
     }

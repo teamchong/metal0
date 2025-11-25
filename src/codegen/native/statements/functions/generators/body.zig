@@ -5,6 +5,7 @@ const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const CodeBuilder = @import("../../../code_builder.zig").CodeBuilder;
 const self_analyzer = @import("../self_analyzer.zig");
+const param_analyzer = @import("../param_analyzer.zig");
 const signature = @import("signature.zig");
 const hashmap_helper = @import("../../../../../utils/hashmap_helper.zig");
 
@@ -143,6 +144,16 @@ pub fn genFunctionBody(
     if (has_allocator_param and !actually_uses_allocator) {
         try self.emitIndent();
         try self.emit("_ = allocator;\n");
+    }
+
+    // Suppress warnings for unused function parameters (skip params with defaults - they get renamed)
+    for (func.args) |arg| {
+        if (arg.default == null and !param_analyzer.isNameUsedInBody(func.body, arg.name)) {
+            try self.emitIndent();
+            try self.emit("_ = ");
+            try self.emit(arg.name);
+            try self.emit(";\n");
+        }
     }
 
     // Generate default parameter initialization (before declaring them in scope)

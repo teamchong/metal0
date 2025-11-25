@@ -182,7 +182,25 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     try from_imports_gen.generateFromImports(self);
 
     // PHASE 4: Define __name__ constant (for if __name__ == "__main__" support)
-    try self.emit("const __name__ = \"__main__\";\n\n");
+    try self.emit("const __name__ = \"__main__\";\n");
+
+    // PHASE 4.0.1: Define __file__ constant (Python magic variable for source file path)
+    try self.emit("const __file__: []const u8 = \"");
+    if (self.source_file_path) |path| {
+        // Escape special characters in the path
+        for (path) |c| {
+            if (c == '\\') {
+                try self.emit("\\\\");
+            } else if (c == '"') {
+                try self.emit("\\\"");
+            } else {
+                try self.output.append(self.allocator, c);
+            }
+        }
+    } else {
+        try self.emit("<unknown>");
+    }
+    try self.emit("\";\n\n");
 
     // PHASE 4.1: Emit source directory for runtime eval subprocess
     // This allows eval() to spawn pyaot subprocess with correct import paths
@@ -400,20 +418,37 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("\n");
 
         // Add __name__ constant
-        try self.emit("const __name__ = \"__main__\";\n\n");
+        try self.emit("const __name__ = \"__main__\";\n");
+
+        // Add __file__ constant
+        try self.emit("const __file__: []const u8 = \"");
+        if (self.source_file_path) |path| {
+            for (path) |c| {
+                if (c == '\\') {
+                    try self.emit("\\\\");
+                } else if (c == '"') {
+                    try self.emit("\\\"");
+                } else {
+                    try self.output.append(self.allocator, c);
+                }
+            }
+        } else {
+            try self.emit("<unknown>");
+        }
+        try self.emit("\";\n\n");
 
         // Add lambda functions
         for (self.lambda_functions.items) |lambda_code| {
             try self.emit(lambda_code);
         }
 
-        // Find where class/function definitions start (after first two const declarations)
-        // Parse current_output to extract everything after imports and __name__
+        // Find where class/function definitions start (after imports, __name__, __file__)
+        // Parse current_output to extract everything after imports and magic constants
         var lines = std.mem.splitScalar(u8, current_output, '\n');
         var skip_count: usize = 0;
         while (lines.next()) |line| {
             skip_count += 1;
-            if (std.mem.indexOf(u8, line, "const __name__") != null) {
+            if (std.mem.indexOf(u8, line, "const __file__") != null) {
                 // Skip this line and the blank line after
                 _ = lines.next(); // blank line
                 skip_count += 1;

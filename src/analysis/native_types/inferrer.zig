@@ -85,23 +85,10 @@ pub const TypeInferrer = struct {
         // Fourth pass: Infer return types from return statements (for functions without annotations)
         // IMPORTANT: Must run BEFORE statement analysis so variable assignments from function calls
         // can look up the correct return type.
+        // NOTE: We process nested functions first so that outer functions can resolve inner function calls.
         for (module.body) |stmt| {
             if (stmt == .function_def) {
-                const func_def = stmt.function_def;
-                const current_type = self.func_return_types.get(func_def.name) orelse .unknown;
-
-                // Only infer if no annotation was provided (type is unknown default)
-                if (current_type == .unknown) {
-                    // Find return statement in function body
-                    for (func_def.body) |body_stmt| {
-                        if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
-                            const return_value = body_stmt.return_stmt.value.?.*;
-                            const inferred_type = try self.inferExpr(return_value);
-                            try self.func_return_types.put(func_def.name, inferred_type);
-                            break;
-                        }
-                    }
-                }
+                try self.inferFunctionReturnTypes(stmt.function_def);
             }
         }
 
@@ -191,6 +178,45 @@ pub const TypeInferrer = struct {
             &self.func_return_types,
             node,
         );
+    }
+
+    /// Recursively infer return types for a function and its nested functions.
+    /// Nested functions are processed first so outer functions can resolve inner function calls.
+    fn inferFunctionReturnTypes(self: *TypeInferrer, func_def: ast.Node.FunctionDef) InferError!void {
+        const arena_alloc = self.arena.allocator();
+
+        // First, register this function's parameters in var_types so nested functions can reference them
+        for (func_def.args) |arg| {
+            var param_type = try core.pythonTypeHintToNative(arg.type_annotation, arena_alloc);
+            // Default to int if no type annotation (most common Python numeric type)
+            if (param_type == .unknown) {
+                param_type = .int;
+            }
+            try self.var_types.put(arg.name, param_type);
+        }
+
+        // Process nested functions in the body (they can now access outer parameters)
+        for (func_def.body) |body_stmt| {
+            if (body_stmt == .function_def) {
+                try self.inferFunctionReturnTypes(body_stmt.function_def);
+            }
+        }
+
+        // Now infer this function's return type (nested functions are already registered)
+        const current_type = self.func_return_types.get(func_def.name) orelse .unknown;
+
+        // Only infer if no annotation was provided (type is unknown)
+        if (current_type == .unknown) {
+            // Find return statement in function body
+            for (func_def.body) |body_stmt| {
+                if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
+                    const return_value = body_stmt.return_stmt.value.?.*;
+                    const inferred_type = try self.inferExpr(return_value);
+                    try self.func_return_types.put(func_def.name, inferred_type);
+                    break;
+                }
+            }
+        }
     }
 };
 
