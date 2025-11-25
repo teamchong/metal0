@@ -119,8 +119,19 @@ pub fn visitStmt(
                     // Skip __init__ - it doesn't have a useful return type
                     if (std.mem.eql(u8, method.name, "__init__")) continue;
 
-                    // Get return type from annotation
-                    const return_type = try core.pythonTypeHintToNative(method.return_type, allocator);
+                    // Get return type from annotation first
+                    var return_type = try core.pythonTypeHintToNative(method.return_type, allocator);
+
+                    // If no annotation (unknown), infer from return statements
+                    if (return_type == .unknown) {
+                        for (method.body) |body_stmt| {
+                            if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
+                                return_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*);
+                                break;
+                            }
+                        }
+                    }
+
                     try methods.put(method.name, return_type);
 
                     // Check for @property decorator
@@ -134,6 +145,22 @@ pub fn visitStmt(
             }
 
             try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods, .property_methods = property_methods });
+
+            // Visit method bodies to register local variable types
+            for (class_def.body) |stmt| {
+                if (stmt == .function_def) {
+                    const method = stmt.function_def;
+                    // Register method parameter types
+                    for (method.args) |arg| {
+                        const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
+                        try var_types.put(arg.name, param_type);
+                    }
+                    // Visit method body statements
+                    for (method.body) |body_stmt| {
+                        try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, body_stmt);
+                    }
+                }
+            }
         },
         .if_stmt => |if_stmt| {
             for (if_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
