@@ -155,6 +155,12 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
 
             try buffer.append(allocator, '}');
         },
+        .numpy_array, .regex => {
+            // Not JSON serializable - return type name as placeholder
+            try buffer.appendSlice(allocator, "\"<");
+            try buffer.appendSlice(allocator, @tagName(obj.type_id));
+            try buffer.appendSlice(allocator, ">\"");
+        },
     }
 }
 
@@ -267,6 +273,7 @@ fn estimateJsonSize(obj: *runtime.PyObject) usize {
             }
             return size;
         },
+        .numpy_array, .regex => return 20, // "<type_name>"
     }
 }
 
@@ -351,6 +358,12 @@ fn stringifyPyObject(obj: *runtime.PyObject, writer: anytype) !void {
             }
 
             try writer.writeByte('}');
+        },
+        .numpy_array, .regex => {
+            // Not JSON serializable - return type name as placeholder
+            try writer.writeAll("\"<");
+            try writer.writeAll(@tagName(obj.type_id));
+            try writer.writeAll(">\"");
         },
     }
 }

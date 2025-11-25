@@ -163,6 +163,26 @@ pub fn inferCall(
                 return .unknown;
             }
 
+            // math module functions - most return float
+            if (std.mem.eql(u8, module_name, "math")) {
+                // Functions that return int
+                if (std.mem.eql(u8, func_name, "factorial") or
+                    std.mem.eql(u8, func_name, "gcd") or
+                    std.mem.eql(u8, func_name, "lcm"))
+                {
+                    return .int;
+                }
+                // Functions that return bool
+                if (std.mem.eql(u8, func_name, "isnan") or
+                    std.mem.eql(u8, func_name, "isinf") or
+                    std.mem.eql(u8, func_name, "isfinite"))
+                {
+                    return .bool;
+                }
+                // All other math functions return float
+                return .float;
+            }
+
             // pandas.DataFrame() or pd.DataFrame()
             if ((std.mem.eql(u8, module_name, "pandas") or std.mem.eql(u8, module_name, "pd")) and
                 std.mem.eql(u8, func_name, "DataFrame"))

@@ -94,12 +94,23 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     self.mutation_info = &mutations;
 
     // PHASE 3: Generate imports based on analysis (minimal for smaller WASM)
+    // Check if any imported modules require runtime
+    var needs_runtime_for_imports = false;
+    for (imported_modules.items) |mod_name| {
+        if (self.import_registry.lookup(mod_name)) |info| {
+            if (info.strategy == .zig_runtime) {
+                needs_runtime_for_imports = true;
+                break;
+            }
+        }
+    }
+
     // Only import std if we need allocator, print, or other std features
     if (analysis.needs_allocator or analysis.needs_runtime or analysis.needs_std) {
         try self.emit("const std = @import(\"std\");\n");
     }
-    // Only import runtime if async/closures/etc are used
-    if (analysis.needs_runtime or analysis.needs_async) {
+    // Only import runtime if async/closures/etc are used, or runtime modules imported
+    if (analysis.needs_runtime or analysis.needs_async or needs_runtime_for_imports) {
         try self.emit("const runtime = @import(\"./runtime.zig\");\n");
     }
     if (analysis.needs_string_utils) {
