@@ -71,6 +71,19 @@ const DfColumnMethods = std.StaticStringMap(void).initComptime(.{
     .{ "std", {} },
 });
 
+// Math module function return types
+const MathIntFuncs = std.StaticStringMap(void).initComptime(.{
+    .{ "factorial", {} },
+    .{ "gcd", {} },
+    .{ "lcm", {} },
+});
+
+const MathBoolFuncs = std.StaticStringMap(void).initComptime(.{
+    .{ "isnan", {} },
+    .{ "isinf", {} },
+    .{ "isfinite", {} },
+});
+
 const hashmap_helper = @import("../../utils/hashmap_helper.zig");
 const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
@@ -102,7 +115,8 @@ pub fn inferCall(
         }
 
         // Special case: abs() returns same type as input
-        if (std.mem.eql(u8, func_name, "abs") and call.args.len > 0) {
+        const ABS_HASH = comptime fnv_hash.hash("abs");
+        if (fnv_hash.hash(func_name) == ABS_HASH and call.args.len > 0) {
             return try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
         }
 
@@ -159,36 +173,22 @@ pub fn inferCall(
             const module_name = attr.value.name.id;
             const func_name = attr.attr;
 
-            // json.loads() returns PyObject (dict)
-            if (std.mem.eql(u8, module_name, "json") and std.mem.eql(u8, func_name, "loads")) {
-                return .unknown;
-            }
+            // Module function dispatch using hash for module name
+            const module_hash = fnv_hash.hash(module_name);
+            const JSON_HASH = comptime fnv_hash.hash("json");
+            const MATH_HASH = comptime fnv_hash.hash("math");
+            const PANDAS_HASH = comptime fnv_hash.hash("pandas");
+            const PD_HASH = comptime fnv_hash.hash("pd");
 
-            // math module functions - most return float
-            if (std.mem.eql(u8, module_name, "math")) {
-                // Functions that return int
-                if (std.mem.eql(u8, func_name, "factorial") or
-                    std.mem.eql(u8, func_name, "gcd") or
-                    std.mem.eql(u8, func_name, "lcm"))
-                {
-                    return .int;
-                }
-                // Functions that return bool
-                if (std.mem.eql(u8, func_name, "isnan") or
-                    std.mem.eql(u8, func_name, "isinf") or
-                    std.mem.eql(u8, func_name, "isfinite"))
-                {
-                    return .bool;
-                }
-                // All other math functions return float
-                return .float;
-            }
-
-            // pandas.DataFrame() or pd.DataFrame()
-            if ((std.mem.eql(u8, module_name, "pandas") or std.mem.eql(u8, module_name, "pd")) and
-                std.mem.eql(u8, func_name, "DataFrame"))
-            {
-                return .dataframe;
+            switch (module_hash) {
+                JSON_HASH => if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("loads")) return .unknown,
+                MATH_HASH => {
+                    if (MathIntFuncs.has(func_name)) return .int;
+                    if (MathBoolFuncs.has(func_name)) return .bool;
+                    return .float; // All other math functions return float
+                },
+                PANDAS_HASH, PD_HASH => if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("DataFrame")) return .dataframe,
+                else => {},
             }
 
             // Check if this is a class instance method call
@@ -214,31 +214,40 @@ pub fn inferCall(
             if (StringIntMethods.has(attr.attr)) return .int;
 
             // split() returns list of runtime strings
-            if (std.mem.eql(u8, attr.attr, "split")) {
+            if (fnv_hash.hash(attr.attr) == comptime fnv_hash.hash("split")) {
                 const elem_ptr = try allocator.create(NativeType);
                 elem_ptr.* = .{ .string = .runtime };
                 return .{ .list = elem_ptr };
             }
         }
 
-        // Dict methods
+        // Dict methods using hash-based dispatch
         if (obj_type == .dict) {
-            const method = attr.attr;
-            if (std.mem.eql(u8, method, "keys")) {
-                const elem_ptr = try allocator.create(NativeType);
-                elem_ptr.* = .{ .string = .runtime };
-                return .{ .list = elem_ptr };
-            } else if (std.mem.eql(u8, method, "values")) {
-                const elem_ptr = try allocator.create(NativeType);
-                elem_ptr.* = obj_type.dict.value.*;
-                return .{ .list = elem_ptr };
-            } else if (std.mem.eql(u8, method, "items")) {
-                const tuple_types = try allocator.alloc(NativeType, 2);
-                tuple_types[0] = .{ .string = .runtime };
-                tuple_types[1] = obj_type.dict.value.*;
-                const tuple_ptr = try allocator.create(NativeType);
-                tuple_ptr.* = .{ .tuple = tuple_types };
-                return .{ .list = tuple_ptr };
+            const method_hash = fnv_hash.hash(attr.attr);
+            const KEYS_HASH = comptime fnv_hash.hash("keys");
+            const VALUES_HASH = comptime fnv_hash.hash("values");
+            const ITEMS_HASH = comptime fnv_hash.hash("items");
+
+            switch (method_hash) {
+                KEYS_HASH => {
+                    const elem_ptr = try allocator.create(NativeType);
+                    elem_ptr.* = .{ .string = .runtime };
+                    return .{ .list = elem_ptr };
+                },
+                VALUES_HASH => {
+                    const elem_ptr = try allocator.create(NativeType);
+                    elem_ptr.* = obj_type.dict.value.*;
+                    return .{ .list = elem_ptr };
+                },
+                ITEMS_HASH => {
+                    const tuple_types = try allocator.alloc(NativeType, 2);
+                    tuple_types[0] = .{ .string = .runtime };
+                    tuple_types[1] = obj_type.dict.value.*;
+                    const tuple_ptr = try allocator.create(NativeType);
+                    tuple_ptr.* = .{ .tuple = tuple_types };
+                    return .{ .list = tuple_ptr };
+                },
+                else => {},
             }
         }
 
@@ -248,7 +257,7 @@ pub fn inferCall(
             try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, attr.value.subscript.value.*) == .dataframe))
         {
             if (DfColumnMethods.has(attr.attr)) return .float;
-            if (std.mem.eql(u8, attr.attr, "describe")) return .unknown;
+            if (fnv_hash.hash(attr.attr) == comptime fnv_hash.hash("describe")) return .unknown;
         }
     }
 
