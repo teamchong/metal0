@@ -144,6 +144,11 @@ pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
 
 /// Helper function to print PyObject based on runtime type
 pub fn printPyObject(obj: *PyObject) void {
+    printPyObjectImpl(obj, false);
+}
+
+/// Internal: print PyObject with quote_strings flag for container elements
+fn printPyObjectImpl(obj: *PyObject, quote_strings: bool) void {
     switch (obj.type_id) {
         .int => {
             const data: *PyInt = @ptrCast(@alignCast(obj.data));
@@ -159,7 +164,11 @@ pub fn printPyObject(obj: *PyObject) void {
         },
         .string => {
             const data: *PyString = @ptrCast(@alignCast(obj.data));
-            std.debug.print("{s}", .{data.data});
+            if (quote_strings) {
+                std.debug.print("'{s}'", .{data.data});
+            } else {
+                std.debug.print("{s}", .{data.data});
+            }
         },
         .none => {
             std.debug.print("None", .{});
@@ -194,8 +203,8 @@ fn printDict(obj: *PyObject) void {
         }
         // Print key with quotes (string keys)
         std.debug.print("'{s}': ", .{entry.key_ptr.*});
-        // Recursively print value
-        printPyObject(entry.value_ptr.*);
+        // Recursively print value (with quoted strings)
+        printPyObjectImpl(entry.value_ptr.*, true);
         idx += 1;
     }
     std.debug.print("}}", .{});
