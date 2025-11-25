@@ -332,6 +332,11 @@ pub const NativeCodegen = struct {
         try self.output.appendSlice(self.allocator, s);
     }
 
+    /// Emit formatted string
+    pub fn emitFmt(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+        try self.output.writer(self.allocator).print(fmt, args);
+    }
+
     pub fn emitIndent(self: *NativeCodegen) CodegenError!void {
         var i: usize = 0;
         while (i < self.indent_level) : (i += 1) {

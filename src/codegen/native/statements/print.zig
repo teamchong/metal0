@@ -93,13 +93,8 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, "    __print_first = false;\n");
 
                 const arg_type = try self.type_inferrer.inferExpr(arg);
-                const fmt = switch (arg_type) {
-                    .int => "{d}",
-                    .float => "{d}",
-                    .string => "{s}",
-                    .bool => "{s}",
-                    else => "{any}",
-                };
+                // Note: bool uses {s} because we wrap with "True"/"False" string
+                const fmt = if (arg_type == .bool) "{s}" else arg_type.getPrintFormat();
 
                 if (arg_type == .bool) {
                     try self.output.appendSlice(self.allocator, "    std.debug.print(\"{s}\", .{if (");
@@ -213,12 +208,8 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.output.appendSlice(self.allocator, "std.debug.print(\"None\", .{});\n");
         } else {
             // For non-list/tuple/bool args in mixed print, use std.debug.print
-            const fmt = switch (arg_type) {
-                .int => "{d}",
-                .float => "{d}",
-                .string => "{s}",
-                else => "{s}", // Try string format for unknowns (works for string constants)
-            };
+            // Note: unknown types try {s} (works for string constants)
+            const fmt = if (arg_type == .unknown) "{s}" else arg_type.getPrintFormat();
             try self.output.appendSlice(self.allocator, "std.debug.print(\"");
             try self.output.appendSlice(self.allocator, fmt);
             try self.output.appendSlice(self.allocator, "\", .{");
@@ -279,13 +270,8 @@ fn genPrintTuple(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) Codegen
             }
             // Determine format based on element type
             const elem_type = arg_type.tuple[elem_idx];
-            const fmt = switch (elem_type) {
-                .int => "{d}",
-                .float => "{d}",
-                .bool => "{s}",
-                .string => "{s}",
-                else => "{any}",
-            };
+            // Note: bool uses {s} because we wrap with "True"/"False" string
+            const fmt = if (elem_type == .bool) "{s}" else elem_type.getPrintFormat();
             if (elem_type == .bool) {
                 // Boolean elements need conditional formatting
                 try self.output.writer(self.allocator).print("    std.debug.print(\"{{s}}\", .{{if (__tuple.@\"{d}\") \"True\" else \"False\"}});\n", .{elem_idx});
@@ -382,14 +368,7 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     // Generate format string
     for (args, 0..) |arg, i| {
         const arg_type = try self.type_inferrer.inferExpr(arg);
-        const fmt = switch (arg_type) {
-            .int => "{d}",
-            .float => "{d}", // Print float directly
-            .bool => "{}",
-            .string => "{s}",
-            else => "{any}",
-        };
-        try self.output.appendSlice(self.allocator, fmt);
+        try self.output.appendSlice(self.allocator, arg_type.getPrintFormat());
 
         if (i < args.len - 1) {
             try self.output.appendSlice(self.allocator, " ");
@@ -439,14 +418,9 @@ fn genPrintSimple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate format string
     for (args, 0..) |arg, i| {
         const arg_type = try self.type_inferrer.inferExpr(arg);
-        const fmt = switch (arg_type) {
-            .int => "{d}",
-            .float => "{d}", // Print float directly
-            .bool => "{s}", // formatAny() returns string for bool
-            .string => "{s}",
-            .unknown => "{s}", // Use {s} - works for string constants, fails for others
-            else => "{any}", // Other types - let Zig handle them
-        };
+        // Note: bool uses {s} because formatAny() returns string
+        // Note: unknown uses {s} - works for string constants
+        const fmt = if (arg_type == .bool or arg_type == .unknown) "{s}" else arg_type.getPrintFormat();
         try self.output.appendSlice(self.allocator, fmt);
 
         if (i < args.len - 1) {

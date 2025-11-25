@@ -389,12 +389,8 @@ fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8
     };
 
     return switch (inferred_type) {
-        .int => "i64",
-        .float => "f64",
-        .bool => "bool",
-        .string => "[]const u8",
         .list => |_| "std.ArrayList(i64)", // Simplified - would need element type
         .dict => "hashmap_helper.StringHashMap(i64)", // Simplified
-        else => "i64", // Fallback
+        else => inferred_type.toSimpleZigType(),
     };
 }
