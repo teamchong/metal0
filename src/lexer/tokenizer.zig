@@ -111,6 +111,95 @@ pub fn tokenizeString(self: *Lexer, start: usize, start_column: usize) !Token {
     };
 }
 
+pub fn tokenizeByteString(self: *Lexer, start: usize, start_column: usize) !Token {
+    const quote = self.advance().?; // Consume opening quote
+
+    // Check for triple quotes
+    const is_triple = (self.peek() == quote and self.peekAhead(1) == quote);
+    if (is_triple) {
+        _ = self.advance();
+        _ = self.advance();
+
+        // Consume until closing triple quotes
+        while (!self.isAtEnd()) {
+            if (self.peek() == quote and
+                self.peekAhead(1) == quote and
+                self.peekAhead(2) == quote)
+            {
+                _ = self.advance();
+                _ = self.advance();
+                _ = self.advance();
+                break;
+            }
+            _ = self.advance();
+        }
+    } else {
+        // Single or double quoted string
+        while (self.peek() != quote and !self.isAtEnd()) {
+            if (self.peek() == '\\') {
+                _ = self.advance(); // Consume backslash
+                _ = self.advance(); // Consume escaped character
+            } else {
+                _ = self.advance();
+            }
+        }
+
+        if (!self.isAtEnd()) {
+            _ = self.advance(); // Consume closing quote
+        }
+    }
+
+    const lexeme = self.source[start..self.current];
+    return Token{
+        .type = .ByteString,
+        .lexeme = lexeme,
+        .line = self.line,
+        .column = start_column,
+    };
+}
+
+pub fn tokenizeRawString(self: *Lexer, start: usize, start_column: usize) !Token {
+    const quote = self.advance().?; // Consume opening quote
+
+    // Check for triple quotes
+    const is_triple = (self.peek() == quote and self.peekAhead(1) == quote);
+    if (is_triple) {
+        _ = self.advance();
+        _ = self.advance();
+
+        // Consume until closing triple quotes (no escape processing)
+        while (!self.isAtEnd()) {
+            if (self.peek() == quote and
+                self.peekAhead(1) == quote and
+                self.peekAhead(2) == quote)
+            {
+                _ = self.advance();
+                _ = self.advance();
+                _ = self.advance();
+                break;
+            }
+            _ = self.advance();
+        }
+    } else {
+        // Single or double quoted string - NO escape processing for raw strings
+        while (self.peek() != quote and !self.isAtEnd()) {
+            _ = self.advance();
+        }
+
+        if (!self.isAtEnd()) {
+            _ = self.advance(); // Consume closing quote
+        }
+    }
+
+    const lexeme = self.source[start..self.current];
+    return Token{
+        .type = .RawString,
+        .lexeme = lexeme,
+        .line = self.line,
+        .column = start_column,
+    };
+}
+
 pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
     const quote = self.advance().?; // Consume opening quote
     var parts = std.ArrayList(FStringPart){};

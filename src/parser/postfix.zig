@@ -297,6 +297,34 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
                     },
                 };
             },
+            .ByteString => {
+                // Byte strings b"..." are treated as regular strings
+                // Strip the 'b' prefix from lexeme: b"hello" -> "hello"
+                const str_tok = self.advance().?;
+                const stripped = if (str_tok.lexeme.len > 0 and str_tok.lexeme[0] == 'b')
+                    str_tok.lexeme[1..]
+                else
+                    str_tok.lexeme;
+                return ast.Node{
+                    .constant = .{
+                        .value = .{ .string = stripped },
+                    },
+                };
+            },
+            .RawString => {
+                // Raw strings r"..." are treated as regular strings
+                // Strip the 'r' prefix from lexeme: r"\n" -> "\n"
+                const str_tok = self.advance().?;
+                const stripped = if (str_tok.lexeme.len > 0 and str_tok.lexeme[0] == 'r')
+                    str_tok.lexeme[1..]
+                else
+                    str_tok.lexeme;
+                return ast.Node{
+                    .constant = .{
+                        .value = .{ .string = stripped },
+                    },
+                };
+            },
             .FString => {
                 const fstr_tok = self.advance().?;
                 const lexer_parts = fstr_tok.fstring_parts orelse &[_]lexer.FStringPart{};

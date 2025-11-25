@@ -41,6 +41,8 @@ pub const TokenType = enum {
     Number,
     ComplexNumber,
     String,
+    RawString,
+    ByteString,
     FString,
     Ellipsis,
 
@@ -203,6 +205,22 @@ pub const Lexer = struct {
                 continue;
             }
 
+            // Byte strings (check before identifiers)
+            if (c == 'b' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
+                _ = self.advance(); // consume 'b'
+                const token = try self.tokenizeByteString(start, start_column);
+                try tokens.append(self.allocator, token);
+                continue;
+            }
+
+            // Raw strings (check before identifiers)
+            if (c == 'r' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
+                _ = self.advance(); // consume 'r'
+                const token = try self.tokenizeRawString(start, start_column);
+                try tokens.append(self.allocator, token);
+                continue;
+            }
+
             // Identifiers and keywords
             if (self.isAlpha(c)) {
                 const token = try self.tokenizeIdentifier(start, start_column);
@@ -263,6 +281,8 @@ pub const Lexer = struct {
     const tokenizeIdentifier = tokenizer.tokenizeIdentifier;
     const tokenizeNumber = tokenizer.tokenizeNumber;
     const tokenizeString = tokenizer.tokenizeString;
+    const tokenizeRawString = tokenizer.tokenizeRawString;
+    const tokenizeByteString = tokenizer.tokenizeByteString;
     const tokenizeFString = tokenizer.tokenizeFString;
     const tokenizeOperatorOrDelimiter = tokenizer.tokenizeOperatorOrDelimiter;
 
