@@ -64,4 +64,11 @@ class TestSetup(unittest.TestCase):
     def test_setup_ran(self):
         self.assertEqual(self.value, 42)
 
+# Note: assertRaises test requires a callable that returns an error
+# This is a stub for now - full test would need error-returning functions
+# class TestRaises(unittest.TestCase):
+#     def test_raises(self):
+#         # Would test: self.assertRaises(ValueError, some_func, arg)
+#         pass
+
 unittest.main()

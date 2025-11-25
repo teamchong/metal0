@@ -1,0 +1,237 @@
+const std = @import("std");
+const ast = @import("../../ast.zig");
+const ParseError = @import("../../parser.zig").ParseError;
+const Parser = @import("../../parser.zig").Parser;
+
+/// Parse bitwise OR expression
+pub fn parseBitOr(self: *Parser) ParseError!ast.Node {
+    var left = try parseBitXor(self);
+
+    while (true) {
+        var op: ?ast.Operator = null;
+
+        if (self.match(.Pipe)) {
+            op = .BitOr;
+        }
+
+        if (op == null) break;
+
+        const right = try parseBitXor(self);
+
+        const left_ptr = try self.allocator.create(ast.Node);
+        left_ptr.* = left;
+
+        const right_ptr = try self.allocator.create(ast.Node);
+        right_ptr.* = right;
+
+        left = ast.Node{
+            .binop = .{
+                .left = left_ptr,
+                .op = op.?,
+                .right = right_ptr,
+            },
+        };
+    }
+
+    return left;
+}
+
+/// Parse bitwise XOR expression
+pub fn parseBitXor(self: *Parser) ParseError!ast.Node {
+    var left = try parseBitAnd(self);
+
+    while (true) {
+        var op: ?ast.Operator = null;
+
+        if (self.match(.Caret)) {
+            op = .BitXor;
+        }
+
+        if (op == null) break;
+
+        const right = try parseBitAnd(self);
+
+        const left_ptr = try self.allocator.create(ast.Node);
+        left_ptr.* = left;
+
+        const right_ptr = try self.allocator.create(ast.Node);
+        right_ptr.* = right;
+
+        left = ast.Node{
+            .binop = .{
+                .left = left_ptr,
+                .op = op.?,
+                .right = right_ptr,
+            },
+        };
+    }
+
+    return left;
+}
+
+/// Parse bitwise AND expression
+pub fn parseBitAnd(self: *Parser) ParseError!ast.Node {
+    var left = try parseShift(self);
+
+    while (true) {
+        var op: ?ast.Operator = null;
+
+        if (self.match(.Ampersand)) {
+            op = .BitAnd;
+        }
+
+        if (op == null) break;
+
+        const right = try parseShift(self);
+
+        const left_ptr = try self.allocator.create(ast.Node);
+        left_ptr.* = left;
+
+        const right_ptr = try self.allocator.create(ast.Node);
+        right_ptr.* = right;
+
+        left = ast.Node{
+            .binop = .{
+                .left = left_ptr,
+                .op = op.?,
+                .right = right_ptr,
+            },
+        };
+    }
+
+    return left;
+}
+
+/// Parse bitwise shift operators: << and >>
+pub fn parseShift(self: *Parser) ParseError!ast.Node {
+    var left = try parseAddSub(self);
+
+    while (true) {
+        var op: ?ast.Operator = null;
+
+        if (self.match(.LtLt)) {
+            op = .LShift;
+        } else if (self.match(.GtGt)) {
+            op = .RShift;
+        }
+
+        if (op == null) break;
+
+        const right = try parseAddSub(self);
+
+        const left_ptr = try self.allocator.create(ast.Node);
+        left_ptr.* = left;
+
+        const right_ptr = try self.allocator.create(ast.Node);
+        right_ptr.* = right;
+
+        left = ast.Node{
+            .binop = .{
+                .left = left_ptr,
+                .op = op.?,
+                .right = right_ptr,
+            },
+        };
+    }
+
+    return left;
+}
+
+/// Parse addition and subtraction
+pub fn parseAddSub(self: *Parser) ParseError!ast.Node {
+    var left = try parseMulDiv(self);
+
+    while (true) {
+        var op: ?ast.Operator = null;
+
+        if (self.match(.Plus)) {
+            op = .Add;
+        } else if (self.match(.Minus)) {
+            op = .Sub;
+        }
+
+        if (op == null) break;
+
+        const right = try parseMulDiv(self);
+
+        const left_ptr = try self.allocator.create(ast.Node);
+        left_ptr.* = left;
+
+        const right_ptr = try self.allocator.create(ast.Node);
+        right_ptr.* = right;
+
+        left = ast.Node{
+            .binop = .{
+                .left = left_ptr,
+                .op = op.?,
+                .right = right_ptr,
+            },
+        };
+    }
+
+    return left;
+}
+
+/// Parse multiplication, division, floor division, and modulo
+pub fn parseMulDiv(self: *Parser) ParseError!ast.Node {
+    var left = try parsePower(self);
+
+    while (true) {
+        var op: ?ast.Operator = null;
+
+        if (self.match(.Star)) {
+            op = .Mult;
+        } else if (self.match(.Slash)) {
+            op = .Div;
+        } else if (self.match(.DoubleSlash)) {
+            op = .FloorDiv;
+        } else if (self.match(.Percent)) {
+            op = .Mod;
+        }
+
+        if (op == null) break;
+
+        const right = try parsePower(self);
+
+        const left_ptr = try self.allocator.create(ast.Node);
+        left_ptr.* = left;
+
+        const right_ptr = try self.allocator.create(ast.Node);
+        right_ptr.* = right;
+
+        left = ast.Node{
+            .binop = .{
+                .left = left_ptr,
+                .op = op.?,
+                .right = right_ptr,
+            },
+        };
+    }
+
+    return left;
+}
+
+/// Parse power (exponentiation) - right associative
+pub fn parsePower(self: *Parser) ParseError!ast.Node {
+    const left = try self.parsePostfix();
+
+    if (self.match(.DoubleStar)) {
+        const right = try parsePower(self); // Right associative
+
+        const left_ptr = try self.allocator.create(ast.Node);
+        left_ptr.* = left;
+
+        const right_ptr = try self.allocator.create(ast.Node);
+        right_ptr.* = right;
+
+        return ast.Node{
+            .binop = .{
+                .left = left_ptr,
+                .op = .Pow,
+                .right = right_ptr,
+            },
+        };
+    }
+
+    return left;
+}

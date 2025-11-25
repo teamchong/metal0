@@ -408,6 +408,31 @@ pub fn assertCountEqual(a: anytype, b: anytype) void {
     }
 }
 
+/// Assertion: assertRaises(callable) - callable must return an error
+/// This is a simplified version that checks if a callable returns an error
+/// In Python: self.assertRaises(ValueError, func, args) or with self.assertRaises(ValueError):
+/// In PyAOT: we check if the callable returns any error
+pub fn assertRaises(callable: anytype, args: anytype) void {
+    // Call the callable with args and check if it errors
+    const result = @call(.auto, callable, args);
+
+    // If we get here without error, the assertion failed
+    _ = result catch {
+        // Got an error as expected - pass
+        if (global_result) |res| {
+            res.addPass();
+        }
+        return;
+    };
+
+    // No error was returned - fail
+    std.debug.print("AssertionError: expected error but call succeeded\n", .{});
+    if (global_result) |res| {
+        res.addFail("assertRaises failed: expected error") catch {};
+    }
+    @panic("assertRaises failed");
+}
+
 /// Print test results summary
 pub fn printResults() void {
     if (global_result) |result| {

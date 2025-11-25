@@ -122,6 +122,7 @@ const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "assertAlmostEqual", unittest_mod.genAssertAlmostEqual },
     .{ "assertNotAlmostEqual", unittest_mod.genAssertNotAlmostEqual },
     .{ "assertCountEqual", unittest_mod.genAssertCountEqual },
+    .{ "assertRaises", unittest_mod.genAssertRaises },
 });
 
 /// Try to dispatch method call (obj.method())

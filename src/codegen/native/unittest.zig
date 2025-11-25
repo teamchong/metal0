@@ -346,3 +346,36 @@ pub fn genAssertCountEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
     try parent.genExpr(self, args[1]);
     try self.output.appendSlice(self.allocator, ")");
 }
+
+/// Generate code for self.assertRaises(exception_type, callable, *args)
+/// Python: self.assertRaises(ValueError, func, arg1, arg2)
+/// Zig: runtime.unittest.assertRaises(func, .{arg1, arg2})
+pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    // assertRaises needs at least exception_type and callable
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertRaises requires at least 2 arguments: exception_type, callable\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+
+    // args[0] is exception type (ignored for now - we just check any error)
+    // args[1] is the callable
+    // args[2..] are arguments to pass to the callable
+
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertRaises(");
+    try parent.genExpr(self, args[1]); // callable
+    try self.output.appendSlice(self.allocator, ", .{");
+
+    // Generate tuple of remaining args
+    if (args.len > 2) {
+        for (args[2..], 0..) |arg, i| {
+            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+            try parent.genExpr(self, arg);
+        }
+    }
+
+    try self.output.appendSlice(self.allocator, "})");
+}
