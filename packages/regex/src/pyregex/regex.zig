@@ -46,8 +46,9 @@ pub const Regex = struct {
         var vm = pikevm.PikeVM.init(self.allocator, &self.nfa);
 
         var pos: usize = 0;
-        while (pos <= text.len) {
-            const maybe_match = try vm.findAt(text, pos);
+        while (pos < text.len) {
+            // Search for match starting at or after pos
+            const maybe_match = try vm.findFrom(text, pos);
             if (maybe_match) |m| {
                 var match = m;
                 defer match.deinit(self.allocator);

@@ -161,8 +161,13 @@ pub const PikeVM = struct {
 
     /// Find first match in text
     pub fn find(self: *PikeVM, text: []const u8) !?Match {
-        // Try matching at each starting position
-        var start: usize = 0;
+        return self.findFrom(text, 0);
+    }
+
+    /// Find first match starting from a given position
+    pub fn findFrom(self: *PikeVM, text: []const u8, from: usize) !?Match {
+        // Try matching at each starting position from `from`
+        var start: usize = from;
         while (start <= text.len) : (start += 1) {
             if (try self.findAt(text, start)) |match| {
                 return match;
