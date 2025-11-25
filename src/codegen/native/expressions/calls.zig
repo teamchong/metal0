@@ -276,6 +276,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Check if this is an async function (needs _async suffix)
         const is_async_func = self.async_functions.contains(func_name);
 
+        // Check if this is a vararg function (needs args wrapped in slice)
+        const is_vararg_func = self.vararg_functions.contains(func_name);
+
         // Add 'try' if function needs allocator or is async (both return errors)
         if (user_func_needs_alloc or is_async_func) {
             try self.output.appendSlice(self.allocator, "try ");
@@ -295,15 +298,24 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // BUT NOT for async functions - the _async wrapper doesn't take allocator
         if (user_func_needs_alloc and !is_async_func) {
             try self.output.appendSlice(self.allocator, "allocator");
-            if (call.args.len > 0) {
+            if (call.args.len > 0 or is_vararg_func) {
                 try self.output.appendSlice(self.allocator, ", ");
             }
         }
 
-        // Add regular arguments
-        for (call.args, 0..) |arg, i| {
-            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-            try genExpr(self, arg);
+        // Add regular arguments - wrap in slice for vararg functions
+        if (is_vararg_func) {
+            try self.output.appendSlice(self.allocator, "&[_]i64{");
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                try genExpr(self, arg);
+            }
+            try self.output.appendSlice(self.allocator, "}");
+        } else {
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                try genExpr(self, arg);
+            }
         }
 
         // For from-imported functions: inject allocator as LAST argument

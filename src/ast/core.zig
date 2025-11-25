@@ -117,6 +117,7 @@ pub const Node = union(enum) {
         return_type: ?[]const u8 = null,
         is_nested: bool = false,
         captured_vars: [][]const u8 = &[_][]const u8{},
+        vararg: ?[]const u8 = null, // *args parameter name
     };
 
     pub const Lambda = struct {

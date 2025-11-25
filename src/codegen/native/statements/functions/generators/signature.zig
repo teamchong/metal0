@@ -145,6 +145,13 @@ pub fn genFunctionSignature(
         }
     }
 
+    // Add *args parameter as a slice if present
+    if (func.vararg) |vararg_name| {
+        if (func.args.len > 0) try self.emit(", ");
+        try self.emit(vararg_name);
+        try self.emit(": []const i64"); // For now, assume varargs are integers
+    }
+
     try self.emit(") ");
 
     // Determine return type based on type annotation or return statements

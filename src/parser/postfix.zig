@@ -174,6 +174,9 @@ pub fn parseCall(self: *Parser, func: ast.Node) !ast.Node {
     defer args.deinit(self.allocator);
 
     while (!self.match(.RParen)) {
+        // Skip * operator for unpacking (not implemented yet, treat as regular arg)
+        _ = self.match(.Star);
+
         const arg = try self.parseExpression();
         try args.append(self.allocator, arg);
 
@@ -215,6 +218,17 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
                         },
                     };
                 }
+            },
+            .ComplexNumber => {
+                const num_tok = self.advance().?;
+                // Strip 'j' suffix and parse as float (full complex math later)
+                const lexeme_without_j = num_tok.lexeme[0 .. num_tok.lexeme.len - 1];
+                const float_val = try std.fmt.parseFloat(f64, lexeme_without_j);
+                return ast.Node{
+                    .constant = .{
+                        .value = .{ .float = float_val },
+                    },
+                };
             },
             .String => {
                 const str_tok = self.advance().?;
