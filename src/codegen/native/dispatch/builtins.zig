@@ -14,6 +14,7 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     // Type conversion
     .{ "len", builtins.genLen },
     .{ "str", builtins.genStr },
+    .{ "repr", builtins.genRepr },
     .{ "int", builtins.genInt },
     .{ "float", builtins.genFloat },
     .{ "bool", builtins.genBool },

@@ -9,6 +9,7 @@ const dynamic_attrs = @import("builtins/dynamic_attrs.zig");
 // Re-export all functions
 pub const genLen = conversions.genLen;
 pub const genStr = conversions.genStr;
+pub const genRepr = conversions.genRepr;
 pub const genInt = conversions.genInt;
 pub const genFloat = conversions.genFloat;
 pub const genBool = conversions.genBool;

@@ -12,6 +12,7 @@ pub const ClassInfo = core.ClassInfo;
 const BuiltinFuncMap = std.StaticStringMap(NativeType).initComptime(.{
     .{ "len", NativeType.int },
     .{ "str", NativeType{ .string = .runtime } },
+    .{ "repr", NativeType{ .string = .runtime } },
     .{ "int", NativeType.int },
     .{ "float", NativeType.float },
     .{ "bool", NativeType.bool },

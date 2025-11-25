@@ -142,8 +142,8 @@ pub const LruCache = struct {
         if (entry.prev) |p| p.next = entry.next else self.head = entry.next;
         if (entry.next) |n| n.prev = entry.prev else self.tail = entry.prev;
 
-        // Remove from map
-        _ = self.map.remove(entry.source_key);
+        // Remove from map (Zig 0.15: swapRemove replaces remove)
+        _ = self.map.swapRemove(entry.source_key);
 
         // Update stats
         self.current_entries -= 1;

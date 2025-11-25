@@ -258,3 +258,53 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // A proper implementation would need type inference on both arguments
     try self.output.appendSlice(self.allocator, "true");
 }
+
+/// Generate code for repr(obj)
+/// Returns string representation with quotes for strings
+/// repr(True) -> "True", repr("hello") -> "'hello'"
+pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        return;
+    }
+
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // For strings, wrap with quotes: "'string'"
+    if (arg_type == .string) {
+        try self.output.appendSlice(self.allocator, "blk: {\n");
+        try self.output.appendSlice(self.allocator, "var buf = std.ArrayList(u8){};\n");
+        try self.output.appendSlice(self.allocator, "try buf.appendSlice(allocator, \"'\");\n");
+        try self.output.appendSlice(self.allocator, "try buf.appendSlice(allocator, ");
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, ");\n");
+        try self.output.appendSlice(self.allocator, "try buf.appendSlice(allocator, \"'\");\n");
+        try self.output.appendSlice(self.allocator, "break :blk try buf.toOwnedSlice(allocator);\n");
+        try self.output.appendSlice(self.allocator, "}");
+        return;
+    }
+
+    // For bools: True/False
+    if (arg_type == .bool) {
+        try self.output.appendSlice(self.allocator, "(if (");
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, ") \"True\" else \"False\")");
+        return;
+    }
+
+    // For numbers, same as str()
+    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.output.appendSlice(self.allocator, "var buf = std.ArrayList(u8){};\n");
+
+    if (arg_type == .int) {
+        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{}\", .{");
+    } else if (arg_type == .float) {
+        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{d}\", .{");
+    } else {
+        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{any}\", .{");
+    }
+
+    try self.genExpr(args[0]);
+    try self.output.appendSlice(self.allocator, "});\n");
+    try self.output.appendSlice(self.allocator, "break :blk try buf.toOwnedSlice(allocator);\n");
+    try self.output.appendSlice(self.allocator, "}");
+}

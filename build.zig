@@ -138,21 +138,4 @@ pub fn build(b: *std.Build) void {
     const bench_work_stealing_step = b.step("bench-work-stealing", "Run work-stealing benchmark");
     bench_work_stealing_step.dependOn(&run_bench_work_stealing.step);
 
-    // Test anonymous struct spawn
-    const test_spawn_anonymous = b.addExecutable(.{
-        .name = "test_spawn_anonymous",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path(".claude/1/test_spawn_anonymous.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_spawn_anonymous.root_module.addImport("scheduler", scheduler_module);
-    test_spawn_anonymous.root_module.addImport("green_thread", green_thread_module);
-
-    b.installArtifact(test_spawn_anonymous);
-
-    const run_test_spawn_anonymous = b.addRunArtifact(test_spawn_anonymous);
-    const test_spawn_anonymous_step = b.step("test-spawn-anonymous", "Test spawn with anonymous struct");
-    test_spawn_anonymous_step.dependOn(&run_test_spawn_anonymous.step);
 }

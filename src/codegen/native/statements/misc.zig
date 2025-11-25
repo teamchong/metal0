@@ -314,10 +314,11 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, "    std.debug.print(\"}}\", .{});\n");
                 try self.output.appendSlice(self.allocator, "}\n");
             } else if (arg_type == .unknown) {
-                // Use {any} for unknown types - works for any Zig type
-                try self.output.appendSlice(self.allocator, "std.debug.print(\"{any}\", .{");
+                // Unknown types are typically *PyObject from eval() or dynamic calls
+                // Use runtime.printPyObject for proper formatting
+                try self.output.appendSlice(self.allocator, "runtime.printPyObject(");
                 try self.genExpr(arg);
-                try self.output.appendSlice(self.allocator, "});\n");
+                try self.output.appendSlice(self.allocator, ");\n");
             } else if (arg_type == .bool) {
                 // Print booleans as Python-style True/False
                 try self.output.appendSlice(self.allocator, "std.debug.print(\"{s}\", .{if (");
