@@ -363,15 +363,29 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         }
         // Special handling for None comparisons
         else if (left_type == .none or right_type == .none) {
-            // None comparisons with mixed types always false for ==, true for !=
+            // None comparisons with mixed types: result is known at compile time
+            // but we must reference the non-None variable to avoid "unused" errors
             const left_tag = @as(std.meta.Tag(@TypeOf(left_type)), left_type);
             const right_tag = @as(std.meta.Tag(@TypeOf(right_type)), right_type);
             if (left_tag != right_tag) {
-                // One is None, other is not - compile-time false for ==, true for !=
-                switch (op) {
-                    .Eq => try self.output.appendSlice(self.allocator, "false"),
-                    .NotEq => try self.output.appendSlice(self.allocator, "true"),
-                    else => try self.output.appendSlice(self.allocator, "false"),
+                // One is None, other is not - emit block that references the non-None side
+                // The None side (?void) is allowed to be unused
+                const result = switch (op) {
+                    .Eq => "false",
+                    .NotEq => "true",
+                    else => "false",
+                };
+                // Reference the non-None variable to mark it as used
+                if (left_type != .none) {
+                    // Left is non-None, reference it
+                    try self.output.appendSlice(self.allocator, "(blk: { _ = ");
+                    try genExpr(self, compare.left.*);
+                    try self.output.writer(self.allocator).print("; break :blk {s}; }})", .{result});
+                } else {
+                    // Right is non-None, reference it
+                    try self.output.appendSlice(self.allocator, "(blk: { _ = ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.output.writer(self.allocator).print("; break :blk {s}; }})", .{result});
                 }
             } else {
                 // Both are None - compare normally

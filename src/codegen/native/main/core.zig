@@ -12,6 +12,7 @@ const ClassRegistry = symbol_table_mod.ClassRegistry;
 const MethodInfo = symbol_table_mod.MethodInfo;
 const import_registry = @import("../import_registry.zig");
 const fnv_hash = @import("../../../utils/fnv_hash.zig");
+const cleanup = @import("cleanup.zig");
 
 const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
@@ -250,132 +251,7 @@ pub const NativeCodegen = struct {
     }
 
     pub fn deinit(self: *NativeCodegen) void {
-        self.output.deinit(self.allocator);
-        // Clean up symbol table and class registry
-        self.symbol_table.deinit();
-        self.allocator.destroy(self.symbol_table);
-        self.class_registry.deinit();
-        self.allocator.destroy(self.class_registry);
-        // Clean up lambda functions
-        for (self.lambda_functions.items) |lambda_code| {
-            self.allocator.free(lambda_code);
-        }
-        self.lambda_functions.deinit(self.allocator);
-
-        // Clean up closure tracking HashMaps (free keys)
-        for (self.closure_vars.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.closure_vars.deinit();
-
-        for (self.closure_factories.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.closure_factories.deinit();
-
-        for (self.lambda_vars.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.lambda_vars.deinit();
-
-        // Clean up variable renames
-        self.var_renames.deinit();
-
-        // Clean up array vars tracking
-        for (self.array_vars.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.array_vars.deinit();
-
-        // Clean up array slice vars tracking
-        for (self.array_slice_vars.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.array_slice_vars.deinit();
-
-        // Clean up arraylist vars tracking
-        for (self.arraylist_vars.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.arraylist_vars.deinit();
-
-        // Clean up decorated functions tracking
-        self.decorated_functions.deinit(self.allocator);
-
-        // Clean up unittest classes tracking
-        for (self.unittest_classes.items) |class_info| {
-            self.allocator.free(class_info.class_name);
-            self.allocator.free(class_info.test_methods);
-        }
-        self.unittest_classes.deinit(self.allocator);
-
-        // Clean up functions_needing_allocator tracking
-        for (self.functions_needing_allocator.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.functions_needing_allocator.deinit();
-
-        // Clean up async_functions tracking
-        for (self.async_functions.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.async_functions.deinit();
-
-        // Clean up vararg_functions tracking
-        for (self.vararg_functions.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.vararg_functions.deinit();
-
-        // Clean up function_signatures tracking
-        for (self.function_signatures.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.function_signatures.deinit();
-
-        // Clean up global_vars tracking
-        for (self.global_vars.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.global_vars.deinit();
-
-        // Clean up async_function_defs tracking
-        for (self.async_function_defs.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.async_function_defs.deinit();
-
-        // Clean up imported_modules tracking
-        for (self.imported_modules.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.imported_modules.deinit();
-
-        // Clean up import registry
-        self.import_registry.deinit();
-        self.allocator.destroy(self.import_registry);
-
-        // Clean up c_libraries list (strings are not owned, just references)
-        self.c_libraries.deinit(self.allocator);
-
-        // Clean up from_imports list (references AST data, not owned)
-        self.from_imports.deinit(self.allocator);
-
-        // Clean up from_import_needs_allocator tracking
-        // Note: Keys are references to AST data, not owned - don't free
-        self.from_import_needs_allocator.deinit();
-
-        // Clean up func_local_mutations tracking
-        // Note: Keys are references to AST data, not owned - don't free
-        self.func_local_mutations.deinit();
-
-        // Clean up comptime_evals tracking
-        for (self.comptime_evals.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.comptime_evals.deinit();
-
-        self.allocator.destroy(self);
+        cleanup.deinit(self);
     }
 
     /// Push new scope (call when entering loop/function/block)
@@ -476,10 +352,7 @@ pub const NativeCodegen = struct {
 
     /// Clear global vars (call when exiting function scope)
     pub fn clearGlobalVars(self: *NativeCodegen) void {
-        for (self.global_vars.keys()) |key| {
-            self.allocator.free(key);
-        }
-        self.global_vars.clearRetainingCapacity();
+        cleanup.clearGlobalVars(self);
     }
 
     /// Check if a class has a specific method (e.g., __getitem__, __len__)
