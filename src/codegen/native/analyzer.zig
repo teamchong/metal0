@@ -12,6 +12,7 @@ pub const ModuleAnalysis = struct {
     needs_runtime: bool = false,
     needs_string_utils: bool = false,
     needs_hashmap_helper: bool = false,
+    needs_std: bool = false, // For print() and other std features
 
     /// Merge two analyses
     pub fn merge(self: *ModuleAnalysis, other: ModuleAnalysis) void {
@@ -22,6 +23,7 @@ pub const ModuleAnalysis = struct {
         self.needs_runtime = self.needs_runtime or other.needs_runtime;
         self.needs_string_utils = self.needs_string_utils or other.needs_string_utils;
         self.needs_hashmap_helper = self.needs_hashmap_helper or other.needs_hashmap_helper;
+        self.needs_std = self.needs_std or other.needs_std;
     }
 };
 
@@ -229,6 +231,11 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                 // Check for class instantiation (uppercase first letter)
                 if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
                     analysis.needs_allocator = true;
+                }
+
+                // print() needs std.debug.print
+                if (std.mem.eql(u8, func_name, "print")) {
+                    analysis.needs_std = true;
                 }
             }
 

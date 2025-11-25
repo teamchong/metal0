@@ -93,10 +93,15 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     }
     self.mutation_info = &mutations;
 
-    // PHASE 3: Generate imports based on analysis
-    try self.emit("const std = @import(\"std\");\n");
-    // Always import runtime for formatAny() and other utilities
-    try self.emit("const runtime = @import(\"./runtime.zig\");\n");
+    // PHASE 3: Generate imports based on analysis (minimal for smaller WASM)
+    // Only import std if we need allocator, print, or other std features
+    if (analysis.needs_allocator or analysis.needs_runtime or analysis.needs_std) {
+        try self.emit("const std = @import(\"std\");\n");
+    }
+    // Only import runtime if async/closures/etc are used
+    if (analysis.needs_runtime or analysis.needs_async) {
+        try self.emit("const runtime = @import(\"./runtime.zig\");\n");
+    }
     if (analysis.needs_string_utils) {
         try self.emit("const string_utils = @import(\"string_utils.zig\");\n");
     }
@@ -288,33 +293,42 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         return self.output.toOwnedSlice(self.allocator);
     }
 
-    // PHASE 5.5: Generate module-level allocator (for async functions and f-strings)
-    try self.emit("\n// Module-level allocator for async functions and f-strings\n");
-    try self.emit("var __global_allocator: std.mem.Allocator = undefined;\n");
-    try self.emit("var __allocator_initialized: bool = false;\n\n");
+    // PHASE 5.5: Generate module-level allocator (only if needed)
+    if (analysis.needs_allocator) {
+        try self.emit("\n// Module-level allocator for async functions and f-strings\n");
+        try self.emit("var __global_allocator: std.mem.Allocator = undefined;\n");
+        try self.emit("var __allocator_initialized: bool = false;\n\n");
+    }
 
     // PHASE 6: Generate main function (script mode only)
     // For WASM: Zig's std.start automatically exports _start if pub fn main exists
-    try self.emit("pub fn main() !void {\n");
+    try self.emit("pub fn main() ");
+    if (analysis.needs_allocator) {
+        try self.emit("!void {\n");
+    } else {
+        try self.emit("void {\n");
+    }
     self.indent();
 
-    // Setup allocator (comptime selection for WASM compatibility)
-    try self.emitIndent();
-    try self.emit("var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};\n");
-    try self.emitIndent();
-    try self.emit("defer _ = gpa.deinit();\n");
-    try self.emitIndent();
-    try self.emit("var allocator = gpa.allocator();\n");
-    try self.emitIndent();
-    try self.emit("std.mem.doNotOptimizeAway(&allocator);\n");
-    try self.emit("\n");
+    // Setup allocator only if needed (skip for pure functions - smaller WASM)
+    if (analysis.needs_allocator) {
+        try self.emitIndent();
+        try self.emit("var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};\n");
+        try self.emitIndent();
+        try self.emit("defer _ = gpa.deinit();\n");
+        try self.emitIndent();
+        try self.emit("var allocator = gpa.allocator();\n");
+        try self.emitIndent();
+        try self.emit("std.mem.doNotOptimizeAway(&allocator);\n");
+        try self.emit("\n");
 
-    // Initialize module-level allocator
-    try self.emitIndent();
-    try self.emit("__global_allocator = allocator;\n");
-    try self.emitIndent();
-    try self.emit("__allocator_initialized = true;\n");
-    try self.emit("\n");
+        // Initialize module-level allocator
+        try self.emitIndent();
+        try self.emit("__global_allocator = allocator;\n");
+        try self.emitIndent();
+        try self.emit("__allocator_initialized = true;\n");
+        try self.emit("\n");
+    }
 
     // PHASE 6.5: Apply decorators (after allocator, before other code)
     // This allows decorators to run after variables are defined but before main logic
