@@ -1,75 +1,14 @@
-/// RE module - re.search(), re.match(), re.sub(), re.findall() code generation
+/// RE module - using comptime bridge
 const std = @import("std");
 const ast = @import("../../ast.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
+const bridge = @import("stdlib_bridge.zig");
 
-/// Generate code for re.search(pattern, text)
-/// Returns match object or None
-pub fn genReSearch(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 2) {
-        return;
-    }
-
-    try self.output.appendSlice(self.allocator, "try runtime.re.search(allocator, ");
-    try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ", ");
-    try self.genExpr(args[1]);
-    try self.output.appendSlice(self.allocator, ")");
-}
-
-/// Generate code for re.match(pattern, text)
-/// Returns match object or None (only matches at start)
-pub fn genReMatch(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 2) {
-        return;
-    }
-
-    try self.output.appendSlice(self.allocator, "try runtime.re.match(allocator, ");
-    try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ", ");
-    try self.genExpr(args[1]);
-    try self.output.appendSlice(self.allocator, ")");
-}
-
-/// Generate code for re.sub(pattern, replacement, text)
-/// Returns new string with all matches replaced
-pub fn genReSub(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 3) {
-        return;
-    }
-
-    try self.output.appendSlice(self.allocator, "try runtime.re.sub(allocator, ");
-    try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ", ");
-    try self.genExpr(args[1]);
-    try self.output.appendSlice(self.allocator, ", ");
-    try self.genExpr(args[2]);
-    try self.output.appendSlice(self.allocator, ")");
-}
-
-/// Generate code for re.findall(pattern, text)
-/// Returns list of all matched strings
-pub fn genReFindall(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 2) {
-        return;
-    }
-
-    try self.output.appendSlice(self.allocator, "try runtime.re.findall(allocator, ");
-    try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ", ");
-    try self.genExpr(args[1]);
-    try self.output.appendSlice(self.allocator, ")");
-}
-
-/// Generate code for re.compile(pattern)
-/// Returns compiled regex object
-pub fn genReCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        return;
-    }
-
-    try self.output.appendSlice(self.allocator, "try runtime.re.compile(allocator, ");
-    try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ")");
-}
+// Comptime-generated handlers (one line each!)
+pub const genReSearch = bridge.genSimpleCall(.{ .runtime_path = "runtime.re.search", .arg_count = 2 });
+pub const genReMatch = bridge.genSimpleCall(.{ .runtime_path = "runtime.re.match", .arg_count = 2 });
+pub const genReSub = bridge.genSimpleCall(.{ .runtime_path = "runtime.re.sub", .arg_count = 3 });
+pub const genReFindall = bridge.genSimpleCall(.{ .runtime_path = "runtime.re.findall", .arg_count = 2 });
+pub const genReCompile = bridge.genSimpleCall(.{ .runtime_path = "runtime.re.compile", .arg_count = 1 });
+pub const genReSplit = bridge.genSimpleCall(.{ .runtime_path = "runtime.re.split", .arg_count = 2 });

@@ -1,8 +1,13 @@
 /// OS module - os.getcwd(), os.chdir(), os.listdir(), os.path.exists(), os.path.join() code generation
+///
+/// NOTE: All handlers use Zig stdlib directly (std.fs, std.process, std.posix).
+/// No runtime.os module exists - these generate inline Zig code, not runtime calls.
+/// Bridge pattern doesn't apply here since there's nothing to passthrough to.
 const std = @import("std");
 const ast = @import("../../ast.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
+// const bridge = @import("stdlib_bridge.zig"); // Future: for any runtime passthrough functions
 
 /// Generate code for os.getcwd()
 /// Returns current working directory as PyString
