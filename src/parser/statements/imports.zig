@@ -19,7 +19,7 @@ pub fn parseImport(self: *Parser) ParseError!ast.Node {
             asname = alias_tok.lexeme;
         }
 
-        _ = self.expect(.Newline) catch {};
+        _ = self.match(.Newline);
 
         return ast.Node{
             .import_stmt = .{
@@ -49,11 +49,14 @@ pub fn parseImportFrom(self: *Parser) ParseError!ast.Node {
         }
 
         const module_name = try self.allocator.dupe(u8, module_parts.items);
+        errdefer self.allocator.free(module_name);
 
         _ = try self.expect(.Import);
 
         var names = std.ArrayList([]const u8){};
+        errdefer names.deinit(self.allocator);
         var asnames = std.ArrayList(?[]const u8){};
+        errdefer asnames.deinit(self.allocator);
 
         // Handle optional parentheses for multiline imports
         const has_parens = self.match(.LParen);
@@ -86,7 +89,7 @@ pub fn parseImportFrom(self: *Parser) ParseError!ast.Node {
             _ = try self.expect(.RParen);
         }
 
-        _ = self.expect(.Newline) catch {};
+        _ = self.match(.Newline);
 
         return ast.Node{
             .import_from = .{
