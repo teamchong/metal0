@@ -393,3 +393,7 @@ benchmark-loop:
 	@echo "Running benchmark (10M iterations)..."
 	hyperfine --warmup 2 --runs 10 './bench_loop' 'python3 examples/bench_loop.py'
 	@rm -f ./bench_loop
+
+.PHONY: test-features
+test-features:
+	@./tests/features/run_all.sh
