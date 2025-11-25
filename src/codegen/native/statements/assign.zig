@@ -91,6 +91,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     if (is_first_assignment) {
                         try self.declareVar(var_name);
                     }
+
+                    // If variable is used in eval string but nowhere else in actual code,
+                    // emit _ = varname; to suppress Zig "unused" warning
+                    if (self.isEvalStringVar(var_name)) {
+                        try self.emitIndent();
+                        try self.output.appendSlice(self.allocator, "_ = ");
+                        try self.output.appendSlice(self.allocator, var_name);
+                        try self.output.appendSlice(self.allocator, ";\n");
+                    }
+
                     return;
                 }
                 // Fall through to runtime codegen for strings/lists

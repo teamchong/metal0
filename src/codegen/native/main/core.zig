@@ -344,6 +344,11 @@ pub const NativeCodegen = struct {
         return self.semantic_info.isUnused(var_name);
     }
 
+    /// Check if a variable is referenced in an eval/exec string
+    pub fn isEvalStringVar(self: *NativeCodegen, var_name: []const u8) bool {
+        return self.semantic_info.isEvalStringVar(var_name);
+    }
+
     /// Check if a variable is declared as 'global' in current function
     pub fn isGlobalVar(self: *NativeCodegen, var_name: []const u8) bool {
         return self.global_vars.contains(var_name);

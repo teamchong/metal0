@@ -130,7 +130,8 @@ fn exprUsesAllocatorParam(expr: ast.Node, func_name: []const u8) bool {
             return exprUsesAllocatorParam(b.left.*, func_name) or exprUsesAllocatorParam(b.right.*, func_name);
         },
         .call => |c| callUsesAllocatorParam(c, func_name),
-        .fstring => true,
+        // F-strings use __global_allocator, not the function's allocator param
+        .fstring => false,
         .listcomp => true,
         .dictcomp => true,
         .list => |l| {
