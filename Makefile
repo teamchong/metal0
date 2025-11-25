@@ -117,7 +117,7 @@ benchmark-computational:
 	# PyAOT (ReleaseFast build!)
 	@echo "  Building PyAOT (ReleaseFast)..."
 	@zig build -Doptimize=ReleaseFast
-	@./zig-out/bin/pyaot build examples/bench_computational.py --binary
+	@./zig-out/bin/pyaot build examples/bench_computational.py --binary --force
 
 	# Go
 	@echo "  Building Go..."
@@ -150,7 +150,7 @@ benchmark-concurrency:
 	# PyAOT (ReleaseFast build!)
 	@echo "  Building PyAOT async (ReleaseFast)..."
 	@zig build -Doptimize=ReleaseFast
-	@./zig-out/bin/pyaot build examples/bench_concurrency.py --binary
+	@./zig-out/bin/pyaot build examples/bench_concurrency.py --binary --force
 
 	# Go
 	@echo "  Building Go goroutines..."
@@ -183,7 +183,7 @@ benchmark-scheduler:
 	# PyAOT (ReleaseFast)
 	@echo "  Building PyAOT asyncio (ReleaseFast)..."
 	@zig build -Doptimize=ReleaseFast
-	@./zig-out/bin/pyaot build examples/bench_scheduler.py --binary
+	@./zig-out/bin/pyaot build examples/bench_scheduler.py --binary --force
 
 	# Go
 	@echo "  Building Go goroutines..."
@@ -290,8 +290,8 @@ benchmark-quick:
 	@echo "=== Quick Benchmark (Simple + CPU-bound) ==="
 	@echo "Building..."
 	zig build -Doptimize=ReleaseFast
-	./zig-out/bin/pyaot build examples/bench_simple.py ./bench_simple --binary
-	./zig-out/bin/pyaot build examples/bench_cpu_bound.py ./bench_cpu_bound --binary
+	./zig-out/bin/pyaot build examples/bench_simple.py ./bench_simple --binary --force
+	./zig-out/bin/pyaot build examples/bench_cpu_bound.py ./bench_cpu_bound --binary --force
 	go build -o bench_simple_go examples/bench_simple_go.go
 	go build -o bench_cpu_bound_go examples/bench_cpu_bound_go.go
 
@@ -331,7 +331,7 @@ benchmark-fib:
 	@echo ""
 	@echo "🔨 Building PyAOT (ReleaseFast)..."
 	@zig build -Doptimize=ReleaseFast
-	@./zig-out/bin/pyaot build examples/bench_fib.py ./bench_fib --binary
+	@./zig-out/bin/pyaot build examples/bench_fib.py ./bench_fib --binary --force
 	@echo ""
 	@echo "🔥 Running fibonacci benchmark (fib(35))..."
 	@hyperfine --warmup 3 \
@@ -347,7 +347,7 @@ benchmark-dict:
 	@echo ""
 	@echo "🔨 Building PyAOT (ReleaseFast)..."
 	@zig build -Doptimize=ReleaseFast
-	@./zig-out/bin/pyaot build examples/bench_dict.py ./bench_dict --binary
+	@./zig-out/bin/pyaot build examples/bench_dict.py ./bench_dict --binary --force
 	@echo ""
 	@echo "🔥 Running dict benchmark (1M iterations)..."
 	@hyperfine --warmup 3 \
@@ -363,7 +363,7 @@ benchmark-string:
 	@echo ""
 	@echo "🔨 Building PyAOT (ReleaseFast)..."
 	@zig build -Doptimize=ReleaseFast
-	@./zig-out/bin/pyaot build examples/bench_string.py ./bench_string --binary
+	@./zig-out/bin/pyaot build examples/bench_string.py ./bench_string --binary --force
 	@echo ""
 	@echo "🔥 Running string benchmark (10k concatenations)..."
 	@hyperfine --warmup 3 \

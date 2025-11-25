@@ -8,6 +8,29 @@ const fnv_hash = @import("../../../utils/fnv_hash.zig");
 const FnvContext = fnv_hash.FnvHashContext([]const u8);
 const FnvVoidMap = std.HashMap([]const u8, void, FnvContext, 80);
 
+// Static string maps for DCE optimization
+const BuiltinFuncs = std.StaticStringMap(void).initComptime(.{
+    .{ "print", {} },
+    .{ "len", {} },
+    .{ "range", {} },
+    .{ "str", {} },
+    .{ "int", {} },
+    .{ "float", {} },
+    .{ "bool", {} },
+    .{ "list", {} },
+    .{ "dict", {} },
+    .{ "set", {} },
+    .{ "tuple", {} },
+});
+
+const ExceptionMap = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "ZeroDivisionError", "ZeroDivisionError" },
+    .{ "IndexError", "IndexError" },
+    .{ "ValueError", "ValueError" },
+    .{ "TypeError", "TypeError" },
+    .{ "KeyError", "KeyError" },
+});
+
 /// Find all variable names referenced in an expression
 fn findReferencedVarsInExpr(expr: ast.Node, vars: *FnvVoidMap, allocator: std.mem.Allocator) !void {
     switch (expr) {
@@ -167,17 +190,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (declared_var_set.contains(name)) continue;
 
             // Skip built-in functions
-            if (std.mem.eql(u8, name, "print")) continue;
-            if (std.mem.eql(u8, name, "len")) continue;
-            if (std.mem.eql(u8, name, "range")) continue;
-            if (std.mem.eql(u8, name, "str")) continue;
-            if (std.mem.eql(u8, name, "int")) continue;
-            if (std.mem.eql(u8, name, "float")) continue;
-            if (std.mem.eql(u8, name, "bool")) continue;
-            if (std.mem.eql(u8, name, "list")) continue;
-            if (std.mem.eql(u8, name, "dict")) continue;
-            if (std.mem.eql(u8, name, "set")) continue;
-            if (std.mem.eql(u8, name, "tuple")) continue;
+            if (BuiltinFuncs.has(name)) continue;
 
             // Only capture if it exists in lifetimes (was declared before this point)
             if (self.semantic_info.lifetimes.contains(name)) {
@@ -365,10 +378,5 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 }
 
 fn pythonExceptionToZigError(exc_type: []const u8) []const u8 {
-    if (std.mem.eql(u8, exc_type, "ZeroDivisionError")) return "ZeroDivisionError";
-    if (std.mem.eql(u8, exc_type, "IndexError")) return "IndexError";
-    if (std.mem.eql(u8, exc_type, "ValueError")) return "ValueError";
-    if (std.mem.eql(u8, exc_type, "TypeError")) return "TypeError";
-    if (std.mem.eql(u8, exc_type, "KeyError")) return "KeyError";
-    return "GenericError";
+    return ExceptionMap.get(exc_type) orelse "GenericError";
 }

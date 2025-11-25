@@ -424,7 +424,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
     try args.append(aa, "-target");
     try args.append(aa, "wasm32-freestanding");
 
-    try args.append(aa, "-OReleaseFast");
+    try args.append(aa, "-OReleaseSmall"); // Size optimization for WASM
     try args.append(aa, "-fno-stack-check");
     // Note: -flto not supported for WASM target
 

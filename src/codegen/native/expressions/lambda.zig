@@ -14,6 +14,35 @@ const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
 const lambda_closure = @import("lambda_closure.zig");
 
+// Static string maps for method type inference
+const StringMethodsMap = std.StaticStringMap(void).initComptime(.{
+    .{ "upper", {} },
+    .{ "lower", {} },
+    .{ "strip", {} },
+    .{ "split", {} },
+    .{ "replace", {} },
+    .{ "startswith", {} },
+    .{ "endswith", {} },
+    .{ "find", {} },
+    .{ "index", {} },
+});
+
+const ListMethodsMap = std.StaticStringMap(void).initComptime(.{
+    .{ "append", {} },
+    .{ "pop", {} },
+    .{ "extend", {} },
+    .{ "remove", {} },
+    .{ "clear", {} },
+    .{ "sort", {} },
+});
+
+const TypeStrToNativeMap = std.StaticStringMap(NativeType).initComptime(.{
+    .{ "i64", NativeType.int },
+    .{ "f64", NativeType.float },
+    .{ "bool", NativeType.bool },
+    .{ "[]const u8", NativeType{ .string = .runtime } },
+});
+
 /// Generate lambda expression as anonymous function
 /// Strategy: Generate named function at module level, return function pointer
 ///
@@ -216,10 +245,10 @@ fn findVarReferences(self: *NativeCodegen, node: ast.Node, captured: *std.ArrayL
 
 /// Convert type string to NativeType
 fn stringToNativeType(type_str: []const u8) NativeType {
-    if (std.mem.eql(u8, type_str, "i64")) return .int;
-    if (std.mem.eql(u8, type_str, "f64")) return .float;
-    if (std.mem.eql(u8, type_str, "bool")) return .bool;
-    if (std.mem.eql(u8, type_str, "[]const u8")) return .{ .string = .runtime };
+    // Check static map first
+    if (TypeStrToNativeMap.get(type_str)) |native_type| {
+        return native_type;
+    }
     // Check if it's a closure type (__Closure_N)
     if (std.mem.startsWith(u8, type_str, "__Closure_")) {
         return .{ .closure = type_str };
@@ -279,19 +308,9 @@ fn analyzeParamUsage(self: *NativeCodegen, param_name: []const u8, node: ast.Nod
         .attribute => |attr| {
             if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, param_name)) {
                 // Check common string methods
-                const string_methods = [_][]const u8{ "upper", "lower", "strip", "split", "replace", "startswith", "endswith", "find", "index" };
-                for (string_methods) |method| {
-                    if (std.mem.eql(u8, attr.attr, method)) {
-                        return "[]const u8";
-                    }
-                }
+                if (StringMethodsMap.has(attr.attr)) return "[]const u8";
                 // Check list methods
-                const list_methods = [_][]const u8{ "append", "pop", "extend", "remove", "clear", "sort" };
-                for (list_methods) |method| {
-                    if (std.mem.eql(u8, attr.attr, method)) {
-                        return "std.ArrayList(i64)";
-                    }
-                }
+                if (ListMethodsMap.has(attr.attr)) return "std.ArrayList(i64)";
             }
             return try analyzeParamUsage(self, param_name, attr.value.*);
         },

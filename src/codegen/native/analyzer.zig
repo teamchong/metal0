@@ -3,6 +3,39 @@
 const std = @import("std");
 const ast = @import("../../ast.zig");
 
+// Static string maps for DCE optimization
+const StringUtilMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "upper", {} },
+    .{ "lower", {} },
+});
+
+const AllocatorStringMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "replace", {} },
+    .{ "split", {} },
+});
+
+const ListMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "append", {} },
+    .{ "extend", {} },
+    .{ "insert", {} },
+    .{ "remove", {} },
+    .{ "clone", {} },
+});
+
+const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
+    .{ "reversed", {} },
+    .{ "sorted", {} },
+    .{ "str", {} },
+});
+
+const NumpyAllocFuncs = std.StaticStringMap(void).initComptime(.{
+    .{ "array", {} },
+    .{ "zeros", {} },
+    .{ "ones", {} },
+    .{ "transpose", {} },
+    .{ "matmul", {} },
+});
+
 /// Analysis result - what the module needs
 pub const ModuleAnalysis = struct {
     needs_json: bool = false,
@@ -167,23 +200,19 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                 const attr = call.func.attribute;
 
                 // Check for string methods that need string_utils
-                if (std.mem.eql(u8, attr.attr, "upper") or std.mem.eql(u8, attr.attr, "lower")) {
+                if (StringUtilMethods.has(attr.attr)) {
                     analysis.needs_string_utils = true;
                     analysis.needs_allocator = true;
                 }
 
                 // Check for string methods that need allocator
-                if (std.mem.eql(u8, attr.attr, "replace") or std.mem.eql(u8, attr.attr, "split")) {
+                if (AllocatorStringMethods.has(attr.attr)) {
                     analysis.needs_allocator = true;
                 }
 
-                // Check for list methods that need allocator (append, extend, insert, etc.)
-                const list_methods = [_][]const u8{ "append", "extend", "insert", "remove", "clone" };
-                for (list_methods) |method| {
-                    if (std.mem.eql(u8, attr.attr, method)) {
-                        analysis.needs_allocator = true;
-                        break;
-                    }
+                // Check for list methods that need allocator
+                if (ListMethods.has(attr.attr)) {
+                    analysis.needs_allocator = true;
                 }
 
                 if (attr.value.* == .name) {
@@ -201,14 +230,8 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                         analysis.needs_runtime = true;
                         analysis.needs_allocator = true;
                     } else if (std.mem.eql(u8, module_name, "numpy") or std.mem.eql(u8, module_name, "np")) {
-                        // NumPy functions that need allocator: array, zeros, ones, transpose, matmul
-                        const func_name = attr.attr;
-                        if (std.mem.eql(u8, func_name, "array") or
-                            std.mem.eql(u8, func_name, "zeros") or
-                            std.mem.eql(u8, func_name, "ones") or
-                            std.mem.eql(u8, func_name, "transpose") or
-                            std.mem.eql(u8, func_name, "matmul"))
-                        {
+                        // NumPy functions that need allocator
+                        if (NumpyAllocFuncs.has(attr.attr)) {
                             analysis.needs_allocator = true;
                         }
                     }
@@ -220,12 +243,8 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                 const func_name = call.func.name.id;
                 // str() needs allocator for ArrayList buffer
                 // reversed/sorted need allocator for copying slices
-                const allocator_builtins = [_][]const u8{ "reversed", "sorted", "str" };
-                for (allocator_builtins) |builtin| {
-                    if (std.mem.eql(u8, func_name, builtin)) {
-                        analysis.needs_allocator = true;
-                        break;
-                    }
+                if (AllocatorBuiltins.has(func_name)) {
+                    analysis.needs_allocator = true;
                 }
 
                 // Check for class instantiation (uppercase first letter)
@@ -283,6 +302,8 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
             // Dicts need allocator for HashMap.init()
             analysis.needs_allocator = true;
             analysis.needs_hashmap_helper = true;
+            // Dicts use runtime.InferDictValueType for comptime type inference
+            analysis.needs_runtime = true;
 
             for (dict.keys) |key| {
                 const key_analysis = try analyzeExpr(key);
