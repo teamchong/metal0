@@ -29,7 +29,7 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // If we found a __len__ method, generate method call
     if (has_magic_method and args[0] == .name) {
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ".__len__()");
+        try self.emit(".__len__()");
         return;
     }
 
@@ -79,28 +79,28 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // - @typeInfo(...).fields.len for tuples
     // - obj.len for slices/arrays/strings
     // All results are cast to i64 since Python len() returns int
-    try self.output.appendSlice(self.allocator, "@as(i64, @intCast(");
+    try self.emit("@as(i64, @intCast(");
     if (is_kwarg_param) {
         // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()
-        try self.output.appendSlice(self.allocator, "runtime.PyDict.len(");
+        try self.emit("runtime.PyDict.len(");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
     } else if (is_arraylist) {
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ".items.len");
+        try self.emit(".items.len");
     } else if (is_tuple) {
-        try self.output.appendSlice(self.allocator, "@typeInfo(@TypeOf(");
+        try self.emit("@typeInfo(@TypeOf(");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ")).@\"struct\".fields.len");
+        try self.emit(")).@\"struct\".fields.len");
     } else if (is_dict or is_set) {
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ".count()");
+        try self.emit(".count()");
     } else {
         // For arrays, slices, strings - just use .len
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ".len");
+        try self.emit(".len");
     }
-    try self.output.appendSlice(self.allocator, "))");
+    try self.emit("))");
 }
 
 /// Generate code for str(obj)
@@ -119,29 +119,29 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Convert number to string
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "var buf = std.ArrayList(u8){};\n");
+    try self.emit("blk: {\n");
+    try self.emit("var buf = std.ArrayList(u8){};\n");
 
     if (arg_type == .int) {
-        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{}\", .{");
+        try self.emit("try buf.writer(allocator).print(\"{}\", .{");
     } else if (arg_type == .float) {
-        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{d}\", .{");
+        try self.emit("try buf.writer(allocator).print(\"{d}\", .{");
     } else if (arg_type == .bool) {
         // Python bool to string: True/False
-        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{s}\", .{if (");
+        try self.emit("try buf.writer(allocator).print(\"{s}\", .{if (");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ") \"True\" else \"False\"});\n");
-        try self.output.appendSlice(self.allocator, "break :blk try buf.toOwnedSlice(allocator);\n");
-        try self.output.appendSlice(self.allocator, "}");
+        try self.emit(") \"True\" else \"False\"});\n");
+        try self.emit("break :blk try buf.toOwnedSlice(allocator);\n");
+        try self.emit("}");
         return;
     } else {
-        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{any}\", .{");
+        try self.emit("try buf.writer(allocator).print(\"{any}\", .{");
     }
 
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, "});\n");
-    try self.output.appendSlice(self.allocator, "break :blk try buf.toOwnedSlice(allocator);\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit("});\n");
+    try self.emit("break :blk try buf.toOwnedSlice(allocator);\n");
+    try self.emit("}");
 }
 
 /// Generate code for int(obj)
@@ -161,32 +161,32 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Parse string to int
     if (arg_type == .string) {
-        try self.output.appendSlice(self.allocator, "try std.fmt.parseInt(i64, ");
+        try self.emit("try std.fmt.parseInt(i64, ");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ", 10)");
+        try self.emit(", 10)");
         return;
     }
 
     // Cast float to int
     if (arg_type == .float) {
-        try self.output.appendSlice(self.allocator, "@as(i64, @intFromFloat(");
+        try self.emit("@as(i64, @intFromFloat(");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, "))");
+        try self.emit("))");
         return;
     }
 
     // Cast bool to int (True -> 1, False -> 0)
     if (arg_type == .bool) {
-        try self.output.appendSlice(self.allocator, "@as(i64, @intFromBool(");
+        try self.emit("@as(i64, @intFromBool(");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, "))");
+        try self.emit("))");
         return;
     }
 
     // Generic cast for unknown types
-    try self.output.appendSlice(self.allocator, "@intCast(");
+    try self.emit("@intCast(");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit(")");
 }
 
 /// Generate code for float(obj)
@@ -206,32 +206,32 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Parse string to float
     if (arg_type == .string) {
-        try self.output.appendSlice(self.allocator, "try std.fmt.parseFloat(f64, ");
+        try self.emit("try std.fmt.parseFloat(f64, ");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
         return;
     }
 
     // Cast int to float
     if (arg_type == .int) {
-        try self.output.appendSlice(self.allocator, "@as(f64, @floatFromInt(");
+        try self.emit("@as(f64, @floatFromInt(");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, "))");
+        try self.emit("))");
         return;
     }
 
     // Cast bool to float (True -> 1.0, False -> 0.0)
     if (arg_type == .bool) {
-        try self.output.appendSlice(self.allocator, "@as(f64, @floatFromInt(@intFromBool(");
+        try self.emit("@as(f64, @floatFromInt(@intFromBool(");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ")))");
+        try self.emit(")))");
         return;
     }
 
     // Generic cast for unknown types
-    try self.output.appendSlice(self.allocator, "@floatCast(");
+    try self.emit("@floatCast(");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit(")");
 }
 
 /// Generate code for bool(obj)
@@ -249,7 +249,7 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // - Zero 0 -> false
     // - Non-zero numbers -> true
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, " != 0");
+    try self.emit(" != 0");
 }
 
 /// Generate code for type(obj)
@@ -258,9 +258,9 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
     // Generate: @typeName(@TypeOf(obj))
-    try self.output.appendSlice(self.allocator, "@typeName(@TypeOf(");
+    try self.emit("@typeName(@TypeOf(");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, "))");
+    try self.emit("))");
 }
 
 /// Generate code for isinstance(obj, type)
@@ -276,7 +276,7 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For now, just return true (type checking happens at compile time in Zig)
     // A proper implementation would need type inference on both arguments
-    try self.output.appendSlice(self.allocator, "true");
+    try self.emit("true");
 }
 
 /// Generate code for repr(obj)
@@ -291,40 +291,40 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For strings, wrap with quotes: "'string'"
     if (arg_type == .string) {
-        try self.output.appendSlice(self.allocator, "blk: {\n");
-        try self.output.appendSlice(self.allocator, "var buf = std.ArrayList(u8){};\n");
-        try self.output.appendSlice(self.allocator, "try buf.appendSlice(allocator, \"'\");\n");
-        try self.output.appendSlice(self.allocator, "try buf.appendSlice(allocator, ");
+        try self.emit("blk: {\n");
+        try self.emit("var buf = std.ArrayList(u8){};\n");
+        try self.emit("try buf.appendSlice(allocator, \"'\");\n");
+        try self.emit("try buf.appendSlice(allocator, ");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ");\n");
-        try self.output.appendSlice(self.allocator, "try buf.appendSlice(allocator, \"'\");\n");
-        try self.output.appendSlice(self.allocator, "break :blk try buf.toOwnedSlice(allocator);\n");
-        try self.output.appendSlice(self.allocator, "}");
+        try self.emit(");\n");
+        try self.emit("try buf.appendSlice(allocator, \"'\");\n");
+        try self.emit("break :blk try buf.toOwnedSlice(allocator);\n");
+        try self.emit("}");
         return;
     }
 
     // For bools: True/False
     if (arg_type == .bool) {
-        try self.output.appendSlice(self.allocator, "(if (");
+        try self.emit("(if (");
         try self.genExpr(args[0]);
-        try self.output.appendSlice(self.allocator, ") \"True\" else \"False\")");
+        try self.emit(") \"True\" else \"False\")");
         return;
     }
 
     // For numbers, same as str()
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "var buf = std.ArrayList(u8){};\n");
+    try self.emit("blk: {\n");
+    try self.emit("var buf = std.ArrayList(u8){};\n");
 
     if (arg_type == .int) {
-        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{}\", .{");
+        try self.emit("try buf.writer(allocator).print(\"{}\", .{");
     } else if (arg_type == .float) {
-        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{d}\", .{");
+        try self.emit("try buf.writer(allocator).print(\"{d}\", .{");
     } else {
-        try self.output.appendSlice(self.allocator, "try buf.writer(allocator).print(\"{any}\", .{");
+        try self.emit("try buf.writer(allocator).print(\"{any}\", .{");
     }
 
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, "});\n");
-    try self.output.appendSlice(self.allocator, "break :blk try buf.toOwnedSlice(allocator);\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit("});\n");
+    try self.emit("break :blk try buf.toOwnedSlice(allocator);\n");
+    try self.emit("}");
 }

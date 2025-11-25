@@ -290,7 +290,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.emit("if (__step > 0) @as(i64, @intCast(__s.len)) else -1");
                     }
 
-                    try self.emit("; var __result = std.ArrayList(u8){}; if (__step > 0) { var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) { try __result.append(std.heap.page_allocator, __s[__i]); } } else if (__step < 0) { var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) { try __result.append(std.heap.page_allocator, __s[@intCast(__i)]); } } break :blk try __result.toOwnedSlice(std.heap.page_allocator); }");
+                    try self.emit("; var __result = std.ArrayList(u8){}; if (__step > 0) { var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) { try __result.append(allocator, __s[__i]); } } else if (__step < 0) { var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) { try __result.append(allocator, __s[@intCast(__i)]); } } break :blk try __result.toOwnedSlice(allocator); }");
                 } else if (value_type == .list) {
                     // List slicing with step (supports negative step for reverse iteration)
                     // Get element type to generate proper ArrayList
@@ -325,7 +325,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // Generate element type
                     try elem_type.toZigType(self.allocator, &self.output);
 
-                    try self.emit("){}; if (__step > 0) { var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) { try __result.append(std.heap.page_allocator, __s.items[__i]); } } else if (__step < 0) { var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) { try __result.append(std.heap.page_allocator, __s.items[@intCast(__i)]); } } break :blk try __result.toOwnedSlice(std.heap.page_allocator); }");
+                    try self.emit("){}; if (__step > 0) { var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) { try __result.append(allocator, __s.items[__i]); } } else if (__step < 0) { var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) { try __result.append(allocator, __s.items[@intCast(__i)]); } } break :blk try __result.toOwnedSlice(allocator); }");
                 } else {
                     // Unknown type - generate error
                     try self.emit("@compileError(\"Slicing with step requires string or list type\")");
