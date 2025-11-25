@@ -7,6 +7,12 @@ const for_special = @import("for_special.zig");
 const genEnumerateLoop = for_special.genEnumerateLoop;
 const genZipLoop = for_special.genZipLoop;
 
+/// Sanitize Python variable name for Zig (e.g., "_" -> "_unused")
+fn sanitizeVarName(name: []const u8) []const u8 {
+    if (std.mem.eql(u8, name, "_")) return "_unused";
+    return name;
+}
+
 /// Generate while loop
 fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, body: []ast.Node) CodegenError!void {
     // Validate target is a list (parser uses list node for tuple unpacking)
@@ -94,7 +100,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Handle range() loops
         if (std.mem.eql(u8, func_name, "range")) {
             // range() requires single target variable
-            const var_name = for_stmt.target.name.id;
+            const var_name = sanitizeVarName(for_stmt.target.name.id);
             try genRangeLoop(self, var_name, for_stmt.iter.call.args, for_stmt.body);
             return;
         }
@@ -120,7 +126,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     }
 
     // Regular iteration over collection - requires single target variable
-    const var_name = for_stmt.target.name.id;
+    const var_name = sanitizeVarName(for_stmt.target.name.id);
 
     // Check iter type first (needed for tuple special case)
     const iter_type = try self.type_inferrer.inferExpr(for_stmt.iter.*);
