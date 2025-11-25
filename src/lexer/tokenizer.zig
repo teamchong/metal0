@@ -323,6 +323,7 @@ pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usi
                 _ = self.advance();
                 break :blk .NotEq;
             }
+            std.debug.print("UnexpectedCharacter '!' at line {d}, col {d} (standalone ! not supported, only !=)\n", .{ self.line, start_column });
             return error.UnexpectedCharacter;
         },
         '<' => blk: {

@@ -31,21 +31,31 @@ pub fn parseImport(self: *Parser) ParseError!ast.Node {
 
     /// Parse from-import: from numpy import array, zeros
 /// Also handles dotted imports: from os.path import join
+/// Also handles relative imports: from .module import X, from ..module import X
 pub fn parseImportFrom(self: *Parser) ParseError!ast.Node {
         _ = try self.expect(.From);
 
         // Parse module name (may be dotted: os.path, test.support.os_helper)
+        // Or relative: .module, ..module
         var module_parts = std.ArrayList(u8){};
         defer module_parts.deinit(self.allocator);
 
-        const first_tok = try self.expect(.Ident);
-        try module_parts.appendSlice(self.allocator, first_tok.lexeme);
-
-        // Handle dotted module path
+        // Handle relative imports (leading dots)
         while (self.match(.Dot)) {
             try module_parts.append(self.allocator, '.');
-            const next_tok = try self.expect(.Ident);
-            try module_parts.appendSlice(self.allocator, next_tok.lexeme);
+        }
+
+        // After dots, we may have a module name or just dots (from . import X)
+        if (self.check(.Ident)) {
+            const first_tok = try self.expect(.Ident);
+            try module_parts.appendSlice(self.allocator, first_tok.lexeme);
+
+            // Handle dotted module path
+            while (self.match(.Dot)) {
+                try module_parts.append(self.allocator, '.');
+                const next_tok = try self.expect(.Ident);
+                try module_parts.appendSlice(self.allocator, next_tok.lexeme);
+            }
         }
 
         const module_name = try self.allocator.dupe(u8, module_parts.items);

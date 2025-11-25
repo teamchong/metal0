@@ -230,6 +230,7 @@ pub const Lexer = struct {
             }
 
             // Unknown character
+            std.debug.print("UnexpectedCharacter at line {d}, col {d}: '{c}' (0x{x})\n", .{ self.line, self.column, c, c });
             return error.UnexpectedCharacter;
         }
 

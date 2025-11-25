@@ -243,9 +243,32 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
             },
             .String => {
                 const str_tok = self.advance().?;
+                var result_str = str_tok.lexeme;
+
+                // Handle implicit string concatenation: "a" "b" -> "ab"
+                // Skip newlines between adjacent strings
+                while (true) {
+                    self.skipNewlines();
+                    if (self.check(.String)) {
+                        const next_str = self.advance().?;
+                        // Strip quotes before concatenating: "a" + "b" -> "ab" not "a""b"
+                        const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
+                        const second_content = if (next_str.lexeme.len >= 2) next_str.lexeme[1..] else next_str.lexeme;
+
+                        // Allocate new string with combined length
+                        const new_len = first_content.len + second_content.len;
+                        const new_str = try self.allocator.alloc(u8, new_len);
+                        @memcpy(new_str[0..first_content.len], first_content);
+                        @memcpy(new_str[first_content.len..], second_content);
+                        result_str = new_str;
+                    } else {
+                        break;
+                    }
+                }
+
                 return ast.Node{
                     .constant = .{
-                        .value = .{ .string = str_tok.lexeme },
+                        .value = .{ .string = result_str },
                     },
                 };
             },

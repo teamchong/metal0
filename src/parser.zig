@@ -114,7 +114,7 @@ pub const Parser = struct {
         return true;
     }
 
-    fn skipNewlines(self: *Parser) void {
+    pub fn skipNewlines(self: *Parser) void {
         while (self.match(.Newline)) {}
     }
 
