@@ -262,6 +262,18 @@ pyaot build --binary your_file.py
 
 *Measured with hyperfine, 5 runs, 2 warmup. Startup overhead (~4ms) included.*
 
+#### Tail-Recursive Fibonacci (10K × fib(10000))
+| Language | Time | vs PyAOT |
+|----------|------|----------|
+| **PyAOT** | **31.9ms** | **1.00x** 🏆 |
+| Rust | 32.2ms | 1.01x |
+| Go | 286.7ms | 8.99x slower |
+| Python | ❌ | RecursionError |
+
+*Tail-recursive with accumulator. PyAOT uses `@call(.always_tail)` for guaranteed TCO.*
+
+**Deep recursion:** PyAOT handles fib_tail(1,000,000) - Python crashes at ~1000.
+
 ```bash
 make benchmark-fib       # Recursive fib(35) - PyAOT vs Rust vs Go vs Python
 make benchmark-fib-tail  # Tail-recursive fib - tests tail-call optimization
@@ -722,7 +734,7 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 - ✅ `json` - JSON parsing and serialization (`json.loads()`, `json.dumps()`)
 - ✅ `http` - HTTP client (`http.get()`)
 - ✅ `tokenizer` - **FASTER than Rust!** BPE/WordPiece/Unigram training (2-25x faster than HuggingFace)
-- ✅ `unittest` - Test framework (20 assertions, setUp/tearDown, skip decorator)
+- ✅ `unittest` - Test framework (22 assertions, setUp/tearDown, setUpClass/tearDownClass, skip, subTest)
 - ⚙️ `asyncio` - Async runtime (module marked, integration in progress)
 
 **Advanced Features:**
