@@ -47,6 +47,8 @@ pub const assertMultiLineEqual = assertions_type.assertMultiLineEqual;
 pub const assertRaisesRegex = assertions_type.assertRaisesRegex;
 pub const assertWarns = assertions_type.assertWarns;
 pub const assertWarnsRegex = assertions_type.assertWarnsRegex;
+pub const assertLogs = assertions_type.assertLogs;
+pub const assertNoLogs = assertions_type.assertNoLogs;
 
 // Re-export subtest
 pub const subTest = subtest.subTest;
