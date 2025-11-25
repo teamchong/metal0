@@ -18,6 +18,12 @@ const FnvVoidMap = std.HashMap([]const u8, void, FnvContext, 80);
 const FnvStringMap = std.HashMap([]const u8, []const u8, FnvContext, 80);
 const FnvFuncDefMap = std.HashMap([]const u8, ast.Node.FunctionDef, FnvContext, 80);
 
+/// Unittest TestCase class info
+pub const TestClassInfo = struct {
+    class_name: []const u8,
+    test_methods: []const []const u8,
+};
+
 /// Code generation mode
 pub const CodegenMode = enum {
     script, // Has main(), runs directly
@@ -94,6 +100,9 @@ pub const NativeCodegen = struct {
 
     // Track which classes have mutating methods (need var instances, not const)
     mutable_classes: FnvVoidMap,
+
+    // Track unittest TestCase classes and their test methods
+    unittest_classes: std.ArrayList(TestClassInfo),
 
     // Compile-time evaluator for constant folding
     comptime_evaluator: comptime_eval.ComptimeEvaluator,
@@ -189,6 +198,7 @@ pub const NativeCodegen = struct {
             .array_slice_vars = FnvVoidMap.init(allocator),
             .arraylist_vars = FnvVoidMap.init(allocator),
             .mutable_classes = FnvVoidMap.init(allocator),
+            .unittest_classes = std.ArrayList(TestClassInfo){},
             .comptime_evaluator = comptime_eval.ComptimeEvaluator.init(allocator),
             .import_ctx = null,
             .source_file_path = null,
@@ -276,6 +286,13 @@ pub const NativeCodegen = struct {
         // Clean up decorated functions tracking
         self.decorated_functions.deinit(self.allocator);
 
+        // Clean up unittest classes tracking
+        for (self.unittest_classes.items) |class_info| {
+            self.allocator.free(class_info.class_name);
+            self.allocator.free(class_info.test_methods);
+        }
+        self.unittest_classes.deinit(self.allocator);
+
         // Clean up functions_needing_allocator tracking
         var func_alloc_iter = self.functions_needing_allocator.keyIterator();
         while (func_alloc_iter.next()) |key| {
@@ -289,6 +306,13 @@ pub const NativeCodegen = struct {
             self.allocator.free(key.*);
         }
         self.async_functions.deinit();
+
+        // Clean up global_vars tracking
+        var global_iter = self.global_vars.keyIterator();
+        while (global_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.global_vars.deinit();
 
         // Clean up async_function_defs tracking
         var async_def_iter = self.async_function_defs.keyIterator();
@@ -317,13 +341,6 @@ pub const NativeCodegen = struct {
             self.allocator.free(key.*);
         }
         self.comptime_evals.deinit();
-
-        // Clean up global_vars tracking
-        var global_iter = self.global_vars.keyIterator();
-        while (global_iter.next()) |key| {
-            self.allocator.free(key.*);
-        }
-        self.global_vars.deinit();
 
         self.allocator.destroy(self);
     }

@@ -183,11 +183,8 @@ fn genAsyncFunctionBody(
 pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) CodegenError!void {
     self.indent();
 
-    // Mark self as intentionally unused if not used in method body
-    if (!self_analyzer.usesSelf(method.body)) {
-        try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "_ = self;\n");
-    }
+    // Note: self-usage is now handled in signature generation by using `_` as param name
+    // No need to add `_ = self;` here anymore
 
     // Push new scope for method body
     try self.pushScope();

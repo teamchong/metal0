@@ -1,11 +1,12 @@
-"""Simple unittest test for PyAOT - standalone assertions"""
+"""Simple unittest test for PyAOT"""
+import unittest
 
-# Test assertEqual
-assert 2 + 2 == 4
-assert 10 - 3 == 7
+class TestMath(unittest.TestCase):
+    def test_add(self):
+        self.assertEqual(2 + 2, 4)
 
-# Test boolean conditions
-assert 1 == 1
-assert not (1 == 2)
+    def test_sub(self):
+        self.assertTrue(5 - 3 == 2)
 
-print("All tests passed!")
+if __name__ == "__main__":
+    unittest.main()

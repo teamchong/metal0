@@ -5,6 +5,7 @@ const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const param_analyzer = @import("../param_analyzer.zig");
 const allocator_analyzer = @import("../allocator_analyzer.zig");
+const self_analyzer = @import("../self_analyzer.zig");
 
 /// Python type hint to Zig type mapping (comptime optimized)
 const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
@@ -315,11 +316,16 @@ pub fn genMethodSignature(
     try self.output.appendSlice(self.allocator, "\n");
     try self.emitIndent();
 
+    // Check if self is actually used in the method body
+    const uses_self = self_analyzer.usesSelf(method.body);
+
     // Use *const for methods that don't mutate self (read-only methods)
+    // Use _ for self param if it's not actually used in the body
+    const self_param_name = if (uses_self) "self" else "_";
     if (mutates_self) {
-        try self.output.writer(self.allocator).print("pub fn {s}(self: *", .{method.name});
+        try self.output.writer(self.allocator).print("pub fn {s}({s}: *", .{ method.name, self_param_name });
     } else {
-        try self.output.writer(self.allocator).print("pub fn {s}(self: *const ", .{method.name});
+        try self.output.writer(self.allocator).print("pub fn {s}({s}: *const ", .{ method.name, self_param_name });
     }
     try self.output.appendSlice(self.allocator, class_name);
 

@@ -64,10 +64,34 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     // Check for base classes - we support single inheritance
     var parent_class: ?ast.Node.ClassDef = null;
+    var is_unittest_class = false;
     if (class.bases.len > 0) {
         // Look up parent class in registry (populated in Phase 2 of generate())
         // Order doesn't matter - all classes are registered before code generation
         parent_class = self.class_registry.getClass(class.bases[0]);
+
+        // Check if this class inherits from unittest.TestCase
+        if (std.mem.eql(u8, class.bases[0], "unittest.TestCase")) {
+            is_unittest_class = true;
+        }
+    }
+
+    // Track unittest TestCase classes and their test methods
+    if (is_unittest_class) {
+        var test_methods = std.ArrayList([]const u8){};
+        for (class.body) |stmt| {
+            if (stmt == .function_def) {
+                const method_name = stmt.function_def.name;
+                if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
+                    try test_methods.append(self.allocator, method_name);
+                }
+            }
+        }
+        const core = @import("../../main/core.zig");
+        try self.unittest_classes.append(self.allocator, core.TestClassInfo{
+            .class_name = class.name,
+            .test_methods = try test_methods.toOwnedSlice(self.allocator),
+        });
     }
 
     // Generate: const ClassName = struct {

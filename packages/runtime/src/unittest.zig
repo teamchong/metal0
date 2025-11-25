@@ -7,14 +7,14 @@ const runtime = @import("runtime.zig");
 pub const TestResult = struct {
     passed: usize = 0,
     failed: usize = 0,
-    errors: std.ArrayList([]const u8),
+    errors: std.ArrayList([]const u8) = std.ArrayList([]const u8){},
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) TestResult {
         return .{
             .passed = 0,
             .failed = 0,
-            .errors = std.ArrayList([]const u8).init(allocator),
+            .errors = std.ArrayList([]const u8){},
             .allocator = allocator,
         };
     }
@@ -23,7 +23,7 @@ pub const TestResult = struct {
         for (self.errors.items) |err| {
             self.allocator.free(err);
         }
-        self.errors.deinit();
+        self.errors.deinit(self.allocator);
     }
 
     pub fn addPass(self: *TestResult) void {

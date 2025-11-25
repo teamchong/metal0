@@ -117,8 +117,22 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
 
         if (self.match(.LParen)) {
             while (!self.match(.RParen)) {
-                const base_tok = try self.expect(.Ident);
-                try bases.append(self.allocator, base_tok.lexeme);
+                // Parse base class name, supporting dotted names like "unittest.TestCase"
+                const first_tok = try self.expect(.Ident);
+                var base_name = std.ArrayList(u8){};
+                defer base_name.deinit(self.allocator);
+                try base_name.appendSlice(self.allocator, first_tok.lexeme);
+
+                // Check for dotted name (module.Class)
+                while (self.match(.Dot)) {
+                    try base_name.append(self.allocator, '.');
+                    const next_tok = try self.expect(.Ident);
+                    try base_name.appendSlice(self.allocator, next_tok.lexeme);
+                }
+
+                // Allocate and store the full dotted name
+                const owned_name = try self.allocator.dupe(u8, base_name.items);
+                try bases.append(self.allocator, owned_name);
 
                 if (!self.match(.Comma)) {
                     _ = try self.expect(.RParen);

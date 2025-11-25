@@ -9,8 +9,43 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args; // unused for now
 
-    // Initialize unittest runner
-    try self.output.appendSlice(self.allocator, "runtime.unittest.main(allocator) catch |err| { std.debug.print(\"Test init failed: {}\\n\", .{err}); return err; }");
+    // Generate code to run all unittest TestCase classes and their test methods
+    // This generates inline code that:
+    // 1. Initializes the test runner
+    // 2. Runs each test method (catching panics as test failures)
+    // 3. Prints results
+
+    try self.output.appendSlice(self.allocator, "{\n");
+    self.indent();
+
+    // Initialize test runner
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "_ = try runtime.unittest.initRunner(allocator);\n");
+
+    // For each test class, instantiate and run test methods
+    for (self.unittest_classes.items) |class_info| {
+        // Create instance
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const _test_instance_{s} = {s}{{}};\n", .{ class_info.class_name, class_info.class_name });
+
+        // Run each test method
+        for (class_info.test_methods) |method_name| {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("std.debug.print(\"test_{s}_{s} ... \", .{{}});\n", .{ class_info.class_name, method_name });
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("_test_instance_{s}.{s}();\n", .{ class_info.class_name, method_name });
+            try self.emitIndent();
+            try self.output.appendSlice(self.allocator, "std.debug.print(\"ok\\n\", .{});\n");
+        }
+    }
+
+    // Print results
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "runtime.unittest.finalize();\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}");
 }
 
 /// Generate code for unittest.finalize() - called at end of tests

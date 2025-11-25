@@ -2,7 +2,17 @@
 const std = @import("std");
 const ast = @import("../../../../ast.zig");
 
+/// unittest assertion methods that dispatch to runtime (self isn't used in generated code)
+const UnittestMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "assertEqual", {} },
+    .{ "assertTrue", {} },
+    .{ "assertFalse", {} },
+    .{ "assertIsNone", {} },
+});
+
 /// Check if 'self' is used in method body
+/// NOTE: Excludes unittest assertion methods like self.assertEqual() because
+/// they're dispatched to runtime.unittest and don't actually use self
 pub fn usesSelf(body: []ast.Node) bool {
     for (body) |stmt| {
         if (stmtUsesSelf(stmt)) return true;
@@ -42,6 +52,22 @@ fn exprUsesSelf(node: ast.Node) bool {
         .name => |name| std.mem.eql(u8, name.id, "self"),
         .attribute => |attr| exprUsesSelf(attr.value.*),
         .call => |call| {
+            // Check for unittest assertion methods (self.assertEqual, etc.)
+            // These are dispatched to runtime.unittest and don't actually use self
+            if (call.func.* == .attribute) {
+                const func_attr = call.func.attribute;
+                if (func_attr.value.* == .name and
+                    std.mem.eql(u8, func_attr.value.name.id, "self") and
+                    UnittestMethods.has(func_attr.attr))
+                {
+                    // This is a unittest assertion - self isn't actually used
+                    // But still check the arguments
+                    for (call.args) |arg| {
+                        if (exprUsesSelf(arg)) return true;
+                    }
+                    return false;
+                }
+            }
             if (exprUsesSelf(call.func.*)) return true;
             for (call.args) |arg| {
                 if (exprUsesSelf(arg)) return true;
