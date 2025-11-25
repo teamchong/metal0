@@ -148,6 +148,9 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
             const expr_start = self.current;
             var brace_depth: usize = 1;
             var has_format_spec = false;
+            var has_conversion = false;
+            var conversion_char: u8 = 0;
+            var expr_end: usize = 0;
             var format_spec_start: usize = 0;
 
             while (brace_depth > 0 and !self.isAtEnd()) {
@@ -158,10 +161,23 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
                 } else if (c == '}') {
                     brace_depth -= 1;
                     if (brace_depth == 0) break;
+                } else if (c == '!' and brace_depth == 1 and !has_conversion and !has_format_spec) {
+                    // Conversion specifier !r, !s, or !a
+                    expr_end = self.current;
+                    _ = self.advance(); // consume '!'
+                    const conv = self.peek();
+                    if (conv == 'r' or conv == 's' or conv == 'a') {
+                        has_conversion = true;
+                        conversion_char = conv.?;
+                        _ = self.advance(); // consume conversion char
+                    }
+                    // Continue to check for format spec
                 } else if (c == ':' and brace_depth == 1 and !has_format_spec) {
                     // Format specifier
                     has_format_spec = true;
-                    const expr_end = self.current;
+                    if (!has_conversion) {
+                        expr_end = self.current;
+                    }
                     _ = self.advance(); // consume ':'
                     format_spec_start = self.current;
 
@@ -177,19 +193,29 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
                         .format_expr = .{
                             .expr = expr_text,
                             .format_spec = format_spec,
+                            .conversion = if (has_conversion) conversion_char else null,
                         },
                     });
 
                     break;
+                } else {
+                    _ = self.advance();
                 }
-
-                _ = self.advance();
             }
 
             if (!has_format_spec) {
-                const expr_end = self.current;
+                if (!has_conversion) {
+                    expr_end = self.current;
+                }
                 const expr_text = self.source[expr_start..expr_end];
-                try parts.append(self.allocator, .{ .expr = expr_text });
+                if (has_conversion) {
+                    try parts.append(self.allocator, .{ .conv_expr = .{
+                        .expr = expr_text,
+                        .conversion = conversion_char,
+                    } });
+                } else {
+                    try parts.append(self.allocator, .{ .expr = expr_text });
+                }
             }
 
             if (self.peek() == '}') {

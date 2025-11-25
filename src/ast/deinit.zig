@@ -257,6 +257,10 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
                         deinit(fe.expr, allocator);
                         allocator.destroy(fe.expr);
                     },
+                    .conv_expr => |ce| {
+                        deinit(ce.expr, allocator);
+                        allocator.destroy(ce.expr);
+                    },
                     .literal => {},
                 }
             }
@@ -274,6 +278,10 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
         .starred => |s| {
             deinit(s.value, allocator);
             allocator.destroy(s.value);
+        },
+        .double_starred => |ds| {
+            deinit(ds.value, allocator);
+            allocator.destroy(ds.value);
         },
         .del_stmt => |d| {
             for (d.targets) |*t| deinit(t, allocator);

@@ -44,6 +44,7 @@ pub const Node = union(enum) {
     global_stmt: GlobalStmt,
     with_stmt: With,
     starred: Starred,
+    double_starred: DoubleStarred,
     del_stmt: Del,
     named_expr: NamedExpr,
     if_expr: IfExpr,
@@ -276,6 +277,11 @@ pub const Node = union(enum) {
 
     pub const Starred = struct {
         value: *Node, // The expression being unpacked (e.g., [1,2,3] in *[1,2,3])
+    };
+
+    /// Double starred for kwargs unpacking: func(**kwargs)
+    pub const DoubleStarred = struct {
+        value: *Node, // The expression being unpacked (e.g., d in **d)
     };
 
     /// Del statement: del x, del x, y, del obj.attr

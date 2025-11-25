@@ -202,8 +202,21 @@ pub fn parseCall(self: *Parser, func: ast.Node) !ast.Node {
     defer keyword_args.deinit(self.allocator);
 
     while (!self.match(.RParen)) {
-        // Check for * operator for unpacking: func(*args)
-        if (self.match(.Star)) {
+        // Check for ** operator for kwargs unpacking: func(**kwargs)
+        // Must check DoubleStar before Star since ** starts with *
+        if (self.match(.DoubleStar)) {
+            const value = try self.parseExpression();
+            const value_ptr = try self.allocator.create(ast.Node);
+            value_ptr.* = value;
+
+            const double_starred_arg = ast.Node{
+                .double_starred = .{
+                    .value = value_ptr,
+                },
+            };
+            try args.append(self.allocator, double_starred_arg);
+        } else if (self.match(.Star)) {
+            // Check for * operator for unpacking: func(*args)
             const value = try self.parseExpression();
             const value_ptr = try self.allocator.create(ast.Node);
             value_ptr.* = value;
@@ -409,6 +422,28 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
                                 .format_expr = .{
                                     .expr = expr_ptr,
                                     .format_spec = fe.format_spec,
+                                    .conversion = fe.conversion,
+                                },
+                            };
+                        },
+                        .conv_expr => |ce| {
+                            // Parse the expression text into an AST node
+                            var expr_lexer = try lexer.Lexer.init(self.allocator, ce.expr);
+                            defer expr_lexer.deinit();
+
+                            const expr_tokens = try expr_lexer.tokenize();
+                            defer self.allocator.free(expr_tokens);
+
+                            var expr_parser = Parser.init(self.allocator, expr_tokens);
+                            const expr_node = try expr_parser.parseExpression();
+
+                            const expr_ptr = try self.allocator.create(ast.Node);
+                            expr_ptr.* = expr_node;
+
+                            ast_parts[i] = .{
+                                .conv_expr = .{
+                                    .expr = expr_ptr,
+                                    .conversion = ce.conversion,
                                 },
                             };
                         },
