@@ -163,6 +163,8 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 // Check if this is an array slice vs ArrayList vs plain array
                 const is_array_slice = isArraySlice(self, arg);
                 const is_plain_array = arg_type == .array;
+                // Check if this is a slice from listcomp (not in arraylist_vars)
+                const is_slice_var = if (arg == .name) !self.arraylist_vars.contains(arg.name.id) else false;
 
                 // Generate loop to print list/array elements
                 try self.output.appendSlice(self.allocator, "{\n");
@@ -171,8 +173,8 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.output.appendSlice(self.allocator, ";\n");
                 try self.output.appendSlice(self.allocator, "    std.debug.print(\"[\", .{});\n");
 
-                // Plain arrays and array slices: iterate directly, ArrayList: use .items
-                if (is_plain_array or is_array_slice) {
+                // Plain arrays, array slices, and listcomp slices: iterate directly, ArrayList: use .items
+                if (is_plain_array or is_array_slice or is_slice_var) {
                     try self.output.appendSlice(self.allocator, "    for (__list, 0..) |__elem, __idx| {\n");
                 } else {
                     try self.output.appendSlice(self.allocator, "    for (__list.items, 0..) |__elem, __idx| {\n");
@@ -425,6 +427,17 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         try self.output.appendSlice(self.allocator, "});\n");
     }
+}
+
+/// Generate global statement
+/// The global statement itself doesn't emit code - it just marks variables as global
+/// so that subsequent assignments reference the outer scope variable instead of creating a new one
+pub fn genGlobal(self: *NativeCodegen, global_node: ast.Node.GlobalStmt) CodegenError!void {
+    // Mark each variable as global
+    for (global_node.names) |name| {
+        try self.markGlobalVar(name);
+    }
+    // No code emitted - this is a directive, not an executable statement
 }
 
 /// Generate assert statement

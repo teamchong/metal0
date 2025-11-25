@@ -148,6 +148,10 @@ pub const NativeCodegen = struct {
     // Maps variable name -> void for variables that are reassigned within current function
     func_local_mutations: FnvVoidMap,
 
+    // Track variables declared as 'global' in current function scope
+    // Maps variable name -> void for variables that reference outer (module) scope
+    global_vars: FnvVoidMap,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -200,6 +204,7 @@ pub const NativeCodegen = struct {
             .c_libraries = std.ArrayList([]const u8){},
             .comptime_evals = FnvVoidMap.init(allocator),
             .func_local_mutations = FnvVoidMap.init(allocator),
+            .global_vars = FnvVoidMap.init(allocator),
         };
         return self;
     }
@@ -313,6 +318,13 @@ pub const NativeCodegen = struct {
         }
         self.comptime_evals.deinit();
 
+        // Clean up global_vars tracking
+        var global_iter = self.global_vars.keyIterator();
+        while (global_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.global_vars.deinit();
+
         self.allocator.destroy(self);
     }
 
@@ -399,6 +411,26 @@ pub const NativeCodegen = struct {
         }
         // Fall back to module-level semantic info
         return self.semantic_info.isMutated(var_name);
+    }
+
+    /// Check if a variable is declared as 'global' in current function
+    pub fn isGlobalVar(self: *NativeCodegen, var_name: []const u8) bool {
+        return self.global_vars.contains(var_name);
+    }
+
+    /// Mark a variable as 'global' (references outer scope)
+    pub fn markGlobalVar(self: *NativeCodegen, var_name: []const u8) !void {
+        const name_copy = try self.allocator.dupe(u8, var_name);
+        try self.global_vars.put(name_copy, {});
+    }
+
+    /// Clear global vars (call when exiting function scope)
+    pub fn clearGlobalVars(self: *NativeCodegen) void {
+        var iter = self.global_vars.keyIterator();
+        while (iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.global_vars.clearRetainingCapacity();
     }
 
     /// Check if a class has a specific method (e.g., __getitem__, __len__)

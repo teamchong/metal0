@@ -10,6 +10,7 @@ const http = @import("../http.zig");
 const async_mod = @import("../async.zig");
 const numpy_mod = @import("../numpy.zig");
 const pandas_mod = @import("../pandas.zig");
+const unittest_mod = @import("../unittest.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -53,6 +54,11 @@ const PandasFuncs = FuncMap.initComptime(.{
     .{ "DataFrame", pandas_mod.genDataFrame },
 });
 
+/// unittest module functions
+const UnittestFuncs = FuncMap.initComptime(.{
+    .{ "main", unittest_mod.genUnittestMain },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -62,6 +68,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "np", NumpyFuncs },
     .{ "pandas", PandasFuncs },
     .{ "pd", PandasFuncs },
+    .{ "unittest", UnittestFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

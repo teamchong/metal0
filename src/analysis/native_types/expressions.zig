@@ -190,6 +190,15 @@ pub fn inferExpr(
                 .value = val_ptr,
             } };
         },
+        .listcomp => |lc| blk: {
+            // Infer element type from the comprehension expression
+            const elem_type = try inferExpr(allocator, var_types, class_fields, func_return_types, lc.elt.*);
+
+            // List comprehensions produce slices ([]T) via toOwnedSlice
+            const elem_ptr = try allocator.create(NativeType);
+            elem_ptr.* = elem_type;
+            break :blk .{ .list = elem_ptr };
+        },
         .dictcomp => |dc| blk: {
             // Infer types from key and value expressions
             const key_type = try inferExpr(allocator, var_types, class_fields, func_return_types, dc.key.*);

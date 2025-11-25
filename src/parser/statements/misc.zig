@@ -177,3 +177,29 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
 
         return decorated_node;
     }
+
+    /// Parse global statement: global x, y, z
+    pub fn parseGlobal(self: *Parser) ParseError!ast.Node {
+        _ = try self.expect(.Global);
+
+        var names = std.ArrayList([]const u8){};
+        defer names.deinit(self.allocator);
+
+        // Parse first identifier
+        const first_tok = try self.expect(.Ident);
+        try names.append(self.allocator, first_tok.lexeme);
+
+        // Parse additional identifiers separated by commas
+        while (self.match(.Comma)) {
+            const tok = try self.expect(.Ident);
+            try names.append(self.allocator, tok.lexeme);
+        }
+
+        _ = self.expect(.Newline) catch {};
+
+        return ast.Node{
+            .global_stmt = .{
+                .names = try names.toOwnedSlice(self.allocator),
+            },
+        };
+    }

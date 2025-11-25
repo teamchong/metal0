@@ -38,6 +38,7 @@ pub const Node = union(enum) {
     pass: void,
     break_stmt: void,
     continue_stmt: void,
+    global_stmt: GlobalStmt,
 
     // Type aliases for backward compatibility with nested access (ast.Node.FString)
     pub const FString = fstring.FString;
@@ -234,6 +235,11 @@ pub const Node = union(enum) {
         type: ?[]const u8, // Exception type name (or null for bare except)
         name: ?[]const u8, // Variable name (as e) - not implementing yet
         body: []Node, // Handler body
+    };
+
+    /// Global statement: global x, y, z
+    pub const GlobalStmt = struct {
+        names: [][]const u8, // Variable names to mark as global
     };
 
     /// Recursively free all allocations in the AST

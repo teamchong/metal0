@@ -20,6 +20,7 @@ const MAIN_NAME = "__main__";
 pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 1: Analyze module to determine requirements
     const analysis = try analyzer.analyzeModule(module, self.allocator);
+    defer if (analysis.global_vars.len > 0) self.allocator.free(analysis.global_vars);
 
     // PHASE 1.5: Get source file directory for import resolution
     const source_file_dir = if (self.source_file_path) |path|
@@ -316,10 +317,37 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("var __allocator_initialized: bool = false;\n\n");
     }
 
+    // PHASE 5.6: Generate module-level global variables (for 'global' keyword support)
+    if (analysis.global_vars.len > 0) {
+        try self.emit("\n// Module-level variables declared with 'global' keyword\n");
+        for (analysis.global_vars) |var_name| {
+            // Get type from type inferrer, default to i64 for integers
+            const var_type = self.type_inferrer.var_types.get(var_name);
+            const zig_type = if (var_type) |vt| blk: {
+                break :blk try self.nativeTypeToZigType(vt);
+            } else "i64";
+            defer if (var_type != null) self.allocator.free(zig_type);
+
+            try self.emit("var ");
+            try self.emit(var_name);
+            try self.emit(": ");
+            try self.emit(zig_type);
+            try self.emit(" = undefined;\n");
+
+            // Mark these as declared at module level (scope 0)
+            try self.symbol_table.declare(var_name, var_type orelse .int, true);
+
+            // Also track them as global vars in codegen for assignment handling
+            try self.markGlobalVar(var_name);
+        }
+        try self.emit("\n");
+    }
+
     // PHASE 6: Generate main function (script mode only)
     // For WASM: Zig's std.start automatically exports _start if pub fn main exists
     try self.emit("pub fn main() ");
-    if (analysis.needs_allocator) {
+    // Main returns !void if allocator or runtime is used (runtime functions can fail)
+    if (analysis.needs_allocator or analysis.needs_runtime) {
         try self.emit("!void {\n");
     } else {
         try self.emit("void {\n");
@@ -474,6 +502,7 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .pass => try statements.genPass(self),
         .break_stmt => try statements.genBreak(self),
         .continue_stmt => try statements.genContinue(self),
+        .global_stmt => |global| try statements.genGlobal(self, global),
         else => {},
     }
 }

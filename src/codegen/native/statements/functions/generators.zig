@@ -46,6 +46,9 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         };
         try self.decorated_functions.append(self.allocator, decorated_func);
     }
+
+    // Clear global vars after function exits (they're function-scoped)
+    self.clearGlobalVars();
 }
 
 /// Generate class definition with __init__ constructor

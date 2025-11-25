@@ -54,8 +54,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             // Check if this is first assignment or reassignment
             // Hoisted variables should skip declaration (already declared before try block)
+            // Global variables should also skip declaration (they're declared in outer scope)
             const is_hoisted = self.hoisted_vars.contains(var_name);
-            const is_first_assignment = !self.isDeclared(var_name) and !is_hoisted;
+            const is_global = self.isGlobalVar(var_name);
+            const is_first_assignment = !self.isDeclared(var_name) and !is_hoisted and !is_global;
 
             // Try compile-time evaluation FIRST
             if (self.comptime_evaluator.tryEval(assign.value.*)) |comptime_val| {

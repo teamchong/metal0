@@ -1,28 +1,27 @@
 #!/bin/bash
-# Run all feature tests
-
 cd "$(dirname "$0")/../.."
 
 passed=0
 failed=0
-failed_tests=""
+skipped=0
+results=""
 
 for f in tests/features/test_*.py; do
     name=$(basename $f .py | sed 's/test_//')
-    if pyaot $f --force 2>&1 | grep -q "successfully"; then
-        echo "✓ $name"
+    output=$(pyaot $f --force 2>&1)
+    if echo "$output" | grep -q "successfully"; then
+        results="$results✓ $name\n"
         ((passed++))
     else
-        echo "✗ $name"
+        results="$results✗ $name\n"
         ((failed++))
-        failed_tests="$failed_tests $name"
     fi
 done
 
-echo ""
+echo -e "$results"
 echo "=== Summary ==="
 echo "Passed: $passed"
 echo "Failed: $failed"
-if [ -n "$failed_tests" ]; then
-    echo "Failed tests:$failed_tests"
-fi
+total=$((passed + failed))
+pct=$((passed * 100 / total))
+echo "Coverage: $pct%"
