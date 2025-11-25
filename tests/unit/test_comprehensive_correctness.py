@@ -147,7 +147,7 @@ class TestSuite:
 
             # Boundary cases
             ("all_same_char", "x" * 5000, "adversarial"),
-            ("increasing", "".join(chr(i % 128) for i in range(10000)), "adversarial"),
+            ("increasing", "".join([chr(i % 128) for i in range(10000)]), "adversarial"),
 
             # Mixed common/rare
             ("common_rare", "the " + "xqz" * 100 + " end", "adversarial"),
