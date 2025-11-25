@@ -13,9 +13,40 @@ pub fn parseReturn(self: *Parser) ParseError!ast.Node {
         // Check if there's a return value
         if (self.peek()) |tok| {
             if (tok.type != .Newline) {
-                const value = try self.parseExpression();
-                value_ptr = try self.allocator.create(ast.Node);
-                value_ptr.?.* = value;
+                const first_value = try self.parseExpression();
+
+                // Check for comma - if present, this is an implicit tuple: return a, b, c
+                if (self.match(.Comma)) {
+                    var elements = std.ArrayList(ast.Node){};
+                    defer elements.deinit(self.allocator);
+
+                    try elements.append(self.allocator, first_value);
+
+                    // Parse remaining elements
+                    while (true) {
+                        // Check if we're at end of return statement
+                        if (self.peek()) |next_tok| {
+                            if (next_tok.type == .Newline or next_tok.type == .Eof) break;
+                        } else break;
+
+                        const elem = try self.parseExpression();
+                        try elements.append(self.allocator, elem);
+
+                        // Check for more elements
+                        if (!self.match(.Comma)) break;
+                    }
+
+                    // Create tuple from elements
+                    value_ptr = try self.allocator.create(ast.Node);
+                    value_ptr.?.* = ast.Node{
+                        .tuple = .{
+                            .elts = try elements.toOwnedSlice(self.allocator),
+                        },
+                    };
+                } else {
+                    value_ptr = try self.allocator.create(ast.Node);
+                    value_ptr.?.* = first_value;
+                }
             }
         }
 
@@ -109,12 +140,31 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
         defer handlers.deinit(self.allocator);
 
         while (self.match(.Except)) {
-            // Check for exception type: except ValueError:
+            // Check for exception type: except ValueError: or except (Exception) as e:
             var exc_type: ?[]const u8 = null;
             if (self.peek()) |tok| {
                 if (tok.type == .Ident) {
                     exc_type = tok.lexeme;
                     _ = self.advance();
+                } else if (tok.type == .LParen) {
+                    // Parenthesized exception type: except (Exception) as e:
+                    // or except (ValueError, TypeError) as e:
+                    _ = self.advance(); // consume '('
+                    if (self.peek()) |inner_tok| {
+                        if (inner_tok.type == .Ident) {
+                            exc_type = inner_tok.lexeme;
+                            _ = self.advance();
+                            // Skip any additional types in tuple (for now just use first)
+                            while (self.match(.Comma)) {
+                                if (self.peek()) |next_type| {
+                                    if (next_type.type == .Ident) {
+                                        _ = self.advance(); // consume additional type
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ = try self.expect(.RParen);
                 }
             }
 

@@ -84,14 +84,10 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
                 const value_ptr = try self.allocator.create(ast.Node);
                 value_ptr.* = value;
 
-                // Create a tuple node for the targets
+                // Create a tuple node for the targets (directly in array, no intermediate pointer)
                 const targets_array = try targets_list.toOwnedSlice(self.allocator);
-                const target_tuple = try self.allocator.create(ast.Node);
-                target_tuple.* = ast.Node{ .tuple = .{ .elts = targets_array } };
-
-                // Wrap the tuple in array (single target)
                 var targets = try self.allocator.alloc(ast.Node, 1);
-                targets[0] = target_tuple.*;
+                targets[0] = ast.Node{ .tuple = .{ .elts = targets_array } };
 
                 return ast.Node{
                     .assign = .{
