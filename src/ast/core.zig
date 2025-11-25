@@ -44,6 +44,7 @@ pub const Node = union(enum) {
     global_stmt: GlobalStmt,
     with_stmt: With,
     starred: Starred,
+    del_stmt: Del,
 
     // Type aliases for backward compatibility with nested access (ast.Node.FString)
     pub const FString = fstring.FString;
@@ -273,6 +274,11 @@ pub const Node = union(enum) {
 
     pub const Starred = struct {
         value: *Node, // The expression being unpacked (e.g., [1,2,3] in *[1,2,3])
+    };
+
+    /// Del statement: del x, del x, y, del obj.attr
+    pub const Del = struct {
+        targets: []Node, // Targets to delete (names, subscripts, attributes)
     };
 
     /// Recursively free all allocations in the AST

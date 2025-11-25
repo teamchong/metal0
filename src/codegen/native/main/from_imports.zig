@@ -1,13 +1,13 @@
 const std = @import("std");
 const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
+const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
 
 /// Generate from-import symbol re-exports with deduplication
 /// For "from json import loads", generates: const loads = json.loads;
 pub fn generateFromImports(self: *NativeCodegen) !void {
     // Track generated symbols to avoid duplicates
-    const FnvContext = @import("../../../utils/fnv_hash.zig").FnvHashContext([]const u8);
-    var generated_symbols = std.HashMap([]const u8, void, FnvContext, 80).init(self.allocator);
+    var generated_symbols = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer generated_symbols.deinit();
 
     for (self.from_imports.items) |from_imp| {

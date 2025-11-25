@@ -448,6 +448,7 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .break_stmt => try statements.genBreak(self),
         .continue_stmt => try statements.genContinue(self),
         .global_stmt => |global| try statements.genGlobal(self, global),
+        .del_stmt => |del| try statements.genDel(self, del),
         else => {},
     }
 }

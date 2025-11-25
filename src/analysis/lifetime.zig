@@ -299,6 +299,15 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             // Analyze the value being unpacked
             line = try analyzeLifetimes(info, starred.value.*, line);
         },
+        .del_stmt => |del| {
+            // Record variable deletion (for completeness, could mark lifetime end)
+            for (del.targets) |target| {
+                if (target == .name) {
+                    try info.markScopeEnd(target.name.id, line);
+                }
+            }
+            line += 1;
+        },
         // Leaf nodes
         .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .fstring, .global_stmt, .ellipsis_literal, .raise_stmt => {
             // No variables to track

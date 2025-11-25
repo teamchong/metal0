@@ -435,6 +435,14 @@ pub fn genGlobal(self: *NativeCodegen, global_node: ast.Node.GlobalStmt) Codegen
     // No code emitted - this is a directive, not an executable statement
 }
 
+/// Generate del statement
+/// In Python, del is mostly a memory hint. In AOT compilation, emit as comment.
+pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
+    _ = del_node; // del is a no-op in compiled code
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "// del statement (no-op in AOT)\n");
+}
+
 /// Generate assert statement
 /// Transforms: assert condition or assert condition, message
 /// Into: if (!(condition)) { std.debug.panic("Assertion failed", .{}); }

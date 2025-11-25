@@ -3,10 +3,9 @@ const std = @import("std");
 const ast = @import("../../../ast.zig");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
-const fnv_hash = @import("../../../utils/fnv_hash.zig");
+const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
 
-const FnvContext = fnv_hash.FnvHashContext([]const u8);
-const FnvVoidMap = std.HashMap([]const u8, void, FnvContext, 80);
+const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
 // Static string maps for DCE optimization
 const BuiltinFuncs = std.StaticStringMap(void).initComptime(.{
