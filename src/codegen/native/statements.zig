@@ -33,3 +33,4 @@ pub const genPass = control.genPass;
 pub const genBreak = control.genBreak;
 pub const genContinue = control.genContinue;
 pub const genGlobal = misc.genGlobal;
+pub const genRaise = misc.genRaise;

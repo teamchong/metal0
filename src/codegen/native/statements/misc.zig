@@ -462,3 +462,21 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
     try self.output.appendSlice(self.allocator, "}\n");
 }
 
+/// Generate raise statement
+/// raise ValueError("msg") => std.debug.panic("ValueError: {s}", .{"msg"})
+/// raise => std.debug.panic("Unhandled exception", .{})
+pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!void {
+    try self.emitIndent();
+
+    if (raise_node.exc) |exc| {
+        // raise Exception("msg")
+        // For now, just panic with the exception type
+        try self.output.appendSlice(self.allocator, "std.debug.panic(\"Exception: {any}\", .{");
+        try self.genExpr(exc.*);
+        try self.output.appendSlice(self.allocator, "});\n");
+    } else {
+        // bare raise
+        try self.output.appendSlice(self.allocator, "std.debug.panic(\"Unhandled exception\", .{});\n");
+    }
+}
+

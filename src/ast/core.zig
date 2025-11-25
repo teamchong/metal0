@@ -35,6 +35,7 @@ pub const Node = union(enum) {
     import_from: ImportFrom,
     assert_stmt: Assert,
     try_stmt: Try,
+    raise_stmt: Raise,
     pass: void,
     break_stmt: void,
     continue_stmt: void,
@@ -80,9 +81,15 @@ pub const Node = union(enum) {
         operand: *Node,
     };
 
+    pub const KeywordArg = struct {
+        name: []const u8,
+        value: Node,
+    };
+
     pub const Call = struct {
         func: *Node,
         args: []Node,
+        keyword_args: []KeywordArg,
     };
 
     pub const Name = struct {
@@ -239,6 +246,11 @@ pub const Node = union(enum) {
         type: ?[]const u8, // Exception type name (or null for bare except)
         name: ?[]const u8, // Variable name (as e) - not implementing yet
         body: []Node, // Handler body
+    };
+
+    /// Raise statement: raise or raise Exception("msg")
+    pub const Raise = struct {
+        exc: ?*Node, // Exception to raise (or null for bare raise)
     };
 
     /// Global statement: global x, y, z

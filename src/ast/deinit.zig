@@ -56,6 +56,8 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             allocator.destroy(c.func);
             for (c.args) |*a| deinit(a, allocator);
             allocator.free(c.args);
+            for (c.keyword_args) |*kw| deinit(&kw.value, allocator);
+            allocator.free(c.keyword_args);
         },
         .if_stmt => |i| {
             deinit(i.condition, allocator);
@@ -220,6 +222,12 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             allocator.free(t.else_body);
             for (t.finalbody) |*n| deinit(n, allocator);
             allocator.free(t.finalbody);
+        },
+        .raise_stmt => |r| {
+            if (r.exc) |exc| {
+                deinit(exc, allocator);
+                allocator.destroy(exc);
+            }
         },
         .fstring => |f| {
             for (f.parts) |*part| {

@@ -295,7 +295,7 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             line = try analyzeLifetimes(info, starred.value.*, line);
         },
         // Leaf nodes
-        .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .fstring, .global_stmt, .ellipsis_literal => {
+        .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .fstring, .global_stmt, .ellipsis_literal, .raise_stmt => {
             // No variables to track
         },
     }

@@ -172,6 +172,8 @@ pub fn parsePostfix(self: *Parser) ParseError!ast.Node {
 pub fn parseCall(self: *Parser, func: ast.Node) !ast.Node {
     var args = std.ArrayList(ast.Node){};
     defer args.deinit(self.allocator);
+    var keyword_args = std.ArrayList(ast.Node.KeywordArg){};
+    defer keyword_args.deinit(self.allocator);
 
     while (!self.match(.RParen)) {
         // Check for * operator for unpacking: func(*args)
@@ -187,8 +189,30 @@ pub fn parseCall(self: *Parser, func: ast.Node) !ast.Node {
             };
             try args.append(self.allocator, starred_arg);
         } else {
-            const arg = try self.parseExpression();
-            try args.append(self.allocator, arg);
+            // Check if this is a keyword argument (name=value)
+            // We need to lookahead: if next token is Ident followed by Eq
+            if (self.check(.Ident)) {
+                const saved_pos = self.current;
+                const name_tok = self.advance().?;
+
+                if (self.check(.Eq)) {
+                    // It's a keyword argument
+                    _ = self.advance(); // consume =
+                    const value = try self.parseExpression();
+                    try keyword_args.append(self.allocator, .{
+                        .name = name_tok.lexeme,
+                        .value = value,
+                    });
+                } else {
+                    // Not a keyword arg, restore position and parse as normal expression
+                    self.current = saved_pos;
+                    const arg = try self.parseExpression();
+                    try args.append(self.allocator, arg);
+                }
+            } else {
+                const arg = try self.parseExpression();
+                try args.append(self.allocator, arg);
+            }
         }
 
         if (!self.match(.Comma)) {
@@ -204,6 +228,7 @@ pub fn parseCall(self: *Parser, func: ast.Node) !ast.Node {
         .call = .{
             .func = func_ptr,
             .args = try args.toOwnedSlice(self.allocator),
+            .keyword_args = try keyword_args.toOwnedSlice(self.allocator),
         },
     };
 }

@@ -140,6 +140,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (i > 0) try self.output.appendSlice(self.allocator, ", ");
             try genExpr(self, arg);
         }
+        for (call.keyword_args, 0..) |kwarg, i| {
+            if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+            try genExpr(self, kwarg.value);
+        }
         try self.output.appendSlice(self.allocator, ")");
         return;
     }
@@ -197,7 +201,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // For module calls, add allocator as first argument only if needed
         if (is_module_call and needs_alloc) {
             try self.output.appendSlice(self.allocator, "allocator");
-            if (call.args.len > 0) {
+            if (call.args.len > 0 or call.keyword_args.len > 0) {
                 try self.output.appendSlice(self.allocator, ", ");
             }
         }
@@ -205,6 +209,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         for (call.args, 0..) |arg, i| {
             if (i > 0) try self.output.appendSlice(self.allocator, ", ");
             try genExpr(self, arg);
+        }
+
+        // Add keyword arguments as positional arguments
+        for (call.keyword_args, 0..) |kwarg, i| {
+            if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+            try genExpr(self, kwarg.value);
         }
 
         try self.output.appendSlice(self.allocator, ")");
@@ -227,6 +237,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, arg);
             }
 
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+                try genExpr(self, kwarg.value);
+            }
+
             try self.output.appendSlice(self.allocator, ")");
             return;
         }
@@ -242,6 +257,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, arg);
             }
 
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+                try genExpr(self, kwarg.value);
+            }
+
             try self.output.appendSlice(self.allocator, ")");
             return;
         }
@@ -253,13 +273,18 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try self.output.appendSlice(self.allocator, ".init(allocator");
 
             // Add comma if there are args
-            if (call.args.len > 0) {
+            if (call.args.len > 0 or call.keyword_args.len > 0) {
                 try self.output.appendSlice(self.allocator, ", ");
             }
 
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.output.appendSlice(self.allocator, ", ");
                 try genExpr(self, arg);
+            }
+
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+                try genExpr(self, kwarg.value);
             }
 
             try self.output.appendSlice(self.allocator, ")");
@@ -298,7 +323,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // BUT NOT for async functions - the _async wrapper doesn't take allocator
         if (user_func_needs_alloc and !is_async_func) {
             try self.output.appendSlice(self.allocator, "allocator");
-            if (call.args.len > 0 or is_vararg_func) {
+            if (call.args.len > 0 or call.keyword_args.len > 0 or is_vararg_func) {
                 try self.output.appendSlice(self.allocator, ", ");
             }
         }
@@ -346,11 +371,18 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (i > 0) try self.output.appendSlice(self.allocator, ", ");
                 try genExpr(self, arg);
             }
+
+            // Add keyword arguments as positional arguments
+            // TODO: Map keyword args to correct parameter positions
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+                try genExpr(self, kwarg.value);
+            }
         }
 
         // For from-imported functions: inject allocator as LAST argument
         if (from_import_needs_alloc) {
-            if (call.args.len > 0) {
+            if (call.args.len > 0 or call.keyword_args.len > 0) {
                 try self.output.appendSlice(self.allocator, ", ");
             }
             try self.output.appendSlice(self.allocator, "allocator");

@@ -432,6 +432,7 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .return_stmt => |ret| try statements.genReturn(self, ret),
         .assert_stmt => |assert_node| try statements.genAssert(self, assert_node),
         .try_stmt => |try_node| try statements.genTry(self, try_node),
+        .raise_stmt => |raise_node| try statements.genRaise(self, raise_node),
         .class_def => |class| try statements.genClassDef(self, class),
         .function_def => |func| {
             // Only use nested function generation for truly nested functions

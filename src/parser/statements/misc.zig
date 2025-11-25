@@ -144,6 +144,29 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
         };
     }
 
+    pub fn parseRaise(self: *Parser) ParseError!ast.Node {
+        _ = try self.expect(.Raise);
+
+        var exc_ptr: ?*ast.Node = null;
+
+        // Check if there's an exception expression
+        if (self.peek()) |tok| {
+            if (tok.type != .Newline) {
+                const exc = try self.parseExpression();
+                exc_ptr = try self.allocator.create(ast.Node);
+                exc_ptr.?.* = exc;
+            }
+        }
+
+        _ = self.expect(.Newline) catch {};
+
+        return ast.Node{
+            .raise_stmt = .{
+                .exc = exc_ptr,
+            },
+        };
+    }
+
     pub fn parsePass(self: *Parser) ParseError!ast.Node {
         _ = try self.expect(.Pass);
         _ = self.expect(.Newline) catch {};

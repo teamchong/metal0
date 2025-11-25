@@ -24,6 +24,7 @@ pub const parseImport = imports.parseImport;
 pub const parseImportFrom = imports.parseImportFrom;
 pub const parseBlock = misc.parseBlock;
 pub const parseTry = misc.parseTry;
+pub const parseRaise = misc.parseRaise;
 pub const parsePass = misc.parsePass;
 pub const parseBreak = misc.parseBreak;
 pub const parseContinue = misc.parseContinue;

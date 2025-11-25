@@ -136,6 +136,7 @@ pub const Parser = struct {
                 .From => return try statements.parseImportFrom(self),
                 .Assert => return try statements.parseAssert(self),
                 .Try => return try statements.parseTry(self),
+                .Raise => return try statements.parseRaise(self),
                 .Pass => return try statements.parsePass(self),
                 .Break => return try statements.parseBreak(self),
                 .Continue => return try statements.parseContinue(self),
