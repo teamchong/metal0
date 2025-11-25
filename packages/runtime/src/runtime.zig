@@ -363,6 +363,8 @@ pub const sys = @import("sys.zig");
 pub const time = @import("time.zig");
 pub const math = @import("math.zig");
 pub const unittest = @import("unittest.zig");
+pub const pathlib = @import("pathlib.zig");
+pub const datetime = @import("datetime.zig");
 pub const eval_module = @import("eval.zig");
 pub const exec_module = @import("exec.zig");
 

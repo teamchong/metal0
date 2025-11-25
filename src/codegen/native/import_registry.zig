@@ -118,8 +118,10 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("zlib", .c_library, "@import(\"./c_interop/c_interop.zig\").zlib", "z");
     try registry.register("ssl", .c_library, "@import(\"./c_interop/c_interop.zig\").ssl", "ssl");
 
+    // Additional Tier 1: OS and filesystem modules
+    try registry.register("pathlib", .zig_runtime, "runtime.pathlib", null);
+
     // Tier 3: Mark as compile_python (will be handled later)
-    try registry.register("pathlib", .compile_python, null, null);
     try registry.register("urllib", .compile_python, null, null);
     try registry.register("datetime", .compile_python, null, null);
 

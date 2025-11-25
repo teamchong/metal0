@@ -16,6 +16,31 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
     // PRIORITY 1: Check C library mappings first (zero overhead!)
     if (call.func.* == .attribute) {
         const attr = call.func.attribute;
+
+        // Handle nested attributes: datetime.datetime.now(), datetime.date.today()
+        // Structure: attr.attr = "now", attr.value = attribute("datetime", name("datetime"))
+        if (attr.value.* == .attribute) {
+            const inner_attr = attr.value.attribute;
+            if (inner_attr.value.* == .name) {
+                const root_module = inner_attr.value.name.id;
+                const sub_module = inner_attr.attr;
+                const func_name = attr.attr;
+
+                // Build compound module name: "datetime.datetime" or "datetime.date"
+                var compound_buf: [256]u8 = undefined;
+                const compound_name = std.fmt.bufPrint(
+                    &compound_buf,
+                    "{s}.{s}",
+                    .{ root_module, sub_module },
+                ) catch return false;
+
+                // Try dispatch with compound module name
+                if (try module_functions.tryDispatch(self, compound_name, func_name, call)) {
+                    return true;
+                }
+            }
+        }
+
         if (attr.value.* == .name) {
             const module_name = attr.value.name.id;
             const func_name = attr.attr;
