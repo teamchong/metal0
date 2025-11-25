@@ -312,7 +312,7 @@ pub const re = @import("re.zig");
 pub const sys = @import("sys.zig");
 pub const time = @import("time.zig");
 pub const math = @import("math.zig");
-pub const unittest = @import("unittest.zig");
+// unittest is conditionally imported only when user code has `import unittest`
 pub const eval_module = @import("eval.zig");
 pub const exec_module = @import("exec.zig");
 

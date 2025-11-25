@@ -6,6 +6,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 
 const methods = @import("../methods.zig");
 const pandas_mod = @import("../pandas.zig");
+const unittest_mod = @import("../unittest.zig");
 
 // Handler type for standard methods (obj, args)
 const MethodHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
@@ -102,6 +103,14 @@ const QueueMethods = std.StaticStringMap(QueueMethodOutput).initComptime(.{
     .{ "qsize", QueueMethodOutput{ .prefix = "", .suffix = ".qsize()", .has_arg = false } },
 });
 
+// unittest assertion methods - O(1) lookup
+const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
+    .{ "assertEqual", unittest_mod.genAssertEqual },
+    .{ "assertTrue", unittest_mod.genAssertTrue },
+    .{ "assertFalse", unittest_mod.genAssertFalse },
+    .{ "assertIsNone", unittest_mod.genAssertIsNone },
+});
+
 /// Try to dispatch method call (obj.method())
 /// Returns true if dispatched successfully
 pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
@@ -142,6 +151,15 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     if (obj == .subscript) { // df['col'].method()
         if (PandasColumnMethods.get(method_name)) |handler| {
             try handler(self, obj);
+            return true;
+        }
+    }
+
+    // unittest assertion methods (self.assertEqual, etc.)
+    // Check if obj is 'self' - unittest methods called on self
+    if (obj == .name and std.mem.eql(u8, obj.name.id, "self")) {
+        if (UnittestMethods.get(method_name)) |handler| {
+            try handler(self, obj, call.args);
             return true;
         }
     }

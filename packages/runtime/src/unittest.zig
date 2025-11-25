@@ -33,7 +33,7 @@ pub const TestResult = struct {
     pub fn addFail(self: *TestResult, msg: []const u8) !void {
         self.failed += 1;
         const duped = try self.allocator.dupe(u8, msg);
-        try self.errors.append(duped);
+        try self.errors.append(self.allocator, duped);
     }
 };
 
@@ -67,8 +67,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
     };
 
     if (!equal) {
-        const writer = std.io.getStdErr().writer();
-        writer.print("AssertionError: {any} != {any}\n", .{ a, b }) catch {};
+        std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
         if (global_result) |result| {
             result.addFail("assertEqual failed") catch {};
         }
@@ -83,8 +82,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
 /// Assertion: assertTrue(x) - value must be true
 pub fn assertTrue(value: bool) void {
     if (!value) {
-        const writer = std.io.getStdErr().writer();
-        writer.print("AssertionError: expected True, got False\n", .{}) catch {};
+        std.debug.print("AssertionError: expected True, got False\n", .{});
         if (global_result) |result| {
             result.addFail("assertTrue failed") catch {};
         }
@@ -99,8 +97,7 @@ pub fn assertTrue(value: bool) void {
 /// Assertion: assertFalse(x) - value must be false
 pub fn assertFalse(value: bool) void {
     if (value) {
-        const writer = std.io.getStdErr().writer();
-        writer.print("AssertionError: expected False, got True\n", .{}) catch {};
+        std.debug.print("AssertionError: expected False, got True\n", .{});
         if (global_result) |result| {
             result.addFail("assertFalse failed") catch {};
         }
@@ -121,8 +118,7 @@ pub fn assertIsNone(value: anytype) void {
     };
 
     if (!is_none) {
-        const writer = std.io.getStdErr().writer();
-        writer.print("AssertionError: expected None\n", .{}) catch {};
+        std.debug.print("AssertionError: expected None\n", .{});
         if (global_result) |result| {
             result.addFail("assertIsNone failed") catch {};
         }
@@ -137,16 +133,15 @@ pub fn assertIsNone(value: anytype) void {
 /// Print test results summary
 pub fn printResults() void {
     if (global_result) |result| {
-        const writer = std.io.getStdOut().writer();
-        writer.print("\n", .{}) catch {};
-        writer.print("----------------------------------------------------------------------\n", .{}) catch {};
-        writer.print("Ran {d} test(s)\n\n", .{result.passed + result.failed}) catch {};
+        std.debug.print("\n", .{});
+        std.debug.print("----------------------------------------------------------------------\n", .{});
+        std.debug.print("Ran {d} test(s)\n\n", .{result.passed + result.failed});
         if (result.failed == 0) {
-            writer.print("OK\n", .{}) catch {};
+            std.debug.print("OK\n", .{});
         } else {
-            writer.print("FAILED (failures={d})\n", .{result.failed}) catch {};
+            std.debug.print("FAILED (failures={d})\n", .{result.failed});
             for (result.errors.items) |err| {
-                writer.print("  - {s}\n", .{err}) catch {};
+                std.debug.print("  - {s}\n", .{err});
             }
         }
     }

@@ -3,22 +3,25 @@ cd "$(dirname "$0")/../.."
 
 passed=0
 failed=0
-skipped=0
-results=""
+pass_list=""
+fail_list=""
 
 for f in tests/features/test_*.py; do
     name=$(basename $f .py | sed 's/test_//')
-    output=$(pyaot $f --force 2>&1)
+    output=$(./zig-out/bin/pyaot $f --force 2>&1)
     if echo "$output" | grep -q "successfully"; then
-        results="$results✓ $name\n"
+        pass_list="$pass_list $name"
         ((passed++))
     else
-        results="$results✗ $name\n"
+        fail_list="$fail_list $name"
         ((failed++))
     fi
 done
 
-echo -e "$results"
+echo "=== Results ==="
+echo "✓ Passed:$pass_list"
+echo "✗ Failed:$fail_list"
+echo ""
 echo "=== Summary ==="
 echo "Passed: $passed"
 echo "Failed: $failed"
