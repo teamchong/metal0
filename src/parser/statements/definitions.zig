@@ -26,8 +26,23 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
 
         var args = std.ArrayList(ast.Arg){};
         defer args.deinit(self.allocator);
+        var vararg_name: ?[]const u8 = null;
 
         while (!self.match(.RParen)) {
+            // Check for *args
+            if (self.match(.Star)) {
+                const arg_name = try self.expect(.Ident);
+                vararg_name = arg_name.lexeme;
+
+                // *args must be last (or before **kwargs which we don't support yet)
+                if (!self.match(.Comma)) {
+                    _ = try self.expect(.RParen);
+                    break;
+                }
+                // If there's a comma after *args, continue parsing (for **kwargs support later)
+                continue;
+            }
+
             const arg_name = try self.expect(.Ident);
 
             // Parse type annotation if present (e.g., : int, : str)
@@ -103,6 +118,7 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
                 .decorators = &[_]ast.Node{}, // Empty decorators for now
                 .return_type = return_type,
                 .is_nested = is_nested,
+                .vararg = vararg_name,
             },
         };
     }

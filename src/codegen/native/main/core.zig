@@ -138,6 +138,10 @@ pub const NativeCodegen = struct {
     // Maps function name -> FunctionDef (e.g., "fetch_data" -> FunctionDef)
     async_function_defs: FnvFuncDefMap,
 
+    // Track functions with varargs (*args)
+    // Maps function name -> void (e.g., "func" -> {})
+    vararg_functions: FnvVoidMap,
+
     // Track imported module names (for mymath.add() -> needs allocator)
     // Maps module name -> void (e.g., "mymath" -> {})
     imported_modules: FnvVoidMap,
@@ -209,6 +213,7 @@ pub const NativeCodegen = struct {
             .functions_needing_allocator = FnvVoidMap.init(allocator),
             .async_functions = FnvVoidMap.init(allocator),
             .async_function_defs = FnvFuncDefMap.init(allocator),
+            .vararg_functions = FnvVoidMap.init(allocator),
             .imported_modules = FnvVoidMap.init(allocator),
             .mutation_info = null,
             .c_libraries = std.ArrayList([]const u8){},
@@ -306,6 +311,13 @@ pub const NativeCodegen = struct {
             self.allocator.free(key.*);
         }
         self.async_functions.deinit();
+
+        // Clean up vararg_functions tracking
+        var vararg_iter = self.vararg_functions.keyIterator();
+        while (vararg_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.vararg_functions.deinit();
 
         // Clean up global_vars tracking
         var global_iter = self.global_vars.keyIterator();

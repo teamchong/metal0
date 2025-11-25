@@ -32,6 +32,12 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         try self.async_functions.put(func_name_copy, {});
     }
 
+    // Track functions with varargs (for call site generation)
+    if (func.vararg) |_| {
+        const func_name_copy = try self.allocator.dupe(u8, func.name);
+        try self.vararg_functions.put(func_name_copy, {});
+    }
+
     // Generate function signature
     try signature.genFunctionSignature(self, func, needs_allocator);
 
