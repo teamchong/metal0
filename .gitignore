@@ -83,8 +83,12 @@ zig-out/
 .claude/
 _prototype/
 
-# Build output (root level only)
+# Build output
 /build/
+.build/
+.build-*/
+**/.build/
+**/.build-*/
 
 # Compiled binaries (root level)
 /bench_*
@@ -95,9 +99,6 @@ _prototype/
 /hello_*
 /*.rmeta
 /*.hash
-
-# Benchmark build artifacts
-benchmarks/.build/
 
 # Debug/backup files
 *.bak
