@@ -1,4 +1,4 @@
-.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-dict benchmark-string clean format
+.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string clean format
 
 # =============================================================================
 # HELP
@@ -18,9 +18,10 @@ help:
 	@echo "  make test-all       Run ALL tests (slow)"
 	@echo ""
 	@echo "Benchmark:"
-	@echo "  make benchmark-fib     Fibonacci (PyAOT vs CPython)"
-	@echo "  make benchmark-dict    Dict operations"
-	@echo "  make benchmark-string  String operations"
+	@echo "  make benchmark-fib       Fibonacci (PyAOT vs CPython vs Rust vs Go)"
+	@echo "  make benchmark-fib-tail  Tail-recursive Fibonacci"
+	@echo "  make benchmark-dict      Dict operations"
+	@echo "  make benchmark-string    String operations"
 	@echo ""
 	@echo "Other:"
 	@echo "  make format         Format Zig code"
@@ -104,24 +105,51 @@ test-all: build test-unit test-integration test-cpython
 # =============================================================================
 benchmark-fib: build-release
 	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
-	@./zig-out/bin/pyaot build examples/bench_fib.py ./bench_fib --binary --force >/dev/null 2>&1
+	@echo "Building benchmarks..."
+	@./zig-out/bin/pyaot build benchmarks/python/fibonacci.py ./bench_fib_pyaot --binary --force >/dev/null 2>&1
+	@rustc -O benchmarks/rust/fibonacci.rs -o ./bench_fib_rust 2>/dev/null || echo "Rust not installed, skipping"
+	@go build -o ./bench_fib_go benchmarks/go/fibonacci.go 2>/dev/null || echo "Go not installed, skipping"
 	@echo "Fibonacci (fib 35):"
-	@hyperfine --warmup 3 './bench_fib' 'python3 examples/bench_fib.py'
-	@rm -f ./bench_fib
+	@hyperfine --warmup 2 --runs 5 \
+		'./bench_fib_pyaot' \
+		'./bench_fib_rust' \
+		'./bench_fib_go' \
+		'python3 benchmarks/python/fibonacci.py' \
+		'pypy3 benchmarks/python/fibonacci.py' 2>/dev/null || \
+	hyperfine --warmup 2 --runs 5 \
+		'./bench_fib_pyaot' \
+		'python3 benchmarks/python/fibonacci.py'
+	@rm -f ./bench_fib_pyaot ./bench_fib_rust ./bench_fib_go
 
 benchmark-dict: build-release
 	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
-	@./zig-out/bin/pyaot build examples/bench_dict.py ./bench_dict --binary --force >/dev/null 2>&1
+	@./zig-out/bin/pyaot build benchmarks/python/bench_dict.py ./bench_dict --binary --force >/dev/null 2>&1
 	@echo "Dict operations (1M iterations):"
-	@hyperfine --warmup 3 './bench_dict' 'python3 examples/bench_dict.py'
+	@hyperfine --warmup 3 './bench_dict' 'python3 benchmarks/python/bench_dict.py'
 	@rm -f ./bench_dict
 
 benchmark-string: build-release
 	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
-	@./zig-out/bin/pyaot build examples/bench_string.py ./bench_string --binary --force >/dev/null 2>&1
+	@./zig-out/bin/pyaot build benchmarks/python/bench_string.py ./bench_string --binary --force >/dev/null 2>&1
 	@echo "String ops (10k concat):"
-	@hyperfine --warmup 3 './bench_string' 'python3 examples/bench_string.py'
+	@hyperfine --warmup 3 './bench_string' 'python3 benchmarks/python/bench_string.py'
 	@rm -f ./bench_string
+
+benchmark-fib-tail: build-release
+	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
+	@echo "Building tail-recursive benchmarks..."
+	@./zig-out/bin/pyaot build benchmarks/python/fibonacci_tail.py ./bench_fib_tail_pyaot --binary --force >/dev/null 2>&1
+	@rustc -O benchmarks/rust/fibonacci_tail.rs -o ./bench_fib_tail_rust 2>/dev/null || echo "Rust not installed, skipping"
+	@go build -o ./bench_fib_tail_go benchmarks/go/fibonacci_tail.go 2>/dev/null || echo "Go not installed, skipping"
+	@echo "Tail-Recursive Fibonacci (10K × fib(10000)):"
+	@echo "(Note: CPython fails with RecursionError - PyAOT has tail-call optimization)"
+	@hyperfine --warmup 2 --runs 5 \
+		'./bench_fib_tail_pyaot' \
+		'./bench_fib_tail_rust' \
+		'./bench_fib_tail_go' 2>/dev/null || \
+	hyperfine --warmup 2 --runs 5 \
+		'./bench_fib_tail_pyaot'
+	@rm -f ./bench_fib_tail_pyaot ./bench_fib_tail_rust ./bench_fib_tail_go
 
 # =============================================================================
 # UTILITIES
@@ -134,6 +162,6 @@ format:
 
 clean:
 	@rm -rf zig-out zig-cache .zig-cache build .build
-	@rm -f bench_fib bench_dict bench_string
+	@rm -f bench_fib bench_dict bench_string bench_fib_pyaot bench_fib_rust bench_fib_go bench_fib_tail_pyaot bench_fib_tail_rust bench_fib_tail_go
 	@find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 	@echo "✓ Cleaned"

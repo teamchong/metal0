@@ -263,8 +263,11 @@ pyaot build --binary your_file.py
 *Measured with hyperfine, 5 runs, 2 warmup. Startup overhead (~4ms) included.*
 
 ```bash
-make benchmark-fib
+make benchmark-fib       # Recursive fib(35) - PyAOT vs Rust vs Go vs Python
+make benchmark-fib-tail  # Tail-recursive fib - tests tail-call optimization
 ```
+
+Benchmark source files in `benchmarks/python/`, `benchmarks/rust/`, `benchmarks/go/`.
 
 ### 1. Object-Oriented (Class Inheritance)
 
