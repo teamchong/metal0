@@ -43,14 +43,14 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
             // Generate single concat call with all parts
-            try self.output.appendSlice(self.allocator, "try std.mem.concat(");
-            try self.output.appendSlice(self.allocator, alloc_name);
-            try self.output.appendSlice(self.allocator, ", u8, &[_][]const u8{ ");
+            try self.emit("try std.mem.concat(");
+            try self.emit(alloc_name);
+            try self.emit(", u8, &[_][]const u8{ ");
             for (parts.items, 0..) |part, i| {
-                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                if (i > 0) try self.emit(", ");
                 try genExpr(self, part);
             }
-            try self.output.appendSlice(self.allocator, " })");
+            try self.emit(" })");
             return;
         }
     }
@@ -58,62 +58,62 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // Regular numeric operations
     // Special handling for modulo - use @rem for signed integers
     if (binop.op == .Mod) {
-        try self.output.appendSlice(self.allocator, "@rem(");
+        try self.emit("@rem(");
         try genExpr(self, binop.left.*);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
         try genExpr(self, binop.right.*);
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
         return;
     }
 
     // Special handling for floor division
     if (binop.op == .FloorDiv) {
-        try self.output.appendSlice(self.allocator, "@divFloor(");
+        try self.emit("@divFloor(");
         try genExpr(self, binop.left.*);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
         try genExpr(self, binop.right.*);
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
         return;
     }
 
     // Special handling for power
     if (binop.op == .Pow) {
-        try self.output.appendSlice(self.allocator, "std.math.pow(i64, ");
+        try self.emit("std.math.pow(i64, ");
         try genExpr(self, binop.left.*);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
         try genExpr(self, binop.right.*);
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
         return;
     }
 
     // Special handling for division - can throw ZeroDivisionError
     if (binop.op == .Div) {
         // True division (/) - always returns float
-        try self.output.appendSlice(self.allocator, "try runtime.divideFloat(");
+        try self.emit("try runtime.divideFloat(");
         try genExpr(self, binop.left.*);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
         try genExpr(self, binop.right.*);
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
         return;
     }
 
     // Special handling for floor division - returns int
     if (binop.op == .FloorDiv) {
-        try self.output.appendSlice(self.allocator, "try runtime.divideInt(");
+        try self.emit("try runtime.divideInt(");
         try genExpr(self, binop.left.*);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
         try genExpr(self, binop.right.*);
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
         return;
     }
 
     // Special handling for modulo - can throw ZeroDivisionError
     if (binop.op == .Mod) {
-        try self.output.appendSlice(self.allocator, "try runtime.moduloInt(");
+        try self.emit("try runtime.moduloInt(");
         try genExpr(self, binop.left.*);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
         try genExpr(self, binop.right.*);
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
         return;
     }
 
@@ -129,15 +129,15 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // If mixing usize and i64, cast to i64 for the operation
     const needs_cast = (left_is_usize and right_is_int) or (left_is_int and right_is_usize);
 
-    try self.output.appendSlice(self.allocator, "(");
+    try self.emit("(");
 
     // Cast left operand if needed
     if (left_is_usize and needs_cast) {
-        try self.output.appendSlice(self.allocator, "@as(i64, @intCast(");
+        try self.emit("@as(i64, @intCast(");
     }
     try genExpr(self, binop.left.*);
     if (left_is_usize and needs_cast) {
-        try self.output.appendSlice(self.allocator, "))");
+        try self.emit("))");
     }
 
     const op_str = switch (binop.op) {
@@ -151,61 +151,61 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         .RShift => " >> ",
         else => " ? ",
     };
-    try self.output.appendSlice(self.allocator, op_str);
+    try self.emit(op_str);
 
     // Cast right operand if needed
     if (right_is_usize and needs_cast) {
-        try self.output.appendSlice(self.allocator, "@as(i64, @intCast(");
+        try self.emit("@as(i64, @intCast(");
     }
     try genExpr(self, binop.right.*);
     if (right_is_usize and needs_cast) {
-        try self.output.appendSlice(self.allocator, "))");
+        try self.emit("))");
     }
 
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit(")");
 }
 
 /// Generate unary operations (not, -, ~)
 pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     switch (unaryop.op) {
         .Not => {
-            try self.output.appendSlice(self.allocator, "!(");
+            try self.emit("!(");
             try genExpr(self, unaryop.operand.*);
-            try self.output.appendSlice(self.allocator, ")");
+            try self.emit(")");
         },
         .USub => {
             // In Python, -bool converts to int first: -True = -1, -False = 0
             const operand_type = try self.type_inferrer.inferExpr(unaryop.operand.*);
             if (operand_type == .bool) {
-                try self.output.appendSlice(self.allocator, "-@as(i64, @intFromBool(");
+                try self.emit("-@as(i64, @intFromBool(");
                 try genExpr(self, unaryop.operand.*);
-                try self.output.appendSlice(self.allocator, "))");
+                try self.emit("))");
             } else {
-                try self.output.appendSlice(self.allocator, "-(");
+                try self.emit("-(");
                 try genExpr(self, unaryop.operand.*);
-                try self.output.appendSlice(self.allocator, ")");
+                try self.emit(")");
             }
         },
         .UAdd => {
             // In Python, +bool converts to int: +True = 1, +False = 0
             const operand_type = try self.type_inferrer.inferExpr(unaryop.operand.*);
             if (operand_type == .bool) {
-                try self.output.appendSlice(self.allocator, "@as(i64, @intFromBool(");
+                try self.emit("@as(i64, @intFromBool(");
                 try genExpr(self, unaryop.operand.*);
-                try self.output.appendSlice(self.allocator, "))");
+                try self.emit("))");
             } else {
                 // Non-bool: unary plus is a no-op
-                try self.output.appendSlice(self.allocator, "(");
+                try self.emit("(");
                 try genExpr(self, unaryop.operand.*);
-                try self.output.appendSlice(self.allocator, ")");
+                try self.emit(")");
             }
         },
         .Invert => {
             // Bitwise NOT: ~x in Zig
             // Cast to i64 to handle comptime_int literals
-            try self.output.appendSlice(self.allocator, "~@as(i64, ");
+            try self.emit("~@as(i64, ");
             try genExpr(self, unaryop.operand.*);
-            try self.output.appendSlice(self.allocator, ")");
+            try self.emit(")");
         },
     }
 }
@@ -222,34 +222,34 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         if (left_type == .string and right_type == .string) {
             switch (op) {
                 .Eq => {
-                    try self.output.appendSlice(self.allocator, "std.mem.eql(u8, ");
+                    try self.emit("std.mem.eql(u8, ");
                     try genExpr(self, compare.left.*);
-                    try self.output.appendSlice(self.allocator, ", ");
+                    try self.emit(", ");
                     try genExpr(self, compare.comparators[i]);
-                    try self.output.appendSlice(self.allocator, ")");
+                    try self.emit(")");
                 },
                 .NotEq => {
-                    try self.output.appendSlice(self.allocator, "!std.mem.eql(u8, ");
+                    try self.emit("!std.mem.eql(u8, ");
                     try genExpr(self, compare.left.*);
-                    try self.output.appendSlice(self.allocator, ", ");
+                    try self.emit(", ");
                     try genExpr(self, compare.comparators[i]);
-                    try self.output.appendSlice(self.allocator, ")");
+                    try self.emit(")");
                 },
                 .In => {
                     // String substring check: std.mem.indexOf(u8, haystack, needle) != null
-                    try self.output.appendSlice(self.allocator, "(std.mem.indexOf(u8, ");
+                    try self.emit("(std.mem.indexOf(u8, ");
                     try genExpr(self, compare.comparators[i]); // haystack
-                    try self.output.appendSlice(self.allocator, ", ");
+                    try self.emit(", ");
                     try genExpr(self, compare.left.*); // needle
-                    try self.output.appendSlice(self.allocator, ") != null)");
+                    try self.emit(") != null)");
                 },
                 .NotIn => {
                     // String substring check (negated)
-                    try self.output.appendSlice(self.allocator, "(std.mem.indexOf(u8, ");
+                    try self.emit("(std.mem.indexOf(u8, ");
                     try genExpr(self, compare.comparators[i]); // haystack
-                    try self.output.appendSlice(self.allocator, ", ");
+                    try self.emit(", ");
                     try genExpr(self, compare.left.*); // needle
-                    try self.output.appendSlice(self.allocator, ") == null)");
+                    try self.emit(") == null)");
                 },
                 else => {
                     // String comparison operators other than == and != not supported
@@ -261,7 +261,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         .GtEq => " >= ",
                         else => " ? ",
                     };
-                    try self.output.appendSlice(self.allocator, op_str);
+                    try self.emit(op_str);
                     try genExpr(self, compare.comparators[i]);
                 },
             }
@@ -273,36 +273,31 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 const elem_type = right_type.list.*;
                 const type_str = elem_type.toSimpleZigType();
 
-                if (op == .In) {
-                    try self.output.appendSlice(self.allocator, "(std.mem.indexOfScalar(");
-                } else {
-                    try self.output.appendSlice(self.allocator, "(std.mem.indexOfScalar(");
-                }
-
-                try self.output.appendSlice(self.allocator, type_str);
-                try self.output.appendSlice(self.allocator, ", ");
+                try self.emit("(std.mem.indexOfScalar(");
+                try self.emit(type_str);
+                try self.emit(", ");
                 try genExpr(self, compare.comparators[i]); // list/slice
-                try self.output.appendSlice(self.allocator, ", ");
+                try self.emit(", ");
                 try genExpr(self, compare.left.*); // item to search for
 
                 if (op == .In) {
-                    try self.output.appendSlice(self.allocator, ") != null)");
+                    try self.emit(") != null)");
                 } else {
-                    try self.output.appendSlice(self.allocator, ") == null)");
+                    try self.emit(") == null)");
                 }
             } else if (right_type == .dict) {
                 // Dict key check: dict.contains(key)
                 if (op == .In) {
                     try genExpr(self, compare.comparators[i]); // dict
-                    try self.output.appendSlice(self.allocator, ".contains(");
+                    try self.emit(".contains(");
                     try genExpr(self, compare.left.*); // key
-                    try self.output.appendSlice(self.allocator, ")");
+                    try self.emit(")");
                 } else {
-                    try self.output.appendSlice(self.allocator, "!");
+                    try self.emit("!");
                     try genExpr(self, compare.comparators[i]); // dict
-                    try self.output.appendSlice(self.allocator, ".contains(");
+                    try self.emit(".contains(");
                     try genExpr(self, compare.left.*); // key
-                    try self.output.appendSlice(self.allocator, ")");
+                    try self.emit(")");
                 }
             } else {
                 // Fallback for arrays and unrecognized types
@@ -312,42 +307,38 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // because strings require std.mem.eql for comparison, not ==
                 if (left_type == .string) {
                     // Generate inline block expression that loops through array
-                    try self.output.appendSlice(self.allocator, "(blk: {\n");
-                    try self.output.appendSlice(self.allocator, "for (");
+                    try self.emit("(blk: {\n");
+                    try self.emit("for (");
                     try genExpr(self, compare.comparators[i]); // array
-                    try self.output.appendSlice(self.allocator, ") |__item| {\n");
-                    try self.output.appendSlice(self.allocator, "if (std.mem.eql(u8, __item, ");
+                    try self.emit(") |__item| {\n");
+                    try self.emit("if (std.mem.eql(u8, __item, ");
                     try genExpr(self, compare.left.*); // search string
-                    try self.output.appendSlice(self.allocator, ")) break :blk true;\n");
-                    try self.output.appendSlice(self.allocator, "}\n");
-                    try self.output.appendSlice(self.allocator, "break :blk false;\n");
-                    try self.output.appendSlice(self.allocator, "})");
+                    try self.emit(")) break :blk true;\n");
+                    try self.emit("}\n");
+                    try self.emit("break :blk false;\n");
+                    try self.emit("})");
 
                     // Handle 'not in' by negating the result
                     if (op == .NotIn) {
                         // Wrap in negation
                         const current = try self.output.toOwnedSlice(self.allocator);
-                        try self.output.appendSlice(self.allocator, "!");
-                        try self.output.appendSlice(self.allocator, current);
+                        try self.emit("!");
+                        try self.emit(current);
                     }
                 } else {
                     // Integer and float arrays use indexOfScalar
                     const elem_type_str = left_type.toSimpleZigType();
 
-                    if (op == .In) {
-                        try self.output.appendSlice(self.allocator, "(std.mem.indexOfScalar(");
-                    } else {
-                        try self.output.appendSlice(self.allocator, "(std.mem.indexOfScalar(");
-                    }
-                    try self.output.appendSlice(self.allocator, elem_type_str);
-                    try self.output.appendSlice(self.allocator, ", &");
+                    try self.emit("(std.mem.indexOfScalar(");
+                    try self.emit(elem_type_str);
+                    try self.emit(", &");
                     try genExpr(self, compare.comparators[i]); // array/container
-                    try self.output.appendSlice(self.allocator, ", ");
+                    try self.emit(", ");
                     try genExpr(self, compare.left.*); // item to search for
                     if (op == .In) {
-                        try self.output.appendSlice(self.allocator, ") != null)");
+                        try self.emit(") != null)");
                     } else {
-                        try self.output.appendSlice(self.allocator, ") == null)");
+                        try self.emit(") == null)");
                     }
                 }
             }
@@ -369,14 +360,14 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // Reference the non-None variable to mark it as used
                 if (left_type != .none) {
                     // Left is non-None, reference it
-                    try self.output.appendSlice(self.allocator, "(blk: { _ = ");
+                    try self.emit("(blk: { _ = ");
                     try genExpr(self, compare.left.*);
-                    try self.output.writer(self.allocator).print("; break :blk {s}; }})", .{result});
+                    try self.emitFmt("; break :blk {s}; }})", .{result});
                 } else {
                     // Right is non-None, reference it
-                    try self.output.appendSlice(self.allocator, "(blk: { _ = ");
+                    try self.emit("(blk: { _ = ");
                     try genExpr(self, compare.comparators[i]);
-                    try self.output.writer(self.allocator).print("; break :blk {s}; }})", .{result});
+                    try self.emitFmt("; break :blk {s}; }})", .{result});
                 }
             } else {
                 // Both are None - compare normally
@@ -386,7 +377,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     .NotEq => " != ",
                     else => " == ", // Other comparisons default to ==
                 };
-                try self.output.appendSlice(self.allocator, op_str);
+                try self.emit(op_str);
                 try genExpr(self, compare.comparators[i]);
             }
         }
@@ -396,9 +387,9 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // For objects/slices, compare pointer addresses
             try genExpr(self, compare.left.*);
             if (op == .Is) {
-                try self.output.appendSlice(self.allocator, " == ");
+                try self.emit(" == ");
             } else {
-                try self.output.appendSlice(self.allocator, " != ");
+                try self.emit(" != ");
             }
             try genExpr(self, compare.comparators[i]);
         } else {
@@ -414,11 +405,11 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
             // Cast left operand if needed
             if (left_is_usize and needs_cast) {
-                try self.output.appendSlice(self.allocator, "@as(i64, @intCast(");
+                try self.emit("@as(i64, @intCast(");
             }
             try genExpr(self, compare.left.*);
             if (left_is_usize and needs_cast) {
-                try self.output.appendSlice(self.allocator, "))");
+                try self.emit("))");
             }
 
             const op_str = switch (op) {
@@ -430,15 +421,15 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 .GtEq => " >= ",
                 else => " ? ",
             };
-            try self.output.appendSlice(self.allocator, op_str);
+            try self.emit(op_str);
 
             // Cast right operand if needed
             if (right_is_usize and needs_cast) {
-                try self.output.appendSlice(self.allocator, "@as(i64, @intCast(");
+                try self.emit("@as(i64, @intCast(");
             }
             try genExpr(self, compare.comparators[i]);
             if (right_is_usize and needs_cast) {
-                try self.output.appendSlice(self.allocator, "))");
+                try self.emit("))");
             }
         }
     }
@@ -449,7 +440,7 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
     const op_str = if (boolop.op == .And) " and " else " or ";
 
     for (boolop.values, 0..) |value, i| {
-        if (i > 0) try self.output.appendSlice(self.allocator, op_str);
+        if (i > 0) try self.emit(op_str);
         try genExpr(self, value);
     }
 }
