@@ -421,25 +421,13 @@ fn inferCall(
                 }
             }
 
-            // Boolean-returning methods
-            if (std.mem.eql(u8, attr.attr, "startswith")) return .bool;
-            if (std.mem.eql(u8, attr.attr, "endswith")) return .bool;
-            if (std.mem.eql(u8, attr.attr, "isdigit")) return .bool;
-            if (std.mem.eql(u8, attr.attr, "isalpha")) return .bool;
-            if (std.mem.eql(u8, attr.attr, "isalnum")) return .bool;
-            if (std.mem.eql(u8, attr.attr, "isspace")) return .bool;
-            if (std.mem.eql(u8, attr.attr, "islower")) return .bool;
-            if (std.mem.eql(u8, attr.attr, "isupper")) return .bool;
-            if (std.mem.eql(u8, attr.attr, "isascii")) return .bool;
-            if (std.mem.eql(u8, attr.attr, "istitle")) return .bool;
-            if (std.mem.eql(u8, attr.attr, "isprintable")) return .bool;
+            // Boolean-returning string methods
+            const bool_methods = [_][]const u8{ "startswith", "endswith", "isdigit", "isalpha", "isalnum", "isspace", "islower", "isupper", "isascii", "istitle", "isprintable" };
+            for (bool_methods) |m| if (std.mem.eql(u8, attr.attr, m)) return .bool;
 
-            // Integer-returning methods
-            if (std.mem.eql(u8, attr.attr, "find")) return .int;
-            if (std.mem.eql(u8, attr.attr, "count")) return .int;
-            if (std.mem.eql(u8, attr.attr, "index")) return .int;
-            if (std.mem.eql(u8, attr.attr, "rfind")) return .int;
-            if (std.mem.eql(u8, attr.attr, "rindex")) return .int;
+            // Integer-returning string methods
+            const int_methods = [_][]const u8{ "find", "count", "index", "rfind", "rindex" };
+            for (int_methods) |m| if (std.mem.eql(u8, attr.attr, m)) return .int;
 
             // split() returns list of runtime strings
             if (std.mem.eql(u8, attr.attr, "split")) {

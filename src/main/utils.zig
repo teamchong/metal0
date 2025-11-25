@@ -126,12 +126,14 @@ pub fn printUsage() !void {
         \\  pyaot build <file.py>              # Build .so only
         \\  pyaot build <file.ipynb>           # Build notebook only
         \\  pyaot build <file.py> --binary     # Build standalone binary
+        \\  pyaot build <file.py> --wasm       # Build WebAssembly module
         \\  pyaot build <file.py> <out>        # Custom output path
         \\  pyaot build <file.py> -f           # Force rebuild
         \\  pyaot test                         # Run test suite
         \\
         \\Flags:
         \\  --binary, -b  Build standalone binary (default: shared library)
+        \\  --wasm, -w    Build WebAssembly module (.wasm)
         \\  --force, -f   Force recompile (ignore cache)
         \\
         \\Examples:
@@ -140,6 +142,7 @@ pub fn printUsage() !void {
         \\  pyaot build                        # Build all .py in current dir
         \\  pyaot build examples/              # Build all .py in examples/
         \\  pyaot build --binary myapp.py      # Deploy: builds myapp binary
+        \\  pyaot build --wasm myapp.py        # WASM: builds myapp.wasm
         \\
     , .{});
 }

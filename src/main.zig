@@ -15,6 +15,7 @@ pub const CompileOptions = struct {
     binary: bool = false, // --binary flag
     force: bool = false, // --force/-f flag
     emit_bytecode: bool = false, // --emit-bytecode flag (for runtime eval subprocess)
+    wasm: bool = false, // --wasm/-w flag for WebAssembly output
 };
 
 // Re-export commonly used functions
