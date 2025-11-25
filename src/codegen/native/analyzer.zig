@@ -46,6 +46,7 @@ pub const ModuleAnalysis = struct {
     needs_string_utils: bool = false,
     needs_hashmap_helper: bool = false,
     needs_std: bool = false, // For print() and other std features
+    has_user_main: bool = false, // User defined def main():
 
     /// Merge two analyses
     pub fn merge(self: *ModuleAnalysis, other: ModuleAnalysis) void {
@@ -57,6 +58,7 @@ pub const ModuleAnalysis = struct {
         self.needs_string_utils = self.needs_string_utils or other.needs_string_utils;
         self.needs_hashmap_helper = self.needs_hashmap_helper or other.needs_hashmap_helper;
         self.needs_std = self.needs_std or other.needs_std;
+        self.has_user_main = self.has_user_main or other.has_user_main;
     }
 };
 
@@ -159,6 +161,10 @@ fn analyzeStmt(node: ast.Node) !ModuleAnalysis {
             }
         },
         .function_def => |func| {
+            // Track user-defined main function
+            if (std.mem.eql(u8, func.name, "main")) {
+                analysis.has_user_main = true;
+            }
             // Analyze function body for imports/requirements
             for (func.body) |stmt| {
                 const stmt_analysis = try analyzeStmt(stmt);

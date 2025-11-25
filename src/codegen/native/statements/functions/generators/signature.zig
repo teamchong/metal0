@@ -73,8 +73,13 @@ pub fn genFunctionSignature(
     }
 
     // Generate function signature: fn name(param: type, ...) return_type {
+    // Rename "main" to "__user_main" to avoid conflict with entry point
     try self.emit("fn ");
-    try self.emit(func.name);
+    if (std.mem.eql(u8, func.name, "main")) {
+        try self.emit("__user_main");
+    } else {
+        try self.emit(func.name);
+    }
     try self.emit("(");
 
     // Add allocator as first parameter if needed
