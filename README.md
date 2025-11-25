@@ -658,7 +658,7 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 
 ## Features
 
-### ✅ Implemented (78/144 tests passing - 54%)
+### ✅ Implemented (26 unit tests passing)
 
 **Core Language:**
 - ✅ Function definitions with return values
@@ -668,6 +668,7 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 - ✅ Tuples with element type tracking
 - ✅ F-strings (full lexer → parser → codegen)
 - ✅ Lambdas and closures
+- ✅ Tail-call optimization (`@call(.always_tail, ...)` for recursive functions)
 
 **Comptime Type Analysis (Zero Runtime Overhead):**
 - ✅ Comptime type detection (`isNativePrimitive`, `needsAllocator`)
@@ -714,10 +715,11 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 - ✅ List: `append()`, `pop()`, `extend()`, `remove()`, `reverse()`, `count()`, `index()`, `insert()`, `clear()`, `copy()`
 - ✅ Dict: `get()`, `keys()`, `values()`, `items()`, `copy()`
 
-**Native Modules (4 total):**
+**Native Modules (5 total):**
 - ✅ `json` - JSON parsing and serialization (`json.loads()`, `json.dumps()`)
 - ✅ `http` - HTTP client (`http.get()`)
 - ✅ `tokenizer` - **FASTER than Rust!** BPE/WordPiece/Unigram training (2-25x faster than HuggingFace)
+- ✅ `unittest` - Test framework (20 assertions, setUp/tearDown, skip decorator)
 - ⚙️ `asyncio` - Async runtime (module marked, integration in progress)
 
 **Advanced Features:**
@@ -732,7 +734,7 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 
 **Phase 1: Drop-in Python Replacement**
 - [ ] File I/O (open, read, write)
-- [ ] String formatting (f-strings)
+- [x] String formatting (f-strings) ✅
 - [ ] Async/await (asyncio compatible)
 - [ ] Integration with uv for package management
 
