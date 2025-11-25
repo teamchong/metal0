@@ -34,6 +34,7 @@ pub const TokenType = enum {
     Lambda,
     Global,
     With,
+    Is,
 
     // Literals
     Ident,
@@ -300,6 +301,7 @@ pub const Lexer = struct {
             .{ "lambda", .Lambda },
             .{ "global", .Global },
             .{ "with", .With },
+            .{ "is", .Is },
         });
 
         return keywords.get(lexeme) orelse .Ident;

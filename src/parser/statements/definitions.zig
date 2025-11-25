@@ -27,19 +27,32 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
         var args = std.ArrayList(ast.Arg){};
         defer args.deinit(self.allocator);
         var vararg_name: ?[]const u8 = null;
+        var kwarg_name: ?[]const u8 = null;
 
         while (!self.match(.RParen)) {
+            // Check for **kwargs (must check before *args since ** starts with *)
+            if (self.match(.DoubleStar)) {
+                const arg_name = try self.expect(.Ident);
+                kwarg_name = arg_name.lexeme;
+
+                // **kwargs must be last parameter
+                if (!self.match(.Comma)) {
+                    _ = try self.expect(.RParen);
+                    break;
+                }
+                continue;
+            }
+
             // Check for *args
             if (self.match(.Star)) {
                 const arg_name = try self.expect(.Ident);
                 vararg_name = arg_name.lexeme;
 
-                // *args must be last (or before **kwargs which we don't support yet)
+                // *args can be followed by **kwargs
                 if (!self.match(.Comma)) {
                     _ = try self.expect(.RParen);
                     break;
                 }
-                // If there's a comma after *args, continue parsing (for **kwargs support later)
                 continue;
             }
 
@@ -144,6 +157,7 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
                 .return_type = return_type,
                 .is_nested = is_nested,
                 .vararg = vararg_name,
+                .kwarg = kwarg_name,
             },
         };
     }
@@ -160,6 +174,22 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
             while (!self.match(.RParen)) {
                 // Parse base class name, supporting dotted names like "unittest.TestCase"
                 const first_tok = try self.expect(.Ident);
+
+                // Check for keyword argument (e.g., metaclass=ABCMeta)
+                if (self.match(.Eq)) {
+                    // Skip the keyword argument value - could be simple name or dotted
+                    _ = try self.expect(.Ident);
+                    while (self.match(.Dot)) {
+                        _ = try self.expect(.Ident);
+                    }
+                    // Continue to next item or end
+                    if (!self.match(.Comma)) {
+                        _ = try self.expect(.RParen);
+                        break;
+                    }
+                    continue;
+                }
+
                 var base_name = std.ArrayList(u8){};
                 defer base_name.deinit(self.allocator);
                 try base_name.appendSlice(self.allocator, first_tok.lexeme);

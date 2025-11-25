@@ -84,7 +84,7 @@ pub const ComptimeEvaluator = struct {
             .LtEq => self.evalLe(left, right),
             .Gt => self.evalGt(left, right),
             .GtEq => self.evalGe(left, right),
-            .In, .NotIn => null,
+            .In, .NotIn, .Is, .IsNot => null,
         };
     }
 

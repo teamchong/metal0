@@ -112,6 +112,14 @@ pub fn parseComparison(self: *Parser) ParseError!ast.Node {
                 // Put back the Not token - it's not part of comparison
                 self.current -= 1;
             }
+        } else if (self.match(.Is)) {
+            // Check for "is not"
+            if (self.match(.Not)) {
+                try ops.append(self.allocator, .IsNot);
+            } else {
+                try ops.append(self.allocator, .Is);
+            }
+            found = true;
         }
 
         if (!found) break;

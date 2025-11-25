@@ -363,6 +363,18 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try self.output.appendSlice(self.allocator, op_str);
                 try genExpr(self, compare.comparators[i]);
             }
+        }
+        // Handle 'is' and 'is not' identity operators
+        else if (op == .Is or op == .IsNot) {
+            // For primitives (int, bool, None), identity is same as equality
+            // For objects/slices, compare pointer addresses
+            try genExpr(self, compare.left.*);
+            if (op == .Is) {
+                try self.output.appendSlice(self.allocator, " == ");
+            } else {
+                try self.output.appendSlice(self.allocator, " != ");
+            }
+            try genExpr(self, compare.comparators[i]);
         } else {
             // Regular comparisons for non-strings
             // Check for type mismatches between usize and i64

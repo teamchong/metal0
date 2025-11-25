@@ -127,6 +127,7 @@ pub const Node = union(enum) {
         is_nested: bool = false,
         captured_vars: [][]const u8 = &[_][]const u8{},
         vararg: ?[]const u8 = null, // *args parameter name
+        kwarg: ?[]const u8 = null, // **kwargs parameter name
     };
 
     pub const Lambda = struct {
@@ -298,6 +299,8 @@ pub const CompareOp = enum {
     GtEq,
     In,
     NotIn,
+    Is,
+    IsNot,
 };
 
 pub const BoolOperator = enum {
