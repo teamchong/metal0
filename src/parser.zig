@@ -139,6 +139,7 @@ pub const Parser = struct {
                 .Pass => return try statements.parsePass(self),
                 .Break => return try statements.parseBreak(self),
                 .Continue => return try statements.parseContinue(self),
+                .Global => return try statements.parseGlobal(self),
                 else => {
                     // Could be assignment or expression statement
                     return try statements.parseExprOrAssign(self);

@@ -28,3 +28,4 @@ pub const parsePass = misc.parsePass;
 pub const parseBreak = misc.parseBreak;
 pub const parseContinue = misc.parseContinue;
 pub const parseDecorated = misc.parseDecorated;
+pub const parseGlobal = misc.parseGlobal;

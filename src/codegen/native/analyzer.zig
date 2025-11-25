@@ -48,6 +48,7 @@ pub const ModuleAnalysis = struct {
     needs_std: bool = false, // For print() and other std features
     has_user_main: bool = false, // User defined def main():
     has_async_user_main: bool = false, // User defined async def main():
+    global_vars: [][]const u8 = &[_][]const u8{}, // Variables declared global in functions
 
     /// Merge two analyses
     pub fn merge(self: *ModuleAnalysis, other: ModuleAnalysis) void {
@@ -107,15 +108,61 @@ fn allSameType(elements: []ast.Node) bool {
 
 /// Analyze entire module to determine requirements
 pub fn analyzeModule(module: ast.Node.Module, allocator: std.mem.Allocator) !ModuleAnalysis {
-    _ = allocator; // Will need for recursive analysis
     var analysis = ModuleAnalysis{};
+
+    // Collect global variables from functions
+    var global_vars = std.ArrayList([]const u8){};
+    defer global_vars.deinit(allocator);
 
     for (module.body) |stmt| {
         const stmt_analysis = try analyzeStmt(stmt);
         analysis.merge(stmt_analysis);
+
+        // Collect global statements from functions
+        if (stmt == .function_def) {
+            try collectGlobalVars(stmt.function_def.body, &global_vars, allocator);
+        }
+    }
+
+    // Store global vars in analysis
+    if (global_vars.items.len > 0) {
+        analysis.global_vars = try global_vars.toOwnedSlice(allocator);
     }
 
     return analysis;
+}
+
+/// Recursively collect global variable names from statements
+fn collectGlobalVars(stmts: []const ast.Node, globals: *std.ArrayList([]const u8), allocator: std.mem.Allocator) !void {
+    for (stmts) |stmt| {
+        if (stmt == .global_stmt) {
+            for (stmt.global_stmt.names) |name| {
+                // Check if already added (avoid duplicates)
+                var exists = false;
+                for (globals.items) |existing| {
+                    if (std.mem.eql(u8, existing, name)) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    try globals.append(allocator, name);
+                }
+            }
+        }
+        // Recurse into nested blocks
+        if (stmt == .if_stmt) {
+            try collectGlobalVars(stmt.if_stmt.body, globals, allocator);
+            try collectGlobalVars(stmt.if_stmt.else_body, globals, allocator);
+        } else if (stmt == .for_stmt) {
+            try collectGlobalVars(stmt.for_stmt.body, globals, allocator);
+        } else if (stmt == .while_stmt) {
+            try collectGlobalVars(stmt.while_stmt.body, globals, allocator);
+        } else if (stmt == .function_def) {
+            // Nested functions
+            try collectGlobalVars(stmt.function_def.body, globals, allocator);
+        }
+    }
 }
 
 fn analyzeStmt(node: ast.Node) !ModuleAnalysis {
