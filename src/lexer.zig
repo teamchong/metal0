@@ -280,6 +280,7 @@ pub const Lexer = struct {
     const handleIndentation = tokenizer.handleIndentation;
     const tokenizeIdentifier = tokenizer.tokenizeIdentifier;
     const tokenizeNumber = tokenizer.tokenizeNumber;
+    const tokenizePrefixedString = tokenizer.tokenizePrefixedString;
     const tokenizeString = tokenizer.tokenizeString;
     const tokenizeRawString = tokenizer.tokenizeRawString;
     const tokenizeByteString = tokenizer.tokenizeByteString;
