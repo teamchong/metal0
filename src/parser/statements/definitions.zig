@@ -106,7 +106,8 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
             const is_oneliner = next_tok.type == .Pass or
                 next_tok.type == .Return or
                 next_tok.type == .Break or
-                next_tok.type == .Continue;
+                next_tok.type == .Continue or
+                next_tok.type == .Raise;
 
             if (is_oneliner) {
                 // Parse single statement without Indent/Dedent

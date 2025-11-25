@@ -117,16 +117,25 @@ pub fn genFunctionSignature(
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
         try self.emit(arg.name);
+
+        // Parameters with defaults become optional (suffix with '_param')
+        if (arg.default != null) {
+            try self.emit("_param");
+        }
         try self.emit(": ");
 
         // Check if this parameter is used as a function (called or returned - decorator pattern)
         // For decorators, use anytype to accept any function type
         const is_func = param_analyzer.isParameterUsedAsFunction(func.body, arg.name);
-        if (is_func) {
-            try self.emit("anytype"); // For decorators and higher-order functions
+        if (is_func and arg.default == null) {
+            try self.emit("anytype"); // For decorators and higher-order functions (without defaults)
         } else if (arg.type_annotation) |_| {
             // Use explicit type annotation if provided
             const zig_type = pythonTypeToZig(arg.type_annotation);
+            // Make optional if has default value
+            if (arg.default != null) {
+                try self.emit("?");
+            }
             try self.emit(zig_type);
         } else if (self.getVarType(arg.name)) |var_type| {
             // Only use inferred type if it's not .unknown
@@ -134,13 +143,23 @@ pub fn genFunctionSignature(
             if (var_type_tag != .unknown) {
                 const zig_type = try self.nativeTypeToZigType(var_type);
                 defer self.allocator.free(zig_type);
+                // Make optional if has default value
+                if (arg.default != null) {
+                    try self.emit("?");
+                }
                 try self.emit(zig_type);
             } else {
                 // .unknown means we don't know - default to i64
+                if (arg.default != null) {
+                    try self.emit("?");
+                }
                 try self.emit("i64");
             }
         } else {
             // No type hint and no inference - default to i64
+            if (arg.default != null) {
+                try self.emit("?");
+            }
             try self.emit("i64");
         }
     }
@@ -259,6 +278,7 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
     } else if (hasReturnStatement(func.body)) {
         // Check if this returns a parameter (decorator pattern)
         var returned_param_name: ?[]const u8 = null;
+        var returned_param_has_default = false;
         for (func.body) |stmt| {
             if (stmt == .return_stmt) {
                 if (stmt.return_stmt.value) |val| {
@@ -268,6 +288,7 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
                             if (std.mem.eql(u8, arg.name, val.name.id)) {
                                 if (param_analyzer.isParameterUsedAsFunction(func.body, arg.name)) {
                                     returned_param_name = arg.name;
+                                    returned_param_has_default = arg.default != null;
                                     break;
                                 }
                             }
@@ -277,7 +298,10 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
             }
         }
 
-        if (returned_param_name) |param_name| {
+        // Only use @TypeOf(param) for decorator pattern IF param doesn't have defaults
+        // Params with defaults use anytype/?type which breaks @TypeOf inference
+        if (returned_param_name != null and !returned_param_has_default) {
+            const param_name = returned_param_name.?;
             // Decorator pattern: return @TypeOf(param)
             try self.emit("@TypeOf(");
             try self.emit(param_name);

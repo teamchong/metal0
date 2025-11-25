@@ -132,6 +132,21 @@ pub fn genFunctionBody(
         try self.output.appendSlice(self.allocator, "_ = allocator;\n");
     }
 
+    // Generate default parameter initialization (before declaring them in scope)
+    for (func.args) |arg| {
+        if (arg.default) |default_expr| {
+            try self.emitIndent();
+            try self.output.appendSlice(self.allocator, "const ");
+            try self.output.appendSlice(self.allocator, arg.name);
+            try self.output.appendSlice(self.allocator, " = ");
+            try self.output.appendSlice(self.allocator, arg.name);
+            try self.output.appendSlice(self.allocator, "_param orelse ");
+            const expressions = @import("../../../expressions.zig");
+            try expressions.genExpr(self, default_expr.*);
+            try self.output.appendSlice(self.allocator, ";\n");
+        }
+    }
+
     // Declare function parameters in the scope so closures can capture them
     for (func.args) |arg| {
         try self.declareVar(arg.name);

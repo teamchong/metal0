@@ -38,6 +38,17 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         try self.vararg_functions.put(func_name_copy, {});
     }
 
+    // Track function signature (param counts for default parameter handling)
+    var required_count: usize = 0;
+    for (func.args) |arg| {
+        if (arg.default == null) required_count += 1;
+    }
+    const func_name_sig = try self.allocator.dupe(u8, func.name);
+    try self.function_signatures.put(func_name_sig, .{
+        .total_params = func.args.len,
+        .required_params = required_count,
+    });
+
     // Generate function signature
     try signature.genFunctionSignature(self, func, needs_allocator);
 

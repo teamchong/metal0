@@ -328,6 +328,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
         }
 
+        // Check if function has default parameters
+        const func_sig = self.function_signatures.get(func_name);
+        const has_defaults = if (func_sig) |sig| sig.total_params > sig.required_params else false;
+
         // Add regular arguments - wrap in slice for vararg functions
         if (is_vararg_func) {
             // Check if any args are starred (unpacked)
@@ -377,6 +381,20 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             for (call.keyword_args, 0..) |kwarg, i| {
                 if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
                 try genExpr(self, kwarg.value);
+            }
+
+            // Pad with null for missing default parameters
+            if (has_defaults) {
+                if (func_sig) |sig| {
+                    const provided_args = call.args.len + call.keyword_args.len;
+                    if (provided_args < sig.total_params) {
+                        var i: usize = provided_args;
+                        while (i < sig.total_params) : (i += 1) {
+                            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                            try self.output.appendSlice(self.allocator, "null");
+                        }
+                    }
+                }
             }
         }
 

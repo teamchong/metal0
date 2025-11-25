@@ -18,6 +18,13 @@ const FnvVoidMap = std.HashMap([]const u8, void, FnvContext, 80);
 const FnvStringMap = std.HashMap([]const u8, []const u8, FnvContext, 80);
 const FnvFuncDefMap = std.HashMap([]const u8, ast.Node.FunctionDef, FnvContext, 80);
 
+// Function signature info for default parameter handling
+const FuncSignature = struct {
+    total_params: usize,
+    required_params: usize, // params without defaults
+};
+const FnvFuncSigMap = std.HashMap([]const u8, FuncSignature, FnvContext, 80);
+
 /// Unittest TestCase class info
 pub const TestClassInfo = struct {
     class_name: []const u8,
@@ -142,6 +149,10 @@ pub const NativeCodegen = struct {
     // Maps function name -> void (e.g., "func" -> {})
     vararg_functions: FnvVoidMap,
 
+    // Track function signatures (param counts for default handling)
+    // Maps function name -> FuncSignature (e.g., "foo" -> {total: 2, required: 1})
+    function_signatures: FnvFuncSigMap,
+
     // Track imported module names (for mymath.add() -> needs allocator)
     // Maps module name -> void (e.g., "mymath" -> {})
     imported_modules: FnvVoidMap,
@@ -214,6 +225,7 @@ pub const NativeCodegen = struct {
             .async_functions = FnvVoidMap.init(allocator),
             .async_function_defs = FnvFuncDefMap.init(allocator),
             .vararg_functions = FnvVoidMap.init(allocator),
+            .function_signatures = FnvFuncSigMap.init(allocator),
             .imported_modules = FnvVoidMap.init(allocator),
             .mutation_info = null,
             .c_libraries = std.ArrayList([]const u8){},
@@ -318,6 +330,13 @@ pub const NativeCodegen = struct {
             self.allocator.free(key.*);
         }
         self.vararg_functions.deinit();
+
+        // Clean up function_signatures tracking
+        var funcsig_iter = self.function_signatures.keyIterator();
+        while (funcsig_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.function_signatures.deinit();
 
         // Clean up global_vars tracking
         var global_iter = self.global_vars.keyIterator();
