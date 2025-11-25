@@ -14,6 +14,8 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
         "sys",        "time",       "unittest",
         // Skip modules with unsupported Python syntax
         "subprocess", "tempfile",   "typing",    "os",
+        // Testing frameworks - skip as they're for CPython testing
+        "pytest",
     };
     for (builtins) |builtin_module| {
         if (std.mem.eql(u8, module_name, builtin_module)) {

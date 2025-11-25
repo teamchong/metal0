@@ -126,6 +126,23 @@ fn isNameUsedInExpr(expr: ast.Node, name: []const u8) bool {
             if (isNameUsedInExpr(tern.orelse_value.*, name)) return true;
             return false;
         },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| {
+                        if (isNameUsedInExpr(e.*, name)) return true;
+                    },
+                    .format_expr => |fe| {
+                        if (isNameUsedInExpr(fe.expr.*, name)) return true;
+                    },
+                    .conv_expr => |ce| {
+                        if (isNameUsedInExpr(ce.expr.*, name)) return true;
+                    },
+                    .literal => {},
+                }
+            }
+            return false;
+        },
         else => false,
     };
 }
