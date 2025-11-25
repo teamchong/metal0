@@ -17,6 +17,7 @@ const utils = @import("utils.zig");
 const cache = @import("cache.zig");
 const import_resolver = @import("../import_resolver.zig");
 const import_scanner = @import("../import_scanner.zig");
+const import_registry = @import("../codegen/native/import_registry.zig");
 
 /// Get module output path for a compiled .so file
 fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8) ![]const u8 {
@@ -227,9 +228,21 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
 
     const imports_mod = @import("../codegen/native/main/imports.zig");
 
+    // Create registry to check for runtime modules
+    var registry = try import_registry.createDefaultRegistry(aa);
+    defer registry.deinit();
+
     for (tree.module.body) |stmt| {
         if (stmt == .import_stmt) {
             const module_name = stmt.import_stmt.module;
+
+            // Skip runtime modules (they don't need Python compilation)
+            if (registry.lookup(module_name)) |info| {
+                if (info.strategy == .zig_runtime or info.strategy == .c_library) {
+                    continue;
+                }
+            }
+
             _ = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer) catch |err| {
                 std.debug.print("Warning: Could not pre-compile module {s}: {}\n", .{ module_name, err });
                 continue;
@@ -401,9 +414,21 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     const imports_mod = @import("../codegen/native/main/imports.zig");
 
+    // Create registry to check for runtime modules
+    var registry2 = try import_registry.createDefaultRegistry(allocator);
+    defer registry2.deinit();
+
     for (tree.module.body) |stmt| {
         if (stmt == .import_stmt) {
             const module_name = stmt.import_stmt.module;
+
+            // Skip runtime modules (they don't need Python compilation)
+            if (registry2.lookup(module_name)) |info| {
+                if (info.strategy == .zig_runtime or info.strategy == .c_library) {
+                    continue;
+                }
+            }
+
             const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, allocator, &type_inferrer) catch |err| {
                 std.debug.print("Warning: Could not pre-compile module {s}: {}\n", .{ module_name, err });
                 continue;

@@ -111,6 +111,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("re", .zig_runtime, "runtime.re", null);
     try registry.register("sys", .zig_runtime, "runtime.sys", null);
     try registry.register("time", .zig_runtime, "runtime.time", null);
+    try registry.register("math", .zig_runtime, "runtime.math", null);
 
     // Tier 2: C library wrappers
     try registry.register("numpy", .c_library, "@import(\"./c_interop/c_interop.zig\").numpy", "blas");

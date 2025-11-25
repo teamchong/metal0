@@ -265,6 +265,10 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
 
                     if (std.mem.eql(u8, module_name, "json")) {
                         analysis.needs_json = true;
+                        analysis.needs_runtime = true;
+                        analysis.needs_allocator = true;
+                    } else if (std.mem.eql(u8, module_name, "math")) {
+                        analysis.needs_runtime = true;
                         analysis.needs_allocator = true;
                     } else if (std.mem.eql(u8, module_name, "http")) {
                         analysis.needs_http = true;
