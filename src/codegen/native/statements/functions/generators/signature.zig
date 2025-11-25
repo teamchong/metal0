@@ -6,14 +6,19 @@ const CodegenError = @import("../../../main.zig").CodegenError;
 const param_analyzer = @import("../param_analyzer.zig");
 const allocator_analyzer = @import("../allocator_analyzer.zig");
 
+/// Python type hint to Zig type mapping (comptime optimized)
+const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "int", "i64" },
+    .{ "float", "f64" },
+    .{ "bool", "bool" },
+    .{ "str", "[]const u8" },
+    .{ "list", "anytype" },
+});
+
 /// Convert Python type hint to Zig type
 pub fn pythonTypeToZig(type_hint: ?[]const u8) []const u8 {
     if (type_hint) |hint| {
-        if (std.mem.eql(u8, hint, "int")) return "i64";
-        if (std.mem.eql(u8, hint, "float")) return "f64";
-        if (std.mem.eql(u8, hint, "bool")) return "bool";
-        if (std.mem.eql(u8, hint, "str")) return "[]const u8";
-        if (std.mem.eql(u8, hint, "list")) return "anytype";
+        if (TypeHints.get(hint)) |zig_type| return zig_type;
     }
     return "i64"; // Default to i64 instead of anytype (most class fields are integers)
 }
