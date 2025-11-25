@@ -216,6 +216,8 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             }
         },
         .import_from => |i| {
+            // module name is always allocated with dupe() in parseImportFrom
+            allocator.free(i.module);
             allocator.free(i.names);
             allocator.free(i.asnames);
         },

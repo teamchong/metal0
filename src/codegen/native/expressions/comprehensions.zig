@@ -137,13 +137,20 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     const parent = @import("../expressions.zig");
     const genExpr = parent.genExpr;
 
+    // Determine if key is an integer expression
+    const key_is_int = isIntExpr(dictcomp.key.*);
+
     // Generate: blk: { ... }
     try self.output.appendSlice(self.allocator, "blk: {\n");
     self.indent();
 
-    // Generate: const KV = struct { key: []const u8, value: i64 };
+    // Generate: const KV = struct { key: <type>, value: i64 };
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "const KV = struct { key: []const u8, value: i64 };\n");
+    if (key_is_int) {
+        try self.output.appendSlice(self.allocator, "const KV = struct { key: i64, value: i64 };\n");
+    } else {
+        try self.output.appendSlice(self.allocator, "const KV = struct { key: []const u8, value: i64 };\n");
+    }
 
     // Generate: var __dict_result = std.ArrayList(KV){};
     try self.emitIndent();
@@ -236,14 +243,13 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "try __dict_result.append(allocator, .{ .key = ");
 
-    // Generate key expression - need to convert to string if not already
-    const key_is_name = dictcomp.key.* == .name;
-    if (key_is_name) {
-        // Convert variable to string using try std.fmt.allocPrint
-        // Note: Keys are leaked (same as HashMap implementation)
-        try self.output.appendSlice(self.allocator, "try std.fmt.allocPrint(allocator, \"{d}\", .{");
+    // Generate key expression based on type
+    if (key_is_int) {
+        // Integer key - emit directly
         try genExpr(self, dictcomp.key.*);
-        try self.output.appendSlice(self.allocator, "})");
+    } else if (dictcomp.key.* == .name) {
+        // Variable name, assume string (might need conversion for non-string vars)
+        try genExpr(self, dictcomp.key.*);
     } else {
         // Assume it's already a string or constant
         try genExpr(self, dictcomp.key.*);
@@ -275,4 +281,24 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     self.dedent();
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "}");
+}
+
+/// Check if an expression evaluates to an integer type
+fn isIntExpr(node: ast.Node) bool {
+    return switch (node) {
+        .binop => true, // Arithmetic operations yield int
+        .constant => |c| c.value == .int,
+        .name => true, // Assume loop vars from range() are int (could be smarter)
+        .call => |c| {
+            // len(), int(), etc return int
+            if (c.func.* == .name) {
+                const name = c.func.name.id;
+                return std.mem.eql(u8, name, "len") or
+                    std.mem.eql(u8, name, "int") or
+                    std.mem.eql(u8, name, "ord");
+            }
+            return false;
+        },
+        else => false,
+    };
 }

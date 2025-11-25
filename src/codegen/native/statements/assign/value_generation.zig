@@ -172,6 +172,12 @@ pub fn trackVariableMetadata(
         }
     }
 
+    // Track dict comprehension variables (generates ArrayList of KV)
+    if (is_first_assignment and assign.value.* == .dictcomp) {
+        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        try self.arraylist_vars.put(var_name_copy, {});
+    }
+
     const lambda_closure = @import("../../expressions/lambda_closure.zig");
     const lambda_mod = @import("../../expressions/lambda.zig");
 

@@ -89,6 +89,21 @@ pub fn parseImportFrom(self: *Parser) ParseError!ast.Node {
         var asnames = std.ArrayList(?[]const u8){};
         errdefer asnames.deinit(self.allocator);
 
+        // Handle wildcard import: from X import *
+        if (self.match(.Star)) {
+            try names.append(self.allocator, "*");
+            try asnames.append(self.allocator, null);
+            _ = self.match(.Newline);
+
+            return ast.Node{
+                .import_from = .{
+                    .module = module_name,
+                    .names = try names.toOwnedSlice(self.allocator),
+                    .asnames = try asnames.toOwnedSlice(self.allocator),
+                },
+            };
+        }
+
         // Handle optional parentheses for multiline imports
         const has_parens = self.match(.LParen);
         if (has_parens) {

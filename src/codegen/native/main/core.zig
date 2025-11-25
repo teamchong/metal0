@@ -358,6 +358,21 @@ pub const NativeCodegen = struct {
         // Clean up c_libraries list (strings are not owned, just references)
         self.c_libraries.deinit(self.allocator);
 
+        // Clean up from_imports list (references AST data, not owned)
+        self.from_imports.deinit(self.allocator);
+
+        // Clean up from_import_needs_allocator tracking
+        for (self.from_import_needs_allocator.keys()) |key| {
+            self.allocator.free(key);
+        }
+        self.from_import_needs_allocator.deinit();
+
+        // Clean up func_local_mutations tracking
+        for (self.func_local_mutations.keys()) |key| {
+            self.allocator.free(key);
+        }
+        self.func_local_mutations.deinit();
+
         // Clean up comptime_evals tracking
         for (self.comptime_evals.keys()) |key| {
             self.allocator.free(key);

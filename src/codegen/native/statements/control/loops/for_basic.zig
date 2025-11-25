@@ -73,10 +73,10 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     self.indent();
     try self.pushScope();
 
-    // Unpack tuple elements: const x = __tuple__[0]; const y = __tuple__[1];
+    // Unpack tuple elements using struct field access: const x = __tuple__.@"0"; const y = __tuple__.@"1";
     for (var_names, 0..) |var_name, i| {
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__[{d}];\n", .{ var_name, unique_id, i });
+        try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ var_name, unique_id, i });
     }
 
     // Generate body statements

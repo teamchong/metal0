@@ -49,12 +49,27 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         else => false,
     };
 
+    // Check if this is a tracked ArrayList variable (must check BEFORE dict/set type check)
+    // Dict comprehensions generate ArrayList but are typed as .dict
+    const is_arraylist = blk: {
+        if (args[0] == .name) {
+            const var_name = args[0].name.id;
+            if (self.isArrayListVar(var_name)) {
+                break :blk true;
+            }
+        }
+        break :blk false;
+    };
+
     // Generate:
-    // - obj.items.len for ArrayList
+    // - obj.items.len for ArrayList (including dict comprehensions)
     // - obj.count() for HashMap/dict/set
     // - @typeInfo(...).fields.len for tuples
     // - obj.len for slices/arrays/strings
-    if (is_tuple) {
+    if (is_arraylist) {
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, ".items.len");
+    } else if (is_tuple) {
         try self.output.appendSlice(self.allocator, "@typeInfo(@TypeOf(");
         try self.genExpr(args[0]);
         try self.output.appendSlice(self.allocator, ")).@\"struct\".fields.len");
@@ -62,25 +77,9 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.output.appendSlice(self.allocator, ".count()");
     } else {
-        // Check if this is a tracked ArrayList variable
-        const is_arraylist = blk: {
-            if (args[0] == .name) {
-                const var_name = args[0].name.id;
-                if (self.isArrayListVar(var_name)) {
-                    break :blk true;
-                }
-            }
-            break :blk false;
-        };
-
-        if (is_arraylist) {
-            try self.genExpr(args[0]);
-            try self.output.appendSlice(self.allocator, ".items.len");
-        } else {
-            // For arrays, slices, strings - just use .len
-            try self.genExpr(args[0]);
-            try self.output.appendSlice(self.allocator, ".len");
-        }
+        // For arrays, slices, strings - just use .len
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, ".len");
     }
 }
 
