@@ -7,175 +7,131 @@ const CodegenError = @import("../main.zig").CodegenError;
 const methods = @import("../methods.zig");
 const pandas_mod = @import("../pandas.zig");
 
+// Handler type for standard methods (obj, args)
+const MethodHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
+
+// Handler type for pandas column methods (obj only)
+const ColumnHandler = *const fn (*NativeCodegen, ast.Node) CodegenError!void;
+
+// String methods - O(1) lookup via StaticStringMap
+const StringMethods = std.StaticStringMap(MethodHandler).initComptime(.{
+    .{ "split", methods.genSplit },
+    .{ "upper", methods.genUpper },
+    .{ "lower", methods.genLower },
+    .{ "strip", methods.genStrip },
+    .{ "replace", methods.genReplace },
+    .{ "join", methods.genJoin },
+    .{ "startswith", methods.genStartswith },
+    .{ "endswith", methods.genEndswith },
+    .{ "find", methods.genFind },
+    .{ "isdigit", methods.genIsdigit },
+    .{ "isalpha", methods.genIsalpha },
+    .{ "isalnum", methods.genIsalnum },
+    .{ "isspace", methods.genIsspace },
+    .{ "islower", methods.genIslower },
+    .{ "isupper", methods.genIsupper },
+    .{ "lstrip", methods.genLstrip },
+    .{ "rstrip", methods.genRstrip },
+    .{ "capitalize", methods.genCapitalize },
+    .{ "title", methods.genTitle },
+    .{ "swapcase", methods.genSwapcase },
+    .{ "rfind", methods.genRfind },
+    .{ "rindex", methods.genRindex },
+    .{ "ljust", methods.genLjust },
+    .{ "rjust", methods.genRjust },
+    .{ "center", methods.genCenter },
+    .{ "zfill", methods.genZfill },
+    .{ "isascii", methods.genIsascii },
+    .{ "istitle", methods.genIstitle },
+    .{ "isprintable", methods.genIsprintable },
+});
+
+// List methods - O(1) lookup via StaticStringMap
+const ListMethods = std.StaticStringMap(MethodHandler).initComptime(.{
+    .{ "append", methods.genAppend },
+    .{ "pop", methods.genPop },
+    .{ "extend", methods.genExtend },
+    .{ "insert", methods.genInsert },
+    .{ "remove", methods.genRemove },
+    .{ "reverse", methods.genReverse },
+    .{ "sort", methods.genSort },
+    .{ "clear", methods.genClear },
+    .{ "copy", methods.genCopy },
+});
+
+// Dict methods - O(1) lookup via StaticStringMap
+const DictMethods = std.StaticStringMap(MethodHandler).initComptime(.{
+    .{ "keys", methods.genKeys },
+    .{ "values", methods.genValues },
+    .{ "items", methods.genItems },
+});
+
+// Pandas column methods - O(1) lookup via StaticStringMap
+const PandasColumnMethods = std.StaticStringMap(ColumnHandler).initComptime(.{
+    .{ "sum", pandas_mod.genColumnSum },
+    .{ "mean", pandas_mod.genColumnMean },
+    .{ "describe", pandas_mod.genColumnDescribe },
+    .{ "min", pandas_mod.genColumnMin },
+    .{ "max", pandas_mod.genColumnMax },
+    .{ "std", pandas_mod.genColumnStd },
+});
+
 /// Try to dispatch method call (obj.method())
 /// Returns true if dispatched successfully
 pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
     if (call.func.* != .attribute) return false;
 
     const method_name = call.func.attribute.attr;
+    const obj = call.func.attribute.value.*;
 
-    // String methods
-    if (std.mem.eql(u8, method_name, "split")) {
-        try methods.genSplit(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "upper")) {
-        try methods.genUpper(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "lower")) {
-        try methods.genLower(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "strip")) {
-        try methods.genStrip(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "replace")) {
-        try methods.genReplace(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "join")) {
-        try methods.genJoin(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "startswith")) {
-        try methods.genStartswith(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "endswith")) {
-        try methods.genEndswith(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "find")) {
-        try methods.genFind(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "count")) {
-        try methods.genCount(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "isdigit")) {
-        try methods.genIsdigit(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "isalpha")) {
-        try methods.genIsalpha(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "isalnum")) {
-        try methods.genIsalnum(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "isspace")) {
-        try methods.genIsspace(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "islower")) {
-        try methods.genIslower(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "isupper")) {
-        try methods.genIsupper(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "lstrip")) {
-        try methods.genLstrip(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "rstrip")) {
-        try methods.genRstrip(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "capitalize")) {
-        try methods.genCapitalize(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "title")) {
-        try methods.genTitle(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "swapcase")) {
-        try methods.genSwapcase(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "index")) {
-        try methods.genStrIndex(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "rfind")) {
-        try methods.genRfind(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "rindex")) {
-        try methods.genRindex(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "ljust")) {
-        try methods.genLjust(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "rjust")) {
-        try methods.genRjust(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "center")) {
-        try methods.genCenter(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "zfill")) {
-        try methods.genZfill(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "isascii")) {
-        try methods.genIsascii(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "istitle")) {
-        try methods.genIstitle(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "isprintable")) {
-        try methods.genIsprintable(self, call.func.attribute.value.*, call.args);
+    // Try string methods first (most common)
+    if (StringMethods.get(method_name)) |handler| {
+        try handler(self, obj, call.args);
         return true;
     }
 
-    // List methods
-    if (std.mem.eql(u8, method_name, "append")) {
-        try methods.genAppend(self, call.func.attribute.value.*, call.args);
+    // Try list methods
+    if (ListMethods.get(method_name)) |handler| {
+        try handler(self, obj, call.args);
         return true;
     }
-    if (std.mem.eql(u8, method_name, "pop")) {
-        try methods.genPop(self, call.func.attribute.value.*, call.args);
+
+    // Try dict methods
+    if (DictMethods.get(method_name)) |handler| {
+        try handler(self, obj, call.args);
         return true;
     }
-    if (std.mem.eql(u8, method_name, "extend")) {
-        try methods.genExtend(self, call.func.attribute.value.*, call.args);
+
+    // Special cases that need custom handling (count, index, get)
+    if (try handleSpecialMethods(self, call, method_name, obj)) {
         return true;
     }
-    if (std.mem.eql(u8, method_name, "insert")) {
-        try methods.genInsert(self, call.func.attribute.value.*, call.args);
+
+    // Queue methods (asyncio.Queue)
+    if (try handleQueueMethods(self, call, method_name, obj)) {
         return true;
     }
-    if (std.mem.eql(u8, method_name, "remove")) {
-        try methods.genRemove(self, call.func.attribute.value.*, call.args);
-        return true;
+
+    // Pandas column methods (DataFrame column operations)
+    if (obj == .subscript) { // df['col'].method()
+        if (PandasColumnMethods.get(method_name)) |handler| {
+            try handler(self, obj);
+            return true;
+        }
     }
-    if (std.mem.eql(u8, method_name, "index")) {
-        try methods.genIndex(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
+
+    return false;
+}
+
+/// Handle methods that need special logic (count, index, get)
+fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: []const u8, obj: ast.Node) CodegenError!bool {
+    // count - needs type-based dispatch (list vs string)
     if (std.mem.eql(u8, method_name, "count")) {
-        // Check if it's a list or string - lists use list.genCount, strings use string.genCount
-        const obj = call.func.attribute.value.*;
         const is_list = blk: {
             if (obj == .name) {
                 const var_name = obj.name.id;
                 if (self.getSymbolType(var_name)) |var_type| {
-                    break :blk switch (var_type) {
-                        .list => true,
-                        else => false,
-                    };
+                    break :blk var_type == .list;
                 }
             }
             break :blk false;
@@ -183,54 +139,35 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
         if (is_list) {
             const genListCount = @import("../methods/list.zig").genCount;
-            try genListCount(self, call.func.attribute.value.*, call.args);
+            try genListCount(self, obj, call.args);
         } else {
-            // Default to string.genCount
-            try methods.genCount(self, call.func.attribute.value.*, call.args);
+            try methods.genCount(self, obj, call.args);
         }
         return true;
     }
-    if (std.mem.eql(u8, method_name, "reverse")) {
-        try methods.genReverse(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "sort")) {
-        try methods.genSort(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "clear")) {
-        try methods.genClear(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "copy")) {
-        try methods.genCopy(self, call.func.attribute.value.*, call.args);
+
+    // index - string version (genStrIndex) vs list version
+    if (std.mem.eql(u8, method_name, "index")) {
+        try methods.genStrIndex(self, obj, call.args);
         return true;
     }
 
-    // Dict methods
+    // get - only dict.get(key) with args
     if (std.mem.eql(u8, method_name, "get") and call.args.len > 0) {
-        // Only handle dict.get(key) - class methods with no args fall through
-        try methods.genGet(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "keys")) {
-        try methods.genKeys(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "values")) {
-        try methods.genValues(self, call.func.attribute.value.*, call.args);
-        return true;
-    }
-    if (std.mem.eql(u8, method_name, "items")) {
-        try methods.genItems(self, call.func.attribute.value.*, call.args);
+        try methods.genGet(self, obj, call.args);
         return true;
     }
 
-    // Queue methods (asyncio.Queue)
+    return false;
+}
+
+/// Handle asyncio.Queue methods
+fn handleQueueMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: []const u8, obj: ast.Node) CodegenError!bool {
+    const parent = @import("../expressions.zig");
+
     if (std.mem.eql(u8, method_name, "put_nowait")) {
         try self.output.appendSlice(self.allocator, "try ");
-        const parent = @import("../expressions.zig");
-        try parent.genExpr(self, call.func.attribute.value.*);
+        try parent.genExpr(self, obj);
         try self.output.appendSlice(self.allocator, ".put_nowait(");
         if (call.args.len > 0) {
             try parent.genExpr(self, call.args[0]);
@@ -238,64 +175,30 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         try self.output.appendSlice(self.allocator, ")");
         return true;
     }
+
     if (std.mem.eql(u8, method_name, "get_nowait")) {
         try self.output.appendSlice(self.allocator, "try ");
-        const parent = @import("../expressions.zig");
-        try parent.genExpr(self, call.func.attribute.value.*);
+        try parent.genExpr(self, obj);
         try self.output.appendSlice(self.allocator, ".get_nowait()");
         return true;
     }
+
     if (std.mem.eql(u8, method_name, "empty")) {
-        const parent = @import("../expressions.zig");
-        try parent.genExpr(self, call.func.attribute.value.*);
+        try parent.genExpr(self, obj);
         try self.output.appendSlice(self.allocator, ".empty()");
         return true;
     }
+
     if (std.mem.eql(u8, method_name, "full")) {
-        const parent = @import("../expressions.zig");
-        try parent.genExpr(self, call.func.attribute.value.*);
+        try parent.genExpr(self, obj);
         try self.output.appendSlice(self.allocator, ".full()");
         return true;
     }
+
     if (std.mem.eql(u8, method_name, "qsize")) {
-        const parent = @import("../expressions.zig");
-        try parent.genExpr(self, call.func.attribute.value.*);
+        try parent.genExpr(self, obj);
         try self.output.appendSlice(self.allocator, ".qsize()");
         return true;
-    }
-
-    // Pandas Column methods (DataFrame column operations)
-    // Check if the object is a DataFrame column by looking for subscript on DataFrame
-    const is_column_method = blk: {
-        const obj = call.func.attribute.value.*;
-        break :blk obj == .subscript; // df['col'].method()
-    };
-
-    if (is_column_method) {
-        if (std.mem.eql(u8, method_name, "sum")) {
-            try pandas_mod.genColumnSum(self, call.func.attribute.value.*);
-            return true;
-        }
-        if (std.mem.eql(u8, method_name, "mean")) {
-            try pandas_mod.genColumnMean(self, call.func.attribute.value.*);
-            return true;
-        }
-        if (std.mem.eql(u8, method_name, "describe")) {
-            try pandas_mod.genColumnDescribe(self, call.func.attribute.value.*);
-            return true;
-        }
-        if (std.mem.eql(u8, method_name, "min")) {
-            try pandas_mod.genColumnMin(self, call.func.attribute.value.*);
-            return true;
-        }
-        if (std.mem.eql(u8, method_name, "max")) {
-            try pandas_mod.genColumnMax(self, call.func.attribute.value.*);
-            return true;
-        }
-        if (std.mem.eql(u8, method_name, "std")) {
-            try pandas_mod.genColumnStd(self, call.func.attribute.value.*);
-            return true;
-        }
     }
 
     return false;

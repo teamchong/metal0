@@ -294,18 +294,19 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     try self.emit("var __allocator_initialized: bool = false;\n\n");
 
     // PHASE 6: Generate main function (script mode only)
+    // For WASM: Zig's std.start automatically exports _start if pub fn main exists
     try self.emit("pub fn main() !void {\n");
     self.indent();
 
-    // Setup allocator (always available for float formatting in print)
+    // Setup allocator (comptime selection for WASM compatibility)
     try self.emitIndent();
     try self.emit("var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};\n");
     try self.emitIndent();
     try self.emit("defer _ = gpa.deinit();\n");
     try self.emitIndent();
-    try self.emit("var allocator = gpa.allocator();\n");  // var instead of const so we can take address
+    try self.emit("var allocator = gpa.allocator();\n");
     try self.emitIndent();
-    try self.emit("std.mem.doNotOptimizeAway(&allocator);\n");  // Suppress unused warning
+    try self.emit("std.mem.doNotOptimizeAway(&allocator);\n");
     try self.emit("\n");
 
     // Initialize module-level allocator

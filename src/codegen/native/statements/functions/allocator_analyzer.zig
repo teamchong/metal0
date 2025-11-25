@@ -3,6 +3,58 @@
 const std = @import("std");
 const ast = @import("../../../../ast.zig");
 
+// ComptimeStringMaps for O(1) lookup + DCE optimization
+
+/// Methods that use allocator param (string/list mutations)
+const AllocatorMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "upper", {} },
+    .{ "lower", {} },
+    .{ "strip", {} },
+    .{ "split", {} },
+    .{ "replace", {} },
+    .{ "join", {} },
+    .{ "format", {} },
+    .{ "append", {} },
+    .{ "extend", {} },
+    .{ "insert", {} },
+});
+
+/// Built-in functions that use allocator param
+const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
+    .{ "str", {} },
+    .{ "list", {} },
+    .{ "dict", {} },
+    .{ "format", {} },
+    .{ "input", {} },
+});
+
+/// Functions that return strings (for mightBeString)
+const StringReturningFuncs = std.StaticStringMap(void).initComptime(.{
+    .{ "str", {} },
+    .{ "input", {} },
+});
+
+/// String methods (for mightBeString)
+const StringMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "upper", {} },
+    .{ "lower", {} },
+    .{ "strip", {} },
+    .{ "lstrip", {} },
+    .{ "rstrip", {} },
+    .{ "split", {} },
+    .{ "join", {} },
+    .{ "replace", {} },
+    .{ "format", {} },
+    .{ "capitalize", {} },
+    .{ "title", {} },
+    .{ "swapcase", {} },
+    .{ "center", {} },
+    .{ "ljust", {} },
+    .{ "rjust", {} },
+    .{ "encode", {} },
+    .{ "decode", {} },
+});
+
 /// Check if a function needs an allocator parameter (for error union return type)
 pub fn functionNeedsAllocator(func: ast.Node.FunctionDef) bool {
     for (func.body) |stmt| {
@@ -134,36 +186,14 @@ fn exprUsesAllocatorParam(expr: ast.Node, func_name: []const u8) bool {
 /// func_name is the current function name to detect recursive calls
 fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
     if (call.func.* == .attribute) {
-        const attr = call.func.attribute;
-        const method_name = attr.attr;
-        if (std.mem.eql(u8, method_name, "upper") or
-            std.mem.eql(u8, method_name, "lower") or
-            std.mem.eql(u8, method_name, "strip") or
-            std.mem.eql(u8, method_name, "split") or
-            std.mem.eql(u8, method_name, "replace") or
-            std.mem.eql(u8, method_name, "join") or
-            std.mem.eql(u8, method_name, "format") or
-            std.mem.eql(u8, method_name, "append") or
-            std.mem.eql(u8, method_name, "extend") or
-            std.mem.eql(u8, method_name, "insert"))
-        {
-            return true;
-        }
+        const method_name = call.func.attribute.attr;
+        if (AllocatorMethods.has(method_name)) return true;
     }
     if (call.func.* == .name) {
         const called_name = call.func.name.id;
         // Recursive call: function calls itself, allocator will be passed
-        if (std.mem.eql(u8, called_name, func_name)) {
-            return true;
-        }
-        if (std.mem.eql(u8, called_name, "str") or
-            std.mem.eql(u8, called_name, "list") or
-            std.mem.eql(u8, called_name, "dict") or
-            std.mem.eql(u8, called_name, "format") or
-            std.mem.eql(u8, called_name, "input"))
-        {
-            return true;
-        }
+        if (std.mem.eql(u8, called_name, func_name)) return true;
+        if (AllocatorBuiltins.has(called_name)) return true;
     }
     for (call.args) |arg| {
         if (exprUsesAllocatorParam(arg, func_name)) return true;
@@ -298,43 +328,14 @@ fn exprNeedsAllocator(expr: ast.Node) bool {
 fn callNeedsAllocator(call: ast.Node.Call) bool {
     // Check if this is a method call that needs allocator
     if (call.func.* == .attribute) {
-        const attr = call.func.attribute;
-        const method_name = attr.attr;
-
-        // String methods that return new strings
-        if (std.mem.eql(u8, method_name, "upper") or
-            std.mem.eql(u8, method_name, "lower") or
-            std.mem.eql(u8, method_name, "strip") or
-            std.mem.eql(u8, method_name, "split") or
-            std.mem.eql(u8, method_name, "replace") or
-            std.mem.eql(u8, method_name, "join") or
-            std.mem.eql(u8, method_name, "format"))
-        {
-            return true;
-        }
-
-        // List methods that mutate (need allocator for ArrayList)
-        if (std.mem.eql(u8, method_name, "append") or
-            std.mem.eql(u8, method_name, "extend") or
-            std.mem.eql(u8, method_name, "insert"))
-        {
-            return true;
-        }
+        const method_name = call.func.attribute.attr;
+        if (AllocatorMethods.has(method_name)) return true;
     }
 
     // Check if this is a built-in that needs allocator
     if (call.func.* == .name) {
-        const func_name = call.func.name.id;
-
-        // Built-ins that need allocator
-        if (std.mem.eql(u8, func_name, "str") or
-            std.mem.eql(u8, func_name, "list") or
-            std.mem.eql(u8, func_name, "dict") or
-            std.mem.eql(u8, func_name, "format") or
-            std.mem.eql(u8, func_name, "input"))
-        {
-            return true;
-        }
+        const fn_name = call.func.name.id;
+        if (AllocatorBuiltins.has(fn_name)) return true;
     }
 
     // Check arguments recursively
@@ -355,26 +356,12 @@ fn mightBeString(expr: ast.Node) bool {
         .call => |ca| {
             // Check if this is str() or a string method
             if (ca.func.* == .name) {
-                const func_name = ca.func.name.id;
-                if (std.mem.eql(u8, func_name, "str") or
-                    std.mem.eql(u8, func_name, "input"))
-                {
-                    return true;
-                }
+                const fn_name = ca.func.name.id;
+                if (StringReturningFuncs.has(fn_name)) return true;
             }
             if (ca.func.* == .attribute) {
-                // String methods return strings
                 const method_name = ca.func.attribute.attr;
-                // Only flag known string methods
-                const string_methods = [_][]const u8{
-                    "upper",    "lower",  "strip",   "lstrip", "rstrip",
-                    "split",    "join",   "replace", "format", "capitalize",
-                    "title",    "swapcase", "center", "ljust", "rjust",
-                    "encode",   "decode",
-                };
-                for (string_methods) |method| {
-                    if (std.mem.eql(u8, method_name, method)) return true;
-                }
+                if (StringMethods.has(method_name)) return true;
             }
             return false;
         },

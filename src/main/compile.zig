@@ -416,8 +416,9 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     var native_gen = try native_codegen.NativeCodegen.init(allocator, &type_inferrer, &semantic_info);
     defer native_gen.deinit();
 
-    // Set mode: shared library (.so) = module mode, binary/run = script mode
-    if (!opts.binary and std.mem.eql(u8, opts.mode, "build")) {
+    // Set mode: shared library (.so) = module mode, binary/run/wasm = script mode
+    // WASM needs script mode (with main/_start entry point)
+    if (!opts.binary and !opts.wasm and std.mem.eql(u8, opts.mode, "build")) {
         native_gen.mode = .module;
         // Extract module name from input file
         const basename = std.fs.path.basename(opts.input_file);

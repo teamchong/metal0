@@ -11,6 +11,59 @@ const async_mod = @import("../async.zig");
 const numpy_mod = @import("../numpy.zig");
 const pandas_mod = @import("../pandas.zig");
 
+/// Handler function type for module dispatchers
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+const FuncMap = std.StaticStringMap(ModuleHandler);
+
+/// JSON module functions (O(1) lookup)
+const JsonFuncs = FuncMap.initComptime(.{
+    .{ "loads", json.genJsonLoads },
+    .{ "dumps", json.genJsonDumps },
+});
+
+/// HTTP module functions
+const HttpFuncs = FuncMap.initComptime(.{
+    .{ "get", http.genHttpGet },
+    .{ "post", http.genHttpPost },
+});
+
+/// Asyncio module functions
+const AsyncioFuncs = FuncMap.initComptime(.{
+    .{ "run", async_mod.genAsyncioRun },
+    .{ "gather", async_mod.genAsyncioGather },
+    .{ "create_task", async_mod.genAsyncioCreateTask },
+    .{ "sleep", async_mod.genAsyncioSleep },
+    .{ "Queue", async_mod.genAsyncioQueue },
+});
+
+/// NumPy module functions
+const NumpyFuncs = FuncMap.initComptime(.{
+    .{ "array", numpy_mod.genArray },
+    .{ "dot", numpy_mod.genDot },
+    .{ "sum", numpy_mod.genSum },
+    .{ "mean", numpy_mod.genMean },
+    .{ "transpose", numpy_mod.genTranspose },
+    .{ "matmul", numpy_mod.genMatmul },
+    .{ "zeros", numpy_mod.genZeros },
+    .{ "ones", numpy_mod.genOnes },
+});
+
+/// Pandas module functions
+const PandasFuncs = FuncMap.initComptime(.{
+    .{ "DataFrame", pandas_mod.genDataFrame },
+});
+
+/// Module to function map lookup
+const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
+    .{ "json", JsonFuncs },
+    .{ "http", HttpFuncs },
+    .{ "asyncio", AsyncioFuncs },
+    .{ "numpy", NumpyFuncs },
+    .{ "np", NumpyFuncs },
+    .{ "pandas", PandasFuncs },
+    .{ "pd", PandasFuncs },
+});
+
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
 /// Returns true if dispatched successfully
 pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []const u8, call: ast.Node.Call) CodegenError!bool {
@@ -26,94 +79,10 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
         return error.OutOfMemory;
     }
 
-    // JSON module functions
-    if (std.mem.eql(u8, module_name, "json")) {
-        if (std.mem.eql(u8, func_name, "loads")) {
-            try json.genJsonLoads(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "dumps")) {
-            try json.genJsonDumps(self, call.args);
-            return true;
-        }
-    }
-
-    // HTTP module functions
-    if (std.mem.eql(u8, module_name, "http")) {
-        if (std.mem.eql(u8, func_name, "get")) {
-            try http.genHttpGet(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "post")) {
-            try http.genHttpPost(self, call.args);
-            return true;
-        }
-    }
-
-    // Asyncio module functions
-    if (std.mem.eql(u8, module_name, "asyncio")) {
-        if (std.mem.eql(u8, func_name, "run")) {
-            try async_mod.genAsyncioRun(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "gather")) {
-            try async_mod.genAsyncioGather(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "create_task")) {
-            try async_mod.genAsyncioCreateTask(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "sleep")) {
-            try async_mod.genAsyncioSleep(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "Queue")) {
-            try async_mod.genAsyncioQueue(self, call.args);
-            return true;
-        }
-    }
-
-    // NumPy module functions
-    if (std.mem.eql(u8, module_name, "numpy") or std.mem.eql(u8, module_name, "np")) {
-        if (std.mem.eql(u8, func_name, "array")) {
-            try numpy_mod.genArray(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "dot")) {
-            try numpy_mod.genDot(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "sum")) {
-            try numpy_mod.genSum(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "mean")) {
-            try numpy_mod.genMean(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "transpose")) {
-            try numpy_mod.genTranspose(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "matmul")) {
-            try numpy_mod.genMatmul(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "zeros")) {
-            try numpy_mod.genZeros(self, call.args);
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "ones")) {
-            try numpy_mod.genOnes(self, call.args);
-            return true;
-        }
-    }
-
-    // Pandas module functions
-    if (std.mem.eql(u8, module_name, "pandas") or std.mem.eql(u8, module_name, "pd")) {
-        if (std.mem.eql(u8, func_name, "DataFrame")) {
-            try pandas_mod.genDataFrame(self, call.args);
+    // O(1) module lookup, then O(1) function lookup
+    if (ModuleMap.get(module_name)) |func_map| {
+        if (func_map.get(func_name)) |handler| {
+            try handler(self, call.args);
             return true;
         }
     }
