@@ -47,9 +47,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Emit as explicit discard to avoid "unused variable" error
             if (assign.value.* == .ellipsis_literal) {
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "_ = ");
+                try self.emit("_ = ");
                 try self.genExpr(assign.value.*);
-                try self.output.appendSlice(self.allocator, ";\n");
+                try self.emit(";\n");
                 return;
             }
 
@@ -96,9 +96,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // emit _ = varname; to suppress Zig "unused" warning
                     if (self.isEvalStringVar(var_name)) {
                         try self.emitIndent();
-                        try self.output.appendSlice(self.allocator, "_ = ");
-                        try self.output.appendSlice(self.allocator, var_name);
-                        try self.output.appendSlice(self.allocator, ";\n");
+                        try self.emit("_ = ");
+                        try self.emit(var_name);
+                        try self.emit(";\n");
                     }
 
                     return;
@@ -111,9 +111,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             // For unused variables, discard with _ = expr; to avoid Zig errors
             if (is_first_assignment and self.isVarUnused(var_name)) {
-                try self.output.appendSlice(self.allocator, "_ = ");
+                try self.emit("_ = ");
                 try self.genExpr(assign.value.*);
-                try self.output.appendSlice(self.allocator, ";\n");
+                try self.emit(";\n");
                 // Don't declare - variable doesn't exist
                 return;
             }
@@ -142,8 +142,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Reassignment: x = value (no var/const keyword!)
                 // Use renamed version if in var_renames map (for exception handling)
                 const actual_name = self.var_renames.get(var_name) orelse var_name;
-                try self.output.appendSlice(self.allocator, actual_name);
-                try self.output.appendSlice(self.allocator, " = ");
+                try self.emit(actual_name);
+                try self.emit(" = ");
                 // No type annotation on reassignment
             }
 
@@ -183,36 +183,36 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             if (is_async_call) {
                 // Auto-await: wrap async call with scheduler init + wait + result extraction
-                try self.output.appendSlice(self.allocator, "(blk: {\n");
+                try self.emit("(blk: {\n");
                 try self.emitIndent();
                 // Initialize scheduler if needed (first async call)
-                try self.output.appendSlice(self.allocator, "    if (!runtime.scheduler_initialized) {\n");
+                try self.emit("    if (!runtime.scheduler_initialized) {\n");
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
+                try self.emit("        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "        runtime.scheduler = runtime.Scheduler.init(allocator, __num_threads) catch unreachable;\n");
+                try self.emit("        runtime.scheduler = runtime.Scheduler.init(allocator, __num_threads) catch unreachable;\n");
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "        runtime.scheduler.start() catch unreachable;\n");
+                try self.emit("        runtime.scheduler.start() catch unreachable;\n");
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "        runtime.scheduler_initialized = true;\n");
+                try self.emit("        runtime.scheduler_initialized = true;\n");
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "    }\n");
+                try self.emit("    }\n");
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "    const __thread = ");
+                try self.emit("    const __thread = ");
                 try self.genExpr(assign.value.*);
-                try self.output.appendSlice(self.allocator, ";\n");
+                try self.emit(";\n");
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "    runtime.scheduler.wait(__thread);\n");
+                try self.emit("    runtime.scheduler.wait(__thread);\n");
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "    const __result = __thread.result orelse unreachable;\n");
+                try self.emit("    const __result = __thread.result orelse unreachable;\n");
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
+                try self.emit("    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "});\n");
+                try self.emit("});\n");
             } else {
                 // Emit value normally
                 try self.genExpr(assign.value.*);
-                try self.output.appendSlice(self.allocator, ";\n");
+                try self.emit(";\n");
             }
 
             // Track variable metadata (ArrayList vars, closures, etc.)
@@ -255,18 +255,18 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     else => "int", // Default fallback
                 };
 
-                try self.output.appendSlice(self.allocator, "try ");
+                try self.emit("try ");
                 try self.genExpr(attr.value.*);
-                try self.output.writer(self.allocator).print(".__dict__.put(\"{s}\", runtime.PyValue{{ .{s} = ", .{ attr.attr, py_value_tag });
+                try self.emitFmt(".__dict__.put(\"{s}\", runtime.PyValue{{ .{s} = ", .{ attr.attr, py_value_tag });
                 try self.genExpr(assign.value.*);
-                try self.output.appendSlice(self.allocator, " })");
+                try self.emit(" })");
             } else {
                 // Known attribute: direct assignment
                 try self.genExpr(target);
-                try self.output.appendSlice(self.allocator, " = ");
+                try self.emit(" = ");
                 try self.genExpr(assign.value.*);
             }
-            try self.output.appendSlice(self.allocator, ";\n");
+            try self.emit(";\n");
         }
     }
 }
@@ -277,44 +277,44 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
     // Emit target (variable name)
     try self.genExpr(aug.target.*);
-    try self.output.appendSlice(self.allocator, " = ");
+    try self.emit(" = ");
 
     // Special handling for floor division and power
     if (aug.op == .FloorDiv) {
-        try self.output.appendSlice(self.allocator, "@divFloor(");
+        try self.emit("@divFloor(");
         try self.genExpr(aug.target.*);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
         try self.genExpr(aug.value.*);
-        try self.output.appendSlice(self.allocator, ");\n");
+        try self.emit(");\n");
         return;
     }
 
     if (aug.op == .Pow) {
-        try self.output.appendSlice(self.allocator, "std.math.pow(i64, ");
+        try self.emit("std.math.pow(i64, ");
         try self.genExpr(aug.target.*);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
         try self.genExpr(aug.value.*);
-        try self.output.appendSlice(self.allocator, ");\n");
+        try self.emit(");\n");
         return;
     }
 
     if (aug.op == .Mod) {
-        try self.output.appendSlice(self.allocator, "@rem(");
+        try self.emit("@rem(");
         try self.genExpr(aug.target.*);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
         try self.genExpr(aug.value.*);
-        try self.output.appendSlice(self.allocator, ");\n");
+        try self.emit(");\n");
         return;
     }
 
     // Handle bitwise shift operators separately due to RHS type casting
     if (aug.op == .LShift or aug.op == .RShift) {
         const shift_fn = if (aug.op == .LShift) "std.math.shl" else "std.math.shr";
-        try self.output.writer(self.allocator).print("{s}(i64, ", .{shift_fn});
+        try self.emitFmt("{s}(i64, ", .{shift_fn});
         try self.genExpr(aug.target.*);
-        try self.output.appendSlice(self.allocator, ", @as(u6, @intCast(");
+        try self.emit(", @as(u6, @intCast(");
         try self.genExpr(aug.value.*);
-        try self.output.appendSlice(self.allocator, ")));\n");
+        try self.emit(")));\n");
         return;
     }
 
@@ -331,10 +331,10 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         .BitXor => " ^ ",
         else => " ? ",
     };
-    try self.output.appendSlice(self.allocator, op_str);
+    try self.emit(op_str);
 
     try self.genExpr(aug.value.*);
-    try self.output.appendSlice(self.allocator, ";\n");
+    try self.emit(";\n");
 }
 
 /// Generate expression statement (expression with semicolon)
@@ -354,7 +354,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Discard string constants (docstrings) by assigning to _
     // Zig requires all non-void values to be used
     if (expr == .constant and expr.constant.value == .string) {
-        try self.output.appendSlice(self.allocator, "_ = ");
+        try self.emit("_ = ");
     }
 
     // Discard return values from function calls (Zig requires all non-void values to be used)
@@ -364,7 +364,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         if (self.type_inferrer.func_return_types.get(func_name)) |return_type| {
             // Skip void returns
             if (return_type != .unknown) {
-                try self.output.appendSlice(self.allocator, "_ = ");
+                try self.emit("_ = ");
             }
         }
     }
@@ -378,9 +378,9 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const ends_with_block = generated.len > 0 and generated[generated.len - 1] == '}';
 
     if (ends_with_block) {
-        try self.output.appendSlice(self.allocator, "\n");
+        try self.emit("\n");
     } else {
-        try self.output.appendSlice(self.allocator, ";\n");
+        try self.emit(";\n");
     }
 }
 
