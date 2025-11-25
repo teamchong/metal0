@@ -69,6 +69,7 @@ pub const ComptimeEvaluator = struct {
             .Not => self.evalNot(operand),
             .USub => self.evalUSub(operand),
             .UAdd => operand,
+            .Invert => self.evalInvert(operand),
         };
     }
 
@@ -122,6 +123,14 @@ pub const ComptimeEvaluator = struct {
             },
             .float => |f| ComptimeValue{ .float = -f },
             else => null,
+        };
+    }
+
+    fn evalInvert(self: *ComptimeEvaluator, operand: ComptimeValue) ?ComptimeValue {
+        _ = self;
+        return switch (operand) {
+            .int => |i| ComptimeValue{ .int = ~i },
+            else => null, // Bitwise NOT only applies to integers
         };
     }
 

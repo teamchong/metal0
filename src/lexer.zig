@@ -36,6 +36,7 @@ pub const TokenType = enum {
     // Literals
     Ident,
     Number,
+    ComplexNumber,
     String,
     FString,
 
@@ -57,6 +58,7 @@ pub const TokenType = enum {
     Ampersand,
     Pipe,
     Caret,
+    Tilde,
     PlusEq,
     MinusEq,
     StarEq,

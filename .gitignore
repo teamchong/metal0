@@ -81,9 +81,9 @@ test_pool
 test_glob
 test_string_builder
 
-# Benchmark output binaries
-bench_dict
-bench_dict.hash
+# Benchmark output binaries (all bench_* in root)
+bench_*
+*.hash
 
 # Benchmark binaries (compiled to benchmarks/.build/)
 /fibonacci

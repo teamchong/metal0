@@ -7,7 +7,7 @@ cd "$(dirname "$0")/../.."
 passed=0
 failed=0
 
-for f in tests/reference/test_*.py; do
+for f in tests/cpython/test_*.py; do
     [ -e "$f" ] || continue
     name=$(basename "$f")
     if ./zig-out/bin/pyaot "$f" --force 2>&1 | grep -q "successfully"; then
