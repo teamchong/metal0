@@ -85,7 +85,30 @@ pub fn parseFor(self: *Parser) ParseError!ast.Node {
         }
 
         _ = try self.expect(.In);
-        const iter = try self.parseExpression();
+
+        // Parse iterable - may be a tuple without parens (e.g., 1, 2, 3)
+        const first_expr = try self.parseExpression();
+
+        const iter = blk: {
+            if (self.check(.Comma)) {
+                // Tuple literal: collect comma-separated expressions
+                var elts = std.ArrayList(ast.Node){};
+                defer elts.deinit(self.allocator);
+
+                try elts.append(self.allocator, first_expr);
+
+                while (self.match(.Comma)) {
+                    // Check if we hit the colon (trailing comma case)
+                    if (self.check(.Colon)) break;
+                    try elts.append(self.allocator, try self.parseExpression());
+                }
+
+                break :blk ast.Node{ .tuple = .{ .elts = try elts.toOwnedSlice(self.allocator) } };
+            } else {
+                break :blk first_expr;
+            }
+        };
+
         _ = try self.expect(.Colon);
         _ = try self.expect(.Newline);
         _ = try self.expect(.Indent);
