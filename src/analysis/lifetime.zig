@@ -59,6 +59,17 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             for (call.args) |arg| {
                 line = try analyzeLifetimes(info, arg, line);
             }
+            // Special handling for eval/exec: extract variable references from string argument
+            if (call.func.* == .name) {
+                const func_name = call.func.name.id;
+                if ((std.mem.eql(u8, func_name, "eval") or std.mem.eql(u8, func_name, "exec")) and call.args.len >= 1) {
+                    if (call.args[0] == .constant and call.args[0].constant.value == .string) {
+                        const source = call.args[0].constant.value.string;
+                        // Extract variable names from eval string and mark them as used
+                        try extractVarsFromEvalString(info, source, line);
+                    }
+                }
+            }
         },
         .compare => |compare| {
             line = try analyzeLifetimes(info, compare.left.*, line);
@@ -327,11 +338,87 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             // Analyze value expression
             line = try analyzeLifetimes(info, named.value.*, line);
         },
+        .fstring => |fstr| {
+            // F-strings can contain expressions that reference variables
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .literal => {}, // No variables
+                    .expr => |expr| {
+                        line = try analyzeLifetimes(info, expr.*, line);
+                    },
+                    .format_expr => |fmt| {
+                        line = try analyzeLifetimes(info, fmt.expr.*, line);
+                    },
+                    .conv_expr => |conv| {
+                        line = try analyzeLifetimes(info, conv.expr.*, line);
+                    },
+                }
+            }
+        },
         // Leaf nodes
-        .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .fstring, .global_stmt, .ellipsis_literal, .raise_stmt => {
+        .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .global_stmt, .ellipsis_literal, .raise_stmt => {
             // No variables to track
         },
     }
 
     return line;
+}
+
+/// Extract variable names from an eval/exec string and mark them as used.
+/// Uses simple identifier extraction - finds [a-zA-Z_][a-zA-Z0-9_]* patterns.
+fn extractVarsFromEvalString(info: *types.SemanticInfo, source: []const u8, line: usize) !void {
+    // Strip quotes if present (AST stores string with quotes)
+    const stripped = if (source.len >= 2 and
+        ((source[0] == '"' and source[source.len - 1] == '"') or
+        (source[0] == '\'' and source[source.len - 1] == '\'')))
+        source[1 .. source.len - 1]
+    else
+        source;
+
+    var i: usize = 0;
+    while (i < stripped.len) {
+        const c = stripped[i];
+        // Check for start of identifier (letter or underscore)
+        if (isIdentStart(c)) {
+            const start = i;
+            i += 1;
+            // Continue while identifier character
+            while (i < stripped.len and isIdentCont(stripped[i])) {
+                i += 1;
+            }
+            const ident = stripped[start..i];
+            // Skip Python keywords - only record potential variable names
+            if (!isKeyword(ident)) {
+                // Record as a use (not assignment) to mark variable as "read"
+                try info.recordVariableUse(ident, line, false);
+                // Also mark as eval-string var for special handling in codegen
+                try info.markEvalStringVar(ident);
+            }
+        } else {
+            i += 1;
+        }
+    }
+}
+
+fn isIdentStart(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
+}
+
+fn isIdentCont(c: u8) bool {
+    return isIdentStart(c) or (c >= '0' and c <= '9');
+}
+
+fn isKeyword(s: []const u8) bool {
+    const keywords = [_][]const u8{
+        "and",     "as",       "assert", "async",  "await",    "break",
+        "class",   "continue", "def",    "del",    "elif",     "else",
+        "except",  "False",    "finally", "for",    "from",     "global",
+        "if",      "import",   "in",     "is",     "lambda",   "None",
+        "nonlocal", "not",      "or",     "pass",   "raise",    "return",
+        "True",    "try",      "while",  "with",   "yield",
+    };
+    for (keywords) |kw| {
+        if (std.mem.eql(u8, s, kw)) return true;
+    }
+    return false;
 }

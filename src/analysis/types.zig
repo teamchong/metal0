@@ -48,12 +48,14 @@ pub const ExpressionChain = struct {
 pub const SemanticInfo = struct {
     lifetimes: hashmap_helper.StringHashMap(VariableLifetime),
     expr_chains: std.ArrayList(ExpressionChain),
+    eval_string_vars: hashmap_helper.StringHashMap(void), // Variables referenced in eval/exec strings
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) SemanticInfo {
         return .{
             .lifetimes = hashmap_helper.StringHashMap(VariableLifetime).init(allocator),
             .expr_chains = std.ArrayList(ExpressionChain){},
+            .eval_string_vars = hashmap_helper.StringHashMap(void).init(allocator),
             .allocator = allocator,
         };
     }
@@ -64,6 +66,7 @@ pub const SemanticInfo = struct {
             chain.deinit(self.allocator);
         }
         self.expr_chains.deinit(self.allocator);
+        self.eval_string_vars.deinit();
     }
 
     /// Add or update a variable's lifetime information
@@ -114,5 +117,15 @@ pub const SemanticInfo = struct {
         const lifetime = self.lifetimes.get(name) orelse return false;
         // If first_assignment == last_use, the variable was only assigned, never read
         return lifetime.first_assignment == lifetime.last_use and lifetime.first_assignment > 0;
+    }
+
+    /// Mark a variable as used in an eval/exec string
+    pub fn markEvalStringVar(self: *SemanticInfo, name: []const u8) !void {
+        try self.eval_string_vars.put(name, {});
+    }
+
+    /// Check if a variable is used in an eval/exec string
+    pub fn isEvalStringVar(self: *SemanticInfo, name: []const u8) bool {
+        return self.eval_string_vars.contains(name);
     }
 };
