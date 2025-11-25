@@ -172,7 +172,7 @@ fn parseEmbeddedExpr(self: *Parser, expr_text: []const u8) ParseError!*ast.Node 
     defer expr_lexer.deinit();
 
     const expr_tokens = try expr_lexer.tokenize();
-    defer self.allocator.free(expr_tokens);
+    defer lexer.freeTokens(self.allocator, expr_tokens);
 
     var expr_parser = Parser.init(self.allocator, expr_tokens);
     const expr_node = try expr_parser.parseExpression();

@@ -7,6 +7,7 @@ const Lexer = @import("../../lexer.zig").Lexer;
 pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
     const quote = self.advance().?; // Consume opening quote
     var parts = std.ArrayList(FStringPart){};
+    errdefer parts.deinit(self.allocator);
 
     var literal_start = self.current;
 

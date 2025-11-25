@@ -125,6 +125,16 @@ pub const Token = struct {
     fstring_parts: ?[]FStringPart = null,
 };
 
+/// Free tokens array including any fstring_parts slices
+pub fn freeTokens(allocator: std.mem.Allocator, tokens: []Token) void {
+    for (tokens) |token| {
+        if (token.fstring_parts) |parts| {
+            allocator.free(parts);
+        }
+    }
+    allocator.free(tokens);
+}
+
 pub const Lexer = struct {
     source: []const u8,
     current: usize,

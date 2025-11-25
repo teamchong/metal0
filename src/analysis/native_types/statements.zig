@@ -112,6 +112,12 @@ pub fn visitStmt(
                 }
             }
 
+            // Register class fields early so self.field lookups work during method return type inference
+            try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods, .property_methods = property_methods });
+
+            // Register 'self' as class_instance so expressions like self.val can be inferred
+            try var_types.put("self", .{ .class_instance = class_def.name });
+
             // Extract method return types from all methods
             for (class_def.body) |stmt| {
                 if (stmt == .function_def) {
@@ -152,8 +158,13 @@ pub fn visitStmt(
                     const method = stmt.function_def;
                     // Register method parameter types
                     for (method.args) |arg| {
-                        const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
-                        try var_types.put(arg.name, param_type);
+                        // Register 'self' as a class instance type
+                        if (std.mem.eql(u8, arg.name, "self")) {
+                            try var_types.put("self", .{ .class_instance = class_def.name });
+                        } else {
+                            const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
+                            try var_types.put(arg.name, param_type);
+                        }
                     }
                     // Visit method body statements
                     for (method.body) |body_stmt| {

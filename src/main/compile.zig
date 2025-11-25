@@ -51,7 +51,7 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
     var lex = try lexer_mod.Lexer.init(allocator, source);
     defer lex.deinit();
     const tokens = try lex.tokenize();
-    defer allocator.free(tokens);
+    defer lexer_mod.freeTokens(allocator, tokens);
 
     var p = parser_mod.Parser.init(allocator, tokens);
     const tree = try p.parse();
@@ -289,7 +289,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     defer lex.deinit();
 
     const tokens = try lex.tokenize();
-    defer allocator.free(tokens);
+    defer lexer.freeTokens(allocator, tokens);
 
     // PHASE 2: Parser - Build AST
     std.debug.print("Parsing...\n", .{});

@@ -159,9 +159,18 @@ pub fn inferExpr(
                 }
             }
 
-            // Fallback: try to infer from object type (for future enhancements)
+            // Try to infer from object type
             const obj_type = try inferExpr(allocator, var_types, class_fields, func_return_types, a.value.*);
-            _ = obj_type; // Currently unused, but kept for future use
+
+            // If object is a class instance, look up field type from class definition
+            if (obj_type == .class_instance) {
+                const class_name = obj_type.class_instance;
+                if (class_fields.get(class_name)) |class_info| {
+                    if (class_info.fields.get(a.attr)) |field_type| {
+                        break :blk field_type;
+                    }
+                }
+            }
 
             break :blk .unknown;
         },

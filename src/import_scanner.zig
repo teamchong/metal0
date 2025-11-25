@@ -138,7 +138,7 @@ fn extractImports(allocator: std.mem.Allocator, source: []const u8) ![][]const u
         // If tokenization fails, return empty list
         return imports.toOwnedSlice(allocator);
     };
-    defer allocator.free(tokens);
+    defer lexer.freeTokens(allocator, tokens);
 
     // Parse to AST
     var p = parser.Parser.init(allocator, tokens);
