@@ -80,9 +80,19 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             // Check if this is a dict, list, or dataframe subscript
             const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
             const is_dict = (value_type == .dict);
-            const is_list = (value_type == .list);
             const is_dataframe = (value_type == .dataframe);
             const is_unknown_pyobject = (value_type == .unknown);
+
+            // Check if this variable is tracked as ArrayList (may have .array type but be ArrayList due to mutations)
+            const is_tracked_arraylist_early = blk: {
+                if (subscript.value.* == .name) {
+                    break :blk self.isArrayListVar(subscript.value.name.id);
+                }
+                break :blk false;
+            };
+
+            // A variable is a list if type inference says .list OR if it's tracked as ArrayList
+            const is_list = (value_type == .list) or is_tracked_arraylist_early;
 
             // For unknown PyObject types (like json.loads() result), check if index is string → dict access
             const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
@@ -109,13 +119,8 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     break :blk false;
                 };
 
-                // Check if this variable is tracked as ArrayList
-                const is_tracked_arraylist = blk: {
-                    if (subscript.value.* == .name) {
-                        break :blk self.isArrayListVar(subscript.value.name.id);
-                    }
-                    break :blk false;
-                };
+                // Use the early check for ArrayList tracking
+                const is_tracked_arraylist = is_tracked_arraylist_early;
 
                 if (is_array_slice or !is_tracked_arraylist) {
                     // Array slice or generic array: direct indexing without bounds check
@@ -147,8 +152,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // ArrayList indexing - use .items with runtime bounds check
                     const needs_cast = (index_type == .int);
 
-                    // Generate: blk: { const __list = list; const __idx = idx; if (__idx >= __list.items.len) return error.IndexError; break :blk __list.items[__idx]; }
-                    try self.output.appendSlice(self.allocator, "blk: { const __list = ");
+                    // Generate: blk: { const __s = list; const __idx = idx; if (__idx >= __s.items.len) return error.IndexError; break :blk __s.items[__idx]; }
+                    // Note: We use __s to be consistent with genSliceIndex which expects __s variable name
+                    try self.output.appendSlice(self.allocator, "blk: { const __s = ");
                     try genExpr(self, subscript.value.*);
                     try self.output.appendSlice(self.allocator, "; const __idx = ");
                     if (needs_cast) {
@@ -163,7 +169,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     if (needs_cast) {
                         try self.output.appendSlice(self.allocator, "))");
                     }
-                    try self.output.appendSlice(self.allocator, "; if (__idx >= __list.items.len) return error.IndexError; break :blk __list.items[__idx]; }");
+                    try self.output.appendSlice(self.allocator, "; if (__idx >= __s.items.len) return error.IndexError; break :blk __s.items[__idx]; }");
                 }
             } else {
                 // Array/slice/string indexing: a[b]

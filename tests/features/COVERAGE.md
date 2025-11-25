@@ -34,7 +34,7 @@ Based on CPython test categories. Run `make test-features` to verify.
 | for loop | test_for.py | ✅ |
 | while loop | test_while.py | ✅ |
 | break/continue | test_break_continue.py | ? |
-| try/except | test_try_except.py | ❌ |
+| try/except | test_try_except.py | ⏳ Not implemented |
 | with statement | test_with.py | ? |
 
 ## Functions
@@ -90,4 +90,4 @@ Based on CPython test categories. Run `make test-features` to verify.
 | type hints | test_typehints.py | ? |
 
 ---
-✅ = Working | ❌ = Broken | ? = Not tested
+✅ = Working | ❌ = Broken | ⏳ = Not implemented (planned) | ? = Not tested
