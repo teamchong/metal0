@@ -268,11 +268,12 @@ pyaot build --binary your_file.py
 | **PyAOT** | **31.9ms** | **1.00x** 🏆 |
 | Rust | 32.2ms | 1.01x |
 | Go | 286.7ms | 8.99x slower |
-| Python | ❌ | RecursionError |
+| Python | ❌ | RecursionError (depth 10000) |
+| PyPy | ❌ | RecursionError (depth 10000) |
 
-*Tail-recursive with accumulator. PyAOT uses `@call(.always_tail)` for guaranteed TCO.*
+*Tail-recursive with accumulator. PyAOT uses `@call(.always_tail)` for guaranteed TCO. Python/PyPy have no tail-call optimization.*
 
-**Deep recursion:** PyAOT handles fib_tail(1,000,000) - Python crashes at ~1000.
+**Deep recursion:** PyAOT handles fib_tail(1,000,000) - Python/PyPy crash at ~1000.
 
 ```bash
 make benchmark-fib       # Recursive fib(35) - PyAOT vs Rust vs Go vs Python
