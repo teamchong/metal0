@@ -109,6 +109,16 @@ const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "assertTrue", unittest_mod.genAssertTrue },
     .{ "assertFalse", unittest_mod.genAssertFalse },
     .{ "assertIsNone", unittest_mod.genAssertIsNone },
+    .{ "assertGreater", unittest_mod.genAssertGreater },
+    .{ "assertLess", unittest_mod.genAssertLess },
+    .{ "assertGreaterEqual", unittest_mod.genAssertGreaterEqual },
+    .{ "assertLessEqual", unittest_mod.genAssertLessEqual },
+    .{ "assertNotEqual", unittest_mod.genAssertNotEqual },
+    .{ "assertIs", unittest_mod.genAssertIs },
+    .{ "assertIsNot", unittest_mod.genAssertIsNot },
+    .{ "assertIsNotNone", unittest_mod.genAssertIsNotNone },
+    .{ "assertIn", unittest_mod.genAssertIn },
+    .{ "assertNotIn", unittest_mod.genAssertNotIn },
 });
 
 /// Try to dispatch method call (obj.method())

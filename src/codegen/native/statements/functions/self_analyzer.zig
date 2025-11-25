@@ -8,6 +8,16 @@ const UnittestMethods = std.StaticStringMap(void).initComptime(.{
     .{ "assertTrue", {} },
     .{ "assertFalse", {} },
     .{ "assertIsNone", {} },
+    .{ "assertGreater", {} },
+    .{ "assertLess", {} },
+    .{ "assertGreaterEqual", {} },
+    .{ "assertLessEqual", {} },
+    .{ "assertNotEqual", {} },
+    .{ "assertIs", {} },
+    .{ "assertIsNot", {} },
+    .{ "assertIsNotNone", {} },
+    .{ "assertIn", {} },
+    .{ "assertNotIn", {} },
 });
 
 /// Check if 'self' is used in method body

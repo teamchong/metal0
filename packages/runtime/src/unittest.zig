@@ -130,6 +130,196 @@ pub fn assertIsNone(value: anytype) void {
     }
 }
 
+/// Assertion: assertGreater(a, b) - a > b
+pub fn assertGreater(a: anytype, b: anytype) void {
+    if (!(a > b)) {
+        std.debug.print("AssertionError: {any} is not greater than {any}\n", .{ a, b });
+        if (global_result) |result| {
+            result.addFail("assertGreater failed") catch {};
+        }
+        @panic("assertGreater failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertLess(a, b) - a < b
+pub fn assertLess(a: anytype, b: anytype) void {
+    if (!(a < b)) {
+        std.debug.print("AssertionError: {any} is not less than {any}\n", .{ a, b });
+        if (global_result) |result| {
+            result.addFail("assertLess failed") catch {};
+        }
+        @panic("assertLess failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertGreaterEqual(a, b) - a >= b
+pub fn assertGreaterEqual(a: anytype, b: anytype) void {
+    if (!(a >= b)) {
+        std.debug.print("AssertionError: {any} is not >= {any}\n", .{ a, b });
+        if (global_result) |result| {
+            result.addFail("assertGreaterEqual failed") catch {};
+        }
+        @panic("assertGreaterEqual failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertLessEqual(a, b) - a <= b
+pub fn assertLessEqual(a: anytype, b: anytype) void {
+    if (!(a <= b)) {
+        std.debug.print("AssertionError: {any} is not <= {any}\n", .{ a, b });
+        if (global_result) |result| {
+            result.addFail("assertLessEqual failed") catch {};
+        }
+        @panic("assertLessEqual failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertNotEqual(a, b) - values must NOT be equal
+pub fn assertNotEqual(a: anytype, b: anytype) void {
+    const equal = switch (@typeInfo(@TypeOf(a))) {
+        .int, .comptime_int => a == b,
+        .float, .comptime_float => @abs(a - b) < 0.0001,
+        .bool => a == b,
+        .pointer => |ptr| blk: {
+            if (ptr.size == .slice) {
+                // String/slice comparison
+                break :blk std.mem.eql(u8, a, b);
+            }
+            break :blk a == b;
+        },
+        else => a == b,
+    };
+
+    if (equal) {
+        std.debug.print("AssertionError: {any} == {any} (expected not equal)\n", .{ a, b });
+        if (global_result) |result| {
+            result.addFail("assertNotEqual failed") catch {};
+        }
+        @panic("assertNotEqual failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertIs(a, b) - pointer identity check (a is b)
+pub fn assertIs(a: anytype, b: anytype) void {
+    const same = @intFromPtr(a) == @intFromPtr(b);
+
+    if (!same) {
+        std.debug.print("AssertionError: not the same object (expected identity)\n", .{});
+        if (global_result) |result| {
+            result.addFail("assertIs failed") catch {};
+        }
+        @panic("assertIs failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertIsNot(a, b) - pointer identity check (a is not b)
+pub fn assertIsNot(a: anytype, b: anytype) void {
+    const same = @intFromPtr(a) == @intFromPtr(b);
+
+    if (same) {
+        std.debug.print("AssertionError: same object (expected different identity)\n", .{});
+        if (global_result) |result| {
+            result.addFail("assertIsNot failed") catch {};
+        }
+        @panic("assertIsNot failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertIsNotNone(x) - value must not be None/null
+pub fn assertIsNotNone(value: anytype) void {
+    const is_none = switch (@typeInfo(@TypeOf(value))) {
+        .optional => value == null,
+        .pointer => |ptr| if (ptr.size == .one) false else value.len == 0,
+        else => false,
+    };
+
+    if (is_none) {
+        std.debug.print("AssertionError: expected not None\n", .{});
+        if (global_result) |result| {
+            result.addFail("assertIsNotNone failed") catch {};
+        }
+        @panic("assertIsNotNone failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertIn(item, container) - item must be in container
+pub fn assertIn(item: anytype, container: anytype) void {
+    const found = blk: {
+        // Simple iteration works for both arrays and slices
+        for (container) |elem| {
+            if (elem == item) break :blk true;
+        }
+        break :blk false;
+    };
+
+    if (!found) {
+        std.debug.print("AssertionError: {any} not in container\n", .{item});
+        if (global_result) |result| {
+            result.addFail("assertIn failed") catch {};
+        }
+        @panic("assertIn failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertNotIn(item, container) - item must not be in container
+pub fn assertNotIn(item: anytype, container: anytype) void {
+    const found = blk: {
+        // Simple iteration works for both arrays and slices
+        for (container) |elem| {
+            if (elem == item) break :blk true;
+        }
+        break :blk false;
+    };
+
+    if (found) {
+        std.debug.print("AssertionError: {any} unexpectedly in container\n", .{item});
+        if (global_result) |result| {
+            result.addFail("assertNotIn failed") catch {};
+        }
+        @panic("assertNotIn failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
 /// Print test results summary
 pub fn printResults() void {
     if (global_result) |result| {

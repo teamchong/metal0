@@ -115,3 +115,171 @@ pub fn genAssertIsNone(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     try parent.genExpr(self, args[0]);
     try self.output.appendSlice(self.allocator, ")");
 }
+
+/// Generate code for self.assertGreater(a, b)
+pub fn genAssertGreater(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertGreater requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertGreater(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertLess(a, b)
+pub fn genAssertLess(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertLess requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertLess(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertGreaterEqual(a, b)
+pub fn genAssertGreaterEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertGreaterEqual requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertGreaterEqual(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertLessEqual(a, b)
+pub fn genAssertLessEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertLessEqual requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertLessEqual(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertNotEqual(a, b)
+pub fn genAssertNotEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertNotEqual requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertNotEqual(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertIs(a, b)
+pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertIs requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertIs(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertIsNot(a, b)
+pub fn genAssertIsNot(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertIsNot requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertIsNot(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertIsNotNone(x)
+pub fn genAssertIsNotNone(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 1) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertIsNotNone requires 1 argument\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertIsNotNone(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertIn(item, container)
+pub fn genAssertIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertIn requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertIn(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertNotIn(item, container)
+pub fn genAssertNotIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertNotIn requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertNotIn(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
