@@ -11,6 +11,34 @@ pub const ClassInfo = core.ClassInfo;
 const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 
+// ComptimeStringMaps for module attribute lookups (DCE-friendly)
+const SysAttrType = enum { platform, version_info, argv };
+const SysAttrMap = std.StaticStringMap(SysAttrType).initComptime(.{
+    .{ "platform", .platform },
+    .{ "version_info", .version_info },
+    .{ "argv", .argv },
+});
+
+const VersionInfoAttrMap = std.StaticStringMap(void).initComptime(.{
+    .{ "major", {} },
+    .{ "minor", {} },
+    .{ "micro", {} },
+});
+
+const MathConstMap = std.StaticStringMap(void).initComptime(.{
+    .{ "pi", {} },
+    .{ "e", {} },
+    .{ "tau", {} },
+    .{ "inf", {} },
+    .{ "nan", {} },
+});
+
+const ModuleType = enum { sys, math };
+const ModuleMap = std.StaticStringMap(ModuleType).initComptime(.{
+    .{ "sys", .sys },
+    .{ "math", .math },
+});
+
 /// Infer the native type of an expression node
 pub fn inferExpr(
     allocator: std.mem.Allocator,
@@ -85,49 +113,22 @@ pub fn inferExpr(
             // Special case: module attributes (sys.platform, math.pi, etc.)
             if (a.value.* == .name) {
                 const module_name = a.value.name.id;
-                if (std.mem.eql(u8, module_name, "sys")) {
-                    if (std.mem.eql(u8, a.attr, "platform")) {
-                        break :blk .{ .string = .literal };
-                    } else if (std.mem.eql(u8, a.attr, "version_info")) {
-                        break :blk .unknown; // struct type
-                    } else if (std.mem.eql(u8, a.attr, "argv")) {
-                        break :blk .unknown; // [][]const u8
-                    }
-                }
-            }
-
-            // Handle chained attribute access: sys.version_info.major
-            if (a.value.* == .attribute) {
-                const inner_attr = a.value.attribute;
-                if (inner_attr.value.* == .name) {
-                    const module_name = inner_attr.value.name.id;
-                    if (std.mem.eql(u8, module_name, "sys") and
-                        std.mem.eql(u8, inner_attr.attr, "version_info"))
-                    {
-                        // sys.version_info.major/minor/micro are all i32
-                        if (std.mem.eql(u8, a.attr, "major") or
-                            std.mem.eql(u8, a.attr, "minor") or
-                            std.mem.eql(u8, a.attr, "micro"))
-                        {
-                            break :blk .int;
-                        }
-                    }
-                }
-            }
-
-            // Handle module attributes (continued for name-based modules)
-            if (a.value.* == .name) {
-                const module_name = a.value.name.id;
-
-                // math module constants
-                if (std.mem.eql(u8, module_name, "math")) {
-                    if (std.mem.eql(u8, a.attr, "pi") or
-                        std.mem.eql(u8, a.attr, "e") or
-                        std.mem.eql(u8, a.attr, "tau") or
-                        std.mem.eql(u8, a.attr, "inf") or
-                        std.mem.eql(u8, a.attr, "nan"))
-                    {
-                        break :blk .float;
+                if (ModuleMap.get(module_name)) |mod| {
+                    switch (mod) {
+                        .sys => {
+                            if (SysAttrMap.get(a.attr)) |attr| {
+                                break :blk switch (attr) {
+                                    .platform => .{ .string = .literal },
+                                    .version_info => .unknown, // struct type
+                                    .argv => .unknown, // [][]const u8
+                                };
+                            }
+                        },
+                        .math => {
+                            if (MathConstMap.has(a.attr)) {
+                                break :blk .float;
+                            }
+                        },
                     }
                 }
 
@@ -138,6 +139,22 @@ pub fn inferExpr(
                     if (class_entry.value_ptr.fields.get(a.attr)) |field_type| {
                         // Found a class with a field matching this attribute name
                         break :blk field_type;
+                    }
+                }
+            }
+
+            // Handle chained attribute access: sys.version_info.major
+            if (a.value.* == .attribute) {
+                const inner_attr = a.value.attribute;
+                if (inner_attr.value.* == .name) {
+                    const module_name = inner_attr.value.name.id;
+                    if (ModuleMap.get(module_name) == .sys and
+                        SysAttrMap.get(inner_attr.attr) == .version_info)
+                    {
+                        // sys.version_info.major/minor/micro are all i32
+                        if (VersionInfoAttrMap.has(a.attr)) {
+                            break :blk .int;
+                        }
                     }
                 }
             }

@@ -1,5 +1,18 @@
 const std = @import("std");
 
+/// Standalone FNV-1a hash for string keys (comptime and runtime)
+pub fn hash(key: []const u8) u64 {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    var h: u64 = FNV_OFFSET;
+    for (key) |byte| {
+        h ^= byte;
+        h *%= FNV_PRIME;
+    }
+    return h;
+}
+
 /// FNV-1a hash context for HashMap
 /// Optimized for small keys (u32, pairs of u32) and string keys
 pub fn FnvHashContext(comptime K: type) type {
