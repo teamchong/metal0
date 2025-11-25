@@ -225,14 +225,98 @@ const CodegenError = @import("main.zig").CodegenError;
 
     return output
 
+def audit_existing_signatures(module_name: str):
+    """Compare existing Zig implementations against Python signatures."""
+    import glob
+    import re as re_mod
+
+    try:
+        module = __import__(module_name)
+    except ImportError:
+        print(f"Error: Cannot import module '{module_name}'", file=sys.stderr)
+        return
+
+    # Get Python function signatures
+    python_funcs = {}
+    for name, obj in inspect.getmembers(module):
+        if callable(obj) and not name.startswith("_"):
+            try:
+                sig = inspect.signature(obj)
+                params = [p for p in sig.parameters.keys() if p != 'self']
+                python_funcs[name.lower()] = {
+                    'name': name,
+                    'params': params,
+                    'count': len(params)
+                }
+            except:
+                pass
+
+    # Find Zig implementations
+    patterns = [
+        f"src/codegen/native/{module_name}.zig",
+        f"src/codegen/native/{module_name}/*.zig",
+        f"packages/runtime/src/{module_name}.zig",
+    ]
+
+    print(f"=== Signature Audit: {module_name} module ===\n")
+    issues = []
+
+    for pattern in patterns:
+        for filepath in glob.glob(pattern):
+            try:
+                with open(filepath, 'r') as f:
+                    content = f.read()
+
+                    # Find functions and their arg counts
+                    for match in re_mod.finditer(r'pub fn gen(\w+)\s*\([^)]*args:\s*\[\]ast\.Node[^)]*\)[^{]*\{[^}]*args\.len\s*!=\s*(\d+)', content, re_mod.DOTALL):
+                        func_name = match.group(1).lower()
+                        zig_arg_count = int(match.group(2))
+
+                        # Remove module prefix
+                        if func_name.startswith(module_name.lower()):
+                            func_name = func_name[len(module_name):]
+
+                        # Compare with Python
+                        if func_name in python_funcs:
+                            py_info = python_funcs[func_name]
+                            if py_info['count'] != zig_arg_count:
+                                issues.append({
+                                    'func': py_info['name'],
+                                    'file': filepath,
+                                    'python_args': py_info['params'],
+                                    'python_count': py_info['count'],
+                                    'zig_count': zig_arg_count
+                                })
+            except Exception as e:
+                print(f"Error reading {filepath}: {e}", file=sys.stderr)
+
+    if issues:
+        print("❌ SIGNATURE MISMATCHES FOUND:\n")
+        for issue in issues:
+            print(f"  {issue['func']}():")
+            print(f"    Python: {issue['python_count']} args {issue['python_args']}")
+            print(f"    Zig:    {issue['zig_count']} args")
+            print(f"    File:   {issue['file']}")
+            print()
+    else:
+        print("✅ All implemented functions have correct argument counts\n")
+
+    return issues
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python tools/gen_stdlib_skeleton.py <module_name> [--missing]", file=sys.stderr)
+        print("Usage: python tools/gen_stdlib_skeleton.py <module_name> [--missing] [--audit]", file=sys.stderr)
         print("Example: python tools/gen_stdlib_skeleton.py re", file=sys.stderr)
         print("         python tools/gen_stdlib_skeleton.py re --missing  # Skip already implemented", file=sys.stderr)
+        print("         python tools/gen_stdlib_skeleton.py re --audit    # Check arg mismatches", file=sys.stderr)
         sys.exit(1)
 
     module_name = sys.argv[1]
+
+    if "--audit" in sys.argv:
+        audit_existing_signatures(module_name)
+        return
+
     only_missing = "--missing" in sys.argv
     print(generate_module_skeleton(module_name, only_missing))
 
