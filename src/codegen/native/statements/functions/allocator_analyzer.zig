@@ -13,51 +13,53 @@ pub fn functionNeedsAllocator(func: ast.Node.FunctionDef) bool {
 
 /// Check if function actually uses the 'allocator' param (not just __global_allocator)
 /// Dict literals use __global_allocator so they don't actually use the param
+/// Also returns true for recursive calls since they pass allocator to self
 pub fn functionActuallyUsesAllocatorParam(func: ast.Node.FunctionDef) bool {
     for (func.body) |stmt| {
-        if (stmtUsesAllocatorParam(stmt)) return true;
+        if (stmtUsesAllocatorParam(stmt, func.name)) return true;
     }
     return false;
 }
 
 /// Check if a statement uses the allocator parameter
-fn stmtUsesAllocatorParam(stmt: ast.Node) bool {
+/// func_name is passed to detect recursive calls
+fn stmtUsesAllocatorParam(stmt: ast.Node, func_name: []const u8) bool {
     return switch (stmt) {
-        .expr_stmt => |e| exprUsesAllocatorParam(e.value.*),
-        .assign => |a| exprUsesAllocatorParam(a.value.*),
-        .aug_assign => |a| exprUsesAllocatorParam(a.value.*),
-        .return_stmt => |r| if (r.value) |v| exprUsesAllocatorParam(v.*) else false,
+        .expr_stmt => |e| exprUsesAllocatorParam(e.value.*, func_name),
+        .assign => |a| exprUsesAllocatorParam(a.value.*, func_name),
+        .aug_assign => |a| exprUsesAllocatorParam(a.value.*, func_name),
+        .return_stmt => |r| if (r.value) |v| exprUsesAllocatorParam(v.*, func_name) else false,
         .if_stmt => |i| {
-            if (exprUsesAllocatorParam(i.condition.*)) return true;
+            if (exprUsesAllocatorParam(i.condition.*, func_name)) return true;
             for (i.body) |s| {
-                if (stmtUsesAllocatorParam(s)) return true;
+                if (stmtUsesAllocatorParam(s, func_name)) return true;
             }
             for (i.else_body) |s| {
-                if (stmtUsesAllocatorParam(s)) return true;
+                if (stmtUsesAllocatorParam(s, func_name)) return true;
             }
             return false;
         },
         .while_stmt => |w| {
-            if (exprUsesAllocatorParam(w.condition.*)) return true;
+            if (exprUsesAllocatorParam(w.condition.*, func_name)) return true;
             for (w.body) |s| {
-                if (stmtUsesAllocatorParam(s)) return true;
+                if (stmtUsesAllocatorParam(s, func_name)) return true;
             }
             return false;
         },
         .for_stmt => |f| {
-            if (exprUsesAllocatorParam(f.iter.*)) return true;
+            if (exprUsesAllocatorParam(f.iter.*, func_name)) return true;
             for (f.body) |s| {
-                if (stmtUsesAllocatorParam(s)) return true;
+                if (stmtUsesAllocatorParam(s, func_name)) return true;
             }
             return false;
         },
         .try_stmt => |t| {
             for (t.body) |s| {
-                if (stmtUsesAllocatorParam(s)) return true;
+                if (stmtUsesAllocatorParam(s, func_name)) return true;
             }
             for (t.handlers) |h| {
                 for (h.body) |s| {
-                    if (stmtUsesAllocatorParam(s)) return true;
+                    if (stmtUsesAllocatorParam(s, func_name)) return true;
                 }
             }
             return false;
@@ -67,7 +69,8 @@ fn stmtUsesAllocatorParam(stmt: ast.Node) bool {
 }
 
 /// Check if an expression actually uses the allocator param
-fn exprUsesAllocatorParam(expr: ast.Node) bool {
+/// func_name is passed to detect recursive calls
+fn exprUsesAllocatorParam(expr: ast.Node, func_name: []const u8) bool {
     return switch (expr) {
         .binop => |b| {
             // String concatenation uses allocator param
@@ -76,15 +79,15 @@ fn exprUsesAllocatorParam(expr: ast.Node) bool {
                     return true;
                 }
             }
-            return exprUsesAllocatorParam(b.left.*) or exprUsesAllocatorParam(b.right.*);
+            return exprUsesAllocatorParam(b.left.*, func_name) or exprUsesAllocatorParam(b.right.*, func_name);
         },
-        .call => |c| callUsesAllocatorParam(c),
+        .call => |c| callUsesAllocatorParam(c, func_name),
         .fstring => true,
         .listcomp => true,
         .dictcomp => true,
         .list => |l| {
             for (l.elts) |elt| {
-                if (exprUsesAllocatorParam(elt)) return true;
+                if (exprUsesAllocatorParam(elt, func_name)) return true;
             }
             return false;
         },
@@ -92,43 +95,44 @@ fn exprUsesAllocatorParam(expr: ast.Node) bool {
         .dict => false,
         .tuple => |t| {
             for (t.elts) |elt| {
-                if (exprUsesAllocatorParam(elt)) return true;
+                if (exprUsesAllocatorParam(elt, func_name)) return true;
             }
             return false;
         },
         .subscript => |s| {
-            if (exprUsesAllocatorParam(s.value.*)) return true;
+            if (exprUsesAllocatorParam(s.value.*, func_name)) return true;
             return switch (s.slice) {
-                .index => |idx| exprUsesAllocatorParam(idx.*),
+                .index => |idx| exprUsesAllocatorParam(idx.*, func_name),
                 .slice => |rng| {
-                    if (rng.lower) |l| if (exprUsesAllocatorParam(l.*)) return true;
-                    if (rng.upper) |u| if (exprUsesAllocatorParam(u.*)) return true;
-                    if (rng.step) |st| if (exprUsesAllocatorParam(st.*)) return true;
+                    if (rng.lower) |l| if (exprUsesAllocatorParam(l.*, func_name)) return true;
+                    if (rng.upper) |u| if (exprUsesAllocatorParam(u.*, func_name)) return true;
+                    if (rng.step) |st| if (exprUsesAllocatorParam(st.*, func_name)) return true;
                     return false;
                 },
             };
         },
-        .attribute => |a| exprUsesAllocatorParam(a.value.*),
+        .attribute => |a| exprUsesAllocatorParam(a.value.*, func_name),
         .compare => |c| {
-            if (exprUsesAllocatorParam(c.left.*)) return true;
+            if (exprUsesAllocatorParam(c.left.*, func_name)) return true;
             for (c.comparators) |comp| {
-                if (exprUsesAllocatorParam(comp)) return true;
+                if (exprUsesAllocatorParam(comp, func_name)) return true;
             }
             return false;
         },
         .boolop => |b| {
             for (b.values) |val| {
-                if (exprUsesAllocatorParam(val)) return true;
+                if (exprUsesAllocatorParam(val, func_name)) return true;
             }
             return false;
         },
-        .unaryop => |u| exprUsesAllocatorParam(u.operand.*),
+        .unaryop => |u| exprUsesAllocatorParam(u.operand.*, func_name),
         else => false,
     };
 }
 
 /// Check if a call uses allocator param
-fn callUsesAllocatorParam(call: ast.Node.Call) bool {
+/// func_name is the current function name to detect recursive calls
+fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
     if (call.func.* == .attribute) {
         const attr = call.func.attribute;
         const method_name = attr.attr;
@@ -147,18 +151,22 @@ fn callUsesAllocatorParam(call: ast.Node.Call) bool {
         }
     }
     if (call.func.* == .name) {
-        const func_name = call.func.name.id;
-        if (std.mem.eql(u8, func_name, "str") or
-            std.mem.eql(u8, func_name, "list") or
-            std.mem.eql(u8, func_name, "dict") or
-            std.mem.eql(u8, func_name, "format") or
-            std.mem.eql(u8, func_name, "input"))
+        const called_name = call.func.name.id;
+        // Recursive call: function calls itself, allocator will be passed
+        if (std.mem.eql(u8, called_name, func_name)) {
+            return true;
+        }
+        if (std.mem.eql(u8, called_name, "str") or
+            std.mem.eql(u8, called_name, "list") or
+            std.mem.eql(u8, called_name, "dict") or
+            std.mem.eql(u8, called_name, "format") or
+            std.mem.eql(u8, called_name, "input"))
         {
             return true;
         }
     }
     for (call.args) |arg| {
-        if (exprUsesAllocatorParam(arg)) return true;
+        if (exprUsesAllocatorParam(arg, func_name)) return true;
     }
     return false;
 }

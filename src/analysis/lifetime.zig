@@ -127,24 +127,12 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             line += 1;
         },
         .function_def => |func| {
-            const scope_start = line;
-
-            // Record parameters
-            for (func.args) |arg| {
-                try info.recordVariableUse(arg.name, line, true);
-            }
-            line += 1;
-
-            // Analyze body
-            for (func.body) |body_node| {
-                line = try analyzeLifetimes(info, body_node, line);
-            }
-
-            // Mark scope end for parameters
-            for (func.args) |arg| {
-                try info.markScopeEnd(arg.name, line);
-            }
-            _ = scope_start;
+            // DON'T analyze function body or parameters for module-level lifetime analysis!
+            // Function-local variables are in a separate scope from module-level variables.
+            // Recording function params/locals would pollute the module-level namespace
+            // and cause incorrect var/const decisions for module-level variables with
+            // the same name as function parameters.
+            _ = func;
             line += 1;
         },
         .lambda => |lambda| {

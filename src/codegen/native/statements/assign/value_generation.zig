@@ -54,6 +54,15 @@ pub fn emitVarDeclaration(
     // This is especially important for strings in functions that get reassigned
     const is_mutated = self.semantic_info.isMutated(var_name);
 
+    // Debug output for var/const decision
+    std.debug.print("DEBUG emitVarDeclaration: var_name={s} is_mutated={} is_arraylist={} is_dict={} is_mutable_class={}\n", .{
+        var_name,
+        is_mutated,
+        is_arraylist,
+        is_dict,
+        is_mutable_class_instance,
+    });
+
     const needs_var = is_arraylist or is_dict or is_mutable_class_instance or is_mutated;
 
     if (needs_var) {

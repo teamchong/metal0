@@ -183,9 +183,10 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.output.appendSlice(self.allocator, "; break :blk __s[__idx..__idx+1]; }");
                     } else {
                         // Positive index: generate idx..idx+1
-                        try self.output.appendSlice(self.allocator, "blk: { const __idx = ");
+                        // Need @intCast since Python uses i64 but Zig slicing requires usize
+                        try self.output.appendSlice(self.allocator, "blk: { const __idx = @as(usize, @intCast(");
                         try genExpr(self, subscript.slice.index.*);
-                        try self.output.appendSlice(self.allocator, "; break :blk ");
+                        try self.output.appendSlice(self.allocator, ")); break :blk ");
                         try genExpr(self, subscript.value.*);
                         try self.output.appendSlice(self.allocator, "[__idx..__idx+1]; }");
                     }
