@@ -294,9 +294,7 @@ pub fn genInitMethod(
     try self.output.writer(self.allocator).print(") {s} {{\n", .{class_name});
     self.indent();
 
-    // Mark allocator as potentially unused (suppress Zig warning)
-    try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "_ = allocator;\n");
+    // Note: allocator is always used for __dict__ initialization, so no discard needed
 
     // Generate return statement with field initializers
     try self.emitIndent();

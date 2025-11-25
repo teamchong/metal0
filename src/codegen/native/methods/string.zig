@@ -62,14 +62,14 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 pub fn genUpper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    // Generate block expression
+    // Generate block expression (use _idx to avoid shadowing user variables)
     try self.output.appendSlice(self.allocator, "blk: {\n");
     try self.output.appendSlice(self.allocator, "    const _text = ");
     try self.genExpr(obj);
     try self.output.appendSlice(self.allocator, ";\n");
     try self.output.appendSlice(self.allocator, "    const _result = try allocator.alloc(u8, _text.len);\n");
-    try self.output.appendSlice(self.allocator, "    for (_text, 0..) |c, i| {\n");
-    try self.output.appendSlice(self.allocator, "        _result[i] = std.ascii.toUpper(c);\n");
+    try self.output.appendSlice(self.allocator, "    for (_text, 0..) |_c, _idx| {\n");
+    try self.output.appendSlice(self.allocator, "        _result[_idx] = std.ascii.toUpper(_c);\n");
     try self.output.appendSlice(self.allocator, "    }\n");
     try self.output.appendSlice(self.allocator, "    break :blk _result;\n");
     try self.output.appendSlice(self.allocator, "}");
@@ -80,14 +80,14 @@ pub fn genUpper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 pub fn genLower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    // Generate block expression
+    // Generate block expression (use _idx to avoid shadowing user variables)
     try self.output.appendSlice(self.allocator, "blk: {\n");
     try self.output.appendSlice(self.allocator, "    const _text = ");
     try self.genExpr(obj);
     try self.output.appendSlice(self.allocator, ";\n");
     try self.output.appendSlice(self.allocator, "    const _result = try allocator.alloc(u8, _text.len);\n");
-    try self.output.appendSlice(self.allocator, "    for (_text, 0..) |c, i| {\n");
-    try self.output.appendSlice(self.allocator, "        _result[i] = std.ascii.toLower(c);\n");
+    try self.output.appendSlice(self.allocator, "    for (_text, 0..) |_c, _idx| {\n");
+    try self.output.appendSlice(self.allocator, "        _result[_idx] = std.ascii.toLower(_c);\n");
     try self.output.appendSlice(self.allocator, "    }\n");
     try self.output.appendSlice(self.allocator, "    break :blk _result;\n");
     try self.output.appendSlice(self.allocator, "}");

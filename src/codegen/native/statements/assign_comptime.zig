@@ -15,6 +15,9 @@ pub fn emitComptimeAssignment(
 ) CodegenError!void {
     try self.emitIndent();
 
+    // Check if variable has been renamed (e.g., for try/except pointer params)
+    const actual_name = self.var_renames.get(var_name) orelse var_name;
+
     if (is_first_assignment) {
         // Use var for mutable variables, const for immutable
         if (is_mutable) {
@@ -24,7 +27,7 @@ pub fn emitComptimeAssignment(
         }
     }
 
-    try self.output.appendSlice(self.allocator, var_name);
+    try self.output.appendSlice(self.allocator, actual_name);
 
     if (is_first_assignment) {
         // Emit type annotation

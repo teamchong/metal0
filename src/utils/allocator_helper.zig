@@ -1,48 +1,38 @@
-/// Shared allocator selection for optimal performance across platforms
-/// Uses comptime to select the best allocator for each target (WASM-compatible)
+/// Allocator selection for PyAOT generated code
+///
+/// Strategy:
+/// - Release builds (native): c_allocator - fastest, OS reclaims at exit
+/// - Debug builds: GPA with safety checks for leak detection
+/// - WASM: GPA (c_allocator not available)
+///
+/// Note: c_allocator in release mode means memory is not explicitly freed.
+/// This is intentional for short-lived CLI programs where OS cleanup at
+/// exit is acceptable (same pattern as Go, many Rust CLIs).
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Get optimal allocator for benchmark (comptime selection)
-/// - Native (Linux/macOS/Windows): C allocator (fastest malloc/free)
-/// - WASM: GPA (C allocator not available)
-/// - Debug builds: GPA with safety checks
-pub fn getBenchmarkAllocator(gpa_ptr: anytype) std.mem.Allocator {
-    // Check if we're building for WASM
+/// Returns true if we should use c_allocator (fast path, no cleanup needed)
+pub fn useFastAllocator() bool {
     const is_wasm = comptime (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64);
-
-    // Check if this is a debug build
     const is_debug = comptime (builtin.mode == .Debug);
-
-    // Use GPA for WASM or debug builds (C allocator not available/wanted)
-    if (is_wasm or is_debug) {
-        return gpa_ptr.allocator();
-    }
-
-    // For release builds on native platforms, use C allocator (15-30x faster)
-    return std.heap.c_allocator;
+    return !is_wasm and !is_debug;
 }
 
-/// Alternative: Get allocator type at comptime (for struct fields)
-pub fn BenchmarkAllocatorType() type {
-    comptime {
-        const is_wasm = builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64;
-        const is_debug = builtin.mode == .Debug;
-
-        if (is_wasm or is_debug) {
-            return std.heap.GeneralPurposeAllocator(.{});
-        }
+/// Get the appropriate allocator for generated code
+/// - Release native: c_allocator (fast, no GPA needed)
+/// - Debug/WASM: GPA allocator (safe, leak detection)
+pub fn getAllocator(gpa_ptr: anytype) std.mem.Allocator {
+    if (comptime useFastAllocator()) {
+        return std.heap.c_allocator;
     }
-
-    // For native release builds, we'll use c_allocator directly (no state needed)
-    return void;
+    return gpa_ptr.allocator();
 }
 
 test "allocator selection" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    const alloc = getBenchmarkAllocator(gpa);
+    const alloc = getAllocator(&gpa);
 
     // Test that allocator works
     const mem = try alloc.alloc(u8, 1024);

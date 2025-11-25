@@ -108,6 +108,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     if (analysis.needs_hashmap_helper) {
         try self.emit("const hashmap_helper = @import(\"./utils/hashmap_helper.zig\");\n");
     }
+    if (analysis.needs_allocator) {
+        try self.emit("const allocator_helper = @import(\"./utils/allocator_helper.zig\");\n");
+    }
 
     // PHASE 3.5: Generate C library imports (if any detected)
     if (self.import_ctx) |ctx| {
@@ -296,6 +299,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 5.5: Generate module-level allocator (only if needed)
     if (analysis.needs_allocator) {
         try self.emit("\n// Module-level allocator for async functions and f-strings\n");
+        try self.emit("// Debug/WASM: GPA instance (release uses c_allocator, no instance needed)\n");
+        try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};\n");
         try self.emit("var __global_allocator: std.mem.Allocator = undefined;\n");
         try self.emit("var __allocator_initialized: bool = false;\n\n");
     }
@@ -311,16 +316,26 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     self.indent();
 
     // Setup allocator only if needed (skip for pure functions - smaller WASM)
+    // Strategy: c_allocator in release (fast, OS cleanup), GPA in debug/WASM (safe)
     if (analysis.needs_allocator) {
         try self.emitIndent();
-        try self.emit("var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};\n");
+        try self.emit("const allocator = blk: {\n");
         try self.emitIndent();
-        try self.emit("defer _ = gpa.deinit();\n");
+        try self.emit("    if (comptime allocator_helper.useFastAllocator()) {\n");
         try self.emitIndent();
-        try self.emit("var allocator = gpa.allocator();\n");
+        try self.emit("        // Release mode: use c_allocator, OS reclaims at exit\n");
         try self.emitIndent();
-        try self.emit("std.mem.doNotOptimizeAway(&allocator);\n");
-        try self.emit("\n");
+        try self.emit("        break :blk std.heap.c_allocator;\n");
+        try self.emitIndent();
+        try self.emit("    } else {\n");
+        try self.emitIndent();
+        try self.emit("        // Debug/WASM: use GPA for leak detection\n");
+        try self.emitIndent();
+        try self.emit("        break :blk __gpa.allocator();\n");
+        try self.emitIndent();
+        try self.emit("    }\n");
+        try self.emitIndent();
+        try self.emit("};\n\n");
 
         // Initialize module-level allocator
         try self.emitIndent();

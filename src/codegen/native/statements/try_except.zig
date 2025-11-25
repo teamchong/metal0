@@ -146,6 +146,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         // Mark as hoisted so assignment generation skips declaration
         try self.hoisted_vars.put(var_name, {});
+
+        // Register type in type inferrer so print() knows the type
+        try self.type_inferrer.var_types.put(var_name, .int);
     }
 
     // Generate finally as defer

@@ -165,6 +165,45 @@ fn analyzeStmt(node: ast.Node) !ModuleAnalysis {
                 analysis.merge(stmt_analysis);
             }
         },
+        .try_stmt => |try_node| {
+            // Try/except needs std for error handling and runtime for helper functions
+            analysis.needs_std = true;
+            analysis.needs_allocator = true;
+            analysis.needs_runtime = true;
+
+            // Analyze try body
+            for (try_node.body) |stmt| {
+                const stmt_analysis = try analyzeStmt(stmt);
+                analysis.merge(stmt_analysis);
+            }
+
+            // Analyze exception handlers
+            for (try_node.handlers) |handler| {
+                for (handler.body) |stmt| {
+                    const stmt_analysis = try analyzeStmt(stmt);
+                    analysis.merge(stmt_analysis);
+                }
+            }
+
+            // Analyze finally body
+            for (try_node.finalbody) |stmt| {
+                const stmt_analysis = try analyzeStmt(stmt);
+                analysis.merge(stmt_analysis);
+            }
+        },
+        .class_def => |class| {
+            // Classes need hashmap_helper for __dict__, runtime for PyValue, and allocator
+            analysis.needs_hashmap_helper = true;
+            analysis.needs_runtime = true;
+            analysis.needs_allocator = true;
+            analysis.needs_std = true;
+
+            // Analyze methods in class body
+            for (class.body) |stmt| {
+                const stmt_analysis = try analyzeStmt(stmt);
+                analysis.merge(stmt_analysis);
+            }
+        },
         else => {},
     }
 
