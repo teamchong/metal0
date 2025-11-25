@@ -124,7 +124,7 @@ Python's distribution and deployment challenges solved.
 
 **⚠️ Current Status:**
 - Early alpha - API may change
-- C extensions via 512 exported C API functions
+- C extensions via 512 C API functions (pure Zig, no CPython wrapper)
 
 ## Roadmap: Matching Codon
 
@@ -858,7 +858,7 @@ make clean
 - ✅ Built-ins: range, enumerate, zip, len, min, max, sum, print
 - ✅ Stdlib: json, http, asyncio, math, re (regex)
 - ✅ **Dynamic execution: eval(), exec() with bytecode caching**
-- ✅ 512 C API functions exported for C extensions
+- ✅ 512 C API functions (pure Zig implementations, no CPython)
 - ✅ Platform-specific BLAS linking (NumPy ready)
 - ✅ Comptime target selection (WASM vs Native)
 

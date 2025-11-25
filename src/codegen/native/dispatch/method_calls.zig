@@ -6,7 +6,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 
 const methods = @import("../methods.zig");
 const pandas_mod = @import("../pandas.zig");
-const unittest_mod = @import("../unittest.zig");
+const unittest_mod = @import("../unittest/mod.zig");
 
 // Handler type for standard methods (obj, args)
 const MethodHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
