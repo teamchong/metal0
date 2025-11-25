@@ -5,12 +5,15 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const dispatch = @import("../dispatch.zig");
 const lambda_mod = @import("lambda.zig");
+const zig_keywords = @import("../../../utils/zig_keywords.zig");
 
 /// Functions that don't require allocator parameter
 const NO_ALLOC_FUNCS = [_][]const u8{
     "time.time",
     "time.monotonic",
     "time.perf_counter",
+    // sys module - exit is pure and doesn't allocate
+    "sys.exit",
     // math module - all functions are pure and don't allocate
     "math.sqrt",
     "math.sin",
@@ -313,7 +316,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         const output_name = if (std.mem.eql(u8, func_name, "main")) "__user_main" else func_name;
 
         // Async functions need _async suffix for the wrapper function
-        try self.output.appendSlice(self.allocator, output_name);
+        // Escape Zig reserved keywords (e.g., "test" -> @"test")
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), output_name);
         if (is_async_func) {
             try self.output.appendSlice(self.allocator, "_async");
         }

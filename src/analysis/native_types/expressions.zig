@@ -94,6 +94,30 @@ pub fn inferExpr(
                         break :blk .unknown; // [][]const u8
                     }
                 }
+            }
+
+            // Handle chained attribute access: sys.version_info.major
+            if (a.value.* == .attribute) {
+                const inner_attr = a.value.attribute;
+                if (inner_attr.value.* == .name) {
+                    const module_name = inner_attr.value.name.id;
+                    if (std.mem.eql(u8, module_name, "sys") and
+                        std.mem.eql(u8, inner_attr.attr, "version_info"))
+                    {
+                        // sys.version_info.major/minor/micro are all i32
+                        if (std.mem.eql(u8, a.attr, "major") or
+                            std.mem.eql(u8, a.attr, "minor") or
+                            std.mem.eql(u8, a.attr, "micro"))
+                        {
+                            break :blk .int;
+                        }
+                    }
+                }
+            }
+
+            // Handle module attributes (continued for name-based modules)
+            if (a.value.* == .name) {
+                const module_name = a.value.name.id;
 
                 // math module constants
                 if (std.mem.eql(u8, module_name, "math")) {
