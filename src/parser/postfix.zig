@@ -174,11 +174,22 @@ pub fn parseCall(self: *Parser, func: ast.Node) !ast.Node {
     defer args.deinit(self.allocator);
 
     while (!self.match(.RParen)) {
-        // Skip * operator for unpacking (not implemented yet, treat as regular arg)
-        _ = self.match(.Star);
+        // Check for * operator for unpacking: func(*args)
+        if (self.match(.Star)) {
+            const value = try self.parseExpression();
+            const value_ptr = try self.allocator.create(ast.Node);
+            value_ptr.* = value;
 
-        const arg = try self.parseExpression();
-        try args.append(self.allocator, arg);
+            const starred_arg = ast.Node{
+                .starred = .{
+                    .value = value_ptr,
+                },
+            };
+            try args.append(self.allocator, starred_arg);
+        } else {
+            const arg = try self.parseExpression();
+            try args.append(self.allocator, arg);
+        }
 
         if (!self.match(.Comma)) {
             _ = try self.expect(.RParen);

@@ -305,12 +305,42 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Add regular arguments - wrap in slice for vararg functions
         if (is_vararg_func) {
-            try self.output.appendSlice(self.allocator, "&[_]i64{");
-            for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-                try genExpr(self, arg);
+            // Check if any args are starred (unpacked)
+            var has_starred = false;
+            for (call.args) |arg| {
+                if (arg == .starred) {
+                    has_starred = true;
+                    break;
+                }
             }
-            try self.output.appendSlice(self.allocator, "}");
+
+            if (has_starred) {
+                // Build slice at runtime by concatenating unpacked arrays
+                // For now: if there's a starred arg, just pass it directly (assume single starred arg)
+                var found_starred = false;
+                for (call.args) |arg| {
+                    if (arg == .starred) {
+                        // Generate the value with & prefix to convert array to slice
+                        // *[1,2] becomes &[_]i64{1, 2} which is []const i64
+                        try self.output.appendSlice(self.allocator, "&");
+                        try genExpr(self, arg.starred.value.*);
+                        found_starred = true;
+                        break;
+                    }
+                }
+                if (!found_starred) {
+                    // Shouldn't happen, but handle gracefully
+                    try self.output.appendSlice(self.allocator, "&[_]i64{}");
+                }
+            } else {
+                // Normal case: wrap args in slice
+                try self.output.appendSlice(self.allocator, "&[_]i64{");
+                for (call.args, 0..) |arg, i| {
+                    if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                    try genExpr(self, arg);
+                }
+                try self.output.appendSlice(self.allocator, "}");
+            }
         } else {
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.output.appendSlice(self.allocator, ", ");

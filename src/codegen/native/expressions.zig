@@ -60,6 +60,11 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             // Emit void value to avoid "unused variable" warnings
             try self.output.appendSlice(self.allocator, "@as(void, {})");
         },
+        .starred => |s| {
+            // Starred expression: *expr
+            // Just generate the inner expression (unpacking is handled by call context)
+            try genExpr(self, s.value.*);
+        },
         else => {},
     }
 }

@@ -246,6 +246,10 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             for (w.body) |*n| deinit(n, allocator);
             allocator.free(w.body);
         },
+        .starred => |s| {
+            deinit(s.value, allocator);
+            allocator.destroy(s.value);
+        },
         // Leaf nodes need no cleanup
         .name, .constant, .pass, .break_stmt, .continue_stmt, .ellipsis_literal => {},
     }

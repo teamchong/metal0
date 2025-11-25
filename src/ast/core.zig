@@ -41,6 +41,7 @@ pub const Node = union(enum) {
     ellipsis_literal: void,
     global_stmt: GlobalStmt,
     with_stmt: With,
+    starred: Starred,
 
     // Type aliases for backward compatibility with nested access (ast.Node.FString)
     pub const FString = fstring.FString;
@@ -250,6 +251,10 @@ pub const Node = union(enum) {
         context_expr: *Node, // Expression (e.g., open("file"))
         optional_vars: ?[]const u8, // Variable name (e.g., "f") or null
         body: []Node, // Body statements
+    };
+
+    pub const Starred = struct {
+        value: *Node, // The expression being unpacked (e.g., [1,2,3] in *[1,2,3])
     };
 
     /// Recursively free all allocations in the AST
