@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("../../../ast.zig");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
+const zig_keywords = @import("../../../utils/zig_keywords.zig");
 
 const methods = @import("../methods.zig");
 const pandas_mod = @import("../pandas.zig");
@@ -256,9 +257,10 @@ fn handleSuperCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []con
 
     // Generate: ParentClass.method(@ptrCast(self), args)
     // Need @ptrCast because self is *const Child but parent method expects *const Parent
+    // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
     try self.output.appendSlice(self.allocator, parent_class);
     try self.output.appendSlice(self.allocator, ".");
-    try self.output.appendSlice(self.allocator, method_name);
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_name);
     try self.output.appendSlice(self.allocator, "(@ptrCast(self)");
 
     // Add remaining arguments

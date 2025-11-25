@@ -369,6 +369,7 @@ pub fn genMethodSignature(
     class_name: []const u8,
     method: ast.Node.FunctionDef,
     mutates_self: bool,
+    needs_allocator: bool,
 ) CodegenError!void {
     try self.output.appendSlice(self.allocator, "\n");
     try self.emitIndent();
@@ -379,12 +380,23 @@ pub fn genMethodSignature(
     // Use *const for methods that don't mutate self (read-only methods)
     // Use _ for self param if it's not actually used in the body
     const self_param_name = if (uses_self) "self" else "_";
+
+    // Generate "pub fn methodname(self_param: *[const] ClassName"
+    // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
+    try self.output.appendSlice(self.allocator, "pub fn ");
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method.name);
+    try self.output.writer(self.allocator).print("({s}: ", .{self_param_name});
     if (mutates_self) {
-        try self.output.writer(self.allocator).print("pub fn {s}({s}: *", .{ method.name, self_param_name });
+        try self.output.appendSlice(self.allocator, "*");
     } else {
-        try self.output.writer(self.allocator).print("pub fn {s}({s}: *const ", .{ method.name, self_param_name });
+        try self.output.appendSlice(self.allocator, "*const ");
     }
     try self.output.appendSlice(self.allocator, class_name);
+
+    // Add allocator parameter if method needs it
+    if (needs_allocator) {
+        try self.output.appendSlice(self.allocator, ", allocator: std.mem.Allocator");
+    }
 
     // Add other parameters (skip 'self')
     for (method.args) |arg| {
@@ -397,7 +409,10 @@ pub fn genMethodSignature(
 
     try self.output.appendSlice(self.allocator, ") ");
 
-    // Determine return type
+    // Determine return type (add error union if allocator needed)
+    if (needs_allocator) {
+        try self.output.appendSlice(self.allocator, "!");
+    }
     if (method.return_type) |_| {
         // Use explicit return type annotation if provided
         const zig_return_type = pythonTypeToZig(method.return_type);

@@ -6,6 +6,7 @@ const CodegenError = @import("../../../../main.zig").CodegenError;
 const hashmap_helper = @import("../../../../../../utils/hashmap_helper.zig");
 const signature = @import("../signature.zig");
 const class_fields = @import("class_fields.zig");
+const allocator_analyzer = @import("../../allocator_analyzer.zig");
 
 // Import from parent for methodMutatesSelf and genMethodBody
 const body = @import("../body.zig");
@@ -122,7 +123,8 @@ pub fn genClassMethods(
             if (std.mem.eql(u8, method.name, "__init__")) continue;
 
             const mutates_self = body.methodMutatesSelf(method);
-            try signature.genMethodSignature(self, class.name, method, mutates_self);
+            const needs_allocator = allocator_analyzer.functionNeedsAllocator(method);
+            try signature.genMethodSignature(self, class.name, method, mutates_self, needs_allocator);
             try body.genMethodBody(self, method);
         }
     }
@@ -152,7 +154,8 @@ pub fn genInheritedMethods(
             if (!is_overridden) {
                 // Copy parent method to child class
                 const mutates_self = body.methodMutatesSelf(parent_method);
-                try signature.genMethodSignature(self, class.name, parent_method, mutates_self);
+                const needs_allocator = allocator_analyzer.functionNeedsAllocator(parent_method);
+                try signature.genMethodSignature(self, class.name, parent_method, mutates_self, needs_allocator);
                 try body.genMethodBody(self, parent_method);
             }
         }

@@ -6,6 +6,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 const dispatch = @import("../dispatch.zig");
 const lambda_mod = @import("lambda.zig");
 const zig_keywords = @import("../../../utils/zig_keywords.zig");
+const allocator_analyzer = @import("../statements/functions/allocator_analyzer.zig");
 
 /// Functions that don't require allocator parameter
 const NO_ALLOC_FUNCS = [_][]const u8{
@@ -185,24 +186,50 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
         defer if (qualified_name) |qn| self.allocator.free(qn);
 
+        // Check if this is a user-defined class method call (f.run() where f is a Foo instance)
+        var is_class_method_call = false;
+        var class_method_needs_alloc = false;
+        {
+            const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch .unknown;
+            if (obj_type == .class_instance) {
+                const class_name = obj_type.class_instance;
+                // Look up method in class registry
+                if (self.class_registry.findMethod(class_name, attr.attr)) |method_info| {
+                    is_class_method_call = true;
+                    // Get the method's FunctionDef from the class and check if it needs allocator
+                    if (self.class_registry.getClass(method_info.class_name)) |class_def| {
+                        for (class_def.body) |stmt| {
+                            if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
+                                class_method_needs_alloc = allocator_analyzer.functionNeedsAllocator(stmt.function_def);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         const needs_alloc = if (qualified_name) |qn|
             needsAllocator(qn)
+        else if (is_class_method_call)
+            class_method_needs_alloc
         else
-            true;
+            false; // Default to false for other method calls (string methods, etc. handle allocator internally)
 
-        // Add 'try' for module calls that need allocator (they can error)
-        if (is_module_call and needs_alloc) {
+        // Add 'try' for calls that need allocator (they can error)
+        if ((is_module_call or is_class_method_call) and needs_alloc) {
             try self.output.appendSlice(self.allocator, "try ");
         }
 
         // Generic method call: obj.method(args)
+        // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
         try genExpr(self, attr.value.*);
         try self.output.appendSlice(self.allocator, ".");
-        try self.output.appendSlice(self.allocator, attr.attr);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         try self.output.appendSlice(self.allocator, "(");
 
-        // For module calls, add allocator as first argument only if needed
-        if (is_module_call and needs_alloc) {
+        // For module calls or class method calls, add allocator as first argument only if needed
+        if ((is_module_call or is_class_method_call) and needs_alloc) {
             try self.output.appendSlice(self.allocator, "allocator");
             if (call.args.len > 0 or call.keyword_args.len > 0) {
                 try self.output.appendSlice(self.allocator, ", ");
