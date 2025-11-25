@@ -15,6 +15,7 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
         var if_body: []ast.Node = undefined;
         if (self.peek()) |next_tok| {
             const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Ellipsis or
                 next_tok.type == .Return or
                 next_tok.type == .Break or
                 next_tok.type == .Continue or
@@ -54,6 +55,7 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
             var elif_body: []ast.Node = undefined;
             if (self.peek()) |next_tok| {
                 const is_oneliner = next_tok.type == .Pass or
+                    next_tok.type == .Ellipsis or
                     next_tok.type == .Return or
                     next_tok.type == .Break or
                     next_tok.type == .Continue or
@@ -96,6 +98,7 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
             var else_body: []ast.Node = undefined;
             if (self.peek()) |next_tok| {
                 const is_oneliner = next_tok.type == .Pass or
+                    next_tok.type == .Ellipsis or
                     next_tok.type == .Return or
                     next_tok.type == .Break or
                     next_tok.type == .Continue or
@@ -178,6 +181,7 @@ pub fn parseFor(self: *Parser) ParseError!ast.Node {
         var body: []ast.Node = undefined;
         if (self.peek()) |next_tok| {
             const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Ellipsis or
                 next_tok.type == .Return or
                 next_tok.type == .Break or
                 next_tok.type == .Continue or
@@ -235,6 +239,7 @@ pub fn parseWhile(self: *Parser) ParseError!ast.Node {
         var body: []ast.Node = undefined;
         if (self.peek()) |next_tok| {
             const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Ellipsis or
                 next_tok.type == .Return or
                 next_tok.type == .Break or
                 next_tok.type == .Continue or

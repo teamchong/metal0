@@ -5,7 +5,9 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const subscript_mod = @import("subscript.zig");
 
-/// Generate tuple literal as Zig anonymous struct
+/// Generate tuple literal as Zig struct with named fields
+/// Uses named field syntax (.{ .@"0" = elem1, .@"1" = elem2 }) for compatibility
+/// with declared tuple return types like struct { @"0": T, @"1": U }
 pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
     // Forward declare genExpr - it's in parent module
     const parent = @import("../expressions.zig");
@@ -17,11 +19,13 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
         return;
     }
 
-    // Non-empty tuples: .{ elem1, elem2, elem3 }
+    // Non-empty tuples: .{ .@"0" = elem1, .@"1" = elem2 }
     try self.output.appendSlice(self.allocator, ".{ ");
 
     for (tuple.elts, 0..) |elem, i| {
         if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+        // Use named field syntax for struct compatibility
+        try self.output.writer(self.allocator).print(".@\"{d}\" = ", .{i});
         try genExpr(self, elem);
     }
 

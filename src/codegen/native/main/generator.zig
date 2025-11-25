@@ -445,6 +445,7 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .import_stmt => |import| try statements.genImport(self, import),
         .import_from => |import| try statements.genImportFrom(self, import),
         .pass => try statements.genPass(self),
+        .ellipsis_literal => try statements.genPass(self), // Ellipsis as statement is equivalent to pass
         .break_stmt => try statements.genBreak(self),
         .continue_stmt => try statements.genContinue(self),
         .global_stmt => |global| try statements.genGlobal(self, global),

@@ -161,10 +161,11 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
 
         _ = try self.expect(.Colon);
 
-        // Check if this is a one-liner function (def foo(): pass)
+        // Check if this is a one-liner function (def foo(): pass or def foo(): ...)
         var body: []ast.Node = undefined;
         if (self.peek()) |next_tok| {
             const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Ellipsis or
                 next_tok.type == .Return or
                 next_tok.type == .Break or
                 next_tok.type == .Continue or
@@ -262,10 +263,11 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
 
         _ = try self.expect(.Colon);
 
-        // Check if this is a one-liner class (class C: pass)
+        // Check if this is a one-liner class (class C: pass or class C: ...)
         var body: []ast.Node = undefined;
         if (self.peek()) |next_tok| {
             const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Ellipsis or
                 next_tok.type == .Ident; // for simple statements
 
             if (is_oneliner) {

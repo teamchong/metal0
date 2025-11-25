@@ -132,6 +132,32 @@ pub fn parsePostfix(self: *Parser) ParseError!ast.Node {
                             },
                         },
                     };
+                } else if (self.check(.Comma)) {
+                    // Multi-element subscript: arr[0, 1, 2] (numpy-style)
+                    // Store as tuple of indices
+                    var indices = std.ArrayList(ast.Node){};
+                    defer indices.deinit(self.allocator);
+                    try indices.append(self.allocator, lower);
+
+                    while (self.match(.Comma)) {
+                        // Allow trailing comma: [0,]
+                        if (self.check(.RBracket)) break;
+                        try indices.append(self.allocator, try self.parseExpression());
+                    }
+
+                    _ = try self.expect(.RBracket);
+
+                    const index_ptr = try self.allocator.create(ast.Node);
+                    index_ptr.* = ast.Node{
+                        .tuple = .{ .elts = try indices.toOwnedSlice(self.allocator) },
+                    };
+
+                    node = ast.Node{
+                        .subscript = .{
+                            .value = node_ptr,
+                            .slice = .{ .index = index_ptr },
+                        },
+                    };
                 } else {
                     // Simple index: [0]
                     _ = try self.expect(.RBracket);

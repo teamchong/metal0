@@ -32,3 +32,4 @@ pub const parseDecorated = misc.parseDecorated;
 pub const parseGlobal = misc.parseGlobal;
 pub const parseWith = misc.parseWith;
 pub const parseDel = misc.parseDel;
+pub const parseEllipsis = misc.parseEllipsis;

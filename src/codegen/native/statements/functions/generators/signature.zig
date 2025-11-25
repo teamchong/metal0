@@ -266,15 +266,39 @@ fn genAsyncFunctionSignature(
 
 /// Generate return type for function signature
 fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocator: bool) CodegenError!void {
-    if (func.return_type) |_| {
+    if (func.return_type) |type_hint| {
         // Use explicit return type annotation if provided
-        const zig_return_type = pythonTypeToZig(func.return_type);
-        // Add error union if function needs allocator (allocations can fail)
-        if (needs_allocator) {
-            try self.emit("!");
+        // First try simple type mapping
+        const simple_zig_type = pythonTypeToZig(func.return_type);
+        const is_simple_type = !std.mem.eql(u8, simple_zig_type, "i64") or
+            std.mem.eql(u8, type_hint, "int");
+
+        if (is_simple_type) {
+            // Add error union if function needs allocator (allocations can fail)
+            if (needs_allocator) {
+                try self.emit("!");
+            }
+            try self.emit(simple_zig_type);
+            try self.emit(" {\n");
+        } else {
+            // Complex type (like tuple[str, str]) - use inferred type from type inferrer
+            const inferred_type = self.type_inferrer.func_return_types.get(func.name);
+            const return_type_str = if (inferred_type) |inf_type| blk: {
+                if (inf_type == .int or inf_type == .unknown) {
+                    break :blk "i64";
+                }
+                break :blk try self.nativeTypeToZigType(inf_type);
+            } else "i64";
+            defer if (inferred_type != null and inferred_type.? != .int and inferred_type.? != .unknown) {
+                self.allocator.free(return_type_str);
+            };
+
+            if (needs_allocator) {
+                try self.emit("!");
+            }
+            try self.emit(return_type_str);
+            try self.emit(" {\n");
         }
-        try self.emit(zig_return_type);
-        try self.emit(" {\n");
     } else if (hasReturnStatement(func.body)) {
         // Check if this returns a parameter (decorator pattern)
         var returned_param_name: ?[]const u8 = null;

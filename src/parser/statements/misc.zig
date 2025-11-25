@@ -82,6 +82,7 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
         var body: []ast.Node = undefined;
         if (self.peek()) |next_tok| {
             const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Ellipsis or
                 next_tok.type == .Return or
                 next_tok.type == .Break or
                 next_tok.type == .Continue or
@@ -130,6 +131,7 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
             var handler_body: []ast.Node = undefined;
             if (self.peek()) |next_tok| {
                 const is_oneliner = next_tok.type == .Pass or
+                    next_tok.type == .Ellipsis or
                     next_tok.type == .Return or
                     next_tok.type == .Break or
                     next_tok.type == .Continue or
@@ -227,6 +229,12 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
         _ = try self.expect(.Continue);
         _ = self.expect(.Newline) catch {};
         return ast.Node{ .continue_stmt = {} };
+    }
+
+    pub fn parseEllipsis(self: *Parser) ParseError!ast.Node {
+        _ = try self.expect(.Ellipsis);
+        _ = self.expect(.Newline) catch {};
+        return ast.Node{ .ellipsis_literal = {} };
     }
 
     pub fn parseDecorated(self: *Parser) ParseError!ast.Node {
@@ -329,6 +337,7 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
         var body: []ast.Node = undefined;
         if (self.peek()) |next_tok| {
             const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Ellipsis or
                 next_tok.type == .Return or
                 next_tok.type == .Break or
                 next_tok.type == .Continue or
