@@ -6,6 +6,7 @@ const CodegenError = @import("../../../main.zig").CodegenError;
 const param_analyzer = @import("../param_analyzer.zig");
 const allocator_analyzer = @import("../allocator_analyzer.zig");
 const self_analyzer = @import("../self_analyzer.zig");
+const zig_keywords = @import("../../../../../utils/zig_keywords.zig");
 
 /// Python type hint to Zig type mapping (comptime optimized)
 const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
@@ -99,7 +100,8 @@ pub fn genFunctionSignature(
     if (std.mem.eql(u8, func.name, "main")) {
         try self.emit("__user_main");
     } else {
-        try self.emit(func.name);
+        // Escape Zig reserved keywords (e.g., "test" -> @"test")
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
     }
     try self.emit("(");
 

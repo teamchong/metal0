@@ -184,6 +184,13 @@ fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
     if (call.func.* == .attribute) {
         const method_name = call.func.attribute.attr;
         if (AllocatorMethods.has(method_name)) return true;
+
+        // Module function call (e.g., test_utils.double(x))
+        // Codegen passes allocator to imported module functions
+        if (call.func.attribute.value.* == .name) {
+            // Any module.function() call will receive allocator param in codegen
+            return true;
+        }
     }
     if (call.func.* == .name) {
         const called_name = call.func.name.id;
