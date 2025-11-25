@@ -35,11 +35,11 @@ pub fn genDataFrame(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const dict = arg.dict;
 
         // Generate struct for fromDict
-        try self.emit( "try pandas.DataFrame.fromDict(.{");
+        try self.emit("try pandas.DataFrame.fromDict(.{");
 
         // Generate each key-value pair
         for (dict.keys, dict.values, 0..) |key_node, value_node, i| {
-            if (i > 0) try self.emit( ", ");
+            if (i > 0) try self.emit(", ");
 
             // Extract column name from key (should be constant string)
             if (key_node == .constant and key_node.constant.value == .string) {
@@ -47,9 +47,9 @@ pub fn genDataFrame(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 // Strip Python quotes from string literal
                 const col_name = if (raw_name.len >= 2) raw_name[1 .. raw_name.len - 1] else raw_name;
                 // Use @"name" syntax for Zig field names
-                try self.emit( ".@\"");
-                try self.emit( col_name);
-                try self.emit( "\" = ");
+                try self.emit(".@\"");
+                try self.emit(col_name);
+                try self.emit("\" = ");
 
                 // Generate array literal for values
                 if (value_node == .list) {
@@ -62,22 +62,22 @@ pub fn genDataFrame(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                         .int;
 
                     if (elem_type == .float) {
-                        try self.emit( "[_]f64{");
+                        try self.emit("[_]f64{");
                     } else {
-                        try self.emit( "[_]i64{");
+                        try self.emit("[_]i64{");
                     }
 
                     for (elements, 0..) |elem, j| {
-                        if (j > 0) try self.emit( ", ");
+                        if (j > 0) try self.emit(", ");
                         try self.genExpr(elem);
                     }
 
-                    try self.emit( "}");
+                    try self.emit("}");
                 }
             }
         }
 
-        try self.emit( "}, allocator)");
+        try self.emit("}, allocator)");
     }
 }
 
@@ -87,53 +87,53 @@ pub fn genDataFrame(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genColumnAccess(self: *NativeCodegen, obj: ast.Node, index: ast.Node) CodegenError!void {
     // Generate: df.getColumn("column_name").?
     try self.genExpr(obj);
-    try self.emit( ".getColumn(");
+    try self.emit(".getColumn(");
 
     if (index == .string) {
-        try self.emit( "\"");
-        try self.emit( index.string.s);
-        try self.emit( "\"");
+        try self.emit("\"");
+        try self.emit(index.string.s);
+        try self.emit("\"");
     } else {
         try self.genExpr(index);
     }
 
-    try self.emit( ").?");
+    try self.emit(").?");
 }
 
 /// Generate column.sum() method call
 pub fn genColumnSum(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     try self.genExpr(obj);
-    try self.emit( ".sum()");
+    try self.emit(".sum()");
 }
 
 /// Generate column.mean() method call
 pub fn genColumnMean(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     try self.genExpr(obj);
-    try self.emit( ".mean()");
+    try self.emit(".mean()");
 }
 
 /// Generate column.describe() method call
 /// Returns DescribeStats struct
 pub fn genColumnDescribe(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
-    try self.emit( "pandas.describe(");
+    try self.emit("pandas.describe(");
     try self.genExpr(obj);
-    try self.emit( ")");
+    try self.emit(")");
 }
 
 /// Generate column.min() method call
 pub fn genColumnMin(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     try self.genExpr(obj);
-    try self.emit( ".min()");
+    try self.emit(".min()");
 }
 
 /// Generate column.max() method call
 pub fn genColumnMax(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     try self.genExpr(obj);
-    try self.emit( ".max()");
+    try self.emit(".max()");
 }
 
 /// Generate column.std() method call
 pub fn genColumnStd(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     try self.genExpr(obj);
-    try self.emit( ".stdDev()");
+    try self.emit(".stdDev()");
 }

@@ -36,7 +36,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
     // Generate for loop over iterable
     try self.emitIndent();
-    try self.emit( "for (");
+    try self.emit("for (");
 
     // Check if we need to add .items for ArrayList
     const iter_type = try self.type_inferrer.inferExpr(iter);
@@ -48,18 +48,18 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     if (iter_type == .list) {
         if (is_method_call) {
             // Method call returns ArrayList - wrap in parens for .items
-            try self.emit( "(");
+            try self.emit("(");
             try self.genExpr(iter);
-            try self.emit( ").items");
+            try self.emit(").items");
         } else if (iter == .list) {
             // Inline list literal
-            try self.emit( "(");
+            try self.emit("(");
             try self.genExpr(iter);
-            try self.emit( ").items");
+            try self.emit(").items");
         } else {
             // Variable that holds ArrayList
             try self.genExpr(iter);
-            try self.emit( ".items");
+            try self.emit(".items");
         }
     } else {
         // Not a list type - iterate directly
@@ -88,7 +88,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     self.dedent();
 
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 }
 
 /// Generate for loop
@@ -134,11 +134,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Special case: tuple iteration requires inline for (comptime)
     if (iter_type == .tuple) {
         try self.emitIndent();
-        try self.emit( "inline for (");
+        try self.emit("inline for (");
         try self.genExpr(for_stmt.iter.*);
-        try self.emit( ") |");
-        try self.emit( var_name);
-        try self.emit( "| {\n");
+        try self.emit(") |");
+        try self.emit(var_name);
+        try self.emit("| {\n");
 
         self.indent();
         try self.pushScope();
@@ -151,13 +151,13 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.dedent();
 
         try self.emitIndent();
-        try self.emit( "}\n");
+        try self.emit("}\n");
         return;
     }
 
     // Regular iteration over collection
     try self.emitIndent();
-    try self.emit( "for (");
+    try self.emit("for (");
 
     // Check if this is a constant list (will be compiled to array, not ArrayList)
     const is_constant_array = blk: {
@@ -206,24 +206,24 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.genExpr(for_stmt.iter.*);
     } else if (iter_type == .list and for_stmt.iter.* == .list) {
         // Inline ArrayList literal - wrap in parens for .items access
-        try self.emit( "(");
+        try self.emit("(");
         try self.genExpr(for_stmt.iter.*);
-        try self.emit( ").items");
+        try self.emit(").items");
     } else if (iter_type == .list and for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .attribute) {
         // Method call that returns ArrayList - wrap in parens for .items access
-        try self.emit( "(");
+        try self.emit("(");
         try self.genExpr(for_stmt.iter.*);
-        try self.emit( ").items");
+        try self.emit(").items");
     } else {
         try self.genExpr(for_stmt.iter.*);
         if (iter_type == .list) {
-            try self.emit( ".items");
+            try self.emit(".items");
         }
     }
 
-    try self.emit( ") |");
-    try self.emit( var_name);
-    try self.emit( "| {\n");
+    try self.emit(") |");
+    try self.emit(var_name);
+    try self.emit("| {\n");
 
     self.indent();
 
@@ -250,7 +250,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     self.dedent();
 
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 }
 
 /// Generate range() loop as Zig while loop
@@ -275,28 +275,28 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
 
     // Wrap range loop in block scope to prevent variable shadowing
     try self.emitIndent();
-    try self.emit( "{\n");
+    try self.emit("{\n");
     self.indent();
 
     // Generate initialization (always declare as new variable in block scope)
     try self.emitIndent();
-    try self.emit( "var ");
-    try self.emit( var_name);
-    try self.emit( ": usize = ");
+    try self.emit("var ");
+    try self.emit(var_name);
+    try self.emit(": usize = ");
     if (start_expr) |start| {
         try self.genExpr(start);
     } else {
-        try self.emit( "0");
+        try self.emit("0");
     }
-    try self.emit( ";\n");
+    try self.emit(";\n");
 
     // Generate while loop
     try self.emitIndent();
-    try self.emit( "while (");
-    try self.emit( var_name);
-    try self.emit( " < ");
+    try self.emit("while (");
+    try self.emit(var_name);
+    try self.emit(" < ");
     try self.genExpr(stop_expr);
-    try self.emit( ") {\n");
+    try self.emit(") {\n");
 
     self.indent();
 
@@ -309,25 +309,25 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
 
     // Increment
     try self.emitIndent();
-    try self.emit( var_name);
-    try self.emit( " += ");
+    try self.emit(var_name);
+    try self.emit(" += ");
     if (step_expr) |step| {
         try self.genExpr(step);
     } else {
-        try self.emit( "1");
+        try self.emit("1");
     }
-    try self.emit( ";\n");
+    try self.emit(";\n");
 
     // Pop scope when exiting loop
     self.popScope();
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 
     // Close block scope
     self.dedent();
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 }
 

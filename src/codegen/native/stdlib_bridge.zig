@@ -23,20 +23,20 @@ pub fn genSimpleCall(comptime spec: SimpleCallSpec) fn (*NativeCodegen, []ast.No
                 return;
             }
 
-            try self.emit( "try " ++ spec.runtime_path ++ "(");
+            try self.emit("try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                try self.emit( "allocator");
+                try self.emit("allocator");
                 if (spec.arg_count > 0) {
-                    try self.emit( ", ");
+                    try self.emit(", ");
                 }
             }
 
             inline for (0..spec.arg_count) |i| {
-                if (i > 0) try self.emit( ", ");
+                if (i > 0) try self.emit(", ");
                 try self.genExpr(args[i]);
             }
 
-            try self.emit( ")");
+            try self.emit(")");
         }
     }.handler;
 }
@@ -55,11 +55,11 @@ pub fn genNoArgCall(comptime spec: NoArgCallSpec) fn (*NativeCodegen, []ast.Node
                 return;
             }
 
-            try self.emit( "try " ++ spec.runtime_path ++ "(");
+            try self.emit("try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                try self.emit( "allocator");
+                try self.emit("allocator");
             }
-            try self.emit( ")");
+            try self.emit(")");
         }
     }.handler;
 }
@@ -80,20 +80,20 @@ pub fn genVarArgCall(comptime spec: VarArgCallSpec) fn (*NativeCodegen, []ast.No
                 return;
             }
 
-            try self.emit( "try " ++ spec.runtime_path ++ "(");
+            try self.emit("try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                try self.emit( "allocator");
+                try self.emit("allocator");
                 if (args.len > 0) {
-                    try self.emit( ", ");
+                    try self.emit(", ");
                 }
             }
 
             for (args, 0..) |arg, i| {
-                if (i > 0) try self.emit( ", ");
+                if (i > 0) try self.emit(", ");
                 try self.genExpr(arg);
             }
 
-            try self.emit( ")");
+            try self.emit(")");
         }
     }.handler;
 }
@@ -113,20 +113,20 @@ pub fn genNoTryCall(comptime spec: NoTryCallSpec) fn (*NativeCodegen, []ast.Node
                 return;
             }
 
-            try self.emit( spec.runtime_path ++ "(");
+            try self.emit(spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                try self.emit( "allocator");
+                try self.emit("allocator");
                 if (spec.arg_count > 0) {
-                    try self.emit( ", ");
+                    try self.emit(", ");
                 }
             }
 
             inline for (0..spec.arg_count) |i| {
-                if (i > 0) try self.emit( ", ");
+                if (i > 0) try self.emit(", ");
                 try self.genExpr(args[i]);
             }
 
-            try self.emit( ")");
+            try self.emit(")");
         }
     }.handler;
 }
@@ -149,22 +149,22 @@ pub fn genFieldAccessCall(comptime spec: FieldAccessCallSpec) fn (*NativeCodegen
             }
 
             if (spec.needs_try) {
-                try self.emit( "try ");
+                try self.emit("try ");
             }
-            try self.emit( spec.runtime_path ++ "(");
+            try self.emit(spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                try self.emit( "allocator");
+                try self.emit("allocator");
                 if (spec.arg_count > 0) {
-                    try self.emit( ", ");
+                    try self.emit(", ");
                 }
             }
 
             inline for (0..spec.arg_count) |i| {
-                if (i > 0) try self.emit( ", ");
+                if (i > 0) try self.emit(", ");
                 try self.genExpr(args[i]);
             }
 
-            try self.emit( ")." ++ spec.field);
+            try self.emit(")." ++ spec.field);
         }
     }.handler;
 }

@@ -15,21 +15,21 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
 
     // Empty tuples become empty struct
     if (tuple.elts.len == 0) {
-        try self.emit( ".{}");
+        try self.emit(".{}");
         return;
     }
 
     // Non-empty tuples: .{ .@"0" = elem1, .@"1" = elem2 }
-    try self.emit( ".{ ");
+    try self.emit(".{ ");
 
     for (tuple.elts, 0..) |elem, i| {
-        if (i > 0) try self.emit( ", ");
+        if (i > 0) try self.emit(", ");
         // Use named field syntax for struct compatibility
         try self.output.writer(self.allocator).print(".@\"{d}\" = ", .{i});
         try genExpr(self, elem);
     }
 
-    try self.emit( " }");
+    try self.emit(" }");
 }
 
 /// Generate array/dict subscript with tuple support (a[b])
@@ -52,7 +52,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try self.output.writer(self.allocator).print(".@\"{d}\"", .{index});
             } else {
                 // Non-constant tuple index - error
-                try self.emit( "@compileError(\"Tuple indexing requires constant index\")");
+                try self.emit("@compileError(\"Tuple indexing requires constant index\")");
             }
             return;
         }
@@ -77,9 +77,9 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     if (is_property) {
         // Property method: call it automatically (Python @property semantics)
         try genExpr(self, attr.value.*);
-        try self.emit( ".");
-        try self.emit( attr.attr);
-        try self.emit( "()");
+        try self.emit(".");
+        try self.emit(attr.attr);
+        try self.emit("()");
     } else if (is_dynamic) {
         // Dynamic attribute: use __dict__.get() and extract value
         // For now, assume int type. TODO: Add runtime type checking
@@ -88,8 +88,8 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     } else {
         // Known attribute: direct field access
         try genExpr(self, attr.value.*);
-        try self.emit( ".");
-        try self.emit( attr.attr);
+        try self.emit(".");
+        try self.emit(attr.attr);
     }
 }
 

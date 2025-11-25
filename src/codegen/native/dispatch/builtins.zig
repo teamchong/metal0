@@ -72,9 +72,9 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
     // __import__() needs special inline codegen
     if (std.mem.eql(u8, func_name, "__import__")) {
-        try self.emit( "try runtime.dynamic_import(allocator, ");
+        try self.emit("try runtime.dynamic_import(allocator, ");
         try self.genExpr(call.args[0]);
-        try self.emit( ")");
+        try self.emit(")");
         return true;
     }
 

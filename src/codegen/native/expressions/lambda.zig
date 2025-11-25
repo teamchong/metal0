@@ -149,11 +149,11 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
 
     // Restore original output
     self.output = std.ArrayList(u8){};
-    try self.emit( current_output);
+    try self.emit(current_output);
 
     // Generate function pointer reference in current context
-    try self.emit( "&");
-    try self.emit( lambda_name);
+    try self.emit("&");
+    try self.emit(lambda_name);
 
     // Free lambda_name now
     self.allocator.free(lambda_name);

@@ -13,7 +13,7 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
         // Not a dict.get() - must be custom class method with no args
         // Generate generic method call: obj.get()
         try self.genExpr(obj);
-        try self.emit( ".get()");
+        try self.emit(".get()");
         return;
     }
 
@@ -22,16 +22,16 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     if (default_val) |def| {
         // Generate: dict.get(key) orelse default
         try self.genExpr(obj);
-        try self.emit( ".get(");
+        try self.emit(".get(");
         try self.genExpr(args[0]);
-        try self.emit( ") orelse ");
+        try self.emit(") orelse ");
         try self.genExpr(def);
     } else {
         // Generate: dict.get(key)
         try self.genExpr(obj);
-        try self.emit( ".get(");
+        try self.emit(".get(");
         try self.genExpr(args[0]);
-        try self.emit( ")");
+        try self.emit(")");
     }
 }
 
@@ -41,34 +41,34 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     _ = args; // keys() takes no arguments
 
     // Generate block that builds list of keys
-    try self.emit( "blk: {\n");
+    try self.emit("blk: {\n");
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit( "var _keys_list = std.ArrayList([]const u8){};\n");
+    try self.emit("var _keys_list = std.ArrayList([]const u8){};\n");
 
     try self.emitIndent();
-    try self.emit( "var _iter = ");
+    try self.emit("var _iter = ");
     try self.genExpr(obj);
-    try self.emit( ".keyIterator();\n");
+    try self.emit(".keyIterator();\n");
 
     try self.emitIndent();
-    try self.emit( "while (_iter.next()) |key_ptr| {\n");
+    try self.emit("while (_iter.next()) |key_ptr| {\n");
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit( "try _keys_list.append(allocator, key_ptr.*);\n");
+    try self.emit("try _keys_list.append(allocator, key_ptr.*);\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit( "break :blk _keys_list;\n");
+    try self.emit("break :blk _keys_list;\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit( "}");
+    try self.emit("}");
 }
 
 /// Generate code for dict.values()
@@ -81,36 +81,36 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType.int;
 
     // Generate block that builds list of values
-    try self.emit( "blk: {\n");
+    try self.emit("blk: {\n");
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit( "var _values_list = std.ArrayList(");
+    try self.emit("var _values_list = std.ArrayList(");
     try val_type.toZigType(self.allocator, &self.output);
-    try self.emit( "){};\n");
+    try self.emit("){};\n");
 
     try self.emitIndent();
-    try self.emit( "var _iter = ");
+    try self.emit("var _iter = ");
     try self.genExpr(obj);
-    try self.emit( ".valueIterator();\n");
+    try self.emit(".valueIterator();\n");
 
     try self.emitIndent();
-    try self.emit( "while (_iter.next()) |val_ptr| {\n");
+    try self.emit("while (_iter.next()) |val_ptr| {\n");
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit( "try _values_list.append(allocator, val_ptr.*);\n");
+    try self.emit("try _values_list.append(allocator, val_ptr.*);\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit( "break :blk _values_list;\n");
+    try self.emit("break :blk _values_list;\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit( "}");
+    try self.emit("}");
 }
 
 /// Generate code for dict.items()
@@ -123,39 +123,39 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType.int;
 
     // Generate block that builds list of tuples
-    try self.emit( "blk: {\n");
+    try self.emit("blk: {\n");
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit( "var _items_list = std.ArrayList(std.meta.Tuple(&[_]type{[]const u8, ");
+    try self.emit("var _items_list = std.ArrayList(std.meta.Tuple(&[_]type{[]const u8, ");
     try val_type.toZigType(self.allocator, &self.output);
-    try self.emit( "})){};\n");
+    try self.emit("})){};\n");
 
     try self.emitIndent();
-    try self.emit( "var _iter = ");
+    try self.emit("var _iter = ");
     try self.genExpr(obj);
-    try self.emit( ".iterator();\n");
+    try self.emit(".iterator();\n");
 
     try self.emitIndent();
-    try self.emit( "while (_iter.next()) |entry| {\n");
+    try self.emit("while (_iter.next()) |entry| {\n");
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit( "const _tuple = std.meta.Tuple(&[_]type{[]const u8, ");
+    try self.emit("const _tuple = std.meta.Tuple(&[_]type{[]const u8, ");
     try val_type.toZigType(self.allocator, &self.output);
-    try self.emit( "}){entry.key_ptr.*, entry.value_ptr.*};\n");
+    try self.emit("}){entry.key_ptr.*, entry.value_ptr.*};\n");
 
     try self.emitIndent();
-    try self.emit( "try _items_list.append(allocator, _tuple);\n");
-
-    self.indent_level -= 1;
-    try self.emitIndent();
-    try self.emit( "}\n");
-
-    try self.emitIndent();
-    try self.emit( "break :blk _items_list;\n");
+    try self.emit("try _items_list.append(allocator, _tuple);\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit( "}");
+    try self.emit("}\n");
+
+    try self.emitIndent();
+    try self.emit("break :blk _items_list;\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.emit("}");
 }

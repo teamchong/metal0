@@ -98,10 +98,10 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
 
         try closure_code.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
     }
-    try closure_code.appendSlice(self.allocator, "\n");
+    try closure_code.writer(self.allocator).writeAll("\n");
 
     // Call method (inner lambda)
-    try closure_code.appendSlice(self.allocator, "    pub fn call(self: @This()");
+    try closure_code.writer(self.allocator).writeAll("    pub fn call(self: @This()");
     for (inner_lambda.args) |arg| {
         try closure_code.writer(self.allocator).print(", {s}: i64", .{arg.name});
     }
@@ -155,10 +155,10 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
 
     // Restore output
     self.output = std.ArrayList(u8){};
-    try self.emit( current_output);
+    try self.emit(current_output);
 
     // Generate factory call (just the function name, not & prefix for closures)
-    try self.emit( factory_name);
+    try self.emit(factory_name);
 
     self.allocator.free(closure_name);
 }
@@ -236,15 +236,15 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
 
     // Restore output
     self.output = std.ArrayList(u8){};
-    try self.emit( current_output);
+    try self.emit(current_output);
 
     // Generate closure instantiation: Closure{ .f = f, .g = g }
     try self.output.writer(self.allocator).print("{s}{{ ", .{closure_name});
     for (captured_vars, 0..) |var_name, i| {
-        if (i > 0) try self.emit( ", ");
+        if (i > 0) try self.emit(", ");
         try self.output.writer(self.allocator).print(".{s} = {s}", .{ var_name, var_name });
     }
-    try self.emit( " }");
+    try self.emit(" }");
 
     self.allocator.free(closure_name);
 
@@ -259,16 +259,16 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
             for (captured_vars) |captured| {
                 if (std.mem.eql(u8, n.id, captured)) {
                     // Prefix with self.
-                    try self.emit( "self.");
-                    try self.emit( n.id);
+                    try self.emit("self.");
+                    try self.emit(n.id);
                     return;
                 }
             }
             // Not captured, use directly
-            try self.emit( n.id);
+            try self.emit(n.id);
         },
         .binop => |b| {
-            try self.emit( "(");
+            try self.emit("(");
             try genExprWithCapture(self, b.left.*, captured_vars);
 
             const op_str = switch (b.op) {
@@ -285,10 +285,10 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                 .LShift => " << ",
                 .RShift => " >> ",
             };
-            try self.emit( op_str);
+            try self.emit(op_str);
 
             try genExprWithCapture(self, b.right.*, captured_vars);
-            try self.emit( ")");
+            try self.emit(")");
         },
         .constant => |c| {
             const expressions = @import("../expressions.zig");
@@ -298,17 +298,17 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
             try expressions.genConstant(self, c);
             const const_code = try self.output.toOwnedSlice(self.allocator);
             self.output = saved_output;
-            try self.emit( const_code);
+            try self.emit(const_code);
             self.allocator.free(const_code);
         },
         .call => |c| {
             try genExprWithCapture(self, c.func.*, captured_vars);
-            try self.emit( "(");
+            try self.emit("(");
             for (c.args, 0..) |arg, i| {
-                if (i > 0) try self.emit( ", ");
+                if (i > 0) try self.emit(", ");
                 try genExprWithCapture(self, arg, captured_vars);
             }
-            try self.emit( ")");
+            try self.emit(")");
         },
         .compare => |cmp| {
             try genExprWithCapture(self, cmp.left.*, captured_vars);
@@ -322,7 +322,7 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                     .GtEq => " >= ",
                     else => " == ",
                 };
-                try self.emit( op_str);
+                try self.emit(op_str);
                 try genExprWithCapture(self, cmp.comparators[i], captured_vars);
             }
         },

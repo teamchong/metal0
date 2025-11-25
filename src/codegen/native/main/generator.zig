@@ -396,7 +396,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
         // Add lambda functions
         for (self.lambda_functions.items) |lambda_code| {
-            try self.emit( lambda_code);
+            try self.emit(lambda_code);
         }
 
         // Find where class/function definitions start (after first two const declarations)
@@ -418,8 +418,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         var i: usize = 0;
         while (lines2.next()) |line| : (i += 1) {
             if (i >= skip_count) {
-                try self.emit( line);
-                try self.emit( "\n");
+                try self.emit(line);
+                try self.emit("\n");
             }
         }
     }

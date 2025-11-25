@@ -10,11 +10,11 @@ pub fn genClassFields(self: *NativeCodegen, class_name: []const u8, init: ast.No
     try genClassFieldsImpl(self, class_name, init);
 
     // Add __dict__ for dynamic attributes (always enabled)
-    try self.emit( "\n");
+    try self.emit("\n");
     try self.emitIndent();
-    try self.emit( "// Dynamic attributes dictionary\n");
+    try self.emit("// Dynamic attributes dictionary\n");
     try self.emitIndent();
-    try self.emit( "__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
+    try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 }
 
 /// Generate struct fields from a method without adding __dict__ (for additional methods like setUp)

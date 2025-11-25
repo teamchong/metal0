@@ -38,7 +38,7 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .name => |n| {
             // Check if variable has been renamed (for exception handling)
             const name_to_use = self.var_renames.get(n.id) orelse n.id;
-            try self.emit( name_to_use);
+            try self.emit(name_to_use);
         },
         .fstring => |f| try genFString(self, f),
         .binop => |b| try operators.genBinOp(self, b),
@@ -59,7 +59,7 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .ellipsis_literal => {
             // Python Ellipsis literal (...)
             // Emit void value to avoid "unused variable" warnings
-            try self.emit( "@as(void, {})");
+            try self.emit("@as(void, {})");
         },
         .starred => |s| {
             // Starred expression: *expr
@@ -87,39 +87,39 @@ fn genNamedExpr(self: *NativeCodegen, ne: ast.Node.NamedExpr) CodegenError!void 
     };
 
     // Generate: (blk: { target = value; break :blk target; })
-    try self.emit( "(blk: { ");
-    try self.emit( target_name);
-    try self.emit( " = ");
+    try self.emit("(blk: { ");
+    try self.emit(target_name);
+    try self.emit(" = ");
     try genExpr(self, ne.value.*);
-    try self.emit( "; break :blk ");
-    try self.emit( target_name);
-    try self.emit( "; })");
+    try self.emit("; break :blk ");
+    try self.emit(target_name);
+    try self.emit("; })");
 }
 
 /// Generate conditional expression (ternary): body if condition else orelse_value
 fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
     // In Zig: if (condition) body else orelse_value
-    try self.emit( "(if (");
+    try self.emit("(if (");
     try genExpr(self, ie.condition.*);
-    try self.emit( ") ");
+    try self.emit(") ");
     try genExpr(self, ie.body.*);
-    try self.emit( " else ");
+    try self.emit(" else ");
     try genExpr(self, ie.orelse_value.*);
-    try self.emit( ")");
+    try self.emit(")");
 }
 
 /// Generate await expression
 fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!void {
     // await expr → wait for green thread and get result
-    try self.emit( "(blk: {\n");
-    try self.emit( "    const __thread = ");
+    try self.emit("(blk: {\n");
+    try self.emit("    const __thread = ");
     try genExpr(self, await_node.value.*);
-    try self.emit( ";\n");
-    try self.emit( "    runtime.scheduler.wait(__thread);\n");
+    try self.emit(";\n");
+    try self.emit("    runtime.scheduler.wait(__thread);\n");
     // Cast result to expected type (TODO: infer from type system)
-    try self.emit( "    const __result = __thread.result orelse unreachable;\n");
-    try self.emit( "    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
-    try self.emit( "})");
+    try self.emit("    const __result = __thread.result orelse unreachable;\n");
+    try self.emit("    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
+    try self.emit("})");
 }
 
 /// Convert Python format specifier to Zig format specifier
@@ -161,21 +161,21 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
 
     if (all_literals) {
         // Simple case: just concatenate literals
-        try self.emit( "\"");
+        try self.emit("\"");
         for (fstring.parts) |part| {
             const lit = part.literal;
             for (lit) |c| {
                 switch (c) {
-                    '"' => try self.emit( "\\\""),
-                    '\\' => try self.emit( "\\\\"),
-                    '\n' => try self.emit( "\\n"),
-                    '\r' => try self.emit( "\\r"),
-                    '\t' => try self.emit( "\\t"),
+                    '"' => try self.emit("\\\""),
+                    '\\' => try self.emit("\\\\"),
+                    '\n' => try self.emit("\\n"),
+                    '\r' => try self.emit("\\r"),
+                    '\t' => try self.emit("\\t"),
                     else => try self.output.writer(self.allocator).print("{c}", .{c}),
                 }
             }
         }
-        try self.emit( "\"");
+        try self.emit("\"");
         return;
     }
 

@@ -12,12 +12,12 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     const genExpr = parent.genExpr;
 
     // Generate: blk: { ... }
-    try self.emit( "blk: {\n");
+    try self.emit("blk: {\n");
     self.indent();
 
     // Generate: var __comp_result = std.ArrayList(i64){};
     try self.emitIndent();
-    try self.emit( "var __comp_result = std.ArrayList(i64){};\n");
+    try self.emit("var __comp_result = std.ArrayList(i64){};\n");
 
     // Generate nested loops for each generator
     for (listcomp.generators, 0..) |gen, gen_idx| {
@@ -77,36 +77,36 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                 // Constant array variable - iterate directly
                 try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
                 try genExpr(self, gen.iter.*);
-                try self.emit( ";\n");
+                try self.emit(";\n");
             } else {
                 // ArrayList - use .items
                 try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
                 try genExpr(self, gen.iter.*);
-                try self.emit( ".items;\n");
+                try self.emit(".items;\n");
             }
 
             try self.emitIndent();
             try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
             try genExpr(self, gen.target.*);
-            try self.emit( "| {\n");
+            try self.emit("| {\n");
             self.indent();
         }
 
         // Generate if conditions for this generator
         for (gen.ifs) |if_cond| {
             try self.emitIndent();
-            try self.emit( "if (");
+            try self.emit("if (");
             try genExpr(self, if_cond);
-            try self.emit( ") {\n");
+            try self.emit(") {\n");
             self.indent();
         }
     }
 
     // Generate: try __comp_result.append(allocator, <elt_expr>);
     try self.emitIndent();
-    try self.emit( "try __comp_result.append(allocator, ");
+    try self.emit("try __comp_result.append(allocator, ");
     try genExpr(self, listcomp.elt.*);
-    try self.emit( ");\n");
+    try self.emit(");\n");
 
     // Close all if conditions and for loops
     for (listcomp.generators) |gen| {
@@ -114,22 +114,22 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         for (gen.ifs) |_| {
             self.dedent();
             try self.emitIndent();
-            try self.emit( "}\n");
+            try self.emit("}\n");
         }
 
         // Close for loop
         self.dedent();
         try self.emitIndent();
-        try self.emit( "}\n");
+        try self.emit("}\n");
     }
 
     // Generate: break :blk try __comp_result.toOwnedSlice(allocator);
     try self.emitIndent();
-    try self.emit( "break :blk try __comp_result.toOwnedSlice(allocator);\n");
+    try self.emit("break :blk try __comp_result.toOwnedSlice(allocator);\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "}");
+    try self.emit("}");
 }
 
 pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenError!void {
@@ -141,15 +141,15 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     const key_is_int = isIntExpr(dictcomp.key.*);
 
     // Generate: blk: { ... }
-    try self.emit( "blk: {\n");
+    try self.emit("blk: {\n");
     self.indent();
 
     // Generate HashMap instead of ArrayList for compatibility with print(dict)
     try self.emitIndent();
     if (key_is_int) {
-        try self.emit( "var __dict_result = std.AutoHashMap(i64, i64).init(allocator);\n");
+        try self.emit("var __dict_result = std.AutoHashMap(i64, i64).init(allocator);\n");
     } else {
-        try self.emit( "var __dict_result = hashmap_helper.StringHashMap(i64).init(allocator);\n");
+        try self.emit("var __dict_result = hashmap_helper.StringHashMap(i64).init(allocator);\n");
     }
 
     // Generate nested loops for each generator
@@ -210,38 +210,38 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                 // Constant array variable - iterate directly
                 try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
                 try genExpr(self, gen.iter.*);
-                try self.emit( ";\n");
+                try self.emit(";\n");
             } else {
                 // ArrayList - use .items
                 try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
                 try genExpr(self, gen.iter.*);
-                try self.emit( ".items;\n");
+                try self.emit(".items;\n");
             }
 
             try self.emitIndent();
             try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
             try genExpr(self, gen.target.*);
-            try self.emit( "| {\n");
+            try self.emit("| {\n");
             self.indent();
         }
 
         // Generate if conditions for this generator
         for (gen.ifs) |if_cond| {
             try self.emitIndent();
-            try self.emit( "if (");
+            try self.emit("if (");
             try genExpr(self, if_cond);
-            try self.emit( ") {\n");
+            try self.emit(") {\n");
             self.indent();
         }
     }
 
     // Generate: try __dict_result.put(<key>, <value>);
     try self.emitIndent();
-    try self.emit( "try __dict_result.put(");
+    try self.emit("try __dict_result.put(");
     try genExpr(self, dictcomp.key.*);
-    try self.emit( ", ");
+    try self.emit(", ");
     try genExpr(self, dictcomp.value.*);
-    try self.emit( ");\n");
+    try self.emit(");\n");
 
     // Close all if conditions and for loops
     for (dictcomp.generators) |gen| {
@@ -249,22 +249,22 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
         for (gen.ifs) |_| {
             self.dedent();
             try self.emitIndent();
-            try self.emit( "}\n");
+            try self.emit("}\n");
         }
 
         // Close for loop
         self.dedent();
         try self.emitIndent();
-        try self.emit( "}\n");
+        try self.emit("}\n");
     }
 
     // Generate: break :blk __dict_result;
     try self.emitIndent();
-    try self.emit( "break :blk __dict_result;\n");
+    try self.emit("break :blk __dict_result;\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "}");
+    try self.emit("}");
 }
 
 /// Check if an expression evaluates to an integer type

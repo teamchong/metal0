@@ -19,21 +19,21 @@ pub fn genSubTest(self: *NativeCodegen, obj: ast.Node, args: []ast.Node, keyword
         // Check if value is an integer constant
         if (kw.value == .constant and kw.value.constant.value == .int) {
             // Pattern: subTest(i=0) -> subTestInt("i", 0)
-            try self.emit( "runtime.unittest.subTestInt(\"");
-            try self.emit( kw.name);
-            try self.emit( "\", ");
+            try self.emit("runtime.unittest.subTestInt(\"");
+            try self.emit(kw.name);
+            try self.emit("\", ");
             try parent.genExpr(self, kw.value);
-            try self.emit( ")");
+            try self.emit(")");
             return;
         } else {
             // Pattern: subTest(msg="label") -> subTest("label")
-            try self.emit( "runtime.unittest.subTest(");
+            try self.emit("runtime.unittest.subTest(");
             try parent.genExpr(self, kw.value);
-            try self.emit( ")");
+            try self.emit(")");
             return;
         }
     }
 
     // Default: empty label
-    try self.emit( "runtime.unittest.subTest(\"\")");
+    try self.emit("runtime.unittest.subTest(\"\")");
 }

@@ -114,18 +114,18 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
         try self.emitIndent();
         try self.output.writer(self.allocator).print("var iter = {s}.valueIterator();\n", .{var_name});
         try self.emitIndent();
-        try self.emit( "while (iter.next()) |value| {\n");
+        try self.emit("while (iter.next()) |value| {\n");
         self.indent();
         try self.emitIndent();
         try self.output.writer(self.allocator).print("{s}.free(value.*);\n", .{alloc_name});
         self.dedent();
         try self.emitIndent();
-        try self.emit( "}\n");
+        try self.emit("}\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("{s}.deinit();\n", .{var_name});
         self.dedent();
         try self.emitIndent();
-        try self.emit( "}\n");
+        try self.emit("}\n");
     } else {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("defer {s}.deinit();\n", .{var_name});

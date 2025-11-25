@@ -133,10 +133,10 @@ pub fn genNestedFunctionDef(
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const {s} = struct {{", .{capture_type_name});
     for (captured_vars, 0..) |var_name, i| {
-        if (i > 0) try self.emit( ", ");
+        if (i > 0) try self.emit(", ");
         try self.output.writer(self.allocator).print(" {s}: i64", .{var_name});
     }
-    try self.emit( " };\n");
+    try self.emit(" };\n");
 
     // Generate the inner function that takes (captures, args...)
     try self.emitIndent();
@@ -158,7 +158,7 @@ pub fn genNestedFunctionDef(
     for (func.args) |arg| {
         try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
     }
-    try self.emit( ") i64 {\n");
+    try self.emit(") i64 {\n");
 
     // Generate body with captures. prefix for captured vars
     self.indent();
@@ -175,11 +175,11 @@ pub fn genNestedFunctionDef(
     self.dedent();
 
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "};\n");
+    try self.emit("};\n");
 
     // Create closure type using comptime helper based on arg count
     // Use unique variable name to avoid shadowing nested functions
@@ -222,10 +222,10 @@ pub fn genNestedFunctionDef(
 
     // Arg types (skip for zero-arg closures)
     for (func.args, 0..) |_, i| {
-        if (func.args.len > 1 and i > 0) try self.emit( ", ");
-        try self.emit( "i64");
+        if (func.args.len > 1 and i > 0) try self.emit(", ");
+        try self.emit("i64");
         if (func.args.len == 1 or i == func.args.len - 1) {
-            try self.emit( ", ");
+            try self.emit(", ");
         }
     }
 
@@ -244,10 +244,10 @@ pub fn genNestedFunctionDef(
 
     // Initialize captures
     for (captured_vars, 0..) |var_name, i| {
-        if (i > 0) try self.emit( ", ");
+        if (i > 0) try self.emit(", ");
         try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, var_name });
     }
-    try self.emit( " } };\n");
+    try self.emit(" } };\n");
 
     // Create alias with original function name
     const closure_alias_name = try std.fmt.allocPrint(
@@ -283,12 +283,12 @@ fn genZeroCaptureClosure(
     self.indent();
 
     try self.emitIndent();
-    try self.emit( "fn inner(");
+    try self.emit("fn inner(");
     for (func.args, 0..) |arg, i| {
-        if (i > 0) try self.emit( ", ");
+        if (i > 0) try self.emit(", ");
         try self.output.writer(self.allocator).print("{s}: i64", .{arg.name});
     }
-    try self.emit( ") i64 {\n");
+    try self.emit(") i64 {\n");
 
     self.indent();
     try self.pushScope();
@@ -304,11 +304,11 @@ fn genZeroCaptureClosure(
     self.dedent();
 
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "};\n");
+    try self.emit("};\n");
 
     // Use ZeroClosure for single arg, or struct wrapper for multiple
     try self.emitIndent();
@@ -322,7 +322,7 @@ fn genZeroCaptureClosure(
         try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{func.name});
         self.indent();
         try self.emitIndent();
-        try self.emit( "pub fn call(_: @This()");
+        try self.emit("pub fn call(_: @This()");
         for (func.args) |arg| {
             try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
         }
@@ -331,16 +331,16 @@ fn genZeroCaptureClosure(
         try self.emitIndent();
         try self.output.writer(self.allocator).print("return {s}.inner(", .{impl_name});
         for (func.args, 0..) |arg, i| {
-            if (i > 0) try self.emit( ", ");
-            try self.emit( arg.name);
+            if (i > 0) try self.emit(", ");
+            try self.emit(arg.name);
         }
-        try self.emit( ");\n");
+        try self.emit(");\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit( "}\n");
+        try self.emit("}\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit( "}{};\n");
+        try self.emit("}{};\n");
     }
 }
 
@@ -353,11 +353,11 @@ fn genStmtWithCaptureStruct(
     switch (stmt) {
         .return_stmt => |ret| {
             try self.emitIndent();
-            try self.emit( "return ");
+            try self.emit("return ");
             if (ret.value) |val| {
                 try genExprWithCaptureStruct(self, val.*, captured_vars);
             }
-            try self.emit( ";\n");
+            try self.emit(";\n");
         },
         else => {
             // For other statements, use regular generation
@@ -377,15 +377,15 @@ fn genExprWithCaptureStruct(
             // Check if this variable is captured
             for (captured_vars) |captured| {
                 if (std.mem.eql(u8, n.id, captured)) {
-                    try self.emit( "__captures.");
-                    try self.emit( n.id);
+                    try self.emit("__captures.");
+                    try self.emit(n.id);
                     return;
                 }
             }
-            try self.emit( n.id);
+            try self.emit(n.id);
         },
         .binop => |b| {
-            try self.emit( "(");
+            try self.emit("(");
             try genExprWithCaptureStruct(self, b.left.*, captured_vars);
 
             const op_str = switch (b.op) {
@@ -402,10 +402,10 @@ fn genExprWithCaptureStruct(
                 .LShift => " << ",
                 .RShift => " >> ",
             };
-            try self.emit( op_str);
+            try self.emit(op_str);
 
             try genExprWithCaptureStruct(self, b.right.*, captured_vars);
-            try self.emit( ")");
+            try self.emit(")");
         },
         .constant => |c| {
             const expressions = @import("../../expressions.zig");
@@ -413,12 +413,12 @@ fn genExprWithCaptureStruct(
         },
         .call => |c| {
             try genExprWithCaptureStruct(self, c.func.*, captured_vars);
-            try self.emit( "(");
+            try self.emit("(");
             for (c.args, 0..) |arg, i| {
-                if (i > 0) try self.emit( ", ");
+                if (i > 0) try self.emit(", ");
                 try genExprWithCaptureStruct(self, arg, captured_vars);
             }
-            try self.emit( ")");
+            try self.emit(")");
         },
         else => {
             const expressions = @import("../../expressions.zig");
