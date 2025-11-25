@@ -104,6 +104,78 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
+    // Check if any arg is a starred expression (print(*x))
+    var has_starred = false;
+    for (args) |arg| {
+        if (arg == .starred) {
+            has_starred = true;
+            break;
+        }
+    }
+
+    // Handle starred expressions: print(*x) -> iterate and print each element
+    if (has_starred) {
+        try self.output.appendSlice(self.allocator, "{\n");
+        try self.output.appendSlice(self.allocator, "    var __print_first = true;\n");
+
+        for (args) |arg| {
+            if (arg == .starred) {
+                // Unpack starred argument
+                const starred_value = arg.starred.value.*;
+                const value_type = try self.type_inferrer.inferExpr(starred_value);
+
+                try self.output.appendSlice(self.allocator, "    const __starred = ");
+                try self.genExpr(starred_value);
+                try self.output.appendSlice(self.allocator, ";\n");
+
+                // Determine if we need .items or direct iteration
+                const needs_items = if (starred_value == .name)
+                    self.arraylist_vars.contains(starred_value.name.id)
+                else
+                    value_type == .list;
+
+                if (needs_items) {
+                    try self.output.appendSlice(self.allocator, "    for (__starred.items) |__elem| {\n");
+                } else {
+                    try self.output.appendSlice(self.allocator, "    for (__starred) |__elem| {\n");
+                }
+                try self.output.appendSlice(self.allocator, "        if (!__print_first) std.debug.print(\" \", .{});\n");
+                try self.output.appendSlice(self.allocator, "        __print_first = false;\n");
+                try self.output.appendSlice(self.allocator, "        std.debug.print(\"{d}\", .{__elem});\n");
+                try self.output.appendSlice(self.allocator, "    }\n");
+            } else {
+                // Regular argument
+                try self.output.appendSlice(self.allocator, "    if (!__print_first) std.debug.print(\" \", .{});\n");
+                try self.output.appendSlice(self.allocator, "    __print_first = false;\n");
+
+                const arg_type = try self.type_inferrer.inferExpr(arg);
+                const fmt = switch (arg_type) {
+                    .int => "{d}",
+                    .float => "{d}",
+                    .string => "{s}",
+                    .bool => "{s}",
+                    else => "{any}",
+                };
+
+                if (arg_type == .bool) {
+                    try self.output.appendSlice(self.allocator, "    std.debug.print(\"{s}\", .{if (");
+                    try self.genExpr(arg);
+                    try self.output.appendSlice(self.allocator, ") \"True\" else \"False\"});\n");
+                } else {
+                    try self.output.appendSlice(self.allocator, "    std.debug.print(\"");
+                    try self.output.appendSlice(self.allocator, fmt);
+                    try self.output.appendSlice(self.allocator, "\", .{");
+                    try self.genExpr(arg);
+                    try self.output.appendSlice(self.allocator, "});\n");
+                }
+            }
+        }
+
+        try self.output.appendSlice(self.allocator, "    std.debug.print(\"\\n\", .{});\n");
+        try self.output.appendSlice(self.allocator, "}\n");
+        return;
+    }
+
     // Check if any arg is string concatenation, allocating method call, list, array, tuple, dict, bool, float, none, or unknown (PyObject)
     var has_string_concat = false;
     var has_allocating_call = false;
