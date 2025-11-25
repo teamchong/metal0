@@ -122,11 +122,9 @@ Python's distribution and deployment challenges solved.
 | **Cython** | No type annotations required. Full AOT compilation |
 | **mypyc** | Standalone binaries, not just module acceleration |
 
-**⚠️ Current Limitations:**
-- No `eval()`/`exec()` - static compilation only
-- Limited dynamic features (no runtime `__getattr__`, metaclasses)
-- Building stdlib in Zig (CPython C extensions not compatible yet)
-- Early alpha - not production ready
+**⚠️ Current Status:**
+- Early alpha - API may change
+- C extensions via 512 exported C API functions
 
 ## Roadmap: Matching Codon
 
@@ -865,7 +863,6 @@ make clean
 - ✅ Comptime target selection (WASM vs Native)
 
 **Not Production Ready:**
-- Limited Python compatibility (subset of language)
 - API subject to breaking changes
 - No PyPI package yet
 

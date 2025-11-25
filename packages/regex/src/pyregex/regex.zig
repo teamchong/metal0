@@ -38,6 +38,38 @@ pub const Regex = struct {
         var vm = pikevm.PikeVM.init(self.allocator, &self.nfa);
         return try vm.find(text);
     }
+
+    /// Find all non-overlapping matches in text
+    /// Returns list of matched strings (caller must free)
+    pub fn findAll(self: *Regex, text: []const u8) !std.ArrayList([]const u8) {
+        var results = std.ArrayList([]const u8){};
+        var vm = pikevm.PikeVM.init(self.allocator, &self.nfa);
+
+        var pos: usize = 0;
+        while (pos <= text.len) {
+            const maybe_match = try vm.findAt(text, pos);
+            if (maybe_match) |m| {
+                var match = m;
+                defer match.deinit(self.allocator);
+
+                // Extract matched text
+                const matched_text = text[match.span.start..match.span.end];
+                const duped = try self.allocator.dupe(u8, matched_text);
+                try results.append(self.allocator, duped);
+
+                // Move past this match (ensure progress)
+                if (match.span.end > pos) {
+                    pos = match.span.end;
+                } else {
+                    pos += 1;
+                }
+            } else {
+                break;
+            }
+        }
+
+        return results;
+    }
 };
 
 // Tests

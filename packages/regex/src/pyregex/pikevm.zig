@@ -172,7 +172,7 @@ pub const PikeVM = struct {
     }
 
     /// Try to match starting at a specific position
-    fn findAt(self: *PikeVM, text: []const u8, start: usize) !?Match {
+    pub fn findAt(self: *PikeVM, text: []const u8, start: usize) !?Match {
         var current = try ThreadList.init(self.allocator, self.nfa.states.len);
         defer current.deinit();
 
