@@ -24,9 +24,11 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             line += 1;
         },
         .ann_assign => |ann_assign| {
-            // Record annotated assignment
+            // Record annotated assignment - only count as assignment if value present
+            // Annotation-only (x: int) is just a declaration, not an assignment
             if (ann_assign.target.* == .name) {
-                try info.recordVariableUse(ann_assign.target.name.id, line, true);
+                const is_assignment = ann_assign.value != null;
+                try info.recordVariableUse(ann_assign.target.name.id, line, is_assignment);
             }
             // Analyze value expression if present
             if (ann_assign.value) |value| {

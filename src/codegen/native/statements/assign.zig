@@ -190,7 +190,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emitIndent();
                 try self.emit("        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
                 try self.emitIndent();
-                try self.emit("        runtime.scheduler = runtime.Scheduler.init(allocator, __num_threads) catch unreachable;\n");
+                try self.emit("        runtime.scheduler = runtime.Scheduler.init(__global_allocator, __num_threads) catch unreachable;\n");
                 try self.emitIndent();
                 try self.emit("        runtime.scheduler.start() catch unreachable;\n");
                 try self.emitIndent();

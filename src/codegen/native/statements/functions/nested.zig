@@ -113,20 +113,23 @@ pub fn genNestedFunctionDef(
         return;
     }
 
+    // Save counter before any nested generation that might increment it
+    const saved_counter = self.lambda_counter;
+    self.lambda_counter += 1;
+
     // Generate comptime closure using runtime.Closure1 helper
     const closure_impl_name = try std.fmt.allocPrint(
         self.allocator,
         "__ClosureImpl_{s}_{d}",
-        .{ func.name, self.lambda_counter },
+        .{ func.name, saved_counter },
     );
     defer self.allocator.free(closure_impl_name);
-    self.lambda_counter += 1;
 
     // Generate the capture struct type (must be defined once and reused)
     const capture_type_name = try std.fmt.allocPrint(
         self.allocator,
         "__CaptureType_{s}_{d}",
-        .{ func.name, self.lambda_counter },
+        .{ func.name, saved_counter },
     );
     defer self.allocator.free(capture_type_name);
 
@@ -144,16 +147,24 @@ pub fn genNestedFunctionDef(
     self.indent();
 
     // Generate static function that closure will call
-    // Use unique name based on function name + counter to avoid shadowing
+    // Use unique name based on function name + saved counter to avoid shadowing
     const impl_fn_name = try std.fmt.allocPrint(
         self.allocator,
         "call_{s}_{d}",
-        .{func.name, self.lambda_counter - 1},
+        .{func.name, saved_counter},
     );
     defer self.allocator.free(impl_fn_name);
 
+    // Use unique capture param name to avoid shadowing in nested closures
+    const capture_param_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__cap_{s}_{d}",
+        .{func.name, saved_counter},
+    );
+    defer self.allocator.free(capture_param_name);
+
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("fn {s}(__captures: {s}", .{impl_fn_name, capture_type_name});
+    try self.output.writer(self.allocator).print("fn {s}({s}: {s}", .{impl_fn_name, capture_param_name, capture_type_name});
 
     for (func.args) |arg| {
         try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
@@ -168,7 +179,7 @@ pub fn genNestedFunctionDef(
     }
 
     for (func.body) |stmt| {
-        try genStmtWithCaptureStruct(self, stmt, captured_vars);
+        try genStmtWithCaptureStruct(self, stmt, captured_vars, capture_param_name);
     }
 
     self.popScope();
@@ -182,11 +193,11 @@ pub fn genNestedFunctionDef(
     try self.emit("};\n");
 
     // Create closure type using comptime helper based on arg count
-    // Use unique variable name to avoid shadowing nested functions
+    // Use unique variable name to avoid shadowing nested functions - use saved_counter
     const closure_var_name = try std.fmt.allocPrint(
         self.allocator,
         "__closure_{s}_{d}",
-        .{func.name, self.lambda_counter - 1},
+        .{func.name, saved_counter},
     );
     defer self.allocator.free(closure_var_name);
 
@@ -229,11 +240,11 @@ pub fn genNestedFunctionDef(
         }
     }
 
-    // Return type and function
+    // Return type and function - use saved_counter for consistency
     const impl_fn_ref = try std.fmt.allocPrint(
         self.allocator,
         "call_{s}_{d}",
-        .{func.name, self.lambda_counter - 1},
+        .{func.name, saved_counter},
     );
     defer self.allocator.free(impl_fn_ref);
 
@@ -249,11 +260,11 @@ pub fn genNestedFunctionDef(
     }
     try self.emit(" } };\n");
 
-    // Create alias with original function name
+    // Create alias with original function name - use saved_counter
     const closure_alias_name = try std.fmt.allocPrint(
         self.allocator,
         "__closure_{s}_{d}",
-        .{func.name, self.lambda_counter - 1},
+        .{func.name, saved_counter},
     );
     defer self.allocator.free(closure_alias_name);
 
@@ -277,13 +288,21 @@ fn genZeroCaptureClosure(
         .{ func.name, self.lambda_counter },
     );
     defer self.allocator.free(impl_name);
+
+    // Use unique function name inside the struct to avoid shadowing
+    const inner_fn_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__fn_{s}_{d}",
+        .{ func.name, self.lambda_counter },
+    );
+    defer self.allocator.free(inner_fn_name);
     self.lambda_counter += 1;
 
     try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{impl_name});
     self.indent();
 
     try self.emitIndent();
-    try self.emit("fn inner(");
+    try self.output.writer(self.allocator).print("fn {s}(", .{inner_fn_name});
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
         try self.output.writer(self.allocator).print("{s}: i64", .{arg.name});
@@ -314,8 +333,8 @@ fn genZeroCaptureClosure(
     try self.emitIndent();
     if (func.args.len == 1) {
         try self.output.writer(self.allocator).print(
-            "const {s} = runtime.ZeroClosure(i64, i64, {s}.inner){{}};\n",
-            .{ func.name, impl_name },
+            "const {s} = runtime.ZeroClosure(i64, i64, {s}.{s}){{}};\n",
+            .{ func.name, impl_name, inner_fn_name },
         );
     } else {
         // Multiple args - create wrapper struct
@@ -329,7 +348,7 @@ fn genZeroCaptureClosure(
         try self.output.writer(self.allocator).print(") i64 {{\n", .{});
         self.indent();
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("return {s}.inner(", .{impl_name});
+        try self.output.writer(self.allocator).print("return {s}.{s}(", .{ impl_name, inner_fn_name });
         for (func.args, 0..) |arg, i| {
             if (i > 0) try self.emit(", ");
             try self.emit(arg.name);
@@ -342,20 +361,25 @@ fn genZeroCaptureClosure(
         try self.emitIndent();
         try self.emit("}{};\n");
     }
+
+    // Mark as closure so calls use .call() syntax
+    const func_name_copy = try self.allocator.dupe(u8, func.name);
+    try self.closure_vars.put(func_name_copy, {});
 }
 
-/// Generate statement with captured variable references prefixed with "captures."
+/// Generate statement with captured variable references prefixed with capture param name
 fn genStmtWithCaptureStruct(
     self: *NativeCodegen,
     stmt: ast.Node,
     captured_vars: [][]const u8,
+    capture_param_name: []const u8,
 ) CodegenError!void {
     switch (stmt) {
         .return_stmt => |ret| {
             try self.emitIndent();
             try self.emit("return ");
             if (ret.value) |val| {
-                try genExprWithCaptureStruct(self, val.*, captured_vars);
+                try genExprWithCaptureStruct(self, val.*, captured_vars, capture_param_name);
             }
             try self.emit(";\n");
         },
@@ -366,18 +390,20 @@ fn genStmtWithCaptureStruct(
     }
 }
 
-/// Generate expression with captured variable references prefixed with "__captures."
+/// Generate expression with captured variable references prefixed with capture param name
 fn genExprWithCaptureStruct(
     self: *NativeCodegen,
     node: ast.Node,
     captured_vars: [][]const u8,
+    capture_param_name: []const u8,
 ) CodegenError!void {
     switch (node) {
         .name => |n| {
             // Check if this variable is captured
             for (captured_vars) |captured| {
                 if (std.mem.eql(u8, n.id, captured)) {
-                    try self.emit("__captures.");
+                    try self.emit(capture_param_name);
+                    try self.emit(".");
                     try self.emit(n.id);
                     return;
                 }
@@ -386,7 +412,7 @@ fn genExprWithCaptureStruct(
         },
         .binop => |b| {
             try self.emit("(");
-            try genExprWithCaptureStruct(self, b.left.*, captured_vars);
+            try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
 
             const op_str = switch (b.op) {
                 .Add => " + ",
@@ -404,7 +430,7 @@ fn genExprWithCaptureStruct(
             };
             try self.emit(op_str);
 
-            try genExprWithCaptureStruct(self, b.right.*, captured_vars);
+            try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
             try self.emit(")");
         },
         .constant => |c| {
@@ -412,11 +438,22 @@ fn genExprWithCaptureStruct(
             try expressions.genConstant(self, c);
         },
         .call => |c| {
-            try genExprWithCaptureStruct(self, c.func.*, captured_vars);
-            try self.emit("(");
+            // Check if calling a closure variable - need to use .call() syntax
+            const is_closure_call = if (c.func.* == .name) blk: {
+                const func_name = c.func.name.id;
+                break :blk self.closure_vars.contains(func_name);
+            } else false;
+
+            if (is_closure_call) {
+                try genExprWithCaptureStruct(self, c.func.*, captured_vars, capture_param_name);
+                try self.emit(".call(");
+            } else {
+                try genExprWithCaptureStruct(self, c.func.*, captured_vars, capture_param_name);
+                try self.emit("(");
+            }
             for (c.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
-                try genExprWithCaptureStruct(self, arg, captured_vars);
+                try genExprWithCaptureStruct(self, arg, captured_vars, capture_param_name);
             }
             try self.emit(")");
         },
