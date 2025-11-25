@@ -5,6 +5,18 @@ const hashmap_helper = @import("../../utils/hashmap_helper.zig");
 
 pub const MutationMap = hashmap_helper.StringHashMap(MutationInfo);
 
+/// List mutation methods (DCE optimized lookup)
+const ListMutationMethods = std.StaticStringMap(MutationType).initComptime(.{
+    .{ "append", .list_append },
+    .{ "pop", .list_pop },
+    .{ "extend", .list_extend },
+    .{ "insert", .list_insert },
+    .{ "remove", .list_remove },
+    .{ "clear", .list_clear },
+    .{ "sort", .list_sort },
+    .{ "reverse", .list_reverse },
+});
+
 pub const MutationType = enum {
     list_append,
     list_pop,
@@ -143,23 +155,9 @@ fn checkExprForMutation(
                     const obj_name = attr.value.name.id;
                     const method_name = attr.attr;
 
-                    // List mutating methods
-                    if (std.mem.eql(u8, method_name, "append")) {
-                        try recordMutation(obj_name, .list_append, mutations, allocator);
-                    } else if (std.mem.eql(u8, method_name, "pop")) {
-                        try recordMutation(obj_name, .list_pop, mutations, allocator);
-                    } else if (std.mem.eql(u8, method_name, "extend")) {
-                        try recordMutation(obj_name, .list_extend, mutations, allocator);
-                    } else if (std.mem.eql(u8, method_name, "insert")) {
-                        try recordMutation(obj_name, .list_insert, mutations, allocator);
-                    } else if (std.mem.eql(u8, method_name, "remove")) {
-                        try recordMutation(obj_name, .list_remove, mutations, allocator);
-                    } else if (std.mem.eql(u8, method_name, "clear")) {
-                        try recordMutation(obj_name, .list_clear, mutations, allocator);
-                    } else if (std.mem.eql(u8, method_name, "sort")) {
-                        try recordMutation(obj_name, .list_sort, mutations, allocator);
-                    } else if (std.mem.eql(u8, method_name, "reverse")) {
-                        try recordMutation(obj_name, .list_reverse, mutations, allocator);
+                    // List mutating methods (O(1) lookup via StaticStringMap)
+                    if (ListMutationMethods.get(method_name)) |mutation_type| {
+                        try recordMutation(obj_name, mutation_type, mutations, allocator);
                     }
                 }
             }
