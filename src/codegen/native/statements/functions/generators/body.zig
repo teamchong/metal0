@@ -142,21 +142,21 @@ pub fn genFunctionBody(
     // If allocator param was added but not actually used, suppress warning
     if (has_allocator_param and !actually_uses_allocator) {
         try self.emitIndent();
-        try self.emit( "_ = allocator;\n");
+        try self.emit("_ = allocator;\n");
     }
 
     // Generate default parameter initialization (before declaring them in scope)
     for (func.args) |arg| {
         if (arg.default) |default_expr| {
             try self.emitIndent();
-            try self.emit( "const ");
-            try self.emit( arg.name);
-            try self.emit( " = ");
-            try self.emit( arg.name);
-            try self.emit( "_param orelse ");
+            try self.emit("const ");
+            try self.emit(arg.name);
+            try self.emit(" = ");
+            try self.emit(arg.name);
+            try self.emit("_param orelse ");
             const expressions = @import("../../../expressions.zig");
             try expressions.genExpr(self, default_expr.*);
-            try self.emit( ";\n");
+            try self.emit(";\n");
         }
     }
 
@@ -227,5 +227,5 @@ pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) Codegen
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 }

@@ -8,14 +8,14 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 /// Returns current datetime as string
 pub fn genDatetimeNow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args; // datetime.now() takes no arguments
-    try self.emit( "try runtime.datetime.datetimeNow(allocator)");
+    try self.emit("try runtime.datetime.datetimeNow(allocator)");
 }
 
 /// Generate code for datetime.date.today()
 /// Returns current date as string
 pub fn genDateToday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args; // date.today() takes no arguments
-    try self.emit( "try runtime.datetime.dateToday(allocator)");
+    try self.emit("try runtime.datetime.dateToday(allocator)");
 }
 
 /// Generate code for datetime.timedelta(days=N)
@@ -24,14 +24,14 @@ pub fn genDateToday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genTimedelta(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         // timedelta() with no args = 0 days
-        try self.emit( "try runtime.datetime.timedeltaToPyString(allocator, 0)");
+        try self.emit("try runtime.datetime.timedeltaToPyString(allocator, 0)");
         return;
     }
 
     // Positional argument: timedelta(7) means days=7
     if (args.len >= 1) {
-        try self.emit( "try runtime.datetime.timedeltaToPyString(allocator, ");
+        try self.emit("try runtime.datetime.timedeltaToPyString(allocator, ");
         try self.genExpr(args[0]);
-        try self.emit( ")");
+        try self.emit(")");
     }
 }

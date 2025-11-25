@@ -26,9 +26,9 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     const program = bytecode_compiler.compileSource(self.allocator, eval_source) catch |err| {
         // If bytecode compilation fails, fall back to runtime eval
         std.debug.print("comptime eval fallback for '{s}': {}\n", .{ eval_source, err });
-        try self.emit( "try runtime.eval(allocator, \"");
+        try self.emit("try runtime.eval(allocator, \"");
         try escapeZigString(self, eval_source);
-        try self.emit( "\")");
+        try self.emit("\")");
         return;
     };
     defer {
@@ -49,71 +49,71 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     //     defer _vm_N.deinit();
     //     _vm_N.execute(&_program_N)
     // }
-    try self.emit( "blk: {\n");
+    try self.emit("blk: {\n");
 
     // Emit bytecode as static const array
-    try self.emit( "    const _bytecode_");
+    try self.emit("    const _bytecode_");
     try emitInt(self, blob_id);
-    try self.emit( " = [_]u8{ ");
+    try self.emit(" = [_]u8{ ");
 
     // Serialize bytecode and emit as byte array
     const serialized = program.serialize(self.allocator) catch {
-        try self.emit( "// serialization failed\n");
-        try self.emit( "break :blk try runtime.eval(allocator, \"");
+        try self.emit("// serialization failed\n");
+        try self.emit("break :blk try runtime.eval(allocator, \"");
         try escapeZigString(self, source);
-        try self.emit( "\");\n}");
+        try self.emit("\");\n}");
         return;
     };
     defer self.allocator.free(serialized);
 
     for (serialized, 0..) |byte, i| {
-        if (i > 0) try self.emit( ", ");
+        if (i > 0) try self.emit(", ");
         try emitInt(self, byte);
     }
-    try self.emit( " };\n");
+    try self.emit(" };\n");
 
     // Deserialize and execute via VM
-    try self.emit( "    var _program_");
+    try self.emit("    var _program_");
     try emitInt(self, blob_id);
-    try self.emit( " = runtime.BytecodeProgram.deserialize(allocator, &_bytecode_");
+    try self.emit(" = runtime.BytecodeProgram.deserialize(allocator, &_bytecode_");
     try emitInt(self, blob_id);
-    try self.emit( ") catch unreachable;\n");
+    try self.emit(") catch unreachable;\n");
 
-    try self.emit( "    defer _program_");
+    try self.emit("    defer _program_");
     try emitInt(self, blob_id);
-    try self.emit( ".deinit();\n");
+    try self.emit(".deinit();\n");
 
-    try self.emit( "    var _vm_");
+    try self.emit("    var _vm_");
     try emitInt(self, blob_id);
-    try self.emit( " = runtime.BytecodeVM.init(allocator);\n");
+    try self.emit(" = runtime.BytecodeVM.init(allocator);\n");
 
-    try self.emit( "    defer _vm_");
+    try self.emit("    defer _vm_");
     try emitInt(self, blob_id);
-    try self.emit( ".deinit();\n");
+    try self.emit(".deinit();\n");
 
-    try self.emit( "    break :blk try _vm_");
+    try self.emit("    break :blk try _vm_");
     try emitInt(self, blob_id);
-    try self.emit( ".execute(&_program_");
+    try self.emit(".execute(&_program_");
     try emitInt(self, blob_id);
-    try self.emit( ");\n}");
+    try self.emit(");\n}");
 }
 
 /// Helper to emit integer as decimal string
 fn emitInt(self: *NativeCodegen, value: anytype) CodegenError!void {
     var buf: [20]u8 = undefined;
     const result = std.fmt.bufPrint(&buf, "{d}", .{value}) catch return error.OutOfMemory;
-    try self.emit( result);
+    try self.emit(result);
 }
 
 /// Helper to escape a string for Zig string literal
 fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
     for (source) |c| {
         switch (c) {
-            '"' => try self.emit( "\\\""),
-            '\\' => try self.emit( "\\\\"),
-            '\n' => try self.emit( "\\n"),
-            '\r' => try self.emit( "\\r"),
-            '\t' => try self.emit( "\\t"),
+            '"' => try self.emit("\\\""),
+            '\\' => try self.emit("\\\\"),
+            '\n' => try self.emit("\\n"),
+            '\r' => try self.emit("\\r"),
+            '\t' => try self.emit("\\t"),
             else => try self.output.append(self.allocator, c),
         }
     }
@@ -127,9 +127,9 @@ pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Generate: try runtime.eval(allocator, source_code)
-    try self.emit( "try runtime.eval(allocator, ");
+    try self.emit("try runtime.eval(allocator, ");
     try self.genExpr(args[0]);
-    try self.emit( ")");
+    try self.emit(")");
 }
 
 /// Generate code for exec(source)
@@ -140,7 +140,7 @@ pub fn genExec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Generate: try runtime.exec(allocator, source_code)
-    try self.emit( "try runtime.exec(allocator, ");
+    try self.emit("try runtime.exec(allocator, ");
     try self.genExpr(args[0]);
-    try self.emit( ")");
+    try self.emit(")");
 }

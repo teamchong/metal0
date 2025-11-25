@@ -15,11 +15,11 @@ const body = @import("../body.zig");
 pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) CodegenError!void {
     // Default __dict__ field for dynamic attributes
     try self.emitIndent();
-    try self.emit( "// Dynamic attributes dictionary\n");
+    try self.emit("// Dynamic attributes dictionary\n");
     try self.emitIndent();
-    try self.emit( "__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
+    try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 
-    try self.emit( "\n");
+    try self.emit("\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub fn init(allocator: std.mem.Allocator) {s} {{\n", .{class_name});
     self.indent();
@@ -30,15 +30,15 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) Codege
 
     // Initialize __dict__ for dynamic attributes
     try self.emitIndent();
-    try self.emit( ".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(allocator),\n");
+    try self.emit(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(allocator),\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "};\n");
+    try self.emit("};\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 }
 
 /// Generate init() method from __init__
@@ -47,7 +47,7 @@ pub fn genInitMethod(
     class_name: []const u8,
     init: ast.Node.FunctionDef,
 ) CodegenError!void {
-    try self.emit( "\n");
+    try self.emit("\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub fn init(allocator: std.mem.Allocator", .{});
 
@@ -55,17 +55,17 @@ pub fn genInitMethod(
     for (init.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
 
-        try self.emit( ", ");
+        try self.emit(", ");
 
         try self.output.writer(self.allocator).print("{s}: ", .{arg.name});
 
         // Type annotation: prefer type hints, fallback to inference
         if (arg.type_annotation) |_| {
-            try self.emit( signature.pythonTypeToZig(arg.type_annotation));
+            try self.emit(signature.pythonTypeToZig(arg.type_annotation));
         } else {
             const param_type = try class_fields.inferParamType(self, class_name, init, arg.name);
             defer self.allocator.free(param_type);
-            try self.emit( param_type);
+            try self.emit(param_type);
         }
     }
 
@@ -91,7 +91,7 @@ pub fn genInitMethod(
                     try self.emitIndent();
                     try self.output.writer(self.allocator).print(".{s} = ", .{field_name});
                     try self.genExpr(assign.value.*);
-                    try self.emit( ",\n");
+                    try self.emit(",\n");
                 }
             }
         }
@@ -99,15 +99,15 @@ pub fn genInitMethod(
 
     // Initialize __dict__ for dynamic attributes
     try self.emitIndent();
-    try self.emit( ".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(allocator),\n");
+    try self.emit(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(allocator),\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "};\n");
+    try self.emit("};\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "}\n");
+    try self.emit("}\n");
 }
 
 /// Generate regular class methods (non-__init__)

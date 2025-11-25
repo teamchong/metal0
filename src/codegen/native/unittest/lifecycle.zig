@@ -9,12 +9,12 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit( "{\n");
+    try self.emit("{\n");
     self.indent();
 
     // Initialize test runner
     try self.emitIndent();
-    try self.emit( "_ = try runtime.unittest.initRunner(allocator);\n");
+    try self.emit("_ = try runtime.unittest.initRunner(allocator);\n");
 
     // For each test class, instantiate and run test methods
     for (self.unittest_classes.items) |class_info| {
@@ -63,7 +63,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             try self.emitIndent();
             try self.output.writer(self.allocator).print("_test_instance_{s}.{s}();\n", .{ class_info.class_name, method_name });
             try self.emitIndent();
-            try self.emit( "std.debug.print(\"ok\\n\", .{});\n");
+            try self.emit("std.debug.print(\"ok\\n\", .{});\n");
 
             // Call tearDown after each test if it exists
             if (class_info.has_tearDown) {
@@ -81,15 +81,15 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
     // Print results
     try self.emitIndent();
-    try self.emit( "runtime.unittest.finalize();\n");
+    try self.emit("runtime.unittest.finalize();\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "}");
+    try self.emit("}");
 }
 
 /// Generate code for unittest.finalize() - called at end of tests
 pub fn genUnittestFinalize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit( "runtime.unittest.finalize()");
+    try self.emit("runtime.unittest.finalize()");
 }

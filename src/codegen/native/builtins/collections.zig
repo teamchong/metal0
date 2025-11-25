@@ -53,17 +53,17 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     };
 
-    try self.emit( "blk: {\n");
-    try self.emit( "var total: i64 = 0;\n");
-    try self.emit( "for (");
+    try self.emit("blk: {\n");
+    try self.emit("var total: i64 = 0;\n");
+    try self.emit("for (");
     try self.genExpr(args[0]);
     // ArrayList needs .items for iteration, arrays don't
     if (!is_array_var) {
-        try self.emit( ".items");
+        try self.emit(".items");
     }
-    try self.emit( ") |item| { total += item; }\n");
-    try self.emit( "break :blk total;\n");
-    try self.emit( "}");
+    try self.emit(") |item| { total += item; }\n");
+    try self.emit("break :blk total;\n");
+    try self.emit("}");
 }
 
 /// Generate code for all(iterable)
@@ -78,15 +78,15 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk true;
     // }
 
-    try self.emit( "blk: {\n");
-    try self.emit( "for (");
+    try self.emit("blk: {\n");
+    try self.emit("for (");
     try self.genExpr(args[0]);
-    try self.emit( ".items");
-    try self.emit( ") |item| {\n");
-    try self.emit( "if (item == 0) break :blk false;\n");
-    try self.emit( "}\n");
-    try self.emit( "break :blk true;\n");
-    try self.emit( "}");
+    try self.emit(".items");
+    try self.emit(") |item| {\n");
+    try self.emit("if (item == 0) break :blk false;\n");
+    try self.emit("}\n");
+    try self.emit("break :blk true;\n");
+    try self.emit("}");
 }
 
 /// Generate code for any(iterable)
@@ -101,15 +101,15 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk false;
     // }
 
-    try self.emit( "blk: {\n");
-    try self.emit( "for (");
+    try self.emit("blk: {\n");
+    try self.emit("for (");
     try self.genExpr(args[0]);
-    try self.emit( ".items");
-    try self.emit( ") |item| {\n");
-    try self.emit( "if (item != 0) break :blk true;\n");
-    try self.emit( "}\n");
-    try self.emit( "break :blk false;\n");
-    try self.emit( "}");
+    try self.emit(".items");
+    try self.emit(") |item| {\n");
+    try self.emit("if (item != 0) break :blk true;\n");
+    try self.emit("}\n");
+    try self.emit("break :blk false;\n");
+    try self.emit("}");
 }
 
 /// Generate code for sorted(iterable)
@@ -123,13 +123,13 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk copy;
     // }
 
-    try self.emit( "blk: {\n");
-    try self.emit( "const copy = try allocator.dupe(i64, ");
+    try self.emit("blk: {\n");
+    try self.emit("const copy = try allocator.dupe(i64, ");
     try self.genExpr(args[0]);
-    try self.emit( ");\n");
-    try self.emit( "std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));\n");
-    try self.emit( "break :blk copy;\n");
-    try self.emit( "}");
+    try self.emit(");\n");
+    try self.emit("std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));\n");
+    try self.emit("break :blk copy;\n");
+    try self.emit("}");
 }
 
 /// Generate code for reversed(iterable)
@@ -143,13 +143,13 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk copy;
     // }
 
-    try self.emit( "blk: {\n");
-    try self.emit( "const copy = try allocator.dupe(i64, ");
+    try self.emit("blk: {\n");
+    try self.emit("const copy = try allocator.dupe(i64, ");
     try self.genExpr(args[0]);
-    try self.emit( ");\n");
-    try self.emit( "std.mem.reverse(i64, copy);\n");
-    try self.emit( "break :blk copy;\n");
-    try self.emit( "}");
+    try self.emit(");\n");
+    try self.emit("std.mem.reverse(i64, copy);\n");
+    try self.emit("break :blk copy;\n");
+    try self.emit("}");
 }
 
 /// Generate code for map(func, iterable)

@@ -18,25 +18,25 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
                 try self.output.writer(self.allocator).print("@as(f64, {d})", .{f});
             }
         },
-        .bool => try self.emit( if (constant.value.bool) "true" else "false"),
-        .none => try self.emit( "null"), // Zig null represents None
+        .bool => try self.emit(if (constant.value.bool) "true" else "false"),
+        .none => try self.emit("null"), // Zig null represents None
         .string => |s| {
             // Strip Python quotes
             const content = if (s.len >= 2) s[1 .. s.len - 1] else s;
 
             // Escape quotes and backslashes for Zig string literal
-            try self.emit( "\"");
+            try self.emit("\"");
             for (content) |c| {
                 switch (c) {
-                    '"' => try self.emit( "\\\""),
-                    '\\' => try self.emit( "\\\\"),
-                    '\n' => try self.emit( "\\n"),
-                    '\r' => try self.emit( "\\r"),
-                    '\t' => try self.emit( "\\t"),
+                    '"' => try self.emit("\\\""),
+                    '\\' => try self.emit("\\\\"),
+                    '\n' => try self.emit("\\n"),
+                    '\r' => try self.emit("\\r"),
+                    '\t' => try self.emit("\\t"),
                     else => try self.output.writer(self.allocator).print("{c}", .{c}),
                 }
             }
-            try self.emit( "\"");
+            try self.emit("\"");
         },
     }
 }

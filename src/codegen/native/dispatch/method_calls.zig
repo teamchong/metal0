@@ -258,18 +258,18 @@ fn handleSuperCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []con
     // Generate: ParentClass.method(@ptrCast(self), args)
     // Need @ptrCast because self is *const Child but parent method expects *const Parent
     // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
-    try self.emit( parent_class);
-    try self.emit( ".");
+    try self.emit(parent_class);
+    try self.emit(".");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_name);
-    try self.emit( "(@ptrCast(self)");
+    try self.emit("(@ptrCast(self)");
 
     // Add remaining arguments
     for (call.args) |arg| {
-        try self.emit( ", ");
+        try self.emit(", ");
         try parent.genExpr(self, arg);
     }
 
-    try self.emit( ")");
+    try self.emit(")");
     return true;
 }
 
@@ -279,16 +279,16 @@ fn handleQueueMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: []
     const parent = @import("../expressions.zig");
 
     if (queue_method.prefix.len > 0) {
-        try self.emit( queue_method.prefix);
+        try self.emit(queue_method.prefix);
     }
     try parent.genExpr(self, obj);
-    try self.emit( queue_method.suffix);
+    try self.emit(queue_method.suffix);
 
     if (queue_method.has_arg) {
         if (call.args.len > 0) {
             try parent.genExpr(self, call.args[0]);
         }
-        try self.emit( ")");
+        try self.emit(")");
     }
 
     return true;

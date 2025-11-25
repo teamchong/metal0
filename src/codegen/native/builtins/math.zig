@@ -10,9 +10,9 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
     // Generate: @abs(n) or if (n < 0) -n else n
-    try self.emit( "@abs(");
+    try self.emit("@abs(");
     try self.genExpr(args[0]);
-    try self.emit( ")");
+    try self.emit(")");
 }
 
 /// Generate code for min(a, b, ...)
@@ -21,14 +21,14 @@ pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
 
     // Generate: @min(a, @min(b, c))
-    try self.emit( "@min(");
+    try self.emit("@min(");
     try self.genExpr(args[0]);
 
     for (args[1..]) |arg| {
-        try self.emit( ", ");
+        try self.emit(", ");
         try self.genExpr(arg);
     }
-    try self.emit( ")");
+    try self.emit(")");
 }
 
 /// Generate code for max(a, b, ...)
@@ -37,14 +37,14 @@ pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
 
     // Generate: @max(a, @max(b, c))
-    try self.emit( "@max(");
+    try self.emit("@max(");
     try self.genExpr(args[0]);
 
     for (args[1..]) |arg| {
-        try self.emit( ", ");
+        try self.emit(", ");
         try self.genExpr(arg);
     }
-    try self.emit( ")");
+    try self.emit(")");
 }
 
 /// Generate code for round(n)
@@ -53,9 +53,9 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
     // Generate: @round(n)
-    try self.emit( "@round(");
+    try self.emit("@round(");
     try self.genExpr(args[0]);
-    try self.emit( ")");
+    try self.emit(")");
 }
 
 /// Generate code for pow(base, exp)
@@ -64,11 +64,11 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 2) return;
 
     // Generate: std.math.pow(f64, base, exp)
-    try self.emit( "std.math.pow(f64, ");
+    try self.emit("std.math.pow(f64, ");
     try self.genExpr(args[0]);
-    try self.emit( ", ");
+    try self.emit(", ");
     try self.genExpr(args[1]);
-    try self.emit( ")");
+    try self.emit(")");
 }
 
 /// Generate code for chr(n)
@@ -77,9 +77,9 @@ pub fn genChr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
     // Generate: &[_]u8{@intCast(n)}
-    try self.emit( "&[_]u8{@intCast(");
+    try self.emit("&[_]u8{@intCast(");
     try self.genExpr(args[0]);
-    try self.emit( ")}");
+    try self.emit(")}");
 }
 
 /// Generate code for ord(c)
@@ -89,7 +89,7 @@ pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Generate: @as(i64, str[0])
     // Assumes single-char string
-    try self.emit( "@as(i64, ");
+    try self.emit("@as(i64, ");
     try self.genExpr(args[0]);
-    try self.emit( "[0])");
+    try self.emit("[0])");
 }

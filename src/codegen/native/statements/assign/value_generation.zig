@@ -15,11 +15,11 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
 
     // Generate: const __unpack_tmp_N = value_expr;
     try self.emitIndent();
-    try self.emit( "const ");
-    try self.emit( tmp_name);
-    try self.emit( " = ");
+    try self.emit("const ");
+    try self.emit(tmp_name);
+    try self.emit(" = ");
     try self.genExpr(assign.value.*);
-    try self.emit( ";\n");
+    try self.emit(";\n");
 
     // Generate: const a = __unpack_tmp_N.@"0";
     //           const b = __unpack_tmp_N.@"1";
@@ -30,12 +30,12 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
 
             try self.emitIndent();
             if (is_first_assignment) {
-                try self.emit( "const ");
+                try self.emit("const ");
                 try self.declareVar(var_name);
             }
             // Use renamed version if in var_renames map (for exception handling)
             const actual_name = self.var_renames.get(var_name) orelse var_name;
-            try self.emit( actual_name);
+            try self.emit(actual_name);
             try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
         }
     }
@@ -57,15 +57,15 @@ pub fn emitVarDeclaration(
     const needs_var = is_arraylist or is_dict or is_mutable_class_instance or is_mutated;
 
     if (needs_var) {
-        try self.emit( "var ");
+        try self.emit("var ");
     } else {
-        try self.emit( "const ");
+        try self.emit("const ");
     }
 
     // Use renamed version if in var_renames map (for exception handling)
     const actual_name = self.var_renames.get(var_name) orelse var_name;
 
-    try self.emit( actual_name);
+    try self.emit(actual_name);
 
     // Only emit type annotation for known types that aren't dicts, dictcomps, lists, tuples, closures, or ArrayLists
     // For lists/ArrayLists/dicts/dictcomps/tuples/closures, let Zig infer the type from the initializer
@@ -76,11 +76,11 @@ pub fn emitVarDeclaration(
     const is_dict_type = (value_type == .dict);
     const is_dictcomp = false; // Passed separately
     if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure) {
-        try self.emit( ": ");
+        try self.emit(": ");
         try value_type.toZigType(self.allocator, &self.output);
     }
 
-    try self.emit( " = ");
+    try self.emit(" = ");
 }
 
 /// Generate ArrayList initialization from list literal
@@ -91,19 +91,19 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     else
         .int; // Default to int for empty lists
 
-    try self.emit( "std.ArrayList(");
+    try self.emit("std.ArrayList(");
     try elem_type.toZigType(self.allocator, &self.output);
-    try self.emit( "){};\n");
+    try self.emit("){};\n");
 
     // Append elements
     for (list.elts) |elem| {
         try self.emitIndent();
-        try self.emit( "try ");
+        try self.emit("try ");
         const actual_name = self.var_renames.get(var_name) orelse var_name;
-        try self.emit( actual_name);
-        try self.emit( ".append(allocator, ");
+        try self.emit(actual_name);
+        try self.emit(".append(allocator, ");
         try self.genExpr(elem);
-        try self.emit( ");\n");
+        try self.emit(");\n");
     }
 
     // Track this variable as ArrayList for len() generation
@@ -123,14 +123,14 @@ pub fn genStringConcat(self: *NativeCodegen, assign: ast.Node.Assign, var_name: 
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
     // Generate concat with all parts at once
-    try self.emit( "try std.mem.concat(");
-    try self.emit( alloc_name);
-    try self.emit( ", u8, &[_][]const u8{ ");
+    try self.emit("try std.mem.concat(");
+    try self.emit(alloc_name);
+    try self.emit(", u8, &[_][]const u8{ ");
     for (parts.items, 0..) |part, i| {
-        if (i > 0) try self.emit( ", ");
+        if (i > 0) try self.emit(", ");
         try self.genExpr(part);
     }
-    try self.emit( " });\n");
+    try self.emit(" });\n");
 
     // Add defer cleanup
     try deferCleanup.emitStringConcatDefer(self, var_name, is_first_assignment);

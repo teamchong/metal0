@@ -329,7 +329,7 @@ pub const NativeCodegen = struct {
 
     // Helper functions - public for use by statements.zig and expressions.zig
     pub fn emit(self: *NativeCodegen, s: []const u8) CodegenError!void {
-        try self.emit( s);
+        try self.emit(s);
     }
 
     /// Emit formatted string
@@ -340,7 +340,7 @@ pub const NativeCodegen = struct {
     pub fn emitIndent(self: *NativeCodegen) CodegenError!void {
         var i: usize = 0;
         while (i < self.indent_level) : (i += 1) {
-            try self.emit( "    ");
+            try self.emit("    ");
         }
     }
 

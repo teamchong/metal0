@@ -217,7 +217,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     self.dedent();
     try self.emitIndent();
-    try self.emit( "};\n");
+    try self.emit("};\n");
 }
 
 /// Check if a test method has a skip docstring
