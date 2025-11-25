@@ -344,6 +344,10 @@ pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usi
         '<' => blk: {
             if (self.peek() == '<') {
                 _ = self.advance();
+                if (self.peek() == '=') {
+                    _ = self.advance();
+                    break :blk .LtLtEq;
+                }
                 break :blk .LtLt;
             } else if (self.peek() == '=') {
                 _ = self.advance();
@@ -354,6 +358,10 @@ pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usi
         '>' => blk: {
             if (self.peek() == '>') {
                 _ = self.advance();
+                if (self.peek() == '=') {
+                    _ = self.advance();
+                    break :blk .GtGtEq;
+                }
                 break :blk .GtGt;
             } else if (self.peek() == '=') {
                 _ = self.advance();
@@ -361,9 +369,27 @@ pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usi
             }
             break :blk .Gt;
         },
-        '&' => .Ampersand,
-        '|' => .Pipe,
-        '^' => .Caret,
+        '&' => blk: {
+            if (self.peek() == '=') {
+                _ = self.advance();
+                break :blk .AmpersandEq;
+            }
+            break :blk .Ampersand;
+        },
+        '|' => blk: {
+            if (self.peek() == '=') {
+                _ = self.advance();
+                break :blk .PipeEq;
+            }
+            break :blk .Pipe;
+        },
+        '^' => blk: {
+            if (self.peek() == '=') {
+                _ = self.advance();
+                break :blk .CaretEq;
+            }
+            break :blk .Caret;
+        },
         '~' => .Tilde,
         '@' => .At,
         else => return null,

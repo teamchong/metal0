@@ -255,7 +255,18 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         return;
     }
 
-    // Regular operators: +=, -=, *=, /=
+    // Handle bitwise shift operators separately due to RHS type casting
+    if (aug.op == .LShift or aug.op == .RShift) {
+        const shift_fn = if (aug.op == .LShift) "std.math.shl" else "std.math.shr";
+        try self.output.writer(self.allocator).print("{s}(i64, ", .{shift_fn});
+        try self.genExpr(aug.target.*);
+        try self.output.appendSlice(self.allocator, ", @as(u6, @intCast(");
+        try self.genExpr(aug.value.*);
+        try self.output.appendSlice(self.allocator, ")));\n");
+        return;
+    }
+
+    // Regular operators: +=, -=, *=, /=, &=, |=, ^=
     try self.genExpr(aug.target.*);
 
     const op_str = switch (aug.op) {
@@ -263,6 +274,9 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         .Sub => " - ",
         .Mult => " * ",
         .Div => " / ",
+        .BitAnd => " & ",
+        .BitOr => " | ",
+        .BitXor => " ^ ",
         else => " ? ",
     };
     try self.output.appendSlice(self.allocator, op_str);
