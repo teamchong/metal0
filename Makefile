@@ -110,13 +110,13 @@ benchmark-fib: build-release
 	@rustc -O benchmarks/rust/fibonacci.rs -o ./bench_fib_rust 2>/dev/null || echo "Rust not installed, skipping"
 	@go build -o ./bench_fib_go benchmarks/go/fibonacci.go 2>/dev/null || echo "Go not installed, skipping"
 	@echo "Fibonacci (fib 35):"
-	@hyperfine --warmup 2 --runs 5 \
+	@hyperfine --warmup 10 --runs 5 \
 		'./bench_fib_pyaot' \
 		'./bench_fib_rust' \
 		'./bench_fib_go' \
 		'python3 benchmarks/python/fibonacci.py' \
 		'pypy3 benchmarks/python/fibonacci.py' 2>/dev/null || \
-	hyperfine --warmup 2 --runs 5 \
+	hyperfine --warmup 3 --runs 5 \
 		'./bench_fib_pyaot' \
 		'python3 benchmarks/python/fibonacci.py'
 	@rm -f ./bench_fib_pyaot ./bench_fib_rust ./bench_fib_go
