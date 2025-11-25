@@ -125,12 +125,8 @@ fn stmtUsesAllocatorParam(stmt: ast.Node, func_name: []const u8) bool {
 fn exprUsesAllocatorParam(expr: ast.Node, func_name: []const u8) bool {
     return switch (expr) {
         .binop => |b| {
-            // String concatenation uses allocator param
-            if (b.op == .Add) {
-                if (mightBeString(b.left.*) or mightBeString(b.right.*)) {
-                    return true;
-                }
-            }
+            // String concatenation uses __global_allocator, not the function's allocator param
+            // So we don't mark it as using allocator param
             return exprUsesAllocatorParam(b.left.*, func_name) or exprUsesAllocatorParam(b.right.*, func_name);
         },
         .call => |c| callUsesAllocatorParam(c, func_name),
