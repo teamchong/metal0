@@ -26,9 +26,9 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
 
     // Empty dict - use PyObject for unknown value type (consistent with type inference)
     if (dict.keys.len == 0) {
-        try self.output.appendSlice(self.allocator, "hashmap_helper.StringHashMap(*runtime.PyObject).init(");
-        try self.output.appendSlice(self.allocator, alloc_name);
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(");
+        try self.emit(alloc_name);
+        try self.emit(")");
         return;
     }
 
@@ -81,108 +81,108 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     const label = try std.fmt.allocPrint(self.allocator, "dict_{d}", .{@intFromPtr(dict.keys.ptr)});
     defer self.allocator.free(label);
 
-    try self.output.appendSlice(self.allocator, label);
-    try self.output.appendSlice(self.allocator, ": {\n");
+    try self.emit(label);
+    try self.emit(": {\n");
     self.indent();
     try self.emitIndent();
 
     // Generate comptime tuple of key-value pairs
-    try self.output.appendSlice(self.allocator, "const _kvs = .{\n");
+    try self.emit("const _kvs = .{\n");
     self.indent();
     for (dict.keys, dict.values) |key, value| {
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, ".{ ");
+        try self.emit(".{ ");
         try genExpr(self, key);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
         try genExpr(self, value);
-        try self.output.appendSlice(self.allocator, " },\n");
+        try self.emit(" },\n");
     }
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "};\n");
+    try self.emit("};\n");
 
     // Infer value type at comptime
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "const V = comptime runtime.InferDictValueType(@TypeOf(_kvs));\n");
+    try self.emit("const V = comptime runtime.InferDictValueType(@TypeOf(_kvs));\n");
 
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "var _dict = hashmap_helper.StringHashMap(V).init(");
-    try self.output.appendSlice(self.allocator, alloc_name);
-    try self.output.appendSlice(self.allocator, ");\n");
+    try self.emit("var _dict = hashmap_helper.StringHashMap(V).init(");
+    try self.emit(alloc_name);
+    try self.emit(");\n");
 
     // Inline loop - unrolled at compile time
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "inline for (_kvs) |kv| {\n");
+    try self.emit("inline for (_kvs) |kv| {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "const cast_val = if (@TypeOf(kv[1]) != V) cast_blk: {\n");
+    try self.emit("const cast_val = if (@TypeOf(kv[1]) != V) cast_blk: {\n");
     self.indent();
 
     // Int to float cast
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "if (V == f64 and (@TypeOf(kv[1]) == i64 or @TypeOf(kv[1]) == comptime_int)) {\n");
+    try self.emit("if (V == f64 and (@TypeOf(kv[1]) == i64 or @TypeOf(kv[1]) == comptime_int)) {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :cast_blk @as(f64, @floatFromInt(kv[1]));\n");
+    try self.emit("break :cast_blk @as(f64, @floatFromInt(kv[1]));\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 
     // Comptime float cast
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "if (V == f64 and @TypeOf(kv[1]) == comptime_float) {\n");
+    try self.emit("if (V == f64 and @TypeOf(kv[1]) == comptime_float) {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :cast_blk @as(f64, kv[1]);\n");
+    try self.emit("break :cast_blk @as(f64, kv[1]);\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 
     // String array to slice cast
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "if (V == []const u8) {\n");
+    try self.emit("if (V == []const u8) {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "const kv_type_info = @typeInfo(@TypeOf(kv[1]));\n");
+    try self.emit("const kv_type_info = @typeInfo(@TypeOf(kv[1]));\n");
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "if (kv_type_info == .pointer and kv_type_info.pointer.size == .one) {\n");
+    try self.emit("if (kv_type_info == .pointer and kv_type_info.pointer.size == .one) {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "const child = @typeInfo(kv_type_info.pointer.child);\n");
+    try self.emit("const child = @typeInfo(kv_type_info.pointer.child);\n");
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "if (child == .array and child.array.child == u8) {\n");
+    try self.emit("if (child == .array and child.array.child == u8) {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :cast_blk @as([]const u8, kv[1]);\n");
+    try self.emit("break :cast_blk @as([]const u8, kv[1]);\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 
     // Default fallback
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :cast_blk kv[1];\n");
+    try self.emit("break :cast_blk kv[1];\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "} else kv[1];\n");
+    try self.emit("} else kv[1];\n");
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "try _dict.put(kv[0], cast_val);\n");
+    try self.emit("try _dict.put(kv[0], cast_val);\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :");
-    try self.output.appendSlice(self.allocator, label);
-    try self.output.appendSlice(self.allocator, " _dict;\n");
+    try self.emit("break :");
+    try self.emit(label);
+    try self.emit(" _dict;\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit("}");
 }
 
 /// Generate runtime dict literal (fallback path)
@@ -209,14 +209,14 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
         }
     }
 
-    try self.output.appendSlice(self.allocator, "blk: {\n");
+    try self.emit("blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "var map = hashmap_helper.StringHashMap(");
+    try self.emit("var map = hashmap_helper.StringHashMap(");
     try val_type.toZigType(self.allocator, &self.output);
-    try self.output.appendSlice(self.allocator, ").init(");
-    try self.output.appendSlice(self.allocator, alloc_name);
-    try self.output.appendSlice(self.allocator, ");\n");
+    try self.emit(").init(");
+    try self.emit(alloc_name);
+    try self.emit(");\n");
 
     // Track if we need to convert values to strings
     const need_str_conversion = val_type == .string;
@@ -237,9 +237,9 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     // Add all key-value pairs
     for (dict.keys, dict.values) |key, value| {
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "try map.put(");
+        try self.emit("try map.put(");
         try genExpr(self, key);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit(", ");
 
         // If dict values are string type and this value isn't string, convert it
         if (need_str_conversion) {
@@ -248,11 +248,11 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
                 try genValueToString(self, value, value_type, alloc_name);
             } else if (has_mixed_types) {
                 // For mixed-type dicts, duplicate ALL strings so we can free uniformly
-                try self.output.appendSlice(self.allocator, "try ");
-                try self.output.appendSlice(self.allocator, alloc_name);
-                try self.output.appendSlice(self.allocator, ".dupe(u8, ");
+                try self.emit("try ");
+                try self.emit(alloc_name);
+                try self.emit(".dupe(u8, ");
                 try genExpr(self, value);
-                try self.output.appendSlice(self.allocator, ")");
+                try self.emit(")");
             } else {
                 try genExpr(self, value);
             }
@@ -260,14 +260,14 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
             try genExpr(self, value);
         }
 
-        try self.output.appendSlice(self.allocator, ");\n");
+        try self.emit(");\n");
     }
 
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :blk map;\n");
+    try self.emit("break :blk map;\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit("}");
 }
 
 /// Generate code to convert a value to string
@@ -279,27 +279,27 @@ fn genValueToString(
 ) CodegenError!void {
     if (value_type == .bool) {
         // Bool: use ternary for Python-style True/False
-        try self.output.appendSlice(self.allocator, "try ");
-        try self.output.appendSlice(self.allocator, alloc_name);
-        try self.output.appendSlice(self.allocator, ".dupe(u8, if (");
+        try self.emit("try ");
+        try self.emit(alloc_name);
+        try self.emit(".dupe(u8, if (");
         try genExpr(self, value);
-        try self.output.appendSlice(self.allocator, ") \"True\" else \"False\")");
+        try self.emit(") \"True\" else \"False\")");
     } else if (value_type == .none) {
         // None: just use literal "None"
-        try self.output.appendSlice(self.allocator, "try ");
-        try self.output.appendSlice(self.allocator, alloc_name);
-        try self.output.appendSlice(self.allocator, ".dupe(u8, \"None\")");
+        try self.emit("try ");
+        try self.emit(alloc_name);
+        try self.emit(".dupe(u8, \"None\")");
     } else {
-        try self.output.appendSlice(self.allocator, "try std.fmt.allocPrint(");
-        try self.output.appendSlice(self.allocator, alloc_name);
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit("try std.fmt.allocPrint(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         switch (value_type) {
-            .int => try self.output.appendSlice(self.allocator, "\"{d}\""),
-            .float => try self.output.appendSlice(self.allocator, "\"{d}\""),
-            else => try self.output.appendSlice(self.allocator, "\"{any}\""),
+            .int => try self.emit("\"{d}\""),
+            .float => try self.emit("\"{d}\""),
+            else => try self.emit("\"{any}\""),
         }
-        try self.output.appendSlice(self.allocator, ", .{");
+        try self.emit(", .{");
         try genExpr(self, value);
-        try self.output.appendSlice(self.allocator, "})");
+        try self.emit("})");
     }
 }

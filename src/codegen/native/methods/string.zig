@@ -43,18 +43,18 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Generate block expression that returns ArrayList([]const u8)
     // Keep as ArrayList to match type inference (.list type)
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "    var _split_result = std.ArrayList([]const u8){};\n");
-    try self.output.appendSlice(self.allocator, "    var _split_iter = std.mem.splitSequence(u8, ");
+    try self.emit("blk: {\n");
+    try self.emit("    var _split_result = std.ArrayList([]const u8){};\n");
+    try self.emit("    var _split_iter = std.mem.splitSequence(u8, ");
     try self.genExpr(obj); // The string to split
-    try self.output.appendSlice(self.allocator, ", ");
+    try self.emit(", ");
     try self.genExpr(args[0]); // The separator
-    try self.output.appendSlice(self.allocator, ");\n");
-    try self.output.appendSlice(self.allocator, "    while (_split_iter.next()) |part| {\n");
-    try self.output.appendSlice(self.allocator, "        try _split_result.append(allocator, part);\n");
-    try self.output.appendSlice(self.allocator, "    }\n");
-    try self.output.appendSlice(self.allocator, "    break :blk _split_result;\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit(");\n");
+    try self.emit("    while (_split_iter.next()) |part| {\n");
+    try self.emit("        try _split_result.append(allocator, part);\n");
+    try self.emit("    }\n");
+    try self.emit("    break :blk _split_result;\n");
+    try self.emit("}");
 }
 
 /// Generate code for text.upper()
@@ -63,16 +63,16 @@ pub fn genUpper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     _ = args;
 
     // Generate block expression (use _idx to avoid shadowing user variables)
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.emit("blk: {\n");
+    try self.emit("    const _text = ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ";\n");
-    try self.output.appendSlice(self.allocator, "    const _result = try allocator.alloc(u8, _text.len);\n");
-    try self.output.appendSlice(self.allocator, "    for (_text, 0..) |_c, _idx| {\n");
-    try self.output.appendSlice(self.allocator, "        _result[_idx] = std.ascii.toUpper(_c);\n");
-    try self.output.appendSlice(self.allocator, "    }\n");
-    try self.output.appendSlice(self.allocator, "    break :blk _result;\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit(";\n");
+    try self.emit("    const _result = try allocator.alloc(u8, _text.len);\n");
+    try self.emit("    for (_text, 0..) |_c, _idx| {\n");
+    try self.emit("        _result[_idx] = std.ascii.toUpper(_c);\n");
+    try self.emit("    }\n");
+    try self.emit("    break :blk _result;\n");
+    try self.emit("}");
 }
 
 /// Generate code for text.lower()
@@ -81,16 +81,16 @@ pub fn genLower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     _ = args;
 
     // Generate block expression (use _idx to avoid shadowing user variables)
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.emit("blk: {\n");
+    try self.emit("    const _text = ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ";\n");
-    try self.output.appendSlice(self.allocator, "    const _result = try allocator.alloc(u8, _text.len);\n");
-    try self.output.appendSlice(self.allocator, "    for (_text, 0..) |_c, _idx| {\n");
-    try self.output.appendSlice(self.allocator, "        _result[_idx] = std.ascii.toLower(_c);\n");
-    try self.output.appendSlice(self.allocator, "    }\n");
-    try self.output.appendSlice(self.allocator, "    break :blk _result;\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit(";\n");
+    try self.emit("    const _result = try allocator.alloc(u8, _text.len);\n");
+    try self.emit("    for (_text, 0..) |_c, _idx| {\n");
+    try self.emit("        _result[_idx] = std.ascii.toLower(_c);\n");
+    try self.emit("    }\n");
+    try self.emit("    break :blk _result;\n");
+    try self.emit("}");
 }
 
 /// Generate code for text.strip()
@@ -100,15 +100,15 @@ pub fn genStrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Allocate a copy to avoid "Invalid free" when result is used with defer
     const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
-    try self.output.writer(self.allocator).print("strip_{d}: {{\n", .{label_id});
-    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.emitFmt("strip_{d}: {{\n", .{label_id});
+    try self.emit("    const _text = ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ";\n");
-    try self.output.appendSlice(self.allocator, "    const _trimmed = std.mem.trim(u8, _text, \" \\t\\n\\r\");\n");
-    try self.output.appendSlice(self.allocator, "    const _result = try allocator.alloc(u8, _trimmed.len);\n");
-    try self.output.appendSlice(self.allocator, "    @memcpy(_result, _trimmed);\n");
-    try self.output.writer(self.allocator).print("    break :strip_{d} _result;\n", .{label_id});
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit(";\n");
+    try self.emit("    const _trimmed = std.mem.trim(u8, _text, \" \\t\\n\\r\");\n");
+    try self.emit("    const _result = try allocator.alloc(u8, _trimmed.len);\n");
+    try self.emit("    @memcpy(_result, _trimmed);\n");
+    try self.emitFmt("    break :strip_{d} _result;\n", .{label_id});
+    try self.emit("}");
 }
 
 /// Generate code for text.replace(old, new)
@@ -119,13 +119,13 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     }
 
     // Generate: try std.mem.replaceOwned(u8, allocator, text, old, new)
-    try self.output.appendSlice(self.allocator, "try std.mem.replaceOwned(u8, allocator, ");
+    try self.emit("try std.mem.replaceOwned(u8, allocator, ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ", ");
+    try self.emit(", ");
     try self.genExpr(args[0]); // old
-    try self.output.appendSlice(self.allocator, ", ");
+    try self.emit(", ");
     try self.genExpr(args[1]); // new
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit(")");
 }
 
 /// Generate code for sep.join(list)
@@ -134,11 +134,11 @@ pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     if (args.len != 1) return;
 
     // Generate: std.mem.join(allocator, separator, list)
-    try self.output.appendSlice(self.allocator, "std.mem.join(allocator, ");
+    try self.emit("std.mem.join(allocator, ");
     try self.genExpr(obj); // The separator string
-    try self.output.appendSlice(self.allocator, ", ");
+    try self.emit(", ");
     try self.genExpr(args[0]); // The list
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit(")");
 }
 
 /// Generate code for text.startswith(prefix)
@@ -147,11 +147,11 @@ pub fn genStartswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     if (args.len != 1) return;
 
     // Generate: std.mem.startsWith(u8, text, prefix)
-    try self.output.appendSlice(self.allocator, "std.mem.startsWith(u8, ");
+    try self.emit("std.mem.startsWith(u8, ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ", ");
+    try self.emit(", ");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit(")");
 }
 
 /// Generate code for text.endswith(suffix)
@@ -160,11 +160,11 @@ pub fn genEndswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
     if (args.len != 1) return;
 
     // Generate: std.mem.endsWith(u8, text, suffix)
-    try self.output.appendSlice(self.allocator, "std.mem.endsWith(u8, ");
+    try self.emit("std.mem.endsWith(u8, ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ", ");
+    try self.emit(", ");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit(")");
 }
 
 /// Generate code for text.find(substring)
@@ -173,11 +173,11 @@ pub fn genFind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     if (args.len != 1) return;
 
     // Generate: if (std.mem.indexOf(u8, text, substring)) |idx| @as(i64, @intCast(idx)) else -1
-    try self.output.appendSlice(self.allocator, "if (std.mem.indexOf(u8, ");
+    try self.emit("if (std.mem.indexOf(u8, ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ", ");
+    try self.emit(", ");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ")) |idx| @as(i64, @intCast(idx)) else -1");
+    try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1");
 }
 
 /// Generate code for text.count(substring)
@@ -186,23 +186,23 @@ pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     if (args.len != 1) return;
 
     // Generate loop to count occurrences
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "    const _text = ");
+    try self.emit("blk: {\n");
+    try self.emit("    const _text = ");
     try self.genExpr(obj);
-    try self.output.appendSlice(self.allocator, ";\n");
-    try self.output.appendSlice(self.allocator, "    const _needle = ");
+    try self.emit(";\n");
+    try self.emit("    const _needle = ");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ";\n");
-    try self.output.appendSlice(self.allocator, "    var _count: i64 = 0;\n");
-    try self.output.appendSlice(self.allocator, "    var _pos: usize = 0;\n");
-    try self.output.appendSlice(self.allocator, "    while (_pos < _text.len) {\n");
-    try self.output.appendSlice(self.allocator, "        if (std.mem.indexOf(u8, _text[_pos..], _needle)) |idx| {\n");
-    try self.output.appendSlice(self.allocator, "            _count += 1;\n");
-    try self.output.appendSlice(self.allocator, "            _pos += idx + _needle.len;\n");
-    try self.output.appendSlice(self.allocator, "        } else break;\n");
-    try self.output.appendSlice(self.allocator, "    }\n");
-    try self.output.appendSlice(self.allocator, "    break :blk _count;\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit(";\n");
+    try self.emit("    var _count: i64 = 0;\n");
+    try self.emit("    var _pos: usize = 0;\n");
+    try self.emit("    while (_pos < _text.len) {\n");
+    try self.emit("        if (std.mem.indexOf(u8, _text[_pos..], _needle)) |idx| {\n");
+    try self.emit("            _count += 1;\n");
+    try self.emit("            _pos += idx + _needle.len;\n");
+    try self.emit("        } else break;\n");
+    try self.emit("    }\n");
+    try self.emit("    break :blk _count;\n");
+    try self.emit("}");
 }
 
 /// Alias for genIndex (string.index() in methods.zig)

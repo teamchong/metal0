@@ -87,9 +87,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         const func_name = call.func.name.id;
         if (std.mem.eql(u8, func_name, "loads") and call.args.len == 1) {
             // Just call the wrapper function directly with the string
-            try self.output.appendSlice(self.allocator, "try loads(");
+            try self.emit("try loads(");
             try genExpr(self, call.args[0]);
-            try self.output.appendSlice(self.allocator, ", allocator)");
+            try self.emit(", allocator)");
             return;
         }
     }
@@ -112,16 +112,17 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Generate the lambda function definition using lambda_mod
         // We'll do this manually to avoid the & prefix
         var lambda_func = std.ArrayList(u8){};
+        const lambda_writer = lambda_func.writer(self.allocator);
 
         // Function signature
-        try lambda_func.writer(self.allocator).print("fn {s}(", .{lambda_name});
+        try lambda_writer.print("fn {s}(", .{lambda_name});
 
         for (lambda.args, 0..) |arg, i| {
-            if (i > 0) try lambda_func.appendSlice(self.allocator, ", ");
-            try lambda_func.writer(self.allocator).print("{s}: i64", .{arg.name});
+            if (i > 0) try lambda_writer.writeAll(", ");
+            try lambda_writer.print("{s}: i64", .{arg.name});
         }
 
-        try lambda_func.writer(self.allocator).print(") i64 {{\n    return ", .{});
+        try lambda_writer.print(") i64 {{\n    return ", .{});
 
         // Generate body expression
         const saved_output = self.output;
@@ -130,25 +131,25 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         const body_code = try self.output.toOwnedSlice(self.allocator);
         self.output = saved_output;
 
-        try lambda_func.appendSlice(self.allocator, body_code);
+        try lambda_writer.writeAll(body_code);
         self.allocator.free(body_code);
-        try lambda_func.appendSlice(self.allocator, ";\n}\n\n");
+        try lambda_writer.writeAll(";\n}\n\n");
 
         // Store lambda function
         try self.lambda_functions.append(self.allocator, try lambda_func.toOwnedSlice(self.allocator));
 
         // Generate direct function call (no & prefix for immediate calls)
-        try self.output.appendSlice(self.allocator, lambda_name);
-        try self.output.appendSlice(self.allocator, "(");
+        try self.emit(lambda_name);
+        try self.emit("(");
         for (call.args, 0..) |arg, i| {
-            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+            if (i > 0) try self.emit(", ");
             try genExpr(self, arg);
         }
         for (call.keyword_args, 0..) |kwarg, i| {
-            if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+            if (i > 0 or call.args.len > 0) try self.emit(", ");
             try genExpr(self, kwarg.value);
         }
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
         return;
     }
 
@@ -218,36 +219,36 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Add 'try' for calls that need allocator (they can error)
         if ((is_module_call or is_class_method_call) and needs_alloc) {
-            try self.output.appendSlice(self.allocator, "try ");
+            try self.emit("try ");
         }
 
         // Generic method call: obj.method(args)
         // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
         try genExpr(self, attr.value.*);
-        try self.output.appendSlice(self.allocator, ".");
+        try self.emit(".");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-        try self.output.appendSlice(self.allocator, "(");
+        try self.emit("(");
 
         // For module calls or class method calls, add allocator as first argument only if needed
         if ((is_module_call or is_class_method_call) and needs_alloc) {
-            try self.output.appendSlice(self.allocator, "allocator");
+            try self.emit("allocator");
             if (call.args.len > 0 or call.keyword_args.len > 0) {
-                try self.output.appendSlice(self.allocator, ", ");
+                try self.emit(", ");
             }
         }
 
         for (call.args, 0..) |arg, i| {
-            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+            if (i > 0) try self.emit(", ");
             try genExpr(self, arg);
         }
 
         // Add keyword arguments as positional arguments
         for (call.keyword_args, 0..) |kwarg, i| {
-            if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+            if (i > 0 or call.args.len > 0) try self.emit(", ");
             try genExpr(self, kwarg.value);
         }
 
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
         return;
     }
 
@@ -259,65 +260,65 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (self.lambda_vars.contains(func_name)) {
             // Lambda call: square(5) -> square(5)
             // Function pointers in Zig are called directly
-            try self.output.appendSlice(self.allocator, func_name);
-            try self.output.appendSlice(self.allocator, "(");
+            try self.emit(func_name);
+            try self.emit("(");
 
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                if (i > 0) try self.emit(", ");
                 try genExpr(self, arg);
             }
 
             for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+                if (i > 0 or call.args.len > 0) try self.emit(", ");
                 try genExpr(self, kwarg.value);
             }
 
-            try self.output.appendSlice(self.allocator, ")");
+            try self.emit(")");
             return;
         }
 
         // Check if this is a closure variable
         if (self.closure_vars.contains(func_name)) {
             // Closure call: add_five(3) -> add_five.call(3)
-            try self.output.appendSlice(self.allocator, func_name);
-            try self.output.appendSlice(self.allocator, ".call(");
+            try self.emit(func_name);
+            try self.emit(".call(");
 
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                if (i > 0) try self.emit(", ");
                 try genExpr(self, arg);
             }
 
             for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+                if (i > 0 or call.args.len > 0) try self.emit(", ");
                 try genExpr(self, kwarg.value);
             }
 
-            try self.output.appendSlice(self.allocator, ")");
+            try self.emit(")");
             return;
         }
 
         // If name starts with uppercase, it's a class constructor
         if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
             // Class instantiation: Counter(10) -> Counter.init(allocator, 10)
-            try self.output.appendSlice(self.allocator, func_name);
-            try self.output.appendSlice(self.allocator, ".init(allocator");
+            try self.emit(func_name);
+            try self.emit(".init(allocator");
 
             // Add comma if there are args
             if (call.args.len > 0 or call.keyword_args.len > 0) {
-                try self.output.appendSlice(self.allocator, ", ");
+                try self.emit(", ");
             }
 
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                if (i > 0) try self.emit(", ");
                 try genExpr(self, arg);
             }
 
             for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+                if (i > 0 or call.args.len > 0) try self.emit(", ");
                 try genExpr(self, kwarg.value);
             }
 
-            try self.output.appendSlice(self.allocator, ")");
+            try self.emit(")");
             return;
         }
 
@@ -340,7 +341,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Add 'try' if function needs allocator or is async (both return errors)
         // Note: kwarg functions don't need try - the block expression handles errors
         if (user_func_needs_alloc or is_async_func) {
-            try self.output.appendSlice(self.allocator, "try ");
+            try self.emit("try ");
         }
 
         // Rename "main" to "__user_main" to match function definition renaming
@@ -350,16 +351,16 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Escape Zig reserved keywords (e.g., "test" -> @"test")
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), output_name);
         if (is_async_func) {
-            try self.output.appendSlice(self.allocator, "_async");
+            try self.emit("_async");
         }
-        try self.output.appendSlice(self.allocator, "(");
+        try self.emit("(");
 
         // For user-defined functions: inject allocator as FIRST argument
         // BUT NOT for async functions - the _async wrapper doesn't take allocator
         if (user_func_needs_alloc and !is_async_func) {
-            try self.output.appendSlice(self.allocator, "allocator");
+            try self.emit("allocator");
             if (call.args.len > 0 or call.keyword_args.len > 0 or is_vararg_func) {
-                try self.output.appendSlice(self.allocator, ", ");
+                try self.emit(", ");
             }
         }
 
@@ -386,7 +387,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     if (arg == .starred) {
                         // Generate the value with & prefix to convert array to slice
                         // *[1,2] becomes &[_]i64{1, 2} which is []const i64
-                        try self.output.appendSlice(self.allocator, "&");
+                        try self.emit("&");
                         try genExpr(self, arg.starred.value.*);
                         found_starred = true;
                         break;
@@ -394,56 +395,56 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
                 if (!found_starred) {
                     // Shouldn't happen, but handle gracefully
-                    try self.output.appendSlice(self.allocator, "&[_]i64{}");
+                    try self.emit("&[_]i64{}");
                 }
             } else {
                 // Normal case: wrap args in slice
-                try self.output.appendSlice(self.allocator, "&[_]i64{");
+                try self.emit("&[_]i64{");
                 for (call.args, 0..) |arg, i| {
-                    if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                    if (i > 0) try self.emit(", ");
                     try genExpr(self, arg);
                 }
-                try self.output.appendSlice(self.allocator, "}");
+                try self.emit("}");
             }
         } else {
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                if (i > 0) try self.emit(", ");
                 try genExpr(self, arg);
             }
 
             // For kwarg functions: build PyDict from keyword arguments
             if (is_kwarg_func) {
                 // Generate a block expression that creates and populates a PyDict
-                if (call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
-                try self.output.appendSlice(self.allocator, "blk: {\n");
+                if (call.args.len > 0) try self.emit(", ");
+                try self.emit("blk: {\n");
                 self.indent_level += 1;
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "const __kwargs = try runtime.PyDict.create(allocator);\n");
+                try self.emit("const __kwargs = try runtime.PyDict.create(allocator);\n");
 
                 // Add each keyword argument to the dict
                 for (call.keyword_args) |kwarg| {
                     try self.emitIndent();
-                    try self.output.appendSlice(self.allocator, "try runtime.PyDict.set(__kwargs, \"");
-                    try self.output.appendSlice(self.allocator, kwarg.name);
-                    try self.output.appendSlice(self.allocator, "\", ");
+                    try self.emit("try runtime.PyDict.set(__kwargs, \"");
+                    try self.emit(kwarg.name);
+                    try self.emit("\", ");
 
                     // Wrap the value in a PyObject - for now assume int
                     // TODO: Handle other types
-                    try self.output.appendSlice(self.allocator, "try runtime.PyInt.create(allocator, ");
+                    try self.emit("try runtime.PyInt.create(allocator, ");
                     try genExpr(self, kwarg.value);
-                    try self.output.appendSlice(self.allocator, "));\n");
+                    try self.emit("));\n");
                 }
 
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "break :blk __kwargs;\n");
+                try self.emit("break :blk __kwargs;\n");
                 self.indent_level -= 1;
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "}");
+                try self.emit("}");
             } else {
                 // Add keyword arguments as positional arguments (non-kwarg functions)
                 // TODO: Map keyword args to correct parameter positions
                 for (call.keyword_args, 0..) |kwarg, i| {
-                    if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+                    if (i > 0 or call.args.len > 0) try self.emit(", ");
                     try genExpr(self, kwarg.value);
                 }
 
@@ -454,8 +455,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         if (provided_args < sig.total_params) {
                             var i: usize = provided_args;
                             while (i < sig.total_params) : (i += 1) {
-                                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-                                try self.output.appendSlice(self.allocator, "null");
+                                if (i > 0) try self.emit(", ");
+                                try self.emit("null");
                             }
                         }
                     }
@@ -466,11 +467,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // For from-imported functions: inject allocator as LAST argument
         if (from_import_needs_alloc) {
             if (call.args.len > 0 or call.keyword_args.len > 0) {
-                try self.output.appendSlice(self.allocator, ", ");
+                try self.emit(", ");
             }
-            try self.output.appendSlice(self.allocator, "allocator");
+            try self.emit("allocator");
         }
 
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
     }
 }
