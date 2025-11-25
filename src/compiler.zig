@@ -420,16 +420,13 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
     // Add main source file
     try args.append(aa, tmp_path);
 
-    // WASM target: wasm32-freestanding
+    // WASM target: wasm32-wasi (supports print via fd_write, DCE removes if unused)
     try args.append(aa, "-target");
-    try args.append(aa, "wasm32-freestanding");
+    try args.append(aa, "wasm32-wasi");
 
     try args.append(aa, "-OReleaseSmall"); // Size optimization for WASM
     try args.append(aa, "-fno-stack-check");
     // Note: -flto not supported for WASM target
-
-    // WASM doesn't link with libc
-    // try args.append(aa, "-lc");
 
     try args.append(aa, output_flag);
 
