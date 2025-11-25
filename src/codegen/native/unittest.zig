@@ -24,9 +24,9 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
     // For each test class, instantiate and run test methods
     for (self.unittest_classes.items) |class_info| {
-        // Create instance
+        // Create instance using init() which initializes __dict__
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const _test_instance_{s} = {s}{{}};\n", .{ class_info.class_name, class_info.class_name });
+        try self.output.writer(self.allocator).print("const _test_instance_{s} = {s}.init(allocator);\n", .{ class_info.class_name, class_info.class_name });
 
         // Run each test method
         for (class_info.test_methods) |method_name| {

@@ -7,10 +7,10 @@ const discovery = @import("discovery.zig");
 /// Built-in modules: json, http, asyncio, re, numpy, sqlite3, zlib, ssl, sys
 pub fn isBuiltinModule(module_name: []const u8) bool {
     const builtins = [_][]const u8{
-        "json",    "http",    "asyncio",  "re",
-        "numpy",   "sqlite3", "zlib",     "ssl",
-        "pathlib", "urllib",  "datetime", "importlib",
-        "sys",     "time",
+        "json",     "http",    "asyncio",  "re",
+        "numpy",    "sqlite3", "zlib",     "ssl",
+        "pathlib",  "urllib",  "datetime", "importlib",
+        "sys",      "time",    "unittest",
     };
     for (builtins) |builtin_module| {
         if (std.mem.eql(u8, module_name, builtin_module)) {

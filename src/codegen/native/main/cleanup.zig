@@ -47,8 +47,8 @@ pub fn deinit(self: *NativeCodegen) void {
     self.decorated_functions.deinit(self.allocator);
 
     // Clean up unittest classes tracking
+    // Note: class_name is an AST slice (not owned), only test_methods is allocated
     for (self.unittest_classes.items) |class_info| {
-        self.allocator.free(class_info.class_name);
         self.allocator.free(class_info.test_methods);
     }
     self.unittest_classes.deinit(self.allocator);
