@@ -50,6 +50,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     try compiler_utils.copyRuntimeDir(aa, "json", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "runtime", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "pystring", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "unittest", build_dir);
 
     // Copy c_interop directory to build dir
     try compiler_utils.copyCInteropDir(aa, build_dir);
@@ -383,6 +384,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
     try compiler_utils.copyRuntimeDir(aa, "json", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "runtime", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "pystring", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "unittest", build_dir);
 
     // Copy c_interop directory to build dir
     try compiler_utils.copyCInteropDir(aa, build_dir);
