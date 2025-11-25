@@ -40,6 +40,7 @@ pub const TokenType = enum {
     ComplexNumber,
     String,
     FString,
+    Ellipsis,
 
     // Operators
     Plus,

@@ -250,7 +250,15 @@ pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usi
         },
         ',' => .Comma,
         ':' => .Colon,
-        '.' => .Dot,
+        '.' => blk: {
+            // Check for ellipsis (...)
+            if (self.peek() == '.' and self.peekAhead(1) == '.') {
+                _ = self.advance(); // consume second dot
+                _ = self.advance(); // consume third dot
+                break :blk .Ellipsis;
+            }
+            break :blk .Dot;
+        },
         '+' => blk: {
             if (self.peek() == '=') {
                 _ = self.advance();

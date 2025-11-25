@@ -247,6 +247,6 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             allocator.free(w.body);
         },
         // Leaf nodes need no cleanup
-        .name, .constant, .pass, .break_stmt, .continue_stmt => {},
+        .name, .constant, .pass, .break_stmt, .continue_stmt, .ellipsis_literal => {},
     }
 }
