@@ -60,11 +60,13 @@ pub fn genInitMethod(
         try self.output.writer(self.allocator).print("{s}: ", .{arg.name});
 
         // Type annotation: prefer type hints, fallback to inference
-        const param_type = if (arg.type_annotation) |_|
-            signature.pythonTypeToZig(arg.type_annotation)
-        else
-            try class_fields.inferParamType(self, class_name, init, arg.name);
-        try self.output.appendSlice(self.allocator, param_type);
+        if (arg.type_annotation) |_| {
+            try self.output.appendSlice(self.allocator, signature.pythonTypeToZig(arg.type_annotation));
+        } else {
+            const param_type = try class_fields.inferParamType(self, class_name, init, arg.name);
+            defer self.allocator.free(param_type);
+            try self.output.appendSlice(self.allocator, param_type);
+        }
     }
 
     try self.output.writer(self.allocator).print(") {s} {{\n", .{class_name});
