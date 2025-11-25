@@ -174,15 +174,31 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
             try self.output.appendSlice(self.allocator, ")");
         },
         .USub => {
-            try self.output.appendSlice(self.allocator, "-(");
-            try genExpr(self, unaryop.operand.*);
-            try self.output.appendSlice(self.allocator, ")");
+            // In Python, -bool converts to int first: -True = -1, -False = 0
+            const operand_type = try self.type_inferrer.inferExpr(unaryop.operand.*);
+            if (operand_type == .bool) {
+                try self.output.appendSlice(self.allocator, "-@as(i64, @intFromBool(");
+                try genExpr(self, unaryop.operand.*);
+                try self.output.appendSlice(self.allocator, "))");
+            } else {
+                try self.output.appendSlice(self.allocator, "-(");
+                try genExpr(self, unaryop.operand.*);
+                try self.output.appendSlice(self.allocator, ")");
+            }
         },
         .UAdd => {
-            // Unary plus is a no-op, just emit the operand
-            try self.output.appendSlice(self.allocator, "(");
-            try genExpr(self, unaryop.operand.*);
-            try self.output.appendSlice(self.allocator, ")");
+            // In Python, +bool converts to int: +True = 1, +False = 0
+            const operand_type = try self.type_inferrer.inferExpr(unaryop.operand.*);
+            if (operand_type == .bool) {
+                try self.output.appendSlice(self.allocator, "@as(i64, @intFromBool(");
+                try genExpr(self, unaryop.operand.*);
+                try self.output.appendSlice(self.allocator, "))");
+            } else {
+                // Non-bool: unary plus is a no-op
+                try self.output.appendSlice(self.allocator, "(");
+                try genExpr(self, unaryop.operand.*);
+                try self.output.appendSlice(self.allocator, ")");
+            }
         },
         .Invert => {
             // Bitwise NOT: ~x in Zig

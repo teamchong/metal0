@@ -261,6 +261,21 @@ pub fn inferExpr(
                 .return_type = return_ptr,
             } };
         },
+        .unaryop => |u| blk: {
+            const operand_type = try inferExpr(allocator, var_types, class_fields, func_return_types, u.operand.*);
+            // In Python, +bool and -bool convert to int
+            switch (u.op) {
+                .UAdd, .USub => {
+                    if (operand_type == .bool) {
+                        break :blk .int;
+                    }
+                    break :blk operand_type;
+                },
+                .Not => break :blk .bool, // not x always returns bool
+                .Invert => break :blk .int, // ~x always returns int
+            }
+        },
+        .boolop => .bool, // and/or expressions return bool
         else => .unknown,
     };
 }

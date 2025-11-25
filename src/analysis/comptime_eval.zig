@@ -70,7 +70,7 @@ pub const ComptimeEvaluator = struct {
         return switch (op.op) {
             .Not => self.evalNot(operand),
             .USub => self.evalUSub(operand),
-            .UAdd => operand,
+            .UAdd => self.evalUAdd(operand),
             .Invert => self.evalInvert(operand),
         };
     }
@@ -124,6 +124,17 @@ pub const ComptimeEvaluator = struct {
                 break :blk ComptimeValue{ .int = -i };
             },
             .float => |f| ComptimeValue{ .float = -f },
+            .bool => |b| ComptimeValue{ .int = -@as(i64, @intFromBool(b)) }, // -True = -1, -False = 0
+            else => null,
+        };
+    }
+
+    fn evalUAdd(self: *ComptimeEvaluator, operand: ComptimeValue) ?ComptimeValue {
+        _ = self;
+        return switch (operand) {
+            .int => operand, // +int is identity
+            .float => operand, // +float is identity
+            .bool => |b| ComptimeValue{ .int = @as(i64, @intFromBool(b)) }, // +True = 1, +False = 0
             else => null,
         };
     }
