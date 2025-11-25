@@ -3,12 +3,11 @@
 const std = @import("std");
 const ast = @import("../../ast.zig");
 const NativeType = @import("../../analysis/native_types.zig").NativeType;
-const fnv_hash = @import("../../utils/fnv_hash.zig");
+const hashmap_helper = @import("../../utils/hashmap_helper.zig");
 
-const FnvContext = fnv_hash.FnvHashContext([]const u8);
-const FnvSymbolMap = std.HashMap([]const u8, SymbolInfo, FnvContext, 80);
-const FnvClassDefMap = std.HashMap([]const u8, ast.Node.ClassDef, FnvContext, 80);
-const FnvStringMap = std.HashMap([]const u8, []const u8, FnvContext, 80);
+const FnvSymbolMap = hashmap_helper.StringHashMap(SymbolInfo);
+const FnvClassDefMap = hashmap_helper.StringHashMap(ast.Node.ClassDef);
+const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
 
 /// Symbol information
 pub const SymbolInfo = struct {

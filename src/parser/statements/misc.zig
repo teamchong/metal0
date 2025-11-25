@@ -281,6 +281,32 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
         };
     }
 
+    /// Parse del statement: del x or del x, y or del obj.attr
+    pub fn parseDel(self: *Parser) ParseError!ast.Node {
+        _ = try self.expect(.Del);
+
+        var targets = std.ArrayList(ast.Node){};
+        defer targets.deinit(self.allocator);
+
+        // Parse first target
+        const first_target = try self.parseExpression();
+        try targets.append(self.allocator, first_target);
+
+        // Parse additional targets separated by commas
+        while (self.match(.Comma)) {
+            const target = try self.parseExpression();
+            try targets.append(self.allocator, target);
+        }
+
+        _ = self.expect(.Newline) catch {};
+
+        return ast.Node{
+            .del_stmt = .{
+                .targets = try targets.toOwnedSlice(self.allocator),
+            },
+        };
+    }
+
     /// Parse with statement: with expr as var: body
     pub fn parseWith(self: *Parser) ParseError!ast.Node {
         _ = try self.expect(.With);

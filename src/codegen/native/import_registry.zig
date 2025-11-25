@@ -13,9 +13,7 @@
 //!   const import_code = info.zig_import; // "@import(\"runtime\").json"
 
 const std = @import("std");
-const fnv_hash = @import("../../utils/fnv_hash.zig");
-
-const FnvContext = fnv_hash.FnvHashContext([]const u8);
+const hashmap_helper = @import("../../utils/hashmap_helper.zig");
 
 /// Strategy for handling Python imports
 pub const ImportStrategy = enum {
@@ -55,12 +53,12 @@ pub const ImportInfo = struct {
 
 pub const ImportRegistry = struct {
     allocator: std.mem.Allocator,
-    registry: std.HashMap([]const u8, ImportInfo, FnvContext, 80),
+    registry: hashmap_helper.StringHashMap(ImportInfo),
 
     pub fn init(allocator: std.mem.Allocator) ImportRegistry {
         return ImportRegistry{
             .allocator = allocator,
-            .registry = std.HashMap([]const u8, ImportInfo, FnvContext, 80).init(allocator),
+            .registry = hashmap_helper.StringHashMap(ImportInfo).init(allocator),
         };
     }
 

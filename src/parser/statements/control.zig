@@ -19,6 +19,8 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
                 next_tok.type == .Break or
                 next_tok.type == .Continue or
                 next_tok.type == .Raise or
+                next_tok.type == .Class or
+                next_tok.type == .Def or
                 next_tok.type == .Ident; // for assignments and expressions
 
             if (is_oneliner) {
@@ -56,6 +58,8 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
                     next_tok.type == .Break or
                     next_tok.type == .Continue or
                     next_tok.type == .Raise or
+                    next_tok.type == .Class or
+                    next_tok.type == .Def or
                     next_tok.type == .Ident;
 
                 if (is_oneliner) {
@@ -96,6 +100,8 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
                     next_tok.type == .Break or
                     next_tok.type == .Continue or
                     next_tok.type == .Raise or
+                    next_tok.type == .Class or
+                    next_tok.type == .Def or
                     next_tok.type == .Ident;
 
                 if (is_oneliner) {
@@ -176,6 +182,8 @@ pub fn parseFor(self: *Parser) ParseError!ast.Node {
                 next_tok.type == .Break or
                 next_tok.type == .Continue or
                 next_tok.type == .Raise or
+                next_tok.type == .Class or
+                next_tok.type == .Def or
                 next_tok.type == .Ident;
 
             if (is_oneliner) {
@@ -231,6 +239,8 @@ pub fn parseWhile(self: *Parser) ParseError!ast.Node {
                 next_tok.type == .Break or
                 next_tok.type == .Continue or
                 next_tok.type == .Raise or
+                next_tok.type == .Class or
+                next_tok.type == .Def or
                 next_tok.type == .Ident;
 
             if (is_oneliner) {
