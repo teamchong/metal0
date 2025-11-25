@@ -55,8 +55,16 @@ pub fn parseImportFrom(self: *Parser) ParseError!ast.Node {
         var names = std.ArrayList([]const u8){};
         var asnames = std.ArrayList(?[]const u8){};
 
+        // Handle optional parentheses for multiline imports
+        const has_parens = self.match(.LParen);
+        if (has_parens) {
+            _ = self.match(.Newline); // Skip newline after opening paren
+        }
+
         // Parse comma-separated names
         while (true) {
+            _ = self.match(.Newline); // Skip leading newlines (for multiline)
+
             const name_tok = try self.expect(.Ident);
             try names.append(self.allocator, name_tok.lexeme);
 
@@ -68,7 +76,14 @@ pub fn parseImportFrom(self: *Parser) ParseError!ast.Node {
                 try asnames.append(self.allocator, null);
             }
 
+            _ = self.match(.Newline); // Skip trailing newlines (for multiline)
+
             if (!self.match(.Comma)) break;
+        }
+
+        if (has_parens) {
+            _ = self.match(.Newline); // Skip newline before closing paren
+            _ = try self.expect(.RParen);
         }
 
         _ = self.expect(.Newline) catch {};
