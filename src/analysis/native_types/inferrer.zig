@@ -76,12 +76,17 @@ pub const TypeInferrer = struct {
             }
         }
 
-        // Third pass: Analyze all statements
+        // Third pass: Collect constructor call arg types (before processing class definitions)
+        for (module.body) |stmt| {
+            try self.collectConstructorArgs(stmt, arena_alloc);
+        }
+
+        // Fourth pass: Analyze all statements
         for (module.body) |stmt| {
             try self.visitStmt(stmt);
         }
 
-        // Fourth pass: Infer return types from return statements (for functions without annotations)
+        // Fifth pass: Infer return types from return statements (for functions without annotations)
         for (module.body) |stmt| {
             if (stmt == .function_def) {
                 const func_def = stmt.function_def;
@@ -99,6 +104,60 @@ pub const TypeInferrer = struct {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Collect constructor call argument types from a statement (recursive)
+    fn collectConstructorArgs(self: *TypeInferrer, node: ast.Node, arena_alloc: std.mem.Allocator) InferError!void {
+        switch (node) {
+            .assign => |assign| {
+                // Check if value is a class constructor call: g = Greeter("World")
+                if (assign.value.* == .call) {
+                    try self.checkConstructorCall(assign.value.call, arena_alloc);
+                }
+            },
+            .expr_stmt => |expr| {
+                // Check for standalone constructor calls
+                if (expr.value.* == .call) {
+                    try self.checkConstructorCall(expr.value.call, arena_alloc);
+                }
+            },
+            .if_stmt => |if_stmt| {
+                for (if_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+                for (if_stmt.else_body) |s| try self.collectConstructorArgs(s, arena_alloc);
+            },
+            .while_stmt => |while_stmt| {
+                for (while_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+            },
+            .for_stmt => |for_stmt| {
+                for (for_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+            },
+            .function_def => |func_def| {
+                for (func_def.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+            },
+            else => {},
+        }
+    }
+
+    /// Check if a call is a class constructor and store arg types
+    fn checkConstructorCall(self: *TypeInferrer, call: ast.Node.Call, arena_alloc: std.mem.Allocator) InferError!void {
+        if (call.func.* == .name) {
+            const func_name = call.func.name.id;
+            // Class names start with uppercase
+            if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
+                // Infer types of constructor arguments
+                const arg_types = try arena_alloc.alloc(NativeType, call.args.len);
+                for (call.args, 0..) |arg, i| {
+                    arg_types[i] = try expressions.inferExpr(
+                        arena_alloc,
+                        &self.var_types,
+                        &self.class_fields,
+                        &self.func_return_types,
+                        arg,
+                    );
+                }
+                try self.class_constructor_args.put(func_name, arg_types);
             }
         }
     }

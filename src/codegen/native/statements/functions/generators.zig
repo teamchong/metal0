@@ -74,7 +74,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     // Extract fields from __init__ body (self.x = ...)
     if (init_method) |init| {
-        try body.genClassFields(self, init);
+        try body.genClassFields(self, class.name, init);
     }
 
     // Generate init() method from __init__

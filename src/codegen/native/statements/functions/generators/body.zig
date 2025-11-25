@@ -206,7 +206,10 @@ pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) Codegen
 }
 
 /// Generate struct fields from __init__ method
-pub fn genClassFields(self: *NativeCodegen, init: ast.Node.FunctionDef) CodegenError!void {
+pub fn genClassFields(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef) CodegenError!void {
+    // Get constructor arg types from type inferrer (collected from call sites)
+    const constructor_arg_types = self.type_inferrer.class_constructor_args.get(class_name);
+
     for (init.body) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
@@ -220,13 +223,26 @@ pub fn genClassFields(self: *NativeCodegen, init: ast.Node.FunctionDef) CodegenE
                     // Determine field type by inferring the value's type
                     var inferred = try self.type_inferrer.inferExpr(assign.value.*);
 
-                    // If unknown and value is a parameter reference, check parameter annotation
+                    // If unknown and value is a parameter reference, try different methods
                     if (inferred == .unknown and assign.value.* == .name) {
                         const param_name = assign.value.name.id;
-                        for (init.args) |arg| {
+
+                        // Find the parameter index and check annotation
+                        for (init.args, 0..) |arg, param_idx| {
                             if (std.mem.eql(u8, arg.name, param_name)) {
-                                // Use type annotation if available
+                                // Method 1: Use type annotation if available
                                 inferred = signature.pythonTypeToNativeType(arg.type_annotation);
+
+                                // Method 2: If still unknown, use constructor call arg types
+                                if (inferred == .unknown) {
+                                    if (constructor_arg_types) |arg_types| {
+                                        // param_idx includes 'self', so subtract 1 for arg index
+                                        const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
+                                        if (arg_idx < arg_types.len) {
+                                            inferred = arg_types[arg_idx];
+                                        }
+                                    }
+                                }
                                 break;
                             }
                         }
@@ -255,9 +271,36 @@ pub fn genClassFields(self: *NativeCodegen, init: ast.Node.FunctionDef) CodegenE
     try self.output.appendSlice(self.allocator, "__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 }
 
-/// Infer parameter type by looking at how it's used in __init__
-fn inferParamType(self: *NativeCodegen, init: ast.Node.FunctionDef, param_name: []const u8) ![]const u8 {
-    // Look for assignments like self.field = param_name
+/// Infer parameter type by looking at how it's used in __init__ or constructor call args
+fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef, param_name: []const u8) ![]const u8 {
+    // Get constructor arg types from type inferrer
+    const constructor_arg_types = self.type_inferrer.class_constructor_args.get(class_name);
+
+    // Find parameter index (excluding 'self')
+    var param_idx: usize = 0;
+    for (init.args, 0..) |arg, i| {
+        if (std.mem.eql(u8, arg.name, param_name)) {
+            // Subtract 1 to account for 'self' parameter
+            param_idx = if (i > 0) i - 1 else 0;
+            break;
+        }
+    }
+
+    // Method 1: Try to use constructor call arg types
+    if (constructor_arg_types) |arg_types| {
+        if (param_idx < arg_types.len) {
+            const inferred = arg_types[param_idx];
+            return switch (inferred) {
+                .int => "i64",
+                .float => "f64",
+                .bool => "bool",
+                .string => "[]const u8",
+                else => "i64",
+            };
+        }
+    }
+
+    // Method 2: Look for assignments like self.field = param_name
     for (init.body) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
@@ -300,7 +343,7 @@ pub fn genInitMethod(
         const param_type = if (arg.type_annotation) |_|
             signature.pythonTypeToZig(arg.type_annotation)
         else
-            try inferParamType(self, init, arg.name);
+            try inferParamType(self, class_name, init, arg.name);
         try self.output.appendSlice(self.allocator, param_type);
     }
 

@@ -250,42 +250,30 @@ pyaot build --binary your_file.py
 
 ## Examples
 
-### 1. Tight Loop (256x faster)
+### Benchmarks
 
-Simple numeric loop - **256x faster** than CPython.
+#### Tight Loop (10M iterations)
+| Language | Time | vs Python |
+|----------|------|-----------|
+| **PyAOT** | **1.8ms** | **252x faster** 🏆 |
+| Rust | 1.8ms | 249x faster |
+| Go | 6.2ms | 72x faster |
+| Python | 448ms | 1.00x |
 
-```python
-total = 0
-for i in range(10000000):
-    total = total + i
-print(total)  # 49999995000000
-```
-
-```bash
-# PyAOT: 1.8ms | Python: 454ms
-make benchmark-loop
-```
-
-### 2. Computational (Fibonacci)
-
-Fast recursive computation - **29x faster** than CPython.
-
-```python
-def fibonacci(n: int) -> int:
-    if n <= 1:
-        return n
-    return fibonacci(n - 1) + fibonacci(n - 2)
-
-result = fibonacci(35)
-print(result)  # 9227465
-```
+#### Recursive (fib 35)
+| Language | Time | vs Python |
+|----------|------|-----------|
+| **PyAOT** | **28.9ms** | **28x faster** 🏆 |
+| Rust | 29.9ms | 27x faster |
+| Go | 33.0ms | 24x faster |
+| Python | 801ms | 1.00x |
 
 ```bash
-# PyAOT: 28ms | Python: 810ms
-make benchmark-fib
+make benchmark-loop  # Loop benchmark
+make benchmark-fib   # Fibonacci benchmark
 ```
 
-### 3. Object-Oriented (Class Inheritance)
+### 1. Object-Oriented (Class Inheritance)
 
 Full OOP support with classes and inheritance.
 
@@ -309,7 +297,7 @@ rect = Rectangle(10, 20, 5, 3)
 print(rect.area())  # 15
 ```
 
-### 4. List Processing
+### 2. List Processing
 
 List comprehensions with filtering.
 
@@ -324,7 +312,7 @@ numbers.reverse()
 print(numbers)
 ```
 
-### 5. String Operations
+### 3. String Operations
 
 String manipulation - **7x faster** than CPython.
 
@@ -338,7 +326,7 @@ print(words[0])  # Hello
 # String methods: upper, lower, split, strip, replace, find, count
 ```
 
-### 6. Module Imports
+### 4. Module Imports
 
 Import and use local Python modules - compiled recursively.
 
