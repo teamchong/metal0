@@ -379,3 +379,11 @@ help-testing:
 	@echo "  make test-all           - Run all tests"
 	@echo "  make benchmark-quick    - Quick benchmark (2 tests)"
 	@echo "  make benchmark-full     - Full benchmark suite vs Go"
+
+.PHONY: benchmark-loop
+benchmark-loop:
+	@echo "Building PyAOT loop benchmark..."
+	pyaot build examples/bench_loop.py ./bench_loop --binary --force
+	@echo "Running benchmark (10M iterations)..."
+	hyperfine --warmup 2 --runs 10 './bench_loop' 'python3 examples/bench_loop.py'
+	@rm -f ./bench_loop

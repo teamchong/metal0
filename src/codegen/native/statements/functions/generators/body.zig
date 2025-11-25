@@ -218,7 +218,20 @@ pub fn genClassFields(self: *NativeCodegen, init: ast.Node.FunctionDef) CodegenE
                     const field_name = attr.attr;
 
                     // Determine field type by inferring the value's type
-                    const inferred = try self.type_inferrer.inferExpr(assign.value.*);
+                    var inferred = try self.type_inferrer.inferExpr(assign.value.*);
+
+                    // If unknown and value is a parameter reference, check parameter annotation
+                    if (inferred == .unknown and assign.value.* == .name) {
+                        const param_name = assign.value.name.id;
+                        for (init.args) |arg| {
+                            if (std.mem.eql(u8, arg.name, param_name)) {
+                                // Use type annotation if available
+                                inferred = signature.pythonTypeToNativeType(arg.type_annotation);
+                                break;
+                            }
+                        }
+                    }
+
                     const field_type_str = switch (inferred) {
                         .int => "i64",
                         .float => "f64",

@@ -11,15 +11,52 @@ const NO_ALLOC_FUNCS = [_][]const u8{
     "time.time",
     "time.monotonic",
     "time.perf_counter",
+    // math module - all functions are pure and don't allocate
     "math.sqrt",
     "math.sin",
     "math.cos",
     "math.tan",
+    "math.asin",
+    "math.acos",
+    "math.atan",
+    "math.atan2",
+    "math.sinh",
+    "math.cosh",
+    "math.tanh",
+    "math.asinh",
+    "math.acosh",
+    "math.atanh",
     "math.log",
+    "math.log10",
+    "math.log2",
+    "math.log1p",
     "math.exp",
+    "math.expm1",
     "math.pow",
     "math.floor",
     "math.ceil",
+    "math.trunc",
+    "math.round",
+    "math.fabs",
+    "math.abs",
+    "math.fmod",
+    "math.remainder",
+    "math.modf",
+    "math.hypot",
+    "math.cbrt",
+    "math.copysign",
+    "math.degrees",
+    "math.radians",
+    "math.factorial",
+    "math.gcd",
+    "math.lcm",
+    "math.isnan",
+    "math.isinf",
+    "math.isfinite",
+    "math.erf",
+    "math.erfc",
+    "math.gamma",
+    "math.lgamma",
 };
 
 /// Check if qualified function name needs allocator
@@ -244,8 +281,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try self.output.appendSlice(self.allocator, "try ");
         }
 
+        // Rename "main" to "__user_main" to match function definition renaming
+        const output_name = if (std.mem.eql(u8, func_name, "main")) "__user_main" else func_name;
+
         // Async functions need _async suffix for the wrapper function
-        try self.output.appendSlice(self.allocator, func_name);
+        try self.output.appendSlice(self.allocator, output_name);
         if (is_async_func) {
             try self.output.appendSlice(self.allocator, "_async");
         }

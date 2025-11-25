@@ -23,6 +23,21 @@ pub fn pythonTypeToZig(type_hint: ?[]const u8) []const u8 {
     return "i64"; // Default to i64 instead of anytype (most class fields are integers)
 }
 
+/// Import NativeType for pythonTypeToNativeType
+const core = @import("../../../../../analysis/native_types/core.zig");
+const NativeType = core.NativeType;
+
+/// Convert Python type hint to NativeType (for type inference)
+pub fn pythonTypeToNativeType(type_hint: ?[]const u8) NativeType {
+    if (type_hint) |hint| {
+        if (std.mem.eql(u8, hint, "int")) return .int;
+        if (std.mem.eql(u8, hint, "float")) return .float;
+        if (std.mem.eql(u8, hint, "bool")) return .bool;
+        if (std.mem.eql(u8, hint, "str")) return .{ .string = .runtime };
+    }
+    return .unknown;
+}
+
 /// Check if function returns a lambda (closure)
 pub fn returnsLambda(body: []ast.Node) bool {
     for (body) |stmt| {
@@ -143,9 +158,12 @@ fn genAsyncFunctionSignature(
 ) CodegenError!void {
     _ = needs_allocator; // Async functions always need allocator
 
+    // Rename "main" to "__user_main" to avoid conflict with entry point
+    const func_name = if (std.mem.eql(u8, func.name, "main")) "__user_main" else func.name;
+
     // Generate wrapper function that spawns green thread
     try self.emit("fn ");
-    try self.emit(func.name);
+    try self.emit(func_name);
     try self.emit("_async(");
 
     // Generate parameters for wrapper
@@ -167,11 +185,11 @@ fn genAsyncFunctionSignature(
     // Use spawn0() for zero-parameter functions, spawn() for functions with parameters
     if (func.args.len == 0) {
         try self.emit("    return try runtime.scheduler.spawn0(");
-        try self.emit(func.name);
+        try self.emit(func_name);
         try self.emit("_impl);\n");
     } else {
         try self.emit("    return try runtime.scheduler.spawn(");
-        try self.emit(func.name);
+        try self.emit(func_name);
         try self.emit("_impl, .{");
 
         // Pass parameters to implementation
@@ -187,7 +205,7 @@ fn genAsyncFunctionSignature(
 
     // Generate implementation function
     try self.emit("fn ");
-    try self.emit(func.name);
+    try self.emit(func_name);
     try self.emit("_impl(");
 
     // Generate parameters for implementation
