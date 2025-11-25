@@ -7,9 +7,14 @@ const CodegenError = @import("../../main.zig").CodegenError;
 const allocator_analyzer = @import("allocator_analyzer.zig");
 const signature = @import("generators/signature.zig");
 const body = @import("generators/body.zig");
+const assign = @import("../assign.zig");
 
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
+    // Skip functions whose body references skipped modules (e.g., subprocess)
+    if (assign.functionBodyRefersToSkippedModule(self, func.body)) {
+        return;
+    }
     // Check if function needs allocator parameter (for error union return type)
     const needs_allocator_for_errors = allocator_analyzer.functionNeedsAllocator(func);
 

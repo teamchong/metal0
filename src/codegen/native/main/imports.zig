@@ -326,7 +326,15 @@ pub fn collectImports(
                 },
             }
         } else {
-            // Module not in registry - check if it's a local .py file
+            // Module not in registry - first check if it's a builtin module we don't support
+            // These are stdlib modules with unsupported syntax (subprocess, tempfile, os, etc.)
+            if (import_resolver.isBuiltinModule(python_module)) {
+                // Built-in module without Zig runtime support - skip it
+                try self.markSkippedModule(python_module);
+                continue;
+            }
+
+            // Check if it's a local .py file
             const is_local = try import_resolver.isLocalModule(
                 python_module,
                 source_file_dir,
