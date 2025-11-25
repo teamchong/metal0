@@ -393,6 +393,8 @@ fn genExprWithCaptureStruct(
                 .BitAnd => " & ",
                 .BitOr => " | ",
                 .BitXor => " ^ ",
+                .LShift => " << ",
+                .RShift => " >> ",
             };
             try self.output.appendSlice(self.allocator, op_str);
 

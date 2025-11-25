@@ -207,3 +207,29 @@ pub fn evalBitXor(_: std.mem.Allocator, left: ComptimeValue, right: ComptimeValu
         else => null,
     };
 }
+
+pub fn evalLShift(_: std.mem.Allocator, left: ComptimeValue, right: ComptimeValue) ?ComptimeValue {
+    return switch (left) {
+        .int => |l| switch (right) {
+            .int => |r| blk: {
+                if (r < 0 or r > 63) break :blk null;
+                break :blk ComptimeValue{ .int = l << @as(u6, @intCast(r)) };
+            },
+            else => null,
+        },
+        else => null,
+    };
+}
+
+pub fn evalRShift(_: std.mem.Allocator, left: ComptimeValue, right: ComptimeValue) ?ComptimeValue {
+    return switch (left) {
+        .int => |l| switch (right) {
+            .int => |r| blk: {
+                if (r < 0 or r > 63) break :blk null;
+                break :blk ComptimeValue{ .int = l >> @as(u6, @intCast(r)) };
+            },
+            else => null,
+        },
+        else => null,
+    };
+}

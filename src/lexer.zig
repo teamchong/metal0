@@ -62,6 +62,8 @@ pub const TokenType = enum {
     LtEq,
     Gt,
     GtEq,
+    LtLt, // Left shift <<
+    GtGt, // Right shift >>
     Ampersand,
     Pipe,
     Caret,

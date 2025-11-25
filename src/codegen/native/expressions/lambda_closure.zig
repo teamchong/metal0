@@ -282,6 +282,8 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                 .BitAnd => " & ",
                 .BitOr => " | ",
                 .BitXor => " ^ ",
+                .LShift => " << ",
+                .RShift => " >> ",
             };
             try self.output.appendSlice(self.allocator, op_str);
 

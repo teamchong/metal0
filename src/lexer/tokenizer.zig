@@ -342,14 +342,20 @@ pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usi
             return error.UnexpectedCharacter;
         },
         '<' => blk: {
-            if (self.peek() == '=') {
+            if (self.peek() == '<') {
+                _ = self.advance();
+                break :blk .LtLt;
+            } else if (self.peek() == '=') {
                 _ = self.advance();
                 break :blk .LtEq;
             }
             break :blk .Lt;
         },
         '>' => blk: {
-            if (self.peek() == '=') {
+            if (self.peek() == '>') {
+                _ = self.advance();
+                break :blk .GtGt;
+            } else if (self.peek() == '=') {
                 _ = self.advance();
                 break :blk .GtEq;
             }

@@ -314,6 +314,8 @@ pub const Operator = enum {
     BitAnd,
     BitOr,
     BitXor,
+    LShift,
+    RShift,
 };
 
 pub const CompareOp = enum {

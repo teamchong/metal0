@@ -60,6 +60,8 @@ pub const ComptimeEvaluator = struct {
             .BitAnd => arithmetic.evalBitAnd(self.allocator, left, right),
             .BitOr => arithmetic.evalBitOr(self.allocator, left, right),
             .BitXor => arithmetic.evalBitXor(self.allocator, left, right),
+            .LShift => arithmetic.evalLShift(self.allocator, left, right),
+            .RShift => arithmetic.evalRShift(self.allocator, left, right),
         };
     }
 
