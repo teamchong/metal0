@@ -87,8 +87,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     const mutation_analyzer = @import("../../../analysis/native_types/mutation_analyzer.zig");
     var mutations = try mutation_analyzer.analyzeMutations(module, self.allocator);
     defer {
-        var iter = mutations.valueIterator();
-        while (iter.next()) |info| {
+        for (mutations.values()) |*info| {
             @constCast(info).mutation_types.deinit(self.allocator);
         }
         mutations.deinit();

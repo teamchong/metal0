@@ -40,6 +40,10 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         .dict => true,
         else => false,
     };
+    const is_set = switch (arg_type) {
+        .set => true,
+        else => false,
+    };
     const is_tuple = switch (arg_type) {
         .tuple => true,
         else => false,
@@ -47,14 +51,14 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Generate:
     // - obj.items.len for ArrayList
-    // - obj.count() for HashMap/dict
+    // - obj.count() for HashMap/dict/set
     // - @typeInfo(...).fields.len for tuples
     // - obj.len for slices/arrays/strings
     if (is_tuple) {
         try self.output.appendSlice(self.allocator, "@typeInfo(@TypeOf(");
         try self.genExpr(args[0]);
         try self.output.appendSlice(self.allocator, ")).@\"struct\".fields.len");
-    } else if (is_dict) {
+    } else if (is_dict or is_set) {
         try self.genExpr(args[0]);
         try self.output.appendSlice(self.allocator, ".count()");
     } else {

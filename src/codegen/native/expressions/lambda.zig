@@ -121,7 +121,7 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
     // Clean up registered parameters after lambda generation
     defer {
         for (lambda.args) |arg| {
-            _ = self.type_inferrer.var_types.remove(arg.name);
+            _ = self.type_inferrer.var_types.swapRemove(arg.name);
         }
     }
 
@@ -176,7 +176,7 @@ pub fn getLambdaReturnType(self: *NativeCodegen, lambda: ast.Node.Lambda) Codege
     }
     defer {
         for (lambda.args) |arg| {
-            _ = self.type_inferrer.var_types.remove(arg.name);
+            _ = self.type_inferrer.var_types.swapRemove(arg.name);
         }
     }
 

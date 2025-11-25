@@ -262,12 +262,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         // Clear rename map after generating body and free allocated strings
         for (captured_vars.items) |var_name| {
-            if (self.var_renames.fetchRemove(var_name)) |entry| {
+            if (self.var_renames.fetchSwapRemove(var_name)) |entry| {
                 self.allocator.free(entry.value);
             }
         }
         for (declared_vars.items) |var_name| {
-            if (self.var_renames.fetchRemove(var_name)) |entry| {
+            if (self.var_renames.fetchSwapRemove(var_name)) |entry| {
                 self.allocator.free(entry.value);
             }
         }
@@ -376,7 +376,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     // Clear hoisted variables from tracking after try block completes
     for (declared_vars.items) |var_name| {
-        _ = self.hoisted_vars.remove(var_name);
+        _ = self.hoisted_vars.swapRemove(var_name);
     }
 }
 

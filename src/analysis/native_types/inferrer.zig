@@ -3,17 +3,16 @@ const ast = @import("../../ast.zig");
 const core = @import("core.zig");
 const statements = @import("statements.zig");
 const expressions = @import("expressions.zig");
-const fnv_hash = @import("../../utils/fnv_hash.zig");
+const hashmap_helper = @import("../../utils/hashmap_helper.zig");
 const closures = @import("closures.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
 pub const ClassInfo = core.ClassInfo;
 
-const FnvContext = fnv_hash.FnvHashContext([]const u8);
-const FnvHashMap = std.HashMap([]const u8, NativeType, FnvContext, 80);
-const FnvClassMap = std.HashMap([]const u8, ClassInfo, FnvContext, 80);
-const FnvArgsMap = std.HashMap([]const u8, []const NativeType, FnvContext, 80);
+const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
+const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
+const FnvArgsMap = hashmap_helper.StringHashMap([]const NativeType);
 
 /// Type inferrer - analyzes AST to determine native Zig types
 pub const TypeInferrer = struct {
@@ -41,10 +40,9 @@ pub const TypeInferrer = struct {
 
     pub fn deinit(self: *TypeInferrer) void {
         // Free class field and method maps
-        var it = self.class_fields.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.fields.deinit();
-            entry.value_ptr.methods.deinit();
+        for (self.class_fields.values()) |*entry| {
+            entry.fields.deinit();
+            entry.methods.deinit();
         }
         self.class_fields.deinit();
         self.var_types.deinit();

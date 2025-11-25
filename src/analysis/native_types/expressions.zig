@@ -1,16 +1,15 @@
 const std = @import("std");
 const ast = @import("../../ast.zig");
 const core = @import("core.zig");
-const fnv_hash = @import("../../utils/fnv_hash.zig");
+const hashmap_helper = @import("../../utils/hashmap_helper.zig");
 const calls = @import("calls.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
 pub const ClassInfo = core.ClassInfo;
 
-const FnvContext = fnv_hash.FnvHashContext([]const u8);
-const FnvHashMap = std.HashMap([]const u8, NativeType, FnvContext, 80);
-const FnvClassMap = std.HashMap([]const u8, ClassInfo, FnvContext, 80);
+const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
+const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 
 /// Infer the native type of an expression node
 pub fn inferExpr(
@@ -214,6 +213,17 @@ pub fn inferExpr(
                 .key = key_ptr,
                 .value = val_ptr,
             } };
+        },
+        .set => |s| blk: {
+            // Infer element type from set elements
+            const elem_type = if (s.elts.len > 0)
+                try inferExpr(allocator, var_types, class_fields, func_return_types, s.elts[0])
+            else
+                .unknown;
+
+            const elem_ptr = try allocator.create(NativeType);
+            elem_ptr.* = elem_type;
+            break :blk .{ .set = elem_ptr };
         },
         .tuple => |t| blk: {
             // Infer types of all tuple elements

@@ -7,8 +7,8 @@ const statements = @import("../statements.zig");
 const import_resolver = @import("../../../import_resolver.zig");
 const fnv_hash = @import("../../../utils/fnv_hash.zig");
 
-const FnvContext = fnv_hash.FnvHashContext([]const u8);
-const FnvVoidMap = std.HashMap([]const u8, void, FnvContext, 80);
+const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
+const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
 /// Infer return type from type string
 fn inferReturnTypeFromString(
@@ -285,35 +285,34 @@ pub fn collectImports(
     }
 
     // Process each module using registry
-    var iter = module_names.keyIterator();
-    while (iter.next()) |python_module| {
-        if (self.import_registry.lookup(python_module.*)) |info| {
+    for (module_names.keys()) |python_module| {
+        if (self.import_registry.lookup(python_module)) |info| {
             switch (info.strategy) {
                 .zig_runtime => {
                     // Include modules with Zig implementations
-                    try imports.append(self.allocator, python_module.*);
+                    try imports.append(self.allocator, python_module);
                 },
                 .c_library => {
                     // Include C library modules
-                    try imports.append(self.allocator, python_module.*);
+                    try imports.append(self.allocator, python_module);
 
                     // Add C library to linking list
                     if (info.c_library) |lib_name| {
                         try self.c_libraries.append(self.allocator, lib_name);
-                        std.debug.print("[C Extension] Detected {s} → link {s}\n", .{ python_module.*, lib_name });
+                        std.debug.print("[C Extension] Detected {s} → link {s}\n", .{ python_module, lib_name });
                     }
                 },
                 .compile_python => {
                     // Include for compilation (will be handled in generate())
-                    try imports.append(self.allocator, python_module.*);
+                    try imports.append(self.allocator, python_module);
                 },
                 .unsupported => {
                     std.debug.print("Error: Dynamic imports not supported in AOT compilation\n", .{});
-                    std.debug.print("  --> import {s}\n", .{python_module.*});
+                    std.debug.print("  --> import {s}\n", .{python_module});
                     std.debug.print("   |\n", .{});
                     std.debug.print("   = PyAOT resolves all imports at compile time\n", .{});
                     std.debug.print("   = Dynamic runtime module loading not supported\n", .{});
-                    if (std.mem.eql(u8, python_module.*, "importlib")) {
+                    if (std.mem.eql(u8, python_module, "importlib")) {
                         std.debug.print("   = Suggestion: Use static imports (import json) instead of importlib.import_module('json')\n", .{});
                     }
                     return error.UnsupportedModule;
@@ -322,22 +321,22 @@ pub fn collectImports(
         } else {
             // Module not in registry - check if it's a local .py file
             const is_local = try import_resolver.isLocalModule(
-                python_module.*,
+                python_module,
                 source_file_dir,
                 self.allocator,
             );
 
             if (is_local) {
                 // Local user module - add to imports list for compilation
-                try imports.append(self.allocator, python_module.*);
+                try imports.append(self.allocator, python_module);
             } else {
                 // Check if it's a C extension installed in site-packages
-                const is_c_ext = import_resolver.isCExtension(python_module.*, self.allocator);
+                const is_c_ext = import_resolver.isCExtension(python_module, self.allocator);
                 if (is_c_ext) {
-                    std.debug.print("[C Extension] Detected {s} in site-packages (no mapping yet)\n", .{python_module.*});
+                    std.debug.print("[C Extension] Detected {s} in site-packages (no mapping yet)\n", .{python_module});
                 } else {
                     // External package not in registry - skip with warning
-                    std.debug.print("Warning: External module '{s}' not found, skipping import\n", .{python_module.*});
+                    std.debug.print("Warning: External module '{s}' not found, skipping import\n", .{python_module});
                 }
             }
         }
