@@ -333,6 +333,11 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                     analysis.needs_allocator = true;
                 }
             }
+
+            // Division, floor division, modulo use runtime functions
+            if (binop.op == .Div or binop.op == .FloorDiv or binop.op == .Mod) {
+                analysis.needs_runtime = true;
+            }
         },
         .list => |list| {
             // Check if list can be optimized to fixed-size array (no allocator needed)
