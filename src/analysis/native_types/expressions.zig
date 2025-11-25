@@ -239,6 +239,13 @@ pub fn inferExpr(
             // The type of the named expression is the type of the value
             break :blk try inferExpr(allocator, var_types, class_fields, func_return_types, ne.value.*);
         },
+        .if_expr => |ie| blk: {
+            // Conditional expression (ternary): body if condition else orelse_value
+            // Return the wider type of body and orelse_value (they should match in Python)
+            const body_type = try inferExpr(allocator, var_types, class_fields, func_return_types, ie.body.*);
+            const orelse_type = try inferExpr(allocator, var_types, class_fields, func_return_types, ie.orelse_value.*);
+            break :blk body_type.widen(orelse_type);
+        },
         .lambda => |lam| blk: {
             // Infer function type from lambda
             // For now, default all params and return to i64

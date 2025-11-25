@@ -6,6 +6,61 @@ const ParseError = @import("../../parser.zig").ParseError;
 const Parser = @import("../../parser.zig").Parser;
 const misc = @import("misc.zig");
 
+/// Parse type annotation supporting PEP 585 generics (e.g., int, str, list[int], tuple[str, str], dict[str, int])
+fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
+    if (self.current >= self.tokens.len or self.tokens[self.current].type != .Ident) {
+        return null;
+    }
+
+    const base_type = self.tokens[self.current].lexeme;
+    self.current += 1;
+
+    // Check for generic type parameters: Type[...]
+    if (self.current < self.tokens.len and self.tokens[self.current].type == .LBracket) {
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+
+        try type_buf.appendSlice(self.allocator, base_type);
+        try type_buf.append(self.allocator, '[');
+        self.current += 1; // consume '['
+
+        var bracket_depth: usize = 1;
+        var need_separator = false;
+
+        while (self.current < self.tokens.len and bracket_depth > 0) {
+            const tok = self.tokens[self.current];
+            switch (tok.type) {
+                .LBracket => {
+                    if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
+                    try type_buf.append(self.allocator, '[');
+                    bracket_depth += 1;
+                    need_separator = false;
+                },
+                .RBracket => {
+                    try type_buf.append(self.allocator, ']');
+                    bracket_depth -= 1;
+                    need_separator = true;
+                },
+                .Comma => {
+                    try type_buf.appendSlice(self.allocator, ", ");
+                    need_separator = false;
+                },
+                .Ident => {
+                    if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
+                    try type_buf.appendSlice(self.allocator, tok.lexeme);
+                    need_separator = true;
+                },
+                else => break, // unexpected token, stop parsing
+            }
+            self.current += 1;
+        }
+
+        return try self.allocator.dupe(u8, type_buf.items);
+    }
+
+    return base_type;
+}
+
 pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
         // Parse decorators first (if any)
         var decorators = std.ArrayList(ast.Node){};
@@ -58,14 +113,10 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
 
             const arg_name = try self.expect(.Ident);
 
-            // Parse type annotation if present (e.g., : int, : str)
+            // Parse type annotation if present (e.g., : int, : str, : list[int])
             var type_annotation: ?[]const u8 = null;
             if (self.match(.Colon)) {
-                // Next token should be the type name
-                if (self.current < self.tokens.len and self.tokens[self.current].type == .Ident) {
-                    type_annotation = self.tokens[self.current].lexeme;
-                    self.current += 1;
-                }
+                type_annotation = try parseTypeAnnotation(self);
             }
 
             // Parse default value if present (e.g., = 0.1)
@@ -90,7 +141,7 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
             }
         }
 
-        // Capture return type annotation if present (e.g., -> int, -> str)
+        // Capture return type annotation if present (e.g., -> int, -> str, -> tuple[str, str])
         var return_type: ?[]const u8 = null;
         if (self.tokens[self.current].type == .Arrow or
             (self.tokens[self.current].type == .Minus and
@@ -104,11 +155,8 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
                 _ = self.match(.Minus);
                 _ = self.match(.Gt);
             }
-            // Capture the return type
-            if (self.current < self.tokens.len and self.tokens[self.current].type == .Ident) {
-                return_type = self.tokens[self.current].lexeme;
-                self.current += 1;
-            }
+            // Parse the return type annotation (supports generics like tuple[str, str])
+            return_type = try parseTypeAnnotation(self);
         }
 
         _ = try self.expect(.Colon);

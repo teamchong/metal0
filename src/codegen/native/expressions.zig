@@ -67,6 +67,7 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             try genExpr(self, s.value.*);
         },
         .named_expr => |ne| try genNamedExpr(self, ne),
+        .if_expr => |ie| try genIfExpr(self, ie),
         else => {},
     }
 }
@@ -88,6 +89,18 @@ fn genNamedExpr(self: *NativeCodegen, ne: ast.Node.NamedExpr) CodegenError!void 
     try self.output.appendSlice(self.allocator, "; break :blk ");
     try self.output.appendSlice(self.allocator, target_name);
     try self.output.appendSlice(self.allocator, "; })");
+}
+
+/// Generate conditional expression (ternary): body if condition else orelse_value
+fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
+    // In Zig: if (condition) body else orelse_value
+    try self.output.appendSlice(self.allocator, "(if (");
+    try genExpr(self, ie.condition.*);
+    try self.output.appendSlice(self.allocator, ") ");
+    try genExpr(self, ie.body.*);
+    try self.output.appendSlice(self.allocator, " else ");
+    try genExpr(self, ie.orelse_value.*);
+    try self.output.appendSlice(self.allocator, ")");
 }
 
 /// Generate await expression

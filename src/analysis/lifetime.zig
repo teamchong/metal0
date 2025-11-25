@@ -71,6 +71,12 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
                 line = try analyzeLifetimes(info, value, line);
             }
         },
+        .if_expr => |if_expr| {
+            // Conditional expression: body if condition else orelse_value
+            line = try analyzeLifetimes(info, if_expr.body.*, line);
+            line = try analyzeLifetimes(info, if_expr.condition.*, line);
+            line = try analyzeLifetimes(info, if_expr.orelse_value.*, line);
+        },
         .if_stmt => |if_stmt| {
             const scope_start = line;
             line = try analyzeLifetimes(info, if_stmt.condition.*, line);

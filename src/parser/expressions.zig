@@ -4,8 +4,9 @@ const lexer = @import("../lexer.zig");
 const ParseError = @import("../parser.zig").ParseError;
 const Parser = @import("../parser.zig").Parser;
 
-/// Parse logical OR expression (lowest precedence)
-pub fn parseOrExpr(self: *Parser) ParseError!ast.Node {
+/// Parse conditional expression (ternary): value if condition else orelse_value
+/// This has the lowest precedence among expressions
+pub fn parseConditionalExpr(self: *Parser) ParseError!ast.Node {
     // Check for named expression (walrus operator): identifier :=
     // Must be an identifier followed by :=
     if (self.check(.Ident)) {
@@ -15,7 +16,7 @@ pub fn parseOrExpr(self: *Parser) ParseError!ast.Node {
         if (self.check(.ColonEq)) {
             // It's a named expression
             _ = self.advance(); // consume :=
-            const value = try parseOrExpr(self); // Parse the value expression
+            const value = try parseConditionalExpr(self); // Parse the value expression
 
             const target_ptr = try self.allocator.create(ast.Node);
             target_ptr.* = ast.Node{ .name = .{ .id = ident_tok.lexeme } };
@@ -35,6 +36,38 @@ pub fn parseOrExpr(self: *Parser) ParseError!ast.Node {
         }
     }
 
+    // Parse the left side (which could be the 'body' of an if_expr)
+    const left = try parseOrExpr(self);
+
+    // Check for conditional expression: value if condition else orelse_value
+    if (self.match(.If)) {
+        const condition = try parseOrExpr(self); // Parse the condition
+        _ = try self.expect(.Else); // Expect 'else'
+        const orelse_value = try parseConditionalExpr(self); // Right-associative: parse recursively
+
+        const body_ptr = try self.allocator.create(ast.Node);
+        body_ptr.* = left;
+
+        const test_ptr = try self.allocator.create(ast.Node);
+        test_ptr.* = condition;
+
+        const orelse_ptr = try self.allocator.create(ast.Node);
+        orelse_ptr.* = orelse_value;
+
+        return ast.Node{
+            .if_expr = .{
+                .body = body_ptr,
+                .condition = test_ptr,
+                .orelse_value = orelse_ptr,
+            },
+        };
+    }
+
+    return left;
+}
+
+/// Parse logical OR expression
+pub fn parseOrExpr(self: *Parser) ParseError!ast.Node {
     var left = try parseAndExpr(self);
 
     while (self.match(.Or)) {

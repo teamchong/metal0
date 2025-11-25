@@ -158,7 +158,7 @@ pub const Parser = struct {
     // ===== Expression Parsing =====
 
     pub fn parseExpression(self: *Parser) ParseError!ast.Node {
-        return try expressions.parseOrExpr(self);
+        return try expressions.parseConditionalExpr(self);
     }
 
     pub fn parsePostfix(self: *Parser) ParseError!ast.Node {

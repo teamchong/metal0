@@ -46,6 +46,7 @@ pub const Node = union(enum) {
     starred: Starred,
     del_stmt: Del,
     named_expr: NamedExpr,
+    if_expr: IfExpr,
 
     // Type aliases for backward compatibility with nested access (ast.Node.FString)
     pub const FString = fstring.FString;
@@ -222,9 +223,9 @@ pub const Node = union(enum) {
         value: *Node,
     };
 
-    /// Import statement: import numpy as np
+    /// Import statement: import numpy as np, import os.path
     pub const Import = struct {
-        module: []const u8, // "numpy"
+        module: []const u8, // "numpy" or "os.path"
         asname: ?[]const u8, // "np" or null
     };
 
@@ -286,6 +287,13 @@ pub const Node = union(enum) {
     pub const NamedExpr = struct {
         target: *Node, // Name node
         value: *Node, // Expression
+    };
+
+    /// Conditional expression (ternary): value if condition else orelse_value
+    pub const IfExpr = struct {
+        body: *Node, // value to return if condition is true
+        condition: *Node, // condition (can't use 'test' - reserved keyword in Zig)
+        orelse_value: *Node, // value to return if condition is false (can't use 'orelse' - reserved)
     };
 
     /// Recursively free all allocations in the AST

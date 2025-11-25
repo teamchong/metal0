@@ -8,8 +8,29 @@ const Parser = @import("../../parser.zig").Parser;
 pub fn parseImport(self: *Parser) ParseError!ast.Node {
         _ = try self.expect(.Import);
 
-        const module_tok = try self.expect(.Ident);
-        const module_name = module_tok.lexeme;
+        const first_tok = try self.expect(.Ident);
+
+        // Check for dotted module path (os.path, unittest.mock)
+        var module_name: []const u8 = first_tok.lexeme;
+
+        if (self.check(.Dot)) {
+            // Need to construct dotted name
+            var module_parts = std.ArrayList(u8){};
+            defer module_parts.deinit(self.allocator);
+
+            try module_parts.appendSlice(self.allocator, first_tok.lexeme);
+
+            while (self.match(.Dot)) {
+                try module_parts.append(self.allocator, '.');
+                const next_tok = try self.expect(.Ident);
+                try module_parts.appendSlice(self.allocator, next_tok.lexeme);
+            }
+
+            // Only allocate new string if we found dots
+            if (module_parts.items.len > first_tok.lexeme.len) {
+                module_name = try self.allocator.dupe(u8, module_parts.items);
+            }
+        }
 
         var asname: ?[]const u8 = null;
 

@@ -51,6 +51,14 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             for (b.values) |*v| deinit(v, allocator);
             allocator.free(b.values);
         },
+        .if_expr => |i| {
+            deinit(i.body, allocator);
+            allocator.destroy(i.body);
+            deinit(i.condition, allocator);
+            allocator.destroy(i.condition);
+            deinit(i.orelse_value, allocator);
+            allocator.destroy(i.orelse_value);
+        },
         .call => |c| {
             deinit(c.func, allocator);
             allocator.destroy(c.func);
@@ -201,8 +209,11 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             allocator.destroy(a.value);
         },
         .import_stmt => |i| {
-            // Strings are owned by parser arena, no need to free
-            _ = i;
+            // For dotted imports (e.g., os.path), the module name was allocated with dupe()
+            // Simple imports use the token lexeme (not allocated)
+            if (std.mem.indexOfScalar(u8, i.module, '.') != null) {
+                allocator.free(i.module);
+            }
         },
         .import_from => |i| {
             allocator.free(i.names);
