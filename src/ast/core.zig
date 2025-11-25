@@ -282,6 +282,7 @@ pub const UnaryOperator = enum {
     Not,
     UAdd, // Unary plus (+x)
     USub, // Unary minus (-x)
+    Invert, // Bitwise NOT (~x)
 };
 
 pub const Value = union(enum) {

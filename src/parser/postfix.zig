@@ -389,6 +389,18 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
                     },
                 };
             },
+            .Tilde => {
+                // Bitwise NOT (e.g., ~2)
+                _ = self.advance();
+                const operand_ptr = try self.allocator.create(ast.Node);
+                operand_ptr.* = try parsePrimary(self);
+                return ast.Node{
+                    .unaryop = .{
+                        .op = .Invert,
+                        .operand = operand_ptr,
+                    },
+                };
+            },
             else => {
                 std.debug.print("Unexpected token in primary: {s} at line {d}:{d}\n", .{
                     @tagName(tok.type),

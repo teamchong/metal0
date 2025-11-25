@@ -49,9 +49,15 @@ pub fn tokenizeNumber(self: *Lexer, start: usize, start_column: usize) !Token {
         }
     }
 
+    // Handle complex number suffix 'j' or 'J'
+    const is_complex = if (self.peek()) |c| (c == 'j' or c == 'J') else false;
+    if (is_complex) {
+        _ = self.advance(); // consume 'j' or 'J'
+    }
+
     const lexeme = self.source[start..self.current];
     return Token{
-        .type = .Number,
+        .type = if (is_complex) .ComplexNumber else .Number,
         .lexeme = lexeme,
         .line = self.line,
         .column = start_column,
@@ -328,6 +334,7 @@ pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usi
         '&' => .Ampersand,
         '|' => .Pipe,
         '^' => .Caret,
+        '~' => .Tilde,
         '@' => .At,
         else => return null,
     };

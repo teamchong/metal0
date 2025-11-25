@@ -124,7 +124,7 @@ pub fn build(b: *std.Build) void {
     const bench_work_stealing = b.addExecutable(.{
         .name = "bench_work_stealing",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/bench_work_stealing.zig"),
+            .root_source_file = b.path("tests/integration/bench_work_stealing.zig"),
             .target = target,
             .optimize = .ReleaseFast,
         }),

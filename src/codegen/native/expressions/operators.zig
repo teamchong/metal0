@@ -160,19 +160,33 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     try self.output.appendSlice(self.allocator, ")");
 }
 
-/// Generate unary operations (not, -)
+/// Generate unary operations (not, -, ~)
 pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
-    const op_str = switch (unaryop.op) {
-        .Not => "!",
-        .USub => "-",
-        else => "?",
-    };
-    try self.output.appendSlice(self.allocator, op_str);
-    // Wrap operand in parentheses to ensure correct precedence
-    // e.g., "not x == 5" becomes "!(x == 5)" not "!x == 5"
-    try self.output.appendSlice(self.allocator, "(");
-    try genExpr(self, unaryop.operand.*);
-    try self.output.appendSlice(self.allocator, ")");
+    switch (unaryop.op) {
+        .Not => {
+            try self.output.appendSlice(self.allocator, "!(");
+            try genExpr(self, unaryop.operand.*);
+            try self.output.appendSlice(self.allocator, ")");
+        },
+        .USub => {
+            try self.output.appendSlice(self.allocator, "-(");
+            try genExpr(self, unaryop.operand.*);
+            try self.output.appendSlice(self.allocator, ")");
+        },
+        .UAdd => {
+            // Unary plus is a no-op, just emit the operand
+            try self.output.appendSlice(self.allocator, "(");
+            try genExpr(self, unaryop.operand.*);
+            try self.output.appendSlice(self.allocator, ")");
+        },
+        .Invert => {
+            // Bitwise NOT: ~x in Zig
+            // Cast to i64 to handle comptime_int literals
+            try self.output.appendSlice(self.allocator, "~@as(i64, ");
+            try genExpr(self, unaryop.operand.*);
+            try self.output.appendSlice(self.allocator, ")");
+        },
+    }
 }
 
 /// Generate comparison operations (==, !=, <, <=, >, >=)
