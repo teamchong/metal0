@@ -10,11 +10,12 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
     switch (constant.value) {
         .int => try self.output.writer(self.allocator).print("{d}", .{constant.value.int}),
         .float => |f| {
+            // Cast to f64 to avoid comptime_float issues with format strings
             // Use Python-style float formatting (always show .0 for whole numbers)
             if (@mod(f, 1.0) == 0.0) {
-                try self.output.writer(self.allocator).print("{d:.1}", .{f});
+                try self.output.writer(self.allocator).print("@as(f64, {d:.1})", .{f});
             } else {
-                try self.output.writer(self.allocator).print("{d}", .{f});
+                try self.output.writer(self.allocator).print("@as(f64, {d})", .{f});
             }
         },
         .bool => try self.output.appendSlice(self.allocator, if (constant.value.bool) "true" else "false"),

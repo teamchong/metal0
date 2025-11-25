@@ -1,4 +1,4 @@
-.PHONY: help build install verify test test-zig test-correctness-full test-runtime test-asyncio test-all format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines benchmark-quick benchmark-full benchmark-5d benchmark-dashboard benchmark-fib benchmark-dict benchmark-string help-testing
+.PHONY: help build install verify verify-readme test test-zig test-correctness-full test-runtime test-asyncio test-all format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines benchmark-quick benchmark-full benchmark-5d benchmark-dashboard benchmark-fib benchmark-dict benchmark-string help-testing
 
 help:
 	@echo "PyAOT Commands"
@@ -55,6 +55,12 @@ install: build-release
 
 verify:
 	@bash scripts/verify-install.sh
+
+verify-readme:
+	@echo "Verifying README examples compile..."
+	@pyaot examples/bench_fib.py --force >/dev/null 2>&1 && echo "✓ bench_fib.py" || echo "✗ bench_fib.py FAILED"
+	@pyaot examples/bench_loop.py --force >/dev/null 2>&1 && echo "✓ bench_loop.py" || echo "✗ bench_loop.py FAILED"
+	@echo "README verification complete"
 
 test:
 	@echo "🧪 Running regression tests..."
