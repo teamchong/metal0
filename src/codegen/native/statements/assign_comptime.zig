@@ -21,25 +21,25 @@ pub fn emitComptimeAssignment(
     if (is_first_assignment) {
         // Use var for mutable variables, const for immutable
         if (is_mutable) {
-            try self.output.appendSlice(self.allocator, "var ");
+            try self.emit( "var ");
         } else {
-            try self.output.appendSlice(self.allocator, "const ");
+            try self.emit( "const ");
         }
     }
 
-    try self.output.appendSlice(self.allocator, actual_name);
+    try self.emit( actual_name);
 
     if (is_first_assignment) {
         // Emit type annotation
-        try self.output.appendSlice(self.allocator, ": ");
+        try self.emit( ": ");
         switch (value) {
-            .int => try self.output.appendSlice(self.allocator, "i64"),
-            .float => try self.output.appendSlice(self.allocator, "f64"),
-            .bool => try self.output.appendSlice(self.allocator, "bool"),
-            .string => try self.output.appendSlice(self.allocator, "[]const u8"),
+            .int => try self.emit( "i64"),
+            .float => try self.emit( "f64"),
+            .bool => try self.emit( "bool"),
+            .string => try self.emit( "[]const u8"),
             .list => |items| {
                 if (items.len == 0) {
-                    try self.output.appendSlice(self.allocator, "[0]i64"); // Empty list default type
+                    try self.emit( "[0]i64"); // Empty list default type
                 } else {
                     // Infer element type from first element
                     const elem_type = switch (items[0]) {
@@ -55,7 +55,7 @@ pub fn emitComptimeAssignment(
         }
     }
 
-    try self.output.appendSlice(self.allocator, " = ");
+    try self.emit( " = ");
 
     // Emit value
     switch (value) {
@@ -70,30 +70,30 @@ pub fn emitComptimeAssignment(
         },
         .bool => |v| {
             const bool_str = if (v) "true" else "false";
-            try self.output.appendSlice(self.allocator, bool_str);
+            try self.emit( bool_str);
         },
         .string => |v| {
             // Escape the string properly
-            try self.output.appendSlice(self.allocator, "\"");
+            try self.emit( "\"");
             for (v) |c| {
                 switch (c) {
-                    '\n' => try self.output.appendSlice(self.allocator, "\\n"),
-                    '\r' => try self.output.appendSlice(self.allocator, "\\r"),
-                    '\t' => try self.output.appendSlice(self.allocator, "\\t"),
-                    '\\' => try self.output.appendSlice(self.allocator, "\\\\"),
-                    '"' => try self.output.appendSlice(self.allocator, "\\\""),
+                    '\n' => try self.emit( "\\n"),
+                    '\r' => try self.emit( "\\r"),
+                    '\t' => try self.emit( "\\t"),
+                    '\\' => try self.emit( "\\\\"),
+                    '"' => try self.emit( "\\\""),
                     else => try self.output.append(self.allocator, c),
                 }
             }
-            try self.output.appendSlice(self.allocator, "\"");
+            try self.emit( "\"");
         },
         .list => |items| {
             if (items.len == 0) {
-                try self.output.appendSlice(self.allocator, ".{}");
+                try self.emit( ".{}");
             } else {
-                try self.output.appendSlice(self.allocator, ".{ ");
+                try self.emit( ".{ ");
                 for (items, 0..) |item, i| {
-                    if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                    if (i > 0) try self.emit( ", ");
 
                     switch (item) {
                         .int => |v| try self.output.writer(self.allocator).print("{d}", .{v}),
@@ -107,21 +107,21 @@ pub fn emitComptimeAssignment(
                         },
                         .bool => |v| {
                             const bool_str = if (v) "true" else "false";
-                            try self.output.appendSlice(self.allocator, bool_str);
+                            try self.emit( bool_str);
                         },
                         .string => |v| try self.output.writer(self.allocator).print("\"{s}\"", .{v}),
                         .list => {
                             // Nested lists not fully supported yet
-                            try self.output.appendSlice(self.allocator, ".{}");
+                            try self.emit( ".{}");
                         },
                     }
                 }
-                try self.output.appendSlice(self.allocator, " }");
+                try self.emit( " }");
             }
         },
     }
 
-    try self.output.appendSlice(self.allocator, ";\n");
+    try self.emit( ";\n");
 }
 
 /// Free memory allocated for comptime value

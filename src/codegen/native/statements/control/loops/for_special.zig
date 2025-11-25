@@ -38,44 +38,43 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 
     // Generate block scope
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "{\n");
+    try self.emit("{\n");
     self.indent();
 
     // Generate index counter: var __enum_idx_N: usize = start;
     // Use output buffer length as unique ID to avoid shadowing in nested loops
     const unique_id = self.output.items.len;
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("var __enum_idx_{d}: usize = ", .{unique_id});
+    try self.emitFmt("var __enum_idx_{d}: usize = ", .{unique_id});
     if (start_value != 0) {
-        const start_str = try std.fmt.allocPrint(self.allocator, "{d}", .{start_value});
-        try self.output.appendSlice(self.allocator, start_str);
+        try self.emitFmt("{d}", .{start_value});
     } else {
-        try self.output.appendSlice(self.allocator, "0");
+        try self.emit("0");
     }
-    try self.output.appendSlice(self.allocator, ";\n");
+    try self.emit(";\n");
 
     // Generate for loop over iterable
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "for (");
+    try self.emit("for (");
 
     // Check if we need to add .items for ArrayList
     const iter_type = try self.type_inferrer.inferExpr(iterable);
 
     // If iterating over list literal, wrap in parens for .items access
     if (iter_type == .list and iterable == .list) {
-        try self.output.appendSlice(self.allocator, "(");
+        try self.emit("(");
         try self.genExpr(iterable);
-        try self.output.appendSlice(self.allocator, ").items");
+        try self.emit(").items");
     } else {
         try self.genExpr(iterable);
         if (iter_type == .list) {
-            try self.output.appendSlice(self.allocator, ".items");
+            try self.emit(".items");
         }
     }
 
-    try self.output.appendSlice(self.allocator, ") |");
-    try self.output.appendSlice(self.allocator, item_var);
-    try self.output.appendSlice(self.allocator, "| {\n");
+    try self.emit(") |");
+    try self.emit(item_var);
+    try self.emit("| {\n");
 
     self.indent();
 
@@ -84,11 +83,11 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 
     // Generate: const idx = __enum_idx_N;
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("const {s} = __enum_idx_{d};\n", .{ idx_var, unique_id });
+    try self.emitFmt("const {s} = __enum_idx_{d};\n", .{ idx_var, unique_id });
 
     // Generate: __enum_idx_N += 1;
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("__enum_idx_{d} += 1;\n", .{unique_id});
+    try self.emitFmt("__enum_idx_{d} += 1;\n", .{unique_id});
 
     // Generate body statements
     for (body) |stmt| {
@@ -100,12 +99,12 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 
     // Close block scope
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 }
 
 /// Generate zip() loop
@@ -141,7 +140,7 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
 
     // Open block for scoping
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "{\n");
+    try self.emit("{\n");
     self.indent();
 
     // Check type of each iterable to determine if we need .items
@@ -156,52 +155,52 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
     // Store each iterable in a temporary variable: const __zip_iter_N = ...
     for (args, 0..) |iterable, i| {
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const __zip_iter_{d} = ", .{i});
+        try self.emitFmt("const __zip_iter_{d} = ", .{i});
         try self.genExpr(iterable);
-        try self.output.appendSlice(self.allocator, ";\n");
+        try self.emit(";\n");
     }
 
     // Generate: var __zip_idx: usize = 0;
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "var __zip_idx: usize = 0;\n");
+    try self.emit("var __zip_idx: usize = 0;\n");
 
     // Generate: const __zip_len = @min(iter0.len, @min(iter1.len, ...));
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "const __zip_len = ");
+    try self.emit("const __zip_len = ");
 
     // Build nested @min calls - use .items.len for lists, .len for arrays
     if (args.len == 2) {
-        try self.output.appendSlice(self.allocator, "@min(__zip_iter_0");
-        if (iter_is_list[0]) try self.output.appendSlice(self.allocator, ".items");
-        try self.output.appendSlice(self.allocator, ".len, __zip_iter_1");
-        if (iter_is_list[1]) try self.output.appendSlice(self.allocator, ".items");
-        try self.output.appendSlice(self.allocator, ".len)");
+        try self.emit("@min(__zip_iter_0");
+        if (iter_is_list[0]) try self.emit(".items");
+        try self.emit(".len, __zip_iter_1");
+        if (iter_is_list[1]) try self.emit(".items");
+        try self.emit(".len)");
     } else {
         // For 3+ iterables: @min(iter0.len, @min(iter1.len, @min(iter2.len, ...)))
-        try self.output.appendSlice(self.allocator, "@min(__zip_iter_0");
-        if (iter_is_list[0]) try self.output.appendSlice(self.allocator, ".items");
-        try self.output.appendSlice(self.allocator, ".len, ");
+        try self.emit("@min(__zip_iter_0");
+        if (iter_is_list[0]) try self.emit(".items");
+        try self.emit(".len, ");
         for (1..args.len - 1) |_| {
-            try self.output.appendSlice(self.allocator, "@min(");
+            try self.emit("@min(");
         }
         for (1..args.len) |i| {
-            try self.output.writer(self.allocator).print("__zip_iter_{d}", .{i});
-            if (iter_is_list[i]) try self.output.appendSlice(self.allocator, ".items");
-            try self.output.appendSlice(self.allocator, ".len");
+            try self.emitFmt("__zip_iter_{d}", .{i});
+            if (iter_is_list[i]) try self.emit(".items");
+            try self.emit(".len");
             if (i < args.len - 1) {
-                try self.output.appendSlice(self.allocator, ", ");
+                try self.emit(", ");
             }
         }
         for (1..args.len - 1) |_| {
-            try self.output.appendSlice(self.allocator, ")");
+            try self.emit(")");
         }
-        try self.output.appendSlice(self.allocator, ")");
+        try self.emit(")");
     }
-    try self.output.appendSlice(self.allocator, ";\n");
+    try self.emit(";\n");
 
     // Generate: while (__zip_idx < __zip_len) : (__zip_idx += 1) {
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "while (__zip_idx < __zip_len) : (__zip_idx += 1) {\n");
+    try self.emit("while (__zip_idx < __zip_len) : (__zip_idx += 1) {\n");
     self.indent();
 
     // Push new scope for loop body
@@ -212,11 +211,11 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
     for (target.list.elts, 0..) |elt, i| {
         const var_name = elt.name.id;
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "const ");
-        try self.output.appendSlice(self.allocator, var_name);
-        try self.output.writer(self.allocator).print(" = __zip_iter_{d}", .{i});
-        if (iter_is_list[i]) try self.output.appendSlice(self.allocator, ".items");
-        try self.output.appendSlice(self.allocator, "[__zip_idx];\n");
+        try self.emit("const ");
+        try self.emit(var_name);
+        try self.emitFmt(" = __zip_iter_{d}", .{i});
+        if (iter_is_list[i]) try self.emit(".items");
+        try self.emit("[__zip_idx];\n");
     }
 
     // Generate body statements
@@ -230,10 +229,10 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
     // Close while loop
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 
     // Close block scope
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 }

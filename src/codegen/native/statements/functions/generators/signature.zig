@@ -378,7 +378,7 @@ pub fn genMethodSignature(
     mutates_self: bool,
     needs_allocator: bool,
 ) CodegenError!void {
-    try self.output.appendSlice(self.allocator, "\n");
+    try self.emit( "\n");
     try self.emitIndent();
 
     // Check if self is actually used in the method body
@@ -390,56 +390,62 @@ pub fn genMethodSignature(
 
     // Generate "pub fn methodname(self_param: *[const] ClassName"
     // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
-    try self.output.appendSlice(self.allocator, "pub fn ");
+    try self.emit( "pub fn ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method.name);
     try self.output.writer(self.allocator).print("({s}: ", .{self_param_name});
     if (mutates_self) {
-        try self.output.appendSlice(self.allocator, "*");
+        try self.emit( "*");
     } else {
-        try self.output.appendSlice(self.allocator, "*const ");
+        try self.emit( "*const ");
     }
-    try self.output.appendSlice(self.allocator, class_name);
+    try self.emit( class_name);
 
     // Add allocator parameter if method needs it
+    // Use _ if allocator is needed for return type but not actually used in body
     if (needs_allocator) {
-        try self.output.appendSlice(self.allocator, ", allocator: std.mem.Allocator");
+        const actually_uses = allocator_analyzer.functionActuallyUsesAllocatorParam(method);
+        if (actually_uses) {
+            try self.emit( ", allocator: std.mem.Allocator");
+        } else {
+            try self.emit( ", _: std.mem.Allocator");
+        }
     }
 
     // Add other parameters (skip 'self')
     for (method.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
-        try self.output.appendSlice(self.allocator, ", ");
+        try self.emit( ", ");
         try self.output.writer(self.allocator).print("{s}: ", .{arg.name});
         // Use anytype for method params without type annotation to support string literals
         // This lets Zig infer the type from the call site
         if (arg.type_annotation) |_| {
             const param_type = pythonTypeToZig(arg.type_annotation);
-            try self.output.appendSlice(self.allocator, param_type);
+            try self.emit( param_type);
         } else if (self.getVarType(arg.name)) |var_type| {
             // Try inferred type from type inferrer
             const var_type_tag = @as(std.meta.Tag(@TypeOf(var_type)), var_type);
             if (var_type_tag != .unknown) {
                 const zig_type = try self.nativeTypeToZigType(var_type);
                 defer self.allocator.free(zig_type);
-                try self.output.appendSlice(self.allocator, zig_type);
+                try self.emit( zig_type);
             } else {
-                try self.output.appendSlice(self.allocator, "anytype");
+                try self.emit( "anytype");
             }
         } else {
-            try self.output.appendSlice(self.allocator, "anytype");
+            try self.emit( "anytype");
         }
     }
 
-    try self.output.appendSlice(self.allocator, ") ");
+    try self.emit( ") ");
 
     // Determine return type (add error union if allocator needed)
     if (needs_allocator) {
-        try self.output.appendSlice(self.allocator, "!");
+        try self.emit( "!");
     }
     if (method.return_type) |_| {
         // Use explicit return type annotation if provided
         const zig_return_type = pythonTypeToZig(method.return_type);
-        try self.output.appendSlice(self.allocator, zig_return_type);
+        try self.emit( zig_return_type);
     } else if (hasReturnStatement(method.body)) {
         // Check if method returns a parameter directly (for anytype params)
         var returned_param_name: ?[]const u8 = null;
@@ -464,9 +470,9 @@ pub fn genMethodSignature(
 
         if (returned_param_name) |param_name| {
             // Method returns an anytype param - use @TypeOf(param)
-            try self.output.appendSlice(self.allocator, "@TypeOf(");
-            try self.output.appendSlice(self.allocator, param_name);
-            try self.output.appendSlice(self.allocator, ")");
+            try self.emit( "@TypeOf(");
+            try self.emit( param_name);
+            try self.emit( ")");
         } else {
             // Try to get inferred return type from class_fields.methods
             const class_info = self.type_inferrer.class_fields.get(class_name);
@@ -477,17 +483,17 @@ pub fn genMethodSignature(
                 if (inf_type != .int and inf_type != .unknown) {
                     const return_type_str = try self.nativeTypeToZigType(inf_type);
                     defer self.allocator.free(return_type_str);
-                    try self.output.appendSlice(self.allocator, return_type_str);
+                    try self.emit( return_type_str);
                 } else {
-                    try self.output.appendSlice(self.allocator, "i64");
+                    try self.emit( "i64");
                 }
             } else {
-                try self.output.appendSlice(self.allocator, "i64");
+                try self.emit( "i64");
             }
         }
     } else {
-        try self.output.appendSlice(self.allocator, "void");
+        try self.emit( "void");
     }
 
-    try self.output.appendSlice(self.allocator, " {\n");
+    try self.emit( " {\n");
 }

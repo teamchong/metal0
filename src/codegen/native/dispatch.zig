@@ -94,21 +94,21 @@ fn generateCLibraryCall(
     mapping: *const @import("c_interop").FunctionMapping,
 ) CodegenError!void {
     // Emit C function call
-    try self.output.appendSlice(self.allocator, "c.");
-    try self.output.appendSlice(self.allocator, mapping.c_name);
-    try self.output.appendSlice(self.allocator, "(");
+    try self.emit( "c.");
+    try self.emit( mapping.c_name);
+    try self.emit( "(");
 
     // Generate arguments based on mapping
     for (mapping.arg_mappings, 0..) |arg_map, i| {
         if (i > 0) {
-            try self.output.appendSlice(self.allocator, ", ");
+            try self.emit( ", ");
         }
 
         // Get Python argument
         if (arg_map.python_index >= call.args.len) {
             // Use default value if available
             if (arg_map.default_value) |default| {
-                try self.output.appendSlice(self.allocator, default);
+                try self.emit( default);
                 continue;
             }
             return error.OutOfMemory; // Missing required argument
@@ -127,15 +127,15 @@ fn generateCLibraryCall(
                 // Pass pointer to data (e.g., array.ptr)
                 const expressions = @import("expressions.zig");
                 try expressions.genExpr(self, py_arg);
-                try self.output.appendSlice(self.allocator, pp.pointer_path);
+                try self.emit( pp.pointer_path);
             },
             .custom => |code| {
                 // Custom conversion code
-                try self.output.appendSlice(self.allocator, code);
-                try self.output.appendSlice(self.allocator, "(");
+                try self.emit( code);
+                try self.emit( "(");
                 const expressions = @import("expressions.zig");
                 try expressions.genExpr(self, py_arg);
-                try self.output.appendSlice(self.allocator, ")");
+                try self.emit( ")");
             },
             else => {
                 // Unsupported conversion - fall back to direct
@@ -145,5 +145,5 @@ fn generateCLibraryCall(
         }
     }
 
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit( ")");
 }

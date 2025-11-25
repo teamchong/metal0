@@ -11,9 +11,9 @@ pub fn genPath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    try self.output.appendSlice(self.allocator, "try runtime.pathlib.Path.create(allocator, ");
+    try self.emit( "try runtime.pathlib.Path.create(allocator, ");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit( ")");
 }
 
 /// Generate code for Path.exists()

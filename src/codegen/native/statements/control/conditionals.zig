@@ -24,11 +24,11 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
                     };
 
                     try self.emitIndent();
-                    try self.output.appendSlice(self.allocator, "var ");
-                    try self.output.appendSlice(self.allocator, var_name);
-                    try self.output.appendSlice(self.allocator, ": ");
-                    try self.output.appendSlice(self.allocator, type_buf.items);
-                    try self.output.appendSlice(self.allocator, " = undefined;\n");
+                    try self.emit( "var ");
+                    try self.emit( var_name);
+                    try self.emit( ": ");
+                    try self.emit( type_buf.items);
+                    try self.emit( " = undefined;\n");
                     try self.declareVar(var_name);
                 }
             }

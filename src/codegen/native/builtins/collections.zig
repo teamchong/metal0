@@ -18,7 +18,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     // enumerate() only works in for-loops: for i, item in enumerate(items)
     // Standalone enumerate() not supported
-    try self.output.appendSlice(self.allocator,
+    try self.emit(
         "@compileError(\"enumerate() only supported in for-loops: for i, item in enumerate(...)\")");
 }
 
@@ -29,7 +29,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     // zip() is only supported in for-loops, not as a standalone expression
-    try self.output.appendSlice(self.allocator,
+    try self.emit(
         "@compileError(\"zip() only supported in for-loops: for x, y in zip(list1, list2)\")");
 }
 
@@ -53,17 +53,17 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     };
 
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "var total: i64 = 0;\n");
-    try self.output.appendSlice(self.allocator, "for (");
+    try self.emit( "blk: {\n");
+    try self.emit( "var total: i64 = 0;\n");
+    try self.emit( "for (");
     try self.genExpr(args[0]);
     // ArrayList needs .items for iteration, arrays don't
     if (!is_array_var) {
-        try self.output.appendSlice(self.allocator, ".items");
+        try self.emit( ".items");
     }
-    try self.output.appendSlice(self.allocator, ") |item| { total += item; }\n");
-    try self.output.appendSlice(self.allocator, "break :blk total;\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit( ") |item| { total += item; }\n");
+    try self.emit( "break :blk total;\n");
+    try self.emit( "}");
 }
 
 /// Generate code for all(iterable)
@@ -78,15 +78,15 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk true;
     // }
 
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "for (");
+    try self.emit( "blk: {\n");
+    try self.emit( "for (");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ".items");
-    try self.output.appendSlice(self.allocator, ") |item| {\n");
-    try self.output.appendSlice(self.allocator, "if (item == 0) break :blk false;\n");
-    try self.output.appendSlice(self.allocator, "}\n");
-    try self.output.appendSlice(self.allocator, "break :blk true;\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit( ".items");
+    try self.emit( ") |item| {\n");
+    try self.emit( "if (item == 0) break :blk false;\n");
+    try self.emit( "}\n");
+    try self.emit( "break :blk true;\n");
+    try self.emit( "}");
 }
 
 /// Generate code for any(iterable)
@@ -101,15 +101,15 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk false;
     // }
 
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "for (");
+    try self.emit( "blk: {\n");
+    try self.emit( "for (");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ".items");
-    try self.output.appendSlice(self.allocator, ") |item| {\n");
-    try self.output.appendSlice(self.allocator, "if (item != 0) break :blk true;\n");
-    try self.output.appendSlice(self.allocator, "}\n");
-    try self.output.appendSlice(self.allocator, "break :blk false;\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit( ".items");
+    try self.emit( ") |item| {\n");
+    try self.emit( "if (item != 0) break :blk true;\n");
+    try self.emit( "}\n");
+    try self.emit( "break :blk false;\n");
+    try self.emit( "}");
 }
 
 /// Generate code for sorted(iterable)
@@ -123,13 +123,13 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk copy;
     // }
 
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "const copy = try allocator.dupe(i64, ");
+    try self.emit( "blk: {\n");
+    try self.emit( "const copy = try allocator.dupe(i64, ");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ");\n");
-    try self.output.appendSlice(self.allocator, "std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));\n");
-    try self.output.appendSlice(self.allocator, "break :blk copy;\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit( ");\n");
+    try self.emit( "std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));\n");
+    try self.emit( "break :blk copy;\n");
+    try self.emit( "}");
 }
 
 /// Generate code for reversed(iterable)
@@ -143,13 +143,13 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk copy;
     // }
 
-    try self.output.appendSlice(self.allocator, "blk: {\n");
-    try self.output.appendSlice(self.allocator, "const copy = try allocator.dupe(i64, ");
+    try self.emit( "blk: {\n");
+    try self.emit( "const copy = try allocator.dupe(i64, ");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ");\n");
-    try self.output.appendSlice(self.allocator, "std.mem.reverse(i64, copy);\n");
-    try self.output.appendSlice(self.allocator, "break :blk copy;\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit( ");\n");
+    try self.emit( "std.mem.reverse(i64, copy);\n");
+    try self.emit( "break :blk copy;\n");
+    try self.emit( "}");
 }
 
 /// Generate code for map(func, iterable)
@@ -166,7 +166,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // 1. Function pointers (complex in Zig, needs comptime or anytype)
     // 2. Lambda support (would need closure generation)
     // For now, users should use explicit for loops
-    try self.output.appendSlice(self.allocator,
+    try self.emit(
         "@compileError(\"map() not supported - use explicit for loop instead\")");
 }
 
@@ -185,7 +185,7 @@ pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // 1. Function pointers (complex in Zig, needs comptime or anytype)
     // 2. Lambda support (would need closure generation)
     // For now, users should use explicit for loops with if conditions
-    try self.output.appendSlice(self.allocator,
+    try self.emit(
         "@compileError(\"filter() not supported - use explicit for loop with if instead\")");
 }
 

@@ -5,11 +5,11 @@ const CodegenError = @import("../main.zig").CodegenError;
 
 pub fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 3) return error.OutOfMemory;
-    try self.output.appendSlice(self.allocator, "try runtime.compile_builtin(allocator, ");
+    try self.emit( "try runtime.compile_builtin(allocator, ");
     try self.genExpr(args[0]); // source
-    try self.output.appendSlice(self.allocator, ", ");
+    try self.emit( ", ");
     try self.genExpr(args[1]); // filename
-    try self.output.appendSlice(self.allocator, ", ");
+    try self.emit( ", ");
     try self.genExpr(args[2]); // mode
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit( ")");
 }
