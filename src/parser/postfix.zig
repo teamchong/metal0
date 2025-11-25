@@ -321,6 +321,12 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
                     },
                 };
             },
+            .Ellipsis => {
+                _ = self.advance();
+                return ast.Node{
+                    .ellipsis_literal = {},
+                };
+            },
             .Ident => {
                 const ident_tok = self.advance().?;
                 return ast.Node{

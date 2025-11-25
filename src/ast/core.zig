@@ -38,6 +38,7 @@ pub const Node = union(enum) {
     pass: void,
     break_stmt: void,
     continue_stmt: void,
+    ellipsis_literal: void,
     global_stmt: GlobalStmt,
     with_stmt: With,
 
