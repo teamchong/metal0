@@ -320,6 +320,94 @@ pub fn assertNotIn(item: anytype, container: anytype) void {
     }
 }
 
+/// Assertion: assertAlmostEqual(a, b) - floats must be equal within 7 decimal places
+pub fn assertAlmostEqual(a: anytype, b: anytype) void {
+    const diff = @abs(a - b);
+    const tolerance: f64 = 0.0000001; // 7 decimal places
+
+    if (diff >= tolerance) {
+        std.debug.print("AssertionError: {d} !~= {d} (diff={d})\n", .{ a, b, diff });
+        if (global_result) |result| {
+            result.addFail("assertAlmostEqual failed") catch {};
+        }
+        @panic("assertAlmostEqual failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertNotAlmostEqual(a, b) - floats must NOT be equal within 7 decimal places
+pub fn assertNotAlmostEqual(a: anytype, b: anytype) void {
+    const diff = @abs(a - b);
+    const tolerance: f64 = 0.0000001; // 7 decimal places
+
+    if (diff < tolerance) {
+        std.debug.print("AssertionError: {d} ~= {d} (expected not almost equal)\n", .{ a, b });
+        if (global_result) |result| {
+            result.addFail("assertNotAlmostEqual failed") catch {};
+        }
+        @panic("assertNotAlmostEqual failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertCountEqual(a, b) - sequences have same elements (order independent)
+pub fn assertCountEqual(a: anytype, b: anytype) void {
+    // Check same length
+    if (a.len != b.len) {
+        std.debug.print("AssertionError: sequences have different lengths ({d} vs {d})\n", .{ a.len, b.len });
+        if (global_result) |result| {
+            result.addFail("assertCountEqual failed: different lengths") catch {};
+        }
+        @panic("assertCountEqual failed");
+    }
+
+    // Check each element in a exists in b (simple O(n²) is fine)
+    for (a) |item_a| {
+        var found = false;
+        for (b) |item_b| {
+            if (item_a == item_b) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            std.debug.print("AssertionError: element {any} not found in second sequence\n", .{item_a});
+            if (global_result) |result| {
+                result.addFail("assertCountEqual failed: element not found") catch {};
+            }
+            @panic("assertCountEqual failed");
+        }
+    }
+
+    // Check each element in b exists in a (for completeness - handles duplicates properly)
+    for (b) |item_b| {
+        var found = false;
+        for (a) |item_a| {
+            if (item_a == item_b) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            std.debug.print("AssertionError: element {any} not found in first sequence\n", .{item_b});
+            if (global_result) |result| {
+                result.addFail("assertCountEqual failed: element not found") catch {};
+            }
+            @panic("assertCountEqual failed");
+        }
+    }
+
+    if (global_result) |result| {
+        result.addPass();
+    }
+}
+
 /// Print test results summary
 pub fn printResults() void {
     if (global_result) |result| {

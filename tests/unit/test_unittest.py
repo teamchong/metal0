@@ -45,4 +45,23 @@ class TestAssertions(unittest.TestCase):
         self.assertIsNotNone(42)
         self.assertIsNotNone("hello")
 
+    def test_almost_equal(self):
+        self.assertAlmostEqual(1.0000001, 1.0000002)
+        self.assertAlmostEqual(3.14159265, 3.14159265)
+
+    def test_not_almost_equal(self):
+        self.assertNotAlmostEqual(1.0, 2.0)
+        self.assertNotAlmostEqual(0.0, 1.0)
+
+    def test_count_equal(self):
+        self.assertCountEqual([1, 2, 3], [3, 2, 1])
+        self.assertCountEqual([5, 5, 5], [5, 5, 5])
+
+class TestSetup(unittest.TestCase):
+    def setUp(self):
+        self.value = 42
+
+    def test_setup_ran(self):
+        self.assertEqual(self.value, 42)
+
 unittest.main()

@@ -70,12 +70,16 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
 /// Generate class definition with __init__ constructor
 pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!void {
-    // Find __init__ method to determine struct fields
+    // Find __init__ and setUp methods to determine struct fields
     var init_method: ?ast.Node.FunctionDef = null;
+    var setUp_method: ?ast.Node.FunctionDef = null;
     for (class.body) |stmt| {
-        if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, "__init__")) {
-            init_method = stmt.function_def;
-            break;
+        if (stmt == .function_def) {
+            if (std.mem.eql(u8, stmt.function_def.name, "__init__")) {
+                init_method = stmt.function_def;
+            } else if (std.mem.eql(u8, stmt.function_def.name, "setUp")) {
+                setUp_method = stmt.function_def;
+            }
         }
     }
 
@@ -96,11 +100,17 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Track unittest TestCase classes and their test methods
     if (is_unittest_class) {
         var test_methods = std.ArrayList([]const u8){};
+        var has_setUp = false;
+        var has_tearDown = false;
         for (class.body) |stmt| {
             if (stmt == .function_def) {
                 const method_name = stmt.function_def.name;
                 if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
                     try test_methods.append(self.allocator, method_name);
+                } else if (std.mem.eql(u8, method_name, "setUp")) {
+                    has_setUp = true;
+                } else if (std.mem.eql(u8, method_name, "tearDown")) {
+                    has_tearDown = true;
                 }
             }
         }
@@ -108,6 +118,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         try self.unittest_classes.append(self.allocator, core.TestClassInfo{
             .class_name = class.name,
             .test_methods = try test_methods.toOwnedSlice(self.allocator),
+            .has_setUp = has_setUp,
+            .has_tearDown = has_tearDown,
         });
     }
 
@@ -119,6 +131,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Extract fields from __init__ body (self.x = ...)
     if (init_method) |init| {
         try body.genClassFields(self, class.name, init);
+    }
+
+    // For unittest classes, also extract fields from setUp method (without adding __dict__ again)
+    if (is_unittest_class) {
+        if (setUp_method) |setUp| {
+            try body.genClassFieldsNoDict(self, class.name, setUp);
+        }
     }
 
     // Generate init() method from __init__, or default init if no __init__

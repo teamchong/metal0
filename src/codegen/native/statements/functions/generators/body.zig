@@ -219,6 +219,34 @@ pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) Codegen
 
 /// Generate struct fields from __init__ method
 pub fn genClassFields(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef) CodegenError!void {
+    try genClassFieldsImpl(self, class_name, init);
+
+    // Add __dict__ for dynamic attributes (always enabled)
+    try self.output.appendSlice(self.allocator, "\n");
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "// Dynamic attributes dictionary\n");
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
+}
+
+/// Generate struct fields from a method without adding __dict__ (for additional methods like setUp)
+/// Fields are declared with default values since they're set at runtime, not in init()
+pub fn genClassFieldsNoDict(self: *NativeCodegen, class_name: []const u8, method: ast.Node.FunctionDef) CodegenError!void {
+    try genClassFieldsImplWithDefaults(self, class_name, method);
+}
+
+/// Implementation of field extraction (shared by genClassFields and genClassFieldsNoDict)
+fn genClassFieldsImpl(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef) CodegenError!void {
+    try genClassFieldsCore(self, class_name, init, false);
+}
+
+/// Implementation of field extraction with default values (for setUp fields)
+fn genClassFieldsImplWithDefaults(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef) CodegenError!void {
+    try genClassFieldsCore(self, class_name, init, true);
+}
+
+/// Core implementation of field extraction
+fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef, with_defaults: bool) CodegenError!void {
     // Get constructor arg types from type inferrer (collected from call sites)
     const constructor_arg_types = self.type_inferrer.class_constructor_args.get(class_name);
 
@@ -269,18 +297,23 @@ pub fn genClassFields(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     };
 
                     try self.emitIndent();
-                    try self.output.writer(self.allocator).print("{s}: {s},\n", .{ field_name, field_type_str });
+                    if (with_defaults) {
+                        // Add default value for fields set at runtime (e.g., setUp)
+                        const default_val = switch (inferred) {
+                            .int => "0",
+                            .float => "0.0",
+                            .bool => "false",
+                            .string => "\"\"",
+                            else => "0",
+                        };
+                        try self.output.writer(self.allocator).print("{s}: {s} = {s},\n", .{ field_name, field_type_str, default_val });
+                    } else {
+                        try self.output.writer(self.allocator).print("{s}: {s},\n", .{ field_name, field_type_str });
+                    }
                 }
             }
         }
     }
-
-    // Add __dict__ for dynamic attributes (always enabled)
-    try self.output.appendSlice(self.allocator, "\n");
-    try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "// Dynamic attributes dictionary\n");
-    try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 }
 
 /// Infer parameter type by looking at how it's used in __init__ or constructor call args

@@ -30,6 +30,8 @@ const FnvFuncSigMap = hashmap_helper.StringHashMap(FuncSignature);
 pub const TestClassInfo = struct {
     class_name: []const u8,
     test_methods: []const []const u8,
+    has_setUp: bool = false,
+    has_tearDown: bool = false,
 };
 
 /// Code generation mode

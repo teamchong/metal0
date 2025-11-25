@@ -26,16 +26,28 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     for (self.unittest_classes.items) |class_info| {
         // Create instance using init() which initializes __dict__
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const _test_instance_{s} = {s}.init(allocator);\n", .{ class_info.class_name, class_info.class_name });
+        try self.output.writer(self.allocator).print("var _test_instance_{s} = {s}.init(allocator);\n", .{ class_info.class_name, class_info.class_name });
 
         // Run each test method
         for (class_info.test_methods) |method_name| {
+            // Call setUp before each test if it exists
+            if (class_info.has_setUp) {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("_test_instance_{s}.setUp();\n", .{class_info.class_name});
+            }
+
             try self.emitIndent();
             try self.output.writer(self.allocator).print("std.debug.print(\"test_{s}_{s} ... \", .{{}});\n", .{ class_info.class_name, method_name });
             try self.emitIndent();
             try self.output.writer(self.allocator).print("_test_instance_{s}.{s}();\n", .{ class_info.class_name, method_name });
             try self.emitIndent();
             try self.output.appendSlice(self.allocator, "std.debug.print(\"ok\\n\", .{});\n");
+
+            // Call tearDown after each test if it exists
+            if (class_info.has_tearDown) {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("_test_instance_{s}.tearDown();\n", .{class_info.class_name});
+            }
         }
     }
 
@@ -278,6 +290,57 @@ pub fn genAssertNotIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
 
     const parent = @import("expressions.zig");
     try self.output.appendSlice(self.allocator, "runtime.unittest.assertNotIn(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertAlmostEqual(a, b)
+pub fn genAssertAlmostEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertAlmostEqual requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertAlmostEqual(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertNotAlmostEqual(a, b)
+pub fn genAssertNotAlmostEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertNotAlmostEqual requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertNotAlmostEqual(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertCountEqual(a, b)
+pub fn genAssertCountEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertCountEqual requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertCountEqual(");
     try parent.genExpr(self, args[0]);
     try self.output.appendSlice(self.allocator, ", ");
     try parent.genExpr(self, args[1]);
