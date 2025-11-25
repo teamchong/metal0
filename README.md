@@ -255,10 +255,11 @@ pyaot build --binary your_file.py
 #### Recursive Fibonacci (fib 35)
 | Language | Time | vs Python |
 |----------|------|-----------|
-| **PyAOT** | **28.9ms** | **28x faster** 🏆 |
-| Rust | 29.9ms | 27x faster |
-| Go | 33.0ms | 24x faster |
-| Python | 801ms | 1.00x |
+| **PyAOT** | **28.9ms** | **29x faster** 🏆 |
+| Rust | 29.2ms | 28x faster |
+| Go | 31.9ms | 26x faster |
+| PyPy | 114.2ms | 7x faster |
+| Python | 828.9ms | 1.00x |
 
 *Measured with hyperfine, 5 runs, 2 warmup. Startup overhead (~4ms) included.*
 
