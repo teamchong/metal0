@@ -68,8 +68,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                 if (is_simple_type) {
                     // Check mutability BEFORE emitting
+                    // Use isVarMutated() to check both module-level AND function-local mutations
                     const is_mutable = if (is_first_assignment)
-                        self.semantic_info.isMutated(var_name)
+                        self.isVarMutated(var_name)
                     else
                         false; // Reassignments don't declare
 

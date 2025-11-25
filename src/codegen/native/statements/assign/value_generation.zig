@@ -51,17 +51,8 @@ pub fn emitVarDeclaration(
     is_mutable_class_instance: bool,
 ) CodegenError!void {
     // Check if variable is mutated (reassigned later)
-    // This is especially important for strings in functions that get reassigned
-    const is_mutated = self.semantic_info.isMutated(var_name);
-
-    // Debug output for var/const decision
-    std.debug.print("DEBUG emitVarDeclaration: var_name={s} is_mutated={} is_arraylist={} is_dict={} is_mutable_class={}\n", .{
-        var_name,
-        is_mutated,
-        is_arraylist,
-        is_dict,
-        is_mutable_class_instance,
-    });
+    // This checks both module-level analysis AND function-local mutations
+    const is_mutated = self.isVarMutated(var_name);
 
     const needs_var = is_arraylist or is_dict or is_mutable_class_instance or is_mutated;
 

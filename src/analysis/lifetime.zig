@@ -127,11 +127,10 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             line += 1;
         },
         .function_def => |func| {
-            // DON'T analyze function body or parameters for module-level lifetime analysis!
-            // Function-local variables are in a separate scope from module-level variables.
-            // Recording function params/locals would pollute the module-level namespace
-            // and cause incorrect var/const decisions for module-level variables with
-            // the same name as function parameters.
+            // Skip function body analysis for module-level lifetime tracking.
+            // Function-local variables are in a separate scope and should not affect
+            // module-level var/const decisions. The codegen handles function-local
+            // mutation detection separately.
             _ = func;
             line += 1;
         },

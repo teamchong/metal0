@@ -78,11 +78,6 @@ pub const SemanticInfo = struct {
             }
         }
 
-        // Debug output
-        std.debug.print("DEBUG recordVariableUse: name={s} line={} is_assignment={} first_assign={} reassign_count={}\n", .{
-            name, line, is_assignment, lifetime.first_assignment, lifetime.reassignment_count
-        });
-
         lifetime.last_use = line;
         try self.lifetimes.put(name, lifetime);
     }

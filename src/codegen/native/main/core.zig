@@ -144,6 +144,10 @@ pub const NativeCodegen = struct {
     // Maps source code string -> void (e.g., "1 + 2" -> {})
     comptime_evals: FnvVoidMap,
 
+    // Track function-local mutated variables (populated before genFunctionBody)
+    // Maps variable name -> void for variables that are reassigned within current function
+    func_local_mutations: FnvVoidMap,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -195,6 +199,7 @@ pub const NativeCodegen = struct {
             .mutation_info = null,
             .c_libraries = std.ArrayList([]const u8){},
             .comptime_evals = FnvVoidMap.init(allocator),
+            .func_local_mutations = FnvVoidMap.init(allocator),
         };
         return self;
     }
@@ -383,6 +388,17 @@ pub const NativeCodegen = struct {
     /// Get the inferred type of a variable from type inference
     pub fn getVarType(self: *NativeCodegen, var_name: []const u8) ?NativeType {
         return self.type_inferrer.var_types.get(var_name);
+    }
+
+    /// Check if a variable is mutated (reassigned after first assignment)
+    /// Checks both module-level semantic info AND function-local mutations
+    pub fn isVarMutated(self: *NativeCodegen, var_name: []const u8) bool {
+        // Check function-local mutations first (when inside function body)
+        if (self.func_local_mutations.contains(var_name)) {
+            return true;
+        }
+        // Fall back to module-level semantic info
+        return self.semantic_info.isMutated(var_name);
     }
 
     /// Check if a class has a specific method (e.g., __getitem__, __len__)

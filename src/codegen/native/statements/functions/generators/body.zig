@@ -25,6 +25,84 @@ pub fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
     return false;
 }
 
+/// Analyze function body for mutated variables (variables assigned more than once)
+fn analyzeFunctionLocalMutations(self: *NativeCodegen, func: ast.Node.FunctionDef) !void {
+    // Track how many times each variable is assigned
+    var assign_counts = hashmap_helper.StringHashMap(usize).init(self.allocator);
+    defer assign_counts.deinit();
+
+    // Count assignments in the function body
+    for (func.body) |stmt| {
+        try countAssignmentsInStmt(&assign_counts, stmt, self.allocator);
+    }
+
+    // Variables assigned more than once are mutated
+    var iter = assign_counts.iterator();
+    while (iter.next()) |entry| {
+        if (entry.value_ptr.* > 1) {
+            try self.func_local_mutations.put(entry.key_ptr.*, {});
+        }
+    }
+}
+
+/// Count assignments in a statement (recursive)
+fn countAssignmentsInStmt(counts: *hashmap_helper.StringHashMap(usize), stmt: ast.Node, allocator: std.mem.Allocator) !void {
+    switch (stmt) {
+        .assign => |assign| {
+            for (assign.targets) |target| {
+                if (target == .name) {
+                    const name = target.name.id;
+                    const current = counts.get(name) orelse 0;
+                    try counts.put(name, current + 1);
+                }
+            }
+        },
+        .aug_assign => |aug| {
+            // Augmented assignment (+=, -=, etc.) counts as a mutation
+            if (aug.target.* == .name) {
+                const name = aug.target.name.id;
+                const current = counts.get(name) orelse 0;
+                // Count as 2 (initial + mutation) to ensure it's marked as mutated
+                try counts.put(name, current + 2);
+            }
+        },
+        .if_stmt => |if_stmt| {
+            for (if_stmt.body) |body_stmt| {
+                try countAssignmentsInStmt(counts, body_stmt, allocator);
+            }
+            for (if_stmt.else_body) |else_stmt| {
+                try countAssignmentsInStmt(counts, else_stmt, allocator);
+            }
+        },
+        .while_stmt => |while_stmt| {
+            for (while_stmt.body) |body_stmt| {
+                try countAssignmentsInStmt(counts, body_stmt, allocator);
+            }
+        },
+        .for_stmt => |for_stmt| {
+            // Loop variable is assigned each iteration
+            if (for_stmt.target.* == .name) {
+                const name = for_stmt.target.name.id;
+                try counts.put(name, 2); // Mark as mutated
+            }
+            for (for_stmt.body) |body_stmt| {
+                try countAssignmentsInStmt(counts, body_stmt, allocator);
+            }
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |body_stmt| {
+                try countAssignmentsInStmt(counts, body_stmt, allocator);
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |body_stmt| {
+                    try countAssignmentsInStmt(counts, body_stmt, allocator);
+                }
+            }
+        },
+        else => {},
+    }
+}
+
 /// Generate function body with scope management
 pub fn genFunctionBody(
     self: *NativeCodegen,
@@ -37,6 +115,11 @@ pub fn genFunctionBody(
         try genAsyncFunctionBody(self, func);
         return;
     }
+
+    // Analyze function body for mutated variables BEFORE generating code
+    // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
+    self.func_local_mutations.clearRetainingCapacity();
+    try analyzeFunctionLocalMutations(self, func);
 
     self.indent();
 
@@ -61,6 +144,9 @@ pub fn genFunctionBody(
 
     // Pop scope when exiting function
     self.popScope();
+
+    // Clear function-local mutations after exiting function
+    self.func_local_mutations.clearRetainingCapacity();
 
     var builder = CodeBuilder.init(self);
     _ = try builder.endBlock();
