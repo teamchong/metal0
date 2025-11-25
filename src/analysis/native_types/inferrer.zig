@@ -171,6 +171,7 @@ pub const TypeInferrer = struct {
             &self.var_types,
             &self.class_fields,
             &self.func_return_types,
+            &self.class_constructor_args,
             &inferExprWrapper,
             node,
         );
