@@ -92,7 +92,7 @@ pub fn genGlobal(self: *NativeCodegen, global_node: ast.Node.GlobalStmt) Codegen
 pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
     _ = del_node; // del is a no-op in compiled code
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "// del statement (no-op in AOT)\n");
+    try self.emit("// del statement (no-op in AOT)\n");
 }
 
 /// Generate assert statement
@@ -100,26 +100,26 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
 /// Into: if (!(condition)) { std.debug.panic("Assertion failed", .{}); }
 pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenError!void {
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "if (!(");
+    try self.emit("if (!(");
     try self.genExpr(assert_node.condition.*);
-    try self.output.appendSlice(self.allocator, ")) {\n");
+    try self.emit(")) {\n");
 
     self.indent();
     try self.emitIndent();
 
     if (assert_node.msg) |msg| {
         // assert x, "message"
-        try self.output.appendSlice(self.allocator, "std.debug.panic(\"AssertionError: {s}\", .{");
+        try self.emit("std.debug.panic(\"AssertionError: {s}\", .{");
         try self.genExpr(msg.*);
-        try self.output.appendSlice(self.allocator, "});\n");
+        try self.emit("});\n");
     } else {
         // assert x
-        try self.output.appendSlice(self.allocator, "std.debug.panic(\"AssertionError\", .{});\n");
+        try self.emit("std.debug.panic(\"AssertionError\", .{});\n");
     }
 
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 }
 
 /// Generate raise statement
@@ -131,11 +131,11 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
     if (raise_node.exc) |exc| {
         // raise Exception("msg")
         // For now, just panic with the exception type
-        try self.output.appendSlice(self.allocator, "std.debug.panic(\"Exception: {any}\", .{");
+        try self.emit("std.debug.panic(\"Exception: {any}\", .{");
         try self.genExpr(exc.*);
-        try self.output.appendSlice(self.allocator, "});\n");
+        try self.emit("});\n");
     } else {
         // bare raise
-        try self.output.appendSlice(self.allocator, "std.debug.panic(\"Unhandled exception\", .{});\n");
+        try self.emit("std.debug.panic(\"Unhandled exception\", .{});\n");
     }
 }

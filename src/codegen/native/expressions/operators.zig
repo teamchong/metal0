@@ -271,12 +271,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             if (right_type == .list) {
                 // List membership check: std.mem.indexOfScalar(T, slice, value) != null
                 const elem_type = right_type.list.*;
-                const type_str = switch (elem_type) {
-                    .int => "i64",
-                    .float => "f64",
-                    .string => "[]const u8",
-                    else => "i64", // fallback
-                };
+                const type_str = elem_type.toSimpleZigType();
 
                 if (op == .In) {
                     try self.output.appendSlice(self.allocator, "(std.mem.indexOfScalar(");
@@ -337,11 +332,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     }
                 } else {
                     // Integer and float arrays use indexOfScalar
-                    const elem_type_str = switch (left_type) {
-                        .int => "i64",
-                        .float => "f64",
-                        else => "i64", // Default fallback to i64
-                    };
+                    const elem_type_str = left_type.toSimpleZigType();
 
                     if (op == .In) {
                         try self.output.appendSlice(self.allocator, "(std.mem.indexOfScalar(");

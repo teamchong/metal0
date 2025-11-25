@@ -106,6 +106,18 @@ pub const NativeType = union(enum) {
         };
     }
 
+    /// Returns Zig type string for simple/primitive types (no allocation needed)
+    pub fn toSimpleZigType(self: NativeType) []const u8 {
+        return switch (self) {
+            .int => "i64",
+            .float => "f64",
+            .bool => "bool",
+            .string => "[]const u8",
+            .usize => "usize",
+            else => "*runtime.PyObject",
+        };
+    }
+
     /// Convert to Zig type string
     pub fn toZigType(self: NativeType, allocator: std.mem.Allocator, buf: *std.ArrayList(u8)) !void {
         const hashmap_helper = @import("../../utils/hashmap_helper.zig");
