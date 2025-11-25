@@ -126,20 +126,66 @@ pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
 
 /// Helper function to print PyObject based on runtime type
 pub fn printPyObject(obj: *PyObject) void {
+    printPyObjectImpl(obj, false);
+}
+
+/// Internal: print PyObject with quote_strings flag for container elements
+fn printPyObjectImpl(obj: *PyObject, quote_strings: bool) void {
     switch (obj.type_id) {
         .int => {
             const data: *PyInt = @ptrCast(@alignCast(obj.data));
             std.debug.print("{}", .{data.value});
         },
+        .float => {
+            const data: *PyFloat = @ptrCast(@alignCast(obj.data));
+            std.debug.print("{d}", .{data.value});
+        },
+        .bool => {
+            const data: *PyBool = @ptrCast(@alignCast(obj.data));
+            std.debug.print("{s}", .{if (data.value) "True" else "False"});
+        },
         .string => {
             const data: *PyString = @ptrCast(@alignCast(obj.data));
-            std.debug.print("{s}", .{data.data});
+            if (quote_strings) {
+                std.debug.print("'{s}'", .{data.data});
+            } else {
+                std.debug.print("{s}", .{data.data});
+            }
         },
-        else => {
-            // For other types, print the pointer (fallback)
-            std.debug.print("{*}", .{obj});
+        .none => {
+            std.debug.print("None", .{});
+        },
+        .list => {
+            printList(obj);
+        },
+        .tuple => {
+            PyTuple.print(obj);
+        },
+        .dict => {
+            printDict(obj);
         },
     }
+}
+
+/// Helper function to print a dict in Python format: {'key': value, ...}
+fn printDict(obj: *PyObject) void {
+    std.debug.assert(obj.type_id == .dict);
+    const data: *PyDict = @ptrCast(@alignCast(obj.data));
+
+    std.debug.print("{{", .{});
+    var iter = data.map.iterator();
+    var idx: usize = 0;
+    while (iter.next()) |entry| {
+        if (idx > 0) {
+            std.debug.print(", ", .{});
+        }
+        // Print key with quotes (string keys)
+        std.debug.print("'{s}': ", .{entry.key_ptr.*});
+        // Recursively print value (with quoted strings)
+        printPyObjectImpl(entry.value_ptr.*, true);
+        idx += 1;
+    }
+    std.debug.print("}}", .{});
 }
 
 /// Helper function to print a list in Python format: [elem1, elem2, elem3]

@@ -344,26 +344,17 @@ pyaot main.py --binary
 
 Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM64 (Apple Silicon).
 
-**Fibonacci(45) - Recursive Computation (~60-100s runtime):**
-
-| Language | Time | vs PyAOT | vs CPython |
-|:---------|-----:|---------:|-----------:|
-| **PyAOT (Zig)** | **3.28s ± 0.01s** | **1.00x** 🏆 | **30.72x faster** |
-| **Rust 1.91** | **3.30s ± 0.01s** | 1.01x slower | 30.52x faster |
-| **Go 1.25** | **3.66s ± 0.03s** | 1.12x slower | 27.47x faster |
-| CPython 3.13 | 100.59s ± 2.37s | 30.72x slower | 1.00x |
-
-**Fibonacci(35) - Quick Benchmark (~30ms runtime, includes PyPy):**
+**Fibonacci(45) - Recursive Computation:**
 
 | Language | Time | vs Python |
 |----------|------|-----------|
-| **PyAOT** | **27.8ms** | **29x faster** 🏆 |
-| Rust | 28.8ms | 28x faster |
-| Go | 33.7ms | 24x faster |
-| PyPy | 90.5ms | 9x faster |
-| Python | 800.2ms | 1.00x |
+| **PyAOT** | **3.16s** | **31x faster** 🏆 |
+| Rust | 3.17s | 31x faster |
+| Go | 3.58s | 27x faster |
+| PyPy | 11.6s | 8x faster |
+| Python | 96.7s | 1.00x |
 
-*10 warmup runs for PyPy JIT.*
+*3 runs, 1 warmup. Long runtime (~3-100s) ensures startup overhead is negligible.*
 
 **Tail-Recursive Fibonacci (10K × fib(10000)) - TCO Test:**
 

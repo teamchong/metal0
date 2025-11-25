@@ -83,6 +83,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             const is_dataframe = (value_type == .dataframe);
             const is_unknown_pyobject = (value_type == .unknown);
 
+
             // Check if this variable is tracked as ArrayList (may have .array type but be ArrayList due to mutations)
             const is_tracked_arraylist_early = blk: {
                 if (subscript.value.* == .name) {
@@ -104,8 +105,15 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try self.output.appendSlice(self.allocator, ".getColumn(");
                 try genExpr(self, subscript.slice.index.*);
                 try self.output.appendSlice(self.allocator, ").?");
-            } else if (is_dict or is_likely_dict) {
-                // Dict access: dict.get(key).? for raw StringHashMap
+            } else if (is_likely_dict) {
+                // PyObject dict access: runtime.PyDict.get(obj, key).?
+                try self.output.appendSlice(self.allocator, "runtime.PyDict.get(");
+                try genExpr(self, subscript.value.*);
+                try self.output.appendSlice(self.allocator, ", ");
+                try genExpr(self, subscript.slice.index.*);
+                try self.output.appendSlice(self.allocator, ").?");
+            } else if (is_dict) {
+                // Native dict access: dict.get(key).? for raw StringHashMap
                 try genExpr(self, subscript.value.*);
                 try self.output.appendSlice(self.allocator, ".get(");
                 try genExpr(self, subscript.slice.index.*);

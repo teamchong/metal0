@@ -8,6 +8,6 @@ func fib(n uint64) uint64 {
 }
 
 func main() {
-    result := fib(35)
+    result := fib(45)
     fmt.Println(result)
 }
