@@ -211,6 +211,11 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
                 line = try analyzeLifetimes(info, value, line);
             }
         },
+        .set => |set| {
+            for (set.elts) |elt| {
+                line = try analyzeLifetimes(info, elt, line);
+            }
+        },
         .tuple => |tuple| {
             for (tuple.elts) |elt| {
                 line = try analyzeLifetimes(info, elt, line);

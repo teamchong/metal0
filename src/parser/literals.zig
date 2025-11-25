@@ -101,11 +101,12 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
     };
 }
 
-/// Parse dictionary literal: {key: value, ...} or dict comprehension: {k: v for k in items}
+/// Parse dictionary or set literal: {key: value, ...} or {item, ...}
+/// Also handles dict comprehensions
 pub fn parseDict(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.LBrace);
 
-    // Empty dict
+    // Empty dict: {}
     if (self.match(.RBrace)) {
         return ast.Node{
             .dict = .{
@@ -115,47 +116,77 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
         };
     }
 
-    // Parse first key
-    const first_key = try self.parseExpression();
-    _ = try self.expect(.Colon);
-    const first_value = try self.parseExpression();
+    // Parse first element
+    const first_elem = try self.parseExpression();
 
-    // Check if this is a dict comprehension: {k: v for k in items}
-    if (self.check(.For)) {
-        return try parseDictComp(self, first_key, first_value);
-    }
-
-    // Regular dict: collect key-value pairs
-    var keys = std.ArrayList(ast.Node){};
-    defer keys.deinit(self.allocator);
-
-    var values = std.ArrayList(ast.Node){};
-    defer values.deinit(self.allocator);
-
-    try keys.append(self.allocator, first_key);
-    try values.append(self.allocator, first_value);
-
-    while (self.match(.Comma)) {
-        // Allow trailing comma
-        if (self.check(.RBrace)) {
-            break;
-        }
-        const key = try self.parseExpression();
+    // Check what follows to determine dict vs set:
+    // - Colon → dict literal or dict comprehension
+    // - Comma or RBrace → set literal
+    if (self.check(.Colon)) {
+        // Dict: {key: value, ...} or dict comprehension
         _ = try self.expect(.Colon);
-        const value = try self.parseExpression();
+        const first_value = try self.parseExpression();
 
-        try keys.append(self.allocator, key);
-        try values.append(self.allocator, value);
+        // Check if this is a dict comprehension: {k: v for k in items}
+        if (self.check(.For)) {
+            return try parseDictComp(self, first_elem, first_value);
+        }
+
+        // Regular dict: collect key-value pairs
+        var keys = std.ArrayList(ast.Node){};
+        defer keys.deinit(self.allocator);
+
+        var values = std.ArrayList(ast.Node){};
+        defer values.deinit(self.allocator);
+
+        try keys.append(self.allocator, first_elem);
+        try values.append(self.allocator, first_value);
+
+        while (self.match(.Comma)) {
+            // Allow trailing comma
+            if (self.check(.RBrace)) {
+                break;
+            }
+            const key = try self.parseExpression();
+            _ = try self.expect(.Colon);
+            const value = try self.parseExpression();
+
+            try keys.append(self.allocator, key);
+            try values.append(self.allocator, value);
+        }
+
+        _ = try self.expect(.RBrace);
+
+        return ast.Node{
+            .dict = .{
+                .keys = try keys.toOwnedSlice(self.allocator),
+                .values = try values.toOwnedSlice(self.allocator),
+            },
+        };
+    } else {
+        // Set literal: {item} or {item1, item2, ...}
+        var elts = std.ArrayList(ast.Node){};
+        defer elts.deinit(self.allocator);
+
+        try elts.append(self.allocator, first_elem);
+
+        while (self.match(.Comma)) {
+            // Allow trailing comma
+            if (self.check(.RBrace)) {
+                break;
+            }
+            const elem = try self.parseExpression();
+            try elts.append(self.allocator, elem);
+        }
+
+        _ = try self.expect(.RBrace);
+
+        return ast.Node{
+            .set = .{
+                .elts = try elts.toOwnedSlice(self.allocator),
+            },
+        };
     }
-
-    _ = try self.expect(.RBrace);
-
-    return ast.Node{
-        .dict = .{
-            .keys = try keys.toOwnedSlice(self.allocator),
-            .values = try values.toOwnedSlice(self.allocator),
-        },
-    };
 }
 
 /// Parse dict comprehension: {k: v for k in items if cond} or {k: v for x in range(3) for y in range(3)}

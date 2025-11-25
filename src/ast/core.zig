@@ -26,6 +26,7 @@ pub const Node = union(enum) {
     listcomp: ListComp,
     dict: Dict,
     dictcomp: DictComp,
+    set: Set,
     tuple: Tuple,
     subscript: Subscript,
     attribute: Attribute,
@@ -180,6 +181,10 @@ pub const Node = union(enum) {
         key: *Node, // Key expression
         value: *Node, // Value expression
         generators: []Comprehension, // One or more for clauses
+    };
+
+    pub const Set = struct {
+        elts: []Node,
     };
 
     pub const Tuple = struct {

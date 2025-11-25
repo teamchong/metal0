@@ -1,16 +1,12 @@
 /// Optimized HashMap utilities for PyAOT
 /// ALWAYS use these instead of std.StringHashMap for performance!
 ///
-/// Performance: wyhash is 1.05x faster than StringHashMap default hash
+/// Performance: wyhash is 1.05x faster than default hash (same as Bun)
 /// Used by: PyDict, tokenizer vocab lookups, any string-keyed hashmaps
 const std = @import("std");
 const wyhash = @import("wyhash.zig");
 
 /// Fast string hash context using wyhash (same as Bun)
-/// Use this for ALL string-keyed HashMaps in PyAOT!
-///
-/// Example:
-///   const MyMap = std.HashMap([]const u8, ValueType, WyhashStringContext, std.hash_map.default_max_load_percentage);
 pub const WyhashStringContext = struct {
     pub fn hash(_: @This(), key: []const u8) u64 {
         return wyhash.WyhashStateless.hash(0, key);
@@ -21,7 +17,7 @@ pub const WyhashStringContext = struct {
     }
 };
 
-/// Type alias for string-keyed HashMap with wyhash (most common case)
+/// Fast string-keyed HashMap with wyhash
 /// Use this instead of std.StringHashMap!
 ///
 /// Example:

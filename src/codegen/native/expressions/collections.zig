@@ -234,3 +234,54 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "}");
 }
+
+/// Generate set literal as StringHashMap(void) for strings, AutoHashMap for others
+pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
+    // Empty sets shouldn't happen (parsed as empty dict), but handle it
+    if (set_node.elts.len == 0) {
+        try self.output.appendSlice(self.allocator, "std.StringHashMap(void).init(allocator)");
+        return;
+    }
+
+    // Generate unique block label
+    const label = try std.fmt.allocPrint(self.allocator, "set_{d}", .{@intFromPtr(set_node.elts.ptr)});
+    defer self.allocator.free(label);
+
+    try self.output.appendSlice(self.allocator, label);
+    try self.output.appendSlice(self.allocator, ": {\n");
+    self.indent();
+    try self.emitIndent();
+
+    // Infer element type from first element
+    var elem_type = try self.type_inferrer.inferExpr(set_node.elts[0]);
+    for (set_node.elts[1..]) |elem| {
+        const this_type = try self.type_inferrer.inferExpr(elem);
+        elem_type = elem_type.widen(this_type);
+    }
+
+    // Use StringHashMap for strings, AutoHashMap for primitives
+    const is_string = (elem_type == .string);
+    if (is_string) {
+        try self.output.appendSlice(self.allocator, "var _set = std.StringHashMap(void).init(allocator);\n");
+    } else {
+        try self.output.appendSlice(self.allocator, "var _set = std.AutoHashMap(");
+        try elem_type.toZigType(self.allocator, &self.output);
+        try self.output.appendSlice(self.allocator, ", void).init(allocator);\n");
+    }
+
+    // Add each element
+    for (set_node.elts) |elem| {
+        try self.emitIndent();
+        try self.output.appendSlice(self.allocator, "try _set.put(");
+        try genExpr(self, elem);
+        try self.output.appendSlice(self.allocator, ", {});\n");
+    }
+
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "break :");
+    try self.output.appendSlice(self.allocator, label);
+    try self.output.appendSlice(self.allocator, " _set;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}");
+}

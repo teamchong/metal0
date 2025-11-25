@@ -271,10 +271,22 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
                 var result_str = str_tok.lexeme;
 
                 // Handle implicit string concatenation: "a" "b" -> "ab"
-                // Skip newlines between adjacent strings
+                // Only skip newlines if followed by another String (don't consume otherwise)
                 while (true) {
-                    self.skipNewlines();
-                    if (self.check(.String)) {
+                    // Peek ahead to check if there's a String after any newlines
+                    var lookahead: usize = 0;
+                    while (self.current + lookahead < self.tokens.len and
+                        self.tokens[self.current + lookahead].type == .Newline)
+                    {
+                        lookahead += 1;
+                    }
+
+                    // Check if there's a String after the newlines
+                    if (self.current + lookahead < self.tokens.len and
+                        self.tokens[self.current + lookahead].type == .String)
+                    {
+                        // Now safe to skip newlines and consume the String
+                        self.skipNewlines();
                         const next_str = self.advance().?;
                         // Strip quotes before concatenating: "a" + "b" -> "ab" not "a""b"
                         const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;

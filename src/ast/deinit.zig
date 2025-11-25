@@ -154,6 +154,10 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             }
             allocator.free(dc.generators);
         },
+        .set => |s| {
+            for (s.elts) |*e| deinit(e, allocator);
+            allocator.free(s.elts);
+        },
         .tuple => |t| {
             for (t.elts) |*e| deinit(e, allocator);
             allocator.free(t.elts);

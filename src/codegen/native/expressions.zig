@@ -50,6 +50,7 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .listcomp => |lc| try comprehensions.genListComp(self, lc),
         .dict => |d| try dict_mod.genDict(self, d),
         .dictcomp => |dc| try comprehensions.genDictComp(self, dc),
+        .set => |s| try collections.genSet(self, s),
         .tuple => |t| try misc.genTuple(self, t),
         .subscript => |s| try misc.genSubscript(self, s),
         .attribute => |a| try misc.genAttribute(self, a),
