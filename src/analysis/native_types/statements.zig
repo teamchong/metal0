@@ -10,6 +10,7 @@ pub const ClassInfo = core.ClassInfo;
 const FnvContext = fnv_hash.FnvHashContext([]const u8);
 const FnvHashMap = std.HashMap([]const u8, NativeType, FnvContext, 80);
 const FnvClassMap = std.HashMap([]const u8, ClassInfo, FnvContext, 80);
+const FnvArgsMap = std.HashMap([]const u8, []const NativeType, FnvContext, 80);
 
 /// Visit and analyze statement nodes to infer variable types
 pub fn visitStmt(
@@ -17,6 +18,7 @@ pub fn visitStmt(
     var_types: *FnvHashMap,
     class_fields: *FnvClassMap,
     func_return_types: *FnvHashMap,
+    class_constructor_args: *FnvArgsMap,
     inferExprFn: *const fn (allocator: std.mem.Allocator, var_types: *FnvHashMap, class_fields: *FnvClassMap, func_return_types: *FnvHashMap, node: ast.Node) InferError!NativeType,
     node: ast.Node,
 ) InferError!void {
@@ -51,6 +53,9 @@ pub fn visitStmt(
             var fields = FnvHashMap.init(allocator);
             var methods = FnvHashMap.init(allocator);
 
+            // Get constructor arg types if available
+            const constructor_arg_types = class_constructor_args.get(class_def.name);
+
             // Extract field types from __init__ method
             for (class_def.body) |stmt| {
                 if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, "__init__")) {
@@ -70,11 +75,23 @@ pub fn visitStmt(
                                     var field_type: NativeType = .unknown;
 
                                     if (assign.value.* == .name) {
-                                        // If assigning from a parameter, use type hint
+                                        // If assigning from a parameter, use type hint or constructor arg types
                                         const value_name = assign.value.name.id;
-                                        for (init_fn.args) |arg| {
+                                        for (init_fn.args, 0..) |arg, param_idx| {
                                             if (std.mem.eql(u8, arg.name, value_name)) {
+                                                // Method 1: Use type annotation if available
                                                 field_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
+
+                                                // Method 2: If still unknown, use constructor call arg types
+                                                if (field_type == .unknown) {
+                                                    if (constructor_arg_types) |arg_types| {
+                                                        // param_idx includes 'self', so subtract 1 for arg index
+                                                        const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
+                                                        if (arg_idx < arg_types.len) {
+                                                            field_type = arg_types[arg_idx];
+                                                        }
+                                                    }
+                                                }
                                                 break;
                                             }
                                         }
@@ -111,11 +128,11 @@ pub fn visitStmt(
             try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods });
         },
         .if_stmt => |if_stmt| {
-            for (if_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, inferExprFn, s);
-            for (if_stmt.else_body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, inferExprFn, s);
+            for (if_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            for (if_stmt.else_body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
         },
         .while_stmt => |while_stmt| {
-            for (while_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, inferExprFn, s);
+            for (while_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
         },
         .for_stmt => |for_stmt| {
             // Register loop variables before visiting body
@@ -213,7 +230,7 @@ pub fn visitStmt(
                 }
             }
 
-            for (for_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, inferExprFn, s);
+            for (for_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
         },
         .function_def => |func_def| {
             // Register function return type from annotation
@@ -226,7 +243,7 @@ pub fn visitStmt(
                 try var_types.put(arg.name, param_type);
             }
             // Visit function body
-            for (func_def.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, inferExprFn, s);
+            for (func_def.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
         },
         else => {},
     }

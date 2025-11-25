@@ -4,7 +4,7 @@
 
 Python at native speed. Zero overhead.
 
-**Up to 256x faster** than CPython | **Beats Rust/Go** | Native binaries
+**28x faster** than CPython | **Beats Rust/Go** | Native binaries
 
 ## Key Features
 
@@ -15,8 +15,8 @@ Python at native speed. Zero overhead.
 - Docker images <1MB (FROM scratch) vs 900MB+ Python images
 
 ⚡ **Performance**
-- Up to 256x faster on tight loops (10M iterations: 1.8ms vs 454ms)
-- 29x faster on recursive workloads (fib(35): 28ms vs 810ms)
+- 28x faster than CPython (fib(35): 29ms vs 801ms)
+- Beats Rust and Go on same workloads
 - Zero GIL - true parallelism
 - No GC pauses - manual memory management (Zig)
 - Memory safety from Zig's compiler checks
@@ -252,15 +252,7 @@ pyaot build --binary your_file.py
 
 ### Benchmarks
 
-#### Tight Loop (10M iterations)
-| Language | Time | vs Python |
-|----------|------|-----------|
-| **PyAOT** | **1.8ms** | **252x faster** 🏆 |
-| Rust | 1.8ms | 249x faster |
-| Go | 6.2ms | 72x faster |
-| Python | 448ms | 1.00x |
-
-#### Recursive (fib 35)
+#### Recursive Fibonacci (fib 35)
 | Language | Time | vs Python |
 |----------|------|-----------|
 | **PyAOT** | **28.9ms** | **28x faster** 🏆 |
@@ -268,9 +260,10 @@ pyaot build --binary your_file.py
 | Go | 33.0ms | 24x faster |
 | Python | 801ms | 1.00x |
 
+*Measured with hyperfine, 5 runs, 2 warmup. Startup overhead (~4ms) included.*
+
 ```bash
-make benchmark-loop  # Loop benchmark
-make benchmark-fib   # Fibonacci benchmark
+make benchmark-fib
 ```
 
 ### 1. Object-Oriented (Class Inheritance)
