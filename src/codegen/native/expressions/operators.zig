@@ -144,6 +144,11 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         .Add => " + ",
         .Sub => " - ",
         .Mult => " * ",
+        .BitAnd => " & ",
+        .BitOr => " | ",
+        .BitXor => " ^ ",
+        .LShift => " << ",
+        .RShift => " >> ",
         else => " ? ",
     };
     try self.output.appendSlice(self.allocator, op_str);

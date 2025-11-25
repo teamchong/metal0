@@ -6,6 +6,41 @@ const ParseError = @import("../../parser.zig").ParseError;
 const Parser = @import("../../parser.zig").Parser;
 const misc = @import("misc.zig");
 
+/// Extract base class name from expression node (for class bases)
+/// Returns newly allocated string, or null for complex expressions like function calls
+fn extractBaseName(self: *Parser, node: ast.Node) ?[]const u8 {
+    switch (node) {
+        .name => |n| return self.allocator.dupe(u8, n.id) catch null,
+        .attribute => {
+            // Build dotted name: a.b.c
+            var parts = std.ArrayList(u8){};
+            defer parts.deinit(self.allocator);
+
+            // Build the full name by collecting parts
+            collectDottedParts(self, node, &parts) catch return null;
+            if (parts.items.len == 0) return null;
+
+            return self.allocator.dupe(u8, parts.items) catch null;
+        },
+        else => return null, // Function calls, subscripts, etc. - not supported as base names
+    }
+}
+
+/// Recursively collect parts of a dotted name
+fn collectDottedParts(self: *Parser, node: ast.Node, parts: *std.ArrayList(u8)) !void {
+    switch (node) {
+        .name => |n| {
+            try parts.appendSlice(self.allocator, n.id);
+        },
+        .attribute => |attr| {
+            try collectDottedParts(self, attr.value.*, parts);
+            try parts.append(self.allocator, '.');
+            try parts.appendSlice(self.allocator, attr.attr);
+        },
+        else => {}, // Ignore complex expressions
+    }
+}
+
 /// Parse type annotation supporting PEP 585 generics (e.g., int, str, list[int], tuple[str, str], dict[str, int])
 fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
     if (self.current >= self.tokens.len or self.tokens[self.current].type != .Ident) {
@@ -216,43 +251,41 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
         const name_tok = try self.expect(.Ident);
 
         // Parse optional base classes: class Dog(Animal):
+        // Supports: simple names (Animal), dotted names (abc.ABC), keyword args (metaclass=ABCMeta),
+        // and function calls (with_metaclass(ABCMeta)) - function calls are parsed but not stored
         var bases = std.ArrayList([]const u8){};
         defer bases.deinit(self.allocator);
 
         if (self.match(.LParen)) {
             while (!self.match(.RParen)) {
-                // Parse base class name, supporting dotted names like "unittest.TestCase"
-                const first_tok = try self.expect(.Ident);
-
                 // Check for keyword argument (e.g., metaclass=ABCMeta)
-                if (self.match(.Eq)) {
-                    // Skip the keyword argument value - could be simple name or dotted
-                    _ = try self.expect(.Ident);
-                    while (self.match(.Dot)) {
-                        _ = try self.expect(.Ident);
+                // We need to peek ahead to see if this is name=value pattern
+                if (self.current < self.tokens.len and self.tokens[self.current].type == .Ident) {
+                    if (self.current + 1 < self.tokens.len and self.tokens[self.current + 1].type == .Eq) {
+                        // Skip keyword argument: name = expression
+                        _ = try self.expect(.Ident); // keyword name
+                        _ = try self.expect(.Eq); // =
+                        _ = try self.parseExpression(); // value expression
+                        // Continue to next item or end
+                        if (!self.match(.Comma)) {
+                            _ = try self.expect(.RParen);
+                            break;
+                        }
+                        continue;
                     }
-                    // Continue to next item or end
-                    if (!self.match(.Comma)) {
-                        _ = try self.expect(.RParen);
-                        break;
-                    }
-                    continue;
                 }
 
-                var base_name = std.ArrayList(u8){};
-                defer base_name.deinit(self.allocator);
-                try base_name.appendSlice(self.allocator, first_tok.lexeme);
+                // Parse base class as a full expression
+                // This handles: simple names, dotted names, and function calls
+                const expr = try self.parseExpression();
 
-                // Check for dotted name (module.Class)
-                while (self.match(.Dot)) {
-                    try base_name.append(self.allocator, '.');
-                    const next_tok = try self.expect(.Ident);
-                    try base_name.appendSlice(self.allocator, next_tok.lexeme);
+                // Extract name from expression if it's a simple name or attribute access
+                const base_name = extractBaseName(self, expr);
+                if (base_name) |name| {
+                    try bases.append(self.allocator, name);
                 }
-
-                // Allocate and store the full dotted name
-                const owned_name = try self.allocator.dupe(u8, base_name.items);
-                try bases.append(self.allocator, owned_name);
+                // If it's a function call or other complex expression, we skip adding it to bases
+                // (codegen won't use it, but at least parsing succeeds)
 
                 if (!self.match(.Comma)) {
                     _ = try self.expect(.RParen);

@@ -272,9 +272,44 @@ pub fn parseBitXor(self: *Parser) ParseError!ast.Node {
     return left;
 }
 
+/// Parse bitwise shift operators: << and >>
+pub fn parseShift(self: *Parser) ParseError!ast.Node {
+    var left = try parseAddSub(self);
+
+    while (true) {
+        var op: ?ast.Operator = null;
+
+        if (self.match(.LtLt)) {
+            op = .LShift;
+        } else if (self.match(.GtGt)) {
+            op = .RShift;
+        }
+
+        if (op == null) break;
+
+        const right = try parseAddSub(self);
+
+        const left_ptr = try self.allocator.create(ast.Node);
+        left_ptr.* = left;
+
+        const right_ptr = try self.allocator.create(ast.Node);
+        right_ptr.* = right;
+
+        left = ast.Node{
+            .binop = .{
+                .left = left_ptr,
+                .op = op.?,
+                .right = right_ptr,
+            },
+        };
+    }
+
+    return left;
+}
+
 /// Parse bitwise AND expression
 pub fn parseBitAnd(self: *Parser) ParseError!ast.Node {
-    var left = try parseAddSub(self);
+    var left = try parseShift(self);
 
     while (true) {
         var op: ?ast.Operator = null;
@@ -285,7 +320,7 @@ pub fn parseBitAnd(self: *Parser) ParseError!ast.Node {
 
         if (op == null) break;
 
-        const right = try parseAddSub(self);
+        const right = try parseShift(self);
 
         const left_ptr = try self.allocator.create(ast.Node);
         left_ptr.* = left;
