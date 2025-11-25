@@ -10,7 +10,8 @@ const http = @import("../http.zig");
 const async_mod = @import("../async.zig");
 const numpy_mod = @import("../numpy.zig");
 const pandas_mod = @import("../pandas.zig");
-const unittest_mod = @import("../unittest.zig");
+const unittest_mod = @import("../unittest/mod.zig");
+const re_mod = @import("../re.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -57,6 +58,15 @@ const PandasFuncs = FuncMap.initComptime(.{
 /// unittest module functions
 const UnittestFuncs = FuncMap.initComptime(.{
     .{ "main", unittest_mod.genUnittestMain },
+});
+
+/// RE module functions
+const ReFuncs = FuncMap.initComptime(.{
+    .{ "search", re_mod.genReSearch },
+    .{ "match", re_mod.genReMatch },
+    .{ "sub", re_mod.genReSub },
+    .{ "findall", re_mod.genReFindall },
+    .{ "compile", re_mod.genReCompile },
 });
 
 /// Module to function map lookup
