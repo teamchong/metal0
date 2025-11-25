@@ -134,7 +134,7 @@ fn convertFormatSpec(allocator: std.mem.Allocator, python_spec: []const u8) ![]c
         // Float format: .2f, 10.2f, etc.
         // Remove 'f' and prepend 'd:'
         var buf = std.ArrayList(u8){};
-        try buf.appendSlice(allocator, "d:");
+        try buf.writer(allocator).writeAll("d:");
         for (python_spec) |c| {
             if (c != 'f') try buf.append(allocator, c);
         }
@@ -284,8 +284,8 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
     defer args_buf.deinit(self.allocator);
 
     for (args_list.items, 0..) |arg, i| {
-        if (i > 0) try args_buf.appendSlice(self.allocator, ", ");
-        try args_buf.appendSlice(self.allocator, arg);
+        if (i > 0) try args_buf.writer(self.allocator).writeAll(", ");
+        try args_buf.writer(self.allocator).writeAll(arg);
     }
 
     // Generate std.fmt.allocPrint call wrapped in a comptime or runtime block

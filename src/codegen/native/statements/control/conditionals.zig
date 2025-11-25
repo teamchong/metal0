@@ -20,7 +20,7 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
                     var type_buf = std.ArrayList(u8){};
                     defer type_buf.deinit(self.allocator);
                     value_type.toZigType(self.allocator, &type_buf) catch {
-                        try type_buf.appendSlice(self.allocator, "i64");
+                        try type_buf.writer(self.allocator).writeAll("i64");
                     };
 
                     try self.emitIndent();

@@ -109,7 +109,7 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     // Infer return type from inner lambda body
     const return_type = try inferReturnType(self, inner_lambda.body.*);
     try closure_code.writer(self.allocator).print(") {s} {{\n", .{return_type});
-    try closure_code.appendSlice(self.allocator, "        return ");
+    try closure_code.writer(self.allocator).writeAll("        return ");
 
     // Generate inner lambda body with captured variable references
     const saved_output = self.output;
@@ -121,10 +121,10 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     const body_code = try self.output.toOwnedSlice(self.allocator);
     self.output = saved_output;
 
-    try closure_code.appendSlice(self.allocator, body_code);
+    try closure_code.writer(self.allocator).writeAll(body_code);
     self.allocator.free(body_code);
 
-    try closure_code.appendSlice(self.allocator, ";\n    }\n};\n\n");
+    try closure_code.writer(self.allocator).writeAll(";\n    }\n};\n\n");
 
     // Generate factory function (outer lambda)
     const factory_name = try std.fmt.allocPrint(
@@ -137,18 +137,18 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
 
     try closure_code.writer(self.allocator).print("fn {s}(", .{factory_name});
     for (outer_lambda.args, 0..) |arg, i| {
-        if (i > 0) try closure_code.appendSlice(self.allocator, ", ");
+        if (i > 0) try closure_code.writer(self.allocator).writeAll(", ");
         try closure_code.writer(self.allocator).print("{s}: i64", .{arg.name});
     }
     try closure_code.writer(self.allocator).print(") {s} {{\n", .{closure_name});
-    try closure_code.appendSlice(self.allocator, "    return .{\n");
+    try closure_code.writer(self.allocator).writeAll("    return .{\n");
 
     // Initialize captured fields
     for (captured_vars) |var_name| {
         try closure_code.writer(self.allocator).print("        .{s} = {s},\n", .{ var_name, var_name });
     }
 
-    try closure_code.appendSlice(self.allocator, "    };\n}\n\n");
+    try closure_code.writer(self.allocator).writeAll("    };\n}\n\n");
 
     // Store closure code
     try self.lambda_functions.append(self.allocator, try closure_code.toOwnedSlice(self.allocator));
@@ -204,10 +204,10 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
 
         try closure_code.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
     }
-    try closure_code.appendSlice(self.allocator, "\n");
+    try closure_code.writer(self.allocator).writeAll("\n");
 
     // Call method
-    try closure_code.appendSlice(self.allocator, "    pub fn call(self: @This()");
+    try closure_code.writer(self.allocator).writeAll("    pub fn call(self: @This()");
     for (lambda.args) |arg| {
         try closure_code.writer(self.allocator).print(", {s}: i64", .{arg.name});
     }
@@ -215,7 +215,7 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     // Infer return type
     const return_type = try inferReturnType(self, lambda.body.*);
     try closure_code.writer(self.allocator).print(") {s} {{\n", .{return_type});
-    try closure_code.appendSlice(self.allocator, "        return ");
+    try closure_code.writer(self.allocator).writeAll("        return ");
 
     // Generate body with captured vars prefixed with "self."
     const saved_output = self.output;
@@ -226,10 +226,10 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     const body_code = try self.output.toOwnedSlice(self.allocator);
     self.output = saved_output;
 
-    try closure_code.appendSlice(self.allocator, body_code);
+    try closure_code.writer(self.allocator).writeAll(body_code);
     self.allocator.free(body_code);
 
-    try closure_code.appendSlice(self.allocator, ";\n    }\n};\n\n");
+    try closure_code.writer(self.allocator).writeAll(";\n    }\n};\n\n");
 
     // Store closure struct
     try self.lambda_functions.append(self.allocator, try closure_code.toOwnedSlice(self.allocator));

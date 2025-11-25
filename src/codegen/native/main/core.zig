@@ -329,7 +329,7 @@ pub const NativeCodegen = struct {
 
     // Helper functions - public for use by statements.zig and expressions.zig
     pub fn emit(self: *NativeCodegen, s: []const u8) CodegenError!void {
-        try self.emit(s);
+        try self.output.appendSlice(self.allocator, s);
     }
 
     /// Emit formatted string

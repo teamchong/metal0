@@ -107,7 +107,7 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
 
     // Generate parameter list
     for (lambda.args, 0..) |arg, i| {
-        if (i > 0) try lambda_func.appendSlice(self.allocator, ", ");
+        if (i > 0) try lambda_func.writer(self.allocator).writeAll(", ");
         try lambda_func.writer(self.allocator).print("{s}: {s}", .{
             arg.name,
             param_types[i],
@@ -126,7 +126,7 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
     }
 
     // Generate body - single return expression
-    try lambda_func.appendSlice(self.allocator, "    return ");
+    try lambda_func.writer(self.allocator).writeAll("    return ");
 
     // Generate body expression in temporary output
     const saved_output = self.output;
@@ -139,10 +139,10 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
     const body_code = try self.output.toOwnedSlice(self.allocator);
     self.output = saved_output;
 
-    try lambda_func.appendSlice(self.allocator, body_code);
+    try lambda_func.writer(self.allocator).writeAll(body_code);
     self.allocator.free(body_code);
 
-    try lambda_func.appendSlice(self.allocator, ";\n}\n\n");
+    try lambda_func.writer(self.allocator).writeAll(";\n}\n\n");
 
     // Store lambda function for later prepending to module
     try self.lambda_functions.append(self.allocator, try lambda_func.toOwnedSlice(self.allocator));
