@@ -61,7 +61,23 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
 
             // Now expect assignment
             if (self.match(.Eq)) {
-                const value = try self.parseExpression();
+                const first_value = try self.parseExpression();
+
+                // Check if the value side is also a tuple (comma-separated)
+                const value = if (self.check(.Comma)) blk: {
+                    var value_list = std.ArrayList(ast.Node){};
+                    defer value_list.deinit(self.allocator);
+                    try value_list.append(self.allocator, first_value);
+
+                    while (self.match(.Comma)) {
+                        const val = try self.parseExpression();
+                        try value_list.append(self.allocator, val);
+                    }
+
+                    const value_array = try value_list.toOwnedSlice(self.allocator);
+                    break :blk ast.Node{ .tuple = .{ .elts = value_array } };
+                } else first_value;
+
                 _ = self.expect(.Newline) catch {};
 
                 // Allocate value on heap

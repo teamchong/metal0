@@ -213,3 +213,36 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
             },
         };
     }
+
+    /// Parse with statement: with expr as var: body
+    pub fn parseWith(self: *Parser) ParseError!ast.Node {
+        _ = try self.expect(.With);
+
+        // Parse context expression
+        const context_expr = try self.parseExpression();
+        const context_ptr = try self.allocator.create(ast.Node);
+        context_ptr.* = context_expr;
+
+        // Check for optional "as variable"
+        var optional_vars: ?[]const u8 = null;
+        if (self.match(.As)) {
+            const var_tok = try self.expect(.Ident);
+            optional_vars = var_tok.lexeme;
+        }
+
+        _ = try self.expect(.Colon);
+        _ = try self.expect(.Newline);
+        _ = try self.expect(.Indent);
+
+        const body = try parseBlock(self);
+
+        _ = try self.expect(.Dedent);
+
+        return ast.Node{
+            .with_stmt = .{
+                .context_expr = context_ptr,
+                .optional_vars = optional_vars,
+                .body = body,
+            },
+        };
+    }

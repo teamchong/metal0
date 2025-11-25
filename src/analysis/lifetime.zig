@@ -273,6 +273,23 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             }
             line += 1;
         },
+        .with_stmt => |with_stmt| {
+            // Analyze context expression
+            line = try analyzeLifetimes(info, with_stmt.context_expr.*, line);
+
+            // Record variable if "as var" is present
+            if (with_stmt.optional_vars) |var_name| {
+                try info.recordVariableUse(var_name, line, true);
+            }
+            line += 1;
+
+            // Analyze body
+            for (with_stmt.body) |body_node| {
+                line = try analyzeLifetimes(info, body_node, line);
+            }
+
+            line += 1;
+        },
         // Leaf nodes
         .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .fstring, .global_stmt => {
             // No variables to track

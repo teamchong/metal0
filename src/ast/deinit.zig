@@ -240,6 +240,12 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
         .global_stmt => |g| {
             allocator.free(g.names);
         },
+        .with_stmt => |w| {
+            deinit(w.context_expr, allocator);
+            allocator.destroy(w.context_expr);
+            for (w.body) |*n| deinit(n, allocator);
+            allocator.free(w.body);
+        },
         // Leaf nodes need no cleanup
         .name, .constant, .pass, .break_stmt, .continue_stmt => {},
     }

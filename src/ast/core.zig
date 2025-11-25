@@ -39,6 +39,7 @@ pub const Node = union(enum) {
     break_stmt: void,
     continue_stmt: void,
     global_stmt: GlobalStmt,
+    with_stmt: With,
 
     // Type aliases for backward compatibility with nested access (ast.Node.FString)
     pub const FString = fstring.FString;
@@ -240,6 +241,13 @@ pub const Node = union(enum) {
     /// Global statement: global x, y, z
     pub const GlobalStmt = struct {
         names: [][]const u8, // Variable names to mark as global
+    };
+
+    /// With statement: with expr as var: body
+    pub const With = struct {
+        context_expr: *Node, // Expression (e.g., open("file"))
+        optional_vars: ?[]const u8, // Variable name (e.g., "f") or null
+        body: []Node, // Body statements
     };
 
     /// Recursively free all allocations in the AST

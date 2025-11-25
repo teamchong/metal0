@@ -32,6 +32,7 @@ pub const TokenType = enum {
     Finally,
     Lambda,
     Global,
+    With,
 
     // Literals
     Ident,
@@ -138,10 +139,20 @@ pub const Lexer = struct {
         var at_line_start = true;
 
         while (!self.isAtEnd()) {
-            // Handle indentation at start of line
-            if (at_line_start and self.peek() != '\n') {
+            // Handle indentation at start of line (skip if inside parens/brackets/braces)
+            if (at_line_start and self.peek() != '\n' and paren_depth == 0) {
                 const dedents = try self.handleIndentation(&tokens);
                 _ = dedents;
+                at_line_start = false;
+            } else if (at_line_start and self.peek() != '\n') {
+                // Inside parens: skip indentation whitespace but don't emit Indent/Dedent
+                while (self.peek()) |ws| {
+                    if (ws == ' ' or ws == '\t') {
+                        _ = self.advance();
+                    } else {
+                        break;
+                    }
+                }
                 at_line_start = false;
             }
 
@@ -284,6 +295,7 @@ pub const Lexer = struct {
             .{ "finally", .Finally },
             .{ "lambda", .Lambda },
             .{ "global", .Global },
+            .{ "with", .With },
         });
 
         return keywords.get(lexeme) orelse .Ident;

@@ -29,3 +29,4 @@ pub const parseBreak = misc.parseBreak;
 pub const parseContinue = misc.parseContinue;
 pub const parseDecorated = misc.parseDecorated;
 pub const parseGlobal = misc.parseGlobal;
+pub const parseWith = misc.parseWith;
