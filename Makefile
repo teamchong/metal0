@@ -1,4 +1,4 @@
-.PHONY: help build install verify test test-zig test-correctness-full test-runtime test-asyncio test-all format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines benchmark-quick benchmark-full benchmark-5d benchmark-dashboard help-testing
+.PHONY: help build install verify test test-zig test-correctness-full test-runtime test-asyncio test-all format-zig lint-zig clean run benchmark benchmark-computational benchmark-concurrency benchmark-scheduler benchmark-goroutines benchmark-quick benchmark-full benchmark-5d benchmark-dashboard benchmark-fib help-testing
 
 help:
 	@echo "PyAOT Commands"
@@ -20,6 +20,7 @@ help:
 	@echo "benchmark-full          - Full benchmark suite vs Go"
 	@echo "benchmark-5d            - 5-dimensional async benchmark (PyAOT vs Go)"
 	@echo "benchmark-dashboard     - Automated dashboard with JSON export"
+	@echo "benchmark-fib           - Fibonacci benchmark (PyAOT vs CPython)"
 	@echo "help-testing            - Show testing & benchmarking help"
 
 build:
@@ -318,6 +319,22 @@ benchmark-5d:
 benchmark-dashboard:
 	@echo "Running automated benchmark dashboard..."
 	@python3 scripts/benchmark_dashboard.py
+
+.PHONY: benchmark-fib
+benchmark-fib:
+	@echo "🔧 Fibonacci Benchmark (PyAOT vs CPython)"
+	@echo ""
+	@command -v hyperfine >/dev/null 2>&1 || { echo "❌ hyperfine not found. Install: brew install hyperfine"; exit 1; }
+	@echo "✅ Dependencies found"
+	@echo ""
+	@echo "🔨 Building PyAOT (ReleaseFast)..."
+	@zig build -Doptimize=ReleaseFast
+	@./zig-out/bin/pyaot build examples/bench_fib.py ./bench_fib --binary
+	@echo ""
+	@echo "🔥 Running fibonacci benchmark (fib(35))..."
+	@hyperfine --warmup 3 \
+		'./bench_fib' \
+		'python3 examples/bench_fib.py'
 
 # Help target
 .PHONY: help-testing

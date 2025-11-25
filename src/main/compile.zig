@@ -441,8 +441,26 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     const c_libs = try native_gen.c_libraries.toOwnedSlice(allocator);
     defer allocator.free(c_libs);
 
-    // Compile to shared library (.so) or binary
-    if (!opts.binary and std.mem.eql(u8, opts.mode, "build")) {
+    // Compile to WASM, shared library (.so), or binary
+    if (opts.wasm) {
+        std.debug.print("Compiling to WebAssembly...\n", .{});
+        // Adjust output path to .wasm extension if not explicitly set
+        const wasm_path = if (opts.output_file != null)
+            bin_path
+        else blk: {
+            const basename = std.fs.path.basename(opts.input_file);
+            const name_no_ext = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
+                basename[0..idx]
+            else
+                basename;
+            break :blk try std.fmt.allocPrint(allocator, "{s}.wasm", .{name_no_ext});
+        };
+        defer if (opts.output_file == null) allocator.free(wasm_path);
+        try compiler.compileWasm(allocator, zig_code, wasm_path);
+        std.debug.print("✓ Compiled successfully to: {s}\n", .{wasm_path});
+        // WASM cannot be run directly, skip cache and run
+        return;
+    } else if (!opts.binary and std.mem.eql(u8, opts.mode, "build")) {
         std.debug.print("Compiling to shared library...\n", .{});
         try compiler.compileZigSharedLib(allocator, zig_code, bin_path, c_libs);
     } else {
