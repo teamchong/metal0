@@ -83,7 +83,7 @@ pub fn inferExpr(
         },
         .attribute => |a| blk: {
             // Infer attribute type: obj.attr
-            // Special case: module attributes (sys.platform, sys.version_info)
+            // Special case: module attributes (sys.platform, math.pi, etc.)
             if (a.value.* == .name) {
                 const module_name = a.value.name.id;
                 if (std.mem.eql(u8, module_name, "sys")) {
@@ -93,6 +93,18 @@ pub fn inferExpr(
                         break :blk .unknown; // struct type
                     } else if (std.mem.eql(u8, a.attr, "argv")) {
                         break :blk .unknown; // [][]const u8
+                    }
+                }
+
+                // math module constants
+                if (std.mem.eql(u8, module_name, "math")) {
+                    if (std.mem.eql(u8, a.attr, "pi") or
+                        std.mem.eql(u8, a.attr, "e") or
+                        std.mem.eql(u8, a.attr, "tau") or
+                        std.mem.eql(u8, a.attr, "inf") or
+                        std.mem.eql(u8, a.attr, "nan"))
+                    {
+                        break :blk .float;
                     }
                 }
 
