@@ -61,12 +61,31 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     };
 
+    // Check if this is a **kwargs parameter (PyObject wrapper around PyDict)
+    const is_kwarg_param = blk: {
+        if (args[0] == .name) {
+            const var_name = args[0].name.id;
+            if (self.kwarg_params.contains(var_name)) {
+                break :blk true;
+            }
+        }
+        break :blk false;
+    };
+
     // Generate:
+    // - runtime.PyDict.len(obj) for **kwargs parameters
     // - obj.items.len for ArrayList (including dict comprehensions)
     // - obj.count() for HashMap/dict/set
     // - @typeInfo(...).fields.len for tuples
     // - obj.len for slices/arrays/strings
-    if (is_arraylist) {
+    // All results are cast to i64 since Python len() returns int
+    try self.output.appendSlice(self.allocator, "@as(i64, @intCast(");
+    if (is_kwarg_param) {
+        // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()
+        try self.output.appendSlice(self.allocator, "runtime.PyDict.len(");
+        try self.genExpr(args[0]);
+        try self.output.appendSlice(self.allocator, ")");
+    } else if (is_arraylist) {
         try self.genExpr(args[0]);
         try self.output.appendSlice(self.allocator, ".items.len");
     } else if (is_tuple) {
@@ -81,6 +100,7 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.output.appendSlice(self.allocator, ".len");
     }
+    try self.output.appendSlice(self.allocator, "))");
 }
 
 /// Generate code for str(obj)

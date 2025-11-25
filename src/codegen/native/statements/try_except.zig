@@ -81,12 +81,48 @@ fn findReferencedVarsInExpr(expr: ast.Node, vars: *FnvVoidMap, allocator: std.me
     }
 }
 
+/// Find all variable names that are assigned (written) in statements
+fn findWrittenVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap) !void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .assign => |assign| {
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        try vars.put(target.name.id, {});
+                    }
+                }
+            },
+            .aug_assign => |aug| {
+                if (aug.target.* == .name) {
+                    try vars.put(aug.target.name.id, {});
+                }
+            },
+            .if_stmt => |if_stmt| {
+                try findWrittenVarsInStmts(if_stmt.body, vars);
+                try findWrittenVarsInStmts(if_stmt.else_body, vars);
+            },
+            .while_stmt => |while_stmt| {
+                try findWrittenVarsInStmts(while_stmt.body, vars);
+            },
+            .for_stmt => |for_stmt| {
+                try findWrittenVarsInStmts(for_stmt.body, vars);
+            },
+            else => {},
+        }
+    }
+}
+
 /// Find all variable names referenced in statements
 fn findReferencedVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap, allocator: std.mem.Allocator) CodegenError!void {
     for (stmts) |stmt| {
         switch (stmt) {
             .assign => |assign| {
+                // Capture RHS (value being read)
                 try findReferencedVarsInExpr(assign.value.*, vars, allocator);
+                // Also capture LHS targets that are being written to (if they're names)
+                for (assign.targets) |target| {
+                    try findReferencedVarsInExpr(target, vars, allocator);
+                }
             },
             .expr_stmt => |expr| {
                 try findReferencedVarsInExpr(expr.value.*, vars, allocator);
@@ -116,6 +152,7 @@ fn findReferencedVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap, allocator: st
 
 pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // First pass: collect variables declared in try block that need hoisting
+    // Only hoist variables that aren't already declared in the current scope
     var declared_vars = std.ArrayList([]const u8){};
     defer declared_vars.deinit(self.allocator);
 
@@ -125,18 +162,17 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (stmt.assign.targets.len > 0) {
                 const target = stmt.assign.targets[0];
                 if (target == .name) {
-                    try declared_vars.append(self.allocator, target.name.id);
+                    const var_name = target.name.id;
+                    // Only hoist if not already declared
+                    if (!self.isDeclared(var_name)) {
+                        try declared_vars.append(self.allocator, var_name);
+                    }
                 }
             }
         }
     }
 
-    // Wrap in block for defer scope
-    try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "{\n");
-    self.indent();
-
-    // Hoist variable declarations inside block (so they're accessible after try)
+    // Hoist variable declarations BEFORE the block (so they're accessible after try)
     for (declared_vars.items) |var_name| {
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "var ");
@@ -149,6 +185,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // Register type in type inferrer so print() knows the type
         try self.type_inferrer.var_types.put(var_name, .int);
     }
+
+    // Wrap in block for defer scope
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "{\n");
+    self.indent();
 
     // Generate finally as defer
     if (try_node.finalbody.len > 0) {
@@ -165,9 +206,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     // Generate try block with exception handling
     if (try_node.handlers.len > 0) {
-        // Collect captured variables and declared variables
-        var captured_vars = std.ArrayList([]const u8){};
-        defer captured_vars.deinit(self.allocator);
+        // Collect read-only captured variables (not written in try block)
+        var read_only_vars = std.ArrayList([]const u8){};
+        defer read_only_vars.deinit(self.allocator);
+
+        // Collect written variables from outer scope (need pointers)
+        var written_outer_vars = std.ArrayList([]const u8){};
+        defer written_outer_vars.deinit(self.allocator);
 
         var declared_var_set = FnvVoidMap.init(self.allocator);
         defer declared_var_set.deinit();
@@ -175,28 +220,42 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try declared_var_set.put(var_name, {});
         }
 
+        // Find variables that are WRITTEN in try block body
+        var written_vars = FnvVoidMap.init(self.allocator);
+        defer written_vars.deinit();
+        try findWrittenVarsInStmts(try_node.body, &written_vars);
+
         // Find variables actually referenced in try block body (not just declared)
         var referenced_vars = FnvVoidMap.init(self.allocator);
         defer referenced_vars.deinit();
         try findReferencedVarsInStmts(try_node.body, &referenced_vars, self.allocator);
 
-        // Capture only variables that are:
-        // 1. Actually referenced in try block
-        // 2. Not declared in try block (those are passed as pointers)
-        // 3. Not built-in functions
+        // Categorize variables:
+        // 1. declared_vars: first declared in try block (hoisted, passed as pointer)
+        // 2. written_outer_vars: from outer scope, written in try block (passed as pointer)
+        // 3. read_only_vars: from outer scope, only read in try block (passed by value)
         var ref_iter = referenced_vars.iterator();
         while (ref_iter.next()) |entry| {
             const name = entry.key_ptr.*;
 
-            // Skip if declared in try block (will be passed separately as pointer)
+            // Skip if declared in try block (already in declared_vars)
             if (declared_var_set.contains(name)) continue;
 
             // Skip built-in functions
             if (BuiltinFuncs.has(name)) continue;
 
-            // Only capture if it exists in lifetimes (was declared before this point)
-            if (self.semantic_info.lifetimes.contains(name)) {
-                try captured_vars.append(self.allocator, name);
+            // Skip user-defined functions (they're module-level, accessible directly)
+            if (self.function_signatures.contains(name)) continue;
+            if (self.functions_needing_allocator.contains(name)) continue;
+
+            // Only capture if declared before this point
+            if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name)) {
+                // Check if this variable is written to inside try block
+                if (written_vars.contains(name)) {
+                    try written_outer_vars.append(self.allocator, name);
+                } else {
+                    try read_only_vars.append(self.allocator, name);
+                }
             }
         }
 
@@ -207,13 +266,23 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "fn run(");
 
-        // Parameters - captured vars and declared vars (as pointers)
+        // Parameters:
+        // - read_only_vars: passed by value (anytype)
+        // - written_outer_vars: passed as pointer (*i64)
+        // - declared_vars: passed as pointer (*i64)
         var param_count: usize = 0;
-        for (captured_vars.items) |var_name| {
+        for (read_only_vars.items) |var_name| {
             if (param_count > 0) try self.output.appendSlice(self.allocator, ", ");
             try self.output.appendSlice(self.allocator, "p_");
             try self.output.appendSlice(self.allocator, var_name);
             try self.output.appendSlice(self.allocator, ": anytype");
+            param_count += 1;
+        }
+        for (written_outer_vars.items) |var_name| {
+            if (param_count > 0) try self.output.appendSlice(self.allocator, ", ");
+            try self.output.appendSlice(self.allocator, "p_");
+            try self.output.appendSlice(self.allocator, var_name);
+            try self.output.appendSlice(self.allocator, ": *i64");  // Pointer for mutable access
             param_count += 1;
         }
         for (declared_vars.items) |var_name| {
@@ -227,8 +296,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.output.appendSlice(self.allocator, ") !void {\n");
         self.indent();
 
-        // Create aliases for captured variables
-        for (captured_vars.items) |var_name| {
+        // Create aliases for read-only captured variables (by value)
+        for (read_only_vars.items) |var_name| {
             try self.emitIndent();
             try self.output.appendSlice(self.allocator, "const __local_");
             try self.output.appendSlice(self.allocator, var_name);
@@ -241,6 +310,15 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Add to rename map
             var buf = std.ArrayList(u8){};
             try buf.writer(self.allocator).print("__local_{s}", .{var_name});
+            const renamed = try buf.toOwnedSlice(self.allocator);
+            try self.var_renames.put(var_name, renamed);
+        }
+
+        // Create aliases for written outer variables (dereference pointers)
+        for (written_outer_vars.items) |var_name| {
+            // Add to rename map to use dereferenced pointer
+            var buf = std.ArrayList(u8){};
+            try buf.writer(self.allocator).print("p_{s}.*", .{var_name});
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(var_name, renamed);
         }
@@ -260,7 +338,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         }
 
         // Clear rename map after generating body and free allocated strings
-        for (captured_vars.items) |var_name| {
+        for (read_only_vars.items) |var_name| {
+            if (self.var_renames.fetchSwapRemove(var_name)) |entry| {
+                self.allocator.free(entry.value);
+            }
+        }
+        for (written_outer_vars.items) |var_name| {
             if (self.var_renames.fetchSwapRemove(var_name)) |entry| {
                 self.allocator.free(entry.value);
             }
@@ -278,12 +361,21 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "};\n");
 
-        // Call helper with captured variables and pointers to declared variables
+        // Call helper with:
+        // - read_only_vars: by value
+        // - written_outer_vars: as pointer (&)
+        // - declared_vars: as pointer (&)
         try self.emitIndent();
         try self.output.appendSlice(self.allocator, "__TryHelper.run(");
         var call_param_count: usize = 0;
-        for (captured_vars.items) |var_name| {
+        for (read_only_vars.items) |var_name| {
             if (call_param_count > 0) try self.output.appendSlice(self.allocator, ", ");
+            try self.output.appendSlice(self.allocator, var_name);
+            call_param_count += 1;
+        }
+        for (written_outer_vars.items) |var_name| {
+            if (call_param_count > 0) try self.output.appendSlice(self.allocator, ", ");
+            try self.output.appendSlice(self.allocator, "&");
             try self.output.appendSlice(self.allocator, var_name);
             call_param_count += 1;
         }

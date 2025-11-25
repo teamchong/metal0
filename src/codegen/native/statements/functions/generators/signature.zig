@@ -173,6 +173,13 @@ pub fn genFunctionSignature(
         try self.emit(": []const i64"); // For now, assume varargs are integers
     }
 
+    // Add **kwargs parameter as a HashMap if present
+    if (func.kwarg) |kwarg_name| {
+        if (func.args.len > 0 or func.vararg != null) try self.emit(", ");
+        try self.emit(kwarg_name);
+        try self.emit(": *runtime.PyObject"); // PyDict wrapped in PyObject
+    }
+
     try self.emit(") ");
 
     // Determine return type based on type annotation or return statements

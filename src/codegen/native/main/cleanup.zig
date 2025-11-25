@@ -65,6 +65,18 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.vararg_functions);
     self.vararg_functions.deinit();
 
+    // Clean up vararg_params tracking
+    freeMapKeys(self.allocator, &self.vararg_params);
+    self.vararg_params.deinit();
+
+    // Clean up kwarg_functions tracking
+    freeMapKeys(self.allocator, &self.kwarg_functions);
+    self.kwarg_functions.deinit();
+
+    // Clean up kwarg_params tracking
+    freeMapKeys(self.allocator, &self.kwarg_params);
+    self.kwarg_params.deinit();
+
     // Clean up function_signatures tracking
     freeMapKeys(self.allocator, &self.function_signatures);
     self.function_signatures.deinit();

@@ -160,6 +160,20 @@ pub const NativeCodegen = struct {
     // Maps function name -> void (e.g., "func" -> {})
     vararg_functions: FnvVoidMap,
 
+    // Track vararg parameter names (*args parameters)
+    // Maps parameter name -> void (e.g., "args" -> {})
+    // Used for type inference: iterating over vararg gives i64
+    vararg_params: FnvVoidMap,
+
+    // Track functions with kwargs (**kwargs)
+    // Maps function name -> void (e.g., "func" -> {})
+    kwarg_functions: FnvVoidMap,
+
+    // Track kwarg parameter names (**kwargs parameters)
+    // Maps parameter name -> void (e.g., "kwargs" -> {})
+    // Used for type inference: len(kwargs) -> runtime.PyDict.len()
+    kwarg_params: FnvVoidMap,
+
     // Track function signatures (param counts for default handling)
     // Maps function name -> FuncSignature (e.g., "foo" -> {total: 2, required: 1})
     function_signatures: FnvFuncSigMap,
@@ -244,6 +258,9 @@ pub const NativeCodegen = struct {
             .async_functions = FnvVoidMap.init(allocator),
             .async_function_defs = FnvFuncDefMap.init(allocator),
             .vararg_functions = FnvVoidMap.init(allocator),
+            .vararg_params = FnvVoidMap.init(allocator),
+            .kwarg_functions = FnvVoidMap.init(allocator),
+            .kwarg_params = FnvVoidMap.init(allocator),
             .function_signatures = FnvFuncSigMap.init(allocator),
             .imported_modules = FnvVoidMap.init(allocator),
             .mutation_info = null,

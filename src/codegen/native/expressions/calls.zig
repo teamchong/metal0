@@ -334,7 +334,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Check if this is a vararg function (needs args wrapped in slice)
         const is_vararg_func = self.vararg_functions.contains(func_name);
 
+        // Check if this is a kwarg function (needs args wrapped in PyDict)
+        const is_kwarg_func = self.kwarg_functions.contains(func_name);
+
         // Add 'try' if function needs allocator or is async (both return errors)
+        // Note: kwarg functions don't need try - the block expression handles errors
         if (user_func_needs_alloc or is_async_func) {
             try self.output.appendSlice(self.allocator, "try ");
         }
@@ -407,22 +411,52 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, arg);
             }
 
-            // Add keyword arguments as positional arguments
-            // TODO: Map keyword args to correct parameter positions
-            for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
-                try genExpr(self, kwarg.value);
-            }
+            // For kwarg functions: build PyDict from keyword arguments
+            if (is_kwarg_func) {
+                // Generate a block expression that creates and populates a PyDict
+                if (call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+                try self.output.appendSlice(self.allocator, "blk: {\n");
+                self.indent_level += 1;
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "const __kwargs = try runtime.PyDict.create(allocator);\n");
 
-            // Pad with null for missing default parameters
-            if (has_defaults) {
-                if (func_sig) |sig| {
-                    const provided_args = call.args.len + call.keyword_args.len;
-                    if (provided_args < sig.total_params) {
-                        var i: usize = provided_args;
-                        while (i < sig.total_params) : (i += 1) {
-                            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-                            try self.output.appendSlice(self.allocator, "null");
+                // Add each keyword argument to the dict
+                for (call.keyword_args) |kwarg| {
+                    try self.emitIndent();
+                    try self.output.appendSlice(self.allocator, "try runtime.PyDict.set(__kwargs, \"");
+                    try self.output.appendSlice(self.allocator, kwarg.name);
+                    try self.output.appendSlice(self.allocator, "\", ");
+
+                    // Wrap the value in a PyObject - for now assume int
+                    // TODO: Handle other types
+                    try self.output.appendSlice(self.allocator, "try runtime.PyInt.create(allocator, ");
+                    try genExpr(self, kwarg.value);
+                    try self.output.appendSlice(self.allocator, "));\n");
+                }
+
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "break :blk __kwargs;\n");
+                self.indent_level -= 1;
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "}");
+            } else {
+                // Add keyword arguments as positional arguments (non-kwarg functions)
+                // TODO: Map keyword args to correct parameter positions
+                for (call.keyword_args, 0..) |kwarg, i| {
+                    if (i > 0 or call.args.len > 0) try self.output.appendSlice(self.allocator, ", ");
+                    try genExpr(self, kwarg.value);
+                }
+
+                // Pad with null for missing default parameters
+                if (has_defaults) {
+                    if (func_sig) |sig| {
+                        const provided_args = call.args.len + call.keyword_args.len;
+                        if (provided_args < sig.total_params) {
+                            var i: usize = provided_args;
+                            while (i < sig.total_params) : (i += 1) {
+                                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                                try self.output.appendSlice(self.allocator, "null");
+                            }
                         }
                     }
                 }

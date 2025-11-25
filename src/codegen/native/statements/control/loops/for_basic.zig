@@ -230,6 +230,16 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Push new scope for loop body
     try self.pushScope();
 
+    // If iterating over a vararg param (e.g., args in *args), register loop var as i64
+    // This enables correct type inference for print(x) inside the loop
+    if (for_stmt.iter.* == .name) {
+        const iter_var_name = for_stmt.iter.name.id;
+        if (self.vararg_params.contains(iter_var_name)) {
+            // Register loop variable as i64 type
+            try self.type_inferrer.var_types.put(var_name, .int);
+        }
+    }
+
     for (for_stmt.body) |stmt| {
         try self.generateStmt(stmt);
     }
