@@ -99,6 +99,13 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
                 }
             }
 
+            // Check for optional "as variable"
+            var exc_name: ?[]const u8 = null;
+            if (self.match(.As)) {
+                const name_tok = try self.expect(.Ident);
+                exc_name = name_tok.lexeme;
+            }
+
             _ = try self.expect(.Colon);
             _ = try self.expect(.Newline);
             _ = try self.expect(.Indent);
@@ -109,7 +116,7 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
 
             try handlers.append(self.allocator, ast.Node.ExceptHandler{
                 .type = exc_type,
-                .name = null, // Not implementing "as e" yet
+                .name = exc_name,
                 .body = handler_body,
             });
         }
