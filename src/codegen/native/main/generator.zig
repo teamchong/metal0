@@ -197,6 +197,14 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 5: Generate imports, class and function definitions (before main)
     // In module mode, wrap functions in pub struct
     if (self.mode == .module) {
+        // Module mode: emit __global_allocator for f-strings and other allocating operations
+        // This is needed because modules are compiled separately and don't have main() setup
+        if (analysis.needs_allocator) {
+            try self.emit("\n// Module-level allocator for f-strings and dynamic allocations\n");
+            try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};\n");
+            try self.emit("var __global_allocator: std.mem.Allocator = __gpa.allocator();\n\n");
+        }
+
         if (self.module_name) |mod_name| {
             try self.emit("pub const ");
             try self.emit(mod_name);
