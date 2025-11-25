@@ -109,6 +109,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         var test_methods = std.ArrayList(core.TestMethodInfo){};
         var has_setUp = false;
         var has_tearDown = false;
+        var has_setup_class = false;
+        var has_teardown_class = false;
         for (class.body) |stmt| {
             if (stmt == .function_def) {
                 const method = stmt.function_def;
@@ -124,6 +126,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     has_setUp = true;
                 } else if (std.mem.eql(u8, method_name, "tearDown")) {
                     has_tearDown = true;
+                } else if (std.mem.eql(u8, method_name, "setUpClass")) {
+                    has_setup_class = true;
+                } else if (std.mem.eql(u8, method_name, "tearDownClass")) {
+                    has_teardown_class = true;
                 }
             }
         }
@@ -132,6 +138,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             .test_methods = try test_methods.toOwnedSlice(self.allocator),
             .has_setUp = has_setUp,
             .has_tearDown = has_tearDown,
+            .has_setup_class = has_setup_class,
+            .has_teardown_class = has_teardown_class,
         });
     }
 

@@ -438,6 +438,113 @@ pub fn assertNotRegex(text: []const u8, pattern: []const u8) void {
     }
 }
 
+/// Assertion: assertIsInstance(obj, type_name) - check if obj is of expected type
+/// Since Zig type checking is comptime, we compare type names at runtime
+pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) void {
+    const actual_type_name = @typeName(@TypeOf(obj));
+
+    // Check if the actual type matches expected Python type
+    const matches = blk: {
+        // Direct match
+        if (std.mem.eql(u8, actual_type_name, expected_type_name)) break :blk true;
+
+        // Python type to Zig type mappings
+        if (std.mem.eql(u8, expected_type_name, "int")) {
+            break :blk std.mem.startsWith(u8, actual_type_name, "i") or
+                std.mem.startsWith(u8, actual_type_name, "u") or
+                std.mem.eql(u8, actual_type_name, "comptime_int");
+        }
+        if (std.mem.eql(u8, expected_type_name, "float")) {
+            break :blk std.mem.startsWith(u8, actual_type_name, "f") or
+                std.mem.eql(u8, actual_type_name, "comptime_float");
+        }
+        if (std.mem.eql(u8, expected_type_name, "str")) {
+            break :blk std.mem.indexOf(u8, actual_type_name, "u8") != null;
+        }
+        if (std.mem.eql(u8, expected_type_name, "bool")) {
+            break :blk std.mem.eql(u8, actual_type_name, "bool");
+        }
+        if (std.mem.eql(u8, expected_type_name, "list")) {
+            break :blk std.mem.indexOf(u8, actual_type_name, "ArrayList") != null or
+                (std.mem.startsWith(u8, actual_type_name, "[") and !std.mem.startsWith(u8, actual_type_name, "[]const u8"));
+        }
+
+        break :blk false;
+    };
+
+    if (!matches) {
+        std.debug.print("AssertionError: {s} is not instance of {s}\n", .{ actual_type_name, expected_type_name });
+        if (global_result) |result| {
+            result.addFail("assertIsInstance failed") catch {};
+        }
+        @panic("assertIsInstance failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertNotIsInstance(obj, type_name) - check if obj is NOT of expected type
+pub fn assertNotIsInstance(obj: anytype, expected_type_name: []const u8) void {
+    const actual_type_name = @typeName(@TypeOf(obj));
+
+    // Check if the actual type matches expected Python type
+    const matches = blk: {
+        // Direct match
+        if (std.mem.eql(u8, actual_type_name, expected_type_name)) break :blk true;
+
+        // Python type to Zig type mappings
+        if (std.mem.eql(u8, expected_type_name, "int")) {
+            break :blk std.mem.startsWith(u8, actual_type_name, "i") or
+                std.mem.startsWith(u8, actual_type_name, "u") or
+                std.mem.eql(u8, actual_type_name, "comptime_int");
+        }
+        if (std.mem.eql(u8, expected_type_name, "float")) {
+            break :blk std.mem.startsWith(u8, actual_type_name, "f") or
+                std.mem.eql(u8, actual_type_name, "comptime_float");
+        }
+        if (std.mem.eql(u8, expected_type_name, "str")) {
+            break :blk std.mem.indexOf(u8, actual_type_name, "u8") != null;
+        }
+        if (std.mem.eql(u8, expected_type_name, "bool")) {
+            break :blk std.mem.eql(u8, actual_type_name, "bool");
+        }
+        if (std.mem.eql(u8, expected_type_name, "list")) {
+            break :blk std.mem.indexOf(u8, actual_type_name, "ArrayList") != null or
+                (std.mem.startsWith(u8, actual_type_name, "[") and !std.mem.startsWith(u8, actual_type_name, "[]const u8"));
+        }
+
+        break :blk false;
+    };
+
+    if (matches) {
+        std.debug.print("AssertionError: {s} is unexpectedly instance of {s}\n", .{ actual_type_name, expected_type_name });
+        if (global_result) |result| {
+            result.addFail("assertNotIsInstance failed") catch {};
+        }
+        @panic("assertNotIsInstance failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// SubTest context manager - prints label for grouped assertions
+/// In Python: with self.subTest(i=i): ... or with self.subTest(msg="test case 1"): ...
+/// In PyAOT: Since we don't have full context manager support, this just prints the label
+/// Note: Python's subTest doesn't stop on failure - subsequent subtests run even if one fails
+/// Our simplified version just provides labeling for debug output
+pub fn subTest(label: []const u8) void {
+    std.debug.print("  subTest: {s}\n", .{label});
+}
+
+/// SubTest with integer key-value - common pattern: with self.subTest(i=0)
+pub fn subTestInt(key: []const u8, value: i64) void {
+    std.debug.print("  subTest: {s}={d}\n", .{ key, value });
+}
+
 /// Assertion: assertRaises(callable) - callable must return an error
 /// This is a simplified version that checks if a callable returns an error
 /// In Python: self.assertRaises(ValueError, func, args) or with self.assertRaises(ValueError):

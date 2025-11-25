@@ -38,6 +38,8 @@ pub const TestClassInfo = struct {
     test_methods: []const TestMethodInfo,
     has_setUp: bool = false,
     has_tearDown: bool = false,
+    has_setup_class: bool = false,
+    has_teardown_class: bool = false,
 };
 
 /// Code generation mode

@@ -42,6 +42,12 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             try self.output.writer(self.allocator).print("_ = {s}.init(allocator);\n", .{class_info.class_name});
         }
 
+        // Call setUpClass BEFORE all test methods (class-level fixture)
+        if (class_info.has_setup_class and has_runnable_tests) {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("{s}.setUpClass();\n", .{class_info.class_name});
+        }
+
         // Run each test method
         for (class_info.test_methods) |method_info| {
             const method_name = method_info.name;
@@ -71,6 +77,12 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
                 try self.emitIndent();
                 try self.output.writer(self.allocator).print("_test_instance_{s}.tearDown();\n", .{class_info.class_name});
             }
+        }
+
+        // Call tearDownClass AFTER all test methods (class-level fixture)
+        if (class_info.has_teardown_class and has_runnable_tests) {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("{s}.tearDownClass();\n", .{class_info.class_name});
         }
     }
 
@@ -401,6 +413,98 @@ pub fn genAssertNotRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
     try parent.genExpr(self, args[0]);
     try self.output.appendSlice(self.allocator, ", ");
     try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.subTest(msg="label") or self.subTest(i=value)
+/// Python: with self.subTest(msg="test case 1"): ... or with self.subTest(i=0): ...
+/// Zig: runtime.unittest.subTest("label") or runtime.unittest.subTestInt("i", 0)
+/// Note: This is a simplified version - we don't support full context manager semantics
+pub fn genSubTest(self: *NativeCodegen, obj: ast.Node, args: []ast.Node, keywords: []ast.Node.KeywordArg) CodegenError!void {
+    _ = obj;
+    _ = args; // positional args not commonly used
+
+    const parent = @import("expressions.zig");
+
+    // Check for keyword arguments (common patterns: msg="label" or i=0)
+    if (keywords.len > 0) {
+        const kw = keywords[0];
+        // Check if value is an integer constant
+        if (kw.value == .constant and kw.value.constant.value == .int) {
+            // Pattern: subTest(i=0) -> subTestInt("i", 0)
+            try self.output.appendSlice(self.allocator, "runtime.unittest.subTestInt(\"");
+            try self.output.appendSlice(self.allocator, kw.name);
+            try self.output.appendSlice(self.allocator, "\", ");
+            try parent.genExpr(self, kw.value);
+            try self.output.appendSlice(self.allocator, ")");
+            return;
+        } else {
+            // Pattern: subTest(msg="label") -> subTest("label")
+            try self.output.appendSlice(self.allocator, "runtime.unittest.subTest(");
+            try parent.genExpr(self, kw.value);
+            try self.output.appendSlice(self.allocator, ")");
+            return;
+        }
+    }
+
+    // Default: empty label
+    try self.output.appendSlice(self.allocator, "runtime.unittest.subTest(\"\")");
+}
+
+/// Generate code for self.assertIsInstance(obj, type)
+/// Python: self.assertIsInstance(42, int)
+/// Zig: runtime.unittest.assertIsInstance(42, "int")
+/// Note: We convert Python type objects to string type names
+pub fn genAssertIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertIsInstance requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertIsInstance(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+
+    // Convert Python type to string type name
+    // args[1] should be a type name like 'int', 'str', 'float', 'bool', 'list'
+    if (args[1] == .name) {
+        try self.output.appendSlice(self.allocator, "\"");
+        try self.output.appendSlice(self.allocator, args[1].name.id);
+        try self.output.appendSlice(self.allocator, "\"");
+    } else {
+        // Fallback: generate expression (may not work for all types)
+        try parent.genExpr(self, args[1]);
+    }
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertNotIsInstance(obj, type)
+/// Python: self.assertNotIsInstance("hello", int)
+/// Zig: runtime.unittest.assertNotIsInstance("hello", "int")
+pub fn genAssertNotIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertNotIsInstance requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertNotIsInstance(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+
+    // Convert Python type to string type name
+    if (args[1] == .name) {
+        try self.output.appendSlice(self.allocator, "\"");
+        try self.output.appendSlice(self.allocator, args[1].name.id);
+        try self.output.appendSlice(self.allocator, "\"");
+    } else {
+        try parent.genExpr(self, args[1]);
+    }
     try self.output.appendSlice(self.allocator, ")");
 }
 

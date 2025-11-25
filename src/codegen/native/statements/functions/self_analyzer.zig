@@ -24,6 +24,9 @@ const UnittestMethods = std.StaticStringMap(void).initComptime(.{
     .{ "assertRaises", {} },
     .{ "assertRegex", {} },
     .{ "assertNotRegex", {} },
+    .{ "assertIsInstance", {} },
+    .{ "assertNotIsInstance", {} },
+    .{ "subTest", {} },
 });
 
 /// Check if 'self' is used in method body

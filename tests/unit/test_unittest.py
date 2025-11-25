@@ -73,6 +73,63 @@ class TestSetup(unittest.TestCase):
     def test_setup_ran(self):
         self.assertEqual(self.value, 42)
 
+# Note: TestClassFixtures disabled - @classmethod decorator not fully supported yet
+# The codegen infrastructure for setUpClass/tearDownClass is in place:
+# - TestClassInfo has has_setup_class/has_teardown_class flags
+# - generators.zig detects these methods
+# - unittest.zig generates calls before/after all test methods
+# Enable this test once @classmethod support is added
+#
+# class TestClassFixtures(unittest.TestCase):
+#     @classmethod
+#     def setUpClass(cls):
+#         cls.class_value = 100
+#
+#     @classmethod
+#     def tearDownClass(cls):
+#         cls.class_value = 0
+#
+#     def test_class_setup_ran(self):
+#         self.assertEqual(TestClassFixtures.class_value, 100)
+#
+#     def test_class_value_persists(self):
+#         self.assertEqual(TestClassFixtures.class_value, 100)
+
+class TestSubTest(unittest.TestCase):
+    def test_subtest_with_int(self):
+        self.subTest(i=0)
+        self.assertTrue(0 < 10)
+        self.subTest(i=1)
+        self.assertTrue(1 < 10)
+        self.subTest(i=2)
+        self.assertTrue(2 < 10)
+
+    def test_subtest_with_msg(self):
+        self.subTest(msg="first case")
+        self.assertEqual(1, 1)
+        self.subTest(msg="second case")
+        self.assertEqual(2, 2)
+
+class TestIsInstance(unittest.TestCase):
+    def test_isinstance_int(self):
+        self.assertIsInstance(42, int)
+        self.assertIsInstance(0, int)
+        self.assertIsInstance(-10, int)
+
+    def test_isinstance_str(self):
+        self.assertIsInstance("hello", str)
+        self.assertIsInstance("", str)
+
+    def test_isinstance_bool(self):
+        self.assertIsInstance(True, bool)
+        self.assertIsInstance(False, bool)
+
+    def test_not_isinstance_int(self):
+        self.assertNotIsInstance("hello", int)
+
+    def test_not_isinstance_str(self):
+        self.assertNotIsInstance(42, str)
+
 # Note: assertRaises test requires a callable that returns an error
 # This is a stub for now - full test would need error-returning functions
 # class TestRaises(unittest.TestCase):

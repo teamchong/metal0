@@ -125,6 +125,8 @@ const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "assertRaises", unittest_mod.genAssertRaises },
     .{ "assertRegex", unittest_mod.genAssertRegex },
     .{ "assertNotRegex", unittest_mod.genAssertNotRegex },
+    .{ "assertIsInstance", unittest_mod.genAssertIsInstance },
+    .{ "assertNotIsInstance", unittest_mod.genAssertNotIsInstance },
 });
 
 /// Try to dispatch method call (obj.method())
@@ -179,6 +181,11 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // unittest assertion methods (self.assertEqual, etc.)
     // Check if obj is 'self' - unittest methods called on self
     if (obj == .name and std.mem.eql(u8, obj.name.id, "self")) {
+        // Special handling for subTest which needs keyword arguments
+        if (std.mem.eql(u8, method_name, "subTest")) {
+            try unittest_mod.genSubTest(self, obj, call.args, call.keyword_args);
+            return true;
+        }
         if (UnittestMethods.get(method_name)) |handler| {
             try handler(self, obj, call.args);
             return true;
