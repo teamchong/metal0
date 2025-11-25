@@ -57,6 +57,15 @@ class TestAssertions(unittest.TestCase):
         self.assertCountEqual([1, 2, 3], [3, 2, 1])
         self.assertCountEqual([5, 5, 5], [5, 5, 5])
 
+    def test_regex(self):
+        self.assertRegex("hello world", "world")
+        self.assertRegex("hello world", "hello")
+        self.assertRegex("hello world", "lo wo")
+
+    def test_not_regex(self):
+        self.assertNotRegex("hello world", "foo")
+        self.assertNotRegex("hello world", "xyz")
+
 class TestSetup(unittest.TestCase):
     def setUp(self):
         self.value = 42
@@ -70,5 +79,19 @@ class TestSetup(unittest.TestCase):
 #     def test_raises(self):
 #         # Would test: self.assertRaises(ValueError, some_func, arg)
 #         pass
+
+# Note: TestSkip class disabled - skip decorator not working yet (Agent 3's TODO)
+# class TestSkip(unittest.TestCase):
+#     def test_normal(self):
+#         self.assertTrue(True)
+#
+#     def test_skip_me(self):
+#         """skip: WIP - not implemented yet"""
+#         # This test should be skipped
+#         # If it runs, the assertion will fail
+#         self.assertEqual(1, 999)
+#
+#     def test_also_normal(self):
+#         self.assertEqual(1, 1)
 
 unittest.main()

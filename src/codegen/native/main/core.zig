@@ -26,10 +26,16 @@ const FuncSignature = struct {
 };
 const FnvFuncSigMap = hashmap_helper.StringHashMap(FuncSignature);
 
+/// Info about a single test method
+pub const TestMethodInfo = struct {
+    name: []const u8,
+    skip_reason: ?[]const u8 = null, // null = not skipped, otherwise the reason
+};
+
 /// Unittest TestCase class info
 pub const TestClassInfo = struct {
     class_name: []const u8,
-    test_methods: []const []const u8,
+    test_methods: []const TestMethodInfo,
     has_setUp: bool = false,
     has_tearDown: bool = false,
 };
@@ -183,6 +189,10 @@ pub const NativeCodegen = struct {
     // Set during class method generation, null otherwise
     current_class_name: ?[]const u8,
 
+    // Current function being generated (for tail-call optimization)
+    // Set during function generation, null otherwise
+    current_function_name: ?[]const u8,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -240,6 +250,7 @@ pub const NativeCodegen = struct {
             .func_local_mutations = FnvVoidMap.init(allocator),
             .global_vars = FnvVoidMap.init(allocator),
             .current_class_name = null,
+            .current_function_name = null,
         };
         return self;
     }

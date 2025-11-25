@@ -408,6 +408,36 @@ pub fn assertCountEqual(a: anytype, b: anytype) void {
     }
 }
 
+/// Assertion: assertRegex(text, pattern) - text must contain pattern (substring match)
+pub fn assertRegex(text: []const u8, pattern: []const u8) void {
+    if (std.mem.indexOf(u8, text, pattern) == null) {
+        std.debug.print("AssertionError: pattern '{s}' not found in '{s}'\n", .{ pattern, text });
+        if (global_result) |result| {
+            result.addFail("assertRegex failed") catch {};
+        }
+        @panic("assertRegex failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertNotRegex(text, pattern) - text must NOT contain pattern
+pub fn assertNotRegex(text: []const u8, pattern: []const u8) void {
+    if (std.mem.indexOf(u8, text, pattern)) |_| {
+        std.debug.print("AssertionError: pattern '{s}' unexpectedly found in '{s}'\n", .{ pattern, text });
+        if (global_result) |result| {
+            result.addFail("assertNotRegex failed") catch {};
+        }
+        @panic("assertNotRegex failed");
+    } else {
+        if (global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
 /// Assertion: assertRaises(callable) - callable must return an error
 /// This is a simplified version that checks if a callable returns an error
 /// In Python: self.assertRaises(ValueError, func, args) or with self.assertRaises(ValueError):

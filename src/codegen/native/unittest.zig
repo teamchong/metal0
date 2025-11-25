@@ -24,12 +24,35 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
     // For each test class, instantiate and run test methods
     for (self.unittest_classes.items) |class_info| {
+        // Check if any tests are not skipped
+        var has_runnable_tests = false;
+        for (class_info.test_methods) |method_info| {
+            if (method_info.skip_reason == null) {
+                has_runnable_tests = true;
+                break;
+            }
+        }
+
         // Create instance using init() which initializes __dict__
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("var _test_instance_{s} = {s}.init(allocator);\n", .{ class_info.class_name, class_info.class_name });
+        if (has_runnable_tests) {
+            try self.output.writer(self.allocator).print("var _test_instance_{s} = {s}.init(allocator);\n", .{ class_info.class_name, class_info.class_name });
+        } else {
+            // Use _ = to discard value when all tests are skipped
+            try self.output.writer(self.allocator).print("_ = {s}.init(allocator);\n", .{class_info.class_name});
+        }
 
         // Run each test method
-        for (class_info.test_methods) |method_name| {
+        for (class_info.test_methods) |method_info| {
+            const method_name = method_info.name;
+
+            // Check if test should be skipped
+            if (method_info.skip_reason) |reason| {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("std.debug.print(\"test_{s}_{s} ... SKIP: {s}\\n\", .{{}});\n", .{ class_info.class_name, method_name, reason });
+                continue; // Don't run setUp, tearDown, or the test
+            }
+
             // Call setUp before each test if it exists
             if (class_info.has_setUp) {
                 try self.emitIndent();
@@ -341,6 +364,40 @@ pub fn genAssertCountEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
 
     const parent = @import("expressions.zig");
     try self.output.appendSlice(self.allocator, "runtime.unittest.assertCountEqual(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertRegex(text, pattern)
+pub fn genAssertRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertRegex requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertRegex(");
+    try parent.genExpr(self, args[0]);
+    try self.output.appendSlice(self.allocator, ", ");
+    try parent.genExpr(self, args[1]);
+    try self.output.appendSlice(self.allocator, ")");
+}
+
+/// Generate code for self.assertNotRegex(text, pattern)
+pub fn genAssertNotRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+
+    if (args.len < 2) {
+        try self.output.appendSlice(self.allocator, "@compileError(\"assertNotRegex requires 2 arguments\")");
+        return;
+    }
+
+    const parent = @import("expressions.zig");
+    try self.output.appendSlice(self.allocator, "runtime.unittest.assertNotRegex(");
     try parent.genExpr(self, args[0]);
     try self.output.appendSlice(self.allocator, ", ");
     try parent.genExpr(self, args[1]);

@@ -7,12 +7,53 @@ const CodegenError = @import("../main.zig").CodegenError;
 // Re-export print statement generation
 pub const genPrint = @import("print.zig").genPrint;
 
-/// Generate return statement
+/// Check if a return value is a tail-recursive call to the current function
+/// A tail call is: return func_name(args) where func_name == current function
+fn isTailRecursiveCall(self: *NativeCodegen, value: ast.Node) ?ast.Node.Call {
+    // Must be inside a function
+    const current_func = self.current_function_name orelse return null;
+
+    // Must be a call expression
+    if (value != .call) return null;
+    const call = value.call;
+
+    // Function must be a simple name (not attribute/method call)
+    if (call.func.* != .name) return null;
+    const func_name = call.func.name.id;
+
+    // Must be calling the current function
+    if (!std.mem.eql(u8, func_name, current_func)) return null;
+
+    return call;
+}
+
+/// Generate return statement with tail-call optimization
 pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
     try self.emitIndent();
-    try self.emit("return ");
+
     if (ret.value) |value| {
+        // Check for tail-recursive call
+        if (isTailRecursiveCall(self, value.*)) |call| {
+            // Emit: return @call(.always_tail, func_name, .{args})
+            try self.emit("return @call(.always_tail, ");
+            try self.emit(call.func.name.id);
+            try self.emit(", .{");
+
+            // Generate arguments
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try self.genExpr(arg);
+            }
+
+            try self.emit("});\n");
+            return;
+        }
+
+        // Normal return
+        try self.emit("return ");
         try self.genExpr(value.*);
+    } else {
+        try self.emit("return ");
     }
     try self.emit(";\n");
 }

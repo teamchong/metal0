@@ -52,8 +52,14 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     // Generate function signature
     try signature.genFunctionSignature(self, func, needs_allocator);
 
+    // Set current function name for tail-call optimization detection
+    self.current_function_name = func.name;
+
     // Generate function body
     try body.genFunctionBody(self, func, needs_allocator, actually_uses_allocator);
+
+    // Clear current function name after body generation
+    self.current_function_name = null;
 
     // Register decorated functions for application in main()
     if (func.decorators.len > 0) {
@@ -99,14 +105,21 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     // Track unittest TestCase classes and their test methods
     if (is_unittest_class) {
-        var test_methods = std.ArrayList([]const u8){};
+        const core = @import("../../main/core.zig");
+        var test_methods = std.ArrayList(core.TestMethodInfo){};
         var has_setUp = false;
         var has_tearDown = false;
         for (class.body) |stmt| {
             if (stmt == .function_def) {
-                const method_name = stmt.function_def.name;
+                const method = stmt.function_def;
+                const method_name = method.name;
                 if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
-                    try test_methods.append(self.allocator, method_name);
+                    // Check for skip docstring: first statement is string starting with "skip:"
+                    const skip_reason = getSkipReason(method);
+                    try test_methods.append(self.allocator, core.TestMethodInfo{
+                        .name = method_name,
+                        .skip_reason = skip_reason,
+                    });
                 } else if (std.mem.eql(u8, method_name, "setUp")) {
                     has_setUp = true;
                 } else if (std.mem.eql(u8, method_name, "tearDown")) {
@@ -114,7 +127,6 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 }
             }
         }
-        const core = @import("../../main/core.zig");
         try self.unittest_classes.append(self.allocator, core.TestClassInfo{
             .class_name = class.name,
             .test_methods = try test_methods.toOwnedSlice(self.allocator),
@@ -186,4 +198,48 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     self.dedent();
     try self.emitIndent();
     try self.output.appendSlice(self.allocator, "};\n");
+}
+
+/// Check if a test method has a skip docstring
+/// Returns the skip reason if found, null otherwise
+/// Looks for: """skip: reason""" or "skip: reason" as first statement
+fn getSkipReason(method: ast.Node.FunctionDef) ?[]const u8 {
+    if (method.body.len == 0) return null;
+
+    // Check if first statement is an expression statement with a string constant
+    const first = method.body[0];
+    if (first != .expr_stmt) return null;
+
+    const expr = first.expr_stmt.value.*;
+    if (expr != .constant) return null;
+
+    const val = expr.constant.value;
+    if (val != .string) return null;
+
+    var docstring = val.string;
+
+    // The parser stores strings with their original Python quotes
+    // Single-quoted: "skip: reason" (with surrounding quotes)
+    // Triple-quoted: """skip: reason""" becomes ""skip: reason"" in storage
+    // We need to strip these outer quotes first
+
+    // Strip leading quotes (" or "")
+    while (docstring.len > 0 and docstring[0] == '"') {
+        docstring = docstring[1..];
+    }
+    // Strip trailing quotes
+    while (docstring.len > 0 and docstring[docstring.len - 1] == '"') {
+        docstring = docstring[0 .. docstring.len - 1];
+    }
+
+    // Check for "skip:" prefix (case insensitive for the prefix)
+    if (docstring.len >= 5) {
+        const prefix = docstring[0..5];
+        if (std.mem.eql(u8, prefix, "skip:") or std.mem.eql(u8, prefix, "SKIP:")) {
+            // Return the reason (everything after "skip:")
+            const reason = std.mem.trim(u8, docstring[5..], " \t\n\r");
+            return if (reason.len > 0) reason else "skipped";
+        }
+    }
+    return null;
 }
