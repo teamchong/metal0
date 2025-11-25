@@ -130,3 +130,41 @@ pub fn genNoTryCall(comptime spec: NoTryCallSpec) fn (*NativeCodegen, []ast.Node
         }
     }.handler;
 }
+
+/// Spec for calls that access a field on the result (e.g., http.get(url).body)
+pub const FieldAccessCallSpec = struct {
+    runtime_path: []const u8,
+    arg_count: u8,
+    field: []const u8, // e.g. "body"
+    needs_allocator: bool = true,
+    needs_try: bool = false,
+};
+
+pub fn genFieldAccessCall(comptime spec: FieldAccessCallSpec) fn (*NativeCodegen, []ast.Node) CodegenError!void {
+    return struct {
+        pub fn handler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+            if (args.len != spec.arg_count) {
+                std.debug.print("{s} expects {d} args, got {d}\n", .{ spec.runtime_path, spec.arg_count, args.len });
+                return;
+            }
+
+            if (spec.needs_try) {
+                try self.output.appendSlice(self.allocator, "try ");
+            }
+            try self.output.appendSlice(self.allocator, spec.runtime_path ++ "(");
+            if (spec.needs_allocator) {
+                try self.output.appendSlice(self.allocator, "allocator");
+                if (spec.arg_count > 0) {
+                    try self.output.appendSlice(self.allocator, ", ");
+                }
+            }
+
+            inline for (0..spec.arg_count) |i| {
+                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                try self.genExpr(args[i]);
+            }
+
+            try self.output.appendSlice(self.allocator, ")." ++ spec.field);
+        }
+    }.handler;
+}

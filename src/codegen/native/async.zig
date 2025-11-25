@@ -4,6 +4,7 @@ const ast = @import("../../ast.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const async_complexity = @import("../../analysis/async_complexity.zig");
+const bridge = @import("stdlib_bridge.zig");
 
 /// Generate code for asyncio.run(main())
 /// Maps to: initialize scheduler once, spawn main, wait for completion
@@ -59,16 +60,7 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
 
 /// Generate code for asyncio.create_task(coro)
 /// Maps to: runtime.asyncio.createTask(allocator, coro)
-pub fn genAsyncioCreateTask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        // TODO: Error handling
-        return;
-    }
-
-    try self.output.appendSlice(self.allocator, "try runtime.asyncio.createTask(allocator, ");
-    try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, ")");
-}
+pub const genAsyncioCreateTask = bridge.genSimpleCall(.{ .runtime_path = "runtime.asyncio.createTask", .arg_count = 1 });
 
 /// Generate code for asyncio.sleep(seconds)
 /// Maps to: sleep + yield to scheduler
