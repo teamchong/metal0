@@ -250,39 +250,6 @@ pyaot build --binary your_file.py
 
 ## Examples
 
-### Benchmarks
-
-#### Recursive Fibonacci (fib 35)
-| Language | Time | vs Python |
-|----------|------|-----------|
-| **PyAOT** | **27.8ms** | **29x faster** 🏆 |
-| Rust | 28.8ms | 28x faster |
-| Go | 33.7ms | 24x faster |
-| PyPy | 90.5ms | 9x faster |
-| Python | 800.2ms | 1.00x |
-
-*Measured with hyperfine, 5 runs, 10 warmup (for PyPy JIT). Startup overhead (~4ms) included.*
-
-#### Tail-Recursive Fibonacci (10K × fib(10000))
-| Language | Time | vs PyAOT |
-|----------|------|----------|
-| **PyAOT** | **31.9ms** | **1.00x** 🏆 |
-| Rust | 32.2ms | 1.01x |
-| Go | 286.7ms | 8.99x slower |
-| PyPy | ❌ | RecursionError (depth 10000) |
-| Python | ❌ | RecursionError (depth 10000) |
-
-*Tail-recursive with accumulator. PyAOT uses `@call(.always_tail)` for guaranteed TCO. Python/PyPy have no tail-call optimization.*
-
-**Deep recursion:** PyAOT handles fib_tail(1,000,000) - Python/PyPy crash at ~1000.
-
-```bash
-make benchmark-fib       # Recursive fib(35) - PyAOT vs Rust vs Go vs Python
-make benchmark-fib-tail  # Tail-recursive fib - tests tail-call optimization
-```
-
-Benchmark source files in `benchmarks/python/`, `benchmarks/rust/`, `benchmarks/go/`.
-
 ### 1. Object-Oriented (Class Inheritance)
 
 Full OOP support with classes and inheritance.
@@ -385,6 +352,34 @@ Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM6
 | **Rust 1.91** | **3.30s ± 0.01s** | 1.01x slower | 30.52x faster |
 | **Go 1.25** | **3.66s ± 0.03s** | 1.12x slower | 27.47x faster |
 | CPython 3.13 | 100.59s ± 2.37s | 30.72x slower | 1.00x |
+
+**Fibonacci(35) - Quick Benchmark (~30ms runtime, includes PyPy):**
+
+| Language | Time | vs Python |
+|----------|------|-----------|
+| **PyAOT** | **27.8ms** | **29x faster** 🏆 |
+| Rust | 28.8ms | 28x faster |
+| Go | 33.7ms | 24x faster |
+| PyPy | 90.5ms | 9x faster |
+| Python | 800.2ms | 1.00x |
+
+*10 warmup runs for PyPy JIT.*
+
+**Tail-Recursive Fibonacci (10K × fib(10000)) - TCO Test:**
+
+| Language | Time | vs PyAOT |
+|----------|------|----------|
+| **PyAOT** | **31.9ms** | **1.00x** 🏆 |
+| Rust | 32.2ms | 1.01x |
+| Go | 286.7ms | 8.99x slower |
+| Python/PyPy | ❌ | RecursionError |
+
+*PyAOT uses `@call(.always_tail)` for guaranteed TCO. Python/PyPy crash at depth ~1000.*
+
+```bash
+make benchmark-fib       # fib(35) with PyPy
+make benchmark-fib-tail  # Tail-recursive TCO test
+```
 
 **Startup Time - Hello World (100 runs):**
 
@@ -892,9 +887,3 @@ This project includes patent grants for all compression algorithms and optimizat
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) (coming soon)
-
----
-
-## Benchmarks
-
-All benchmarks verified with [hyperfine](https://github.com/sharkdp/hyperfine), same data/iterations across implementations. Code in repo, fully reproducible.

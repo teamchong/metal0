@@ -149,15 +149,56 @@ pub fn printPyObject(obj: *PyObject) void {
             const data: *PyInt = @ptrCast(@alignCast(obj.data));
             std.debug.print("{}", .{data.value});
         },
+        .float => {
+            const data: *PyFloat = @ptrCast(@alignCast(obj.data));
+            std.debug.print("{d}", .{data.value});
+        },
+        .bool => {
+            const data: *PyBool = @ptrCast(@alignCast(obj.data));
+            std.debug.print("{s}", .{if (data.value) "True" else "False"});
+        },
         .string => {
             const data: *PyString = @ptrCast(@alignCast(obj.data));
             std.debug.print("{s}", .{data.data});
         },
+        .none => {
+            std.debug.print("None", .{});
+        },
+        .list => {
+            printList(obj);
+        },
+        .tuple => {
+            PyTuple.print(obj);
+        },
+        .dict => {
+            printDict(obj);
+        },
         else => {
-            // For other types, print the pointer (fallback)
+            // For other types (numpy_array, regex), print the pointer
             std.debug.print("{*}", .{obj});
         },
     }
+}
+
+/// Helper function to print a dict in Python format: {'key': value, ...}
+fn printDict(obj: *PyObject) void {
+    std.debug.assert(obj.type_id == .dict);
+    const data: *PyDict = @ptrCast(@alignCast(obj.data));
+
+    std.debug.print("{{", .{});
+    var iter = data.map.iterator();
+    var idx: usize = 0;
+    while (iter.next()) |entry| {
+        if (idx > 0) {
+            std.debug.print(", ", .{});
+        }
+        // Print key with quotes (string keys)
+        std.debug.print("'{s}': ", .{entry.key_ptr.*});
+        // Recursively print value
+        printPyObject(entry.value_ptr.*);
+        idx += 1;
+    }
+    std.debug.print("}}", .{});
 }
 
 /// Helper function to print a list in Python format: [elem1, elem2, elem3]
