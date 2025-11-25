@@ -57,8 +57,8 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .await_expr => |a| try genAwait(self, a),
         .ellipsis_literal => {
             // Python Ellipsis literal (...)
-            // For now, emit a placeholder value
-            try self.output.appendSlice(self.allocator, "{}");
+            // Emit void value to avoid "unused variable" warnings
+            try self.output.appendSlice(self.allocator, "@as(void, {})");
         },
         else => {},
     }

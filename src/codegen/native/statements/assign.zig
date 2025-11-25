@@ -43,6 +43,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         if (target == .name) {
             const var_name = target.name.id;
 
+            // Special case: ellipsis assignment (x = ...)
+            // Emit as explicit discard to avoid "unused variable" error
+            if (assign.value.* == .ellipsis_literal) {
+                try self.emitIndent();
+                try self.output.appendSlice(self.allocator, "_ = ");
+                try self.genExpr(assign.value.*);
+                try self.output.appendSlice(self.allocator, ";\n");
+                return;
+            }
+
             // Check collection types and allocation behavior
             const is_constant_array = typeHandling.isConstantArray(self, assign, var_name);
             const is_arraylist = typeHandling.isArrayList(self, assign, var_name);
