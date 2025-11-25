@@ -120,6 +120,15 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
         var kwarg_name: ?[]const u8 = null;
 
         while (!self.match(.RParen)) {
+            // Check for positional-only parameter marker (/)
+            // Python 3.8+ uses / to mark end of positional-only parameters
+            // e.g., def foo(a, /, b): means a is positional-only
+            if (self.match(.Slash)) {
+                // Just skip it - it's a marker, not a parameter
+                _ = self.match(.Comma); // optional comma after /
+                continue;
+            }
+
             // Check for **kwargs (must check before *args since ** starts with *)
             if (self.match(.DoubleStar)) {
                 const arg_name = try self.expect(.Ident);
