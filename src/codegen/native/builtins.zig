@@ -30,6 +30,7 @@ pub const genPow = math.genPow;
 pub const genChr = math.genChr;
 pub const genOrd = math.genOrd;
 pub const genDivmod = math.genDivmod;
+pub const genHash = math.genHash;
 
 pub const genEnumerate = collections.genEnumerate;
 pub const genZip = collections.genZip;

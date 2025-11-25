@@ -26,6 +26,7 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "round", builtins.genRound },
     .{ "pow", builtins.genPow },
     .{ "divmod", builtins.genDivmod },
+    .{ "hash", builtins.genHash },
     // Collections
     .{ "all", builtins.genAll },
     .{ "any", builtins.genAny },

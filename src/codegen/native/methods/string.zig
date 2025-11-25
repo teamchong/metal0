@@ -51,7 +51,7 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.genExpr(args[0]); // The separator
     try self.emit(");\n");
     try self.emit("    while (_split_iter.next()) |part| {\n");
-    try self.emit("        try _split_result.append(allocator, part);\n");
+    try self.emit("        try _split_result.append(__global_allocator, part);\n");
     try self.emit("    }\n");
     try self.emit("    break :blk _split_result;\n");
     try self.emit("}");
@@ -67,7 +67,7 @@ pub fn genUpper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit("    const _text = ");
     try self.genExpr(obj);
     try self.emit(";\n");
-    try self.emit("    const _result = try allocator.alloc(u8, _text.len);\n");
+    try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
     try self.emit("    for (_text, 0..) |_c, _idx| {\n");
     try self.emit("        _result[_idx] = std.ascii.toUpper(_c);\n");
     try self.emit("    }\n");
@@ -85,7 +85,7 @@ pub fn genLower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit("    const _text = ");
     try self.genExpr(obj);
     try self.emit(";\n");
-    try self.emit("    const _result = try allocator.alloc(u8, _text.len);\n");
+    try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
     try self.emit("    for (_text, 0..) |_c, _idx| {\n");
     try self.emit("        _result[_idx] = std.ascii.toLower(_c);\n");
     try self.emit("    }\n");
@@ -105,7 +105,7 @@ pub fn genStrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.genExpr(obj);
     try self.emit(";\n");
     try self.emit("    const _trimmed = std.mem.trim(u8, _text, \" \\t\\n\\r\");\n");
-    try self.emit("    const _result = try allocator.alloc(u8, _trimmed.len);\n");
+    try self.emit("    const _result = try __global_allocator.alloc(u8, _trimmed.len);\n");
     try self.emit("    @memcpy(_result, _trimmed);\n");
     try self.emitFmt("    break :strip_{d} _result;\n", .{label_id});
     try self.emit("}");
@@ -119,7 +119,7 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     }
 
     // Generate: try std.mem.replaceOwned(u8, allocator, text, old, new)
-    try self.emit("try std.mem.replaceOwned(u8, allocator, ");
+    try self.emit("try std.mem.replaceOwned(u8, __global_allocator, ");
     try self.genExpr(obj);
     try self.emit(", ");
     try self.genExpr(args[0]); // old
@@ -134,7 +134,7 @@ pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     if (args.len != 1) return;
 
     // Generate: std.mem.join(allocator, separator, list)
-    try self.emit("std.mem.join(allocator, ");
+    try self.emit("std.mem.join(__global_allocator, ");
     try self.genExpr(obj); // The separator string
     try self.emit(", ");
     try self.genExpr(args[0]); // The list

@@ -22,6 +22,7 @@ const BuiltinFuncMap = std.StaticStringMap(NativeType).initComptime(.{
     .{ "min", NativeType.int },
     .{ "max", NativeType.int },
     .{ "sum", NativeType.int },
+    .{ "hash", NativeType.int },
 });
 
 const StringMethods = std.StaticStringMap(NativeType).initComptime(.{

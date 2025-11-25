@@ -110,3 +110,45 @@ pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[1]);
     try self.emit(") }");
 }
+
+/// Generate code for hash(obj)
+/// Returns integer hash of object
+pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    // Check the type of the argument to generate appropriate code
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    switch (arg_type) {
+        .int => {
+            // For integers: hash is the value itself (Python behavior)
+            try self.emit("@as(i64, ");
+            try self.genExpr(args[0]);
+            try self.emit(")");
+        },
+        .bool => {
+            // For bools: 1 for True, 0 for False
+            try self.emit("@as(i64, if (");
+            try self.genExpr(args[0]);
+            try self.emit(") 1 else 0)");
+        },
+        .float => {
+            // For floats: hash the bit representation
+            try self.emit("@as(i64, @bitCast(@as(u64, @bitCast(");
+            try self.genExpr(args[0]);
+            try self.emit("))))");
+        },
+        .string => {
+            // For strings: use std.hash.Wyhash
+            try self.emit("@as(i64, @bitCast(std.hash.Wyhash.hash(0, ");
+            try self.genExpr(args[0]);
+            try self.emit(")))");
+        },
+        else => {
+            // For other types: use runtime.pyHash which handles PyObject
+            try self.emit("runtime.pyHash(");
+            try self.genExpr(args[0]);
+            try self.emit(")");
+        },
+    }
+}

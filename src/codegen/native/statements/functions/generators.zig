@@ -7,14 +7,14 @@ const CodegenError = @import("../../main.zig").CodegenError;
 const allocator_analyzer = @import("allocator_analyzer.zig");
 const signature = @import("generators/signature.zig");
 const body = @import("generators/body.zig");
-const assign = @import("../assign.zig");
 
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
-    // Skip functions whose body references skipped modules (e.g., subprocess)
-    if (assign.functionBodyRefersToSkippedModule(self, func.body)) {
-        return;
-    }
+    // NOTE: We do NOT skip entire functions that reference skipped modules.
+    // Instead, individual statements that call skipped module functions are skipped.
+    // This allows functions like run_code() that internally call subprocess.run()
+    // to still be generated - only the subprocess.run() call itself is skipped.
+
     // Check if function needs allocator parameter (for error union return type)
     const needs_allocator_for_errors = allocator_analyzer.functionNeedsAllocator(func);
 

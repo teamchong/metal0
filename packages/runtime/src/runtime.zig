@@ -460,6 +460,50 @@ test "PyDict set and get" {
     try std.testing.expectEqual(@as(i64, 100), PyInt.getValue(retrieved.?));
 }
 
+/// Python hash() builtin - returns integer hash of object
+/// For integers: returns the integer itself (Python behavior)
+/// For strings: uses wyhash for fast hashing
+/// For bools: 1 for True, 0 for False
+pub fn pyHash(value: anytype) i64 {
+    const T = @TypeOf(value);
+    const type_info = @typeInfo(T);
+
+    // Integer types: hash is the value itself (Python behavior)
+    if (type_info == .int or type_info == .comptime_int) {
+        return @intCast(value);
+    }
+
+    // Bool: 1 for true, 0 for false
+    if (type_info == .bool) {
+        return if (value) 1 else 0;
+    }
+
+    // Pointer types - check if it's a string slice
+    if (type_info == .pointer) {
+        const child = type_info.pointer.child;
+        // Check for []const u8 (string slice)
+        if (child == u8) {
+            return @as(i64, @bitCast(std.hash.Wyhash.hash(0, value)));
+        }
+        // Check for slice of u8
+        if (@typeInfo(child) == .array) {
+            const array_child = @typeInfo(child).array.child;
+            if (array_child == u8) {
+                return @as(i64, @bitCast(std.hash.Wyhash.hash(0, value)));
+            }
+        }
+    }
+
+    // Float: hash the bit representation
+    if (type_info == .float or type_info == .comptime_float) {
+        const bits: u64 = @bitCast(@as(f64, value));
+        return @bitCast(bits);
+    }
+
+    // Default: return 0 for unhashable types
+    return 0;
+}
+
 /// Bounds-checked array list access for exception handling
 /// Returns element at index or IndexError if out of bounds
 pub fn arrayListGet(comptime T: type, list: std.ArrayList(T), index: i64) PythonError!T {

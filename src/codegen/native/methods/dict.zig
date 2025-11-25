@@ -57,7 +57,7 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("try _keys_list.append(allocator, key_ptr.*);\n");
+    try self.emit("try _keys_list.append(__global_allocator, key_ptr.*);\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -99,7 +99,7 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("try _values_list.append(allocator, val_ptr.*);\n");
+    try self.emit("try _values_list.append(__global_allocator, val_ptr.*);\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -146,7 +146,7 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit("}){entry.key_ptr.*, entry.value_ptr.*};\n");
 
     try self.emitIndent();
-    try self.emit("try _items_list.append(allocator, _tuple);\n");
+    try self.emit("try _items_list.append(__global_allocator, _tuple);\n");
 
     self.indent_level -= 1;
     try self.emitIndent();

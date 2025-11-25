@@ -11,10 +11,10 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         return;
     }
 
-    // Generate: try list.append(allocator, item)
+    // Generate: try list.append(__global_allocator, item)
     try self.emit("try ");
     try self.genExpr(obj);
-    try self.emit(".append(allocator, ");
+    try self.emit(".append(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(")");
 }
@@ -41,10 +41,10 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: try list.appendSlice(allocator, other.items)
+    // Generate: try list.appendSlice(__global_allocator, other.items)
     try self.emit("try ");
     try self.genExpr(obj);
-    try self.emit(".appendSlice(allocator, ");
+    try self.emit(".appendSlice(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(".items)");
 }
@@ -54,10 +54,10 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 2) return;
 
-    // Generate: try list.insert(allocator, index, item)
+    // Generate: try list.insert(__global_allocator, index, item)
     try self.emit("try ");
     try self.genExpr(obj);
-    try self.emit(".insert(allocator, ");
+    try self.emit(".insert(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(", ");
     try self.genExpr(args[1]);
@@ -116,10 +116,10 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    // Generate: try list.clone(allocator)
+    // Generate: try list.clone(__global_allocator)
     try self.emit("try ");
     try self.genExpr(obj);
-    try self.emit(".clone(allocator)");
+    try self.emit(".clone(__global_allocator)");
 }
 
 /// Generate code for list.index(item)

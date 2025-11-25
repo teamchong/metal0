@@ -6,6 +6,7 @@ const CodegenError = @import("../../../main.zig").CodegenError;
 const CodeBuilder = @import("../../../code_builder.zig").CodeBuilder;
 const self_analyzer = @import("../self_analyzer.zig");
 const param_analyzer = @import("../param_analyzer.zig");
+const allocator_analyzer = @import("../allocator_analyzer.zig");
 const signature = @import("signature.zig");
 const hashmap_helper = @import("../../../../../utils/hashmap_helper.zig");
 
@@ -200,6 +201,12 @@ fn genAsyncFunctionBody(
 
     // Push new scope for function body
     try self.pushScope();
+
+    // Async impl functions use __global_allocator directly in generated code (e.g., createTask).
+    // The `allocator` alias is provided for consistency but often unused.
+    // Always suppress warning since analysis can't distinguish direct vs aliased use.
+    try self.emitIndent();
+    try self.emit("const allocator = __global_allocator; _ = allocator;\n");
 
     // Declare function parameters in the scope
     for (func.args) |arg| {
