@@ -418,7 +418,22 @@ pub fn genMethodSignature(
         const zig_return_type = pythonTypeToZig(method.return_type);
         try self.output.appendSlice(self.allocator, zig_return_type);
     } else if (hasReturnStatement(method.body)) {
-        try self.output.appendSlice(self.allocator, "i64");
+        // Try to get inferred return type from class_fields.methods
+        const class_info = self.type_inferrer.class_fields.get(class_name);
+        const inferred_type = if (class_info) |info| info.methods.get(method.name) else null;
+
+        if (inferred_type) |inf_type| {
+            // Use inferred type (skip if .int or .unknown - those are defaults)
+            if (inf_type != .int and inf_type != .unknown) {
+                const return_type_str = try self.nativeTypeToZigType(inf_type);
+                defer self.allocator.free(return_type_str);
+                try self.output.appendSlice(self.allocator, return_type_str);
+            } else {
+                try self.output.appendSlice(self.allocator, "i64");
+            }
+        } else {
+            try self.output.appendSlice(self.allocator, "i64");
+        }
     } else {
         try self.output.appendSlice(self.allocator, "void");
     }
