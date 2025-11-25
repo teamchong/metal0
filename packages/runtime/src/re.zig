@@ -91,8 +91,8 @@ pub fn sub(allocator: std.mem.Allocator, pattern: []const u8, replacement: []con
     defer regex.deinit();
 
     // Build result by iterating through matches
-    var result = std.ArrayList(u8).init(allocator);
-    defer result.deinit();
+    var result = std.ArrayList(u8){};
+    defer result.deinit(allocator);
 
     var pos: usize = 0;
     while (pos < text.len) {
@@ -106,17 +106,17 @@ pub fn sub(allocator: std.mem.Allocator, pattern: []const u8, replacement: []con
             }
 
             // Append text before match
-            try result.appendSlice(text[pos .. pos + m.span.start]);
+            try result.appendSlice(allocator, text[pos .. pos + m.span.start]);
 
             // Append replacement
-            try result.appendSlice(replacement);
+            try result.appendSlice(allocator, replacement);
 
             // Move past the match
             const match_end = pos + m.span.end;
             if (match_end == pos) {
                 // Zero-length match - advance by 1 to avoid infinite loop
                 if (pos < text.len) {
-                    try result.append(text[pos]);
+                    try result.append(allocator, text[pos]);
                 }
                 pos += 1;
             } else {
@@ -124,13 +124,13 @@ pub fn sub(allocator: std.mem.Allocator, pattern: []const u8, replacement: []con
             }
         } else {
             // No more matches - append rest of text
-            try result.appendSlice(text[pos..]);
+            try result.appendSlice(allocator, text[pos..]);
             break;
         }
     }
 
     // Create owned string (ArrayList.toOwnedSlice gives us ownership)
-    const owned = try result.toOwnedSlice();
+    const owned = try result.toOwnedSlice(allocator);
     return try runtime.PyString.createOwned(allocator, owned);
 }
 
@@ -183,14 +183,14 @@ pub fn findall(allocator: std.mem.Allocator, pattern: []const u8, text: []const 
     }
 
     // Create a PyList to hold the results
-    var list = try runtime.PyList.create(allocator);
+    const list = try runtime.PyList.create(allocator);
 
     for (matches.items) |matched_text| {
         const str_obj = try runtime.PyString.create(allocator, matched_text);
-        try list.append(str_obj);
+        try runtime.PyList.append(list, str_obj);
     }
 
-    return list.toPyObject();
+    return list;
 }
 
 test "re.findall basic" {
@@ -200,9 +200,8 @@ test "re.findall basic" {
     defer runtime.decref(result, allocator);
 
     // Verify it's a list with 3 items
-    const list = runtime.PyList.fromPyObject(result);
-    try std.testing.expect(list != null);
-    try std.testing.expectEqual(@as(usize, 3), list.?.len());
+    try std.testing.expect(result.type_id == .list);
+    try std.testing.expectEqual(@as(usize, 3), runtime.PyList.len(result));
 }
 
 test "re.findall no matches" {
@@ -212,7 +211,6 @@ test "re.findall no matches" {
     defer runtime.decref(result, allocator);
 
     // Verify it's an empty list
-    const list = runtime.PyList.fromPyObject(result);
-    try std.testing.expect(list != null);
-    try std.testing.expectEqual(@as(usize, 0), list.?.len());
+    try std.testing.expect(result.type_id == .list);
+    try std.testing.expectEqual(@as(usize, 0), runtime.PyList.len(result));
 }
