@@ -88,6 +88,17 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
     // Special handling for division - can throw ZeroDivisionError
     if (binop.op == .Div) {
+        // Check if this is Path / string (path join)
+        const left_type = try self.type_inferrer.inferExpr(binop.left.*);
+        if (left_type == .path) {
+            // Path / "component" -> Path.join("component")
+            try genExpr(self, binop.left.*);
+            try self.emit(".join(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+            return;
+        }
+
         // True division (/) - always returns float
         try self.emit("try runtime.divideFloat(");
         try genExpr(self, binop.left.*);

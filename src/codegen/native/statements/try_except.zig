@@ -386,15 +386,15 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             call_param_count += 1;
         }
 
-        // Check if we need to capture err (only if there are specific exception handlers)
-        const has_specific_handler = blk: {
+        // Check if we need to capture err (if there are specific exception handlers OR exception var names)
+        const needs_err_capture = blk: {
             for (try_node.handlers) |handler| {
-                if (handler.type != null) break :blk true;
+                if (handler.type != null or handler.name != null) break :blk true;
             }
             break :blk false;
         };
 
-        if (has_specific_handler) {
+        if (needs_err_capture) {
             try self.emit(") catch |err| {\n");
         } else {
             try self.emit(") catch {\n");
@@ -417,6 +417,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 try self.emit(zig_err);
                 try self.emit(") {\n");
                 self.indent();
+                // If handler has "as name", declare the exception variable as a string
+                if (handler.name) |exc_name| {
+                    try self.emitIndent();
+                    try self.emit("const ");
+                    try self.emit(exc_name);
+                    try self.emit(": []const u8 = @errorName(err);\n");
+                }
                 for (handler.body) |stmt| {
                     try self.generateStmt(stmt);
                 }
@@ -430,7 +437,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     try self.emit("{\n");
                 }
                 self.indent();
-                // Don't need _ = err; anymore - Zig will auto-ignore unused err
+                // If handler has "as name", declare the exception variable as a string
+                if (handler.name) |exc_name| {
+                    try self.emitIndent();
+                    try self.emit("const ");
+                    try self.emit(exc_name);
+                    try self.emit(": []const u8 = @errorName(err);\n");
+                }
                 for (handler.body) |stmt| {
                     try self.generateStmt(stmt);
                 }

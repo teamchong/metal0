@@ -10,10 +10,13 @@ const body = @import("generators/body.zig");
 
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
-    // NOTE: We do NOT skip entire functions that reference skipped modules.
-    // Instead, individual statements that call skipped module functions are skipped.
-    // This allows functions like run_code() that internally call subprocess.run()
-    // to still be generated - only the subprocess.run() call itself is skipped.
+    // Skip entire functions that reference skipped modules to avoid undeclared variable errors.
+    // E.g., `result = subprocess.run(...)` skips assignment but `return result.stderr` still
+    // references `result` - causing compilation errors. Better to skip the whole function.
+    const assign = @import("../assign.zig");
+    if (assign.functionBodyRefersToSkippedModule(self, func.body)) {
+        return;
+    }
 
     // Check if function needs allocator parameter (for error union return type)
     const needs_allocator_for_errors = allocator_analyzer.functionNeedsAllocator(func);

@@ -125,6 +125,11 @@ pub fn inferCall(
         if (BuiltinFuncMap.get(func_name)) |return_type| {
             return return_type;
         }
+
+        // Path() constructor from pathlib
+        if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("Path")) {
+            return .path;
+        }
     }
 
     // Check if this is a method call (attribute access)
@@ -269,6 +274,26 @@ pub fn inferCall(
         {
             if (DfColumnMethods.has(attr.attr)) return .float;
             if (fnv_hash.hash(attr.attr) == comptime fnv_hash.hash("describe")) return .unknown;
+        }
+
+        // Path methods
+        if (obj_type == .path) {
+            const method_hash = fnv_hash.hash(attr.attr);
+            const PARENT_HASH = comptime fnv_hash.hash("parent");
+            const EXISTS_HASH = comptime fnv_hash.hash("exists");
+            const IS_FILE_HASH = comptime fnv_hash.hash("is_file");
+            const IS_DIR_HASH = comptime fnv_hash.hash("is_dir");
+            const READ_TEXT_HASH = comptime fnv_hash.hash("read_text");
+            // Methods that return Path
+            if (method_hash == PARENT_HASH) return .path;
+            // Methods that return bool
+            if (method_hash == EXISTS_HASH or method_hash == IS_FILE_HASH or method_hash == IS_DIR_HASH) {
+                return .bool;
+            }
+            // Methods that return string
+            if (method_hash == READ_TEXT_HASH) {
+                return .{ .string = .runtime };
+            }
         }
     }
 

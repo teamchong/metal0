@@ -172,6 +172,22 @@ pub fn inferExpr(
                 }
             }
 
+            // Path properties
+            if (obj_type == .path) {
+                const fnv_hash = @import("../../utils/fnv_hash.zig");
+                const attr_hash = fnv_hash.hash(a.attr);
+                const PARENT_HASH = comptime fnv_hash.hash("parent");
+                const NAME_HASH = comptime fnv_hash.hash("name");
+                const STEM_HASH = comptime fnv_hash.hash("stem");
+                const SUFFIX_HASH = comptime fnv_hash.hash("suffix");
+                // parent property returns Path
+                if (attr_hash == PARENT_HASH) break :blk .path;
+                // name/stem/suffix properties return string
+                if (attr_hash == NAME_HASH or attr_hash == STEM_HASH or attr_hash == SUFFIX_HASH) {
+                    break :blk .{ .string = .runtime };
+                }
+            }
+
             break :blk .unknown;
         },
         .list => |l| blk: {
@@ -355,6 +371,11 @@ fn inferBinOp(
     // Get type tags for analysis
     const left_tag = @as(std.meta.Tag(NativeType), left_type);
     const right_tag = @as(std.meta.Tag(NativeType), right_type);
+
+    // Path join: Path / string → Path
+    if (binop.op == .Div and left_tag == .path) {
+        return .path;
+    }
 
     // String concatenation: str + str → runtime string
     if (binop.op == .Add and left_tag == .string and right_tag == .string) {

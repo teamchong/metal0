@@ -65,10 +65,26 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 /// Generate attribute access (obj.attr)
 pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError!void {
     // Forward declare genExpr - it's in parent module
-    const parent = @import("../expressions.zig");
-    const genExpr = parent.genExpr;
+    const parent_module = @import("../expressions.zig");
+    const genExpr = parent_module.genExpr;
 
-    // Check if this is a Path.parent access (Python property -> Zig method)
+    // Check if this is a Path property access using type inference
+    const value_type = try self.type_inferrer.inferExpr(attr.value.*);
+    if (value_type == .path) {
+        // Path properties that need to be called as methods in Zig
+        const path_properties = [_][]const u8{ "parent", "stem", "suffix", "name" };
+        for (path_properties) |prop| {
+            if (std.mem.eql(u8, attr.attr, prop)) {
+                try genExpr(self, attr.value.*);
+                try self.emit(".");
+                try self.emit(attr.attr);
+                try self.emit("()"); // Call as method in Zig
+                return;
+            }
+        }
+    }
+
+    // Legacy check for Path.parent access (Python property -> Zig method)
     if (isPathProperty(attr)) {
         try genExpr(self, attr.value.*);
         try self.emit(".");

@@ -68,6 +68,7 @@ pub const NativeType = union(enum) {
     optional: *const NativeType, // Optional[T] - Zig optional (?T)
     none: void, // void or ?T
     unknown: void, // Fallback to PyObject* (should be rare)
+    path: void, // pathlib.Path
 
     /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
@@ -114,6 +115,7 @@ pub const NativeType = union(enum) {
             .bool => "bool",
             .string => "[]const u8",
             .usize => "usize",
+            .path => "*pathlib.Path",
             else => "*runtime.PyObject",
         };
     }
@@ -187,6 +189,7 @@ pub const NativeType = union(enum) {
             },
             .none => try buf.appendSlice(allocator, "?void"),
             .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
+            .path => try buf.appendSlice(allocator, "*pathlib.Path"),
         }
     }
 

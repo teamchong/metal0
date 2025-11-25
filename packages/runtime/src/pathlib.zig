@@ -69,4 +69,15 @@ pub const Path = struct {
         };
         return p;
     }
+
+    /// Join path with another component (Python's Path / operator)
+    pub fn join(self: *const Path, component: []const u8) *Path {
+        const joined = std.fs.path.join(self.allocator, &.{ self.path, component }) catch unreachable;
+        const p = self.allocator.create(Path) catch unreachable;
+        p.* = .{
+            .path = joined,
+            .allocator = self.allocator,
+        };
+        return p;
+    }
 };
