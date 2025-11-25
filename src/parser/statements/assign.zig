@@ -159,7 +159,17 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         }
 
         // Expression statement
-        _ = self.expect(.Newline) catch {};
+        // Check if this is a module docstring (first statement + string constant)
+        const is_module_docstring = self.is_first_statement and
+            expr == .constant and
+            expr.constant.value == .string;
+
+        // If it's a module docstring, don't require newline before import
+        if (is_module_docstring) {
+            _ = self.match(.Newline);
+        } else {
+            _ = self.expect(.Newline) catch {};
+        }
 
         const expr_ptr = try self.allocator.create(ast.Node);
         expr_ptr.* = expr;

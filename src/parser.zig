@@ -20,6 +20,7 @@ pub const Parser = struct {
     current: usize,
     allocator: std.mem.Allocator,
     function_depth: usize = 0,
+    is_first_statement: bool = true,
 
     pub fn init(allocator: std.mem.Allocator, tokens: []const lexer.Token) Parser {
         return Parser{
@@ -27,6 +28,7 @@ pub const Parser = struct {
             .current = 0,
             .allocator = allocator,
             .function_depth = 0,
+            .is_first_statement = true,
         };
     }
 
@@ -41,6 +43,7 @@ pub const Parser = struct {
             if (self.match(.Newline)) continue;
             const stmt = try self.parseStatement();
             try stmts.append(self.allocator, stmt);
+            self.is_first_statement = false;
         }
 
         return ast.Node{
