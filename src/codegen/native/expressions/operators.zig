@@ -219,7 +219,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         const right_type = try self.type_inferrer.inferExpr(compare.comparators[i]);
 
         // Special handling for string comparisons
-        if (left_type == .string and right_type == .string) {
+        // Also handle cases where one side is .unknown (e.g., json.loads) comparing to string
+        const left_is_string = (left_type == .string);
+        const right_is_string = (right_type == .string);
+        const either_string = left_is_string or right_is_string;
+        const neither_unknown = (left_type != .unknown and right_type != .unknown);
+
+        if ((left_is_string and right_is_string) or (either_string and !neither_unknown)) {
             switch (op) {
                 .Eq => {
                     try self.emit("std.mem.eql(u8, ");

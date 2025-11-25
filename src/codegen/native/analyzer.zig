@@ -111,13 +111,34 @@ fn allSameType(elements: []ast.Node) bool {
 pub fn analyzeModule(module: ast.Node.Module, allocator: std.mem.Allocator) !ModuleAnalysis {
     var analysis = ModuleAnalysis{};
 
-    // Collect global variables from functions
+    // Collect global variables from functions AND top-level assignments
     var global_vars = std.ArrayList([]const u8){};
     defer global_vars.deinit(allocator);
 
     for (module.body) |stmt| {
         const stmt_analysis = try analyzeStmt(stmt);
         analysis.merge(stmt_analysis);
+
+        // Collect top-level assignments as module-level variables
+        // In Python, top-level assignments create module-level variables
+        if (stmt == .assign) {
+            for (stmt.assign.targets) |target| {
+                if (target == .name) {
+                    const var_name = target.name.id;
+                    // Check if already added (avoid duplicates)
+                    var exists = false;
+                    for (global_vars.items) |existing| {
+                        if (std.mem.eql(u8, existing, var_name)) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists) {
+                        try global_vars.append(allocator, var_name);
+                    }
+                }
+            }
+        }
 
         // Collect global statements from functions
         if (stmt == .function_def) {

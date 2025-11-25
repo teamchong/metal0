@@ -197,6 +197,11 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
         if (stmt == .import_stmt) {
             const module_name = stmt.import_stmt.module;
 
+            // Skip builtin modules (stdlib modules with unsupported syntax)
+            if (import_resolver.isBuiltinModule(module_name)) {
+                continue;
+            }
+
             // Skip runtime modules (they don't need Python compilation)
             if (registry.lookup(module_name)) |info| {
                 if (info.strategy == .zig_runtime or info.strategy == .c_library) {
@@ -362,6 +367,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     for (tree.module.body) |stmt| {
         if (stmt == .import_stmt) {
             const module_name = stmt.import_stmt.module;
+
+            // Skip builtin modules (stdlib modules with unsupported syntax)
+            if (import_resolver.isBuiltinModule(module_name)) {
+                continue;
+            }
 
             // Skip runtime modules (they don't need Python compilation)
             if (registry2.lookup(module_name)) |info| {
