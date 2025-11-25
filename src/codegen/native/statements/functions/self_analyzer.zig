@@ -52,10 +52,23 @@ fn exprUsesSelf(node: ast.Node) bool {
         .name => |name| std.mem.eql(u8, name.id, "self"),
         .attribute => |attr| exprUsesSelf(attr.value.*),
         .call => |call| {
-            // Check for unittest assertion methods (self.assertEqual, etc.)
-            // These are dispatched to runtime.unittest and don't actually use self
+            // Check for super() calls - they need self because super().foo()
+            // translates to ParentClass.foo(self)
+            if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "super")) {
+                return true;
+            }
+            // Also check for super().method() pattern (attribute on super() result)
             if (call.func.* == .attribute) {
                 const func_attr = call.func.attribute;
+                // Check if value is a super() call
+                if (func_attr.value.* == .call) {
+                    const inner_call = func_attr.value.call;
+                    if (inner_call.func.* == .name and std.mem.eql(u8, inner_call.func.name.id, "super")) {
+                        return true;
+                    }
+                }
+                // Check for unittest assertion methods (self.assertEqual, etc.)
+                // These are dispatched to runtime.unittest and don't actually use self
                 if (func_attr.value.* == .name and
                     std.mem.eql(u8, func_attr.value.name.id, "self") and
                     UnittestMethods.has(func_attr.attr))

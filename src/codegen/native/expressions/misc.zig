@@ -68,10 +68,19 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     const parent = @import("../expressions.zig");
     const genExpr = parent.genExpr;
 
+    // Check if this is a property method (decorated with @property)
+    const is_property = try isPropertyMethod(self, attr);
+
     // Check if this is a known attribute or dynamic attribute
     const is_dynamic = try isDynamicAttribute(self, attr);
 
-    if (is_dynamic) {
+    if (is_property) {
+        // Property method: call it automatically (Python @property semantics)
+        try genExpr(self, attr.value.*);
+        try self.output.appendSlice(self.allocator, ".");
+        try self.output.appendSlice(self.allocator, attr.attr);
+        try self.output.appendSlice(self.allocator, "()");
+    } else if (is_dynamic) {
         // Dynamic attribute: use __dict__.get() and extract value
         // For now, assume int type. TODO: Add runtime type checking
         try genExpr(self, attr.value.*);
@@ -82,6 +91,27 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         try self.output.appendSlice(self.allocator, ".");
         try self.output.appendSlice(self.allocator, attr.attr);
     }
+}
+
+/// Check if attribute is a @property decorated method
+fn isPropertyMethod(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
+    // Get object type - works for both names (c.x) and call results (C().x)
+    const obj_type = try self.type_inferrer.inferExpr(attr.value.*);
+
+    // Check if it's a class instance
+    if (obj_type != .class_instance) return false;
+
+    const class_name = obj_type.class_instance;
+
+    // Check if this is a property method
+    const class_info = self.type_inferrer.class_fields.get(class_name);
+    if (class_info) |info| {
+        if (info.property_methods.get(attr.attr)) |_| {
+            return true; // This is a property method
+        }
+    }
+
+    return false;
 }
 
 /// Check if attribute is dynamic (not in class fields)

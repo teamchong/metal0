@@ -162,6 +162,12 @@ pub const Parser = struct {
         return try expressions.parseConditionalExpr(self);
     }
 
+    /// Parse expression without conditional (for list comprehension iter/condition)
+    /// Stops at 'if' keyword so comprehension can handle it
+    pub fn parseOrExpr(self: *Parser) ParseError!ast.Node {
+        return try expressions.parseOrExpr(self);
+    }
+
     pub fn parsePostfix(self: *Parser) ParseError!ast.Node {
         return try postfix.parsePostfix(self);
     }

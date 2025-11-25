@@ -435,6 +435,7 @@ const FnvTypeMap = hashmap_helper.StringHashMap(NativeType);
 pub const ClassInfo = struct {
     fields: FnvTypeMap,
     methods: FnvTypeMap, // method_name -> return type
+    property_methods: FnvTypeMap, // methods decorated with @property
     allow_dynamic_attrs: bool = true, // Enable __dict__ for dynamic attributes
 };
 

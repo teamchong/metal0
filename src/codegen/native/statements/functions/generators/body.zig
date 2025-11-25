@@ -333,6 +333,36 @@ fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.Node.F
     return "i64";
 }
 
+/// Generate default init() method for classes without __init__
+pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) CodegenError!void {
+    // Default __dict__ field for dynamic attributes
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "// Dynamic attributes dictionary\n");
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
+
+    try self.output.appendSlice(self.allocator, "\n");
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("pub fn init(allocator: std.mem.Allocator) {s} {{\n", .{class_name});
+    self.indent();
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("return {s}{{\n", .{class_name});
+    self.indent();
+
+    // Initialize __dict__ for dynamic attributes
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, ".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(allocator),\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "};\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.output.appendSlice(self.allocator, "}\n");
+}
+
 /// Generate init() method from __init__
 pub fn genInitMethod(
     self: *NativeCodegen,
@@ -405,6 +435,10 @@ pub fn genClassMethods(
     self: *NativeCodegen,
     class: ast.Node.ClassDef,
 ) CodegenError!void {
+    // Set current class name for super() support
+    self.current_class_name = class.name;
+    defer self.current_class_name = null;
+
     for (class.body) |stmt| {
         if (stmt == .function_def) {
             const method = stmt.function_def;

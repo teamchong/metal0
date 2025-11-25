@@ -43,6 +43,7 @@ pub const TypeInferrer = struct {
         for (self.class_fields.values()) |*entry| {
             entry.fields.deinit();
             entry.methods.deinit();
+            entry.property_methods.deinit();
         }
         self.class_fields.deinit();
         self.var_types.deinit();

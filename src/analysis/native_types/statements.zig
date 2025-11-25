@@ -51,6 +51,7 @@ pub fn visitStmt(
             // Track class field types from __init__ parameters
             var fields = FnvHashMap.init(allocator);
             var methods = FnvHashMap.init(allocator);
+            var property_methods = FnvHashMap.init(allocator);
 
             // Get constructor arg types if available
             const constructor_arg_types = class_constructor_args.get(class_def.name);
@@ -121,10 +122,18 @@ pub fn visitStmt(
                     // Get return type from annotation
                     const return_type = try core.pythonTypeHintToNative(method.return_type, allocator);
                     try methods.put(method.name, return_type);
+
+                    // Check for @property decorator
+                    for (method.decorators) |decorator| {
+                        if (decorator == .name and std.mem.eql(u8, decorator.name.id, "property")) {
+                            try property_methods.put(method.name, return_type);
+                            break;
+                        }
+                    }
                 }
             }
 
-            try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods });
+            try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods, .property_methods = property_methods });
         },
         .if_stmt => |if_stmt| {
             for (if_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);

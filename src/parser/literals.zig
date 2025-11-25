@@ -61,7 +61,8 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
         // Parse target as primary (just a name, not a full expression)
         const target = try self.parsePrimary();
         _ = try self.expect(.In);
-        const iter = try self.parseExpression();
+        // Use parseOrExpr to stop at 'if' keyword (not treat as ternary conditional)
+        const iter = try self.parseOrExpr();
 
         // Parse optional if conditions for this generator
         var ifs = std.ArrayList(ast.Node){};
@@ -69,7 +70,8 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
 
         while (self.check(.If) and !self.check(.For)) {
             _ = self.advance();
-            const cond = try self.parseExpression();
+            // Use parseOrExpr so nested 'if' doesn't get consumed as ternary
+            const cond = try self.parseOrExpr();
             try ifs.append(self.allocator, cond);
         }
 
@@ -202,7 +204,8 @@ pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!a
         // Parse target as primary (just a name, not a full expression)
         const target = try self.parsePrimary();
         _ = try self.expect(.In);
-        const iter = try self.parseExpression();
+        // Use parseOrExpr to stop at 'if' keyword (not treat as ternary conditional)
+        const iter = try self.parseOrExpr();
 
         // Parse optional if conditions for this generator
         var ifs = std.ArrayList(ast.Node){};
@@ -210,7 +213,8 @@ pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!a
 
         while (self.check(.If) and !self.check(.For)) {
             _ = self.advance();
-            const cond = try self.parseExpression();
+            // Use parseOrExpr so nested 'if' doesn't get consumed as ternary
+            const cond = try self.parseOrExpr();
             try ifs.append(self.allocator, cond);
         }
 

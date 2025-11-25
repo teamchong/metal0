@@ -119,6 +119,11 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     const method_name = call.func.attribute.attr;
     const obj = call.func.attribute.value.*;
 
+    // Handle super().method() calls for inheritance
+    if (try handleSuperCall(self, call, method_name, obj)) {
+        return true;
+    }
+
     // Try string methods first (most common)
     if (StringMethods.get(method_name)) |handler| {
         try handler(self, obj, call.args);
@@ -201,6 +206,45 @@ fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: 
             try methods.genGet(self, obj, call.args);
         },
     }
+    return true;
+}
+
+/// Handle super().method() calls for inheritance
+/// Pattern: super().foo(args) -> ParentClass.foo(@ptrCast(self), args)
+fn handleSuperCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []const u8, obj: ast.Node) CodegenError!bool {
+    // Check if obj is a call to super()
+    if (obj != .call) return false;
+    const super_call = obj.call;
+    if (super_call.func.* != .name) return false;
+    if (!std.mem.eql(u8, super_call.func.name.id, "super")) return false;
+
+    // We're inside super().method() - need to find parent class
+    const current_class = self.current_class_name orelse {
+        // Not inside a class method - can't use super()
+        return false;
+    };
+
+    const parent_class = self.getParentClassName(current_class) orelse {
+        // No parent class - can't use super()
+        return false;
+    };
+
+    const parent = @import("../expressions.zig");
+
+    // Generate: ParentClass.method(@ptrCast(self), args)
+    // Need @ptrCast because self is *const Child but parent method expects *const Parent
+    try self.output.appendSlice(self.allocator, parent_class);
+    try self.output.appendSlice(self.allocator, ".");
+    try self.output.appendSlice(self.allocator, method_name);
+    try self.output.appendSlice(self.allocator, "(@ptrCast(self)");
+
+    // Add remaining arguments
+    for (call.args) |arg| {
+        try self.output.appendSlice(self.allocator, ", ");
+        try parent.genExpr(self, arg);
+    }
+
+    try self.output.appendSlice(self.allocator, ")");
     return true;
 }
 

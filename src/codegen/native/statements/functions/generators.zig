@@ -121,9 +121,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         try body.genClassFields(self, class.name, init);
     }
 
-    // Generate init() method from __init__
+    // Generate init() method from __init__, or default init if no __init__
     if (init_method) |init| {
         try body.genInitMethod(self, class.name, init);
+    } else {
+        // No __init__ defined, generate default init method
+        try body.genDefaultInitMethod(self, class.name);
     }
 
     // Build list of child method names for override detection

@@ -176,6 +176,10 @@ pub const NativeCodegen = struct {
     // Maps variable name -> void for variables that reference outer (module) scope
     global_vars: FnvVoidMap,
 
+    // Current class being generated (for super() support)
+    // Set during class method generation, null otherwise
+    current_class_name: ?[]const u8,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -232,6 +236,7 @@ pub const NativeCodegen = struct {
             .comptime_evals = FnvVoidMap.init(allocator),
             .func_local_mutations = FnvVoidMap.init(allocator),
             .global_vars = FnvVoidMap.init(allocator),
+            .current_class_name = null,
         };
         return self;
     }
@@ -484,6 +489,11 @@ pub const NativeCodegen = struct {
         method_name: []const u8,
     ) ?MethodInfo {
         return self.class_registry.findMethod(class_name, method_name);
+    }
+
+    /// Get the parent class name for a given class (for super() support)
+    pub fn getParentClassName(self: *NativeCodegen, class_name: []const u8) ?[]const u8 {
+        return self.class_registry.inheritance.get(class_name);
     }
 
     /// Get the class name from a variable's type
