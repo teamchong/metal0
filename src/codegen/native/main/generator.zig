@@ -382,8 +382,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
     }
 
-    // If user defined main(), call it
-    if (analysis.has_user_main) {
+    // If user defined main(), call it (but not for async main - user calls via asyncio.run)
+    if (analysis.has_user_main and !analysis.has_async_user_main) {
         try self.emitIndent();
         try self.emit("__user_main();\n");
     }

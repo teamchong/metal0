@@ -13,6 +13,7 @@ pub const ClassInfo = core.ClassInfo;
 const FnvContext = fnv_hash.FnvHashContext([]const u8);
 const FnvHashMap = std.HashMap([]const u8, NativeType, FnvContext, 80);
 const FnvClassMap = std.HashMap([]const u8, ClassInfo, FnvContext, 80);
+const FnvArgsMap = std.HashMap([]const u8, []const NativeType, FnvContext, 80);
 
 /// Type inferrer - analyzes AST to determine native Zig types
 pub const TypeInferrer = struct {
@@ -21,6 +22,7 @@ pub const TypeInferrer = struct {
     var_types: FnvHashMap,
     class_fields: FnvClassMap, // class_name -> field types
     func_return_types: FnvHashMap, // function_name -> return type
+    class_constructor_args: FnvArgsMap, // class_name -> constructor arg types
 
     pub fn init(allocator: std.mem.Allocator) InferError!TypeInferrer {
         // Allocate arena on heap to avoid copy issues
@@ -33,6 +35,7 @@ pub const TypeInferrer = struct {
             .var_types = FnvHashMap.init(allocator),
             .class_fields = FnvClassMap.init(allocator),
             .func_return_types = FnvHashMap.init(allocator),
+            .class_constructor_args = FnvArgsMap.init(allocator),
         };
     }
 
@@ -46,6 +49,7 @@ pub const TypeInferrer = struct {
         self.class_fields.deinit();
         self.var_types.deinit();
         self.func_return_types.deinit();
+        self.class_constructor_args.deinit();
 
         // Free arena and all type allocations
         const alloc = self.allocator;
