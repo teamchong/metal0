@@ -239,7 +239,7 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     // Empty sets shouldn't happen (parsed as empty dict), but handle it
     if (set_node.elts.len == 0) {
-        try self.output.appendSlice(self.allocator, "std.StringHashMap(void).init(allocator)");
+        try self.output.appendSlice(self.allocator, "hashmap_helper.StringHashMap(void).init(allocator)");
         return;
     }
 
@@ -262,7 +262,7 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     // Use StringHashMap for strings, AutoHashMap for primitives
     const is_string = (elem_type == .string);
     if (is_string) {
-        try self.output.appendSlice(self.allocator, "var _set = std.StringHashMap(void).init(allocator);\n");
+        try self.output.appendSlice(self.allocator, "var _set = hashmap_helper.StringHashMap(void).init(allocator);\n");
     } else {
         try self.output.appendSlice(self.allocator, "var _set = std.AutoHashMap(");
         try elem_type.toZigType(self.allocator, &self.output);

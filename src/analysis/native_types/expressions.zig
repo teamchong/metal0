@@ -234,6 +234,11 @@ pub fn inferExpr(
             break :blk .{ .tuple = elem_types };
         },
         .compare => .bool, // Comparison expressions always return bool
+        .named_expr => |ne| blk: {
+            // Named expression (walrus operator): (x := value)
+            // The type of the named expression is the type of the value
+            break :blk try inferExpr(allocator, var_types, class_fields, func_return_types, ne.value.*);
+        },
         .lambda => |lam| blk: {
             // Infer function type from lambda
             // For now, default all params and return to i64

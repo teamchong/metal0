@@ -178,7 +178,7 @@ pub const NativeType = union(enum) {
             .set => |elem_type| {
                 // For string sets use StringHashMap, for others use AutoHashMap
                 if (elem_type.* == .string) {
-                    try buf.appendSlice(allocator, "std.StringHashMap(void)");
+                    try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(void)");
                 } else {
                     try buf.appendSlice(allocator, "std.AutoHashMap(");
                     try elem_type.toZigType(allocator, buf);

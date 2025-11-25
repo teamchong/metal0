@@ -6,6 +6,35 @@ const Parser = @import("../parser.zig").Parser;
 
 /// Parse logical OR expression (lowest precedence)
 pub fn parseOrExpr(self: *Parser) ParseError!ast.Node {
+    // Check for named expression (walrus operator): identifier :=
+    // Must be an identifier followed by :=
+    if (self.check(.Ident)) {
+        const saved_pos = self.current;
+        const ident_tok = self.advance().?;
+
+        if (self.check(.ColonEq)) {
+            // It's a named expression
+            _ = self.advance(); // consume :=
+            const value = try parseOrExpr(self); // Parse the value expression
+
+            const target_ptr = try self.allocator.create(ast.Node);
+            target_ptr.* = ast.Node{ .name = .{ .id = ident_tok.lexeme } };
+
+            const value_ptr = try self.allocator.create(ast.Node);
+            value_ptr.* = value;
+
+            return ast.Node{
+                .named_expr = .{
+                    .target = target_ptr,
+                    .value = value_ptr,
+                },
+            };
+        } else {
+            // Not a named expression, restore position
+            self.current = saved_pos;
+        }
+    }
+
     var left = try parseAndExpr(self);
 
     while (self.match(.Or)) {

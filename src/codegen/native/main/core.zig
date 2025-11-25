@@ -541,7 +541,7 @@ pub const NativeCodegen = struct {
 
     // Forward declaration for generate (implemented in generator.zig)
     pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
-        const generator = @import("generator.zig");
-        return generator.generate(self, module);
+        const gen = @import("generator.zig");
+        return gen.generate(self, module);
     }
 };

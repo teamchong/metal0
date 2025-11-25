@@ -405,6 +405,16 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                 analysis.merge(elt_analysis);
             }
         },
+        .set => |set_node| {
+            // Sets need allocator and hashmap_helper for StringHashMap/AutoHashMap
+            analysis.needs_allocator = true;
+            analysis.needs_hashmap_helper = true;
+
+            for (set_node.elts) |elt| {
+                const elt_analysis = try analyzeExpr(elt);
+                analysis.merge(elt_analysis);
+            }
+        },
         .dict => |dict| {
             // Dicts need allocator for HashMap.init()
             analysis.needs_allocator = true;

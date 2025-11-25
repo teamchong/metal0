@@ -108,6 +108,8 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
         .class_def => |c| {
             for (c.body) |*n| deinit(n, allocator);
             allocator.free(c.body);
+            // Free each base class name string that was allocated with dupe()
+            for (c.bases) |base| allocator.free(base);
             allocator.free(c.bases);
         },
         .return_stmt => |r| {
@@ -265,6 +267,12 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
         .del_stmt => |d| {
             for (d.targets) |*t| deinit(t, allocator);
             allocator.free(d.targets);
+        },
+        .named_expr => |n| {
+            deinit(n.target, allocator);
+            allocator.destroy(n.target);
+            deinit(n.value, allocator);
+            allocator.destroy(n.value);
         },
         // Leaf nodes need no cleanup
         .name, .constant, .pass, .break_stmt, .continue_stmt, .ellipsis_literal => {},

@@ -2,7 +2,7 @@
 /// Separated from runtime.zig for better code organization
 const std = @import("std");
 const runtime = @import("runtime.zig");
-const hashmap_helper = @import("../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
 
 /// Python dict type (optimized with wyhash - faster iteration than StringHashMap!)
 pub const PyDict = struct {

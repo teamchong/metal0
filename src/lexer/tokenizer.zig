@@ -258,7 +258,13 @@ pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usi
             break :blk .RBrace;
         },
         ',' => .Comma,
-        ':' => .Colon,
+        ':' => blk: {
+            if (self.peek() == '=') {
+                _ = self.advance();
+                break :blk .ColonEq;
+            }
+            break :blk .Colon;
+        },
         '.' => blk: {
             // Check for ellipsis (...)
             if (self.peek() == '.' and self.peekAhead(1) == '.') {

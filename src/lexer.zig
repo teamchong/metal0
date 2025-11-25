@@ -73,6 +73,7 @@ pub const TokenType = enum {
     DoubleSlashEq,
     PercentEq,
     StarStarEq,
+    ColonEq, // Walrus operator :=
 
     // Delimiters
     LParen,

@@ -7,7 +7,7 @@ const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Word = @import("bpe_word.zig").Word;
 const Pair = @import("bpe_word.zig").Pair;
 const Change = @import("bpe_word.zig").Change;
-const hashmap_helper = @import("../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
 
 /// Merge result (pair → new_id)
 const MergeResult = struct {

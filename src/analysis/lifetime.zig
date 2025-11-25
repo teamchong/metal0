@@ -308,6 +308,15 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             }
             line += 1;
         },
+        .named_expr => |named| {
+            // Named expression (walrus operator): (x := value)
+            // Record target as assignment
+            if (named.target.* == .name) {
+                try info.recordVariableUse(named.target.name.id, line, true);
+            }
+            // Analyze value expression
+            line = try analyzeLifetimes(info, named.value.*, line);
+        },
         // Leaf nodes
         .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .fstring, .global_stmt, .ellipsis_literal, .raise_stmt => {
             // No variables to track

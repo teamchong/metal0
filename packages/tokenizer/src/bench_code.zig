@@ -1,6 +1,6 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer").Tokenizer;
-const allocator_helper = @import("../../src/utils/allocator_helper.zig");
+const allocator_helper = @import("../../../src/utils/allocator_helper.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

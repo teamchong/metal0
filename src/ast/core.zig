@@ -45,6 +45,7 @@ pub const Node = union(enum) {
     with_stmt: With,
     starred: Starred,
     del_stmt: Del,
+    named_expr: NamedExpr,
 
     // Type aliases for backward compatibility with nested access (ast.Node.FString)
     pub const FString = fstring.FString;
@@ -279,6 +280,12 @@ pub const Node = union(enum) {
     /// Del statement: del x, del x, y, del obj.attr
     pub const Del = struct {
         targets: []Node, // Targets to delete (names, subscripts, attributes)
+    };
+
+    /// Named expression (walrus operator): (x := value)
+    pub const NamedExpr = struct {
+        target: *Node, // Name node
+        value: *Node, // Expression
     };
 
     /// Recursively free all allocations in the AST

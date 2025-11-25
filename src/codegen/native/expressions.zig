@@ -66,8 +66,28 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             // Just generate the inner expression (unpacking is handled by call context)
             try genExpr(self, s.value.*);
         },
+        .named_expr => |ne| try genNamedExpr(self, ne),
         else => {},
     }
+}
+
+/// Generate named expression (walrus operator): (x := value)
+/// Assigns value to target and returns the value
+fn genNamedExpr(self: *NativeCodegen, ne: ast.Node.NamedExpr) CodegenError!void {
+    // Get the target name
+    const target_name = switch (ne.target.*) {
+        .name => |n| n.id,
+        else => return, // Should be unreachable, walrus target must be a name
+    };
+
+    // Generate: (blk: { target = value; break :blk target; })
+    try self.output.appendSlice(self.allocator, "(blk: { ");
+    try self.output.appendSlice(self.allocator, target_name);
+    try self.output.appendSlice(self.allocator, " = ");
+    try genExpr(self, ne.value.*);
+    try self.output.appendSlice(self.allocator, "; break :blk ");
+    try self.output.appendSlice(self.allocator, target_name);
+    try self.output.appendSlice(self.allocator, "; })");
 }
 
 /// Generate await expression
