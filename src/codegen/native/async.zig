@@ -14,48 +14,48 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    try self.output.appendSlice(self.allocator, "{\n");
+    try self.emit("{\n");
 
     // Initialize scheduler once (global singleton)
-    try self.output.appendSlice(self.allocator, "    if (!runtime.scheduler_initialized) {\n");
-    try self.output.appendSlice(self.allocator, "        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
-    try self.output.appendSlice(self.allocator, "        runtime.scheduler = try runtime.Scheduler.init(allocator, __num_threads);\n");
-    try self.output.appendSlice(self.allocator, "        try runtime.scheduler.start();\n");
-    try self.output.appendSlice(self.allocator, "        runtime.scheduler_initialized = true;\n");
-    try self.output.appendSlice(self.allocator, "    }\n");
+    try self.emit("    if (!runtime.scheduler_initialized) {\n");
+    try self.emit("        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
+    try self.emit("        runtime.scheduler = try runtime.Scheduler.init(allocator, __num_threads);\n");
+    try self.emit("        try runtime.scheduler.start();\n");
+    try self.emit("        runtime.scheduler_initialized = true;\n");
+    try self.emit("    }\n");
 
     // Spawn main coroutine
-    try self.output.appendSlice(self.allocator, "    const __main_thread = ");
+    try self.emit("    const __main_thread = ");
     try self.genExpr(args[0]); // This calls foo_async() which spawns
-    try self.output.appendSlice(self.allocator, ";\n");
+    try self.emit(";\n");
 
     // Wait for completion
-    try self.output.appendSlice(self.allocator, "    runtime.scheduler.wait(__main_thread);\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit("    runtime.scheduler.wait(__main_thread);\n");
+    try self.emit("}");
 }
 
 /// Generate code for asyncio.gather(*tasks)
 /// Maps to: spawn all, wait for all
 pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.output.appendSlice(self.allocator, "(blk: {\n");
-    try self.output.appendSlice(self.allocator, "    var __threads = std.ArrayList(*runtime.GreenThread).init(allocator);\n");
-    try self.output.appendSlice(self.allocator, "    defer __threads.deinit();\n");
+    try self.emit("(blk: {\n");
+    try self.emit("    var __threads = std.ArrayList(*runtime.GreenThread).init(allocator);\n");
+    try self.emit("    defer __threads.deinit();\n");
 
     // Spawn all tasks
     for (args) |arg| {
-        try self.output.appendSlice(self.allocator, "    try __threads.append(");
+        try self.emit("    try __threads.append(");
         try self.genExpr(arg);
-        try self.output.appendSlice(self.allocator, ");\n");
+        try self.emit(");\n");
     }
 
     // Wait for all and collect results
-    try self.output.appendSlice(self.allocator, "    var __results = std.ArrayList(runtime.PyValue).init(allocator);\n");
-    try self.output.appendSlice(self.allocator, "    for (__threads.items) |__t| {\n");
-    try self.output.appendSlice(self.allocator, "        runtime.scheduler.wait(__t);\n");
-    try self.output.appendSlice(self.allocator, "        try __results.append(__t.result orelse runtime.PyValue{.none = {}});\n");
-    try self.output.appendSlice(self.allocator, "    }\n");
-    try self.output.appendSlice(self.allocator, "    break :blk __results.items;\n");
-    try self.output.appendSlice(self.allocator, "})");
+    try self.emit("    var __results = std.ArrayList(runtime.PyValue).init(allocator);\n");
+    try self.emit("    for (__threads.items) |__t| {\n");
+    try self.emit("        runtime.scheduler.wait(__t);\n");
+    try self.emit("        try __results.append(__t.result orelse runtime.PyValue{.none = {}});\n");
+    try self.emit("    }\n");
+    try self.emit("    break :blk __results.items;\n");
+    try self.emit("})");
 }
 
 /// Generate code for asyncio.create_task(coro)
@@ -70,13 +70,13 @@ pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         return;
     }
 
-    try self.output.appendSlice(self.allocator, "{\n");
-    try self.output.appendSlice(self.allocator, "    const __duration_ns = @as(i64, @intFromFloat(");
+    try self.emit("{\n");
+    try self.emit("    const __duration_ns = @as(i64, @intFromFloat(");
     try self.genExpr(args[0]);
-    try self.output.appendSlice(self.allocator, " * 1_000_000_000));\n");
-    try self.output.appendSlice(self.allocator, "    std.time.sleep(@intCast(__duration_ns));\n");
-    try self.output.appendSlice(self.allocator, "    runtime.scheduler.yield();\n");
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit(" * 1_000_000_000));\n");
+    try self.emit("    std.time.sleep(@intCast(__duration_ns));\n");
+    try self.emit("    runtime.scheduler.yield();\n");
+    try self.emit("}");
 }
 
 /// Generate code for asyncio.Queue(maxsize)
@@ -84,16 +84,16 @@ pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 pub fn genAsyncioQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate Queue instantiation
     // TODO: Infer element type from usage; for now use i64
-    try self.output.appendSlice(self.allocator, "try runtime.asyncio.Queue(i64).init(allocator, ");
+    try self.emit("try runtime.asyncio.Queue(i64).init(allocator, ");
 
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
         // Default maxsize is 0 (unbuffered)
-        try self.output.appendSlice(self.allocator, "0");
+        try self.emit("0");
     }
 
-    try self.output.appendSlice(self.allocator, ")");
+    try self.emit(")");
 }
 
 /// Generate code for await expression
@@ -112,22 +112,22 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
                 // Inline trivial and simple functions
                 if (complexity == .trivial or complexity == .simple) {
-                    try self.output.appendSlice(self.allocator, "(blk: {\n");
-                    try self.output.appendSlice(self.allocator, "    // Comptime inlined async function\n");
-                    try self.output.appendSlice(self.allocator, "    break :blk ");
-                    try self.output.appendSlice(self.allocator, func_name);
-                    try self.output.appendSlice(self.allocator, "_impl(");
+                    try self.emit("(blk: {\n");
+                    try self.emit("    // Comptime inlined async function\n");
+                    try self.emit("    break :blk ");
+                    try self.emit(func_name);
+                    try self.emit("_impl(");
 
                     // Generate args
                     for (call.args, 0..) |arg, i| {
                         if (i > 0) {
-                            try self.output.appendSlice(self.allocator, ", ");
+                            try self.emit(", ");
                         }
                         try self.genExpr(arg);
                     }
 
-                    try self.output.appendSlice(self.allocator, ");\n");
-                    try self.output.appendSlice(self.allocator, "})");
+                    try self.emit(");\n");
+                    try self.emit("})");
                     return;
                 }
             }
@@ -135,17 +135,17 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     }
 
     // Fall back to full spawn for complex functions or unknown calls
-    try self.output.appendSlice(self.allocator, "(blk: {\n");
-    try self.output.appendSlice(self.allocator, "    const __thread = ");
+    try self.emit("(blk: {\n");
+    try self.emit("    const __thread = ");
     try self.genExpr(expr);
-    try self.output.appendSlice(self.allocator, ";\n");
-    try self.output.appendSlice(self.allocator, "    runtime.scheduler.wait(__thread);\n");
+    try self.emit(";\n");
+    try self.emit("    runtime.scheduler.wait(__thread);\n");
 
     // Cast result to expected type
     // For now, assume i64 return type (TODO: infer from type system)
-    try self.output.appendSlice(self.allocator, "    const __result = __thread.result orelse unreachable;\n");
-    try self.output.appendSlice(self.allocator, "    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
-    try self.output.appendSlice(self.allocator, "})");
+    try self.emit("    const __result = __thread.result orelse unreachable;\n");
+    try self.emit("    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
+    try self.emit("})");
 }
 
 /// Check if a function is async (has 'async' keyword in decorator or name)

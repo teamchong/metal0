@@ -68,25 +68,25 @@ fn genArrayLiteral(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     };
 
     // Emit array literal: [_]T{elem1, elem2, ...}
-    try self.output.appendSlice(self.allocator, "[_]");
-    try self.output.appendSlice(self.allocator, elem_type_str);
-    try self.output.appendSlice(self.allocator, "{");
+    try self.emit("[_]");
+    try self.emit(elem_type_str);
+    try self.emit("{");
 
     for (list.elts, 0..) |elem, i| {
-        if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+        if (i > 0) try self.emit(", ");
 
         // Emit element value - use genExpr for proper formatting
         try genExpr(self, elem);
     }
 
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit("}");
 }
 
 /// Generate list literal as ArrayList (Python lists are always mutable)
 pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     // Empty lists
     if (list.elts.len == 0) {
-        try self.output.appendSlice(self.allocator, "std.ArrayList(i64){}");
+        try self.emit("std.ArrayList(i64){}");
         return;
     }
 
@@ -120,67 +120,67 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     const label = try std.fmt.allocPrint(self.allocator, "list_{d}", .{@intFromPtr(list.elts.ptr)});
     defer self.allocator.free(label);
 
-    try self.output.appendSlice(self.allocator, label);
-    try self.output.appendSlice(self.allocator, ": {\n");
+    try self.emit(label);
+    try self.emit(": {\n");
     self.indent();
     try self.emitIndent();
 
     // Generate comptime tuple
-    try self.output.appendSlice(self.allocator, "const _values = .{ ");
+    try self.emit("const _values = .{ ");
     for (list.elts, 0..) |elem, i| {
-        if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+        if (i > 0) try self.emit(", ");
         try genExpr(self, elem);
     }
-    try self.output.appendSlice(self.allocator, " };\n");
+    try self.emit(" };\n");
 
     // Let Zig's comptime infer the type and generate optimal code
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "const T = comptime runtime.InferListType(@TypeOf(_values));\n");
+    try self.emit("const T = comptime runtime.InferListType(@TypeOf(_values));\n");
 
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "var _list = std.ArrayList(T){};\n");
+    try self.emit("var _list = std.ArrayList(T){};\n");
 
     // Inline loop - unrolled at Zig compile time!
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "inline for (_values) |val| {\n");
+    try self.emit("inline for (_values) |val| {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "const cast_val = if (@TypeOf(val) != T) cast_blk: {\n");
+    try self.emit("const cast_val = if (@TypeOf(val) != T) cast_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "if (T == f64 and (@TypeOf(val) == i64 or @TypeOf(val) == comptime_int)) {\n");
+    try self.emit("if (T == f64 and (@TypeOf(val) == i64 or @TypeOf(val) == comptime_int)) {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :cast_blk @as(f64, @floatFromInt(val));\n");
+    try self.emit("break :cast_blk @as(f64, @floatFromInt(val));\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "if (T == f64 and @TypeOf(val) == comptime_float) {\n");
+    try self.emit("if (T == f64 and @TypeOf(val) == comptime_float) {\n");
     self.indent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :cast_blk @as(f64, val);\n");
+    try self.emit("break :cast_blk @as(f64, val);\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :cast_blk val;\n");
+    try self.emit("break :cast_blk val;\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "} else val;\n");
+    try self.emit("} else val;\n");
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "try _list.append(allocator, cast_val);\n");
+    try self.emit("try _list.append(allocator, cast_val);\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :");
-    try self.output.appendSlice(self.allocator, label);
-    try self.output.appendSlice(self.allocator, " _list;\n");
+    try self.emit("break :");
+    try self.emit(label);
+    try self.emit(" _list;\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit("}");
 }
 
 /// Generate runtime list literal (fallback path)
@@ -188,8 +188,8 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     const runtime_label = try std.fmt.allocPrint(self.allocator, "list_{d}", .{@intFromPtr(list.elts.ptr)});
     defer self.allocator.free(runtime_label);
 
-    try self.output.appendSlice(self.allocator, runtime_label);
-    try self.output.appendSlice(self.allocator, ": {\n");
+    try self.emit(runtime_label);
+    try self.emit(": {\n");
     self.indent();
     try self.emitIndent();
 
@@ -202,44 +202,44 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
         elem_type = elem_type.widen(this_type);
     }
 
-    try self.output.appendSlice(self.allocator, "var _list = std.ArrayList(");
+    try self.emit("var _list = std.ArrayList(");
     try elem_type.toZigType(self.allocator, &self.output);
-    try self.output.appendSlice(self.allocator, "){};\n");
+    try self.emit("){};\n");
 
     // Append each element (with type coercion if needed)
     for (list.elts) |elem| {
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "try _list.append(allocator, ");
+        try self.emit("try _list.append(allocator, ");
 
         // Check if we need to cast this element
         const this_type = try self.type_inferrer.inferExpr(elem);
         const needs_cast = (elem_type == .float and this_type == .int);
 
         if (needs_cast) {
-            try self.output.appendSlice(self.allocator, "@as(f64, @floatFromInt(");
+            try self.emit("@as(f64, @floatFromInt(");
             try genExpr(self, elem);
-            try self.output.appendSlice(self.allocator, "))");
+            try self.emit("))");
         } else {
             try genExpr(self, elem);
         }
 
-        try self.output.appendSlice(self.allocator, ");\n");
+        try self.emit(");\n");
     }
 
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :");
-    try self.output.appendSlice(self.allocator, runtime_label);
-    try self.output.appendSlice(self.allocator, " _list;\n");
+    try self.emit("break :");
+    try self.emit(runtime_label);
+    try self.emit(" _list;\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit("}");
 }
 
 /// Generate set literal as StringHashMap(void) for strings, AutoHashMap for others
 pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     // Empty sets shouldn't happen (parsed as empty dict), but handle it
     if (set_node.elts.len == 0) {
-        try self.output.appendSlice(self.allocator, "hashmap_helper.StringHashMap(void).init(allocator)");
+        try self.emit("hashmap_helper.StringHashMap(void).init(allocator)");
         return;
     }
 
@@ -247,8 +247,8 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     const label = try std.fmt.allocPrint(self.allocator, "set_{d}", .{@intFromPtr(set_node.elts.ptr)});
     defer self.allocator.free(label);
 
-    try self.output.appendSlice(self.allocator, label);
-    try self.output.appendSlice(self.allocator, ": {\n");
+    try self.emit(label);
+    try self.emit(": {\n");
     self.indent();
     try self.emitIndent();
 
@@ -262,26 +262,26 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     // Use StringHashMap for strings, AutoHashMap for primitives
     const is_string = (elem_type == .string);
     if (is_string) {
-        try self.output.appendSlice(self.allocator, "var _set = hashmap_helper.StringHashMap(void).init(allocator);\n");
+        try self.emit("var _set = hashmap_helper.StringHashMap(void).init(allocator);\n");
     } else {
-        try self.output.appendSlice(self.allocator, "var _set = std.AutoHashMap(");
+        try self.emit("var _set = std.AutoHashMap(");
         try elem_type.toZigType(self.allocator, &self.output);
-        try self.output.appendSlice(self.allocator, ", void).init(allocator);\n");
+        try self.emit(", void).init(allocator);\n");
     }
 
     // Add each element
     for (set_node.elts) |elem| {
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "try _set.put(");
+        try self.emit("try _set.put(");
         try genExpr(self, elem);
-        try self.output.appendSlice(self.allocator, ", {});\n");
+        try self.emit(", {});\n");
     }
 
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "break :");
-    try self.output.appendSlice(self.allocator, label);
-    try self.output.appendSlice(self.allocator, " _set;\n");
+    try self.emit("break :");
+    try self.emit(label);
+    try self.emit(" _set;\n");
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}");
+    try self.emit("}");
 }

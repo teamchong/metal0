@@ -175,9 +175,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // Hoist variable declarations BEFORE the block (so they're accessible after try)
     for (declared_vars.items) |var_name| {
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "var ");
-        try self.output.appendSlice(self.allocator, var_name);
-        try self.output.appendSlice(self.allocator, ": i64 = undefined;\n");
+        try self.emit("var ");
+        try self.emit(var_name);
+        try self.emit(": i64 = undefined;\n");
 
         // Mark as hoisted so assignment generation skips declaration
         try self.hoisted_vars.put(var_name, {});
@@ -188,20 +188,20 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     // Wrap in block for defer scope
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "{\n");
+    try self.emit("{\n");
     self.indent();
 
     // Generate finally as defer
     if (try_node.finalbody.len > 0) {
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "defer {\n");
+        try self.emit("defer {\n");
         self.indent();
         for (try_node.finalbody) |stmt| {
             try self.generateStmt(stmt);
         }
         self.dedent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "}\n");
+        try self.emit("}\n");
     }
 
     // Generate try block with exception handling
@@ -261,10 +261,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         // Create helper function
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "const __TryHelper = struct {\n");
+        try self.emit("const __TryHelper = struct {\n");
         self.indent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "fn run(");
+        try self.emit("fn run(");
 
         // Parameters:
         // - read_only_vars: passed by value (anytype)
@@ -272,40 +272,40 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // - declared_vars: passed as pointer (*i64)
         var param_count: usize = 0;
         for (read_only_vars.items) |var_name| {
-            if (param_count > 0) try self.output.appendSlice(self.allocator, ", ");
-            try self.output.appendSlice(self.allocator, "p_");
-            try self.output.appendSlice(self.allocator, var_name);
-            try self.output.appendSlice(self.allocator, ": anytype");
+            if (param_count > 0) try self.emit(", ");
+            try self.emit("p_");
+            try self.emit(var_name);
+            try self.emit(": anytype");
             param_count += 1;
         }
         for (written_outer_vars.items) |var_name| {
-            if (param_count > 0) try self.output.appendSlice(self.allocator, ", ");
-            try self.output.appendSlice(self.allocator, "p_");
-            try self.output.appendSlice(self.allocator, var_name);
-            try self.output.appendSlice(self.allocator, ": *i64");  // Pointer for mutable access
+            if (param_count > 0) try self.emit(", ");
+            try self.emit("p_");
+            try self.emit(var_name);
+            try self.emit(": *i64");  // Pointer for mutable access
             param_count += 1;
         }
         for (declared_vars.items) |var_name| {
-            if (param_count > 0) try self.output.appendSlice(self.allocator, ", ");
-            try self.output.appendSlice(self.allocator, "p_");
-            try self.output.appendSlice(self.allocator, var_name);
-            try self.output.appendSlice(self.allocator, ": *i64");  // Pointer for mutable access
+            if (param_count > 0) try self.emit(", ");
+            try self.emit("p_");
+            try self.emit(var_name);
+            try self.emit(": *i64");  // Pointer for mutable access
             param_count += 1;
         }
 
-        try self.output.appendSlice(self.allocator, ") !void {\n");
+        try self.emit(") !void {\n");
         self.indent();
 
         // Create aliases for read-only captured variables (by value)
         for (read_only_vars.items) |var_name| {
             try self.emitIndent();
-            try self.output.appendSlice(self.allocator, "const __local_");
-            try self.output.appendSlice(self.allocator, var_name);
-            try self.output.appendSlice(self.allocator, ": @TypeOf(p_");
-            try self.output.appendSlice(self.allocator, var_name);
-            try self.output.appendSlice(self.allocator, ") = p_");
-            try self.output.appendSlice(self.allocator, var_name);
-            try self.output.appendSlice(self.allocator, ";\n");
+            try self.emit("const __local_");
+            try self.emit(var_name);
+            try self.emit(": @TypeOf(p_");
+            try self.emit(var_name);
+            try self.emit(") = p_");
+            try self.emit(var_name);
+            try self.emit(";\n");
 
             // Add to rename map
             var buf = std.ArrayList(u8){};
@@ -356,33 +356,33 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         self.dedent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "}\n");
+        try self.emit("}\n");
         self.dedent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "};\n");
+        try self.emit("};\n");
 
         // Call helper with:
         // - read_only_vars: by value
         // - written_outer_vars: as pointer (&)
         // - declared_vars: as pointer (&)
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "__TryHelper.run(");
+        try self.emit("__TryHelper.run(");
         var call_param_count: usize = 0;
         for (read_only_vars.items) |var_name| {
-            if (call_param_count > 0) try self.output.appendSlice(self.allocator, ", ");
-            try self.output.appendSlice(self.allocator, var_name);
+            if (call_param_count > 0) try self.emit(", ");
+            try self.emit(var_name);
             call_param_count += 1;
         }
         for (written_outer_vars.items) |var_name| {
-            if (call_param_count > 0) try self.output.appendSlice(self.allocator, ", ");
-            try self.output.appendSlice(self.allocator, "&");
-            try self.output.appendSlice(self.allocator, var_name);
+            if (call_param_count > 0) try self.emit(", ");
+            try self.emit("&");
+            try self.emit(var_name);
             call_param_count += 1;
         }
         for (declared_vars.items) |var_name| {
-            if (call_param_count > 0) try self.output.appendSlice(self.allocator, ", ");
-            try self.output.appendSlice(self.allocator, "&");
-            try self.output.appendSlice(self.allocator, var_name);
+            if (call_param_count > 0) try self.emit(", ");
+            try self.emit("&");
+            try self.emit(var_name);
             call_param_count += 1;
         }
 
@@ -395,9 +395,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         };
 
         if (has_specific_handler) {
-            try self.output.appendSlice(self.allocator, ") catch |err| {\n");
+            try self.emit(") catch |err| {\n");
         } else {
-            try self.output.appendSlice(self.allocator, ") catch {\n");
+            try self.emit(") catch {\n");
         }
         self.indent();
 
@@ -406,16 +406,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         for (try_node.handlers, 0..) |handler, i| {
             if (i > 0) {
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "} else ");
+                try self.emit("} else ");
             } else if (handler.type != null) {
                 try self.emitIndent();
             }
 
             if (handler.type) |exc_type| {
                 const zig_err = pythonExceptionToZigError(exc_type);
-                try self.output.appendSlice(self.allocator, "if (err == error.");
-                try self.output.appendSlice(self.allocator, zig_err);
-                try self.output.appendSlice(self.allocator, ") {\n");
+                try self.emit("if (err == error.");
+                try self.emit(zig_err);
+                try self.emit(") {\n");
                 self.indent();
                 for (handler.body) |stmt| {
                     try self.generateStmt(stmt);
@@ -424,10 +424,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 generated_handler = true;
             } else {
                 if (i > 0) {
-                    try self.output.appendSlice(self.allocator, "{\n");
+                    try self.emit("{\n");
                 } else {
                     try self.emitIndent();
-                    try self.output.appendSlice(self.allocator, "{\n");
+                    try self.emit("{\n");
                 }
                 self.indent();
                 // Don't need _ = err; anymore - Zig will auto-ignore unused err
@@ -436,25 +436,25 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 }
                 self.dedent();
                 try self.emitIndent();
-                try self.output.appendSlice(self.allocator, "}\n");
+                try self.emit("}\n");
                 generated_handler = true;
             }
         }
 
         if (generated_handler and try_node.handlers[try_node.handlers.len - 1].type != null) {
             try self.emitIndent();
-            try self.output.appendSlice(self.allocator, "} else {\n");
+            try self.emit("} else {\n");
             self.indent();
             try self.emitIndent();
-            try self.output.appendSlice(self.allocator, "return err;\n");
+            try self.emit("return err;\n");
             self.dedent();
             try self.emitIndent();
-            try self.output.appendSlice(self.allocator, "}\n");
+            try self.emit("}\n");
         }
 
         self.dedent();
         try self.emitIndent();
-        try self.output.appendSlice(self.allocator, "};\n");
+        try self.emit("};\n");
     } else {
         for (try_node.body) |stmt| {
             try self.generateStmt(stmt);
@@ -463,7 +463,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     self.dedent();
     try self.emitIndent();
-    try self.output.appendSlice(self.allocator, "}\n");
+    try self.emit("}\n");
 
     // Clear hoisted variables from tracking after try block completes
     for (declared_vars.items) |var_name| {
