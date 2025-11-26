@@ -365,11 +365,10 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     defer registry2.deinit();
 
     // Track modules that failed to compile so we can skip them in codegen
-    var failed_modules = std.StringHashMap(void).init(allocator);
+    var failed_modules = hashmap_helper.StringHashMap(void).init(allocator);
     defer {
-        var failed_iter = failed_modules.keyIterator();
-        while (failed_iter.next()) |key| {
-            allocator.free(key.*);
+        for (failed_modules.keys()) |key| {
+            allocator.free(key);
         }
         failed_modules.deinit();
     }
@@ -422,9 +421,8 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     native_gen.setSourceFilePath(opts.input_file);
 
     // Mark failed modules as skipped so functions using them are skipped entirely
-    var failed_iter = failed_modules.keyIterator();
-    while (failed_iter.next()) |module_name| {
-        try native_gen.markSkippedModule(module_name.*);
+    for (failed_modules.keys()) |module_name| {
+        try native_gen.markSkippedModule(module_name);
     }
 
     const zig_code = try native_gen.generate(tree.module);

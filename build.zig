@@ -147,21 +147,20 @@ pub fn build(b: *std.Build) void {
     const goroutine_basic_test_step = b.step("test-goroutines-basic", "Run basic goroutine tests");
     goroutine_basic_test_step.dependOn(&run_goroutine_basic_tests.step);
 
-    // JSON spec compliance tests (RFC 8259) - built into parse.zig tests
-    const json_tests_mod = b.createModule(.{
-        .root_source_file = b.path("packages/runtime/src/json/parse.zig"),
-        .target = target,
-        .optimize = optimize,
+    // JSON spec compliance tests
+    const json_spec_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/runtime/src/json/test_spec.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
-    json_tests_mod.addImport("hashmap_helper", hashmap_helper);
+    json_spec_tests.root_module.addImport("hashmap_helper", hashmap_helper);
+    json_spec_tests.root_module.addImport("allocator_helper", allocator_helper);
 
-    const json_tests = b.addTest(.{
-        .root_module = json_tests_mod,
-    });
-
-    const run_json_tests = b.addRunArtifact(json_tests);
-    const json_test_step = b.step("test-json", "Run JSON parser tests including RFC 8259 compliance");
-    json_test_step.dependOn(&run_json_tests.step);
+    const run_json_spec_tests = b.addRunArtifact(json_spec_tests);
+    const json_test_step = b.step("test-json", "Run JSON spec compliance tests");
+    json_test_step.dependOn(&run_json_spec_tests.step);
 
     // Work-stealing benchmark
     const bench_work_stealing = b.addExecutable(.{
