@@ -1,7 +1,7 @@
 const std = @import("std");
 const json = @import("json.zig");
 const render = @import("render.zig");
-const gif = @import("gif.zig");
+const gif = @import("gif_zigimg.zig");
 
 /// Cost analysis for a single line (with cached GIF)
 const LineCost = struct {
