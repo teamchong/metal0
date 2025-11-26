@@ -32,6 +32,10 @@ pub fn exprRefersToSkippedModule(self: *NativeCodegen, expr: ast.Node) bool {
             if (self.isSkippedModule(func_name)) {
                 return true;
             }
+            // Also check if it's a skipped user function: run_code()
+            if (self.isSkippedFunction(func_name)) {
+                return true;
+            }
         }
     }
     // Check attribute access: pytest.mark.skip

@@ -214,6 +214,11 @@ pub const NativeCodegen = struct {
     // Used to skip code that references these modules
     skipped_modules: FnvVoidMap,
 
+    // Track skipped functions (functions that reference skipped modules)
+    // Maps function name -> void (e.g., "run_code" -> {})
+    // Used to skip calls to functions that weren't generated
+    skipped_functions: FnvVoidMap,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -276,6 +281,7 @@ pub const NativeCodegen = struct {
             .current_class_name = null,
             .current_function_name = null,
             .skipped_modules = FnvVoidMap.init(allocator),
+            .skipped_functions = FnvVoidMap.init(allocator),
         };
         return self;
     }
@@ -417,6 +423,17 @@ pub const NativeCodegen = struct {
     pub fn markSkippedModule(self: *NativeCodegen, module_name: []const u8) !void {
         const name_copy = try self.allocator.dupe(u8, module_name);
         try self.skipped_modules.put(name_copy, {});
+    }
+
+    /// Check if a function was skipped (references skipped modules)
+    pub fn isSkippedFunction(self: *NativeCodegen, func_name: []const u8) bool {
+        return self.skipped_functions.contains(func_name);
+    }
+
+    /// Mark a function as skipped (references skipped modules)
+    pub fn markSkippedFunction(self: *NativeCodegen, func_name: []const u8) !void {
+        const name_copy = try self.allocator.dupe(u8, func_name);
+        try self.skipped_functions.put(name_copy, {});
     }
 
     /// Check if a class has a specific method (e.g., __getitem__, __len__)

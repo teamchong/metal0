@@ -125,6 +125,10 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.skipped_modules);
     self.skipped_modules.deinit();
 
+    // Clean up skipped_functions tracking
+    freeMapKeys(self.allocator, &self.skipped_functions);
+    self.skipped_functions.deinit();
+
     self.allocator.destroy(self);
 }
 

@@ -15,6 +15,8 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     // references `result` - causing compilation errors. Better to skip the whole function.
     const assign = @import("../assign.zig");
     if (assign.functionBodyRefersToSkippedModule(self, func.body)) {
+        // Mark this function as skipped so calls to it are also skipped
+        try self.markSkippedFunction(func.name);
         return;
     }
 

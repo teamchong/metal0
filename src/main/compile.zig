@@ -364,6 +364,16 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     var registry2 = try import_registry.createDefaultRegistry(allocator);
     defer registry2.deinit();
 
+    // Track modules that failed to compile so we can skip them in codegen
+    var failed_modules = std.StringHashMap(void).init(allocator);
+    defer {
+        var failed_iter = failed_modules.keyIterator();
+        while (failed_iter.next()) |key| {
+            allocator.free(key.*);
+        }
+        failed_modules.deinit();
+    }
+
     for (tree.module.body) |stmt| {
         if (stmt == .import_stmt) {
             const module_name = stmt.import_stmt.module;
@@ -382,6 +392,9 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
             const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, allocator, &type_inferrer) catch |err| {
                 std.debug.print("Warning: Could not pre-compile module {s}: {}\n", .{ module_name, err });
+                // Track this failed module so codegen can skip it
+                const name_copy = try allocator.dupe(u8, module_name);
+                try failed_modules.put(name_copy, {});
                 continue;
             };
             allocator.free(compiled);
@@ -407,6 +420,12 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     // Set source file path for import resolution
     native_gen.setSourceFilePath(opts.input_file);
+
+    // Mark failed modules as skipped so functions using them are skipped entirely
+    var failed_iter = failed_modules.keyIterator();
+    while (failed_iter.next()) |module_name| {
+        try native_gen.markSkippedModule(module_name.*);
+    }
 
     const zig_code = try native_gen.generate(tree.module);
     defer allocator.free(zig_code);
