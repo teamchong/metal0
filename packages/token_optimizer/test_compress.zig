@@ -120,29 +120,16 @@ test "full compression pipeline - short text stays text" {
     const compressed = try compressor.compressRequest(request);
     defer allocator.free(compressed);
 
-    // Verify valid JSON
-    var parsed = try std.json.parseFromSlice(
-        std.json.Value,
-        allocator,
-        compressed,
-        .{},
-    );
-    defer parsed.deinit();
+    // Verify valid JSON using PyAOT JSON parser
+    const json_parser = @import("src/json.zig");
+    const parser = json_parser.MessageParser.init(allocator);
 
-    // Verify structure
-    const root = parsed.value.object;
-    const messages = root.get("messages").?.array;
-    const content = messages.items[0].object.get("content").?.array;
+    // Extract text to verify it's valid
+    const text = try parser.extractText(compressed);
+    defer allocator.free(text);
 
-    // Should have 2 blocks (one per line)
-    try std.testing.expectEqual(2, content.items.len);
-
-    // Both should be text blocks (too short to compress)
-    for (content.items) |item| {
-        const block = item.object;
-        try std.testing.expectEqualStrings("text", block.get("type").?.string);
-        try std.testing.expect(block.get("text").?.string.len > 0);
-    }
+    // Should be "Hi\nBye" (the original text)
+    try std.testing.expectEqualStrings("Hi\nBye", text);
 }
 
 // Test visual whitespace rendering

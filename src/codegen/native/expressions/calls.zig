@@ -1,11 +1,11 @@
 /// Function call code generation
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const dispatch = @import("../dispatch.zig");
 const lambda_mod = @import("lambda.zig");
-const zig_keywords = @import("../../../utils/zig_keywords.zig");
+const zig_keywords = @import("zig_keywords");
 const allocator_analyzer = @import("../statements/functions/allocator_analyzer.zig");
 
 /// Functions that don't require allocator parameter

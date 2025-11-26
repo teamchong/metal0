@@ -13,7 +13,7 @@
 //!   const import_code = info.zig_import; // "@import(\"runtime\").json"
 
 const std = @import("std");
-const hashmap_helper = @import("../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 /// Strategy for handling Python imports
 pub const ImportStrategy = enum {

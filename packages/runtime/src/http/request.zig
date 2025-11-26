@@ -1,7 +1,7 @@
 /// HTTP Request type with zero-copy parsing
 const std = @import("std");
-const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
-const runtime = @import("../runtime.zig");
+const hashmap_helper = @import("hashmap_helper");
+const runtime = @import("runtime.zig");
 
 pub const Method = enum {
     GET,

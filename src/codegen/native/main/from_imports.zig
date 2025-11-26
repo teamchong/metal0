@@ -1,7 +1,7 @@
 const std = @import("std");
 const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
-const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 /// Generate from-import symbol re-exports with deduplication
 /// For "from json import loads", generates: const loads = json.loads;

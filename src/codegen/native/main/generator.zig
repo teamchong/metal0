@@ -1,6 +1,6 @@
 /// Main code generation functions
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
 const CodegenError = core.CodegenError;
@@ -65,11 +65,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         };
 
         // Generate import statement
-        const import_stmt = try std.fmt.allocPrint(
-            self.allocator,
-            "const {s} = @import(\"{s}\");\n",
-            .{ mod_name, import_path }
-        );
+        const import_stmt = try std.fmt.allocPrint(self.allocator, "const {s} = @import(\"{s}\");\n", .{ mod_name, import_path });
         try inlined_modules.append(self.allocator, import_stmt);
     }
 

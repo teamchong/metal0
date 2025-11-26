@@ -1,6 +1,6 @@
 /// Type analysis and detection for assignment statements
 const std = @import("std");
-const ast = @import("../../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 
 /// Check if a list contains only literal values
@@ -102,9 +102,11 @@ pub fn isAllocatedString(self: *NativeCodegen, value: ast.Node) bool {
                 // All string methods that allocate and return new strings
                 // NOTE: strip/lstrip/rstrip use std.mem.trim - they DON'T allocate!
                 const allocating_methods = [_][]const u8{
-                    "upper", "lower",
-                    "replace", "capitalize", "title", "swapcase",
-                    "center", "ljust", "rjust", "join",
+                    "upper",   "lower",
+                    "replace", "capitalize",
+                    "title",   "swapcase",
+                    "center",  "ljust",
+                    "rjust",   "join",
                 };
 
                 for (allocating_methods) |method| {

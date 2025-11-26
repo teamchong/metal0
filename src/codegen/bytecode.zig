@@ -1,7 +1,7 @@
 /// Bytecode codegen - compiles PyAOT AST to runtime bytecode format
 /// Used for --emit-bytecode flag to support runtime eval()
 const std = @import("std");
-const ast = @import("../ast.zig");
+const ast = @import("ast");
 
 /// Bytecode opcodes (must match packages/runtime/src/bytecode.zig)
 pub const OpCode = enum(u8) {

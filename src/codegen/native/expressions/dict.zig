@@ -1,7 +1,7 @@
 /// Dict literal code generation
 /// Handles dict literal expressions with comptime and runtime paths
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");

@@ -1,9 +1,9 @@
 /// Class method generation (init, regular methods, inherited methods)
 const std = @import("std");
-const ast = @import("../../../../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
-const hashmap_helper = @import("../../../../../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 const signature = @import("../signature.zig");
 const class_fields = @import("class_fields.zig");
 const allocator_analyzer = @import("../../allocator_analyzer.zig");

@@ -7,10 +7,9 @@
 /// - Same set_impl code for both types
 /// - 150 lines total instead of 750!
 /// - Mutation methods check type at runtime (unavoidable for C API)
-
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
-const set_impl = @import("../../collections/set_impl.zig");
+const set_impl = @import("collections/set_impl.zig");
 
 const allocator = std.heap.c_allocator;
 

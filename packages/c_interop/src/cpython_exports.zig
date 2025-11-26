@@ -12,7 +12,7 @@
 const std = @import("std");
 const cpython_specs = @import("cpython_api_specs_generated.zig");
 const generator = @import("cpython_api_generator.zig");
-const runtime = @import("../../runtime/src/runtime.zig");
+const runtime = @import("runtime");
 
 /// ============================================================================
 /// EXAMPLE: Using Auto-Generated Specs with Our Comptime Framework

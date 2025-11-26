@@ -1,6 +1,6 @@
 /// DateTime module codegen - datetime.datetime.now(), datetime.date.today(), datetime.timedelta()
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

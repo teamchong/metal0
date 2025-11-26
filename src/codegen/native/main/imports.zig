@@ -1,13 +1,13 @@
 /// Import handling and module compilation
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
 const statements = @import("../statements.zig");
 const import_resolver = @import("../../../import_resolver.zig");
-const fnv_hash = @import("../../../utils/fnv_hash.zig");
+const fnv_hash = @import("fnv_hash");
 
-const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
 /// Infer return type from type string
@@ -163,11 +163,7 @@ fn compileModuleAsStructWithPrefix(
     if (pkg_info.is_package and pkg_info.submodules.len > 0) {
         for (pkg_info.submodules) |submod_name| {
             // Build path to submodule
-            const submod_path = try std.fmt.allocPrint(
-                aa,
-                "{s}/{s}.py",
-                .{ pkg_info.package_dir, submod_name }
-            );
+            const submod_path = try std.fmt.allocPrint(aa, "{s}/{s}.py", .{ pkg_info.package_dir, submod_name });
 
             // Check if submodule exists
             std.fs.cwd().access(submod_path, .{}) catch continue;
@@ -179,17 +175,12 @@ fn compileModuleAsStructWithPrefix(
             else
                 try aa.dupe(u8, module_name);
 
-            const submod_struct = compileModuleAsStructWithPrefix(
-                submod_name,
-                submod_prefix,
-                pkg_info.package_dir,
-                allocator,  // Recursive call uses base allocator for return value
-                main_type_inferrer
-            ) catch |err| {
+            const submod_struct = compileModuleAsStructWithPrefix(submod_name, submod_prefix, pkg_info.package_dir, allocator, // Recursive call uses base allocator for return value
+                main_type_inferrer) catch |err| {
                 std.debug.print("Warning: Could not compile submodule {s}.{s}: {}\n", .{ module_name, submod_name, err });
                 continue;
             };
-            defer allocator.free(submod_struct);  // Free recursive call's return value
+            defer allocator.free(submod_struct); // Free recursive call's return value
 
             // Extract just the struct body (remove outer const declaration)
             const struct_body = blk: {
@@ -206,18 +197,15 @@ fn compileModuleAsStructWithPrefix(
                 }
 
                 if (brace_count == 0 and i > body_start) {
-                    break :blk submod_struct[body_start..i-1]; // Exclude closing brace
+                    break :blk submod_struct[body_start .. i - 1]; // Exclude closing brace
                 }
                 break :blk submod_struct;
             };
 
             // Add as nested struct
-            try submodule_code.writer(aa).print(
-                "    pub const {s} = struct {{\n" ++
+            try submodule_code.writer(aa).print("    pub const {s} = struct {{\n" ++
                 "{s}" ++
-                "    }};\n\n",
-                .{ submod_name, struct_body }
-            );
+                "    }};\n\n", .{ submod_name, struct_body });
         }
     }
 
@@ -229,13 +217,11 @@ fn compileModuleAsStructWithPrefix(
             var struct_code = std.ArrayList(u8){};
             errdefer struct_code.deinit(allocator);
 
-            try struct_code.writer(allocator).print(
-                "// Inlined module: {s}\n" ++
-                "{s}" ++  // Everything up to closing brace
-                "{s}" ++  // Submodules
-                "}};\n",  // Closing brace
-                .{ module_name, module_body[0..close_idx], submodule_code.items }
-            );
+            try struct_code.writer(allocator).print("// Inlined module: {s}\n" ++
+                "{s}" ++ // Everything up to closing brace
+                "{s}" ++ // Submodules
+                "}};\n", // Closing brace
+                .{ module_name, module_body[0..close_idx], submodule_code.items });
 
             return try struct_code.toOwnedSlice(allocator);
         }
@@ -245,10 +231,7 @@ fn compileModuleAsStructWithPrefix(
     var struct_code = std.ArrayList(u8){};
     errdefer struct_code.deinit(allocator);
 
-    try struct_code.writer(allocator).print(
-        "// Inlined module: {s}\n{s}",
-        .{ module_name, module_body }
-    );
+    try struct_code.writer(allocator).print("// Inlined module: {s}\n{s}", .{ module_name, module_body });
 
     return try struct_code.toOwnedSlice(allocator);
 }

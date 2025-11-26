@@ -1,6 +1,6 @@
 /// Self-usage detection for method bodies
 const std = @import("std");
-const ast = @import("../../../../ast.zig");
+const ast = @import("ast");
 
 /// unittest assertion methods that dispatch to runtime (self isn't used in generated code)
 const UnittestMethods = std.StaticStringMap(void).initComptime(.{

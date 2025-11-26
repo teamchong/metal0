@@ -1,7 +1,7 @@
 /// Subscript and slicing code generation
 /// Handles array/dict indexing and slicing operations
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");

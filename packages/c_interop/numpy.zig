@@ -9,8 +9,8 @@ const std = @import("std");
 // Import runtime for PyObject and NumpyArray support
 // This assumes runtime package is available in the import path
 const runtime = struct {
-    pub usingnamespace @import("../runtime/src/runtime.zig");
-    pub const NumpyArray = @import("../runtime/src/numpy_array.zig").NumpyArray;
+    pub usingnamespace @import("runtime/src/runtime.zig");
+    pub const NumpyArray = @import("runtime/src/numpy_array.zig").NumpyArray;
 };
 
 // BLAS C interface - Direct extern declarations

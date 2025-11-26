@@ -1,9 +1,9 @@
 /// Method call dispatchers (string, list, dict methods)
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
-const zig_keywords = @import("../../../utils/zig_keywords.zig");
+const zig_keywords = @import("zig_keywords");
 
 const methods = @import("../methods.zig");
 const pandas_mod = @import("../pandas.zig");

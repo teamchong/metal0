@@ -1,9 +1,9 @@
 /// Symbol table and method lookup system for native code generation
 /// Provides scope-aware symbol resolution and class method lookup with inheritance support
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const NativeType = @import("../../analysis/native_types.zig").NativeType;
-const hashmap_helper = @import("../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 const FnvSymbolMap = hashmap_helper.StringHashMap(SymbolInfo);
 const FnvClassDefMap = hashmap_helper.StringHashMap(ast.Node.ClassDef);

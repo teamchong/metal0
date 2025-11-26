@@ -1,6 +1,6 @@
 const std = @import("std");
-const Task = @import("../task.zig").Task;
-const Processor = @import("../processor.zig").Processor;
+const Task = @import("task.zig").Task;
+const Processor = @import("processor.zig").Processor;
 
 /// Preemption interval (10ms like Go)
 pub const PREEMPT_INTERVAL_NS: u64 = 10 * std.time.ns_per_ms;

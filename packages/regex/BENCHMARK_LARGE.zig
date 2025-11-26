@@ -5,7 +5,7 @@ const parser = @import("src/pyregex/parser.zig");
 const nfa_mod = @import("src/pyregex/nfa.zig");
 const lazydfa = @import("src/pyregex/lazydfa.zig");
 const optimizer = @import("src/pyregex/optimizer.zig");
-const allocator_helper = @import("../../src/utils/allocator_helper.zig");
+const allocator_helper = @import("src/utils/allocator_helper.zig");
 
 fn loadData(allocator: std.mem.Allocator, filename: []const u8) ![]const u8 {
     const file = try std.fs.cwd().openFile(filename, .{});

@@ -3,7 +3,7 @@ const std = @import("std");
 const JsonValue = @import("../value.zig").JsonValue;
 const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
-const simd = @import("../simd/dispatch.zig");
+const simd = @import("simd/dispatch.zig");
 
 /// Parse JSON string with SIMD-accelerated scanning
 pub fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) JsonError!ParseResult(JsonValue) {

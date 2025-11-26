@@ -1,7 +1,7 @@
 /// Analyze whether a function needs an allocator parameter
 /// Functions need allocator if they perform operations that allocate memory
 const std = @import("std");
-const ast = @import("../../../../ast.zig");
+const ast = @import("ast");
 
 // ComptimeStringMaps for O(1) lookup + DCE optimization
 

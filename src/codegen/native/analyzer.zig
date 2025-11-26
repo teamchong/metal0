@@ -1,7 +1,7 @@
 /// Comptime analysis - Analyze AST before code generation
 /// Determines what imports, resources, and setup code is needed
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 
 // Static string maps for DCE optimization
 const StringUtilMethods = std.StaticStringMap(void).initComptime(.{

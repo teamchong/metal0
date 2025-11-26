@@ -1,7 +1,7 @@
 /// NumPy function code generation
 /// Generates calls to c_interop/numpy.zig for direct BLAS integration
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 

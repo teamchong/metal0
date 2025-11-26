@@ -1,7 +1,7 @@
 /// Control flow statement code generation - Re-exports from submodules
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 
 // Re-export loop functions
 pub const genFor = @import("control/loops.zig").genFor;

@@ -1,5 +1,5 @@
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const core = @import("core.zig");
 const NativeType = core.NativeType;
 

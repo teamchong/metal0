@@ -1,6 +1,6 @@
 /// Miscellaneous expression code generation (tuple, attribute, subscript)
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const subscript_mod = @import("subscript.zig");

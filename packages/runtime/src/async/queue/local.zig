@@ -1,5 +1,5 @@
 const std = @import("std");
-const Task = @import("../task.zig").Task;
+const Task = @import("task.zig").Task;
 const lockfree = @import("lockfree.zig");
 
 /// Local run queue for a processor (P in Go's GMP model)

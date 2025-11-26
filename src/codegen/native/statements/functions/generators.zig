@@ -1,6 +1,6 @@
 /// Function and class definition code generation
 const std = @import("std");
-const ast = @import("../../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const DecoratedFunction = @import("../../main.zig").DecoratedFunction;
 const CodegenError = @import("../../main.zig").CodegenError;

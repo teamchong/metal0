@@ -1,8 +1,8 @@
 /// Enhanced lambda with closure support using Zig comptime
 /// Handles: lambda returning lambda, variable capture, higher-order functions
 const std = @import("std");
-const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
-const ast = @import("../../../ast.zig");
+const hashmap_helper = @import("hashmap_helper");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const native_types = @import("../../../analysis/native_types.zig");

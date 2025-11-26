@@ -1,7 +1,7 @@
 /// Comptime stdlib bridge - generates handlers from specs
 /// Reduces boilerplate: 215 hand-written handlers → ~50 lines of specs
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

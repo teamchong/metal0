@@ -1,6 +1,6 @@
 /// Defer cleanup logic for assignments
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const helpers = @import("assign_helpers.zig");
@@ -92,9 +92,9 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
         for (dict.values[1..]) |value| {
             const this_type = try self.type_inferrer.inferExpr(value);
             const tags_match = @as(std.meta.Tag(@TypeOf(first_type)), first_type) ==
-                              @as(std.meta.Tag(@TypeOf(this_type)), this_type);
+                @as(std.meta.Tag(@TypeOf(this_type)), this_type);
             const is_int_float_mix = (first_type == .int and this_type == .float) or
-                                     (first_type == .float and this_type == .int);
+                (first_type == .float and this_type == .int);
             if (!tags_match and !is_int_float_mix) {
                 // Mixed types → will use runtime path → NOT comptime!
                 is_comptime_dict = false;

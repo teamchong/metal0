@@ -1,6 +1,6 @@
 const std = @import("std");
 const lockfree = @import("lockfree.zig");
-const Task = @import("../task.zig").Task;
+const Task = @import("task.zig").Task;
 
 /// Benchmark queue performance
 pub fn main() !void {

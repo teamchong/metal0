@@ -1,7 +1,7 @@
 /// List literal code generation
 /// Handles list literal expressions with array optimization and comptime/runtime paths
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");

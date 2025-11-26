@@ -5,18 +5,17 @@
 /// - Memory views (contiguous, slicing)
 /// - Sets (mutable, frozen)
 /// - Iterators (list, tuple, set, dict)
-
 const std = @import("std");
 const testing = std.testing;
 
 // Imports
-const buffer_impl = @import("../../collections/buffer_impl.zig");
-const set_impl = @import("../../collections/set_impl.zig");
-const iterator_impl = @import("../../collections/iterator_impl.zig");
-const cpython = @import("../src/cpython_object.zig");
-const cpython_buffer = @import("../src/cpython_buffer.zig");
-const cpython_memoryview = @import("../src/cpython_memoryview.zig");
-const pyobject_set = @import("../src/pyobject_set.zig");
+const buffer_impl = @import("collections/buffer_impl.zig");
+const set_impl = @import("collections/set_impl.zig");
+const iterator_impl = @import("collections/iterator_impl.zig");
+const cpython = @import("src/cpython_object.zig");
+const cpython_buffer = @import("src/cpython_buffer.zig");
+const cpython_memoryview = @import("src/cpython_memoryview.zig");
+const pyobject_set = @import("src/pyobject_set.zig");
 
 // ============================================================================
 // BUFFER PROTOCOL TESTS

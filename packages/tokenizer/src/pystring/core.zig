@@ -1,6 +1,6 @@
 /// Core PyString operations - creation, access, concatenation
 const std = @import("std");
-const runtime = @import("../runtime.zig");
+const runtime = @import("runtime.zig");
 const PyObject = runtime.PyObject;
 const PythonError = runtime.PythonError;
 

@@ -1,6 +1,6 @@
 /// Parse JSON numbers directly to PyInt (zero extra allocations)
 const std = @import("std");
-const runtime = @import("../../runtime.zig");
+const runtime = @import("runtime.zig");
 const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
 

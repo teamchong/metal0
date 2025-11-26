@@ -1,10 +1,9 @@
 /// CPython MemoryView - Using Generic Buffer Implementation
 ///
 /// Memory views provide a way to access buffer protocol data with comptime optimization.
-
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
-const buffer_impl = @import("../../shared/buffer_impl.zig");
+const buffer_impl = @import("shared/buffer_impl.zig");
 
 const allocator = std.heap.c_allocator;
 

@@ -7,9 +7,8 @@
 ///
 /// Key insight: All exceptions share the same base pattern, we just
 /// configure which extra fields each type needs at comptime.
-
 const std = @import("std");
-const exception_impl = @import("../../collections/exception_impl.zig");
+const exception_impl = @import("collections/exception_impl.zig");
 const cpython = @import("cpython_object.zig");
 
 // Re-export from exception_impl for convenience
@@ -225,7 +224,7 @@ pub const StopIteration = exception_impl.ExceptionImpl(StopIterationConfig);
 pub const GeneratorExitConfig = struct {
     pub const name = "GeneratorExit";
     pub const doc = "Request that a generator exit";
-    pub const has_cause = false;  // No exception chaining
+    pub const has_cause = false; // No exception chaining
     pub const has_context = false;
 };
 pub const GeneratorExit = exception_impl.ExceptionImpl(GeneratorExitConfig);
@@ -258,8 +257,8 @@ pub const OSErrorConfig = struct {
     pub const doc = "Base class for I/O related errors";
     pub const has_cause = true;
     pub const has_context = true;
-    pub const has_errno = true;      // Extra field!
-    pub const has_filename = true;   // Extra field!
+    pub const has_errno = true; // Extra field!
+    pub const has_filename = true; // Extra field!
     pub const has_filename2 = false;
 };
 pub const OSError = exception_impl.ExceptionImpl(OSErrorConfig);
@@ -331,7 +330,7 @@ pub const TimeoutErrorConfig = struct {
     pub const has_cause = true;
     pub const has_context = true;
     pub const has_errno = true;
-    pub const has_filename = false;  // No filename for timeout
+    pub const has_filename = false; // No filename for timeout
     pub const has_filename2 = false;
 };
 pub const TimeoutError = exception_impl.ExceptionImpl(TimeoutErrorConfig);
@@ -406,10 +405,10 @@ pub const SyntaxErrorConfig = struct {
     pub const doc = "Invalid syntax";
     pub const has_cause = true;
     pub const has_context = true;
-    pub const has_filename = true;   // Source file
-    pub const has_lineno = true;     // Line number
-    pub const has_offset = true;     // Column number
-    pub const has_text = true;       // Source line text
+    pub const has_filename = true; // Source file
+    pub const has_lineno = true; // Line number
+    pub const has_offset = true; // Column number
+    pub const has_text = true; // Source line text
 };
 pub const SyntaxError = exception_impl.ExceptionImpl(SyntaxErrorConfig);
 
@@ -449,11 +448,11 @@ pub const UnicodeErrorConfig = struct {
     pub const doc = "Unicode-related error";
     pub const has_cause = true;
     pub const has_context = true;
-    pub const has_encoding = true;   // Encoding name
-    pub const has_object = true;     // Original bytes/str
-    pub const has_start = true;      // Error start position
-    pub const has_end = true;        // Error end position
-    pub const has_reason = true;     // Error reason
+    pub const has_encoding = true; // Encoding name
+    pub const has_object = true; // Original bytes/str
+    pub const has_start = true; // Error start position
+    pub const has_end = true; // Error end position
+    pub const has_reason = true; // Error reason
 };
 pub const UnicodeError = exception_impl.ExceptionImpl(UnicodeErrorConfig);
 
@@ -491,7 +490,7 @@ pub const UnicodeTranslateErrorConfig = struct {
     pub const doc = "Unicode translation error";
     pub const has_cause = true;
     pub const has_context = true;
-    pub const has_encoding = false;  // No encoding for translate
+    pub const has_encoding = false; // No encoding for translate
     pub const has_object = true;
     pub const has_start = true;
     pub const has_end = true;
@@ -509,8 +508,8 @@ pub const ImportErrorConfig = struct {
     pub const doc = "Import can't be found or loaded";
     pub const has_cause = true;
     pub const has_context = true;
-    pub const has_name = true;       // Module name
-    pub const has_path = true;       // Module path
+    pub const has_name = true; // Module name
+    pub const has_path = true; // Module path
 };
 pub const ImportError = exception_impl.ExceptionImpl(ImportErrorConfig);
 

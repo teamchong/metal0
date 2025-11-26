@@ -4,6 +4,33 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Shared modules - define ONCE, use everywhere
+    const hashmap_helper = b.addModule("hashmap_helper", .{
+        .root_source_file = b.path("src/utils/hashmap_helper.zig"),
+    });
+    const allocator_helper = b.addModule("allocator_helper", .{
+        .root_source_file = b.path("src/utils/allocator_helper.zig"),
+    });
+    const runtime = b.addModule("runtime", .{
+        .root_source_file = b.path("packages/runtime/src/runtime.zig"),
+    });
+    const collections = b.addModule("collections", .{
+        .root_source_file = b.path("packages/collections/collections.zig"),
+    });
+    const fnv_hash = b.addModule("fnv_hash", .{
+        .root_source_file = b.path("src/utils/fnv_hash.zig"),
+    });
+    const zig_keywords = b.addModule("zig_keywords", .{
+        .root_source_file = b.path("src/utils/zig_keywords.zig"),
+    });
+    const ast = b.addModule("ast", .{
+        .root_source_file = b.path("src/ast.zig"),
+    });
+
+    // Module dependencies
+    runtime.addImport("hashmap_helper", hashmap_helper);
+    collections.addImport("runtime", runtime);
+
     // C interop module
     const c_interop_mod = b.createModule(.{
         .root_source_file = b.path("packages/c_interop/src/registry.zig"),
@@ -20,6 +47,13 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    exe.root_module.addImport("hashmap_helper", hashmap_helper);
+    exe.root_module.addImport("allocator_helper", allocator_helper);
+    exe.root_module.addImport("runtime", runtime);
+    exe.root_module.addImport("collections", collections);
+    exe.root_module.addImport("fnv_hash", fnv_hash);
+    exe.root_module.addImport("zig_keywords", zig_keywords);
+    exe.root_module.addImport("ast", ast);
     exe.root_module.addImport("c_interop", c_interop_mod);
 
     b.installArtifact(exe);
@@ -36,20 +70,13 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     // Zig runtime tests
-    // Create shared ast module
-    const ast_module = b.createModule(.{
-        .root_source_file = b.path("src/ast.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     // Create comptime_eval module with ast dependency
     const comptime_eval_module = b.createModule(.{
         .root_source_file = b.path("src/analysis/comptime_eval.zig"),
         .target = target,
         .optimize = optimize,
     });
-    comptime_eval_module.addImport("ast", ast_module);
+    comptime_eval_module.addImport("ast", ast);
 
     // Create test module
     const runtime_tests = b.addTest(.{
@@ -61,7 +88,7 @@ pub fn build(b: *std.Build) void {
     });
 
     // Add imports to test module
-    runtime_tests.root_module.addImport("ast", ast_module);
+    runtime_tests.root_module.addImport("ast", ast);
     runtime_tests.root_module.addImport("comptime_eval", comptime_eval_module);
 
     const run_runtime_tests = b.addRunArtifact(runtime_tests);
@@ -119,6 +146,22 @@ pub fn build(b: *std.Build) void {
     const run_goroutine_basic_tests = b.addRunArtifact(goroutine_basic_tests);
     const goroutine_basic_test_step = b.step("test-goroutines-basic", "Run basic goroutine tests");
     goroutine_basic_test_step.dependOn(&run_goroutine_basic_tests.step);
+
+    // JSON spec compliance tests (RFC 8259) - built into parse.zig tests
+    const json_tests_mod = b.createModule(.{
+        .root_source_file = b.path("packages/runtime/src/json/parse.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    json_tests_mod.addImport("hashmap_helper", hashmap_helper);
+
+    const json_tests = b.addTest(.{
+        .root_module = json_tests_mod,
+    });
+
+    const run_json_tests = b.addRunArtifact(json_tests);
+    const json_test_step = b.step("test-json", "Run JSON parser tests including RFC 8259 compliance");
+    json_test_step.dependOn(&run_json_tests.step);
 
     // Work-stealing benchmark
     const bench_work_stealing = b.addExecutable(.{

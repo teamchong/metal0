@@ -1,5 +1,5 @@
 const std = @import("std");
-const ast = @import("../ast.zig");
+const ast = @import("ast");
 const types = @import("types.zig");
 const lifetime = @import("lifetime.zig");
 const expressions = @import("expressions.zig");

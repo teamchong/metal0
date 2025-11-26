@@ -1,12 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Task = @import("../task.zig").Task;
-const Processor = @import("../processor.zig").Processor;
+const Task = @import("task.zig").Task;
+const Processor = @import("processor.zig").Processor;
 
 /// Signal-based preemption (Go-style)
 /// Uses SIGURG on Unix systems for async-safe preemption
 /// On other platforms, falls back to cooperative preemption
-
 /// Preemption signal (SIGURG on Unix, unused on Windows)
 pub const PREEMPT_SIGNAL = if (builtin.os.tag == .linux or builtin.os.tag == .macos)
     std.posix.SIG.URG

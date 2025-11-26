@@ -1,6 +1,6 @@
 /// Core types and helper functions for compile-time evaluation
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 
 /// Check if a list contains only literal values
 pub fn isConstantList(list: []ast.Node) bool {

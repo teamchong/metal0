@@ -1,6 +1,6 @@
 /// Parse JSON primitives directly to PyObject: null → None, true/false → Bool
 const std = @import("std");
-const runtime = @import("../../runtime.zig");
+const runtime = @import("runtime.zig");
 const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
 

@@ -1,6 +1,6 @@
 /// Collection builtins: sum(), all(), any(), sorted(), reversed(), enumerate(), zip()
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 
@@ -9,7 +9,6 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 /// - range(n) → while (i < n)
 /// - range(start, end) → while (i < end) starting from start
 /// - range(start, end, step) → while (i < end) with custom increment
-
 /// Generate code for enumerate(iterable)
 /// Returns: iterator with (index, value) tuples
 /// Note: enumerate() is ONLY supported in for-loop context by statements.zig
@@ -18,8 +17,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     // enumerate() only works in for-loops: for i, item in enumerate(items)
     // Standalone enumerate() not supported
-    try self.emit(
-        "@compileError(\"enumerate() only supported in for-loops: for i, item in enumerate(...)\")");
+    try self.emit("@compileError(\"enumerate() only supported in for-loops: for i, item in enumerate(...)\")");
 }
 
 /// Generate code for zip(iter1, iter2, ...)
@@ -29,8 +27,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     // zip() is only supported in for-loops, not as a standalone expression
-    try self.emit(
-        "@compileError(\"zip() only supported in for-loops: for x, y in zip(list1, list2)\")");
+    try self.emit("@compileError(\"zip() only supported in for-loops: for x, y in zip(list1, list2)\")");
 }
 
 /// Generate code for sum(iterable)
@@ -166,8 +163,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // 1. Function pointers (complex in Zig, needs comptime or anytype)
     // 2. Lambda support (would need closure generation)
     // For now, users should use explicit for loops
-    try self.emit(
-        "@compileError(\"map() not supported - use explicit for loop instead\")");
+    try self.emit("@compileError(\"map() not supported - use explicit for loop instead\")");
 }
 
 /// Generate code for filter(func, iterable)
@@ -185,8 +181,7 @@ pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // 1. Function pointers (complex in Zig, needs comptime or anytype)
     // 2. Lambda support (would need closure generation)
     // For now, users should use explicit for loops with if conditions
-    try self.emit(
-        "@compileError(\"filter() not supported - use explicit for loop with if instead\")");
+    try self.emit("@compileError(\"filter() not supported - use explicit for loop with if instead\")");
 }
 
 // Built-in functions implementation status:

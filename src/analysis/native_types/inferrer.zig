@@ -1,9 +1,9 @@
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const core = @import("core.zig");
 const statements = @import("statements.zig");
 const expressions = @import("expressions.zig");
-const hashmap_helper = @import("../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 const closures = @import("closures.zig");
 
 pub const NativeType = core.NativeType;

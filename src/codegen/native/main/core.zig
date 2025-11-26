@@ -1,6 +1,6 @@
 /// Core NativeCodegen struct and basic operations
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
 const TypeInferrer = native_types.TypeInferrer;
@@ -11,10 +11,10 @@ const SymbolTable = symbol_table_mod.SymbolTable;
 const ClassRegistry = symbol_table_mod.ClassRegistry;
 const MethodInfo = symbol_table_mod.MethodInfo;
 const import_registry = @import("../import_registry.zig");
-const fnv_hash = @import("../../../utils/fnv_hash.zig");
+const fnv_hash = @import("fnv_hash");
 const cleanup = @import("cleanup.zig");
 
-const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
 const FnvFuncDefMap = hashmap_helper.StringHashMap(ast.Node.FunctionDef);

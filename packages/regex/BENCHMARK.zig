@@ -6,7 +6,7 @@ const nfa_mod = @import("src/pyregex/nfa.zig");
 const lazydfa = @import("src/pyregex/lazydfa.zig");
 const pikevm = @import("src/pyregex/pikevm.zig");
 const optimizer = @import("src/pyregex/optimizer.zig");
-const allocator_helper = @import("../../src/utils/allocator_helper.zig");
+const allocator_helper = @import("src/utils/allocator_helper.zig");
 
 fn loadData(allocator: std.mem.Allocator) ![]const u8 {
     const file = try std.fs.cwd().openFile("bench_data.txt", .{});

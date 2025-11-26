@@ -1,6 +1,6 @@
 /// Class field generation from __init__ and other methods
 const std = @import("std");
-const ast = @import("../../../../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
 const signature = @import("../signature.zig");

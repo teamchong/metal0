@@ -1,5 +1,5 @@
 const std = @import("std");
-const ast = @import("../ast.zig");
+const ast = @import("ast");
 const string_ops = @import("comptime_string.zig");
 const list_ops = @import("comptime_list.zig");
 const builtin_ops = @import("comptime_builtins.zig");

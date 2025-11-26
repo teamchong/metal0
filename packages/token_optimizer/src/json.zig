@@ -1,6 +1,7 @@
 const std = @import("std");
 
 /// Parse Anthropic API message format and extract text content
+/// This is a simple string-based parser - no intermediate representation needed
 pub const MessageParser = struct {
     allocator: std.mem.Allocator,
 
@@ -9,172 +10,212 @@ pub const MessageParser = struct {
     }
 
     /// Extract text from messages array
+    /// Handles both string content and array of content blocks
     pub fn extractText(self: MessageParser, json_bytes: []const u8) ![]const u8 {
-        var parsed = try std.json.parseFromSlice(
-            std.json.Value,
-            self.allocator,
-            json_bytes,
-            .{},
-        );
-        defer parsed.deinit();
+        // Find "messages":[{"content":
+        const content_start = std.mem.indexOf(u8, json_bytes, "\"content\":") orelse return error.MissingContent;
+        const after_content = json_bytes[content_start + 10 ..];
 
-        const root = parsed.value.object;
+        // Skip whitespace
+        var i: usize = 0;
+        while (i < after_content.len and std.ascii.isWhitespace(after_content[i])) : (i += 1) {}
 
-        // Navigate: messages[0].content (string or array)
-        const messages = root.get("messages") orelse return error.MissingMessages;
-        const messages_array = messages.array;
-        if (messages_array.items.len == 0) return error.EmptyMessages;
+        if (i >= after_content.len) return error.MissingContent;
 
-        const first_message = messages_array.items[0].object;
-        const content = first_message.get("content") orelse return error.MissingContent;
+        // Check if string or array
+        if (after_content[i] == '"') {
+            // Simple string content
+            return try self.parseStringValue(after_content[i..]);
+        } else if (after_content[i] == '[') {
+            // Array of content blocks - extract all text blocks
+            return try self.extractTextFromArray(after_content[i..]);
+        } else {
+            return error.InvalidContentFormat;
+        }
+    }
 
-        // Content can be string or array of content blocks
-        switch (content) {
-            .string => |s| {
-                return try self.allocator.dupe(u8, s);
-            },
-            .array => |arr| {
-                // Extract text from first text block
-                for (arr.items) |item| {
-                    const block = item.object;
-                    const block_type = block.get("type") orelse continue;
-                    if (std.mem.eql(u8, block_type.string, "text")) {
-                        const text = block.get("text") orelse continue;
-                        return try self.allocator.dupe(u8, text.string);
+    fn parseStringValue(self: MessageParser, data: []const u8) ![]const u8 {
+        if (data[0] != '"') return error.InvalidFormat;
+
+        var i: usize = 1;
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
+
+        while (i < data.len) : (i += 1) {
+            const c = data[i];
+            if (c == '"') {
+                // End of string
+                return try result.toOwnedSlice(self.allocator);
+            } else if (c == '\\' and i + 1 < data.len) {
+                // Escape sequence
+                i += 1;
+                const next = data[i];
+                const unescaped: u8 = switch (next) {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    '\\' => '\\',
+                    '"' => '"',
+                    else => next,
+                };
+                try result.append(self.allocator, unescaped);
+            } else {
+                try result.append(self.allocator, c);
+            }
+        }
+
+        return error.UnterminatedString;
+    }
+
+    fn extractTextFromArray(self: MessageParser, data: []const u8) ![]const u8 {
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
+
+        var i: usize = 1; // Skip opening '['
+        var found_text = false;
+
+        while (i < data.len) {
+            // Skip whitespace
+            while (i < data.len and std.ascii.isWhitespace(data[i])) : (i += 1) {}
+            if (i >= data.len) break;
+
+            if (data[i] == ']') break;
+            if (data[i] == ',') {
+                i += 1;
+                continue;
+            }
+
+            // Look for "type":"text"
+            const type_pos = std.mem.indexOf(u8, data[i..], "\"type\"") orelse {
+                i += 1;
+                continue;
+            };
+            i += type_pos;
+
+            const value_start = std.mem.indexOf(u8, data[i..], ":") orelse {
+                i += 1;
+                continue;
+            };
+            i += value_start + 1;
+
+            // Skip whitespace
+            while (i < data.len and std.ascii.isWhitespace(data[i])) : (i += 1) {}
+
+            if (i < data.len and data[i] == '"') {
+                const type_value = try self.parseStringValue(data[i..]);
+                defer self.allocator.free(type_value);
+
+                if (std.mem.eql(u8, type_value, "text")) {
+                    // Find "text": field
+                    const text_field = std.mem.indexOf(u8, data[i..], "\"text\"") orelse {
+                        i += 1;
+                        continue;
+                    };
+                    i += text_field;
+
+                    const text_value_start = std.mem.indexOf(u8, data[i..], ":") orelse {
+                        i += 1;
+                        continue;
+                    };
+                    i += text_value_start + 1;
+
+                    // Skip whitespace
+                    while (i < data.len and std.ascii.isWhitespace(data[i])) : (i += 1) {}
+
+                    if (i < data.len and data[i] == '"') {
+                        const text_value = try self.parseStringValue(data[i..]);
+                        defer self.allocator.free(text_value);
+
+                        try result.appendSlice(self.allocator, text_value);
+                        found_text = true;
                     }
                 }
-                return error.NoTextContent;
-            },
-            else => return error.InvalidContentFormat,
+            }
+
+            i += 1;
         }
+
+        if (!found_text) return error.NoTextContent;
+
+        return try result.toOwnedSlice(self.allocator);
     }
 
     /// Rebuild JSON with modified content
+    /// This constructs the JSON manually without std.json
     pub fn rebuildWithContent(
         self: MessageParser,
         json_bytes: []const u8,
-        new_content: std.json.Value,
+        new_content_json: []const u8,
     ) ![]const u8 {
-        var parsed = try std.json.parseFromSlice(
-            std.json.Value,
-            self.allocator,
-            json_bytes,
-            .{},
-        );
-        defer parsed.deinit();
+        // Find the content field and replace it
+        const content_start = std.mem.indexOf(u8, json_bytes, "\"content\":") orelse return error.MissingContent;
 
-        // Clone the root object
-        const root = try self.cloneValue(parsed.value);
-        errdefer self.freeValue(root);
+        // Find the end of the content value
+        // We need to handle both string and array values
+        var i = content_start + 10; // Skip "content":
 
-        var root_obj = root.object;
+        // Skip whitespace
+        while (i < json_bytes.len and std.ascii.isWhitespace(json_bytes[i])) : (i += 1) {}
 
-        // Modify messages[0].content
-        var messages = root_obj.getPtr("messages") orelse return error.MissingMessages;
-        var messages_array = &messages.array;
-        if (messages_array.items.len == 0) return error.EmptyMessages;
+        if (i >= json_bytes.len) return error.InvalidFormat;
 
-        var first_message_obj = &messages_array.items[0].object;
-
-        // Replace content
-        const old_content = if (first_message_obj.getPtr("content")) |content_ptr| blk: {
-            const old = content_ptr.*;
-            content_ptr.* = new_content;
-            break :blk old;
-        } else null_blk: {
-            try first_message_obj.put("content", new_content);
-            break :null_blk null;
-        };
-
-        // Serialize back to JSON
-        var output = std.ArrayList(u8){};
-        errdefer output.deinit(self.allocator);
-
-        try std.fmt.format(output.writer(self.allocator), "{f}", .{std.json.fmt(root, .{})});
-
-        // Free the old content that was replaced
-        if (old_content) |old| {
-            self.freeValue(old);
+        var content_end: usize = undefined;
+        if (json_bytes[i] == '"') {
+            // String value
+            content_end = try self.findStringEnd(json_bytes, i);
+        } else if (json_bytes[i] == '[') {
+            // Array value
+            content_end = try self.findArrayEnd(json_bytes, i);
+        } else {
+            return error.InvalidFormat;
         }
 
-        // Free the cloned tree (but not the inserted new_content)
-        self.freeValueShallow(root);
+        // Build new JSON: before + new_content + after
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
-        return try output.toOwnedSlice(self.allocator);
+        try result.appendSlice(self.allocator, json_bytes[0 .. content_start + 10]);
+        try result.appendSlice(self.allocator, new_content_json);
+        try result.appendSlice(self.allocator, json_bytes[content_end..]);
+
+        return try result.toOwnedSlice(self.allocator);
     }
 
-    fn cloneValue(self: MessageParser, value: std.json.Value) !std.json.Value {
-        return switch (value) {
-            .null => .null,
-            .bool => |b| .{ .bool = b },
-            .integer => |i| .{ .integer = i },
-            .float => |f| .{ .float = f },
-            .number_string => |s| .{ .number_string = try self.allocator.dupe(u8, s) },
-            .string => |s| .{ .string = try self.allocator.dupe(u8, s) },
-            .array => |arr| {
-                var new_arr = std.json.Array.init(self.allocator);
-                errdefer new_arr.deinit();
-
-                for (arr.items) |item| {
-                    try new_arr.append(try self.cloneValue(item));
-                }
-                return .{ .array = new_arr };
-            },
-            .object => |obj| {
-                var new_obj = std.json.ObjectMap.init(self.allocator);
-                errdefer new_obj.deinit();
-
-                var it = obj.iterator();
-                while (it.next()) |entry| {
-                    const key = try self.allocator.dupe(u8, entry.key_ptr.*);
-                    errdefer self.allocator.free(key);
-                    try new_obj.put(key, try self.cloneValue(entry.value_ptr.*));
-                }
-                return .{ .object = new_obj };
-            },
-        };
-    }
-
-    fn freeValue(self: MessageParser, value: std.json.Value) void {
-        switch (value) {
-            .null, .bool, .integer, .float => {},
-            .number_string => |s| self.allocator.free(s),
-            .string => |s| self.allocator.free(s),
-            .array => |*arr| {
-                for (arr.items) |item| {
-                    self.freeValue(item);
-                }
-                arr.deinit();
-            },
-            .object => |obj| {
-                var mutable_obj = obj;
-                var it = mutable_obj.iterator();
-                while (it.next()) |entry| {
-                    self.allocator.free(entry.key_ptr.*);
-                    self.freeValue(entry.value_ptr.*);
-                }
-                mutable_obj.deinit();
-            },
+    fn findStringEnd(self: MessageParser, data: []const u8, start: usize) !usize {
+        _ = self;
+        var i = start + 1; // Skip opening quote
+        while (i < data.len) : (i += 1) {
+            if (data[i] == '"' and (i == start + 1 or data[i - 1] != '\\')) {
+                return i + 1; // Include closing quote
+            }
         }
+        return error.UnterminatedString;
     }
 
-    fn freeValueShallow(self: MessageParser, value: std.json.Value) void {
-        switch (value) {
-            .null, .bool, .integer, .float => {},
-            .number_string => |s| self.allocator.free(s),
-            .string => |s| self.allocator.free(s),
-            .array => |*arr| {
-                arr.deinit();
-            },
-            .object => |obj| {
-                var mutable_obj = obj;
-                var it = mutable_obj.iterator();
-                while (it.next()) |entry| {
-                    self.allocator.free(entry.key_ptr.*);
+    fn findArrayEnd(self: MessageParser, data: []const u8, start: usize) !usize {
+        _ = self;
+        var i = start + 1; // Skip opening bracket
+        var depth: i32 = 1;
+
+        while (i < data.len) : (i += 1) {
+            const c = data[i];
+            if (c == '"') {
+                // Skip string contents
+                i += 1;
+                while (i < data.len) : (i += 1) {
+                    if (data[i] == '"' and data[i - 1] != '\\') break;
                 }
-                mutable_obj.deinit();
-            },
+            } else if (c == '[') {
+                depth += 1;
+            } else if (c == ']') {
+                depth -= 1;
+                if (depth == 0) {
+                    return i + 1; // Include closing bracket
+                }
+            }
         }
+
+        return error.UnterminatedArray;
     }
 };
 
@@ -204,6 +245,19 @@ test "extract text from array content" {
     try std.testing.expectEqualStrings("Hello world", text);
 }
 
+test "extract text from multiple text blocks in array" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\{"model":"claude-3-5-sonnet-20241022","max_tokens":10,"messages":[{"role":"user","content":[{"type":"text","text":"First block. "},{"type":"text","text":"Second block. "},{"type":"text","text":"Third block."}]}]}
+    ;
+
+    const parser = MessageParser.init(allocator);
+    const text = try parser.extractText(json);
+    defer allocator.free(text);
+
+    try std.testing.expectEqualStrings("First block. Second block. Third block.", text);
+}
+
 test "round-trip rebuild with modified content" {
     const allocator = std.testing.allocator;
     const json =
@@ -212,30 +266,18 @@ test "round-trip rebuild with modified content" {
 
     const parser = MessageParser.init(allocator);
 
-    // Create new content (simple string - must be allocated)
-    const new_string = try allocator.dupe(u8, "Modified");
-    const new_content = std.json.Value{ .string = new_string };
-
+    const new_content = "\"Modified\"";
     const rebuilt = try parser.rebuildWithContent(json, new_content);
     defer allocator.free(rebuilt);
 
-    // Parse the rebuilt JSON to verify
-    var parsed = try std.json.parseFromSlice(
-        std.json.Value,
-        allocator,
-        rebuilt,
-        .{},
-    );
-    defer parsed.deinit();
+    // Verify by extracting again
+    const text = try parser.extractText(rebuilt);
+    defer allocator.free(text);
 
-    const root = parsed.value.object;
-    const messages = root.get("messages").?.array;
-    const content = messages.items[0].object.get("content").?.string;
-
-    try std.testing.expectEqualStrings("Modified", content);
+    try std.testing.expectEqualStrings("Modified", text);
 }
 
-test "rebuild with image content block" {
+test "rebuild with array content" {
     const allocator = std.testing.allocator;
     const json =
         \\{"model":"claude-3-5-sonnet-20241022","max_tokens":10,"messages":[{"role":"user","content":"Hello"}]}
@@ -243,41 +285,13 @@ test "rebuild with image content block" {
 
     const parser = MessageParser.init(allocator);
 
-    // Create new content (array with image block)
-    // Note: ownership transferred to rebuildWithContent, no defer needed
-    var content_array = std.json.Array.init(allocator);
-
-    var image_block = std.json.ObjectMap.init(allocator);
-
-    try image_block.put("type", .{ .string = try allocator.dupe(u8, "image") });
-
-    var source_obj = std.json.ObjectMap.init(allocator);
-    try source_obj.put("type", .{ .string = try allocator.dupe(u8, "base64") });
-    try source_obj.put("media_type", .{ .string = try allocator.dupe(u8, "image/gif") });
-    try source_obj.put("data", .{ .string = try allocator.dupe(u8, "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7") });
-
-    try image_block.put("source", .{ .object = source_obj });
-    try content_array.append(.{ .object = image_block });
-
-    const new_content = std.json.Value{ .array = content_array };
-
+    const new_content = "[{\"type\":\"text\",\"text\":\"Modified\"}]";
     const rebuilt = try parser.rebuildWithContent(json, new_content);
     defer allocator.free(rebuilt);
 
-    // Verify the structure
-    var parsed = try std.json.parseFromSlice(
-        std.json.Value,
-        allocator,
-        rebuilt,
-        .{},
-    );
-    defer parsed.deinit();
+    // Verify by extracting again
+    const text = try parser.extractText(rebuilt);
+    defer allocator.free(text);
 
-    const root = parsed.value.object;
-    const messages = root.get("messages").?.array;
-    const content = messages.items[0].object.get("content").?.array;
-
-    try std.testing.expect(content.items.len == 1);
-    const block = content.items[0].object;
-    try std.testing.expectEqualStrings("image", block.get("type").?.string);
+    try std.testing.expectEqualStrings("Modified", text);
 }

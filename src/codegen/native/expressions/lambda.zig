@@ -2,8 +2,8 @@
 /// Generates anonymous functions as named functions with function pointers
 /// With closure support using Zig structs
 const std = @import("std");
-const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
-const ast = @import("../../../ast.zig");
+const hashmap_helper = @import("hashmap_helper");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 

@@ -6,7 +6,7 @@ const pre_tokenizers = @import("src/pre_tokenizers.zig");
 const normalizers = @import("src/normalizers.zig");
 const post_processors = @import("src/post_processors.zig");
 const decoders = @import("src/decoders.zig");
-const allocator_helper = @import("../src/utils/allocator_helper.zig");
+const allocator_helper = @import("src/utils/allocator_helper.zig");
 
 /// EXAMPLE 1: Basic BPE (no features used)
 /// Binary size: ~46KB (same as before - ZERO overhead!)
@@ -38,7 +38,7 @@ pub fn bpeWithPreTokenization(allocator: std.mem.Allocator) !void {
     for (segments) |segment| {
         const tokens = try tokenizer.encode(segment);
         defer tokenizer.allocator.free(tokens);
-        std.debug.print("{s} -> {any}\n", .{segment, tokens});
+        std.debug.print("{s} -> {any}\n", .{ segment, tokens });
     }
 }
 
@@ -93,12 +93,9 @@ pub fn bertStylePipeline(allocator: std.mem.Allocator) !void {
     }
 
     // 4. Post-process: add [CLS] and [SEP]
-    const final_tokens = try post_processors.bert(
-        all_tokens.items,
-        101, // [CLS]
+    const final_tokens = try post_processors.bert(all_tokens.items, 101, // [CLS]
         102, // [SEP]
-        allocator
-    );
+        allocator);
     defer allocator.free(final_tokens);
 
     std.debug.print("Original: {s}\n", .{text});
@@ -182,7 +179,6 @@ pub fn gpt2WithRegex(allocator: std.mem.Allocator) !void {
 ///
 /// **Comptime magic:** Regex only adds 8KB when used, 0KB when unused!
 /// This is why PyAOT stays fast and small even with "feature-rich" implementation!
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();

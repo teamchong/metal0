@@ -1,9 +1,9 @@
 /// Try/except/finally statement code generation
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
-const hashmap_helper = @import("../../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
@@ -282,14 +282,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (param_count > 0) try self.emit(", ");
             try self.emit("p_");
             try self.emit(var_name);
-            try self.emit(": *i64");  // Pointer for mutable access
+            try self.emit(": *i64"); // Pointer for mutable access
             param_count += 1;
         }
         for (declared_vars.items) |var_name| {
             if (param_count > 0) try self.emit(", ");
             try self.emit("p_");
             try self.emit(var_name);
-            try self.emit(": *i64");  // Pointer for mutable access
+            try self.emit(": *i64"); // Pointer for mutable access
             param_count += 1;
         }
 

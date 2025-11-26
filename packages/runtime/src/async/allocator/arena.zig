@@ -1,5 +1,5 @@
 const std = @import("std");
-const Task = @import("../task.zig").Task;
+const Task = @import("task.zig").Task;
 
 /// Per-task arena allocator (batch free on task completion)
 ///

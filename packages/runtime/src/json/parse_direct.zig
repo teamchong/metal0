@@ -1,7 +1,7 @@
 /// Direct JSON parser - parses JSON directly to PyObject (no intermediate JsonValue)
 /// This eliminates double allocations and conversions for maximum performance
 const std = @import("std");
-const runtime = @import("../runtime.zig");
+const runtime = @import("runtime.zig");
 const skipWhitespace = @import("value.zig").skipWhitespace;
 const JsonError = @import("errors.zig").JsonError;
 const ParseResult = @import("errors.zig").ParseResult;

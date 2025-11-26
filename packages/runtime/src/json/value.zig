@@ -1,7 +1,7 @@
 /// JSON value representation - optimized for direct PyObject conversion
 const std = @import("std");
-const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
-const runtime = @import("../runtime.zig");
+const hashmap_helper = @import("hashmap_helper");
+const runtime = @import("runtime.zig");
 
 /// Minimal intermediate representation - converts to PyObject ASAP
 /// This is only used during parsing to build nested structures

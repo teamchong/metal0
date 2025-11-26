@@ -1,6 +1,7 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const allocator_helper = @import("allocator_helper");
+const json = @import("runtime/src/json/parse.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -17,18 +18,31 @@ pub fn main() !void {
     _ = try file.readAll(json_data);
 
     // Parse JSON
-    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_data, .{});
-    defer parsed.deinit();
+    var parsed = try json_parse.parse(json_data, allocator);
+    defer parsed.deinit(allocator);
 
-    const texts_json = parsed.value.object.get("texts").?.array;
+    const texts_json = switch (parsed) {
+        .object => |obj| blk: {
+            const texts_value = obj.get("texts") orelse return error.MissingTextsField;
+            break :blk switch (texts_value.*) {
+                .array => |arr| arr,
+                else => return error.InvalidTextsField,
+            };
+        },
+        else => return error.InvalidJsonRoot,
+    };
+
     var texts = std.ArrayList([]const u8){};
     defer {
         for (texts.items) |text| allocator.free(text);
         texts.deinit(allocator);
     }
 
-    for (texts_json.items) |text_value| {
-        const text = text_value.string;
+    for (texts_json.items) |*text_value| {
+        const text = switch (text_value.*) {
+            .string => |s| s,
+            else => return error.InvalidTextItem,
+        };
         const owned_text = try allocator.dupe(u8, text);
         try texts.append(allocator, owned_text);
     }
@@ -58,5 +72,5 @@ pub fn main() !void {
     const end = std.time.nanoTimestamp();
     const elapsed_ms = @divFloor(end - start, 1_000_000);
 
-    std.debug.print("Encoded {} texts × {} iterations in {}ms\n", .{texts.items.len, iterations, elapsed_ms});
+    std.debug.print("Encoded {} texts × {} iterations in {}ms\n", .{ texts.items.len, iterations, elapsed_ms });
 }

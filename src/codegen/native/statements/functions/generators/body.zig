@@ -1,6 +1,6 @@
 /// Function and class body generation
 const std = @import("std");
-const ast = @import("../../../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const CodeBuilder = @import("../../../code_builder.zig").CodeBuilder;
@@ -8,7 +8,7 @@ const self_analyzer = @import("../self_analyzer.zig");
 const param_analyzer = @import("../param_analyzer.zig");
 const allocator_analyzer = @import("../allocator_analyzer.zig");
 const signature = @import("signature.zig");
-const hashmap_helper = @import("../../../../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 // Re-export from submodules
 const class_fields = @import("body/class_fields.zig");

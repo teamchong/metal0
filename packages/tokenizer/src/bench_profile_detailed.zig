@@ -1,6 +1,7 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const allocator_helper = @import("allocator_helper");
+const json = @import("runtime/src/json/parse.zig");
 
 // Global timing counters (thread-local in production)
 var time_regex_split: u64 = 0;
@@ -21,10 +22,10 @@ pub fn main() !void {
     const test_file = try std.fs.cwd().readFileAlloc(allocator, "data/test_data.json", 10 * 1024 * 1024);
     defer allocator.free(test_file);
 
-    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, test_file, .{});
-    defer parsed.deinit();
+    var parsed = try json_parse.parse(test_file, allocator);
+    defer parsed.deinit(allocator);
 
-    const texts_json = parsed.value.object.get("texts").?.array;
+    const texts_json = parsed.object.get("texts").?.array;
 
     // Load tokenizer
     var tokenizer = try Tokenizer.init("dist/cl100k_base_full.json", allocator);
@@ -81,10 +82,7 @@ pub fn main() !void {
     std.debug.print("Time breakdown:\n", .{});
     std.debug.print("------------------------------------------------------------\n", .{});
     std.debug.print("  Total encode(): {}ms\n", .{encode_ms});
-    std.debug.print("  Framework overhead: {}ms ({d:.1}%)\n", .{
-        total_ms - encode_ms,
-        @as(f64, @floatFromInt(total_ms - encode_ms)) / @as(f64, @floatFromInt(total_ms)) * 100.0
-    });
+    std.debug.print("  Framework overhead: {}ms ({d:.1}%)\n", .{ total_ms - encode_ms, @as(f64, @floatFromInt(total_ms - encode_ms)) / @as(f64, @floatFromInt(total_ms)) * 100.0 });
 
     // Compare with rs-bpe
     const rs_bpe_ms: u64 = 425;

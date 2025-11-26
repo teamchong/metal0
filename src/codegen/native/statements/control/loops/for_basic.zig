@@ -1,6 +1,6 @@
 /// For loop code generation (basic, range, tuple unpacking)
 const std = @import("std");
-const ast = @import("../../../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const for_special = @import("for_special.zig");
@@ -330,4 +330,3 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     try self.emitIndent();
     try self.emit("}\n");
 }
-

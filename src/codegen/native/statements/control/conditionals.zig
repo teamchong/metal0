@@ -1,6 +1,6 @@
 /// Conditional statement code generation (if, pass, break, continue)
 const std = @import("std");
-const ast = @import("../../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const CodeBuilder = @import("../../code_builder.zig").CodeBuilder;

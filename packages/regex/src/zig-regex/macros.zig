@@ -1,5 +1,5 @@
 const std = @import("std");
-const hashmap_helper = @import("../../../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 /// Regex macro system for pattern composition and reusability
 /// Allows defining named patterns that can be referenced in other patterns

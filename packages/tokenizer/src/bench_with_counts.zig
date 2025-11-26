@@ -1,6 +1,7 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const allocator_helper = @import("allocator_helper");
+const json = @import("runtime/src/json/parse.zig");
 
 // Global counters for allocation tracking
 var alloc_count: usize = 0;
@@ -58,7 +59,7 @@ pub fn main() !void {
     const init_allocs = alloc_count;
     const init_bytes = total_bytes;
 
-    std.debug.print("Tokenizer loaded: {} allocs, {} bytes\n\n", .{init_allocs, init_bytes});
+    std.debug.print("Tokenizer loaded: {} allocs, {} bytes\n\n", .{ init_allocs, init_bytes });
 
     // Test single encode
     alloc_count = 0;
@@ -98,18 +99,31 @@ pub fn main() !void {
     defer allocator.free(json_data);
     _ = try file.readAll(json_data);
 
-    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_data, .{});
-    defer parsed.deinit();
+    var parsed = try json_parse.parse(json_data, allocator);
+    defer parsed.deinit(allocator);
 
-    const texts_json = parsed.value.object.get("texts").?.array;
+    const texts_json = switch (parsed) {
+        .object => |obj| blk: {
+            const texts_value = obj.get("texts") orelse return error.MissingTextsField;
+            break :blk switch (texts_value.*) {
+                .array => |arr| arr,
+                else => return error.InvalidTextsField,
+            };
+        },
+        else => return error.InvalidJsonRoot,
+    };
+
     var texts = std.ArrayList([]const u8){};
     defer {
         for (texts.items) |t| allocator.free(t);
         texts.deinit(allocator);
     }
 
-    for (texts_json.items) |text_value| {
-        const t = text_value.string;
+    for (texts_json.items) |*text_value| {
+        const t = switch (text_value.*) {
+            .string => |s| s,
+            else => return error.InvalidTextItem,
+        };
         const owned_text = try allocator.dupe(u8, t);
         try texts.append(allocator, owned_text);
     }
@@ -137,10 +151,6 @@ pub fn main() !void {
     std.debug.print("  Time: {}ms\n", .{elapsed_ms});
     std.debug.print("  Total allocations: {}\n", .{alloc_count});
     std.debug.print("  Total bytes allocated: {}\n", .{total_bytes});
-    std.debug.print("  Allocs per text: {d:.1}\n", .{
-        @as(f64, @floatFromInt(alloc_count)) / @as(f64, @floatFromInt(texts.items.len * iterations))
-    });
-    std.debug.print("  Bytes per text: {d:.0}\n", .{
-        @as(f64, @floatFromInt(total_bytes)) / @as(f64, @floatFromInt(texts.items.len * iterations))
-    });
+    std.debug.print("  Allocs per text: {d:.1}\n", .{@as(f64, @floatFromInt(alloc_count)) / @as(f64, @floatFromInt(texts.items.len * iterations))});
+    std.debug.print("  Bytes per text: {d:.0}\n", .{@as(f64, @floatFromInt(total_bytes)) / @as(f64, @floatFromInt(texts.items.len * iterations))});
 }

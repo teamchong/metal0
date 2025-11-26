@@ -1,6 +1,6 @@
 /// String validation methods - isdigit(), isalpha(), isalnum(), isspace(), etc.
 const std = @import("std");
-const ast = @import("../../../../ast.zig");
+const ast = @import("ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 

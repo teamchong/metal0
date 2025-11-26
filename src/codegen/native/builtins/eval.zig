@@ -1,6 +1,6 @@
 /// eval() and exec() builtins - wire to AST executor or comptime
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const bytecode_compiler = @import("../../bytecode.zig");
@@ -11,7 +11,7 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     // Strip Python quotes from the source (AST stores lexeme with quotes)
     const eval_source = if (source.len >= 2 and
         ((source[0] == '"' and source[source.len - 1] == '"') or
-        (source[0] == '\'' and source[source.len - 1] == '\'')))
+            (source[0] == '\'' and source[source.len - 1] == '\'')))
         source[1 .. source.len - 1]
     else
         source;

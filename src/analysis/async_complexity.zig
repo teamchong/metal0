@@ -1,6 +1,6 @@
 /// Analyze async function complexity for comptime optimization decisions
 const std = @import("std");
-const ast = @import("../ast.zig");
+const ast = @import("ast");
 
 pub const Complexity = enum {
     trivial,   // Single expression, no calls - inline always

@@ -5,7 +5,7 @@ const Response = @import("response.zig").Response;
 const Method = @import("request.zig").Method;
 const Status = @import("response.zig").Status;
 const ConnectionPool = @import("pool.zig").ConnectionPool;
-const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 pub const ClientError = error{
     InvalidUrl,

@@ -1,5 +1,5 @@
 const std = @import("std");
-const hashmap_helper = @import("../../../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 /// Thread safety documentation and guarantees for the regex library.
 ///

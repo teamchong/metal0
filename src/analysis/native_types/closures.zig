@@ -1,7 +1,7 @@
 /// Closure analysis - detect captured variables in nested functions
 const std = @import("std");
-const hashmap_helper = @import("../../utils/hashmap_helper.zig");
-const ast = @import("../../ast.zig");
+const hashmap_helper = @import("hashmap_helper");
+const ast = @import("ast");
 
 /// Find all variables used in an expression
 fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), allocator: std.mem.Allocator) !void {

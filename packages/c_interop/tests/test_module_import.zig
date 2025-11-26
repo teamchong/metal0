@@ -1,8 +1,7 @@
 /// Tests for PyModule and PyImport systems
-
 const std = @import("std");
-const cpython_module = @import("../src/cpython_module.zig");
-const cpython_import = @import("../src/cpython_import.zig");
+const cpython_module = @import("src/cpython_module.zig");
+const cpython_import = @import("src/cpython_import.zig");
 
 test "module system compiles" {
     // This test just verifies that all the types and functions compile

@@ -1,6 +1,6 @@
 /// Pathlib module - pathlib.Path(), Path.exists(), Path.read_text() code generation
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -1,8 +1,8 @@
 /// Call type inference - infer types from function/method calls
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const core = @import("core.zig");
-const fnv_hash = @import("../../utils/fnv_hash.zig");
+const fnv_hash = @import("fnv_hash");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -85,7 +85,7 @@ const MathBoolFuncs = std.StaticStringMap(void).initComptime(.{
     .{ "isfinite", {} },
 });
 
-const hashmap_helper = @import("../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 
@@ -270,7 +270,7 @@ pub fn inferCall(
         // DataFrame Column methods
         if (obj_type == .dataframe or
             (attr.value.* == .subscript and
-            try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, attr.value.subscript.value.*) == .dataframe))
+                try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, attr.value.subscript.value.*) == .dataframe))
         {
             if (DfColumnMethods.has(attr.attr)) return .float;
             if (fnv_hash.hash(attr.attr) == comptime fnv_hash.hash("describe")) return .unknown;

@@ -1,7 +1,7 @@
 /// Analyze variable mutations to determine if lists need ArrayList vs fixed array
 const std = @import("std");
-const ast = @import("../../ast.zig");
-const hashmap_helper = @import("../../utils/hashmap_helper.zig");
+const ast = @import("ast");
+const hashmap_helper = @import("hashmap_helper");
 
 pub const MutationMap = hashmap_helper.StringHashMap(MutationInfo);
 

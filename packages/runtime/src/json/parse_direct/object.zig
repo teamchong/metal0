@@ -1,6 +1,6 @@
 /// Parse JSON objects directly to PyDict (zero extra allocations)
 const std = @import("std");
-const runtime = @import("../../runtime.zig");
+const runtime = @import("runtime.zig");
 const skipWhitespace = @import("../value.zig").skipWhitespace;
 const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;

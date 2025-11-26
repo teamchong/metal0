@@ -1,7 +1,7 @@
 /// Statement-level code generation - index file
 /// Re-exports all statement generators from subdirectory modules
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 

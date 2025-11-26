@@ -1,7 +1,7 @@
 /// Expression-level code generation - Re-exports from submodules
 /// Handles Python expressions: constants, binary ops, calls, lists, dicts, subscripts, etc.
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 

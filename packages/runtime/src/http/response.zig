@@ -1,7 +1,9 @@
 /// HTTP Response type with zero-copy parsing
 const std = @import("std");
-const runtime = @import("../runtime.zig");
+const runtime = @import("runtime.zig");
 const Headers = @import("request.zig").Headers;
+const json_parse = @import("json/parse.zig");
+const JsonValue = @import("json/value.zig").JsonValue;
 
 pub const Status = enum(u16) {
     // 2xx Success
@@ -225,9 +227,9 @@ pub const Response = struct {
     }
 
     /// Parse JSON body (requires json module)
-    pub fn json(self: *const Response, allocator: std.mem.Allocator) !std.json.Value {
+    pub fn json(self: *const Response, allocator: std.mem.Allocator) !JsonValue {
         if (self.body.len == 0) return error.EmptyBody;
-        return try std.json.parseFromSlice(std.json.Value, allocator, self.body, .{});
+        return try json_parse.parse(self.body, allocator);
     }
 
     /// Get body as string

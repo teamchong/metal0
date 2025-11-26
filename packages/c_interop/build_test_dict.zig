@@ -4,6 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const collections = b.addModule("collections", .{
+        .root_source_file = b.path("../collections/collections.zig"),
+    });
+
     const exe = b.addExecutable(.{
         .name = "test_dict",
         .root_source_file = b.path("test_dict.zig"),
@@ -11,10 +15,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Add import paths
-    exe.root_module.addAnonymousImport("collections", .{
-        .root_source_file = b.path("../collections/dict_impl.zig"),
-    });
+    exe.root_module.addImport("collections", collections);
 
     b.installArtifact(exe);
 

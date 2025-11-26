@@ -1,4 +1,7 @@
 const std = @import("std");
+const runtime = @import("runtime");
+const json = @import("runtime").json.parse;
+const JsonValue = @import("runtime").json.JsonValue;
 
 /// Represents a single cell in a Jupyter notebook
 pub const Cell = struct {
@@ -63,15 +66,13 @@ pub const Notebook = struct {
         var notebook = Notebook.init(allocator);
         errdefer notebook.deinit();
 
-        const parsed = try std.json.parseFromSlice(std.json.Value, allocator, file_content, .{});
-        defer parsed.deinit();
-
-        const root = parsed.value;
+        var root = try json.parse(file_content, allocator);
+        defer root.deinit(allocator);
 
         // Get cells array
         const cells_array = root.object.get("cells") orelse return error.NoCellsFound;
 
-        for (cells_array.array.items) |cell_value| {
+        for (cells_array.array.items) |*cell_value| {
             const cell_obj = cell_value.object;
 
             // Get cell_type
@@ -83,15 +84,15 @@ pub const Notebook = struct {
             errdefer cell.deinit();
 
             // Get source (can be string or array of strings)
-            if (cell_obj.get("source")) |source_value| {
-                switch (source_value) {
+            if (cell_obj.get("source")) |*source_value| {
+                switch (source_value.*) {
                     .string => |str| {
                         const line_copy = try allocator.dupe(u8, str);
                         try cell.source.append(allocator, line_copy);
                     },
                     .array => |arr| {
-                        for (arr.items) |line_value| {
-                            if (line_value == .string) {
+                        for (arr.items) |*line_value| {
+                            if (line_value.* == .string) {
                                 const line_copy = try allocator.dupe(u8, line_value.string);
                                 try cell.source.append(allocator, line_copy);
                             }

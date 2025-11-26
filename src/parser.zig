@@ -1,6 +1,6 @@
 const std = @import("std");
 const lexer = @import("lexer.zig");
-const ast = @import("ast.zig");
+const ast = @import("ast");
 const literals = @import("parser/literals.zig");
 const expressions = @import("parser/expressions.zig");
 const postfix = @import("parser/postfix.zig");

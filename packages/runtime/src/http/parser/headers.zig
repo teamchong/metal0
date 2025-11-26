@@ -1,7 +1,7 @@
 /// Fast HTTP header parser with SIMD optimization
 const std = @import("std");
-const hashmap_helper = @import("../../../../src/utils/hashmap_helper.zig");
-const Headers = @import("../request.zig").Headers;
+const hashmap_helper = @import("hashmap_helper");
+const Headers = @import("request.zig").Headers;
 
 /// Parse HTTP headers from raw bytes
 pub fn parseHeaders(allocator: std.mem.Allocator, data: []const u8) !Headers {

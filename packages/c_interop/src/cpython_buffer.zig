@@ -2,10 +2,9 @@
 ///
 /// This implements the buffer protocol with comptime-specialized buffer types.
 /// All buffer variants share the same generic implementation!
-
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
-const buffer_impl = @import("../../shared/buffer_impl.zig");
+const buffer_impl = @import("shared/buffer_impl.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -34,12 +33,7 @@ export fn PyBuffer_FillInfo(
     const Buffer = buffer_impl.BufferImpl(Config);
 
     // Create buffer (comptime specialized!)
-    var buffer = Buffer.init(
-        allocator,
-        buf orelse return -1,
-        len,
-        readonly != 0
-    ) catch return -1;
+    var buffer = Buffer.init(allocator, buf orelse return -1, len, readonly != 0) catch return -1;
 
     // Fill Py_buffer view
     view.buf = buffer.buf;

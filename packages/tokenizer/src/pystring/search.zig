@@ -2,7 +2,7 @@
 const std = @import("std");
 const core = @import("core.zig");
 const PyString = core.PyString;
-const runtime = @import("../runtime.zig");
+const runtime = @import("runtime.zig");
 const PyObject = runtime.PyObject;
 
 pub fn contains(obj: *PyObject, substring: *PyObject) bool {

@@ -1,6 +1,6 @@
 /// Utility functions for compilation
 const std = @import("std");
-const ast = @import("../ast.zig");
+const ast = @import("ast");
 const c_interop = @import("c_interop");
 const CompileOptions = @import("../main.zig").CompileOptions;
 const compileFile = @import("compile.zig").compileFile;

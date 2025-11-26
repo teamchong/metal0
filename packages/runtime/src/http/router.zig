@@ -4,7 +4,7 @@ const Request = @import("request.zig").Request;
 const Response = @import("response.zig").Response;
 const Method = @import("request.zig").Method;
 const Status = @import("response.zig").Status;
-const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 pub const HandlerFn = *const fn (allocator: std.mem.Allocator, request: *const Request) anyerror!Response;
 

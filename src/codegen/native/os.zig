@@ -4,7 +4,7 @@
 /// No runtime.os module exists - these generate inline Zig code, not runtime calls.
 /// Bridge pattern doesn't apply here since there's nothing to passthrough to.
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 // const bridge = @import("stdlib_bridge.zig"); // Future: for any runtime passthrough functions

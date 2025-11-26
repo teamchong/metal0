@@ -10,7 +10,7 @@ const std = @import("std");
 
 // Import actual runtime types
 // Note: This assumes runtime is available in parent directory
-const runtime_impl = @import("../../runtime/src/runtime.zig");
+const runtime_impl = @import("runtime");
 
 // Re-export for convenience
 pub const PyObject = runtime_impl.PyObject;

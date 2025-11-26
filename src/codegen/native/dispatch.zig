@@ -1,7 +1,7 @@
 /// Call routing dispatcher - Routes function/method calls to appropriate handlers
 /// Extracted from main.zig to reduce file size
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 

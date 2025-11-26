@@ -4,12 +4,12 @@ const Request = @import("request.zig").Request;
 const Response = @import("response.zig").Response;
 const Method = @import("request.zig").Method;
 const Status = @import("response.zig").Status;
-const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 const Future = @import("../async/future.zig").Future;
 const Task = @import("../async/task.zig").Task;
 const runtime = @import("../async/runtime.zig");
-const Poller = @import("../async/poller/common.zig").Poller;
-const common = @import("../async/poller/common.zig");
+const Poller = @import("../async/poller.zig").Poller;
+const common = @import("../async/poller.zig");
 
 pub const AsyncClientError = error{
     InvalidUrl,

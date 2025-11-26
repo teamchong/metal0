@@ -41,7 +41,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
             .setup_code = null,
             .cleanup_code = null,
             .notes = "Array sum via BLAS Level 1. Note: cblas_dasum computes sum of absolute values.",
-
             .arg_mappings = &[_]mapper.ArgMapping{
                 .{
                     .python_index = 0,
@@ -61,7 +60,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
                     .default_value = null,
                 },
             },
-
             .return_mapping = .{ .primitive = .float },
         },
 
@@ -73,7 +71,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
             .setup_code = null,
             .cleanup_code = null,
             .notes = "Dot product via BLAS Level 1. For 1D arrays only in this initial implementation.",
-
             .arg_mappings = &[_]mapper.ArgMapping{
                 // First array
                 .{
@@ -112,7 +109,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
                     .default_value = null,
                 },
             },
-
             .return_mapping = .{ .primitive = .float },
         },
 
@@ -124,7 +120,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
             .setup_code = null,
             .cleanup_code = null,
             .notes = "Array creation - handled by PyAOT runtime, not BLAS",
-
             .arg_mappings = &[_]mapper.ArgMapping{
                 .{
                     .python_index = 0,
@@ -142,7 +137,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
                     .default_value = null,
                 },
             },
-
             .return_mapping = .{ .primitive = .numpy_array },
         },
 
@@ -154,7 +148,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
             .setup_code = null,
             .cleanup_code = null,
             .notes = "Create zero-initialized array",
-
             .arg_mappings = &[_]mapper.ArgMapping{
                 .{
                     .python_index = 0,
@@ -172,7 +165,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
                     .default_value = null,
                 },
             },
-
             .return_mapping = .{ .primitive = .numpy_array },
         },
 
@@ -184,7 +176,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
             .setup_code = null,
             .cleanup_code = null,
             .notes = "Create one-initialized array",
-
             .arg_mappings = &[_]mapper.ArgMapping{
                 .{
                     .python_index = 0,
@@ -202,7 +193,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
                     .default_value = null,
                 },
             },
-
             .return_mapping = .{ .primitive = .numpy_array },
         },
 
@@ -214,7 +204,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
             .setup_code = null,
             .cleanup_code = null,
             .notes = "Compute mean value - uses BLAS sum internally",
-
             .arg_mappings = &[_]mapper.ArgMapping{
                 .{
                     .python_index = 0,
@@ -234,7 +223,6 @@ pub const numpy_mapping = mapper.CLibraryMapping{
                     .default_value = null,
                 },
             },
-
             .return_mapping = .{ .primitive = .float },
         },
     },

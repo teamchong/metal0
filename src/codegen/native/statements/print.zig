@@ -1,6 +1,6 @@
 /// Print statement code generation (starred, concat, lists, dicts, tuples, bools, None, PyObject)
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const main = @import("../main.zig");
 const NativeCodegen = main.NativeCodegen;
 const CodegenError = main.CodegenError;

@@ -190,7 +190,7 @@ def generate_module_skeleton(module_name: str, only_missing: bool = False) -> st
 /// Functions to implement: {len(funcs)}
 
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast.zig");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 

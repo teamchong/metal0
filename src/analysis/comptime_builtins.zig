@@ -1,5 +1,5 @@
 const std = @import("std");
-const ast = @import("../ast.zig");
+const ast = @import("ast");
 const ComptimeValue = @import("comptime_eval.zig").ComptimeValue;
 
 /// Builtin function evaluation helpers (len, str, int, etc.)

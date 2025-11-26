@@ -1,6 +1,6 @@
 /// Statement parsing - Re-exports from submodules
 const std = @import("std");
-const ast = @import("../ast.zig");
+const ast = @import("ast");
 const lexer = @import("../lexer.zig");
 const ParseError = @import("../parser.zig").ParseError;
 const Parser = @import("../parser.zig").Parser;

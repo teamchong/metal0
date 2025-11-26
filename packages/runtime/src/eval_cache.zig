@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 const ast_executor = @import("ast_executor.zig");
 const bytecode = @import("bytecode.zig");
 const PyObject = @import("runtime.zig").PyObject;
-const hashmap_helper = @import("../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 /// Compile Python source via PyAOT subprocess (for dynamic eval)
 /// Spawns: pyaot --emit-bytecode <source>

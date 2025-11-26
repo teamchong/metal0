@@ -49,12 +49,12 @@ pub fn build(b: *std.Build) void {
         }),
     });
     bench_train.root_module.addOptions("build_options", options);
-    bench_train.root_module.addAnonymousImport("allocator_helper", .{
+
+    const allocator_helper = b.addModule("allocator_helper", .{
         .root_source_file = b.path("../../src/utils/allocator_helper.zig"),
     });
-    bench_train.root_module.addAnonymousImport("hashmap_helper", .{
-        .root_source_file = b.path("../../src/utils/hashmap_helper.zig"),
-    });
+    bench_train.root_module.addImport("allocator_helper", allocator_helper);
+
     b.installArtifact(bench_train);
 
     // Install step with helpful message

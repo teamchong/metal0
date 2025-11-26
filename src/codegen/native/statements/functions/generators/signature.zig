@@ -1,12 +1,12 @@
 /// Function and method signature generation
 const std = @import("std");
-const ast = @import("../../../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const param_analyzer = @import("../param_analyzer.zig");
 const allocator_analyzer = @import("../allocator_analyzer.zig");
 const self_analyzer = @import("../self_analyzer.zig");
-const zig_keywords = @import("../../../../../utils/zig_keywords.zig");
+const zig_keywords = @import("zig_keywords");
 
 /// Python type hint to Zig type mapping (comptime optimized)
 const TypeHints = std.StaticStringMap([]const u8).initComptime(.{

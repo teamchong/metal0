@@ -1,9 +1,9 @@
 /// Parse JSON strings directly to PyString (zero extra allocations)
 const std = @import("std");
-const runtime = @import("../../runtime.zig");
+const runtime = @import("runtime.zig");
 const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
-const simd = @import("../simd/dispatch.zig");
+const simd = @import("simd/dispatch.zig");
 
 /// Parse JSON string directly to PyString (single SIMD pass for speed!)
 pub fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) JsonError!ParseResult(*runtime.PyObject) {
@@ -20,8 +20,7 @@ pub fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) J
             try allocator.dupe(u8, data[start..i])
         else
             // Slow path: Need to unescape
-            try unescapeString(data[start..i], allocator)
-        ;
+            try unescapeString(data[start..i], allocator);
 
         // Create PyString with ownership transfer (no extra copy!)
         const py_str = try runtime.PyString.createOwned(allocator, str_data);

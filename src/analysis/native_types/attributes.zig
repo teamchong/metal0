@@ -1,6 +1,6 @@
 const std = @import("std");
-const hashmap_helper = @import("../../utils/hashmap_helper.zig");
-const ast = @import("../../ast.zig");
+const hashmap_helper = @import("hashmap_helper");
+const ast = @import("ast");
 const core = @import("core.zig");
 const NativeType = core.NativeType;
 

@@ -2,11 +2,10 @@
 ///
 /// Tests all 45+ exception types and traceback functionality.
 /// Verifies comptime optimization works correctly.
-
 const std = @import("std");
-const exception_impl = @import("../../collections/exception_impl.zig");
-const exception_types = @import("../src/exception_types.zig");
-const traceback_impl = @import("../../collections/traceback_impl.zig");
+const exception_impl = @import("collections/exception_impl.zig");
+const exception_types = @import("src/exception_types.zig");
+const traceback_impl = @import("collections/traceback_impl.zig");
 
 // Test allocator
 const allocator = std.testing.allocator;

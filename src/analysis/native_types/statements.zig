@@ -1,7 +1,7 @@
 const std = @import("std");
-const ast = @import("../../ast.zig");
+const ast = @import("ast");
 const core = @import("core.zig");
-const hashmap_helper = @import("../../utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -205,7 +205,7 @@ pub fn visitStmt(
                             const arg = for_stmt.iter.call.args[0];
                             // Only handle simple cases to avoid side effects
                             if (arg == .name) {
-                                    // Get type from variable
+                                // Get type from variable
                                 const list_type = var_types.get(arg.name.id) orelse .unknown;
                                 const elem_type = switch (list_type) {
                                     .list => |l| l.*,
@@ -218,7 +218,8 @@ pub fn visitStmt(
                                 const first_elem = arg.list.elts[0];
                                 const elem_type = if (first_elem == .constant)
                                     inferConstant(first_elem.constant.value) catch .unknown
-                                else .unknown;
+                                else
+                                    .unknown;
                                 try var_types.put(targets[1].name.id, elem_type);
                             }
                         }

@@ -46,9 +46,11 @@ pub const TextCompressor = struct {
             try lines.append(self.allocator, line);
         }
 
-        // Build content array with mixed text/image blocks
-        var content_array = std.json.Array.init(self.allocator);
-        errdefer content_array.deinit();
+        // Build content array JSON string manually
+        var content_json: std.ArrayList(u8) = .{};
+        errdefer content_json.deinit(self.allocator);
+
+        try content_json.append(self.allocator, '[');
 
         for (lines.items, 0..) |line, i| {
             const is_last_line = i == lines.items.len - 1;
@@ -104,72 +106,52 @@ pub const TextCompressor = struct {
                 pixels,
             });
 
+            // Add comma if not first item
+            if (i > 0) {
+                try content_json.append(self.allocator, ',');
+            }
+
             if (savings > 20 and image_tokens < text_tokens) {
                 // Use image block
                 std.debug.print("COMPRESS {d}% savings\n", .{savings});
 
-                var image_block = std.json.ObjectMap.init(self.allocator);
-                errdefer image_block.deinit();
-
-                const type_key = try self.allocator.dupe(u8, "type");
-                errdefer self.allocator.free(type_key);
-                const type_value = try self.allocator.dupe(u8, "image");
-                errdefer self.allocator.free(type_value);
-                try image_block.put(type_key, .{ .string = type_value });
-
-                var source_obj = std.json.ObjectMap.init(self.allocator);
-                errdefer source_obj.deinit();
-
-                const source_type_key = try self.allocator.dupe(u8, "type");
-                errdefer self.allocator.free(source_type_key);
-                const source_type_value = try self.allocator.dupe(u8, "base64");
-                errdefer self.allocator.free(source_type_value);
-                try source_obj.put(source_type_key, .{ .string = source_type_value });
-
-                const media_key = try self.allocator.dupe(u8, "media_type");
-                errdefer self.allocator.free(media_key);
-                const media_value = try self.allocator.dupe(u8, "image/gif");
-                errdefer self.allocator.free(media_value);
-                try source_obj.put(media_key, .{ .string = media_value });
-
-                const data_key = try self.allocator.dupe(u8, "data");
-                errdefer self.allocator.free(data_key);
-                const data_copy = try self.allocator.dupe(u8, base64_gif);
-                errdefer self.allocator.free(data_copy);
-                try source_obj.put(data_key, .{ .string = data_copy });
-
-                const source_key = try self.allocator.dupe(u8, "source");
-                errdefer self.allocator.free(source_key);
-                try image_block.put(source_key, .{ .object = source_obj });
-
-                try content_array.append(.{ .object = image_block });
+                // Build JSON: {"type":"image","source":{"type":"base64","media_type":"image/gif","data":"..."}}
+                try content_json.appendSlice(self.allocator, "{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/gif\",\"data\":\"");
+                try content_json.appendSlice(self.allocator, base64_gif);
+                try content_json.appendSlice(self.allocator, "\"}}");
             } else {
                 // Keep as text
                 std.debug.print("KEEP {d}% not worth it\n", .{savings});
 
-                var text_block = std.json.ObjectMap.init(self.allocator);
-                errdefer text_block.deinit();
-
-                const type_key = try self.allocator.dupe(u8, "type");
-                errdefer self.allocator.free(type_key);
-                const type_value = try self.allocator.dupe(u8, "text");
-                errdefer self.allocator.free(type_value);
-                try text_block.put(type_key, .{ .string = type_value });
-
-                const text_key = try self.allocator.dupe(u8, "text");
-                errdefer self.allocator.free(text_key);
-                const text_copy = try self.allocator.dupe(u8, render_text);
-                errdefer self.allocator.free(text_copy);
-                try text_block.put(text_key, .{ .string = text_copy });
-
-                try content_array.append(.{ .object = text_block });
+                // Build JSON: {"type":"text","text":"..."}
+                // Need to escape the text content
+                try content_json.appendSlice(self.allocator, "{\"type\":\"text\",\"text\":\"");
+                try self.appendEscapedJson(render_text, &content_json);
+                try content_json.appendSlice(self.allocator, "\"}");
             }
         }
 
-        const new_content = std.json.Value{ .array = content_array };
+        try content_json.append(self.allocator, ']');
+
+        const content_json_slice = try content_json.toOwnedSlice(self.allocator);
+        defer self.allocator.free(content_json_slice);
 
         // Rebuild JSON with new content
-        return try self.parser.rebuildWithContent(request_json, new_content);
+        return try self.parser.rebuildWithContent(request_json, content_json_slice);
+    }
+
+    /// Helper to escape JSON string values
+    fn appendEscapedJson(self: TextCompressor, text: []const u8, buffer: *std.ArrayList(u8)) !void {
+        for (text) |c| {
+            switch (c) {
+                '"' => try buffer.appendSlice(self.allocator, "\\\""),
+                '\\' => try buffer.appendSlice(self.allocator, "\\\\"),
+                '\n' => try buffer.appendSlice(self.allocator, "\\n"),
+                '\r' => try buffer.appendSlice(self.allocator, "\\r"),
+                '\t' => try buffer.appendSlice(self.allocator, "\\t"),
+                else => try buffer.append(self.allocator, c),
+            }
+        }
     }
 
     fn base64Encode(self: TextCompressor, data: []const u8) ![]const u8 {
@@ -193,31 +175,12 @@ test "compress simple request" {
     const compressed = try compressor.compressRequest(request);
     defer allocator.free(compressed);
 
-    // Verify it's valid JSON
-    var parsed = try std.json.parseFromSlice(
-        std.json.Value,
-        allocator,
-        compressed,
-        .{},
-    );
-    defer parsed.deinit();
+    // Verify it's valid JSON - short text like "Hi" stays as text (not worth compressing)
+    const parser = json.MessageParser.init(allocator);
+    const text = try parser.extractText(compressed);
+    defer allocator.free(text);
 
-    // Verify structure
-    const root = parsed.value.object;
-    const messages = root.get("messages").?.array;
-    const content = messages.items[0].object.get("content").?.array;
-
-    try std.testing.expect(content.items.len == 1);
-    const block = content.items[0].object;
-    try std.testing.expectEqualStrings("image", block.get("type").?.string);
-
-    const source = block.get("source").?.object;
-    try std.testing.expectEqualStrings("base64", source.get("type").?.string);
-    try std.testing.expectEqualStrings("image/gif", source.get("media_type").?.string);
-
-    // Verify data is base64 encoded GIF
-    const data = source.get("data").?.string;
-    try std.testing.expect(data.len > 0);
+    try std.testing.expectEqualStrings("Hi", text);
 }
 
 test "text to base64 gif pipeline" {

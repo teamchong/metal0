@@ -1,6 +1,6 @@
 /// Miscellaneous statement code generation (return, import, assert, global, del, raise)
 const std = @import("std");
-const ast = @import("../../../ast.zig");
+const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 

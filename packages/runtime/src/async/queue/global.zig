@@ -1,5 +1,5 @@
 const std = @import("std");
-const Task = @import("../task.zig").Task;
+const Task = @import("task.zig").Task;
 
 /// Global overflow queue (unbounded, lock-protected)
 /// Used when local queues are full or for work-stealing overflow

@@ -1,10 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Task = @import("../task.zig").Task;
+const Task = @import("task.zig").Task;
 
 /// Stack switching for preemptive context switches
 /// Based on Go's runtime stack management
-
 /// Save current execution context (registers, stack pointer)
 pub fn saveContext(task: *Task) void {
     // Platform-specific context saving

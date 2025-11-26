@@ -1,6 +1,6 @@
 /// Parse JSON objects
 const std = @import("std");
-const hashmap_helper = @import("../../../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 const JsonValue = @import("../value.zig").JsonValue;
 const skipWhitespace = @import("../value.zig").skipWhitespace;
 const JsonError = @import("../errors.zig").JsonError;
@@ -20,8 +20,7 @@ pub fn parseObject(data: []const u8, pos: usize, allocator: std.mem.Allocator) J
 
     var object = hashmap_helper.StringHashMap(JsonValue).init(allocator);
     errdefer {
-        var it = object.valueIterator();
-        while (it.next()) |val| {
+        for (object.values()) |*val| {
             val.deinit(allocator);
         }
         object.deinit();

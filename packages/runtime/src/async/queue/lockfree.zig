@@ -1,5 +1,5 @@
 const std = @import("std");
-const Task = @import("../task.zig").Task;
+const Task = @import("task.zig").Task;
 
 /// Lock-free circular buffer queue (from Tokio)
 /// Uses atomic operations for thread-safe push/pop/steal without locks

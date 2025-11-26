@@ -1,7 +1,7 @@
 const std = @import("std");
 const runtime = @import("src/runtime.zig");
 const json_module = @import("src/json.zig");
-const allocator_helper = @import("../src/utils/allocator_helper.zig");
+const allocator_helper = @import("src/utils/allocator_helper.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -28,7 +28,7 @@ pub fn main() !void {
         runtime.decref(result, base_allocator);
     }
     const end = std.time.nanoTimestamp();
-    
+
     const elapsed_ms = @as(f64, @floatFromInt(end - start)) / 1_000_000.0;
     std.debug.print("Total: {d:.1}ms for 100 iterations\n", .{elapsed_ms});
     std.debug.print("Per iteration: {d:.2}ms\n", .{elapsed_ms / 100.0});

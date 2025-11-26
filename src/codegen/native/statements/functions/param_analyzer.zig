@@ -1,6 +1,6 @@
 /// Parameter usage analysis for decorator and higher-order function detection
 const std = @import("std");
-const ast = @import("../../../../ast.zig");
+const ast = @import("ast");
 
 /// Check if a parameter is used inside a nested function (closure capture)
 /// This detects params that are referenced by inner functions

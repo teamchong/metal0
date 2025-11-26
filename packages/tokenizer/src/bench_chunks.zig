@@ -1,6 +1,8 @@
 const std = @import("std");
 const cl100k_splitter = @import("cl100k_splitter.zig");
 const allocator_helper = @import("allocator_helper");
+const json = @import("runtime/src/json/parse.zig");
+const JsonValue = @import("runtime/src/json/value.zig").JsonValue;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -16,17 +18,29 @@ pub fn main() !void {
     defer allocator.free(json_data);
     _ = try file.readAll(json_data);
 
-    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_data, .{});
-    defer parsed.deinit();
+    var parsed = try json_parser.parse(json_data, allocator);
+    defer parsed.deinit(allocator);
 
-    const texts_json = parsed.value.object.get("texts").?.array;
+    const texts_json = switch (parsed) {
+        .object => |obj| blk: {
+            const texts_value = obj.get("texts") orelse return error.MissingTextsField;
+            break :blk switch (texts_value.*) {
+                .array => |arr| arr,
+                else => return error.InvalidTextsField,
+            };
+        },
+        else => return error.InvalidJsonRoot,
+    };
 
     var total_chunks: usize = 0;
     var max_chunks: usize = 0;
     var min_chunks: usize = std.math.maxInt(usize);
 
-    for (texts_json.items, 0..) |text_value, idx| {
-        const text = text_value.string;
+    for (texts_json.items, 0..) |*text_value, idx| {
+        const text = switch (text_value.*) {
+            .string => |s| s,
+            else => return error.InvalidTextItem,
+        };
 
         var chunks: usize = 0;
         var chunk_iter = cl100k_splitter.chunks(text);
@@ -39,7 +53,7 @@ pub fn main() !void {
         min_chunks = @min(min_chunks, chunks);
 
         if (idx < 5) {
-            std.debug.print("Text {}: {} bytes → {} chunks\n", .{idx, text.len, chunks});
+            std.debug.print("Text {}: {} bytes → {} chunks\n", .{ idx, text.len, chunks });
         }
     }
 
