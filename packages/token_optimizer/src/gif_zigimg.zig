@@ -25,8 +25,27 @@ pub fn encodeGif(allocator: std.mem.Allocator, pixels: []const []const u8) ![]u8
         }
     }
 
-    // Encode to GIF in memory
-    // Use larger buffer to handle bigger images (3000x160 = ~500KB pixels)
-    var write_buffer: [1048576]u8 = undefined; // 1MB buffer
-    return try image.writeToMemory(allocator, &write_buffer, .gif);
+    // Encode to GIF via temp file (zigimg's writeToMemory has fixed buffer limits)
+    // This approach handles any image size dynamically
+    const tmp_path = try std.fmt.allocPrint(allocator, "/tmp/gif_encode_{d}.gif", .{std.time.timestamp()});
+    defer allocator.free(tmp_path);
+
+    // Temp buffer for writeToFilePath (it still needs one but won't overflow since it writes to file)
+    var temp_buf: [8192]u8 = undefined;
+
+    // Write to temp file
+    const encoder_options = zigimg.Image.EncoderOptions{ .gif = {} };
+    try image.writeToFilePath(allocator, tmp_path, &temp_buf, encoder_options);
+    defer std.fs.deleteFileAbsolute(tmp_path) catch {};
+
+    // Read back into memory
+    const file = try std.fs.openFileAbsolute(tmp_path, .{});
+    defer file.close();
+
+    const file_size = try file.getEndPos();
+    const gif_bytes = try allocator.alloc(u8, file_size);
+    errdefer allocator.free(gif_bytes);
+
+    _ = try file.readAll(gif_bytes);
+    return gif_bytes;
 }
