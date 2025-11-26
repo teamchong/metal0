@@ -388,16 +388,18 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 | Implementation | Time | vs Rust |
 |---------------|------|---------|
 | **Rust (serde_json)** | **6.0s ± 0.0s** | **1.00x** 🏆 |
-| PyAOT | 10.0s ± 0.2s | 1.67x slower |
-| Zig (std.json) | 11.1s ± 0.1s | 1.86x slower |
-| Python (stdlib) | 14.4s ± 0.2s | 2.40x slower |
-| Go (encoding/json) | 19.6s ± 0.3s | 3.27x slower |
+| PyAOT | 10.3s ± 0.6s | 1.72x slower |
+| Zig (std.json) | 11.2s ± 0.0s | 1.86x slower |
+| Python (stdlib) | 14.6s ± 0.1s | 2.42x slower |
+| Go (encoding/json) | 19.8s ± 0.0s | 3.29x slower |
 
 **JSON Stringify:** *(Not yet benchmarked - work in progress)*
 
 **Key optimizations:**
-- 64KB pre-allocated buffer for stringify (eliminates reallocation)
+- SIMD whitespace skipping (AVX2/NEON) - process 32 bytes per iteration
+- SIMD number parsing (8-digit chunks) - vectorized digit conversion
 - SIMD string escaping (`@Vector(16, u8)`) - 4.3x speedup on ARM64 NEON
+- 64KB pre-allocated buffer for stringify (eliminates reallocation)
 - Comptime lookup tables for escape detection (256-byte table)
 - Arena allocator with capacity retention
 - Single-pass parsing with quote/escape detection
