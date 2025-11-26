@@ -115,10 +115,10 @@ pub const WordPiece = struct {
 
         // Add characters to vocab
         var id: u32 = 5; // Start after special tokens
-        var it = char_set.keyIterator();
-        while (it.next()) |char_ptr| {
+        var it = char_set.iterator();
+        while (it.next()) |entry| {
             const char_str = try self.allocator.alloc(u8, 1);
-            char_str[0] = char_ptr.*;
+            char_str[0] = entry.key_ptr.*;
             try self.vocab.put(char_str, id);
             try self.vocab_r.put(id, char_str);
             id += 1;

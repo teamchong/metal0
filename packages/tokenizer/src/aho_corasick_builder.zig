@@ -171,9 +171,8 @@ pub const Builder = struct {
             var labels = std.ArrayList(u8){};
             defer labels.deinit(self.allocator);
 
-            var it = nfa_state.children.keyIterator();
-            while (it.next()) |c| {
-                try labels.append(self.allocator, c.*);
+            for (nfa_state.children.keys()) |c| {
+                try labels.append(self.allocator, c);
             }
             std.sort.insertion(u8, labels.items, {}, std.sort.asc(u8));
 

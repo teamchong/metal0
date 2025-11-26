@@ -69,9 +69,8 @@ pub const BpeTrainer = struct {
         self.initial_alphabet.deinit();
 
         // Free word_counts keys (owned strings from line 309-310)
-        var it = self.word_counts.keyIterator();
-        while (it.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.word_counts.keys()) |key| {
+            self.allocator.free(key);
         }
         self.word_counts.deinit();
     }
