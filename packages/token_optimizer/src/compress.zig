@@ -147,17 +147,37 @@ pub const TextCompressor = struct {
             const text_tokens: i64 = @intCast(@max(1, render_text.len / 4));
 
             // Calculate image tokens: render and get dimensions
-            const base64_gif = try self.textToBase64Gif(render_text);
+            const base64_gif = self.textToBase64Gif(render_text) catch |err| {
+                std.debug.print("ERROR: Failed to encode batch {d}/{d} (text len={d}): {any}\n", .{
+                    batch_idx + 1,
+                    num_batches,
+                    render_text.len,
+                    err,
+                });
+                std.debug.print("Batch text preview: {s}\n", .{render_text[0..@min(100, render_text.len)]});
+                return err;
+            };
             errdefer self.allocator.free(base64_gif); // Free on error
 
             // Decode GIF to get actual pixel dimensions
             const decoder = std.base64.standard.Decoder;
+            // Decode base64 to get GIF bytes
+            if (base64_gif.len == 0) {
+                std.debug.print("ERROR: Empty GIF for batch {d}\n", .{batch_idx});
+                return error.EmptyGif;
+            }
+
             const gif_bytes_size = try decoder.calcSizeForSlice(base64_gif);
             const gif_bytes = try self.allocator.alloc(u8, gif_bytes_size);
             defer self.allocator.free(gif_bytes);
             try decoder.decode(gif_bytes, base64_gif);
 
-            // Extract dimensions from GIF header
+            // Extract dimensions from GIF header (GIF header is at least 10 bytes)
+            if (gif_bytes.len < 10) {
+                std.debug.print("ERROR: GIF too small ({d} bytes) for batch {d}\n", .{gif_bytes.len, batch_idx});
+                return error.InvalidGif;
+            }
+
             const gif_width = @as(u16, gif_bytes[6]) | (@as(u16, gif_bytes[7]) << 8);
             const gif_height = @as(u16, gif_bytes[8]) | (@as(u16, gif_bytes[9]) << 8);
             const pixels = @as(i64, gif_width) * @as(i64, gif_height);
