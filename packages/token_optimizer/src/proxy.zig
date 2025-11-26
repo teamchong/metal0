@@ -1,53 +1,85 @@
 const std = @import("std");
 const compress = @import("compress.zig");
-const Server = @import("../../runtime/src/http/server.zig").Server;
-const ServerConfig = @import("../../runtime/src/http/server.zig").ServerConfig;
-const Client = @import("../../runtime/src/http/client.zig").Client;
-const Request = @import("../../runtime/src/http/request.zig").Request;
-const Response = @import("../../runtime/src/http/response.zig").Response;
 
 pub const ProxyServer = struct {
     allocator: std.mem.Allocator,
     compressor: compress.TextCompressor,
-    server: Server,
-    client: Client,
 
     pub fn init(allocator: std.mem.Allocator) ProxyServer {
         return ProxyServer{
             .allocator = allocator,
             .compressor = compress.TextCompressor.init(allocator),
-            .server = Server.init(allocator),
-            .client = Client.init(allocator),
         };
     }
 
-    pub fn deinit(self: *ProxyServer) void {
-        self.server.deinit();
-        self.client.deinit();
-    }
-
     pub fn listen(self: *ProxyServer, port: u16) !void {
-        self.server.configure(.{
-            .host = "127.0.0.1",
-            .port = port,
+        const address = try std.net.Address.parseIp("127.0.0.1", port);
+        var server = try address.listen(.{
+            .reuse_address = true,
         });
-
-        // Register catch-all route to proxy all requests
-        try self.server.router.any("/*", proxyHandler, self);
+        defer server.deinit();
 
         std.debug.print("Proxy listening on http://127.0.0.1:{d}\n", .{port});
-        try self.server.listen();
+
+        while (true) {
+            const connection = try server.accept();
+            try self.handleConnection(connection);
+        }
     }
 
-    fn proxyHandler(ctx: *anyopaque, request: *Request, response: *Response) !void {
-        const self: *ProxyServer = @ptrCast(@alignCast(ctx));
+    fn handleConnection(self: *ProxyServer, connection: std.net.Server.Connection) !void {
+        defer connection.stream.close();
+
+        var buf: [8192]u8 = undefined;
+        const bytes_read = try connection.stream.read(&buf);
+        if (bytes_read == 0) return;
+
+        const request = buf[0..bytes_read];
+
+        // Parse HTTP request line
+        var lines = std.mem.splitScalar(u8, request, '\n');
+        const request_line = lines.next() orelse return;
+
+        // Extract method and path
+        var parts = std.mem.splitScalar(u8, request_line, ' ');
+        const method = parts.next() orelse return;
+        const path = parts.next() orelse return;
 
         std.debug.print("\n=== INCOMING REQUEST ===\n", .{});
-        std.debug.print("Method: {s}\n", .{request.method.toString()});
-        std.debug.print("Path: {s}\n", .{request.path});
+        std.debug.print("Method: {s}\n", .{method});
+        std.debug.print("Path: {s}\n", .{path});
 
-        // Get request body
-        const body = request.body orelse &[_]u8{};
+        // Extract headers
+        var headers = std.ArrayList(std.http.Header){};
+        defer headers.deinit(self.allocator);
+
+        var body_start: usize = 0;
+        var current_pos: usize = request_line.len + 1;
+
+        while (lines.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+            if (trimmed.len == 0) {
+                body_start = current_pos + trimmed.len + 1;
+                break;
+            }
+
+            if (std.mem.indexOfScalar(u8, trimmed, ':')) |colon_pos| {
+                const name = std.mem.trim(u8, trimmed[0..colon_pos], &std.ascii.whitespace);
+                const value = std.mem.trim(u8, trimmed[colon_pos + 1 ..], &std.ascii.whitespace);
+                try headers.append(self.allocator, .{
+                    .name = name,
+                    .value = value,
+                });
+            }
+            current_pos += line.len + 1;
+        }
+
+        const body = if (body_start < request.len) request[body_start..] else &[_]u8{};
+
+        std.debug.print("Headers count: {d}\n", .{headers.items.len});
+        for (headers.items) |header| {
+            std.debug.print("  {s}: {s}\n", .{ header.name, header.value });
+        }
         std.debug.print("Body size: {d} bytes\n", .{body.len});
 
         // Compress request (convert text to images)
@@ -59,53 +91,90 @@ pub const ProxyServer = struct {
 
         std.debug.print("Compression: {d} bytes → {d} bytes", .{ body.len, compressed_body.len });
         if (body.len > 0) {
-            const savings = @as(f64, @floatFromInt(body.len - compressed_body.len)) / @as(f64, @floatFromInt(body.len)) * 100.0;
+            const body_len_f = @as(f64, @floatFromInt(body.len));
+            const compressed_len_f = @as(f64, @floatFromInt(compressed_body.len));
+            const savings = (body_len_f - compressed_len_f) / body_len_f * 100.0;
             std.debug.print(" ({d:.1}% savings)", .{savings});
         }
         std.debug.print("\n", .{});
 
         // Forward to Anthropic API
         std.debug.print("\n=== FORWARDING TO ANTHROPIC ===\n", .{});
-        const uri_str = try std.fmt.allocPrint(self.allocator, "https://api.anthropic.com{s}", .{request.path});
+        const uri_str = try std.fmt.allocPrint(self.allocator, "https://api.anthropic.com{s}", .{path});
         defer self.allocator.free(uri_str);
+
+        const uri = try std.Uri.parse(uri_str);
         std.debug.print("Target: {s}\n", .{uri_str});
 
-        // Create forwarding request
-        const uri = try std.Uri.parse(uri_str);
-        var forward_req = try Request.init(self.allocator, request.method, uri.path.raw);
-        defer forward_req.deinit();
+        var client = std.http.Client{ .allocator = self.allocator };
+        defer client.deinit();
 
-        // Copy headers from original request
-        var it = request.headers.map.iterator();
-        while (it.next()) |entry| {
-            try forward_req.setHeader(entry.key_ptr.*, entry.value_ptr.*);
-        }
+        const http_method = if (std.mem.eql(u8, method, "POST"))
+            std.http.Method.POST
+        else if (std.mem.eql(u8, method, "GET"))
+            std.http.Method.GET
+        else
+            std.http.Method.POST;
 
-        // Set host header
-        try forward_req.setHeader("Host", uri.host orelse "api.anthropic.com");
-
-        // Set compressed body
-        try forward_req.setBody(compressed_body);
-
-        std.debug.print("Forwarding {d} headers\n", .{forward_req.headers.map.count()});
+        std.debug.print("HTTP Method: {s}\n", .{@tagName(http_method)});
+        std.debug.print("Forwarding {d} headers\n", .{headers.items.len});
         std.debug.print("Body size: {d} bytes\n", .{compressed_body.len});
 
-        // Send request to Anthropic
-        var api_response = try self.client.send(&forward_req, &uri);
-        defer api_response.deinit();
+        // Forward request to Anthropic API using Zig 0.15.2 API
+        var req = try client.request(http_method, uri, .{
+            .extra_headers = headers.items,
+        });
+        defer req.deinit();
 
+        // Send request with body
+        // Note: sendBodyComplete expects []u8 (mutable), but we have const - need to allocate mutable copy
+        const mutable_body = try self.allocator.dupe(u8, compressed_body);
+        defer self.allocator.free(mutable_body);
+        try req.sendBodyComplete(mutable_body);
+
+        // Receive response
         std.debug.print("\n=== RECEIVING RESPONSE ===\n", .{});
-        std.debug.print("Status: {d}\n", .{@intFromEnum(api_response.status)});
-        std.debug.print("Response body size: {d} bytes\n", .{api_response.body.len});
+        var redirect_buffer: [8192]u8 = undefined;
+        var response = try req.receiveHead(&redirect_buffer);
+
+        std.debug.print("Status: {d} {s}\n", .{ @intFromEnum(response.head.status), @tagName(response.head.status) });
+        if (response.head.content_type) |ct| {
+            std.debug.print("Content-Type: {s}\n", .{ct});
+        }
+
+        // Read response body
+        var response_body = std.ArrayList(u8){};
+        defer response_body.deinit(self.allocator);
+
+        var transfer_buffer: [4096]u8 = undefined;
+        var reader = response.reader(&transfer_buffer);
+
+        // Read all data from response using peekGreedy/toss
+        while (true) {
+            const slice = reader.peekGreedy(1) catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => |e| return e,
+            };
+            if (slice.len == 0) break;
+            try response_body.appendSlice(self.allocator, slice);
+            reader.toss(slice.len);
+        }
+
+        std.debug.print("Response body size: {d} bytes\n", .{response_body.items.len});
 
         // Send response back to client
         std.debug.print("\n=== SENDING TO CLIENT ===\n", .{});
-        std.debug.print("Status: {d}\n", .{@intFromEnum(api_response.status)});
-        std.debug.print("Body size: {d} bytes\n", .{api_response.body.len});
+        std.debug.print("Status: {d} {s}\n", .{ @intFromEnum(response.head.status), @tagName(response.head.status) });
+        std.debug.print("Body size: {d} bytes\n", .{response_body.items.len});
         std.debug.print("=== REQUEST COMPLETE ===\n\n", .{});
+        const response_header = try std.fmt.allocPrint(
+            self.allocator,
+            "HTTP/1.1 {d} {s}\r\nContent-Type: application/json\r\nContent-Length: {d}\r\n\r\n",
+            .{ @intFromEnum(response.head.status), @tagName(response.head.status), response_body.items.len },
+        );
+        defer self.allocator.free(response_header);
 
-        response.status = api_response.status;
-        try response.setHeader("Content-Type", "application/json");
-        try response.setBody(api_response.body);
+        try connection.stream.writeAll(response_header);
+        try connection.stream.writeAll(response_body.items);
     }
 };
