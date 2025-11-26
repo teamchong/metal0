@@ -186,29 +186,38 @@ pub const ProxyServer = struct {
             std.debug.print("  {s}: {s}\n", .{ header.name, header.value });
         }
 
-        // Use fetch() with response_writer
+        // Use manual request API - more control, avoids fetch() writer issues
         const uri = try std.Uri.parse(url_str);
 
+        var req = try client.request(.POST, uri, .{
+            .extra_headers = req_headers.items,
+        });
+        defer req.deinit();
+
+        // Send body (API requires mutable slice for buffer reuse, but doesn't actually modify)
+        req.transfer_encoding = .{ .content_length = compressed_body.len };
+        const body_mut = @constCast(compressed_body);
+        try req.sendBodyComplete(body_mut);
+        try req.connection.?.flush();
+
+        // Receive response headers first
+        var redirect_buf: [8192]u8 = undefined;
+        var response = try req.receiveHead(&redirect_buf);
+
+        // Read response body using Reader.allocRemaining
+        var transfer_buf: [8192]u8 = undefined;
+        const reader = response.reader(&transfer_buf);
+
+        const max_size = 10 * 1024 * 1024;
+        const response_bytes = try reader.*.allocRemaining(self.allocator, @enumFromInt(max_size));
+        defer self.allocator.free(response_bytes);
+
+        // Copy to ArrayList for compatibility
         var response_body = std.ArrayList(u8){};
         defer response_body.deinit(self.allocator);
+        try response_body.appendSlice(self.allocator, response_bytes);
 
-        // Allocate writer on heap to keep it stable during fetch
-        var array_writer = response_body.writer(self.allocator);
-        const AnyWriter = @TypeOf(array_writer.any());
-
-        const writer_storage = try self.allocator.create(AnyWriter);
-        defer self.allocator.destroy(writer_storage);
-
-        writer_storage.* = array_writer.any();
-        const writer_ptr: *std.Io.Writer = @ptrCast(@alignCast(writer_storage));
-
-        const result = try client.fetch(.{
-            .location = .{ .uri = uri },
-            .method = .POST,
-            .payload = compressed_body,
-            .extra_headers = req_headers.items,
-            .response_writer = writer_ptr,
-        });
+        const result = .{ .status = response.head.status };
 
         std.debug.print("\n=== API RESPONSE ===\n", .{});
         std.debug.print("Status: {d} {s}\n", .{ @intFromEnum(result.status), @tagName(result.status) });
