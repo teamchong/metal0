@@ -74,7 +74,9 @@ pub const TextCompressor = struct {
             };
             defer if (!is_last_line) self.allocator.free(render_text);
 
-            // Cost calculation: estimate tokens (1 token ≈ 4 chars for text, 85 tokens/image for vision)
+            // Cost calculation: estimate tokens
+            // Text formula: tokens = chars / 4
+            // Image formula: tokens = (width × height) / 750 (Anthropic's actual formula)
             const text_bytes = render_text.len;
             const text_tokens: i64 = @intCast(@max(1, text_bytes / 4));
 
@@ -94,10 +96,9 @@ pub const TextCompressor = struct {
             const gif_height = @as(u16, gif_bytes[8]) | (@as(u16, gif_bytes[9]) << 8);
             const pixels = @as(i64, gif_width) * @as(i64, gif_height);
 
-            // Image cost: 85 tokens per 1024×1024 pixels (1,048,576 pixels)
-            // Anthropic charges based on PIXELS, not bytes!
+            // Image cost: Anthropic formula is pixels / 750
             const image_bytes = base64_gif.len;
-            const image_tokens: i64 = @intCast(@max(1, @divFloor(pixels * 85, 1024 * 1024)));
+            const image_tokens: i64 = @intCast(@max(1, @divFloor(pixels, 750)));
 
             // Only compress if saves >20% tokens
             const savings = if (text_tokens > 0) @divTrunc(100 * (text_tokens - image_tokens), text_tokens) else 0;
