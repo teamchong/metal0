@@ -109,7 +109,7 @@ pub const TextCompressor = struct {
 
             // Calculate image tokens: render and get dimensions
             const base64_gif = try self.textToBase64Gif(render_text);
-            // Don't defer - we'll cache it in line_costs
+            errdefer self.allocator.free(base64_gif); // Free on error
 
             // Decode GIF to get actual pixel dimensions
             const decoder = std.base64.standard.Decoder;
