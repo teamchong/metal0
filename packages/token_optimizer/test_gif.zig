@@ -1,4 +1,5 @@
 const std = @import("std");
+const render = @import("src/render.zig");
 const gif = @import("src/gif.zig");
 
 pub fn main() !void {
@@ -6,23 +7,22 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Create test pattern
-    std.debug.print("Creating test image...\n", .{});
-    const pixels = try gif.createTestImage(allocator);
-    defer gif.freePixels(allocator, pixels);
+    const test_text = "Hello World\nLine 2";
+    std.debug.print("Rendering: {s}\n", .{test_text});
 
-    // Encode to GIF
-    std.debug.print("Encoding to GIF...\n", .{});
-    const gif_data = try gif.encodeGif(allocator, pixels);
-    defer allocator.free(gif_data);
+    var rendered = try render.renderText(allocator, test_text);
+    defer rendered.deinit();
 
-    std.debug.print("GIF size: {} bytes\n", .{gif_data.len});
+    std.debug.print("Size: {d}x{d}\n", .{ rendered.width, rendered.height });
 
-    // Write to file
-    const file = try std.fs.cwd().createFile("/tmp/test.gif", .{});
+    const gif_bytes = try gif.encodeGif(allocator, rendered.pixels);
+    defer allocator.free(gif_bytes);
+
+    std.debug.print("GIF: {d} bytes\n", .{gif_bytes.len});
+
+    const file = try std.fs.cwd().createFile("/tmp/test_output.gif", .{});
     defer file.close();
-    try file.writeAll(gif_data);
+    try file.writeAll(gif_bytes);
 
-    std.debug.print("Written to /tmp/test.gif\n", .{});
-    std.debug.print("Open with: open /tmp/test.gif\n", .{});
+    std.debug.print("✅ /tmp/test_output.gif\n", .{});
 }

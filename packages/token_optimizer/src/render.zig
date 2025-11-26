@@ -30,10 +30,10 @@ pub const FontType = enum {
     medium_4x6, // Fallback - 87% savings, better readability
 
     pub fn select(text: []const u8) FontType {
-        // Use 3×4 nanofont for all ASCII text (most common case)
-        // Use 4×6 for better readability if needed (future: could check line length)
+        // Use 4×6 font for readability (87% savings, still excellent)
+        // 3×4 nanofont is too small to read (89% savings but not practical)
         _ = text;
-        return .nano_3x4; // Default to smallest font for maximum compression
+        return .medium_4x6; // Default to readable font
     }
 
     pub fn width(self: FontType) usize {
@@ -74,9 +74,24 @@ pub fn renderText(allocator: std.mem.Allocator, text: []const u8) !RenderedText 
     const char_height = font_type.height();
     const spacing = 1; // 1 pixel spacing between characters
 
-    // Calculate dimensions (all chars rendered, including whitespace indicators)
-    const width = text.len * (char_width + spacing);
-    const height = char_height;
+    // Split text into lines
+    var lines = std.ArrayList([]const u8){};
+    defer lines.deinit(allocator);
+
+    var iter = std.mem.splitScalar(u8, text, '\n');
+    while (iter.next()) |line| {
+        try lines.append(allocator, line);
+    }
+
+    // Calculate max line width
+    var max_line_len: usize = 0;
+    for (lines.items) |line| {
+        if (line.len > max_line_len) max_line_len = line.len;
+    }
+
+    // Calculate dimensions
+    const width = max_line_len * (char_width + spacing);
+    const height = lines.items.len * char_height;
 
     // Allocate pixel array
     var pixels = try allocator.alloc([]u8, height);
@@ -90,49 +105,79 @@ pub fn renderText(allocator: std.mem.Allocator, text: []const u8) !RenderedText 
         @memset(pixels[y], 0); // White background
     }
 
-    // Render each character with color
-    for (text, 0..) |char, i| {
-        const color: RenderColor = if (isWhitespace(char)) .gray else .black;
-        const display_char = if (isWhitespace(char)) getWhitespaceGlyph(char) else char;
+    // Render each line
+    for (lines.items, 0..) |line, line_idx| {
+        const y_offset = line_idx * char_height;
 
-        // Get glyph based on font type
-        const x_offset = i * (char_width + spacing);
+        // Render each character in the line
+        for (line, 0..) |char, char_idx| {
+            const color: RenderColor = if (isWhitespace(char)) .gray else .black;
+            const display_char = if (isWhitespace(char)) getWhitespaceGlyph(char) else char;
+            const x_offset = char_idx * (char_width + spacing);
 
-        switch (font_type) {
-            .nano_3x4 => {
-                const font = font_3x4.Font3x4{};
-                const glyph = font.getGlyph(display_char);
-                for (0..char_height) |y| {
-                    const row = glyph[y];
-                    for (0..char_width) |x| {
-                        const bit = (row >> @intCast(char_width - 1 - x)) & 1;
-                        if (bit == 1) {
-                            pixels[y][x_offset + x] = @intFromEnum(color);
+            switch (font_type) {
+                .nano_3x4 => {
+                    const font = font_3x4.Font3x4{};
+                    const glyph = font.getGlyph(display_char);
+                    for (0..char_height) |row_y| {
+                        const row = glyph[row_y];
+                        for (0..char_width) |col_x| {
+                            const bit = (row >> @intCast(char_width - 1 - col_x)) & 1;
+                            if (bit == 1) {
+                                pixels[y_offset + row_y][x_offset + col_x] = @intFromEnum(color);
+                            }
                         }
                     }
-                }
-            },
-            .medium_4x6 => {
-                const font_4x6 = @import("font_4x6.zig");
-                const font = font_4x6.Font4x6{};
-                const glyph = font.getGlyph(display_char);
-                for (0..char_height) |y| {
-                    const row = glyph[y];
-                    for (0..char_width) |x| {
-                        const bit = (row >> @intCast(char_width - 1 - x)) & 1;
-                        if (bit == 1) {
-                            pixels[y][x_offset + x] = @intFromEnum(color);
+                },
+                .medium_4x6 => {
+                    const font_4x6 = @import("font_4x6.zig");
+                    const font = font_4x6.Font4x6{};
+                    const glyph = font.getGlyph(display_char);
+                    for (0..char_height) |row_y| {
+                        const row = glyph[row_y];
+                        for (0..char_width) |col_x| {
+                            const bit = (row >> @intCast(char_width - 1 - col_x)) & 1;
+                            if (bit == 1) {
+                                pixels[y_offset + row_y][x_offset + col_x] = @intFromEnum(color);
+                            }
                         }
                     }
-                }
-            },
+                },
+            }
         }
     }
 
+    // Scale up for readability (3x)
+    const scale = 3;
+    const scaled_width = width * scale;
+    const scaled_height = height * scale;
+
+    var scaled_pixels = try allocator.alloc([]u8, scaled_height);
+    errdefer allocator.free(scaled_pixels);
+
+    for (0..scaled_height) |sy| {
+        scaled_pixels[sy] = try allocator.alloc(u8, scaled_width);
+        errdefer {
+            for (0..sy) |py| allocator.free(scaled_pixels[py]);
+        }
+
+        const src_y = sy / scale;
+        for (0..scaled_width) |sx| {
+            const src_x = sx / scale;
+            scaled_pixels[sy][sx] = pixels[src_y][src_x];
+        }
+    }
+
+    // Free original unscaled pixels
+    for (pixels) |row| {
+        allocator.free(row);
+    }
+    allocator.free(pixels);
+
     return RenderedText{
-        .pixels = pixels,
-        .width = width,
-        .height = height,
+        .pixels = scaled_pixels,
+        .width = scaled_width,
+        .height = scaled_height,
         .allocator = allocator,
     };
 }
