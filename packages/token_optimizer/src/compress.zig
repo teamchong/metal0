@@ -64,26 +64,44 @@ pub const TextCompressor = struct {
             try lines.append(self.allocator, line);
         }
 
-        // Step 1: Calculate token costs for ALL lines (both text and image)
-        var line_costs = try self.allocator.alloc(LineCost, lines.items.len);
-        defer self.allocator.free(line_costs);
+        // Step 1: Group lines into batches (Anthropic limit: 100 images per request)
+        const MAX_IMAGES = 100;
+        const lines_per_batch: usize = if (lines.items.len > MAX_IMAGES)
+            (lines.items.len + MAX_IMAGES - 1) / MAX_IMAGES // ceil(lines / MAX_IMAGES)
+        else
+            1;
+
+        const num_batches = (lines.items.len + lines_per_batch - 1) / lines_per_batch;
+
+        std.debug.print("Lines: {d}, Batches: {d} ({d} lines/batch)\n", .{
+            lines.items.len,
+            num_batches,
+            lines_per_batch,
+        });
+
+        // Step 2: Calculate token costs for ALL batches
+        var batch_costs = try self.allocator.alloc(LineCost, num_batches);
+        defer self.allocator.free(batch_costs);
 
         var total_text_tokens: i64 = 0;
         var total_image_tokens: i64 = 0;
 
-        for (lines.items, 0..) |line, i| {
-            const is_last_line = i == lines.items.len - 1;
+        for (0..num_batches) |batch_idx| {
+            const start_line = batch_idx * lines_per_batch;
+            const end_line = @min(start_line + lines_per_batch, lines.items.len);
 
-            // Prepare text for rendering: add \n if not last line
-            const render_text = if (!is_last_line) blk: {
-                const with_newline = try self.allocator.alloc(u8, line.len + 1);
-                @memcpy(with_newline[0..line.len], line);
-                with_newline[line.len] = '\n';
-                break :blk with_newline;
-            } else blk: {
-                break :blk line;
-            };
-            defer if (!is_last_line) self.allocator.free(render_text);
+            // Combine all lines in this batch into one text block
+            var batch_text = std.ArrayList(u8){};
+            defer batch_text.deinit(self.allocator);
+
+            for (start_line..end_line) |line_idx| {
+                try batch_text.appendSlice(self.allocator, lines.items[line_idx]);
+                if (line_idx < end_line - 1 or end_line < lines.items.len) {
+                    try batch_text.append(self.allocator, '\n');
+                }
+            }
+
+            const render_text = batch_text.items;
 
             // Calculate text tokens (approximate formula: 1 token ≈ 4 chars)
             // Good enough for image vs text comparison (10x+ difference)
@@ -109,7 +127,7 @@ pub const TextCompressor = struct {
             const image_tokens: i64 = @intCast(@max(1, @divFloor(pixels, 750)));
 
             // Store costs (cache GIF for reuse)
-            line_costs[i] = .{
+            batch_costs[batch_idx] = .{
                 .text_tokens = text_tokens,
                 .image_tokens = image_tokens,
                 .text_bytes = render_text.len,
@@ -121,8 +139,8 @@ pub const TextCompressor = struct {
             total_text_tokens += text_tokens;
             total_image_tokens += image_tokens;
 
-            std.debug.print("Line {d}: text={d}B/{d}tok → image={d}B/{d}tok ({d}px)\n", .{
-                i,
+            std.debug.print("Batch {d}: text={d}B/{d}tok → image={d}B/{d}tok ({d}px)\n", .{
+                batch_idx,
                 render_text.len,
                 text_tokens,
                 base64_gif.len,
@@ -131,7 +149,7 @@ pub const TextCompressor = struct {
             });
         }
 
-        // Step 2: Compare totals and decide for ENTIRE message
+        // Step 3: Compare totals and decide for ENTIRE message
         const savings = if (total_text_tokens > 0)
             @divTrunc(100 * (total_text_tokens - total_image_tokens), total_text_tokens)
         else
@@ -147,48 +165,34 @@ pub const TextCompressor = struct {
         });
         std.debug.print("Decision: {s}\n\n", .{if (use_compression) "COMPRESS ALL" else "KEEP ALL AS TEXT"});
 
-        // Step 3: Build content array based on decision
+        // Step 4: Build content array based on decision
         var content_json: std.ArrayList(u8) = .{};
         errdefer content_json.deinit(self.allocator);
 
         try content_json.append(self.allocator, '[');
 
-        for (lines.items, 0..) |line, i| {
-            const is_last_line = i == lines.items.len - 1;
+        if (use_compression) {
+            // Use batched images (one image per batch)
+            for (batch_costs, 0..) |cost, batch_idx| {
+                if (batch_idx > 0) {
+                    try content_json.append(self.allocator, ',');
+                }
 
-            // Prepare text for rendering: add \n if not last line
-            const render_text = if (!is_last_line) blk: {
-                const with_newline = try self.allocator.alloc(u8, line.len + 1);
-                @memcpy(with_newline[0..line.len], line);
-                with_newline[line.len] = '\n';
-                break :blk with_newline;
-            } else blk: {
-                break :blk line;
-            };
-            defer if (!is_last_line) self.allocator.free(render_text);
-
-            // Add comma if not first item
-            if (i > 0) {
-                try content_json.append(self.allocator, ',');
-            }
-
-            if (use_compression) {
-                // Use image block (cached GIF from step 1)
                 try content_json.appendSlice(self.allocator, "{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/gif\",\"data\":\"");
-                try content_json.appendSlice(self.allocator, line_costs[i].gif_base64);
+                try content_json.appendSlice(self.allocator, cost.gif_base64);
                 try content_json.appendSlice(self.allocator, "\"}}");
-            } else {
-                // Keep as text
-                try content_json.appendSlice(self.allocator, "{\"type\":\"text\",\"text\":\"");
-                try self.appendEscapedJson(render_text, &content_json);
-                try content_json.appendSlice(self.allocator, "\"}");
             }
+        } else {
+            // Keep as text (single text block with all lines)
+            try content_json.appendSlice(self.allocator, "{\"type\":\"text\",\"text\":\"");
+            try self.appendEscapedJson(text, &content_json);
+            try content_json.appendSlice(self.allocator, "\"}");
         }
 
         try content_json.append(self.allocator, ']');
 
         // Free cached GIFs
-        for (line_costs) |cost| {
+        for (batch_costs) |cost| {
             self.allocator.free(cost.gif_base64);
         }
 
