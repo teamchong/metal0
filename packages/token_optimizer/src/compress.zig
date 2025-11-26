@@ -72,9 +72,24 @@ pub const TextCompressor = struct {
         var rendered = try render.renderText(self.allocator, text);
         defer rendered.deinit();
 
+        if (rendered.pixels.len == 0) {
+            std.debug.print("ERROR: Rendered pixels is empty for text (len={d}): {s}\n", .{text.len, text[0..@min(100, text.len)]});
+            return error.EmptyRender;
+        }
+
         // Step 2: Encode pixels as GIF (now supports 3 colors)
         const gif_bytes = try gif.encodeGif(self.allocator, rendered.pixels);
         defer self.allocator.free(gif_bytes);
+
+        if (gif_bytes.len == 0) {
+            std.debug.print("ERROR: GIF encoder returned 0 bytes for text (len={d}, pixels={}x{}): {s}\n", .{
+                text.len,
+                rendered.width,
+                rendered.height,
+                text[0..@min(100, text.len)]
+            });
+            return error.EmptyGif;
+        }
 
         // Step 3: Base64 encode
         return try self.base64Encode(gif_bytes);
