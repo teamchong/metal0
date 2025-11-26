@@ -368,6 +368,7 @@ pub const pathlib = @import("pathlib.zig");
 pub const datetime = @import("datetime.zig");
 pub const eval_module = @import("eval.zig");
 pub const exec_module = @import("exec.zig");
+pub const gzip = @import("gzip/gzip.zig");
 
 // Green thread runtime (real M:N scheduler)
 pub const GreenThread = @import("green_thread.zig").GreenThread;

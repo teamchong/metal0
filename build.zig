@@ -11,8 +11,27 @@ pub fn build(b: *std.Build) void {
     const allocator_helper = b.addModule("allocator_helper", .{
         .root_source_file = b.path("src/utils/allocator_helper.zig"),
     });
-    const runtime = b.addModule("runtime", .{
+    const runtime = b.createModule(.{
         .root_source_file = b.path("packages/runtime/src/runtime.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    runtime.addIncludePath(b.path("vendor/libdeflate"));
+    runtime.addCSourceFiles(.{
+        .files = &.{
+            "vendor/libdeflate/lib/deflate_compress.c",
+            "vendor/libdeflate/lib/deflate_decompress.c",
+            "vendor/libdeflate/lib/utils.c",
+            "vendor/libdeflate/lib/gzip_compress.c",
+            "vendor/libdeflate/lib/gzip_decompress.c",
+            "vendor/libdeflate/lib/zlib_compress.c",
+            "vendor/libdeflate/lib/zlib_decompress.c",
+            "vendor/libdeflate/lib/adler32.c",
+            "vendor/libdeflate/lib/crc32.c",
+            "vendor/libdeflate/lib/arm/cpu_features.c",
+            "vendor/libdeflate/lib/x86/cpu_features.c",
+        },
+        .flags = &[_][]const u8{ "-std=c99", "-O3" },
     });
     const collections = b.addModule("collections", .{
         .root_source_file = b.path("packages/collections/collections.zig"),
@@ -55,6 +74,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("zig_keywords", zig_keywords);
     exe.root_module.addImport("ast", ast);
     exe.root_module.addImport("c_interop", c_interop_mod);
+    exe.linkLibC();
 
     b.installArtifact(exe);
 
@@ -235,5 +255,36 @@ pub fn build(b: *std.Build) void {
     const run_token_optimizer = b.addRunArtifact(token_optimizer);
     const token_optimizer_step = b.step("token-optimizer", "Run token optimizer proxy");
     token_optimizer_step.dependOn(&run_token_optimizer.step);
+
+    // Gzip tests with libdeflate
+    const gzip_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/runtime/src/gzip/test_gzip.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    gzip_tests.linkLibC();
+    gzip_tests.addIncludePath(b.path("vendor/libdeflate"));
+    gzip_tests.addCSourceFiles(.{
+        .files = &.{
+            "vendor/libdeflate/lib/deflate_compress.c",
+            "vendor/libdeflate/lib/deflate_decompress.c",
+            "vendor/libdeflate/lib/utils.c",
+            "vendor/libdeflate/lib/gzip_compress.c",
+            "vendor/libdeflate/lib/gzip_decompress.c",
+            "vendor/libdeflate/lib/zlib_compress.c",
+            "vendor/libdeflate/lib/zlib_decompress.c",
+            "vendor/libdeflate/lib/adler32.c",
+            "vendor/libdeflate/lib/crc32.c",
+            "vendor/libdeflate/lib/arm/cpu_features.c",
+            "vendor/libdeflate/lib/x86/cpu_features.c",
+        },
+        .flags = &.{"-std=c99"},
+    });
+
+    const run_gzip_tests = b.addRunArtifact(gzip_tests);
+    const gzip_test_step = b.step("test-gzip", "Run gzip compression tests");
+    gzip_test_step.dependOn(&run_gzip_tests.step);
 
 }

@@ -5,10 +5,10 @@ pub const ProxyServer = struct {
     allocator: std.mem.Allocator,
     compressor: compress.TextCompressor,
 
-    pub fn init(allocator: std.mem.Allocator) ProxyServer {
+    pub fn init(allocator: std.mem.Allocator, compress_enabled: bool) ProxyServer {
         return ProxyServer{
             .allocator = allocator,
-            .compressor = compress.TextCompressor.init(allocator),
+            .compressor = compress.TextCompressor.init(allocator, compress_enabled),
         };
     }
 
@@ -252,7 +252,7 @@ pub const ProxyServer = struct {
             }
         }
 
-        // Send response back to client
+        // Send response back to client (no compression - Zig 0.15.2 lacks gzip)
         std.debug.print("\n=== SENDING TO CLIENT ===\n", .{});
         std.debug.print("Status: 200 OK\n", .{});
         std.debug.print("Body size: {d} bytes\n", .{response_body.items.len});

@@ -7,11 +7,13 @@ const gif = @import("gif.zig");
 pub const TextCompressor = struct {
     allocator: std.mem.Allocator,
     parser: json.MessageParser,
+    enabled: bool,
 
-    pub fn init(allocator: std.mem.Allocator) TextCompressor {
+    pub fn init(allocator: std.mem.Allocator, enabled: bool) TextCompressor {
         return .{
             .allocator = allocator,
             .parser = json.MessageParser.init(allocator),
+            .enabled = enabled,
         };
     }
 
@@ -31,6 +33,12 @@ pub const TextCompressor = struct {
 
     /// Process request: extract text, convert to images (Option 3: per-line with conditional newlines), rebuild JSON
     pub fn compressRequest(self: TextCompressor, request_json: []const u8) ![]const u8 {
+        // If compression disabled, return original unchanged
+        if (!self.enabled) {
+            std.debug.print("Text-to-image compression DISABLED - forwarding original request\n", .{});
+            return try self.allocator.dupe(u8, request_json);
+        }
+
         // Extract text from request
         const text = try self.parser.extractText(request_json);
         defer self.allocator.free(text);
@@ -86,10 +94,10 @@ pub const TextCompressor = struct {
             const gif_height = @as(u16, gif_bytes[8]) | (@as(u16, gif_bytes[9]) << 8);
             const pixels = @as(i64, gif_width) * @as(i64, gif_height);
 
-            // Image cost: base64 bytes + 85 tokens per 1024×1024 block (scaled)
+            // Image cost: 85 tokens per 1024×1024 pixels (1,048,576 pixels)
+            // Anthropic charges based on PIXELS, not bytes!
             const image_bytes = base64_gif.len;
-            const blocks = @max(1, @divFloor(pixels, 1024 * 1024));
-            const image_tokens: i64 = @intCast(@divFloor(image_bytes, 4) + (blocks * 85));
+            const image_tokens: i64 = @intCast(@max(1, @divFloor(pixels * 85, 1024 * 1024)));
 
             // Only compress if saves >20% tokens
             const savings = if (text_tokens > 0) @divTrunc(100 * (text_tokens - image_tokens), text_tokens) else 0;
