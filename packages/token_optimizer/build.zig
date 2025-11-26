@@ -10,6 +10,13 @@ pub fn build(b: *std.Build) void {
     });
     runtime_gzip.addIncludePath(b.path("../../vendor/libdeflate"));
 
+    // Import zigimg for GIF encoding
+    const zigimg = b.dependency("zigimg", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const zigimg_module = zigimg.module("zigimg");
+
     // Proxy server executable
     const proxy = b.addExecutable(.{
         .name = "token_optimizer_proxy",
@@ -20,6 +27,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     proxy.root_module.addImport("gzip", runtime_gzip);
+    proxy.root_module.addImport("zigimg", zigimg_module);
 
     // Add libdeflate for gzip compression
     proxy.linkLibC();
