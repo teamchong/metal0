@@ -186,38 +186,32 @@ pub const ProxyServer = struct {
             std.debug.print("  {s}: {s}\n", .{ header.name, header.value });
         }
 
-        // Use lower-level request API
+        // Use fetch() API with response_writer
         const uri = try std.Uri.parse(url_str);
 
-        var req = try client.request(.POST, uri, .{
+        var response_body = std.ArrayList(u8){};
+        defer response_body.deinit(self.allocator);
+
+        var response_writer = response_body.writer(self.allocator);
+        var writer_interface = response_writer.any();
+
+        const result = try client.fetch(.{
+            .location = .{ .uri = uri },
+            .method = .POST,
+            .payload = compressed_body,
             .extra_headers = req_headers.items,
+            .response_writer = @ptrCast(&writer_interface),
         });
-        defer req.deinit();
-
-        req.transfer_encoding = .{ .content_length = compressed_body.len };
-        var buffer: [8192]u8 = undefined;
-        var body_writer = try req.sendBody(&buffer);
-        try body_writer.writer.writeAll(compressed_body);
-        try body_writer.end();
-        try req.connection.?.flush();
-
-        var redirect_buffer: [8192]u8 = undefined;
-        var response = try req.receiveHead(&redirect_buffer);
-
-        // Read response body
-        const reader = response.reader(&.{});
-        const response_body = try reader.readAlloc(self.allocator, 10 * 1024 * 1024);
-        defer self.allocator.free(response_body);
 
         std.debug.print("\n=== API RESPONSE ===\n", .{});
-        std.debug.print("Status: {d} {s}\n", .{ @intFromEnum(response.head.status), @tagName(response.head.status) });
+        std.debug.print("Status: {d} {s}\n", .{ @intFromEnum(result.status), @tagName(result.status) });
 
-        const response_content_length: ?usize = response_body.len;
+        const response_content_length: ?usize = response_body.items.len;
 
-        std.debug.print("Response body size: {d} bytes", .{response_body.len});
+        std.debug.print("Response body size: {d} bytes", .{response_body.items.len});
         if (response_content_length) |expected| {
-            if (response_body.len != expected) {
-                std.debug.print(" (WARNING: expected {d} bytes, got {d})\n", .{ expected, response_body.len });
+            if (response_body.items.len != expected) {
+                std.debug.print(" (WARNING: expected {d} bytes, got {d})\n", .{ expected, response_body.items.len });
             } else {
                 std.debug.print(" (matches Content-Length)\n", .{});
             }
@@ -226,26 +220,26 @@ pub const ProxyServer = struct {
         }
 
         // Debug: Show first and last 100 bytes of response
-        if (response_body.len > 0) {
-            const preview_size = @min(100, response_body.len);
-            std.debug.print("Response preview (first {d} bytes): {s}\n", .{ preview_size, response_body[0..preview_size] });
+        if (response_body.items.len > 0) {
+            const preview_size = @min(100, response_body.items.len);
+            std.debug.print("Response preview (first {d} bytes): {s}\n", .{ preview_size, response_body.items[0..preview_size] });
 
-            if (response_body.len > 100) {
-                const tail_start = response_body.len - 100;
-                std.debug.print("Response tail (last 100 bytes): {s}\n", .{response_body[tail_start..]});
+            if (response_body.items.len > 100) {
+                const tail_start = response_body.items.len - 100;
+                std.debug.print("Response tail (last 100 bytes): {s}\n", .{response_body.items[tail_start..]});
             }
         }
 
         // Compress response with gzip before sending to client
-        const compressed_response = try gzip.compress(self.allocator, response_body);
+        const compressed_response = try gzip.compress(self.allocator, response_body.items);
         defer self.allocator.free(compressed_response);
 
         std.debug.print("\n=== SENDING TO CLIENT ===\n", .{});
         std.debug.print("Status: 200 OK\n", .{});
-        std.debug.print("Body size (uncompressed): {d} bytes\n", .{response_body.len});
+        std.debug.print("Body size (uncompressed): {d} bytes\n", .{response_body.items.len});
         std.debug.print("Body size (gzip): {d} bytes ({d:.1}% of original)\n", .{
             compressed_response.len,
-            @as(f64, @floatFromInt(compressed_response.len)) / @as(f64, @floatFromInt(response_body.len)) * 100.0,
+            @as(f64, @floatFromInt(compressed_response.len)) / @as(f64, @floatFromInt(response_body.items.len)) * 100.0,
         });
         std.debug.print("=== REQUEST COMPLETE ===\n\n", .{});
 
