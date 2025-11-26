@@ -45,6 +45,10 @@ pub fn build(b: *std.Build) void {
     const ast = b.addModule("ast", .{
         .root_source_file = b.path("src/ast.zig"),
     });
+    const gzip_module = b.addModule("gzip", .{
+        .root_source_file = b.path("packages/runtime/src/gzip/gzip.zig"),
+    });
+    gzip_module.addIncludePath(b.path("vendor/libdeflate"));
 
     // Module dependencies
     runtime.addImport("hashmap_helper", hashmap_helper);
@@ -248,6 +252,25 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         }),
+    });
+    token_optimizer.root_module.addImport("gzip", gzip_module);
+    token_optimizer.linkLibC();
+    token_optimizer.addIncludePath(b.path("vendor/libdeflate"));
+    token_optimizer.addCSourceFiles(.{
+        .files = &.{
+            "vendor/libdeflate/lib/deflate_compress.c",
+            "vendor/libdeflate/lib/deflate_decompress.c",
+            "vendor/libdeflate/lib/utils.c",
+            "vendor/libdeflate/lib/gzip_compress.c",
+            "vendor/libdeflate/lib/gzip_decompress.c",
+            "vendor/libdeflate/lib/zlib_compress.c",
+            "vendor/libdeflate/lib/zlib_decompress.c",
+            "vendor/libdeflate/lib/adler32.c",
+            "vendor/libdeflate/lib/crc32.c",
+            "vendor/libdeflate/lib/arm/cpu_features.c",
+            "vendor/libdeflate/lib/x86/cpu_features.c",
+        },
+        .flags = &[_][]const u8{ "-std=c99", "-O3" },
     });
 
     b.installArtifact(token_optimizer);

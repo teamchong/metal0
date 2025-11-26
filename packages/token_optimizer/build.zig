@@ -4,6 +4,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Import runtime gzip module
+    const runtime_gzip = b.addModule("gzip", .{
+        .root_source_file = b.path("../../packages/runtime/src/gzip/gzip.zig"),
+    });
+    runtime_gzip.addIncludePath(b.path("../../vendor/libdeflate"));
+
     // Proxy server executable
     const proxy = b.addExecutable(.{
         .name = "token_optimizer_proxy",
@@ -13,6 +19,28 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    proxy.root_module.addImport("gzip", runtime_gzip);
+
+    // Add libdeflate for gzip compression
+    proxy.linkLibC();
+    proxy.addIncludePath(b.path("../../vendor/libdeflate"));
+    proxy.addCSourceFiles(.{
+        .files = &.{
+            "../../vendor/libdeflate/lib/deflate_compress.c",
+            "../../vendor/libdeflate/lib/deflate_decompress.c",
+            "../../vendor/libdeflate/lib/utils.c",
+            "../../vendor/libdeflate/lib/gzip_compress.c",
+            "../../vendor/libdeflate/lib/gzip_decompress.c",
+            "../../vendor/libdeflate/lib/zlib_compress.c",
+            "../../vendor/libdeflate/lib/zlib_decompress.c",
+            "../../vendor/libdeflate/lib/adler32.c",
+            "../../vendor/libdeflate/lib/crc32.c",
+            "../../vendor/libdeflate/lib/arm/cpu_features.c",
+            "../../vendor/libdeflate/lib/x86/cpu_features.c",
+        },
+        .flags = &[_][]const u8{ "-std=c99", "-O3" },
+    });
+
     b.installArtifact(proxy);
 
     // Run step for proxy server
