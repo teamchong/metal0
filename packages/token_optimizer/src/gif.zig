@@ -58,6 +58,9 @@ fn writeU16LE(buffer: *std.ArrayList(u8), allocator: std.mem.Allocator, value: u
 /// Encode image data using uncompressed LZW format
 /// For 4-color images, we use codes 0-7: {0, 1, 2, 3, clear, end}
 fn encodeUncompressedLZW(buffer: *std.ArrayList(u8), allocator: std.mem.Allocator, pixels: []const []const u8) !void {
+    // CRITICAL: Reset global state for each GIF
+    sub_block_size = 0;
+
     const clear_code: u16 = 4;  // Clear code (2^2 = 4)
     const end_code: u16 = 5;    // End code
 
@@ -83,6 +86,9 @@ fn encodeUncompressedLZW(buffer: *std.ArrayList(u8), allocator: std.mem.Allocato
     if (bits_in_buffer > 0) {
         try writeSubBlock(buffer, allocator, @intCast(bit_buffer & 0xFF));
     }
+
+    // CRITICAL: Flush remaining sub-block
+    try flushSubBlock(buffer, allocator);
 }
 
 /// Write LZW code to bit stream
