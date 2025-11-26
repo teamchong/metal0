@@ -1,5 +1,6 @@
 const std = @import("std");
 const compress = @import("compress.zig");
+const gzip = @import("gzip");
 
 pub const ProxyServer = struct {
     allocator: std.mem.Allocator,
@@ -147,93 +148,76 @@ pub const ProxyServer = struct {
         }
         std.debug.print("\n", .{});
 
-        // Forward to Anthropic API using curl subprocess (Zig HTTP client has Cloudflare compatibility issues)
-        std.debug.print("\n=== FORWARDING TO ANTHROPIC (via curl) ===\n", .{});
+        // Forward to Anthropic API using native Zig HTTP client
+        std.debug.print("\n=== FORWARDING TO ANTHROPIC (std.http.Client) ===\n", .{});
 
-        // Build curl command
-        var curl_args = std.ArrayList([]const u8){};
-        defer curl_args.deinit(self.allocator);
+        // Build API URL
+        const url_str = try std.fmt.allocPrint(self.allocator, "https://api.anthropic.com{s}", .{path});
+        defer self.allocator.free(url_str);
 
-        var header_strings = std.ArrayList([]const u8){};
-        defer {
-            for (header_strings.items) |s| self.allocator.free(s);
-            header_strings.deinit(self.allocator);
-        }
+        // Create HTTP client
+        var client = std.http.Client{ .allocator = self.allocator };
+        defer client.deinit();
 
-        try curl_args.append(self.allocator, "curl");
-        try curl_args.append(self.allocator, "-s"); // Silent
-        try curl_args.append(self.allocator, "-X");
-        try curl_args.append(self.allocator, method);
-
-        // Add URL
-        const url = try std.fmt.allocPrint(self.allocator, "https://api.anthropic.com{s}", .{path});
-        try header_strings.append(self.allocator, url);
-        try curl_args.append(self.allocator, url);
-
-        // Add headers
-        for (headers.items) |header| {
-            // Skip Host header (curl sets it automatically)
-            if (std.ascii.eqlIgnoreCase(header.name, "host")) continue;
-            if (std.ascii.eqlIgnoreCase(header.name, "content-length")) continue; // curl sets this
-
-            const header_str = try std.fmt.allocPrint(self.allocator, "{s}: {s}", .{ header.name, header.value });
-            try header_strings.append(self.allocator, header_str);
-
-            try curl_args.append(self.allocator, "-H");
-            try curl_args.append(self.allocator, header_str);
-        }
+        // Prepare request headers
+        var req_headers = std.ArrayList(std.http.Header){};
+        defer req_headers.deinit(self.allocator);
 
         // Add anthropic-version if missing
         var has_version = false;
         for (headers.items) |header| {
             if (std.ascii.eqlIgnoreCase(header.name, "anthropic-version")) {
                 has_version = true;
-                break;
             }
         }
         if (!has_version) {
-            try curl_args.append(self.allocator, "-H");
-            try curl_args.append(self.allocator, "anthropic-version: 2023-06-01");
+            try req_headers.append(self.allocator, .{ .name = "anthropic-version", .value = "2023-06-01" });
         }
 
-        // Add body
-        try curl_args.append(self.allocator, "-d");
-        try curl_args.append(self.allocator, compressed_body);
-
-        std.debug.print("Executing curl command:\n", .{});
-        for (curl_args.items, 0..) |arg, i| {
-            std.debug.print("  [{d}]: {s}\n", .{ i, arg });
+        // Copy existing headers (skip Host and Content-Length)
+        for (headers.items) |header| {
+            if (std.ascii.eqlIgnoreCase(header.name, "host")) continue;
+            if (std.ascii.eqlIgnoreCase(header.name, "content-length")) continue;
+            try req_headers.append(self.allocator, header);
         }
 
-        // Execute curl
-        var child = std.process.Child.init(curl_args.items, self.allocator);
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
-        try child.spawn();
-
-        const stdout = try child.stdout.?.readToEndAlloc(self.allocator, 10 * 1024 * 1024); // Max 10MB
-        defer self.allocator.free(stdout);
-        const stderr = try child.stderr.?.readToEndAlloc(self.allocator, 1024 * 1024); // Max 1MB
-        defer self.allocator.free(stderr);
-
-        const term = try child.wait();
-
-        std.debug.print("\n=== CURL RESPONSE ===\n", .{});
-        std.debug.print("Exit code: {any}\n", .{term});
-        if (stderr.len > 0) {
-            std.debug.print("Stderr: {s}\n", .{stderr});
+        std.debug.print("Request headers count: {d}\n", .{req_headers.items.len});
+        for (req_headers.items) |header| {
+            std.debug.print("  {s}: {s}\n", .{ header.name, header.value });
         }
 
-        var response_body = std.ArrayList(u8){};
-        defer response_body.deinit(self.allocator);
-        try response_body.appendSlice(self.allocator, stdout);
+        // Use lower-level request API
+        const uri = try std.Uri.parse(url_str);
 
-        const response_content_length: ?usize = stdout.len;
+        var req = try client.request(.POST, uri, .{
+            .extra_headers = req_headers.items,
+        });
+        defer req.deinit();
 
-        std.debug.print("Response body size: {d} bytes", .{response_body.items.len});
+        req.transfer_encoding = .{ .content_length = compressed_body.len };
+        var buffer: [8192]u8 = undefined;
+        var body_writer = try req.sendBody(&buffer);
+        try body_writer.writer.writeAll(compressed_body);
+        try body_writer.end();
+        try req.connection.?.flush();
+
+        var redirect_buffer: [8192]u8 = undefined;
+        var response = try req.receiveHead(&redirect_buffer);
+
+        // Read response body
+        const reader = response.reader(&.{});
+        const response_body = try reader.readAlloc(self.allocator, 10 * 1024 * 1024);
+        defer self.allocator.free(response_body);
+
+        std.debug.print("\n=== API RESPONSE ===\n", .{});
+        std.debug.print("Status: {d} {s}\n", .{ @intFromEnum(response.head.status), @tagName(response.head.status) });
+
+        const response_content_length: ?usize = response_body.len;
+
+        std.debug.print("Response body size: {d} bytes", .{response_body.len});
         if (response_content_length) |expected| {
-            if (response_body.items.len != expected) {
-                std.debug.print(" (WARNING: expected {d} bytes, got {d})\n", .{ expected, response_body.items.len });
+            if (response_body.len != expected) {
+                std.debug.print(" (WARNING: expected {d} bytes, got {d})\n", .{ expected, response_body.len });
             } else {
                 std.debug.print(" (matches Content-Length)\n", .{});
             }
@@ -242,30 +226,37 @@ pub const ProxyServer = struct {
         }
 
         // Debug: Show first and last 100 bytes of response
-        if (response_body.items.len > 0) {
-            const preview_size = @min(100, response_body.items.len);
-            std.debug.print("Response preview (first {d} bytes): {s}\n", .{ preview_size, response_body.items[0..preview_size] });
+        if (response_body.len > 0) {
+            const preview_size = @min(100, response_body.len);
+            std.debug.print("Response preview (first {d} bytes): {s}\n", .{ preview_size, response_body[0..preview_size] });
 
-            if (response_body.items.len > 100) {
-                const tail_start = response_body.items.len - 100;
-                std.debug.print("Response tail (last 100 bytes): {s}\n", .{response_body.items[tail_start..]});
+            if (response_body.len > 100) {
+                const tail_start = response_body.len - 100;
+                std.debug.print("Response tail (last 100 bytes): {s}\n", .{response_body[tail_start..]});
             }
         }
 
-        // Send response back to client (no compression - Zig 0.15.2 lacks gzip)
+        // Compress response with gzip before sending to client
+        const compressed_response = try gzip.compress(self.allocator, response_body);
+        defer self.allocator.free(compressed_response);
+
         std.debug.print("\n=== SENDING TO CLIENT ===\n", .{});
         std.debug.print("Status: 200 OK\n", .{});
-        std.debug.print("Body size: {d} bytes\n", .{response_body.items.len});
+        std.debug.print("Body size (uncompressed): {d} bytes\n", .{response_body.len});
+        std.debug.print("Body size (gzip): {d} bytes ({d:.1}% of original)\n", .{
+            compressed_response.len,
+            @as(f64, @floatFromInt(compressed_response.len)) / @as(f64, @floatFromInt(response_body.len)) * 100.0,
+        });
         std.debug.print("=== REQUEST COMPLETE ===\n\n", .{});
 
         const response_header = try std.fmt.allocPrint(
             self.allocator,
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {d}\r\n\r\n",
-            .{response_body.items.len},
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {d}\r\n\r\n",
+            .{compressed_response.len},
         );
         defer self.allocator.free(response_header);
 
         try connection.stream.writeAll(response_header);
-        try connection.stream.writeAll(response_body.items);
+        try connection.stream.writeAll(compressed_response);
     }
 };
