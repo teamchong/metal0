@@ -136,8 +136,30 @@ pub const TextCompressor = struct {
         const content_json_slice = try content_json.toOwnedSlice(self.allocator);
         defer self.allocator.free(content_json_slice);
 
+        std.debug.print("\n=== JSON DEBUG ===\n", .{});
+        std.debug.print("ORIGINAL REQUEST ({d} bytes):\n{s}\n", .{ request_json.len, request_json });
+        std.debug.print("\nNEW CONTENT ARRAY ({d} bytes):\n{s}\n", .{ content_json_slice.len, content_json_slice });
+
         // Rebuild JSON with new content
-        return try self.parser.rebuildWithContent(request_json, content_json_slice);
+        const rebuilt = try self.parser.rebuildWithContent(request_json, content_json_slice);
+
+        std.debug.print("\nREBUILT REQUEST ({d} bytes):\n{s}\n", .{ rebuilt.len, rebuilt });
+        std.debug.print("=== END JSON DEBUG ===\n\n", .{});
+
+        // Validate rebuilt JSON
+        const parsed = std.json.parseFromSlice(
+            std.json.Value,
+            self.allocator,
+            rebuilt,
+            .{},
+        ) catch |err| {
+            std.debug.print("ERROR: Rebuilt JSON is INVALID: {any}\n", .{err});
+            return err;
+        };
+        parsed.deinit();
+        std.debug.print("Validation: Rebuilt JSON is VALID\n", .{});
+
+        return rebuilt;
     }
 
     /// Helper to escape JSON string values

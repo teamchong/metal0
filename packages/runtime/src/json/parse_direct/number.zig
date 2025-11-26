@@ -8,7 +8,55 @@ const ParseResult = @import("../errors.zig").ParseResult;
 fn parsePositiveInt(data: []const u8, pos: usize) ?struct { value: i64, consumed: usize } {
     var value: i64 = 0;
     var i: usize = 0;
+    const remaining = data.len - pos;
 
+    // SIMD fast path: Parse 8 digits at once
+    while (remaining >= i + 8) {
+        const chunk = data[pos + i..][0..8];
+
+        // Load 8 bytes as a vector
+        const digits_ascii: @Vector(8, u8) = chunk.*;
+        const zeros: @Vector(8, u8) = @splat('0');
+        const nines: @Vector(8, u8) = @splat('9');
+
+        // Check if all 8 bytes are digits (vectorized comparison)
+        const is_digit = (digits_ascii >= zeros) & (digits_ascii <= nines);
+        const all_digits = @reduce(.And, is_digit);
+
+        if (!all_digits) break; // Found non-digit, fall back to scalar
+
+        // Convert ASCII to numeric values: '5' -> 5
+        const digits: @Vector(8, u64) = @as(@Vector(8, u64), digits_ascii - zeros);
+
+        // Multiply by powers of 10: [d0*10^7, d1*10^6, ..., d7*10^0]
+        const multipliers = @Vector(8, u64){
+            10_000_000,
+            1_000_000,
+            100_000,
+            10_000,
+            1_000,
+            100,
+            10,
+            1,
+        };
+        const weighted = digits * multipliers;
+
+        // Sum all 8 digits
+        const chunk_value: u64 = @reduce(.Add, weighted);
+
+        // Check for overflow before adding
+        if (chunk_value > std.math.maxInt(i64)) return null;
+        const chunk_i64: i64 = @intCast(chunk_value);
+
+        // Check multiplication overflow
+        const max_safe = @divTrunc(std.math.maxInt(i64) - chunk_i64, 100_000_000);
+        if (value > max_safe) return null;
+
+        value = value * 100_000_000 + chunk_i64;
+        i += 8;
+    }
+
+    // Scalar fallback for remaining digits (< 8)
     while (pos + i < data.len) : (i += 1) {
         const c = data[pos + i];
         if (c < '0' or c > '9') break;

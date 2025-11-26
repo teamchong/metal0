@@ -2,9 +2,14 @@
 /// This eliminates double allocations and conversions for maximum performance
 const std = @import("std");
 const runtime = @import("../runtime.zig");
-const skipWhitespace = @import("value.zig").skipWhitespace;
+const simd = @import("simd/dispatch.zig");
 const JsonError = @import("errors.zig").JsonError;
 const ParseResult = @import("errors.zig").ParseResult;
+
+/// Use SIMD whitespace skipping for better performance
+inline fn skipWhitespace(data: []const u8, pos: usize) usize {
+    return simd.skipWhitespace(data, pos);
+}
 
 const primitives = @import("parse_direct/primitives.zig");
 const number = @import("parse_direct/number.zig");
