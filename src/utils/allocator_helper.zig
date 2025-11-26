@@ -28,6 +28,9 @@ pub fn getAllocator(gpa_ptr: anytype) std.mem.Allocator {
     return gpa_ptr.allocator();
 }
 
+/// Alias for getAllocator - used in benchmarks
+pub const getBenchmarkAllocator = getAllocator;
+
 test "allocator selection" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();

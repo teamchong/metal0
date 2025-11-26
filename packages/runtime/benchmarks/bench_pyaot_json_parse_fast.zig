@@ -1,15 +1,14 @@
 // Benchmark PyAOT's JSON parse with arena allocator optimization
 const std = @import("std");
-const runtime = @import("src/runtime.zig");
-const json_module = @import("src/json.zig");
-const allocator_helper = @import("src/utils/allocator_helper.zig");
+const runtime = @import("runtime");
+const allocator_helper = @import("allocator_helper");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
     // Use comptime-selected allocator (C alloc on native, GPA on WASM)
-    const base_allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const base_allocator = allocator_helper.getAllocator(&gpa);
 
     // Read JSON file once
     const file = try std.fs.cwd().openFile("sample.json", .{});
@@ -30,7 +29,7 @@ pub fn main() !void {
     var i: usize = 0;
     while (i < 100_000) : (i += 1) {
         const arena_allocator = arena.allocator();
-        const parsed = try json_module.loads(json_str, arena_allocator);
+        const parsed = try runtime.json.loads(json_str, arena_allocator);
         _ = parsed; // No decref needed - arena.reset() frees everything!
         _ = arena.reset(.retain_capacity); // Free memory, keep capacity for next iteration
     }

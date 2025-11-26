@@ -102,7 +102,7 @@ fn benchmarkPattern(allocator: std.mem.Allocator, name: []const u8, pattern: []c
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     const text = try loadData(allocator);
     defer allocator.free(text);

@@ -334,19 +334,16 @@ echo "════════════════════════�
 echo "Running PARSE benchmarks..."
 echo "═══════════════════════════════════"
 
-# Build PyAOT parse benchmark (optimized with C allocator, WASM-compatible)
+# Build PyAOT parse benchmark (use pre-built binary from build system)
 echo "🔨 Building PyAOT parse benchmark..."
-if [ -f bench_pyaot_json_parse_fast.zig ]; then
-    zig build-exe bench_pyaot_json_parse_fast.zig -O ReleaseFast -lc -femit-bin=/tmp/bench_pyaot_json_parse 2>&1 | head -10
-    if [ -f /tmp/bench_pyaot_json_parse ]; then
-        echo "✅ PyAOT parse benchmark built (C allocator)"
-        PYAOT_AVAILABLE=true
-    else
-        echo "⚠️  PyAOT build failed"
-        PYAOT_AVAILABLE=false
-    fi
+PYAOT_ROOT="$(cd ../../.. && pwd)"
+cd "$PYAOT_ROOT" && zig build -Doptimize=ReleaseFast && cd - >/dev/null
+if [ -f "$PYAOT_ROOT/zig-out/bin/bench_pyaot_json_parse" ]; then
+    ln -sf "$PYAOT_ROOT/zig-out/bin/bench_pyaot_json_parse" /tmp/bench_pyaot_json_parse
+    echo "✅ PyAOT parse benchmark built (C allocator)"
+    PYAOT_AVAILABLE=true
 else
-    echo "⚠️  PyAOT benchmark not found"
+    echo "⚠️  PyAOT build failed"
     PYAOT_AVAILABLE=false
 fi
 

@@ -57,6 +57,30 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(bench_train);
 
+    // JSON parse benchmark binary
+    const hashmap_helper = b.addModule("hashmap_helper", .{
+        .root_source_file = b.path("../../src/utils/hashmap_helper.zig"),
+    });
+    const runtime = b.addModule("runtime", .{
+        .root_source_file = b.path("../runtime/src/runtime.zig"),
+    });
+    runtime.addImport("hashmap_helper", hashmap_helper);
+
+    const bench_json_parse = b.addExecutable(.{
+        .name = "bench_pyaot_json_parse",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("bench_pyaot_json_parse_fast.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    bench_json_parse.root_module.addImport("allocator_helper", allocator_helper);
+    bench_json_parse.root_module.addImport("hashmap_helper", hashmap_helper);
+    bench_json_parse.root_module.addImport("runtime", runtime);
+    bench_json_parse.linkLibC();
+
+    b.installArtifact(bench_json_parse);
+
     // Install step with helpful message
     const install_step = b.getInstallStep();
     const print_step = b.addSystemCommand(&.{

@@ -14,7 +14,7 @@ pub fn main() !void {
         }
     }
 
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     // Load tokenizer and measure initialization
     const init_start = std.time.nanoTimestamp();

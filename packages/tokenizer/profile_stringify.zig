@@ -6,7 +6,7 @@ const allocator_helper = @import("src/utils/allocator_helper.zig");
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const base_allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const base_allocator = allocator_helper.getAllocator(gpa);
 
     const file = try std.fs.cwd().openFile("sample.json", .{});
     defer file.close();

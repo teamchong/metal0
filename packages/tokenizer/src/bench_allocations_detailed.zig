@@ -5,7 +5,7 @@ const allocator_helper = @import("allocator_helper");
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     var tokenizer = try Tokenizer.init("cl100k_base.json", allocator);
     defer tokenizer.deinit();

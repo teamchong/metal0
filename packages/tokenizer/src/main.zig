@@ -1,6 +1,5 @@
 /// Benchmark program - Compare vs Rust rustbpe
 /// Demonstrates comptime + unsafe optimizations with safety guarantees
-
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Trainer = @import("trainer.zig").Trainer;
@@ -42,7 +41,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     // Use optimal allocator (C allocator on native, GPA on WASM)
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     std.debug.print("\n🚀 PyAOT Tokenizer Benchmark\n", .{});
     std.debug.print("=" ** 60 ++ "\n\n", .{});
@@ -104,7 +103,7 @@ pub fn main() !void {
     const train_end = std.time.nanoTimestamp();
     const train_ms = @divFloor(train_end - train_start, 1_000_000);
 
-    std.debug.print("  Training time: {}ms ({:.1}s)\n", .{train_ms, @as(f64, @floatFromInt(train_ms)) / 1000.0});
+    std.debug.print("  Training time: {}ms ({:.1}s)\n", .{ train_ms, @as(f64, @floatFromInt(train_ms)) / 1000.0 });
     std.debug.print("  Learned merges: {}\n", .{tokenizer.merges.items.len});
     std.debug.print("  Vocab size: {}\n\n", .{256 + tokenizer.merges.items.len});
 
@@ -254,17 +253,12 @@ pub fn main() !void {
 
     std.debug.print("  {} iterations: {}ms total\n", .{ iterations, encode_total_ms });
     std.debug.print("  Per iteration: {}μs\n", .{encode_per_iter_us});
-    std.debug.print("  Throughput: {d:.2} MB/s\n\n", .{
-        @as(f64, @floatFromInt(test_text.len * iterations)) /
-        @as(f64, @floatFromInt(encode_total_ms)) / 1000.0
-    });
+    std.debug.print("  Throughput: {d:.2} MB/s\n\n", .{@as(f64, @floatFromInt(test_text.len * iterations)) /
+        @as(f64, @floatFromInt(encode_total_ms)) / 1000.0});
 
     const final_tokens = try tokenizer.encode(test_text);
     defer allocator.free(final_tokens);
-    std.debug.print("  Tokens: {} ({d:.2}x compression)\n\n", .{
-        final_tokens.len,
-        @as(f64, @floatFromInt(test_text.len)) / @as(f64, @floatFromInt(final_tokens.len))
-    });
+    std.debug.print("  Tokens: {} ({d:.2}x compression)\n\n", .{ final_tokens.len, @as(f64, @floatFromInt(test_text.len)) / @as(f64, @floatFromInt(final_tokens.len)) });
 
     // Benchmark 3: Memory efficiency
     std.debug.print("Benchmark 3: Memory Usage\n", .{});
@@ -297,7 +291,7 @@ pub fn main() !void {
         approx_memory / 1024,
         (approx_memory / 1024) + 10, // Rust has more overhead
         @as(f64, @floatFromInt((approx_memory / 1024) + 10)) /
-        @as(f64, @floatFromInt(approx_memory / 1024)),
+            @as(f64, @floatFromInt(approx_memory / 1024)),
     });
     std.debug.print("-" ** 60 ++ "\n\n", .{});
 

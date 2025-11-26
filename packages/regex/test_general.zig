@@ -63,7 +63,7 @@ fn testPattern(allocator: std.mem.Allocator, name: []const u8, pattern: []const 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     std.debug.print("\n=== Testing Auto-Optimizer on NEW Patterns ===\n\n", .{});
 

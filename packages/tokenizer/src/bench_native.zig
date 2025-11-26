@@ -7,7 +7,7 @@ const JsonValue = @import("runtime/src/json/value.zig").JsonValue;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     // Load cl100k_base with full BPE vocab
     var tokenizer = try Tokenizer.init("dist/cl100k_base_full.json", allocator);

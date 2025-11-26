@@ -1,7 +1,6 @@
 /// Python bindings via C ABI
 /// Compatible with nanochat's rustbpe API
 /// Usage: import pyaot_tokenizer
-
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Trainer = @import("trainer.zig").Trainer;
@@ -12,7 +11,7 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
 /// Get optimal allocator (comptime selection for WASM compatibility)
 fn getAllocator() std.mem.Allocator {
-    return allocator_helper.getBenchmarkAllocator(gpa);
+    return allocator_helper.getAllocator(gpa);
 }
 
 /// Opaque handle for Python

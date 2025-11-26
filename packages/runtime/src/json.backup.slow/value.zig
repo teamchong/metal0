@@ -1,6 +1,6 @@
 /// JSON value representation - optimized for direct PyObject conversion
 const std = @import("std");
-const runtime = @import("runtime");
+const runtime = @import("../runtime.zig");
 
 /// Minimal intermediate representation - converts to PyObject ASAP
 /// This is only used during parsing to build nested structures

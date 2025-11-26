@@ -48,7 +48,7 @@ const allocator_helper = @import("src/utils/allocator_helper.zig");
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     const json_data = try std.fs.cwd().readFileAlloc(allocator, "/tmp/test_input.json", 1024 * 1024);
     defer allocator.free(json_data);

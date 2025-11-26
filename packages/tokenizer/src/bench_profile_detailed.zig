@@ -16,7 +16,7 @@ var time_total_encode: u64 = 0;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     // Load test data
     const test_file = try std.fs.cwd().readFileAlloc(allocator, "data/test_data.json", 10 * 1024 * 1024);

@@ -9,7 +9,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     // Use comptime-selected allocator (C alloc on native, GPA on WASM)
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     // Load sample.json and parse it once
     const file = try std.fs.cwd().openFile("sample.json", .{});

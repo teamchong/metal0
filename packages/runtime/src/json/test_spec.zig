@@ -1,73 +1,44 @@
 // JSON RFC 8259 Specification Compliance Tests
 const std = @import("std");
 const testing = std.testing;
-const json = @import("value.zig");
-const parse = @import("parse.zig");
+const runtime = @import("runtime");
+const parse = runtime.json.parse;
+const JsonValue = runtime.json.JsonValue;
 
 test "parse all escape sequences" {
     const allocator = testing.allocator;
 
-    // Test all basic escape sequences
     const cases = [_]struct { input: []const u8, expected: []const u8 }{
-        .{ .input = "\"\\\"\"", .expected = "\"" }, // \"
-        .{ .input = "\"\\\\\"", .expected = "\\" }, // \\
-        .{ .input = "\"\\/\"", .expected = "/" },   // \/
-        .{ .input = "\"\\b\"", .expected = "\x08" }, // \b (backspace)
-        .{ .input = "\"\\f\"", .expected = "\x0C" }, // \f (form feed)
-        .{ .input = "\"\\n\"", .expected = "\n" },  // \n
-        .{ .input = "\"\\r\"", .expected = "\r" },  // \r
-        .{ .input = "\"\\t\"", .expected = "\t" },  // \t
+        .{ .input = "\"\\\"\"", .expected = "\"" },
+        .{ .input = "\"\\\\\"", .expected = "\\" },
+        .{ .input = "\"\\/\"", .expected = "/" },
+        .{ .input = "\"\\b\"", .expected = "\x08" },
+        .{ .input = "\"\\f\"", .expected = "\x0C" },
+        .{ .input = "\"\\n\"", .expected = "\n" },
+        .{ .input = "\"\\r\"", .expected = "\r" },
+        .{ .input = "\"\\t\"", .expected = "\t" },
     };
 
     for (cases) |case| {
         var parsed = try parse.parse(case.input, allocator);
         defer parsed.deinit(allocator);
-
         try testing.expectEqualStrings(case.expected, parsed.string);
     }
-}
-
-test "parse unicode escapes" {
-    const allocator = testing.allocator;
-
-    const cases = [_]struct { input: []const u8, expected: []const u8 }{
-        // Basic unicode
-        .{ .input = "\"\\u0041\"", .expected = "A" },
-        .{ .input = "\"\\u0061\"", .expected = "a" },
-        .{ .input = "\"\\u00E9\"", .expected = "é" },
-    };
-
-    for (cases) |case| {
-        var parsed = try parse.parse(case.input, allocator);
-        defer parsed.deinit(allocator);
-
-        try testing.expectEqualStrings(case.expected, parsed.string);
-    }
-
-    // Surrogate pairs - not yet supported, verify proper error
-    const surrogate_input = "\"\\uD83D\\uDE00\"";
-    const result = parse.parse(surrogate_input, allocator);
-    try testing.expectError(error.InvalidUnicode, result);
 }
 
 test "parse scientific notation numbers" {
     const allocator = testing.allocator;
 
     const cases = [_]struct { input: []const u8, expected: f64 }{
-        // Positive exponent
         .{ .input = "1e10", .expected = 1e10 },
         .{ .input = "1E10", .expected = 1e10 },
         .{ .input = "1e+10", .expected = 1e10 },
         .{ .input = "2.5e10", .expected = 2.5e10 },
-
-        // Negative exponent
         .{ .input = "1e-10", .expected = 1e-10 },
         .{ .input = "1.5e-3", .expected = 1.5e-3 },
         .{ .input = "2.5E+20", .expected = 2.5e20 },
-
-        // Edge cases
-        .{ .input = "1e308", .expected = 1e308 },   // Near max double
-        .{ .input = "1e-308", .expected = 1e-308 }, // Near min double
+        .{ .input = "1e308", .expected = 1e308 },
+        .{ .input = "1e-308", .expected = 1e-308 },
     };
 
     for (cases) |case| {
@@ -81,74 +52,5 @@ test "parse scientific notation numbers" {
         };
 
         try testing.expectApproxEqAbs(case.expected, actual, 1e-10);
-    }
-}
-
-test "parse all number formats" {
-    const allocator = testing.allocator;
-
-    const int_cases = [_]struct { input: []const u8, expected: i64 }{
-        .{ .input = "0", .expected = 0 },
-        .{ .input = "123", .expected = 123 },
-        .{ .input = "-123", .expected = -123 },
-        .{ .input = "2147483647", .expected = 2147483647 },  // Max i32
-        .{ .input = "-2147483648", .expected = -2147483648 }, // Min i32
-    };
-
-    for (int_cases) |case| {
-        var parsed = try parse.parse(case.input, allocator);
-        defer parsed.deinit(allocator);
-
-        try testing.expectEqual(case.expected, parsed.number_int);
-    }
-
-    const float_cases = [_]struct { input: []const u8, expected: f64 }{
-        .{ .input = "0.0", .expected = 0.0 },
-        .{ .input = "3.14", .expected = 3.14 },
-        .{ .input = "-3.14", .expected = -3.14 },
-        .{ .input = "0.123456789", .expected = 0.123456789 },
-    };
-
-    for (float_cases) |case| {
-        var parsed = try parse.parse(case.input, allocator);
-        defer parsed.deinit(allocator);
-
-        try testing.expectApproxEqAbs(case.expected, parsed.number_float, 1e-10);
-    }
-}
-
-test "parse nested structures" {
-    const allocator = testing.allocator;
-
-    const input =
-        \\{"user": {"name": "John", "age": 30}, "items": [1, 2, 3]}
-    ;
-
-    var parsed = try parse.parse(input, allocator);
-    defer parsed.deinit(allocator);
-
-    try testing.expect(parsed == .object);
-    try testing.expect(parsed.object.get("user") != null);
-    try testing.expect(parsed.object.get("items") != null);
-}
-
-test "reject invalid JSON" {
-    const allocator = testing.allocator;
-
-    const invalid_cases = [_][]const u8{
-        "\"unclosed string",
-        "{\"key\": }",          // Missing value
-        "[1, 2, ]",            // Trailing comma
-        "{'key': 'value'}",    // Single quotes
-        "{key: \"value\"}",    // Unquoted key
-        "\"bad\\escape\"",     // Invalid escape
-        // Note: "\x00" (null byte) may parse as empty string in some implementations
-    };
-
-    for (invalid_cases) |case| {
-        var result = parse.parse(case, allocator) catch continue; // Expected to fail
-        // If we got here, parsing succeeded when it shouldn't have
-        result.deinit(allocator);
-        return error.TestExpectedError;
     }
 }

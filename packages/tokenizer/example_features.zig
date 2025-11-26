@@ -184,7 +184,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     // Use allocator_helper for 29x faster C allocator on native (WASM-compatible)
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     std.debug.print("\n=== Example 1: Basic BPE ===\n", .{});
     try basicBpe(allocator);

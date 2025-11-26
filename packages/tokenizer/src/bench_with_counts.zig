@@ -48,7 +48,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    var counting = CountingAllocator{ .parent = allocator_helper.getBenchmarkAllocator(gpa) };
+    var counting = CountingAllocator{ .parent = allocator_helper.getAllocator(gpa) };
     const allocator = counting.allocator();
 
     // Load tokenizer

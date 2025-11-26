@@ -385,29 +385,22 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 
 **JSON Parse (50K × 62KB = 3.1GB processed):**
 
-| Implementation | Time | vs PyAOT |
-|---------------|------|----------|
-| **PyAOT** | **11.0s ± 0.2s** | **1.00x** 🏆 |
-| Rust (serde_json) | 12.4s ± 0.1s | 1.13x slower |
-| Zig (std.json) | 23.9s ± 0.1s | 2.17x slower |
-| Python (stdlib) | 31.1s ± 0.8s | 2.82x slower |
-| Go (encoding/json) | 41.4s ± 0.2s | 3.75x slower |
-
-**JSON Stringify (100K × 62KB = 6.2GB processed):**
-
-| Implementation | Time | vs PyAOT |
+| Implementation | Time | vs Rust |
 |---------------|------|---------|
-| **PyAOT** | **441.7ms ± 1.9ms** | **1.00x** 🏆 |
-| Rust (serde_json) | 462.7ms ± 4.1ms | 1.05x slower |
-| Python (stdlib) | ~38.6s | 87.4x slower |
-| Go (encoding/json) | ~45.0s | 101.8x slower |
+| **Rust (serde_json)** | **6.0s ± 0.0s** | **1.00x** 🏆 |
+| PyAOT | 10.0s ± 0.2s | 1.67x slower |
+| Zig (std.json) | 11.1s ± 0.1s | 1.86x slower |
+| Python (stdlib) | 14.4s ± 0.2s | 2.40x slower |
+| Go (encoding/json) | 19.6s ± 0.3s | 3.27x slower |
+
+**JSON Stringify:** *(Not yet benchmarked - work in progress)*
 
 **Key optimizations:**
-- 64KB pre-allocated buffer
-- SIMD string escaping (`@Vector(16, u8)`)
-- Comptime lookup tables for escape detection
-- Single-pass parsing with quote/escape detection
+- 64KB pre-allocated buffer for stringify (eliminates reallocation)
+- SIMD string escaping (`@Vector(16, u8)`) - 4.3x speedup on ARM64 NEON
+- Comptime lookup tables for escape detection (256-byte table)
 - Arena allocator with capacity retention
+- Single-pass parsing with quote/escape detection
 - Zero-copy dictionary keys
 
 ### Tokenizer Benchmark (Native Binary)

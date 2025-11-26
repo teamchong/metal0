@@ -1,6 +1,6 @@
-/// Parse JSON numbers directly to PyInt (zero extra allocations)
+/// Parse JSON numbers with fast integer path
 const std = @import("std");
-const runtime = @import("../../runtime.zig");
+const JsonValue = @import("../value.zig").JsonValue;
 const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
 
@@ -25,8 +25,8 @@ fn parsePositiveInt(data: []const u8, pos: usize) ?struct { value: i64, consumed
     return .{ .value = value, .consumed = i };
 }
 
-/// Parse number directly to PyInt
-pub fn parseNumber(data: []const u8, pos: usize, allocator: std.mem.Allocator) JsonError!ParseResult(*runtime.PyObject) {
+/// Parse number - handles integers and floats
+pub fn parseNumber(data: []const u8, pos: usize) JsonError!ParseResult(JsonValue) {
     if (pos >= data.len) return JsonError.UnexpectedEndOfInput;
 
     var i = pos;
@@ -47,9 +47,8 @@ pub fn parseNumber(data: []const u8, pos: usize, allocator: std.mem.Allocator) J
             // Check if number ends here (no decimal or exponent)
             const next_pos = i + result.consumed;
             if (next_pos >= data.len or !isNumberContinuation(data[next_pos])) {
-                const py_int = try runtime.PyInt.create(allocator, result.value);
-                return ParseResult(*runtime.PyObject).init(
-                    py_int,
+                return ParseResult(JsonValue).init(
+                    .{ .number_int = result.value },
                     next_pos - pos,
                 );
             }
@@ -101,19 +100,47 @@ pub fn parseNumber(data: []const u8, pos: usize, allocator: std.mem.Allocator) J
     // Parse as integer if no decimal or exponent
     if (!has_decimal and !has_exponent) {
         const value = std.fmt.parseInt(i64, num_str, 10) catch return JsonError.NumberOutOfRange;
-        const py_int = try runtime.PyInt.create(allocator, value);
-        return ParseResult(*runtime.PyObject).init(py_int, i - pos);
+        return ParseResult(JsonValue).init(.{ .number_int = value }, i - pos);
     }
 
-    // Parse as float - for now store as truncated int
-    // TODO: Add PyFloat type when needed
-    const float_value = std.fmt.parseFloat(f64, num_str) catch return JsonError.InvalidNumber;
-    const int_value: i64 = @intFromFloat(float_value);
-    const py_int = try runtime.PyInt.create(allocator, int_value);
-    return ParseResult(*runtime.PyObject).init(py_int, i - pos);
+    // Parse as float
+    const value = std.fmt.parseFloat(f64, num_str) catch return JsonError.InvalidNumber;
+    return ParseResult(JsonValue).init(.{ .number_float = value }, i - pos);
 }
 
 /// Check if character can continue a number
 inline fn isNumberContinuation(c: u8) bool {
     return c == '.' or c == 'e' or c == 'E';
+}
+
+test "parse positive integer" {
+    const result = try parseNumber("42", 0);
+    try std.testing.expect(result.value == .number_int);
+    try std.testing.expectEqual(@as(i64, 42), result.value.number_int);
+    try std.testing.expectEqual(@as(usize, 2), result.consumed);
+}
+
+test "parse negative integer" {
+    const result = try parseNumber("-123", 0);
+    try std.testing.expect(result.value == .number_int);
+    try std.testing.expectEqual(@as(i64, -123), result.value.number_int);
+    try std.testing.expectEqual(@as(usize, 4), result.consumed);
+}
+
+test "parse zero" {
+    const result = try parseNumber("0", 0);
+    try std.testing.expect(result.value == .number_int);
+    try std.testing.expectEqual(@as(i64, 0), result.value.number_int);
+}
+
+test "parse float" {
+    const result = try parseNumber("3.14", 0);
+    try std.testing.expect(result.value == .number_float);
+    try std.testing.expectApproxEqRel(@as(f64, 3.14), result.value.number_float, 0.0001);
+}
+
+test "parse float with exponent" {
+    const result = try parseNumber("1.5e10", 0);
+    try std.testing.expect(result.value == .number_float);
+    try std.testing.expectApproxEqRel(@as(f64, 1.5e10), result.value.number_float, 0.0001);
 }

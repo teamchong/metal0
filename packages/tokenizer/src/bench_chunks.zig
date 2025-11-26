@@ -7,7 +7,7 @@ const JsonValue = @import("runtime/src/json/value.zig").JsonValue;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = allocator_helper.getBenchmarkAllocator(gpa);
+    const allocator = allocator_helper.getAllocator(gpa);
 
     // Load benchmark data
     const file = try std.fs.cwd().openFile("benchmark_data.json", .{});

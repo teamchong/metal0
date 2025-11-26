@@ -7,7 +7,7 @@ const builtin = @import("builtin");
 /// - Native (Linux/macOS/Windows): C allocator (fastest malloc/free)
 /// - WASM: GPA (C allocator not available)
 /// - Debug builds: GPA with safety checks
-pub fn getBenchmarkAllocator(gpa: anytype) std.mem.Allocator {
+pub fn getAllocator(gpa: anytype) std.mem.Allocator {
     comptime {
         // Check if we're building for WASM
         const is_wasm = builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64;
@@ -44,7 +44,7 @@ test "allocator selection" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    const alloc = getBenchmarkAllocator(gpa);
+    const alloc = getAllocator(gpa);
 
     // Test that allocator works
     const mem = try alloc.alloc(u8, 1024);

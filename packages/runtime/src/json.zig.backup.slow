@@ -3,10 +3,6 @@ const std = @import("std");
 const runtime = @import("runtime.zig");
 const parse_direct = @import("json/parse_direct.zig");
 
-// Export for internal use (e.g. notebook parsing)
-pub const parse = @import("json/parse.zig");
-pub const JsonValue = @import("json/value.zig").JsonValue;
-
 /// Deserialize JSON string to PyObject
 /// Python: json.loads(json_str) -> obj
 pub fn loads(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {

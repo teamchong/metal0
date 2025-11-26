@@ -157,10 +157,31 @@ pub fn build(b: *std.Build) void {
     });
     json_spec_tests.root_module.addImport("hashmap_helper", hashmap_helper);
     json_spec_tests.root_module.addImport("allocator_helper", allocator_helper);
+    json_spec_tests.root_module.addImport("runtime", runtime);
 
     const run_json_spec_tests = b.addRunArtifact(json_spec_tests);
     const json_test_step = b.step("test-json", "Run JSON spec compliance tests");
     json_test_step.dependOn(&run_json_spec_tests.step);
+
+    // Manual JSON test
+    const json_manual_test = b.addExecutable(.{
+        .name = "test_json_manual",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test_json_manual.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    json_manual_test.root_module.addImport("runtime", runtime);
+    json_manual_test.root_module.addImport("hashmap_helper", hashmap_helper);
+    json_manual_test.root_module.addImport("allocator_helper", allocator_helper);
+    json_manual_test.linkLibC();
+
+    b.installArtifact(json_manual_test);
+
+    const run_json_manual_test = b.addRunArtifact(json_manual_test);
+    const json_manual_step = b.step("test-json-manual", "Run manual JSON tests");
+    json_manual_step.dependOn(&run_json_manual_test.step);
 
     // Work-stealing benchmark
     const bench_work_stealing = b.addExecutable(.{
@@ -179,6 +200,25 @@ pub fn build(b: *std.Build) void {
     const run_bench_work_stealing = b.addRunArtifact(bench_work_stealing);
     const bench_work_stealing_step = b.step("bench-work-stealing", "Run work-stealing benchmark");
     bench_work_stealing_step.dependOn(&run_bench_work_stealing.step);
+
+    // JSON parse benchmark
+    const bench_json_parse = b.addExecutable(.{
+        .name = "bench_pyaot_json_parse",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/runtime/benchmarks/bench_pyaot_json_parse_fast.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    bench_json_parse.root_module.addImport("runtime", runtime);
+    bench_json_parse.root_module.addImport("allocator_helper", allocator_helper);
+    bench_json_parse.linkLibC();
+
+    b.installArtifact(bench_json_parse);
+
+    const run_bench_json_parse = b.addRunArtifact(bench_json_parse);
+    const bench_json_parse_step = b.step("bench-json-parse", "Build and run JSON parse benchmark");
+    bench_json_parse_step.dependOn(&run_bench_json_parse.step);
 
     // Token optimizer proxy
     const token_optimizer = b.addExecutable(.{
