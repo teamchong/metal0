@@ -138,4 +138,20 @@ pub fn build(b: *std.Build) void {
     const bench_work_stealing_step = b.step("bench-work-stealing", "Run work-stealing benchmark");
     bench_work_stealing_step.dependOn(&run_bench_work_stealing.step);
 
+    // Token optimizer proxy
+    const token_optimizer = b.addExecutable(.{
+        .name = "token_optimizer",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/token_optimizer/src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    b.installArtifact(token_optimizer);
+
+    const run_token_optimizer = b.addRunArtifact(token_optimizer);
+    const token_optimizer_step = b.step("token-optimizer", "Run token optimizer proxy");
+    token_optimizer_step.dependOn(&run_token_optimizer.step);
+
 }
