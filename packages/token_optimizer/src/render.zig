@@ -147,8 +147,8 @@ pub fn renderText(allocator: std.mem.Allocator, text: []const u8) !RenderedText 
         }
     }
 
-    // Scale up for readability (2x is enough for nanofont)
-    const scale = 2;
+    // Scale up for readability (4x for Claude vision model)
+    const scale = 4;
     const scaled_width = width * scale;
     const scaled_height = height * scale;
 
