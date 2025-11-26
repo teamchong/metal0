@@ -5,7 +5,7 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Trainer = @import("trainer.zig").Trainer;
-const allocator_helper = @import("../../../src/utils/allocator_helper.zig");
+const allocator_helper = @import("allocator_helper");
 
 // Global allocator for Python integration
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};

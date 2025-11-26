@@ -3,7 +3,7 @@ const build_options = @import("build_options");
 const trainer_mod = @import("trainer.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const UnigramTokenizer = @import("unigram_tokenizer.zig").UnigramTokenizer;
-const allocator_helper = @import("../../../src/utils/allocator_helper.zig");
+const allocator_helper = @import("allocator_helper");
 // Removed ThreadPool - using std.Thread directly
 
 // Algorithm selection based on build options
@@ -17,7 +17,7 @@ else
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = allocator_helper.getBenchmarkAllocator(&gpa);
+    const allocator = allocator_helper.getAllocator(&gpa);
 
     // Allow runtime vocab size via VOCAB_SIZE env var (default: 32000)
     const VOCAB_SIZE = if (std.posix.getenv("VOCAB_SIZE")) |size_str|

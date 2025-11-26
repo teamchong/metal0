@@ -2,7 +2,7 @@
 /// Implements Expectation-Maximization with vocabulary pruning
 /// Simplified port from HuggingFace tokenizers/src/models/unigram/trainer.rs
 const std = @import("std");
-const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 // Use SA-IS implementation instead of simple O(n² log n) suffix array
 const sais = @import("sais.zig");
 const Allocator = std.mem.Allocator;

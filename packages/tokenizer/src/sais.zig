@@ -3,7 +3,7 @@
 //! Original implementation in Rust (sais.rs)
 
 const std = @import("std");
-const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 const Allocator = std.mem.Allocator;
 
 // Type aliases matching Rust implementation

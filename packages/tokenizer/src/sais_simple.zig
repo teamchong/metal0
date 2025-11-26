@@ -7,7 +7,7 @@
 //! 3. Extract more frequent substrings with better heuristics
 
 const std = @import("std");
-const hashmap_helper = @import("../../../src/utils/hashmap_helper.zig");
+const hashmap_helper = @import("hashmap_helper");
 const Allocator = std.mem.Allocator;
 
 pub const SubstringFreq = struct {

@@ -1,6 +1,6 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
-const allocator_helper = @import("../../../src/utils/allocator_helper.zig");
+const allocator_helper = @import("allocator_helper");
 
 // Global counters for allocation tracking
 var alloc_count: usize = 0;
