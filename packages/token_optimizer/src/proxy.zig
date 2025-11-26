@@ -186,21 +186,23 @@ pub const ProxyServer = struct {
             std.debug.print("  {s}: {s}\n", .{ header.name, header.value });
         }
 
-        // Use fetch() API with response_writer
+        // Use fetch() with response_writer
         const uri = try std.Uri.parse(url_str);
 
         var response_body = std.ArrayList(u8){};
         defer response_body.deinit(self.allocator);
 
-        var response_writer = response_body.writer(self.allocator);
-        var writer_interface = response_writer.any();
+        // Create writer interface - cast DeprecatedWriter to Writer
+        var array_writer = response_body.writer(self.allocator);
+        var writer_deprecated = array_writer.any();
+        const writer_ptr: *std.Io.Writer = @ptrCast(@alignCast(&writer_deprecated));
 
         const result = try client.fetch(.{
             .location = .{ .uri = uri },
             .method = .POST,
             .payload = compressed_body,
             .extra_headers = req_headers.items,
-            .response_writer = @ptrCast(&writer_interface),
+            .response_writer = writer_ptr,
         });
 
         std.debug.print("\n=== API RESPONSE ===\n", .{});

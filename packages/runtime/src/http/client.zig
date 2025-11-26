@@ -97,10 +97,15 @@ pub const Client = struct {
         var response_buf = std.ArrayList(u8){};
         errdefer response_buf.deinit(self.allocator);
 
+        // Create writer interface - cast DeprecatedWriter to Writer
+        var array_writer = response_buf.writer(self.allocator);
+        var writer_deprecated = array_writer.any();
+        const writer_ptr: *std.Io.Writer = @ptrCast(@alignCast(&writer_deprecated));
+
         const fetch_result = try client.fetch(.{
             .location = .{ .uri = uri.* },
             .method = @enumFromInt(@intFromEnum(request.method)),
-            .response_storage = .{ .dynamic = &response_buf },
+            .response_writer = writer_ptr,
         });
 
         var response = Response.init(self.allocator, Status.fromCode(@intFromEnum(fetch_result.status)));
