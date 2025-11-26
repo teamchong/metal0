@@ -97,10 +97,15 @@ pub const Client = struct {
         var response_buf = std.ArrayList(u8){};
         errdefer response_buf.deinit(self.allocator);
 
-        // Create writer interface - cast DeprecatedWriter to Writer
+        // Allocate writer on heap to keep it stable during fetch
         var array_writer = response_buf.writer(self.allocator);
-        var writer_deprecated = array_writer.any();
-        const writer_ptr: *std.Io.Writer = @ptrCast(@alignCast(&writer_deprecated));
+        const AnyWriter = @TypeOf(array_writer.any());
+
+        const writer_storage = try self.allocator.create(AnyWriter);
+        defer self.allocator.destroy(writer_storage);
+
+        writer_storage.* = array_writer.any();
+        const writer_ptr: *std.Io.Writer = @ptrCast(@alignCast(writer_storage));
 
         const fetch_result = try client.fetch(.{
             .location = .{ .uri = uri.* },
