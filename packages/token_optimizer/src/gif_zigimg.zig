@@ -26,6 +26,7 @@ pub fn encodeGif(allocator: std.mem.Allocator, pixels: []const []const u8) ![]u8
     }
 
     // Encode to GIF in memory
-    var write_buffer: [8192]u8 = undefined;
+    // Use larger buffer to handle bigger images (3000x160 = ~500KB pixels)
+    var write_buffer: [1048576]u8 = undefined; // 1MB buffer
     return try image.writeToMemory(allocator, &write_buffer, .gif);
 }
