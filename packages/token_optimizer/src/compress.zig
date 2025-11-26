@@ -3,6 +3,45 @@ const json = @import("json.zig");
 const render = @import("render.zig");
 const gif = @import("gif_zigimg.zig");
 
+/// Replace long base64 strings with compact summaries for logging
+fn compactifyBase64(allocator: std.mem.Allocator, json_str: []const u8) ![]const u8 {
+    var result = std.ArrayList(u8){};
+    defer result.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < json_str.len) {
+        // Find "data":"
+        const data_start = std.mem.indexOfPos(u8, json_str, i, "\"data\":\"");
+        if (data_start == null) {
+            try result.appendSlice(allocator, json_str[i..]);
+            break;
+        }
+
+        // Append everything before "data":"
+        try result.appendSlice(allocator, json_str[i .. data_start.? + 8]);
+
+        // Find end quote
+        const data_value_start = data_start.? + 8;
+        const end_quote = std.mem.indexOfPos(u8, json_str, data_value_start, "\"");
+        if (end_quote == null) {
+            try result.appendSlice(allocator, json_str[data_value_start..]);
+            break;
+        }
+
+        // Calculate base64 length
+        const b64_len = end_quote.? - data_value_start;
+
+        // Add summary: <widthxheight,len=X,bytes=Y>
+        const summary = try std.fmt.allocPrint(allocator, "<base64 {d} chars>", .{b64_len});
+        defer allocator.free(summary);
+        try result.appendSlice(allocator, summary);
+
+        i = end_quote.?;
+    }
+
+    return try result.toOwnedSlice(allocator);
+}
+
 /// Cost analysis for a single line (with cached GIF)
 const LineCost = struct {
     text_tokens: i64,
@@ -201,7 +240,11 @@ pub const TextCompressor = struct {
 
         std.debug.print("\n=== JSON DEBUG ===\n", .{});
         std.debug.print("ORIGINAL REQUEST ({d} bytes):\n{s}\n", .{ request_json.len, request_json });
-        std.debug.print("\nNEW CONTENT ARRAY ({d} bytes):\n{s}\n", .{ content_json_slice.len, content_json_slice });
+
+        // Compact log: replace long base64 with summary
+        const compact = compactifyBase64(self.allocator, content_json_slice) catch content_json_slice;
+        defer if (compact.ptr != content_json_slice.ptr) self.allocator.free(compact);
+        std.debug.print("\nNEW CONTENT ARRAY ({d} bytes):\n{s}\n", .{ content_json_slice.len, compact });
 
         // Rebuild JSON with new content
         const rebuilt = try self.parser.rebuildWithContent(request_json, content_json_slice);
