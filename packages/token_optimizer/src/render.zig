@@ -30,10 +30,10 @@ pub const FontType = enum {
     medium_4x6, // Fallback - 87% savings, better readability
 
     pub fn select(text: []const u8) FontType {
-        // Use 4×6 font for readability (87% savings, still excellent)
-        // 3×4 nanofont is too small to read (89% savings but not practical)
+        // Use 3×4 nanofont for maximum compression (89% savings)
+        // With 2x scaling, it's readable (see: github.com/Michaelangel007/nanofont3x4)
         _ = text;
-        return .medium_4x6; // Default to readable font
+        return .nano_3x4; // Smallest font + scaling = readable + efficient
     }
 
     pub fn width(self: FontType) usize {
@@ -147,8 +147,8 @@ pub fn renderText(allocator: std.mem.Allocator, text: []const u8) !RenderedText 
         }
     }
 
-    // Scale up for readability (3x)
-    const scale = 3;
+    // Scale up for readability (2x is enough for nanofont)
+    const scale = 2;
     const scaled_width = width * scale;
     const scaled_height = height * scale;
 
