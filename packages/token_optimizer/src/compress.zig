@@ -249,7 +249,10 @@ pub const TextCompressor = struct {
         // Rebuild JSON with new content
         const rebuilt = try self.parser.rebuildWithContent(request_json, content_json_slice);
 
-        std.debug.print("\nREBUILT REQUEST ({d} bytes):\n{s}\n", .{ rebuilt.len, rebuilt });
+        // Compact log: replace long base64 with summary
+        const compact_rebuilt = compactifyBase64(self.allocator, rebuilt) catch rebuilt;
+        defer if (compact_rebuilt.ptr != rebuilt.ptr) self.allocator.free(compact_rebuilt);
+        std.debug.print("\nREBUILT REQUEST ({d} bytes):\n{s}\n", .{ rebuilt.len, compact_rebuilt });
         std.debug.print("=== END JSON DEBUG ===\n\n", .{});
 
         // Validate rebuilt JSON
