@@ -13,11 +13,20 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // runtime.json.loads expects (*PyObject, allocator) and returns !*PyObject
-    // We need to wrap string literal in PyString first
-    try self.emit("blk: { const json_str_obj = try runtime.PyString.create(allocator, ");
-    try self.genExpr(args[0]);
-    try self.emit("); defer runtime.decref(json_str_obj, allocator); break :blk try runtime.json.loads(json_str_obj, allocator); }");
+    // Check if argument is already a PyObject (e.g., from file.read())
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    if (arg_type == .unknown) {
+        // Already a PyObject - pass directly to json.loads
+        try self.emit("try runtime.json.loads(");
+        try self.genExpr(args[0]);
+        try self.emit(", allocator)");
+    } else {
+        // String literal or native string - wrap in PyString first
+        try self.emit("blk: { const json_str_obj = try runtime.PyString.create(allocator, ");
+        try self.genExpr(args[0]);
+        try self.emit("); defer runtime.decref(json_str_obj, allocator); break :blk try runtime.json.loads(json_str_obj, allocator); }");
+    }
 }
 
 /// Generate code for json.dumps(obj)

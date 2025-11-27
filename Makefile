@@ -1,4 +1,4 @@
-.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json clean format
+.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-regex benchmark-tokenizer clean format
 
 # =============================================================================
 # HELP
@@ -22,7 +22,10 @@ help:
 	@echo "  make benchmark-fib-tail  Tail-recursive Fibonacci"
 	@echo "  make benchmark-dict      Dict operations"
 	@echo "  make benchmark-string    String operations"
-	@echo "  make benchmark-json      JSON parse/stringify (shared/json vs std.json)"
+	@echo "  make benchmark-json      JSON quick (shared vs std.json)"
+	@echo "  make benchmark-json-full JSON full (PyAOT vs Rust vs Go vs Python)"
+	@echo "  make benchmark-regex     Regex (PyAOT vs Python vs Rust vs Go)"
+	@echo "  make benchmark-tokenizer BPE tokenizer (vs tiktoken/HuggingFace)"
 	@echo ""
 	@echo "Other:"
 	@echo "  make format         Format Zig code"
@@ -106,42 +109,25 @@ test-all: build test-unit test-integration test-cpython
 # =============================================================================
 benchmark-fib: build-release
 	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
-	@echo "Building benchmarks..."
-	@./zig-out/bin/pyaot build benchmarks/python/fibonacci.py ./bench_fib_pyaot --binary --force >/dev/null 2>&1
-	@rustc -O benchmarks/rust/fibonacci.rs -o ./bench_fib_rust 2>/dev/null || echo "Rust not installed, skipping"
-	@go build -o ./bench_fib_go benchmarks/go/fibonacci.go 2>/dev/null || echo "Go not installed, skipping"
-	@echo "Fibonacci (fib 45) - ~3s PyAOT/Rust/Go, ~100s Python:"
-	@hyperfine --warmup 1 --runs 3 \
-		'./bench_fib_pyaot' \
-		'./bench_fib_rust' \
-		'./bench_fib_go' \
-		'pypy3 benchmarks/python/fibonacci.py' \
-		'python3 benchmarks/python/fibonacci.py' 2>/dev/null || \
-	hyperfine --warmup 1 --runs 3 \
-		'./bench_fib_pyaot' \
-		'python3 benchmarks/python/fibonacci.py'
-	@rm -f ./bench_fib_pyaot ./bench_fib_rust ./bench_fib_go
+	@echo "Fibonacci Benchmark: PyAOT vs Rust vs Go vs Python vs PyPy"
+	@cd benchmarks/fib && bash bench.sh
 
 benchmark-dict: build-release
 	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
-	@./zig-out/bin/pyaot build benchmarks/python/bench_dict.py ./bench_dict --binary --force >/dev/null 2>&1
-	@echo "Dict operations (1M iterations):"
-	@hyperfine --warmup 3 './bench_dict' 'python3 benchmarks/python/bench_dict.py'
-	@rm -f ./bench_dict
+	@echo "Dict Benchmark: PyAOT vs Python vs PyPy"
+	@cd benchmarks/dict && bash bench.sh
 
 benchmark-string: build-release
 	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
-	@./zig-out/bin/pyaot build benchmarks/python/bench_string.py ./bench_string --binary --force >/dev/null 2>&1
-	@echo "String ops (10k concat):"
-	@hyperfine --warmup 3 './bench_string' 'python3 benchmarks/python/bench_string.py'
-	@rm -f ./bench_string
+	@echo "String Benchmark: PyAOT vs Python vs PyPy"
+	@cd benchmarks/string && bash bench.sh
 
 benchmark-fib-tail: build-release
 	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
 	@echo "Building tail-recursive benchmarks..."
 	@./zig-out/bin/pyaot build benchmarks/python/fibonacci_tail.py ./bench_fib_tail_pyaot --binary --force >/dev/null 2>&1
 	@rustc -O benchmarks/rust/fibonacci_tail.rs -o ./bench_fib_tail_rust 2>/dev/null || echo "Rust not installed, skipping"
-	@go build -o ./bench_fib_tail_go benchmarks/go/fibonacci_tail.go 2>/dev/null || echo "Go not installed, skipping"
+	@CGO_ENABLED=0 go build -ldflags="-s -w" -o ./bench_fib_tail_go benchmarks/go/fibonacci_tail.go 2>/dev/null || echo "Go not installed, skipping"
 	@echo "Tail-Recursive Fibonacci (10K × fib(10000)):"
 	@echo "(Note: CPython fails with RecursionError - PyAOT has tail-call optimization)"
 	@hyperfine --warmup 2 --runs 5 \
@@ -152,10 +138,24 @@ benchmark-fib-tail: build-release
 		'./bench_fib_tail_pyaot'
 	@rm -f ./bench_fib_tail_pyaot ./bench_fib_tail_rust ./bench_fib_tail_go
 
-benchmark-json:
-	@echo "JSON Benchmark: shared/json vs std.json (with c_allocator + arena)"
+benchmark-json: build-release
+	@echo "JSON Benchmark: shared/json vs std.json (quick)"
 	@cd packages/shared/json && zig build-exe -OReleaseFast bench.zig -femit-bin=bench -lc && ./bench
 	@rm -f packages/shared/json/bench
+
+benchmark-json-full: build-release
+	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
+	@echo "JSON Full Benchmark: PyAOT vs Rust vs Go vs Python vs PyPy"
+	@cd benchmarks/json && bash bench.sh
+
+benchmark-regex: build-release
+	@echo "Regex Benchmark: PyAOT vs Python vs Rust vs Go"
+	@cd benchmarks/regex && bash bench.sh
+
+benchmark-tokenizer: build-release
+	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
+	@echo "Tokenizer Benchmark: PyAOT BPE vs tiktoken vs HuggingFace"
+	@cd benchmarks/tokenizer && bash bench.sh
 
 # =============================================================================
 # UTILITIES
