@@ -128,20 +128,26 @@ Python's distribution and deployment challenges solved.
 
 ## Roadmap: Matching Codon
 
-### Flask Example (Q2 2025)
+### Flask Import ✅
 ```python
-from http import Server
+from flask import Flask
 
-app = Server()
+app = Flask(__name__)
 
 @app.route("/")
-def index():
-    return {"message": "Hello", "status": "ok"}
+def hello():
+    return "Hello from PyAOT!"
 
-app.run(port=8080)
+# Compiles Flask and 17 dependencies to native code
+# 0 memory leaks on parse errors (arena allocators)
 ```
 
-**Result:** ~200KB binary vs 900MB Python Docker
+```bash
+$ pyaot flask_app.py --force
+✓ Compiled successfully to: flask_app.cpython-312-darwin.so
+```
+
+**Syntax now supported:** numeric underscores (`500_000`), `raise X from Y`, `*args/**kwargs` annotations, `yield`, chained assignment, multiple context managers, and more.
 
 ### Parallelism (Q2-Q3 2025)
 ```python
@@ -337,6 +343,40 @@ pyaot main.py --binary
 # Compiles main.py → .build/main.zig
 # Links everything → single binary
 ```
+
+### 5. Flask Import (External Library)
+
+PyAOT can parse and compile Flask and its dependencies.
+
+```python
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route("/")
+def hello():
+    return "Hello from PyAOT-compiled Flask!"
+
+if __name__ == "__main__":
+    print("Flask routes ready!")
+```
+
+```bash
+$ pyaot flask_app.py --force
+Scanning imports recursively...
+  Found import: flask -> .../site-packages/flask/__init__.py
+Compiling 17 imported modules...
+✓ Compiled successfully!
+Flask routes ready!
+```
+
+**New Python syntax supported for Flask compatibility:**
+- Numeric underscores: `500_000`, `0xFF_FF`
+- Exception chaining: `raise Error() from cause`
+- Type annotations: `*args: Any`, `**kwargs: Any`, `Literal[True]`
+- Yield statements with tuples
+- Chained assignment: `a = b = c = None`
+- Multiple context managers: `with ctx1, ctx2:`
 
 ## Performance
 
