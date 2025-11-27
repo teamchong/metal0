@@ -298,7 +298,9 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
 
             // Skip type annotation if present (e.g., **kwargs: t.Any)
             if (self.match(.Colon)) {
-                _ = try parseTypeAnnotation(self);
+                if (try parseTypeAnnotation(self)) |ta| {
+                    self.allocator.free(ta);
+                }
             }
 
             // **kwargs must be last parameter
@@ -319,7 +321,9 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
 
                 // Skip type annotation if present (e.g., *args: t.Any)
                 if (self.match(.Colon)) {
-                    _ = try parseTypeAnnotation(self);
+                    if (try parseTypeAnnotation(self)) |ta| {
+                        self.allocator.free(ta);
+                    }
                 }
             }
             // else: bare * is keyword-only marker, just skip it
