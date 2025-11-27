@@ -102,28 +102,17 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
             try ifs.append(self.allocator, cond);
         }
 
-        // Allocate nodes on heap
-        const target_ptr = try self.allocator.create(ast.Node);
-        target_ptr.* = target;
-
-        const iter_ptr = try self.allocator.create(ast.Node);
-        iter_ptr.* = iter;
-
         const ifs_slice = try ifs.toOwnedSlice(self.allocator);
         ifs = std.ArrayList(ast.Node){}; // Reset
 
         try generators.append(self.allocator, ast.Node.Comprehension{
-            .target = target_ptr,
-            .iter = iter_ptr,
+            .target = try self.allocNode(target),
+            .iter = try self.allocNode(iter),
             .ifs = ifs_slice,
         });
     }
 
     _ = try self.expect(.RBracket);
-
-    // Allocate element on heap
-    const elt_ptr = try self.allocator.create(ast.Node);
-    elt_ptr.* = element;
 
     // Success - transfer ownership
     const gens = try generators.toOwnedSlice(self.allocator);
@@ -131,7 +120,7 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
 
     return ast.Node{
         .listcomp = .{
-            .elt = elt_ptr,
+            .elt = try self.allocNode(element),
             .generators = gens,
         },
     };
@@ -296,31 +285,17 @@ pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!a
             try ifs.append(self.allocator, cond);
         }
 
-        // Allocate nodes on heap
-        const target_ptr = try self.allocator.create(ast.Node);
-        target_ptr.* = target;
-
-        const iter_ptr = try self.allocator.create(ast.Node);
-        iter_ptr.* = iter;
-
         const ifs_slice = try ifs.toOwnedSlice(self.allocator);
         ifs = std.ArrayList(ast.Node){}; // Reset
 
         try generators.append(self.allocator, ast.Node.Comprehension{
-            .target = target_ptr,
-            .iter = iter_ptr,
+            .target = try self.allocNode(target),
+            .iter = try self.allocNode(iter),
             .ifs = ifs_slice,
         });
     }
 
     _ = try self.expect(.RBrace);
-
-    // Allocate key and value on heap
-    const key_ptr = try self.allocator.create(ast.Node);
-    key_ptr.* = key_node;
-
-    const value_ptr = try self.allocator.create(ast.Node);
-    value_ptr.* = value_node;
 
     // Success - transfer ownership
     const gens = try generators.toOwnedSlice(self.allocator);
@@ -328,8 +303,8 @@ pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!a
 
     return ast.Node{
         .dictcomp = .{
-            .key = key_ptr,
-            .value = value_ptr,
+            .key = try self.allocNode(key_node),
+            .value = try self.allocNode(value_node),
             .generators = gens,
         },
     };

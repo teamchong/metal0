@@ -8,114 +8,68 @@ const Parser = @import("../../parser.zig").Parser;
 pub fn parseReturn(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Return);
 
-    var value_ptr: ?*ast.Node = null;
-    errdefer if (value_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-
     // Check if there's a return value
-    if (self.peek()) |tok| {
-        if (tok.type != .Newline) {
-            var first_value = try self.parseExpression();
-            errdefer first_value.deinit(self.allocator);
+    const value_ptr: ?*ast.Node = if (self.peek()) |tok| blk: {
+        if (tok.type == .Newline) break :blk null;
 
-            // Check for comma - if present, this is an implicit tuple: return a, b, c
-            if (self.match(.Comma)) {
-                var elements = std.ArrayList(ast.Node){};
-                errdefer {
-                    for (elements.items) |*e| e.deinit(self.allocator);
-                    elements.deinit(self.allocator);
-                }
+        var first_value = try self.parseExpression();
+        errdefer first_value.deinit(self.allocator);
 
-                try elements.append(self.allocator, first_value);
-
-                // Parse remaining elements
-                while (true) {
-                    // Check if we're at end of return statement
-                    if (self.peek()) |next_tok| {
-                        if (next_tok.type == .Newline or next_tok.type == .Eof) break;
-                    } else break;
-
-                    var elem = try self.parseExpression();
-                    errdefer elem.deinit(self.allocator);
-                    try elements.append(self.allocator, elem);
-
-                    // Check for more elements
-                    if (!self.match(.Comma)) break;
-                }
-
-                // Create tuple from elements - transfer ownership
-                value_ptr = try self.allocator.create(ast.Node);
-                value_ptr.?.* = ast.Node{
-                    .tuple = .{
-                        .elts = try elements.toOwnedSlice(self.allocator),
-                    },
-                };
-                elements = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
-            } else {
-                value_ptr = try self.allocator.create(ast.Node);
-                value_ptr.?.* = first_value;
+        // Check for comma - if present, this is an implicit tuple: return a, b, c
+        if (self.match(.Comma)) {
+            var elements = std.ArrayList(ast.Node){};
+            errdefer {
+                for (elements.items) |*e| e.deinit(self.allocator);
+                elements.deinit(self.allocator);
             }
+
+            try elements.append(self.allocator, first_value);
+
+            // Parse remaining elements
+            while (true) {
+                if (self.peek()) |next_tok| {
+                    if (next_tok.type == .Newline or next_tok.type == .Eof) break;
+                } else break;
+
+                var elem = try self.parseExpression();
+                errdefer elem.deinit(self.allocator);
+                try elements.append(self.allocator, elem);
+                if (!self.match(.Comma)) break;
+            }
+
+            const elts = try elements.toOwnedSlice(self.allocator);
+            elements = std.ArrayList(ast.Node){};
+            break :blk try self.allocNode(ast.Node{ .tuple = .{ .elts = elts } });
+        } else {
+            break :blk try self.allocNode(first_value);
         }
-    }
+    } else null;
 
     _ = self.expect(.Newline) catch {};
 
-    // Success - clear errdefer by returning ownership
-    const result_ptr = value_ptr;
-    value_ptr = null;
-
-    return ast.Node{
-        .return_stmt = .{
-            .value = result_ptr,
-        },
-    };
+    return ast.Node{ .return_stmt = .{ .value = value_ptr } };
 }
 
 /// Parse assert statement: assert condition or assert condition, message
 pub fn parseAssert(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Assert);
 
-    // Parse the condition
     var condition = try self.parseExpression();
     errdefer condition.deinit(self.allocator);
 
-    var condition_ptr: ?*ast.Node = null;
-    errdefer if (condition_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-
-    condition_ptr = try self.allocator.create(ast.Node);
-    condition_ptr.?.* = condition;
-
-    var msg_ptr: ?*ast.Node = null;
-    errdefer if (msg_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-
     // Check for optional message after comma
+    var msg: ?ast.Node = null;
     if (self.match(.Comma)) {
-        var msg = try self.parseExpression();
-        errdefer msg.deinit(self.allocator);
-        msg_ptr = try self.allocator.create(ast.Node);
-        msg_ptr.?.* = msg;
+        msg = try self.parseExpression();
     }
+    errdefer if (msg) |*m| m.deinit(self.allocator);
 
     _ = self.expect(.Newline) catch {};
 
-    // Success - transfer ownership
-    const final_condition = condition_ptr.?;
-    condition_ptr = null;
-    const final_msg = msg_ptr;
-    msg_ptr = null;
-
     return ast.Node{
         .assert_stmt = .{
-            .condition = final_condition,
-            .msg = final_msg,
+            .condition = try self.allocNode(condition),
+            .msg = try self.allocNodeOpt(msg),
         },
     };
 }
@@ -335,51 +289,32 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
 pub fn parseRaise(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Raise);
 
-    var exc_ptr: ?*ast.Node = null;
-    errdefer if (exc_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-
-    var cause_ptr: ?*ast.Node = null;
-    errdefer if (cause_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
+    var exc: ?ast.Node = null;
+    var cause: ?ast.Node = null;
 
     // Check if there's an exception expression
     if (self.peek()) |tok| {
         if (tok.type != .Newline) {
-            var exc = try self.parseExpression();
-            errdefer exc.deinit(self.allocator);
-            exc_ptr = try self.allocator.create(ast.Node);
-            exc_ptr.?.* = exc;
+            exc = try self.parseExpression();
+            errdefer if (exc) |*e| e.deinit(self.allocator);
 
             // Check for "from" clause: raise X from Y
             if (self.peek()) |next_tok| {
                 if (next_tok.type == .From) {
                     _ = self.advance(); // consume 'from'
-                    var cause = try self.parseExpression();
-                    errdefer cause.deinit(self.allocator);
-                    cause_ptr = try self.allocator.create(ast.Node);
-                    cause_ptr.?.* = cause;
+                    cause = try self.parseExpression();
                 }
             }
         }
     }
+    errdefer if (cause) |*c| c.deinit(self.allocator);
 
     _ = self.expect(.Newline) catch {};
 
-    // Success - transfer ownership
-    const final_exc = exc_ptr;
-    exc_ptr = null;
-    const final_cause = cause_ptr;
-    cause_ptr = null;
-
     return ast.Node{
         .raise_stmt = .{
-            .exc = final_exc,
-            .cause = final_cause,
+            .exc = try self.allocNodeOpt(exc),
+            .cause = try self.allocNodeOpt(cause),
         },
     };
 }
@@ -405,56 +340,39 @@ pub fn parseContinue(self: *Parser) ParseError!ast.Node {
 pub fn parseYield(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Yield);
 
-    var value_ptr: ?*ast.Node = null;
-    errdefer if (value_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-
     // Check if there's a value expression
-    if (self.peek()) |tok| {
-        if (tok.type != .Newline) {
-            // Parse first value
-            var first_value = try self.parseExpression();
-            errdefer first_value.deinit(self.allocator);
+    const value_ptr: ?*ast.Node = if (self.peek()) |tok| blk: {
+        if (tok.type == .Newline) break :blk null;
 
-            // Check if this is a tuple: yield a, b, c
-            var value = if (self.check(.Comma)) blk: {
-                var value_list = std.ArrayList(ast.Node){};
-                errdefer {
-                    for (value_list.items) |*v| v.deinit(self.allocator);
-                    value_list.deinit(self.allocator);
-                }
-                try value_list.append(self.allocator, first_value);
+        var first_value = try self.parseExpression();
+        errdefer first_value.deinit(self.allocator);
 
-                while (self.match(.Comma)) {
-                    var val = try self.parseExpression();
-                    errdefer val.deinit(self.allocator);
-                    try value_list.append(self.allocator, val);
-                }
+        // Check if this is a tuple: yield a, b, c
+        if (self.check(.Comma)) {
+            var value_list = std.ArrayList(ast.Node){};
+            errdefer {
+                for (value_list.items) |*v| v.deinit(self.allocator);
+                value_list.deinit(self.allocator);
+            }
+            try value_list.append(self.allocator, first_value);
 
-                const value_array = try value_list.toOwnedSlice(self.allocator);
-                value_list = std.ArrayList(ast.Node){}; // Reset
-                break :blk ast.Node{ .tuple = .{ .elts = value_array } };
-            } else first_value;
-            errdefer value.deinit(self.allocator);
+            while (self.match(.Comma)) {
+                var val = try self.parseExpression();
+                errdefer val.deinit(self.allocator);
+                try value_list.append(self.allocator, val);
+            }
 
-            value_ptr = try self.allocator.create(ast.Node);
-            value_ptr.?.* = value;
+            const value_array = try value_list.toOwnedSlice(self.allocator);
+            value_list = std.ArrayList(ast.Node){};
+            break :blk try self.allocNode(ast.Node{ .tuple = .{ .elts = value_array } });
+        } else {
+            break :blk try self.allocNode(first_value);
         }
-    }
+    } else null;
 
     _ = self.expect(.Newline) catch {};
 
-    // Success - transfer ownership
-    const final_value = value_ptr;
-    value_ptr = null;
-
-    return ast.Node{
-        .yield_stmt = .{
-            .value = final_value,
-        },
-    };
+    return ast.Node{ .yield_stmt = .{ .value = value_ptr } };
 }
 
 pub fn parseEllipsis(self: *Parser) ParseError!ast.Node {
@@ -570,15 +488,6 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
     var context_expr = try self.parseExpression();
     errdefer context_expr.deinit(self.allocator);
 
-    var context_ptr: ?*ast.Node = null;
-    errdefer if (context_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-
-    context_ptr = try self.allocator.create(ast.Node);
-    context_ptr.?.* = context_expr;
-
     // Check for optional "as variable"
     var optional_vars: ?[]const u8 = null;
     if (self.match(.As)) {
@@ -591,8 +500,6 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
     while (self.match(.Comma)) {
         var extra_ctx = try self.parseExpression();
         extra_ctx.deinit(self.allocator); // Discard additional context managers
-
-        // Check for optional "as variable" on additional context
         if (self.match(.As)) {
             _ = try self.expect(.Ident); // Skip the variable name
         }
@@ -600,49 +507,35 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
 
     _ = try self.expect(.Colon);
 
-    // Track body allocation for cleanup
-    var body_alloc: ?[]ast.Node = null;
-    errdefer if (body_alloc) |b| {
-        for (b) |*stmt| stmt.deinit(self.allocator);
-        self.allocator.free(b);
-    };
-
-    // Check if this is a one-liner with (with x: statement)
-    if (self.peek()) |next_tok| {
+    // Parse body
+    const body = if (self.peek()) |next_tok| blk: {
         const is_oneliner = next_tok.type == .Pass or
             next_tok.type == .Ellipsis or
             next_tok.type == .Return or
             next_tok.type == .Break or
             next_tok.type == .Continue or
             next_tok.type == .Raise or
-            next_tok.type == .Ident; // for assignments and expressions
+            next_tok.type == .Ident;
 
         if (is_oneliner) {
             const stmt = try self.parseStatement();
             const body_slice = try self.allocator.alloc(ast.Node, 1);
             body_slice[0] = stmt;
-            body_alloc = body_slice;
+            break :blk body_slice;
         } else {
             _ = try self.expect(.Newline);
             _ = try self.expect(.Indent);
-            body_alloc = try parseBlock(self);
+            const b = try parseBlock(self);
             _ = try self.expect(.Dedent);
+            break :blk b;
         }
-    } else {
-        return ParseError.UnexpectedEof;
-    }
-
-    // Success - transfer ownership
-    const final_context = context_ptr.?;
-    context_ptr = null;
-    const final_body = body_alloc.?;
-    body_alloc = null;
+    } else return ParseError.UnexpectedEof;
 
     return ast.Node{
         .with_stmt = .{
-            .context_expr = final_context,
+            .context_expr = try self.allocNode(context_expr),
             .optional_vars = optional_vars,
-            .body = final_body,
+            .body = body,
         },
     };
 }

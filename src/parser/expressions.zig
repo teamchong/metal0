@@ -25,105 +25,42 @@ pub const parsePower = arithmetic.parsePower;
 /// This has the lowest precedence among expressions
 pub fn parseConditionalExpr(self: *Parser) ParseError!ast.Node {
     // Check for named expression (walrus operator): identifier :=
-    // Must be an identifier followed by :=
     if (self.check(.Ident)) {
         const saved_pos = self.current;
         const ident_tok = self.advance().?;
 
         if (self.check(.ColonEq)) {
-            // It's a named expression
             _ = self.advance(); // consume :=
-            var value = try parseConditionalExpr(self); // Parse the value expression
+            var value = try parseConditionalExpr(self);
             errdefer value.deinit(self.allocator);
-
-            var target_ptr: ?*ast.Node = null;
-            errdefer if (target_ptr) |ptr| {
-                ptr.deinit(self.allocator);
-                self.allocator.destroy(ptr);
-            };
-
-            var value_ptr: ?*ast.Node = null;
-            errdefer if (value_ptr) |ptr| {
-                ptr.deinit(self.allocator);
-                self.allocator.destroy(ptr);
-            };
-
-            target_ptr = try self.allocator.create(ast.Node);
-            target_ptr.?.* = ast.Node{ .name = .{ .id = ident_tok.lexeme } };
-
-            value_ptr = try self.allocator.create(ast.Node);
-            value_ptr.?.* = value;
-
-            // Success - transfer ownership
-            const final_target = target_ptr.?;
-            target_ptr = null;
-            const final_value = value_ptr.?;
-            value_ptr = null;
 
             return ast.Node{
                 .named_expr = .{
-                    .target = final_target,
-                    .value = final_value,
+                    .target = try self.allocNode(ast.Node{ .name = .{ .id = ident_tok.lexeme } }),
+                    .value = try self.allocNode(value),
                 },
             };
         } else {
-            // Not a named expression, restore position
             self.current = saved_pos;
         }
     }
 
-    // Parse the left side (which could be the 'body' of an if_expr)
     var left = try parseOrExpr(self);
     errdefer left.deinit(self.allocator);
 
     // Check for conditional expression: value if condition else orelse_value
     if (self.match(.If)) {
-        var condition = try parseOrExpr(self); // Parse the condition
+        var condition = try parseOrExpr(self);
         errdefer condition.deinit(self.allocator);
-        _ = try self.expect(.Else); // Expect 'else'
-        var orelse_value = try parseConditionalExpr(self); // Right-associative: parse recursively
+        _ = try self.expect(.Else);
+        var orelse_value = try parseConditionalExpr(self);
         errdefer orelse_value.deinit(self.allocator);
-
-        var body_ptr: ?*ast.Node = null;
-        errdefer if (body_ptr) |ptr| {
-            ptr.deinit(self.allocator);
-            self.allocator.destroy(ptr);
-        };
-
-        var test_ptr: ?*ast.Node = null;
-        errdefer if (test_ptr) |ptr| {
-            ptr.deinit(self.allocator);
-            self.allocator.destroy(ptr);
-        };
-
-        var orelse_ptr: ?*ast.Node = null;
-        errdefer if (orelse_ptr) |ptr| {
-            ptr.deinit(self.allocator);
-            self.allocator.destroy(ptr);
-        };
-
-        body_ptr = try self.allocator.create(ast.Node);
-        body_ptr.?.* = left;
-
-        test_ptr = try self.allocator.create(ast.Node);
-        test_ptr.?.* = condition;
-
-        orelse_ptr = try self.allocator.create(ast.Node);
-        orelse_ptr.?.* = orelse_value;
-
-        // Success - transfer ownership
-        const final_body = body_ptr.?;
-        body_ptr = null;
-        const final_test = test_ptr.?;
-        test_ptr = null;
-        const final_orelse = orelse_ptr.?;
-        orelse_ptr = null;
 
         return ast.Node{
             .if_expr = .{
-                .body = final_body,
-                .condition = final_test,
-                .orelse_value = final_orelse,
+                .body = try self.allocNode(left),
+                .condition = try self.allocNode(condition),
+                .orelse_value = try self.allocNode(orelse_value),
             },
         };
     }
@@ -184,19 +121,16 @@ pub fn parseLambda(self: *Parser) ParseError!ast.Node {
                     const param_name = self.advance().?.lexeme;
 
                     // Parse default value if present (e.g., = 0.1)
-                    var default_value: ?*ast.Node = null;
+                    var default_expr: ?ast.Node = null;
                     if (self.match(.Eq)) {
-                        var default_expr = try parseOrExpr(self);
-                        errdefer default_expr.deinit(self.allocator);
-                        const default_ptr = try self.allocator.create(ast.Node);
-                        default_ptr.* = default_expr;
-                        default_value = default_ptr;
+                        default_expr = try parseOrExpr(self);
                     }
+                    errdefer if (default_expr) |*d| d.deinit(self.allocator);
 
                     try args.append(self.allocator, .{
                         .name = param_name,
                         .type_annotation = null,
-                        .default = default_value,
+                        .default = try self.allocNodeOpt(default_expr),
                     });
 
                     if (self.match(.Comma)) {
@@ -213,32 +147,15 @@ pub fn parseLambda(self: *Parser) ParseError!ast.Node {
         }
     }
 
-    // Consume ':' separator
     _ = try self.expect(.Colon);
 
-    // Parse body (single expression)
     var body_expr = try parseOrExpr(self);
     errdefer body_expr.deinit(self.allocator);
 
-    var body_ptr: ?*ast.Node = null;
-    errdefer if (body_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-
-    body_ptr = try self.allocator.create(ast.Node);
-    body_ptr.?.* = body_expr;
-
-    // Success - transfer ownership
     const final_args = try args.toOwnedSlice(self.allocator);
-    args = std.ArrayList(ast.Arg){}; // Reset
-    const final_body = body_ptr.?;
-    body_ptr = null;
+    args = std.ArrayList(ast.Arg){};
 
     return ast.Node{
-        .lambda = .{
-            .args = final_args,
-            .body = final_body,
-        },
+        .lambda = .{ .args = final_args, .body = try self.allocNode(body_expr) },
     };
 }

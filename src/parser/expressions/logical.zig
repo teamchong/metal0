@@ -56,20 +56,10 @@ pub fn parseAndExpr(self: *Parser) ParseError!ast.Node {
 /// Parse logical NOT expression
 pub fn parseNotExpr(self: *Parser) ParseError!ast.Node {
     if (self.match(.Not)) {
-        var operand = try parseNotExpr(self); // Recursive for multiple nots
+        var operand = try parseNotExpr(self);
         errdefer operand.deinit(self.allocator);
-
-        const operand_ptr = try self.allocator.create(ast.Node);
-        operand_ptr.* = operand;
-
-        return ast.Node{
-            .unaryop = .{
-                .op = .Not,
-                .operand = operand_ptr,
-            },
-        };
+        return ast.Node{ .unaryop = .{ .op = .Not, .operand = try self.allocNode(operand) } };
     }
-
     return try parseComparison(self);
 }
 
@@ -139,18 +129,14 @@ pub fn parseComparison(self: *Parser) ParseError!ast.Node {
     }
 
     if (ops.items.len > 0) {
-        const left_ptr = try self.allocator.create(ast.Node);
-        left_ptr.* = left;
-
-        // Success - transfer ownership
         const final_ops = try ops.toOwnedSlice(self.allocator);
-        ops = std.ArrayList(ast.CompareOp){}; // Reset
+        ops = std.ArrayList(ast.CompareOp){};
         const final_comparators = try comparators.toOwnedSlice(self.allocator);
-        comparators = std.ArrayList(ast.Node){}; // Reset
+        comparators = std.ArrayList(ast.Node){};
 
         return ast.Node{
             .compare = .{
-                .left = left_ptr,
+                .left = try self.allocNode(left),
                 .ops = final_ops,
                 .comparators = final_comparators,
             },

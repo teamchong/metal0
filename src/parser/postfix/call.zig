@@ -77,50 +77,14 @@ pub fn parseCall(self: *Parser, func: ast.Node) ParseError!ast.Node {
 fn parseDoubleStarArg(self: *Parser) ParseError!ast.Node {
     var value = try self.parseExpression();
     errdefer value.deinit(self.allocator);
-
-    var value_ptr: ?*ast.Node = null;
-    errdefer if (value_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-
-    value_ptr = try self.allocator.create(ast.Node);
-    value_ptr.?.* = value;
-
-    // Success - transfer ownership
-    const final_value = value_ptr.?;
-    value_ptr = null;
-
-    return ast.Node{
-        .double_starred = .{
-            .value = final_value,
-        },
-    };
+    return ast.Node{ .double_starred = .{ .value = try self.allocNode(value) } };
 }
 
 /// Parse *args unpacking argument
 fn parseStarArg(self: *Parser) ParseError!ast.Node {
     var value = try self.parseExpression();
     errdefer value.deinit(self.allocator);
-
-    var value_ptr: ?*ast.Node = null;
-    errdefer if (value_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-
-    value_ptr = try self.allocator.create(ast.Node);
-    value_ptr.?.* = value;
-
-    // Success - transfer ownership
-    const final_value = value_ptr.?;
-    value_ptr = null;
-
-    return ast.Node{
-        .starred = .{
-            .value = final_value,
-        },
-    };
+    return ast.Node{ .starred = .{ .value = try self.allocNode(value) } };
 }
 
 /// Parse positional or keyword argument

@@ -345,21 +345,16 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
         }
 
         // Parse default value if present (e.g., = 0.1)
-        var default_value: ?*ast.Node = null;
+        var default_expr: ?ast.Node = null;
         if (self.match(.Eq)) {
-            // Parse the default expression
-            var default_expr = try self.parseExpression();
-            errdefer default_expr.deinit(self.allocator);
-
-            const default_ptr = try self.allocator.create(ast.Node);
-            default_ptr.* = default_expr;
-            default_value = default_ptr;
+            default_expr = try self.parseExpression();
         }
+        errdefer if (default_expr) |*d| d.deinit(self.allocator);
 
         try args.append(self.allocator, .{
             .name = arg_name.lexeme,
             .type_annotation = type_annotation,
-            .default = default_value,
+            .default = try self.allocNodeOpt(default_expr),
         });
 
         if (!self.match(.Comma)) {

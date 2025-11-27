@@ -272,26 +272,15 @@ pub fn parseFor(self: *Parser) ParseError!ast.Node {
         return ParseError.UnexpectedEof;
     }
 
-    const target_ptr = try self.allocator.create(ast.Node);
-    if (targets.items.len == 1) {
-        // Single target
-        target_ptr.* = targets.items[0];
-    } else {
-        // Multiple targets (tuple unpacking) - use list node
-        target_ptr.* = ast.Node{
-            .list = .{
-                .elts = try targets.toOwnedSlice(self.allocator),
-            },
-        };
-    }
-
-    const iter_ptr = try self.allocator.create(ast.Node);
-    iter_ptr.* = iter;
+    const target_node = if (targets.items.len == 1)
+        targets.items[0]
+    else
+        ast.Node{ .list = .{ .elts = try targets.toOwnedSlice(self.allocator) } };
 
     return ast.Node{
         .for_stmt = .{
-            .target = target_ptr,
-            .iter = iter_ptr,
+            .target = try self.allocNode(target_node),
+            .iter = try self.allocNode(iter),
             .body = body,
         },
     };
@@ -331,12 +320,9 @@ pub fn parseWhile(self: *Parser) ParseError!ast.Node {
         return ParseError.UnexpectedEof;
     }
 
-    const condition_ptr = try self.allocator.create(ast.Node);
-    condition_ptr.* = condition_expr;
-
     return ast.Node{
         .while_stmt = .{
-            .condition = condition_ptr,
+            .condition = try self.allocNode(condition_expr),
             .body = body,
         },
     };
