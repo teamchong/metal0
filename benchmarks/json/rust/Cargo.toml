@@ -1,0 +1,15 @@
+[package]
+name = "json_bench"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "parse"
+path = "src/parse.rs"
+
+[[bin]]
+name = "stringify"
+path = "src/stringify.rs"
+
+[dependencies]
+serde_json = "1.0"

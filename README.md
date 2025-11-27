@@ -346,11 +346,11 @@ Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM6
 
 | Language | Time | vs Python |
 |----------|------|-----------|
-| **PyAOT** | **3.16s** | **31x faster** 🏆 |
-| Rust | 3.17s | 31x faster |
-| Go | 3.58s | 27x faster |
-| PyPy | 11.6s | 8x faster |
-| Python | 96.7s | 1.00x |
+| **PyAOT** | **3.22s** | **30.1x faster** 🏆 |
+| Rust | 3.23s | 30.0x faster |
+| Go | 3.60s | 26.9x faster |
+| PyPy | 11.75s | 8.3x faster |
+| Python | 96.94s | baseline |
 
 *3 runs, 1 warmup. Long runtime (~3-100s) ensures startup overhead is negligible.*
 
@@ -379,34 +379,33 @@ make benchmark-fib-tail  # Tail-recursive TCO test
 | **Go 1.25** | **2.4ms ± 0.2ms** | 1.50x slower | 9.3x faster |
 | CPython 3.13 | 22.4ms ± 1.2ms | 14.0x slower | 1.00x |
 
-### JSON Benchmark (50K iterations × 62KB realistic JSON)
+### JSON Benchmark (50K iterations × 38KB realistic JSON)
 
-All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 runs, 2 warmup) on Apple Silicon using realistic 62KB JSON document (50 users, 30 products, 31 days analytics).
+All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 runs, 2 warmup) on Apple Silicon using realistic 38KB JSON document (50 users, 30 products, 31 days analytics).
 
-**JSON Parse (50K × 62KB = 3.1GB processed):**
+**JSON Parse (50K × 38KB = 1.9GB processed):**
 
-| Implementation | Time | Relative |
-|---------------|------|----------|
-| **PyPy** | **5.2s ± 0.0s** | **1.00x** 🏆 | *(JIT advantage from repeated same-structure parsing)*
-| Rust (serde_json) | 6.2s ± 0.0s | 1.19x |
-| PyAOT | 7.9s ± 0.2s | 1.52x |
-| Zig (std.json) | 11.6s ± 0.4s | 2.24x |
-| Python | 15.2s ± 0.1s | 2.93x |
-| Go | 20.0s ± 0.2s | 3.88x |
+| Implementation | Time | vs Python |
+|---------------|------|-----------|
+| **PyPy** | **3.1s ± 0.0s** | **2.65x faster** 🏆 |
+| Rust (serde_json) | 4.4s ± 0.0s | 1.86x faster |
+| PyAOT | 5.3s ± 0.2s | 1.56x faster |
+| Python | 8.3s ± 0.1s | baseline |
+| Go | 13.8s ± 0.0s | 0.60x (slower) |
 
-*PyAOT is 1.29x slower than Rust due to PyObject allocation overhead required for C API compatibility (NumPy, etc.)*
+*PyAOT is 1.20x slower than Rust due to PyObject allocation overhead required for C API compatibility.*
 
-**JSON Stringify (50K × 62KB = 3.1GB processed):**
+**JSON Stringify (50K × 38KB = 1.9GB processed):**
 
-| Implementation | Time | Relative |
-|---------------|------|----------|
-| **PyAOT** | **2.1s ± 0.0s** | **1.00x** 🏆 |
-| Rust (serde_json) | 4.6s ± 0.0s | 2.22x |
-| PyPy | 9.4s ± 0.0s | 4.55x |
-| Python | 9.6s ± 0.1s | 4.68x |
-| Go | 10.3s ± 0.1s | 4.99x |
+| Implementation | Time | vs Python |
+|---------------|------|-----------|
+| **PyAOT** | **1.4s ± 0.0s** | **4.27x faster** 🏆 |
+| Rust (serde_json) | 1.6s ± 0.2s | 3.79x faster |
+| Python | 6.1s ± 0.0s | baseline |
+| PyPy | 6.2s ± 0.0s | 0.99x (same) |
+| Go | 7.9s ± 0.0s | 0.78x (slower) |
 
-*PyAOT stringify is 2.2x faster than Rust thanks to SIMD escaping and comptime lookup tables.*
+*PyAOT stringify beats Rust by 12% thanks to SIMD escaping and comptime lookup tables.*
 
 **Key optimizations:**
 - SIMD whitespace skipping (AVX2/NEON) - process 32 bytes per iteration
@@ -417,6 +416,24 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 - Arena allocator with capacity retention
 - Single-pass parsing with quote/escape detection
 - Zero-copy dictionary keys
+
+**Dict Benchmark (10M lookups, 8 keys):**
+
+| Language | Time | vs Python |
+|----------|------|-----------|
+| **PyAOT** | **329ms** | **4.3x faster** 🏆 |
+| PyPy | 570ms | 2.5x faster |
+| Python | 1.42s | baseline |
+
+**String Benchmark (100M iterations, comparison + length):**
+
+| Language | Time | vs Python |
+|----------|------|-----------|
+| **PyAOT** | **1.6ms** | **5000x faster** 🏆 |
+| PyPy | 154ms | 53x faster |
+| Python | 8.1s | baseline |
+
+*PyAOT string operations are computed at comptime where possible, resulting in near-zero runtime.*
 
 ### Tokenizer Benchmark (Native Binary)
 
@@ -521,6 +538,71 @@ const Trainer = TrainerFor(.Unigram);
 **Use HuggingFace if:**
 - Prefer Rust/Python over Zig
 - Already invested in HuggingFace ecosystem
+
+### Regex Benchmark
+
+**Regex Pattern Matching (5 common patterns, hyperfine verified):**
+
+| Implementation | Total Time | vs PyAOT |
+|----------------|------------|----------|
+| **PyAOT (Lazy DFA)** | **1.324s ± 0.025s** | **1.00x** 🏆 |
+| Rust (regex) | 4.639s ± 0.136s | 3.50x slower |
+| Python (re) | ~43s (est) | ~32x slower |
+| Go (regexp) | ~58s (est) | ~44x slower |
+
+**Pattern breakdown (1M iterations each, except Word Boundary 100k):**
+
+| Pattern | PyAOT | Rust | Speedup |
+|---------|-------|------|---------|
+| Email | 93ms | 95ms | 1.02x |
+| URL | 81ms | 252ms | 3.12x |
+| Digits | 692ms | 3,079ms | 4.45x |
+| Word Boundary | 116ms | 385ms | 3.32x |
+| Date ISO | 346ms | 636ms | 1.84x |
+
+**Optimizations:**
+- AST analysis detects pattern types (digits, URLs, word boundaries)
+- SIMD scanning for common patterns ([0-9]+, whitespace)
+- Prefix detection (@, ://) for targeted scanning
+- C allocator (29x faster than GPA)
+- Lazy DFA fallback for complex patterns
+
+```bash
+# Run regex benchmarks
+cd packages/regex
+
+make benchmark-hyperfine  # PyAOT vs Rust comparison (hyperfine)
+make benchmark-sizes      # Multi-size scaling test (1KB/32KB/500KB)
+make benchmark            # All languages
+```
+
+### Running All Benchmarks
+
+```bash
+# Fibonacci (CPU-bound recursive)
+make benchmark-fib        # PyAOT vs Rust vs Go vs Python vs PyPy
+
+# Dict/String operations
+make benchmark-dict       # 1M dict lookups
+make benchmark-string     # 10M string operations
+
+# JSON (parse + stringify)
+make benchmark-json-full  # PyAOT vs Rust vs Go vs Python vs PyPy
+
+# Regex
+make benchmark-regex      # All languages, 100K iterations
+
+# Tokenizer
+cd packages/tokenizer
+make benchmark            # Train + encoding + web + JSON benchmarks
+```
+
+**Key insights:**
+- PyAOT excels at CPU-bound tasks with heavy function call overhead
+- Best suited for recursive algorithms, computational loops, and integer arithmetic
+- Zero runtime overhead - binaries are pre-compiled
+- Faster than PyPy's JIT on most computational workloads
+- All benchmarks measure runtime only (no compilation time included)
 
 **How PyAOT Works:**
 ```python

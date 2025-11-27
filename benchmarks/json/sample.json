@@ -1,0 +1,1717 @@
+{
+  "metadata": {
+    "version": "2.0.0",
+    "timestamp": "2025-01-23T12:00:00Z",
+    "source": "PyAOT Benchmark"
+  },
+  "users": [
+    {
+      "id": 0,
+      "name": "User 0",
+      "email": "user0@example.com",
+      "active": true,
+      "score": 0.0,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 0: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "User 1",
+      "email": "user1@example.com",
+      "active": false,
+      "score": 3.14159,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 1: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "User 2",
+      "email": "user2@example.com",
+      "active": true,
+      "score": 6.28318,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 2: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "User 3",
+      "email": "user3@example.com",
+      "active": false,
+      "score": 9.424769999999999,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 3: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "User 4",
+      "email": "user4@example.com",
+      "active": true,
+      "score": 12.56636,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 4: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "User 5",
+      "email": "user5@example.com",
+      "active": false,
+      "score": 15.70795,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 5: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "User 6",
+      "email": "user6@example.com",
+      "active": true,
+      "score": 18.849539999999998,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 6: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "User 7",
+      "email": "user7@example.com",
+      "active": false,
+      "score": 21.99113,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 7: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "User 8",
+      "email": "user8@example.com",
+      "active": true,
+      "score": 25.13272,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 8: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "User 9",
+      "email": "user9@example.com",
+      "active": false,
+      "score": 28.27431,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 9: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "User 10",
+      "email": "user10@example.com",
+      "active": true,
+      "score": 31.4159,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 10: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "User 11",
+      "email": "user11@example.com",
+      "active": false,
+      "score": 34.55749,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 11: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "User 12",
+      "email": "user12@example.com",
+      "active": true,
+      "score": 37.699079999999995,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 12: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "name": "User 13",
+      "email": "user13@example.com",
+      "active": false,
+      "score": 40.840669999999996,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 13: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "name": "User 14",
+      "email": "user14@example.com",
+      "active": true,
+      "score": 43.98226,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 14: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "name": "User 15",
+      "email": "user15@example.com",
+      "active": false,
+      "score": 47.12385,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 15: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "name": "User 16",
+      "email": "user16@example.com",
+      "active": true,
+      "score": 50.26544,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 16: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "name": "User 17",
+      "email": "user17@example.com",
+      "active": false,
+      "score": 53.40703,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 17: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "name": "User 18",
+      "email": "user18@example.com",
+      "active": true,
+      "score": 56.54862,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 18: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "name": "User 19",
+      "email": "user19@example.com",
+      "active": false,
+      "score": 59.69021,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 19: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "name": "User 20",
+      "email": "user20@example.com",
+      "active": true,
+      "score": 62.8318,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 20: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "name": "User 21",
+      "email": "user21@example.com",
+      "active": false,
+      "score": 65.97339,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 21: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "name": "User 22",
+      "email": "user22@example.com",
+      "active": true,
+      "score": 69.11498,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 22: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "name": "User 23",
+      "email": "user23@example.com",
+      "active": false,
+      "score": 72.25657,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 23: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 24,
+      "name": "User 24",
+      "email": "user24@example.com",
+      "active": true,
+      "score": 75.39815999999999,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 24: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 25,
+      "name": "User 25",
+      "email": "user25@example.com",
+      "active": false,
+      "score": 78.53975,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 25: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 26,
+      "name": "User 26",
+      "email": "user26@example.com",
+      "active": true,
+      "score": 81.68133999999999,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 26: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 27,
+      "name": "User 27",
+      "email": "user27@example.com",
+      "active": false,
+      "score": 84.82293,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 27: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "name": "User 28",
+      "email": "user28@example.com",
+      "active": true,
+      "score": 87.96452,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 28: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 29,
+      "name": "User 29",
+      "email": "user29@example.com",
+      "active": false,
+      "score": 91.10611,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 29: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 30,
+      "name": "User 30",
+      "email": "user30@example.com",
+      "active": true,
+      "score": 94.2477,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 30: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 31,
+      "name": "User 31",
+      "email": "user31@example.com",
+      "active": false,
+      "score": 97.38929,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 31: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 32,
+      "name": "User 32",
+      "email": "user32@example.com",
+      "active": true,
+      "score": 100.53088,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 32: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 33,
+      "name": "User 33",
+      "email": "user33@example.com",
+      "active": false,
+      "score": 103.67246999999999,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 33: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 34,
+      "name": "User 34",
+      "email": "user34@example.com",
+      "active": true,
+      "score": 106.81406,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 34: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 35,
+      "name": "User 35",
+      "email": "user35@example.com",
+      "active": false,
+      "score": 109.95564999999999,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 35: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 36,
+      "name": "User 36",
+      "email": "user36@example.com",
+      "active": true,
+      "score": 113.09724,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 36: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 37,
+      "name": "User 37",
+      "email": "user37@example.com",
+      "active": false,
+      "score": 116.23883,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 37: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 38,
+      "name": "User 38",
+      "email": "user38@example.com",
+      "active": true,
+      "score": 119.38042,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 38: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 39,
+      "name": "User 39",
+      "email": "user39@example.com",
+      "active": false,
+      "score": 122.52201,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 39: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 40,
+      "name": "User 40",
+      "email": "user40@example.com",
+      "active": true,
+      "score": 125.6636,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 40: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 41,
+      "name": "User 41",
+      "email": "user41@example.com",
+      "active": false,
+      "score": 128.80518999999998,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 41: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 42,
+      "name": "User 42",
+      "email": "user42@example.com",
+      "active": true,
+      "score": 131.94678,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 42: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 43,
+      "name": "User 43",
+      "email": "user43@example.com",
+      "active": false,
+      "score": 135.08837,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 43: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 44,
+      "name": "User 44",
+      "email": "user44@example.com",
+      "active": true,
+      "score": 138.22996,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 44: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 45,
+      "name": "User 45",
+      "email": "user45@example.com",
+      "active": false,
+      "score": 141.37154999999998,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 45: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 46,
+      "name": "User 46",
+      "email": "user46@example.com",
+      "active": true,
+      "score": 144.51314,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 46: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 47,
+      "name": "User 47",
+      "email": "user47@example.com",
+      "active": false,
+      "score": 147.65473,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 47: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    },
+    {
+      "id": 48,
+      "name": "User 48",
+      "email": "user48@example.com",
+      "active": true,
+      "score": 150.79631999999998,
+      "tags": [
+        "python",
+        "rust",
+        "zig"
+      ],
+      "profile": {
+        "bio": "Biography for user 48: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "dark"
+        }
+      }
+    },
+    {
+      "id": 49,
+      "name": "User 49",
+      "email": "user49@example.com",
+      "active": false,
+      "score": 153.93791,
+      "tags": [
+        "go",
+        "typescript"
+      ],
+      "profile": {
+        "bio": "Biography for user 49: \n\t\"quoted\", \\backslash\\, Unicode: 世界",
+        "settings": {
+          "notifications": true,
+          "theme": "light"
+        }
+      }
+    }
+  ],
+  "products": [
+    {
+      "sku": "PROD-0000",
+      "name": "Product 0",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 19.99,
+      "inStock": false,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0001",
+      "name": "Product 1",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 25.49,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0002",
+      "name": "Product 2",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 30.99,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0003",
+      "name": "Product 3",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 36.49,
+      "inStock": false,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0004",
+      "name": "Product 4",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 41.99,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0005",
+      "name": "Product 5",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 47.49,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0006",
+      "name": "Product 6",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 52.99,
+      "inStock": false,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0007",
+      "name": "Product 7",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 58.49,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0008",
+      "name": "Product 8",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 63.99,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0009",
+      "name": "Product 9",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 69.49,
+      "inStock": false,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0010",
+      "name": "Product 10",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 74.99,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0011",
+      "name": "Product 11",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 80.49,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0012",
+      "name": "Product 12",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 85.99,
+      "inStock": false,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0013",
+      "name": "Product 13",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 91.49,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0014",
+      "name": "Product 14",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 96.99,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0015",
+      "name": "Product 15",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 102.49,
+      "inStock": false,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0016",
+      "name": "Product 16",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 107.99,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0017",
+      "name": "Product 17",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 113.49,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0018",
+      "name": "Product 18",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 118.99,
+      "inStock": false,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0019",
+      "name": "Product 19",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 124.49,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0020",
+      "name": "Product 20",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 129.99,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0021",
+      "name": "Product 21",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 135.49,
+      "inStock": false,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0022",
+      "name": "Product 22",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 140.99,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0023",
+      "name": "Product 23",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 146.49,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0024",
+      "name": "Product 24",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 151.99,
+      "inStock": false,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0025",
+      "name": "Product 25",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 157.49,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0026",
+      "name": "Product 26",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 162.99,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0027",
+      "name": "Product 27",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 168.49,
+      "inStock": false,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0028",
+      "name": "Product 28",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 173.99,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    },
+    {
+      "sku": "PROD-0029",
+      "name": "Product 29",
+      "description": "Features:\n- Fast\n- Cross-platform\n- Unicode: 日本語, Español",
+      "price": 179.49,
+      "inStock": true,
+      "reviews": [
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer0@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer1@test.com"
+        },
+        {
+          "rating": 4.5,
+          "reviewer": "reviewer2@test.com"
+        }
+      ]
+    }
+  ],
+  "analytics": {
+    "daily_stats": [
+      {
+        "date": "2025-01-01",
+        "visits": 1050,
+        "revenue": 526.25
+      },
+      {
+        "date": "2025-01-02",
+        "visits": 1100,
+        "revenue": 552.0
+      },
+      {
+        "date": "2025-01-03",
+        "visits": 1150,
+        "revenue": 577.75
+      },
+      {
+        "date": "2025-01-04",
+        "visits": 1200,
+        "revenue": 603.5
+      },
+      {
+        "date": "2025-01-05",
+        "visits": 1250,
+        "revenue": 629.25
+      },
+      {
+        "date": "2025-01-06",
+        "visits": 1300,
+        "revenue": 655.0
+      },
+      {
+        "date": "2025-01-07",
+        "visits": 1350,
+        "revenue": 680.75
+      },
+      {
+        "date": "2025-01-08",
+        "visits": 1400,
+        "revenue": 706.5
+      },
+      {
+        "date": "2025-01-09",
+        "visits": 1450,
+        "revenue": 732.25
+      },
+      {
+        "date": "2025-01-10",
+        "visits": 1500,
+        "revenue": 758.0
+      },
+      {
+        "date": "2025-01-11",
+        "visits": 1550,
+        "revenue": 783.75
+      },
+      {
+        "date": "2025-01-12",
+        "visits": 1600,
+        "revenue": 809.5
+      },
+      {
+        "date": "2025-01-13",
+        "visits": 1650,
+        "revenue": 835.25
+      },
+      {
+        "date": "2025-01-14",
+        "visits": 1700,
+        "revenue": 861.0
+      },
+      {
+        "date": "2025-01-15",
+        "visits": 1750,
+        "revenue": 886.75
+      },
+      {
+        "date": "2025-01-16",
+        "visits": 1800,
+        "revenue": 912.5
+      },
+      {
+        "date": "2025-01-17",
+        "visits": 1850,
+        "revenue": 938.25
+      },
+      {
+        "date": "2025-01-18",
+        "visits": 1900,
+        "revenue": 964.0
+      },
+      {
+        "date": "2025-01-19",
+        "visits": 1950,
+        "revenue": 989.75
+      },
+      {
+        "date": "2025-01-20",
+        "visits": 2000,
+        "revenue": 1015.5
+      },
+      {
+        "date": "2025-01-21",
+        "visits": 2050,
+        "revenue": 1041.25
+      },
+      {
+        "date": "2025-01-22",
+        "visits": 2100,
+        "revenue": 1067.0
+      },
+      {
+        "date": "2025-01-23",
+        "visits": 2150,
+        "revenue": 1092.75
+      },
+      {
+        "date": "2025-01-24",
+        "visits": 2200,
+        "revenue": 1118.5
+      },
+      {
+        "date": "2025-01-25",
+        "visits": 2250,
+        "revenue": 1144.25
+      },
+      {
+        "date": "2025-01-26",
+        "visits": 2300,
+        "revenue": 1170.0
+      },
+      {
+        "date": "2025-01-27",
+        "visits": 2350,
+        "revenue": 1195.75
+      },
+      {
+        "date": "2025-01-28",
+        "visits": 2400,
+        "revenue": 1221.5
+      },
+      {
+        "date": "2025-01-29",
+        "visits": 2450,
+        "revenue": 1247.25
+      },
+      {
+        "date": "2025-01-30",
+        "visits": 2500,
+        "revenue": 1273.0
+      },
+      {
+        "date": "2025-01-31",
+        "visits": 2550,
+        "revenue": 1298.75
+      }
+    ]
+  }
+}

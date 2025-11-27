@@ -96,7 +96,7 @@ fn benchmarkPattern(allocator: std.mem.Allocator, name: []const u8, pattern: []c
     const total_ms = @as(f64, @floatFromInt(end - start)) / 1_000_000.0;
     const avg_us = (total_ms * 1000.0) / @as(f64, @floatFromInt(iterations));
 
-    std.debug.print("{s:<20} {d:<10} {d:<12.2} {d:<12.2} {d:<12}\n", .{ name, match_count, avg_us, total_ms, iterations });
+    std.debug.print("{s:<20} {d:<10} {d:<12.2} {d:<12.2}\n", .{ name, match_count, avg_us, total_ms });
 }
 
 pub fn main() !void {
@@ -107,16 +107,19 @@ pub fn main() !void {
     const text = try loadData(allocator);
     defer allocator.free(text);
 
-    std.debug.print("PyAOT Regex Benchmark (variable iterations for accurate measurements)\n", .{});
-    std.debug.print("{s:<20} {s:<10} {s:<12} {s:<12} {s:<12}\n", .{ "Pattern", "Matches", "Avg (µs)", "Total (ms)", "Iterations" });
-    std.debug.print("--------------------------------------------------------------------------------\n", .{});
+    std.debug.print("PyAOT Regex Benchmark (100K iterations per pattern)\n", .{});
+    std.debug.print("{s:<20} {s:<10} {s:<12} {s:<12}\n", .{ "Pattern", "Matches", "Avg (µs)", "Total (ms)" });
+    std.debug.print("----------------------------------------------------------------------\n", .{});
 
-    // Fast patterns: 1M iterations for accuracy
-    try benchmarkPattern(allocator, "Email", "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", text, 1000000);
-    try benchmarkPattern(allocator, "URL", "https?://[^\\s]+", text, 1000000);
-    try benchmarkPattern(allocator, "Digits", "[0-9]+", text, 1000000);
-
-    // Slower patterns: 100k iterations
+    // 100K iterations for all patterns (matches Python, Rust, Go)
+    try benchmarkPattern(allocator, "Email", "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", text, 100000);
+    try benchmarkPattern(allocator, "URL", "https?://[^\\s]+", text, 100000);
+    try benchmarkPattern(allocator, "Phone", "\\(\\d{3}\\)\\s?\\d{3}-\\d{4}|\\d{3}-\\d{3}-\\d{4}", text, 100000);
+    try benchmarkPattern(allocator, "Digits", "[0-9]+", text, 100000);
     try benchmarkPattern(allocator, "Word Boundary", "\\b[a-z]{4,}\\b", text, 100000);
-    try benchmarkPattern(allocator, "Date ISO", "[0-9]{4}-[0-9]{2}-[0-9]{2}", text, 1000000);
+    try benchmarkPattern(allocator, "Date ISO", "[0-9]{4}-[0-9]{2}-[0-9]{2}", text, 100000);
+    try benchmarkPattern(allocator, "IPv4", "\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b", text, 100000);
+    try benchmarkPattern(allocator, "Hex Color", "#[0-9a-fA-F]{6}", text, 100000);
+    try benchmarkPattern(allocator, "Version", "v?\\d+\\.\\d+\\.\\d+", text, 100000);
+    try benchmarkPattern(allocator, "Alphanumeric", "[a-z]+\\d+", text, 100000);
 }
