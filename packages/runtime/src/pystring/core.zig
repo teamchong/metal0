@@ -1,18 +1,22 @@
 /// Core PyString operations - creation, access, concatenation
+/// Supports Copy-on-Write (COW) for zero-copy slicing and sharing
 const std = @import("std");
 const runtime = @import("../runtime.zig");
 const PyObject = runtime.PyObject;
 const PythonError = runtime.PythonError;
 
-/// Python string type
+/// Python string type with COW support
+/// - owned: we allocated data, must free it
+/// - borrowed: slice into another PyString, source keeps ref
 pub const PyString = struct {
     data: []const u8,
+    source: ?*PyObject = null, // If non-null, we borrowed from this (COW)
 
     pub fn create(allocator: std.mem.Allocator, str: []const u8) !*PyObject {
         const obj = try allocator.create(PyObject);
         const str_data = try allocator.create(PyString);
         const owned = try allocator.dupe(u8, str);
-        str_data.data = owned;
+        str_data.* = .{ .data = owned, .source = null };
 
         obj.* = PyObject{
             .ref_count = 1,
@@ -22,12 +26,55 @@ pub const PyString = struct {
         return obj;
     }
 
+    /// Check if this string is borrowed (COW) or owned
+    pub fn isBorrowed(obj: *PyObject) bool {
+        std.debug.assert(obj.type_id == .string);
+        const data: *PyString = @ptrCast(@alignCast(obj.data));
+        return data.source != null;
+    }
+
+    /// Free PyString resources (handles COW)
+    pub fn deinit(obj: *PyObject, allocator: std.mem.Allocator) void {
+        std.debug.assert(obj.type_id == .string);
+        const str_data: *PyString = @ptrCast(@alignCast(obj.data));
+
+        if (str_data.source) |source| {
+            // Borrowed - just decref source, don't free data
+            runtime.decref(source, allocator);
+        } else {
+            // Owned - free data
+            allocator.free(@constCast(str_data.data));
+        }
+        allocator.destroy(str_data);
+        allocator.destroy(obj);
+    }
+
     /// Create PyString with owned data (takes ownership, no duplication)
     /// IMPORTANT: Caller must ensure owned_str is allocated with this allocator
     pub fn createOwned(allocator: std.mem.Allocator, owned_str: []const u8) !*PyObject {
         const obj = try allocator.create(PyObject);
         const str_data = try allocator.create(PyString);
-        str_data.data = owned_str;
+        str_data.* = .{ .data = owned_str, .source = null };
+
+        obj.* = PyObject{
+            .ref_count = 1,
+            .type_id = .string,
+            .data = str_data,
+        };
+        return obj;
+    }
+
+    /// Create PyString borrowing from another PyString (COW - zero copy!)
+    /// The source PyString is kept alive via reference counting
+    pub fn createBorrowed(allocator: std.mem.Allocator, source_obj: *PyObject, slice: []const u8) !*PyObject {
+        std.debug.assert(source_obj.type_id == .string);
+
+        const obj = try allocator.create(PyObject);
+        const str_data = try allocator.create(PyString);
+
+        // Keep source alive
+        runtime.incref(source_obj);
+        str_data.* = .{ .data = slice, .source = source_obj };
 
         obj.* = PyObject{
             .ref_count = 1,

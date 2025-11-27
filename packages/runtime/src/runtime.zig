@@ -123,7 +123,13 @@ pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
             },
             .string => {
                 const data: *PyString = @ptrCast(@alignCast(obj.data));
-                allocator.free(data.data);
+                if (data.source) |source| {
+                    // COW: borrowed from source, just decref source
+                    decref(source, allocator);
+                } else {
+                    // Owned: free the data
+                    allocator.free(@constCast(data.data));
+                }
                 allocator.destroy(data);
             },
             .dict => {
