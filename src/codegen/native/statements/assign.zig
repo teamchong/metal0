@@ -402,6 +402,44 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.genExpr(assign.value.*);
             }
             try self.emit(";\n");
+        } else if (target == .subscript) {
+            // Handle subscript assignment: self.routes[path] = handler, dict[key] = value
+            const subscript = target.subscript;
+
+            // Only handle index subscripts for now (not slices)
+            if (subscript.slice == .index) {
+                // Determine the container type to generate appropriate code
+                const container_type = try self.type_inferrer.inferExpr(subscript.value.*);
+
+                try self.emitIndent();
+
+                if (container_type == .dict) {
+                    // Dict assignment: dict.put(key, value)
+                    try self.emit("try ");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".put(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit(", ");
+                    try self.genExpr(assign.value.*);
+                    try self.emit(");\n");
+                } else if (container_type == .list) {
+                    // List assignment: list.items[idx] = value
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))] = ");
+                    try self.genExpr(assign.value.*);
+                    try self.emit(";\n");
+                } else {
+                    // Generic array/slice assignment: arr[idx] = value
+                    try self.genExpr(subscript.value.*);
+                    try self.emit("[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))] = ");
+                    try self.genExpr(assign.value.*);
+                    try self.emit(";\n");
+                }
+            }
         }
     }
 }

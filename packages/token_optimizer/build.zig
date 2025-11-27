@@ -106,4 +106,17 @@ pub fn build(b: *std.Build) void {
 
     const run_test_gif = b.addRunArtifact(test_gif);
     test_step.dependOn(&run_test_gif.step);
+
+    // Test: api_types.zig
+    const test_api_types = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test_api_types.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_api_types.root_module.addImport("json", shared_json);
+
+    const run_test_api_types = b.addRunArtifact(test_api_types);
+    test_step.dependOn(&run_test_api_types.step);
 }

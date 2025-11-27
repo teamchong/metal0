@@ -301,11 +301,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // If name starts with uppercase, it's a class constructor
         if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
             // Class instantiation: Counter(10) -> Counter.init(allocator, 10)
-            // For types like Path that return error unions, wrap in (try ...)
-            // to allow chaining like Path(__file__).parent
-            try self.emit("(try ");
-            try self.emit(func_name);
-            try self.emit(".init(allocator");
+            // User-defined classes return the struct directly, library classes like Path may return error unions
+            const is_user_class = self.class_registry.getClass(func_name) != null;
+
+            if (is_user_class) {
+                // User-defined class: init returns struct directly, no try needed
+                try self.emit(func_name);
+                try self.emit(".init(allocator");
+            } else {
+                // Library class (e.g. Path): may return error union, wrap in (try ...)
+                try self.emit("(try ");
+                try self.emit(func_name);
+                try self.emit(".init(allocator");
+            }
 
             // Add comma if there are args
             if (call.args.len > 0 or call.keyword_args.len > 0) {
@@ -322,7 +330,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, kwarg.value);
             }
 
-            try self.emit("))");
+            if (is_user_class) {
+                try self.emit(")");
+            } else {
+                try self.emit("))");
+            }
             return;
         }
 

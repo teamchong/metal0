@@ -183,6 +183,7 @@ pub fn renderTextWithRole(
     const single_line = try toSingleLine(allocator, text);
     defer allocator.free(single_line.text);
     defer allocator.free(single_line.is_whitespace);
+    defer allocator.free(single_line.roles);
 
     // Calculate wrap width for square image
     const wrap_width = calculateWrapWidth(single_line.text.len);

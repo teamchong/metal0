@@ -48,6 +48,18 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"runtime.zig\")", "@import(\"../runtime.zig\")");
+                // Patch json_simd module - different depths need different paths
+                // Files in json/ need simd/dispatch.zig
+                // Files in json/parse/ or json/parse_direct/ need ../simd/dispatch.zig
+                if (std.mem.indexOf(u8, dst_dir_path, "/parse") != null or
+                    std.mem.indexOf(u8, dst_dir_path, "/parse_direct") != null)
+                {
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"json_simd\")", "@import(\"../simd/dispatch.zig\")");
+                } else {
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"json_simd\")", "@import(\"simd/dispatch.zig\")");
+                }
+                // Fix parse_direct import in subdirectories
+                content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"../parse_direct.zig\")", "@import(\"../parse_direct.zig\")");
             }
 
             try dst_file.writeAll(content);
@@ -56,6 +68,43 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
             const subdir_name = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_name, entry.name });
             defer allocator.free(subdir_name);
             try copyRuntimeDir(allocator, subdir_name, build_dir);
+        }
+    }
+}
+
+/// Copy JSON SIMD files from shared/json/simd to .build/json/simd
+pub fn copyJsonSimd(allocator: std.mem.Allocator, build_dir: []const u8) !void {
+    const src_dir_path = "packages/shared/json/simd";
+    const dst_dir_path = try std.fmt.allocPrint(allocator, "{s}/json/simd", .{build_dir});
+    defer allocator.free(dst_dir_path);
+
+    // Create destination directory
+    std.fs.cwd().makePath(dst_dir_path) catch {};
+
+    // Open source directory
+    var src_dir = std.fs.cwd().openDir(src_dir_path, .{ .iterate = true }) catch |err| {
+        if (err == error.FileNotFound) return;
+        return err;
+    };
+    defer src_dir.close();
+
+    // Copy all .zig files
+    var iterator = src_dir.iterate();
+    while (try iterator.next()) |entry| {
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
+            const src_file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ src_dir_path, entry.name });
+            defer allocator.free(src_file_path);
+            const dst_file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dst_dir_path, entry.name });
+            defer allocator.free(dst_file_path);
+
+            const src_file = try std.fs.cwd().openFile(src_file_path, .{});
+            defer src_file.close();
+            const dst_file = try std.fs.cwd().createFile(dst_file_path, .{});
+            defer dst_file.close();
+
+            const content = try src_file.readToEndAlloc(allocator, 1024 * 1024);
+            defer allocator.free(content);
+            try dst_file.writeAll(content);
         }
     }
 }

@@ -157,6 +157,38 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Regular iteration over collection
     try self.emitIndent();
+
+    // Handle dict iteration - need to use .keys() iterator
+    if (iter_type == .dict) {
+        try self.emit("{\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("var __iter__ = ");
+        try self.genExpr(for_stmt.iter.*);
+        try self.emit(".keyIterator();\n");
+        try self.emitIndent();
+        try self.emit("while (__iter__.next()) |");
+        try self.emit(var_name);
+        try self.emit("| {\n");
+
+        self.indent();
+        try self.pushScope();
+
+        for (for_stmt.body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+
+        self.popScope();
+        self.dedent();
+
+        try self.emitIndent();
+        try self.emit("}\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        return;
+    }
+
     try self.emit("for (");
 
     // Check if this is a constant list (will be compiled to array, not ArrayList)

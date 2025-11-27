@@ -23,7 +23,7 @@ pub const genInitMethod = class_methods.genInitMethod;
 pub const genClassMethods = class_methods.genClassMethods;
 pub const genInheritedMethods = class_methods.genInheritedMethods;
 
-/// Check if a method mutates self (assigns to self.field)
+/// Check if a method mutates self (assigns to self.field or self.field[key])
 pub fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
     for (method.body) |stmt| {
         if (stmt == .assign) {
@@ -32,6 +32,15 @@ pub fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
                     const attr = target.attribute;
                     if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
                         return true; // Assigns to self.field
+                    }
+                } else if (target == .subscript) {
+                    // Check if subscript base is self.something: self.routes[key] = value
+                    const subscript = target.subscript;
+                    if (subscript.value.* == .attribute) {
+                        const attr = subscript.value.attribute;
+                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                            return true; // Assigns to self.field[key]
+                        }
                     }
                 }
             }

@@ -24,9 +24,9 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
     // In functions (scope > 0): use '__global_allocator' (module-level)
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
-    // Empty dict - use PyObject for unknown value type (consistent with type inference)
+    // Empty dict - use anyopaque for unknown value type (consistent with type inference)
     if (dict.keys.len == 0) {
-        try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(");
+        try self.emit("hashmap_helper.StringHashMap(*const anyopaque).init(");
         try self.emit(alloc_name);
         try self.emit(")");
         return;
