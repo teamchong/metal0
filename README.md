@@ -381,19 +381,28 @@ make benchmark-fib-tail  # Tail-recursive TCO test
 
 ### JSON Benchmark (50K iterations × 62KB realistic JSON)
 
-All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 runs, 2 warmup) on Apple Silicon using realistic 62KB JSON document (50 users, 30 products, 31 days analytics). Reduced from 100K to 50K iterations for faster benchmarking (~5 minutes instead of 20).
+All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 runs, 2 warmup) on Apple Silicon using realistic 62KB JSON document (50 users, 30 products, 31 days analytics).
 
 **JSON Parse (50K × 62KB = 3.1GB processed):**
 
-| Implementation | Time | vs Rust |
-|---------------|------|---------|
-| **Rust (serde_json)** | **6.0s ± 0.0s** | **1.00x** 🏆 |
-| PyAOT | 10.3s ± 0.6s | 1.72x slower |
-| Zig (std.json) | 11.2s ± 0.0s | 1.86x slower |
-| Python (stdlib) | 14.6s ± 0.1s | 2.42x slower |
-| Go (encoding/json) | 19.8s ± 0.0s | 3.29x slower |
+| Implementation | Time | Relative |
+|---------------|------|----------|
+| **PyPy** | **5.2s ± 0.0s** | **1.00x** 🏆 |
+| Rust (serde_json) | 6.2s ± 0.1s | 1.20x |
+| PyAOT | 10.5s ± 0.2s | 2.04x |
+| Zig (std.json) | 11.6s ± 0.4s | 2.24x |
+| Python | 15.2s ± 0.1s | 2.93x |
+| Go | 20.0s ± 0.2s | 3.88x |
 
-**JSON Stringify:** *(Not yet benchmarked - work in progress)*
+**JSON Stringify (50K × 62KB = 3.1GB processed):**
+
+| Implementation | Time | Relative |
+|---------------|------|----------|
+| **PyAOT** | **2.1s ± 0.0s** | **1.00x** 🏆 |
+| Rust (serde_json) | 4.6s ± 0.0s | 2.22x |
+| PyPy | 9.4s ± 0.0s | 4.55x |
+| Python | 9.6s ± 0.1s | 4.68x |
+| Go | 10.3s ± 0.1s | 4.99x |
 
 **Key optimizations:**
 - SIMD whitespace skipping (AVX2/NEON) - process 32 bytes per iteration
