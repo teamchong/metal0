@@ -208,6 +208,19 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             }
             line = try analyzeLifetimes(info, listcomp.elt.*, line);
         },
+        .genexp => |genexp| {
+            for (genexp.generators) |gen| {
+                line = try analyzeLifetimes(info, gen.iter.*, line);
+                if (gen.target.* == .name) {
+                    try info.recordVariableUse(gen.target.name.id, line, true);
+                    try info.markLoopLocal(gen.target.name.id);
+                }
+                for (gen.ifs) |if_node| {
+                    line = try analyzeLifetimes(info, if_node, line);
+                }
+            }
+            line = try analyzeLifetimes(info, genexp.elt.*, line);
+        },
         .dictcomp => |dictcomp| {
             for (dictcomp.generators) |gen| {
                 line = try analyzeLifetimes(info, gen.iter.*, line);
@@ -358,7 +371,7 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             }
         },
         // Leaf nodes
-        .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .global_stmt, .ellipsis_literal, .raise_stmt, .yield_stmt => {
+        .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .global_stmt, .nonlocal_stmt, .ellipsis_literal, .raise_stmt, .yield_stmt, .yield_from_stmt => {
             // No variables to track
         },
     }

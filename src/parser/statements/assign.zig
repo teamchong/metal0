@@ -5,8 +5,18 @@ const lexer = @import("../../lexer.zig");
 const ParseError = @import("../../parser.zig").ParseError;
 const Parser = @import("../../parser.zig").Parser;
 
+/// Parse assignment target - handles starred targets like *args
+fn parseAssignTarget(self: *Parser) ParseError!ast.Node {
+    if (self.match(.Star)) {
+        var value = try self.parseExpression();
+        errdefer value.deinit(self.allocator);
+        return ast.Node{ .starred = .{ .value = try self.allocNode(value) } };
+    }
+    return self.parseExpression();
+}
+
 pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
-    var expr = try self.parseExpression();
+    var expr = try parseAssignTarget(self);
     errdefer expr.deinit(self.allocator);
 
     // Check for type annotation: x: int = 5
@@ -43,7 +53,7 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         try targets_list.append(self.allocator, expr);
 
         while (self.match(.Comma)) {
-            var target = try self.parseExpression();
+            var target = try parseAssignTarget(self);
             errdefer target.deinit(self.allocator);
             try targets_list.append(self.allocator, target);
         }
