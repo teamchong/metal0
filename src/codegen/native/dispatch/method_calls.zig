@@ -68,6 +68,13 @@ const DictMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "items", methods.genItems },
 });
 
+// File methods - O(1) lookup via StaticStringMap
+const FileMethods = std.StaticStringMap(MethodHandler).initComptime(.{
+    .{ "read", methods.genFileRead },
+    .{ "write", methods.genFileWrite },
+    .{ "close", methods.genFileClose },
+});
+
 // Pandas column methods - O(1) lookup via StaticStringMap
 const PandasColumnMethods = std.StaticStringMap(ColumnHandler).initComptime(.{
     .{ "sum", pandas_mod.genColumnSum },
@@ -157,6 +164,12 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
     // Try dict methods
     if (DictMethods.get(method_name)) |handler| {
+        try handler(self, obj, call.args);
+        return true;
+    }
+
+    // Try file methods
+    if (FileMethods.get(method_name)) |handler| {
         try handler(self, obj, call.args);
         return true;
     }

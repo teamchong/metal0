@@ -1,7 +1,8 @@
-/// String/List/Dict methods - Re-export hub for method implementations
+/// String/List/Dict/File methods - Re-export hub for method implementations
 const string = @import("methods/string.zig");
 const list = @import("methods/list.zig");
 const dict = @import("methods/dict.zig");
+const file = @import("methods/file.zig");
 
 // String methods
 pub const genSplit = string.genSplit;
@@ -53,3 +54,8 @@ pub const genGet = dict.genGet;
 pub const genKeys = dict.genKeys;
 pub const genValues = dict.genValues;
 pub const genItems = dict.genItems;
+
+// File methods
+pub const genFileRead = file.genFileRead;
+pub const genFileWrite = file.genFileWrite;
+pub const genFileClose = file.genFileClose;
