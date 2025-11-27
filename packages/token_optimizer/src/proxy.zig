@@ -210,10 +210,6 @@ pub const ProxyServer = struct {
             self.logTokenUsage(response_body.items);
         }
 
-        // Compress response with gzip
-        const compressed_response = try gzip.compress(self.allocator, response_body.items);
-        defer self.allocator.free(compressed_response);
-
         // Preserve actual status code from API
         const status_text = switch (response.head.status) {
             .ok => "200 OK",
@@ -227,15 +223,32 @@ pub const ProxyServer = struct {
             else => "200 OK",
         };
 
-        const response_header = try std.fmt.allocPrint(
-            self.allocator,
-            "HTTP/1.1 {s}\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {d}\r\n\r\n",
-            .{ status_text, compressed_response.len },
-        );
-        defer self.allocator.free(response_header);
+        // Send response (with optional gzip compression)
+        const use_gzip = std.posix.getenv("PROXY_GZIP") != null;
+        if (use_gzip) {
+            const compressed_response = try gzip.compress(self.allocator, response_body.items);
+            defer self.allocator.free(compressed_response);
 
-        try connection.stream.writeAll(response_header);
-        try connection.stream.writeAll(compressed_response);
+            const response_header = try std.fmt.allocPrint(
+                self.allocator,
+                "HTTP/1.1 {s}\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {d}\r\n\r\n",
+                .{ status_text, compressed_response.len },
+            );
+            defer self.allocator.free(response_header);
+
+            try connection.stream.writeAll(response_header);
+            try connection.stream.writeAll(compressed_response);
+        } else {
+            const response_header = try std.fmt.allocPrint(
+                self.allocator,
+                "HTTP/1.1 {s}\r\nContent-Type: application/json\r\nContent-Length: {d}\r\n\r\n",
+                .{ status_text, response_body.items.len },
+            );
+            defer self.allocator.free(response_header);
+
+            try connection.stream.writeAll(response_header);
+            try connection.stream.writeAll(response_body.items);
+        }
     }
 
     /// Extract and log token usage from API response
