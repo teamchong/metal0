@@ -45,7 +45,13 @@ pub const Parser = struct {
 
     pub fn parse(self: *Parser) ParseError!ast.Node {
         var stmts = std.ArrayList(ast.Node){};
-        defer stmts.deinit(self.allocator);
+        errdefer {
+            // On error, clean up any statements we've already parsed
+            for (stmts.items) |*stmt| {
+                stmt.deinit(self.allocator);
+            }
+            stmts.deinit(self.allocator);
+        }
 
         // Skip leading newlines
         while (self.match(.Newline)) {}
@@ -57,9 +63,12 @@ pub const Parser = struct {
             self.is_first_statement = false;
         }
 
+        // Success path - transfer ownership, don't clean up
+        const body = try stmts.toOwnedSlice(self.allocator);
+        stmts = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
         return ast.Node{
             .module = .{
-                .body = try stmts.toOwnedSlice(self.allocator),
+                .body = body,
             },
         };
     }
