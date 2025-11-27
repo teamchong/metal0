@@ -84,6 +84,7 @@ fn parseString(self: *Parser) ParseError!ast.Node {
     var prev_allocated: ?[]const u8 = null; // Track previously allocated string for cleanup
 
     // Handle implicit string concatenation: "a" "b" -> "ab"
+    // Also check for "a" f"b" which should become an f-string
     while (true) {
         var lookahead: usize = 0;
         while (self.current + lookahead < self.tokens.len and
@@ -92,9 +93,11 @@ fn parseString(self: *Parser) ParseError!ast.Node {
             lookahead += 1;
         }
 
-        if (self.current + lookahead < self.tokens.len and
-            self.tokens[self.current + lookahead].type == .String)
-        {
+        if (self.current + lookahead >= self.tokens.len) break;
+
+        const next_type = self.tokens[self.current + lookahead].type;
+
+        if (next_type == .String) {
             self.skipNewlines();
             const next_str = self.advance().?;
             const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
@@ -111,6 +114,33 @@ fn parseString(self: *Parser) ParseError!ast.Node {
             }
             result_str = new_str;
             prev_allocated = new_str;
+        } else if (next_type == .FString) {
+            // String followed by f-string: "a" f"b{x}" -> becomes f-string
+            // Convert current string content to f-string literal part, then delegate
+            self.skipNewlines();
+
+            // Strip quotes from current string
+            const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
+
+            // Free any previously allocated string
+            if (prev_allocated) |prev| {
+                self.allocator.free(prev);
+            }
+
+            // Parse the f-string (which handles further concatenation)
+            var fstring_node = try parseFString(self);
+
+            // Prepend our string content as a literal part
+            if (first_content.len > 0) {
+                const old_parts = fstring_node.fstring.parts;
+                const new_parts = try self.allocator.alloc(ast.FStringPart, old_parts.len + 1);
+                new_parts[0] = .{ .literal = first_content };
+                @memcpy(new_parts[1..], old_parts);
+                self.allocator.free(old_parts);
+                fstring_node.fstring.parts = new_parts;
+            }
+
+            return fstring_node;
         } else {
             break;
         }
@@ -145,12 +175,11 @@ fn parseRawString(self: *Parser) ParseError!ast.Node {
 fn parseFString(self: *Parser) ParseError!ast.Node {
     const fstr_tok = self.advance().?;
     const lexer_parts = fstr_tok.fstring_parts orelse &[_]lexer.FStringPart{};
-    var ast_parts = try self.allocator.alloc(ast.FStringPart, lexer_parts.len);
-    var parts_filled: usize = 0;
 
+    // Use ArrayList for dynamic sizing (to handle string concatenation)
+    var parts_list = std.ArrayList(ast.FStringPart){};
     errdefer {
-        // Clean up already converted parts
-        for (ast_parts[0..parts_filled]) |*part| {
+        for (parts_list.items) |*part| {
             switch (part.*) {
                 .expr => |e| {
                     e.deinit(self.allocator);
@@ -167,13 +196,66 @@ fn parseFString(self: *Parser) ParseError!ast.Node {
                 .literal => {},
             }
         }
-        self.allocator.free(ast_parts);
+        parts_list.deinit(self.allocator);
     }
 
-    for (lexer_parts, 0..) |lexer_part, i| {
-        ast_parts[i] = try convertFStringPart(self, lexer_part);
-        parts_filled = i + 1;
+    // Convert initial f-string parts
+    for (lexer_parts) |lexer_part| {
+        try parts_list.append(self.allocator, try convertFStringPart(self, lexer_part));
     }
+
+    // Handle implicit string concatenation: f"a" "b" or f"a" f"b"
+    while (true) {
+        // Skip newlines to find adjacent strings
+        var lookahead: usize = 0;
+        while (self.current + lookahead < self.tokens.len and
+            self.tokens[self.current + lookahead].type == .Newline)
+        {
+            lookahead += 1;
+        }
+
+        if (self.current + lookahead >= self.tokens.len) break;
+
+        const next_type = self.tokens[self.current + lookahead].type;
+        if (next_type == .String) {
+            // Concatenate regular string as a literal part
+            self.skipNewlines();
+            const str_tok = self.advance().?;
+            // Strip quotes from string
+            const content = if (str_tok.lexeme.len >= 2)
+                str_tok.lexeme[1 .. str_tok.lexeme.len - 1]
+            else
+                str_tok.lexeme;
+            try parts_list.append(self.allocator, .{ .literal = content });
+        } else if (next_type == .FString) {
+            // Concatenate another f-string's parts
+            self.skipNewlines();
+            const next_fstr = self.advance().?;
+            const next_parts = next_fstr.fstring_parts orelse &[_]lexer.FStringPart{};
+            for (next_parts) |lexer_part| {
+                try parts_list.append(self.allocator, try convertFStringPart(self, lexer_part));
+            }
+        } else if (next_type == .RawString) {
+            // Concatenate raw string as literal
+            self.skipNewlines();
+            const str_tok = self.advance().?;
+            // Strip r prefix and quotes
+            const stripped = if (str_tok.lexeme.len > 0 and str_tok.lexeme[0] == 'r')
+                str_tok.lexeme[1..]
+            else
+                str_tok.lexeme;
+            const content = if (stripped.len >= 2)
+                stripped[1 .. stripped.len - 1]
+            else
+                stripped;
+            try parts_list.append(self.allocator, .{ .literal = content });
+        } else {
+            break;
+        }
+    }
+
+    const ast_parts = try parts_list.toOwnedSlice(self.allocator);
+    parts_list = std.ArrayList(ast.FStringPart){}; // Reset to prevent double-free
 
     return ast.Node{ .fstring = .{ .parts = ast_parts } };
 }
