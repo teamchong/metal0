@@ -146,7 +146,7 @@ pub const TextCompressor = struct {
         var tool_msg_count: usize = 0;
         for (request.messages, 0..) |msg, idx| {
             for (msg.content) |block| {
-                if (block.content_type == .tool_use or block.content_type == .tool_result) {
+                if (block.content_type == .tool_use or block.content_type == .tool_result or block.content_type == .thinking) {
                     can_compress[idx] = false;
                     tool_msg_count += 1;
                     break;
@@ -186,12 +186,14 @@ pub const TextCompressor = struct {
             var has_tool_use = false;
             var has_tool_result = false;
             var has_image = false;
+            var has_thinking = false;
             for (msg.content) |block| {
                 if (block.content_type == .tool_use) has_tool_use = true;
                 if (block.content_type == .tool_result) has_tool_result = true;
                 if (block.content_type == .image) has_image = true;
+                if (block.content_type == .thinking) has_thinking = true;
             }
-            const tag: []const u8 = if (has_tool_use) " [tool_use]" else if (has_tool_result) " [tool_result]" else if (has_image) " [image]" else "";
+            const tag: []const u8 = if (has_thinking) " [thinking]" else if (has_tool_use) " [tool_use]" else if (has_tool_result) " [tool_result]" else if (has_image) " [image]" else "";
             std.debug.print("  [{d}] {s}: {s}{s}\n", .{
                 idx,
                 if (can_compress[idx]) "COMPRESS" else "KEEP    ",
@@ -495,6 +497,14 @@ pub const TextCompressor = struct {
                 try buffer.appendSlice(self.allocator, "\",\"content\":\"");
                 if (block.tool_content) |content| {
                     try self.appendEscapedJson(content, buffer);
+                }
+                try buffer.appendSlice(self.allocator, "\"}");
+            },
+            .thinking => {
+                // Thinking blocks must be preserved exactly for API compliance
+                try buffer.appendSlice(self.allocator, "{\"type\":\"thinking\",\"thinking\":\"");
+                if (block.text) |text| {
+                    try self.appendEscapedJson(text, buffer);
                 }
                 try buffer.appendSlice(self.allocator, "\"}");
             },

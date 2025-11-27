@@ -33,6 +33,7 @@ pub const ContentType = enum {
     image,
     tool_use,
     tool_result,
+    thinking, // Extended thinking blocks (must preserve for API compliance)
 };
 
 /// A single content block within a message
@@ -228,6 +229,13 @@ pub const MessageParser = struct {
                             .content_type = .tool_result,
                             .tool_use_id = try self.allocator.dupe(u8, id),
                             .tool_content = try self.allocator.dupe(u8, content),
+                        });
+                    } else if (std.mem.eql(u8, type_str, "thinking")) {
+                        // Thinking blocks - preserve for API compliance
+                        const thinking_text = if (block_obj.get("thinking")) |t| t.string else "";
+                        try content_blocks.append(self.allocator, .{
+                            .content_type = .thinking,
+                            .text = try self.allocator.dupe(u8, thinking_text),
                         });
                     }
                 }

@@ -1,5 +1,5 @@
 //! Shared JSON library for PyAOT
-//! 2.17x faster than std.json
+//! Portable JSON parser/stringifier with no SIMD dependencies
 //!
 //! Usage:
 //!   const json = @import("json");

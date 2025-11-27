@@ -1,5 +1,4 @@
-//! JSON Stringify - high-performance serialization
-//! 2.17x faster than std.json via comptime lookup tables and SIMD
+//! JSON Stringify - serialization with comptime lookup tables
 //!
 //! Usage:
 //!   const json = @import("json");
