@@ -65,7 +65,30 @@ pub const ParsedRequest = struct {
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *ParsedRequest) void {
+        // Free model string
+        self.allocator.free(self.model);
+
+        // Free system prompt if present
+        if (self.system_prompt) |sp| {
+            self.allocator.free(sp);
+        }
+
+        // Free prefix/suffix JSON
+        self.allocator.free(self.prefix_json);
+        self.allocator.free(self.suffix_json);
+
+        // Free messages and their content
         for (self.messages) |msg| {
+            for (msg.content) |block| {
+                // Free content block strings
+                if (block.text) |t| self.allocator.free(t);
+                if (block.image_data) |d| self.allocator.free(d);
+                if (block.media_type) |m| self.allocator.free(m);
+                if (block.tool_use_id) |id| self.allocator.free(id);
+                if (block.tool_name) |n| self.allocator.free(n);
+                if (block.tool_input) |i| self.allocator.free(i);
+                if (block.tool_content) |c| self.allocator.free(c);
+            }
             self.allocator.free(msg.content);
         }
         self.allocator.free(self.messages);
