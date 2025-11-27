@@ -146,9 +146,33 @@ fn parseFString(self: *Parser) ParseError!ast.Node {
     const fstr_tok = self.advance().?;
     const lexer_parts = fstr_tok.fstring_parts orelse &[_]lexer.FStringPart{};
     var ast_parts = try self.allocator.alloc(ast.FStringPart, lexer_parts.len);
+    var parts_filled: usize = 0;
+
+    errdefer {
+        // Clean up already converted parts
+        for (ast_parts[0..parts_filled]) |*part| {
+            switch (part.*) {
+                .expr => |e| {
+                    e.deinit(self.allocator);
+                    self.allocator.destroy(e);
+                },
+                .format_expr => |fe| {
+                    fe.expr.deinit(self.allocator);
+                    self.allocator.destroy(fe.expr);
+                },
+                .conv_expr => |ce| {
+                    ce.expr.deinit(self.allocator);
+                    self.allocator.destroy(ce.expr);
+                },
+                .literal => {},
+            }
+        }
+        self.allocator.free(ast_parts);
+    }
 
     for (lexer_parts, 0..) |lexer_part, i| {
         ast_parts[i] = try convertFStringPart(self, lexer_part);
+        parts_filled = i + 1;
     }
 
     return ast.Node{ .fstring = .{ .parts = ast_parts } };
@@ -188,7 +212,9 @@ fn parseEmbeddedExpr(self: *Parser, expr_text: []const u8) ParseError!*ast.Node 
 
     var expr_parser = Parser.init(self.allocator, expr_tokens);
     defer expr_parser.deinit();
-    const expr_node = try expr_parser.parseExpression();
+
+    var expr_node = try expr_parser.parseExpression();
+    errdefer expr_node.deinit(self.allocator);
 
     const expr_ptr = try self.allocator.create(ast.Node);
     expr_ptr.* = expr_node;
@@ -222,8 +248,11 @@ fn parseIdent(self: *Parser) ast.Node {
 
 fn parseAwait(self: *Parser) ParseError!ast.Node {
     _ = self.advance();
+    var value = try parsePostfix(self);
+    errdefer value.deinit(self.allocator);
+
     const value_ptr = try self.allocator.create(ast.Node);
-    value_ptr.* = try parsePostfix(self);
+    value_ptr.* = value;
     return ast.Node{ .await_expr = .{ .value = value_ptr } };
 }
 
@@ -236,20 +265,31 @@ fn parseGroupedOrTuple(self: *Parser) ParseError!ast.Node {
         return ast.Node{ .tuple = .{ .elts = &.{} } };
     }
 
-    const first = try self.parseExpression();
+    var first = try self.parseExpression();
+    errdefer first.deinit(self.allocator);
 
     // Check if it's a tuple (has comma) or grouped expression
     if (self.match(.Comma)) {
         var elements = std.ArrayList(ast.Node){};
+        errdefer {
+            for (elements.items) |*elem| elem.deinit(self.allocator);
+            elements.deinit(self.allocator);
+        }
         try elements.append(self.allocator, first);
 
         while (!self.check(.RParen)) {
-            try elements.append(self.allocator, try self.parseExpression());
+            var elem = try self.parseExpression();
+            errdefer elem.deinit(self.allocator);
+            try elements.append(self.allocator, elem);
             if (!self.match(.Comma)) break;
         }
 
         _ = try self.expect(.RParen);
-        return ast.Node{ .tuple = .{ .elts = try elements.toOwnedSlice(self.allocator) } };
+
+        // Success - transfer ownership
+        const result = try elements.toOwnedSlice(self.allocator);
+        elements = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
+        return ast.Node{ .tuple = .{ .elts = result } };
     } else {
         _ = try self.expect(.RParen);
         return first;
@@ -258,21 +298,30 @@ fn parseGroupedOrTuple(self: *Parser) ParseError!ast.Node {
 
 fn parseUnaryMinus(self: *Parser) ParseError!ast.Node {
     _ = self.advance();
+    var operand = try parsePrimary(self);
+    errdefer operand.deinit(self.allocator);
+
     const operand_ptr = try self.allocator.create(ast.Node);
-    operand_ptr.* = try parsePrimary(self);
+    operand_ptr.* = operand;
     return ast.Node{ .unaryop = .{ .op = .USub, .operand = operand_ptr } };
 }
 
 fn parseUnaryPlus(self: *Parser) ParseError!ast.Node {
     _ = self.advance();
+    var operand = try parsePrimary(self);
+    errdefer operand.deinit(self.allocator);
+
     const operand_ptr = try self.allocator.create(ast.Node);
-    operand_ptr.* = try parsePrimary(self);
+    operand_ptr.* = operand;
     return ast.Node{ .unaryop = .{ .op = .UAdd, .operand = operand_ptr } };
 }
 
 fn parseBitwiseNot(self: *Parser) ParseError!ast.Node {
     _ = self.advance();
+    var operand = try parsePrimary(self);
+    errdefer operand.deinit(self.allocator);
+
     const operand_ptr = try self.allocator.create(ast.Node);
-    operand_ptr.* = try parsePrimary(self);
+    operand_ptr.* = operand;
     return ast.Node{ .unaryop = .{ .op = .Invert, .operand = operand_ptr } };
 }

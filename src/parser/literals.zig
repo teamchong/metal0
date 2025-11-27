@@ -18,7 +18,8 @@ pub fn parseList(self: *Parser) ParseError!ast.Node {
     }
 
     // Parse first element
-    const first_elt = try self.parseExpression();
+    var first_elt = try self.parseExpression();
+    errdefer first_elt.deinit(self.allocator);
 
     // Check if this is a list comprehension: [x for x in items]
     if (self.check(.For)) {
@@ -27,7 +28,10 @@ pub fn parseList(self: *Parser) ParseError!ast.Node {
 
     // Regular list: collect elements
     var elts = std.ArrayList(ast.Node){};
-    defer elts.deinit(self.allocator);
+    errdefer {
+        for (elts.items) |*e| e.deinit(self.allocator);
+        elts.deinit(self.allocator);
+    }
     try elts.append(self.allocator, first_elt);
 
     while (self.match(.Comma)) {
@@ -35,15 +39,20 @@ pub fn parseList(self: *Parser) ParseError!ast.Node {
         if (self.check(.RBracket)) {
             break;
         }
-        const elt = try self.parseExpression();
+        var elt = try self.parseExpression();
+        errdefer elt.deinit(self.allocator);
         try elts.append(self.allocator, elt);
     }
 
     _ = try self.expect(.RBracket);
 
+    // Success - transfer ownership
+    const result = try elts.toOwnedSlice(self.allocator);
+    elts = std.ArrayList(ast.Node){}; // Reset
+
     return ast.Node{
         .list = .{
-            .elts = try elts.toOwnedSlice(self.allocator),
+            .elts = result,
         },
     };
 }
@@ -52,26 +61,44 @@ pub fn parseList(self: *Parser) ParseError!ast.Node {
 pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
     // We've already parsed the element expression
     // Now parse one or more: for <target> in <iter> [if <condition>]
+    var element = elt;
+    errdefer element.deinit(self.allocator);
 
     var generators = std.ArrayList(ast.Node.Comprehension){};
-    defer generators.deinit(self.allocator);
+    errdefer {
+        for (generators.items) |*gen| {
+            gen.target.deinit(self.allocator);
+            self.allocator.destroy(gen.target);
+            gen.iter.deinit(self.allocator);
+            self.allocator.destroy(gen.iter);
+            for (gen.ifs) |*cond| cond.deinit(self.allocator);
+            self.allocator.free(gen.ifs);
+        }
+        generators.deinit(self.allocator);
+    }
 
     // Parse all "for ... in ..." clauses
     while (self.match(.For)) {
         // Parse target as primary (just a name, not a full expression)
-        const target = try self.parsePrimary();
+        var target = try self.parsePrimary();
+        errdefer target.deinit(self.allocator);
         _ = try self.expect(.In);
         // Use parseOrExpr to stop at 'if' keyword (not treat as ternary conditional)
-        const iter = try self.parseOrExpr();
+        var iter = try self.parseOrExpr();
+        errdefer iter.deinit(self.allocator);
 
         // Parse optional if conditions for this generator
         var ifs = std.ArrayList(ast.Node){};
-        defer ifs.deinit(self.allocator);
+        errdefer {
+            for (ifs.items) |*i| i.deinit(self.allocator);
+            ifs.deinit(self.allocator);
+        }
 
         while (self.check(.If) and !self.check(.For)) {
             _ = self.advance();
             // Use parseOrExpr so nested 'if' doesn't get consumed as ternary
-            const cond = try self.parseOrExpr();
+            var cond = try self.parseOrExpr();
+            errdefer cond.deinit(self.allocator);
             try ifs.append(self.allocator, cond);
         }
 
@@ -82,10 +109,13 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
         const iter_ptr = try self.allocator.create(ast.Node);
         iter_ptr.* = iter;
 
+        const ifs_slice = try ifs.toOwnedSlice(self.allocator);
+        ifs = std.ArrayList(ast.Node){}; // Reset
+
         try generators.append(self.allocator, ast.Node.Comprehension{
             .target = target_ptr,
             .iter = iter_ptr,
-            .ifs = try ifs.toOwnedSlice(self.allocator),
+            .ifs = ifs_slice,
         });
     }
 
@@ -93,12 +123,16 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
 
     // Allocate element on heap
     const elt_ptr = try self.allocator.create(ast.Node);
-    elt_ptr.* = elt;
+    elt_ptr.* = element;
+
+    // Success - transfer ownership
+    const gens = try generators.toOwnedSlice(self.allocator);
+    generators = std.ArrayList(ast.Node.Comprehension){}; // Reset
 
     return ast.Node{
         .listcomp = .{
             .elt = elt_ptr,
-            .generators = try generators.toOwnedSlice(self.allocator),
+            .generators = gens,
         },
     };
 }
@@ -119,7 +153,8 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
     }
 
     // Parse first element
-    const first_elem = try self.parseExpression();
+    var first_elem = try self.parseExpression();
+    errdefer first_elem.deinit(self.allocator);
 
     // Check what follows to determine dict vs set:
     // - Colon → dict literal or dict comprehension
@@ -127,7 +162,8 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
     if (self.check(.Colon)) {
         // Dict: {key: value, ...} or dict comprehension
         _ = try self.expect(.Colon);
-        const first_value = try self.parseExpression();
+        var first_value = try self.parseExpression();
+        errdefer first_value.deinit(self.allocator);
 
         // Check if this is a dict comprehension: {k: v for k in items}
         if (self.check(.For)) {
@@ -136,10 +172,16 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
 
         // Regular dict: collect key-value pairs
         var keys = std.ArrayList(ast.Node){};
-        defer keys.deinit(self.allocator);
+        errdefer {
+            for (keys.items) |*k| k.deinit(self.allocator);
+            keys.deinit(self.allocator);
+        }
 
         var values = std.ArrayList(ast.Node){};
-        defer values.deinit(self.allocator);
+        errdefer {
+            for (values.items) |*v| v.deinit(self.allocator);
+            values.deinit(self.allocator);
+        }
 
         try keys.append(self.allocator, first_elem);
         try values.append(self.allocator, first_value);
@@ -149,9 +191,11 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
             if (self.check(.RBrace)) {
                 break;
             }
-            const key = try self.parseExpression();
+            var key = try self.parseExpression();
+            errdefer key.deinit(self.allocator);
             _ = try self.expect(.Colon);
-            const value = try self.parseExpression();
+            var value = try self.parseExpression();
+            errdefer value.deinit(self.allocator);
 
             try keys.append(self.allocator, key);
             try values.append(self.allocator, value);
@@ -159,16 +203,25 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
 
         _ = try self.expect(.RBrace);
 
+        // Success - transfer ownership
+        const keys_result = try keys.toOwnedSlice(self.allocator);
+        keys = std.ArrayList(ast.Node){}; // Reset
+        const values_result = try values.toOwnedSlice(self.allocator);
+        values = std.ArrayList(ast.Node){}; // Reset
+
         return ast.Node{
             .dict = .{
-                .keys = try keys.toOwnedSlice(self.allocator),
-                .values = try values.toOwnedSlice(self.allocator),
+                .keys = keys_result,
+                .values = values_result,
             },
         };
     } else {
         // Set literal: {item} or {item1, item2, ...}
         var elts = std.ArrayList(ast.Node){};
-        defer elts.deinit(self.allocator);
+        errdefer {
+            for (elts.items) |*e| e.deinit(self.allocator);
+            elts.deinit(self.allocator);
+        }
 
         try elts.append(self.allocator, first_elem);
 
@@ -177,15 +230,20 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
             if (self.check(.RBrace)) {
                 break;
             }
-            const elem = try self.parseExpression();
+            var elem = try self.parseExpression();
+            errdefer elem.deinit(self.allocator);
             try elts.append(self.allocator, elem);
         }
 
         _ = try self.expect(.RBrace);
 
+        // Success - transfer ownership
+        const result = try elts.toOwnedSlice(self.allocator);
+        elts = std.ArrayList(ast.Node){}; // Reset
+
         return ast.Node{
             .set = .{
-                .elts = try elts.toOwnedSlice(self.allocator),
+                .elts = result,
             },
         };
     }
@@ -195,26 +253,46 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
 pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!ast.Node {
     // We've already parsed the key and value expressions
     // Now parse one or more: for <target> in <iter> [if <condition>]
+    var key_node = key;
+    errdefer key_node.deinit(self.allocator);
+    var value_node = value;
+    errdefer value_node.deinit(self.allocator);
 
     var generators = std.ArrayList(ast.Node.Comprehension){};
-    defer generators.deinit(self.allocator);
+    errdefer {
+        for (generators.items) |*gen| {
+            gen.target.deinit(self.allocator);
+            self.allocator.destroy(gen.target);
+            gen.iter.deinit(self.allocator);
+            self.allocator.destroy(gen.iter);
+            for (gen.ifs) |*cond| cond.deinit(self.allocator);
+            self.allocator.free(gen.ifs);
+        }
+        generators.deinit(self.allocator);
+    }
 
     // Parse all "for ... in ..." clauses
     while (self.match(.For)) {
         // Parse target as primary (just a name, not a full expression)
-        const target = try self.parsePrimary();
+        var target = try self.parsePrimary();
+        errdefer target.deinit(self.allocator);
         _ = try self.expect(.In);
         // Use parseOrExpr to stop at 'if' keyword (not treat as ternary conditional)
-        const iter = try self.parseOrExpr();
+        var iter = try self.parseOrExpr();
+        errdefer iter.deinit(self.allocator);
 
         // Parse optional if conditions for this generator
         var ifs = std.ArrayList(ast.Node){};
-        defer ifs.deinit(self.allocator);
+        errdefer {
+            for (ifs.items) |*i| i.deinit(self.allocator);
+            ifs.deinit(self.allocator);
+        }
 
         while (self.check(.If) and !self.check(.For)) {
             _ = self.advance();
             // Use parseOrExpr so nested 'if' doesn't get consumed as ternary
-            const cond = try self.parseOrExpr();
+            var cond = try self.parseOrExpr();
+            errdefer cond.deinit(self.allocator);
             try ifs.append(self.allocator, cond);
         }
 
@@ -225,10 +303,13 @@ pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!a
         const iter_ptr = try self.allocator.create(ast.Node);
         iter_ptr.* = iter;
 
+        const ifs_slice = try ifs.toOwnedSlice(self.allocator);
+        ifs = std.ArrayList(ast.Node){}; // Reset
+
         try generators.append(self.allocator, ast.Node.Comprehension{
             .target = target_ptr,
             .iter = iter_ptr,
-            .ifs = try ifs.toOwnedSlice(self.allocator),
+            .ifs = ifs_slice,
         });
     }
 
@@ -236,16 +317,20 @@ pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!a
 
     // Allocate key and value on heap
     const key_ptr = try self.allocator.create(ast.Node);
-    key_ptr.* = key;
+    key_ptr.* = key_node;
 
     const value_ptr = try self.allocator.create(ast.Node);
-    value_ptr.* = value;
+    value_ptr.* = value_node;
+
+    // Success - transfer ownership
+    const gens = try generators.toOwnedSlice(self.allocator);
+    generators = std.ArrayList(ast.Node.Comprehension){}; // Reset
 
     return ast.Node{
         .dictcomp = .{
             .key = key_ptr,
             .value = value_ptr,
-            .generators = try generators.toOwnedSlice(self.allocator),
+            .generators = gens,
         },
     };
 }
