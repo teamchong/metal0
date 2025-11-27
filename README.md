@@ -387,7 +387,7 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 
 | Implementation | Time | Relative |
 |---------------|------|----------|
-| **PyPy** | **5.2s ± 0.0s** | **1.00x** 🏆 |
+| **PyPy** | **5.2s ± 0.0s** | **1.00x** 🏆 | *(JIT advantage from repeated same-structure parsing)*
 | Rust (serde_json) | 6.2s ± 0.1s | 1.20x |
 | PyAOT | 10.5s ± 0.2s | 2.04x |
 | Zig (std.json) | 11.6s ± 0.4s | 2.24x |
