@@ -181,13 +181,16 @@ pub const MessageParser = struct {
                     } else if (std.mem.eql(u8, type_str, "tool_use")) {
                         const id = if (block_obj.get("id")) |v| v.string else "";
                         const name = if (block_obj.get("name")) |v| v.string else "";
-                        // For tool_use, we just pass through with empty input
-                        // The actual input will be reconstructed from the original JSON
+                        // Serialize the input object back to JSON string
+                        const input_json: []const u8 = if (block_obj.get("input")) |input_val|
+                            std.json.Stringify.valueAlloc(self.allocator, input_val, .{}) catch "{}"
+                        else
+                            "{}";
                         try content_blocks.append(self.allocator, .{
                             .content_type = .tool_use,
                             .tool_use_id = try self.allocator.dupe(u8, id),
                             .tool_name = try self.allocator.dupe(u8, name),
-                            .tool_input = try self.allocator.dupe(u8, "{}"),
+                            .tool_input = input_json,
                         });
                     } else if (std.mem.eql(u8, type_str, "tool_result")) {
                         const id = if (block_obj.get("tool_use_id")) |v| v.string else "";

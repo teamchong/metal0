@@ -142,16 +142,47 @@ pub const TextCompressor = struct {
         }
 
         // Mark messages with tool_use or tool_result as non-compressible
+        // IMPORTANT: Keep ALL messages from first tool to end (tool chains must stay intact)
+        var first_tool_idx: ?usize = null;
+        var tool_msg_count: usize = 0;
         for (request.messages, 0..) |msg, idx| {
             for (msg.content) |block| {
                 if (block.content_type == .tool_use or block.content_type == .tool_result) {
-                    can_compress[idx] = false;
-                    // Also keep the message before (for tool_result) and after (for tool_use)
-                    if (idx > 0) can_compress[idx - 1] = false;
-                    if (idx + 1 < msg_count) can_compress[idx + 1] = false;
+                    tool_msg_count += 1;
+                    if (first_tool_idx == null) {
+                        first_tool_idx = idx;
+                    }
                     break;
                 }
             }
+        }
+
+        // If there are any tools, keep everything from first tool onward
+        // AND the message before (the user request that triggered it)
+        if (first_tool_idx) |first_idx| {
+            const start_keep = if (first_idx > 0) first_idx - 1 else first_idx;
+            for (start_keep..msg_count) |idx| {
+                can_compress[idx] = false;
+            }
+            std.debug.print("[COMPRESS] Tool chain at idx {d}, keeping idx {d}+ ({d} tool blocks)\n", .{ first_idx, start_keep, tool_msg_count });
+        }
+
+        // Log which messages are compressed vs preserved
+        std.debug.print("[COMPRESS] Message breakdown:\n", .{});
+        for (request.messages, 0..) |msg, idx| {
+            var has_tool_use = false;
+            var has_tool_result = false;
+            for (msg.content) |block| {
+                if (block.content_type == .tool_use) has_tool_use = true;
+                if (block.content_type == .tool_result) has_tool_result = true;
+            }
+            const tool_info: []const u8 = if (has_tool_use) " [tool_use]" else if (has_tool_result) " [tool_result]" else "";
+            std.debug.print("  [{d}] {s}: {s}{s}\n", .{
+                idx,
+                if (can_compress[idx]) "COMPRESS" else "KEEP    ",
+                msg.role.toString(),
+                tool_info,
+            });
         }
 
         // Collect text from compressible messages with per-character role tracking
@@ -315,9 +346,41 @@ pub const TextCompressor = struct {
 
         try new_messages.appendSlice(self.allocator, "]}");
 
-        // 2. Add non-compressed messages (tool pairs, last user message, etc.)
+        // 2. Check if first non-compressed message is user (need assistant bridge)
+        var first_kept_is_user = false;
+        for (request.messages, 0..) |msg, msg_idx| {
+            if (!can_compress[msg_idx]) {
+                first_kept_is_user = (msg.role == .user);
+                break;
+            }
+        }
+
+        // If first kept is user, add assistant bridge to maintain alternation
+        if (first_kept_is_user) {
+            try new_messages.appendSlice(self.allocator, ",{\"role\":\"assistant\",\"content\":\"I understand the conversation history from the images above.\"}");
+        }
+
+        // 3. Add non-compressed messages (tool pairs, last user message, etc.)
+        std.debug.print("[COMPRESS] Final message order:\n", .{});
+        std.debug.print("  [0] NEW user (images + instruction)\n", .{});
+        var final_msg_idx: usize = 1;
+        if (first_kept_is_user) {
+            std.debug.print("  [1] assistant (bridge - first kept was user)\n", .{});
+            final_msg_idx = 2;
+        }
         for (request.messages, 0..) |msg, msg_idx| {
             if (can_compress[msg_idx]) continue; // Skip compressed messages
+
+            var has_tool_use = false;
+            var has_tool_result = false;
+            for (msg.content) |block| {
+                if (block.content_type == .tool_use) has_tool_use = true;
+                if (block.content_type == .tool_result) has_tool_result = true;
+            }
+            const tool_info: []const u8 = if (has_tool_use) " [tool_use]" else if (has_tool_result) " [tool_result]" else "";
+            std.debug.print("  [{d}] {s}{s} (was idx {d})\n", .{ final_msg_idx, msg.role.toString(), tool_info, msg_idx });
+            final_msg_idx += 1;
+
             try new_messages.append(self.allocator, ',');
             try self.appendMessageJson(msg, &new_messages);
         }
