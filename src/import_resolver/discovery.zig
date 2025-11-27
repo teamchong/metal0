@@ -94,6 +94,23 @@ pub fn discoverSitePackages(allocator: std.mem.Allocator) ![][]const u8 {
                         .{ home, version },
                     );
                     paths.append(allocator, user_path) catch allocator.free(user_path);
+
+                    // mise Python installations
+                    // Try multiple minor versions (e.g., 3.12.10, 3.12.5, etc.)
+                    var minor: u8 = 0;
+                    while (minor <= 20) : (minor += 1) {
+                        const mise_path = try std.fmt.allocPrint(
+                            allocator,
+                            "{s}/.local/share/mise/installs/python/3.{d}.{d}/lib/python3.{d}/site-packages",
+                            .{ home, version, minor, version },
+                        );
+                        // Only add if directory exists
+                        std.fs.cwd().access(mise_path, .{}) catch {
+                            allocator.free(mise_path);
+                            continue;
+                        };
+                        paths.append(allocator, mise_path) catch allocator.free(mise_path);
+                    }
                 }
             }
         },

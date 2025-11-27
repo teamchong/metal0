@@ -161,7 +161,7 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
 
             try buffer.append(allocator, '}');
         },
-        .numpy_array, .regex => {
+        .numpy_array, .regex, .file => {
             // Not JSON serializable - output null
             try buffer.appendSlice(allocator, JSON_NULL);
         },

@@ -50,6 +50,8 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "vars", builtins.genVars },
     .{ "globals", builtins.genGlobals },
     .{ "locals", builtins.genLocals },
+    // I/O
+    .{ "open", builtins.genOpen },
 });
 
 /// Try to dispatch built-in function call

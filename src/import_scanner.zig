@@ -108,6 +108,37 @@ pub const ImportGraph = struct {
         // Recursively scan imports
         const dir = std.fs.path.dirname(file_path);
         for (imports) |import_name| {
+            // Handle relative imports (starting with .)
+            if (import_name.len > 0 and import_name[0] == '.') {
+                if (dir) |source_dir| {
+                    // Resolve relative import
+                    const resolved = try resolveRelativeImport(import_name, source_dir, self.allocator);
+                    if (resolved) |path| {
+                        // Check if already visited (using resolved path)
+                        if (visited.contains(path)) {
+                            self.allocator.free(path);
+                            continue;
+                        }
+                        // Check if file exists
+                        std.fs.cwd().access(path, .{}) catch {
+                            std.debug.print("  Skipped import (not found): {s} -> {s}\n", .{ import_name, path });
+                            self.allocator.free(path);
+                            continue;
+                        };
+                        std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, path });
+                        // Add to visited before recursing
+                        const resolved_copy = try self.allocator.dupe(u8, path);
+                        try visited.put(resolved_copy, {});
+                        self.allocator.free(path);
+                        try self.scanRecursive(resolved_copy, visited);
+                    } else {
+                        std.debug.print("  Skipped import (relative, no dir): {s}\n", .{import_name});
+                    }
+                }
+                continue;
+            }
+
+            // Non-relative imports
             if (try import_resolver.resolveImportSource(import_name, dir, self.allocator)) |resolved| {
                 std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, resolved });
                 defer self.allocator.free(resolved);
@@ -118,6 +149,50 @@ pub const ImportGraph = struct {
         }
     }
 };
+
+/// Resolve relative import to file path
+/// .app -> dir/app.py or dir/app/__init__.py
+/// ..utils -> parent_dir/utils.py or parent_dir/utils/__init__.py
+fn resolveRelativeImport(import_name: []const u8, source_dir: []const u8, allocator: std.mem.Allocator) !?[]const u8 {
+    // Count leading dots
+    var dots: usize = 0;
+    while (dots < import_name.len and import_name[dots] == '.') : (dots += 1) {}
+
+    // Get module name after dots
+    const module_part = import_name[dots..];
+
+    // Navigate up directories based on dot count
+    // . = current dir, .. = parent, ... = grandparent
+    var base_dir: []const u8 = source_dir;
+    var levels = dots;
+    while (levels > 1) : (levels -= 1) {
+        if (std.fs.path.dirname(base_dir)) |parent| {
+            base_dir = parent;
+        } else {
+            return null; // Can't go up further
+        }
+    }
+
+    // Build path
+    if (module_part.len == 0) {
+        // from . import X - just the current package
+        return null;
+    }
+
+    // Try as module file first: base_dir/module.py
+    const module_path = try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{ base_dir, module_part });
+    std.fs.cwd().access(module_path, .{}) catch {
+        allocator.free(module_path);
+        // Try as package: base_dir/module/__init__.py
+        const pkg_path = try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{ base_dir, module_part });
+        std.fs.cwd().access(pkg_path, .{}) catch {
+            allocator.free(pkg_path);
+            return null;
+        };
+        return pkg_path;
+    };
+    return module_path;
+}
 
 /// Extract import statements from Python source
 fn extractImports(allocator: std.mem.Allocator, source: []const u8) ![][]const u8 {
@@ -158,6 +233,8 @@ fn extractImports(allocator: std.mem.Allocator, source: []const u8) ![][]const u
                         try imports.append(allocator, module_copy);
                     },
                     .import_from => |imp| {
+                        // For relative imports, we'll resolve them later with source_dir context
+                        // For now, store them as-is - the scanner will resolve them
                         const module_copy = try allocator.dupe(u8, imp.module);
                         try imports.append(allocator, module_copy);
                     },

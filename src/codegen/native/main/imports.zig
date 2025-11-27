@@ -276,6 +276,53 @@ pub fn collectImports(
 
     // Process each module using registry
     for (module_names.keys()) |python_module| {
+        // Handle relative imports (starting with .)
+        // Convert .app to full path like flask/app when inside flask/__init__.py
+        if (python_module.len > 0 and python_module[0] == '.') {
+            // Relative import - resolve relative to source directory
+            if (source_file_dir) |dir| {
+                // Count leading dots
+                var dots: usize = 0;
+                while (dots < python_module.len and python_module[dots] == '.') : (dots += 1) {}
+
+                // Get module name after dots
+                const module_part = python_module[dots..];
+
+                // For single dot, use current package directory
+                // For double dot, go up one level, etc.
+                var parent_dir = dir;
+                var levels = dots;
+                while (levels > 1) : (levels -= 1) {
+                    if (std.fs.path.dirname(parent_dir)) |p| {
+                        parent_dir = p;
+                    }
+                }
+
+                // Build resolved path
+                if (module_part.len > 0) {
+                    // .app -> dir/app.py
+                    const resolved_path = std.fmt.allocPrint(self.allocator, "{s}/{s}.py", .{ parent_dir, module_part }) catch continue;
+                    defer self.allocator.free(resolved_path);
+
+                    // Check if file exists
+                    std.fs.cwd().access(resolved_path, .{}) catch {
+                        // Try as package: dir/app/__init__.py
+                        const pkg_path = std.fmt.allocPrint(self.allocator, "{s}/{s}/__init__.py", .{ parent_dir, module_part }) catch continue;
+                        defer self.allocator.free(pkg_path);
+                        std.fs.cwd().access(pkg_path, .{}) catch {
+                            // Not found - skip
+                            continue;
+                        };
+                    };
+
+                    // Add the relative module for compilation
+                    try imports.append(self.allocator, python_module);
+                    continue;
+                }
+            }
+            // Can't resolve relative import - skip
+            continue;
+        }
         if (self.import_registry.lookup(python_module)) |info| {
             switch (info.strategy) {
                 .zig_runtime => {

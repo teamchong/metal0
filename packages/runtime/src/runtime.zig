@@ -7,6 +7,7 @@ const pybool = @import("pybool.zig");
 const pylist = @import("pylist.zig");
 const pystring = @import("pystring.zig");
 const pytuple = @import("pytuple.zig");
+const pyfile = @import("pyfile.zig");
 
 /// Export string utilities for native codegen
 pub const string_utils = @import("string_utils.zig");
@@ -67,6 +68,7 @@ pub const PyObject = struct {
         tuple,
         dict,
         none,
+        file, // File handle (open())
         numpy_array, // NumPy array support for C interop
         regex, // Compiled regex pattern
     };
@@ -142,6 +144,10 @@ pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
                 }
                 data.map.deinit();
                 allocator.destroy(data);
+            },
+            .file => {
+                PyFile.deinit(obj, allocator);
+                return; // deinit already destroys obj
             },
             else => {},
         }
@@ -256,6 +262,9 @@ pub const PyFloat = pyfloat.PyFloat;
 
 /// Python bool type - re-exported from pybool.zig
 pub const PyBool = pybool.PyBool;
+
+/// Python file type - re-exported from pyfile.zig
+pub const PyFile = pyfile.PyFile;
 
 /// Helper functions for operations that can raise exceptions
 /// True division (Python's / operator) - always returns float

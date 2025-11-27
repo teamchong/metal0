@@ -42,16 +42,52 @@ fn collectDottedParts(self: *Parser, node: ast.Node, parts: *std.ArrayList(u8)) 
 }
 
 /// Parse type annotation supporting PEP 585 generics (e.g., int, str, list[int], tuple[str, str], dict[str, int])
+/// Also supports dotted types like typing.Any, t.Optional[str]
 fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
     if (self.current >= self.tokens.len or self.tokens[self.current].type != .Ident) {
         return null;
     }
 
-    const base_type = self.tokens[self.current].lexeme;
+    // Build full type name including dots (e.g., "t.Any", "typing.Optional")
+    var type_parts = std.ArrayList(u8){};
+    defer type_parts.deinit(self.allocator);
+
+    try type_parts.appendSlice(self.allocator, self.tokens[self.current].lexeme);
     self.current += 1;
+
+    // Handle dotted types: t.Any, typing.Optional, etc.
+    while (self.current + 1 < self.tokens.len and
+        self.tokens[self.current].type == .Dot and
+        self.tokens[self.current + 1].type == .Ident)
+    {
+        try type_parts.append(self.allocator, '.');
+        self.current += 1; // consume '.'
+        try type_parts.appendSlice(self.allocator, self.tokens[self.current].lexeme);
+        self.current += 1; // consume identifier
+    }
+
+    // Check for union type: int | str (PEP 604)
+    // Must check before bracket handling
+    if (self.current < self.tokens.len and self.tokens[self.current].type == .Pipe) {
+        // Build union type
+        try type_parts.appendSlice(self.allocator, " | ");
+        self.current += 1; // consume '|'
+
+        // Parse the next type in the union
+        const next_type = try parseTypeAnnotation(self);
+        if (next_type) |nt| {
+            defer self.allocator.free(nt);
+            try type_parts.appendSlice(self.allocator, nt);
+        }
+
+        return try self.allocator.dupe(u8, type_parts.items);
+    }
+
+    const base_type = try self.allocator.dupe(u8, type_parts.items);
 
     // Check for generic type parameters: Type[...]
     if (self.current < self.tokens.len and self.tokens[self.current].type == .LBracket) {
+        defer self.allocator.free(base_type); // Free base_type since we'll return a new string
         var type_buf = std.ArrayList(u8){};
         defer type_buf.deinit(self.allocator);
 
@@ -83,6 +119,26 @@ fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
                 .Ident => {
                     if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
                     try type_buf.appendSlice(self.allocator, tok.lexeme);
+                    need_separator = true;
+                },
+                .Dot => {
+                    // Dotted type inside brackets: typing.Optional[t.Any]
+                    try type_buf.append(self.allocator, '.');
+                    need_separator = false;
+                },
+                .Pipe => {
+                    // Union type: int | str (PEP 604)
+                    try type_buf.appendSlice(self.allocator, " | ");
+                    need_separator = false;
+                },
+                .Colon => {
+                    // Type with default or key-value: dict[str, int] or Callable[..., int]
+                    try type_buf.append(self.allocator, ':');
+                    need_separator = false;
+                },
+                .Ellipsis => {
+                    // Ellipsis in Callable[..., ReturnType]
+                    try type_buf.appendSlice(self.allocator, "...");
                     need_separator = true;
                 },
                 else => break, // unexpected token, stop parsing

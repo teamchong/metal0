@@ -5,6 +5,7 @@ const collections = @import("builtins/collections.zig");
 const eval_exec = @import("builtins/eval.zig");
 const compile_mod = @import("builtins/compile.zig");
 const dynamic_attrs = @import("builtins/dynamic_attrs.zig");
+const io = @import("builtins/io.zig");
 
 // Re-export all functions
 pub const genLen = conversions.genLen;
@@ -49,3 +50,6 @@ pub const genHasattr = dynamic_attrs.genHasattr;
 pub const genVars = dynamic_attrs.genVars;
 pub const genGlobals = dynamic_attrs.genGlobals;
 pub const genLocals = dynamic_attrs.genLocals;
+
+// I/O
+pub const genOpen = io.genOpen;
