@@ -110,13 +110,127 @@ fn parsePositionalOrKeywordArg(
         } else {
             // Not a keyword arg, restore position and parse as normal expression
             self.current = saved_pos;
-            var arg = try self.parseExpression();
+            var arg = try parseArgWithPossibleGenExpr(self);
             errdefer arg.deinit(self.allocator);
             try args.append(self.allocator, arg);
         }
     } else {
-        var arg = try self.parseExpression();
+        var arg = try parseArgWithPossibleGenExpr(self);
         errdefer arg.deinit(self.allocator);
         try args.append(self.allocator, arg);
     }
+}
+
+/// Parse an argument that might be a generator expression: func(x for x in items)
+fn parseArgWithPossibleGenExpr(self: *Parser) ParseError!ast.Node {
+    var expr = try self.parseExpression();
+    errdefer expr.deinit(self.allocator);
+
+    // Check if this is a generator expression: expr for target in iter
+    if (self.check(.For)) {
+        return try parseGeneratorExpr(self, expr);
+    }
+
+    return expr;
+}
+
+/// Parse generator expression after element: (element already parsed) for target in iter [if cond]
+fn parseGeneratorExpr(self: *Parser, element: ast.Node) ParseError!ast.Node {
+    var elt = element; // Take ownership
+    errdefer elt.deinit(self.allocator);
+
+    var generators = std.ArrayList(ast.Node.Comprehension){};
+    errdefer {
+        for (generators.items) |*g| {
+            g.target.deinit(self.allocator);
+            self.allocator.destroy(g.target);
+            g.iter.deinit(self.allocator);
+            self.allocator.destroy(g.iter);
+            for (g.ifs) |*i| i.deinit(self.allocator);
+            self.allocator.free(g.ifs);
+        }
+        generators.deinit(self.allocator);
+    }
+
+    while (self.match(.For)) {
+        // Parse target (name or tuple of names for unpacking)
+        var target = try parseComprehensionTarget(self);
+        errdefer target.deinit(self.allocator);
+
+        _ = try self.expect(.In);
+
+        // Use parseOrExpr to stop at 'if' keyword (not treat as ternary conditional)
+        var iter = try self.parseOrExpr();
+        errdefer iter.deinit(self.allocator);
+
+        // Parse optional if conditions
+        var ifs = std.ArrayList(ast.Node){};
+        errdefer {
+            for (ifs.items) |*i| i.deinit(self.allocator);
+            ifs.deinit(self.allocator);
+        }
+
+        while (self.check(.If) and !self.check(.For)) {
+            _ = self.advance();
+            // Use parseOrExpr so nested 'if' doesn't get consumed as ternary
+            var cond = try self.parseOrExpr();
+            errdefer cond.deinit(self.allocator);
+            try ifs.append(self.allocator, cond);
+        }
+
+        const ifs_slice = try ifs.toOwnedSlice(self.allocator);
+        ifs = std.ArrayList(ast.Node){};
+
+        try generators.append(self.allocator, ast.Node.Comprehension{
+            .target = try self.allocNode(target),
+            .iter = try self.allocNode(iter),
+            .ifs = ifs_slice,
+        });
+    }
+
+    const gens = try generators.toOwnedSlice(self.allocator);
+    generators = std.ArrayList(ast.Node.Comprehension){};
+
+    return ast.Node{
+        .genexp = .{
+            .elt = try self.allocNode(elt),
+            .generators = gens,
+        },
+    };
+}
+
+/// Parse a comprehension target: single name or tuple of names (e.g., x or x, y)
+/// Returns a Name node for single target, or a Tuple node for multiple targets
+fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
+    var first = try self.parsePrimary();
+    errdefer first.deinit(self.allocator);
+
+    // Check if there are more targets (tuple unpacking)
+    if (!self.check(.Comma) or self.check(.In)) {
+        return first;
+    }
+
+    // It's a tuple target like: x, y in items
+    var elts = std.ArrayList(ast.Node){};
+    errdefer {
+        for (elts.items) |*e| e.deinit(self.allocator);
+        elts.deinit(self.allocator);
+    }
+
+    try elts.append(self.allocator, first);
+    first = ast.Node{ .pass = {} }; // Ownership transferred
+
+    while (self.check(.Comma) and !self.check(.In)) {
+        _ = self.advance(); // consume comma
+        if (self.check(.In)) break; // trailing comma before 'in'
+        var elem = try self.parsePrimary();
+        errdefer elem.deinit(self.allocator);
+        try elts.append(self.allocator, elem);
+    }
+
+    return ast.Node{
+        .tuple = .{
+            .elts = try elts.toOwnedSlice(self.allocator),
+        },
+    };
 }

@@ -222,6 +222,7 @@ pub const Parser = struct {
                 .Break => return try statements.parseBreak(self),
                 .Continue => return try statements.parseContinue(self),
                 .Global => return try statements.parseGlobal(self),
+                .Nonlocal => return try statements.parseNonlocal(self),
                 .With => return try statements.parseWith(self),
                 .Del => return try statements.parseDel(self),
                 .Ellipsis => return try statements.parseEllipsis(self),

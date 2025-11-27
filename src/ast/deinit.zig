@@ -152,6 +152,19 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             }
             allocator.free(lc.generators);
         },
+        .genexp => |ge| {
+            deinit(ge.elt, allocator);
+            allocator.destroy(ge.elt);
+            for (ge.generators) |*gen| {
+                deinit(gen.target, allocator);
+                allocator.destroy(gen.target);
+                deinit(gen.iter, allocator);
+                allocator.destroy(gen.iter);
+                for (gen.ifs) |*f| deinit(f, allocator);
+                allocator.free(gen.ifs);
+            }
+            allocator.free(ge.generators);
+        },
         .dict => |d| {
             for (d.keys) |*k| deinit(k, allocator);
             allocator.free(d.keys);
@@ -284,6 +297,9 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
         .global_stmt => |g| {
             allocator.free(g.names);
         },
+        .nonlocal_stmt => |n| {
+            allocator.free(n.names);
+        },
         .with_stmt => |w| {
             deinit(w.context_expr, allocator);
             allocator.destroy(w.context_expr);
@@ -313,6 +329,10 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
                 deinit(v, allocator);
                 allocator.destroy(v);
             }
+        },
+        .yield_from_stmt => |yf| {
+            deinit(yf.value, allocator);
+            allocator.destroy(yf.value);
         },
         // Leaf nodes need no cleanup
         .name, .constant, .pass, .break_stmt, .continue_stmt, .ellipsis_literal => {},

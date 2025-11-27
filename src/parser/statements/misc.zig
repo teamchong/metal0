@@ -187,17 +187,30 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
             } else if (tok.type == .LParen) {
                 // Parenthesized exception type: except (Exception) as e:
                 // or except (ValueError, TypeError) as e:
+                // or except (OSError, subprocess.SubprocessError) as e:
                 _ = self.advance(); // consume '('
                 if (self.peek()) |inner_tok| {
                     if (inner_tok.type == .Ident) {
                         exc_type = inner_tok.lexeme;
                         _ = self.advance();
+                        // Skip dotted name parts: subprocess.SubprocessError
+                        while (self.match(.Dot)) {
+                            if (self.peek()) |dot_tok| {
+                                if (dot_tok.type == .Ident) {
+                                    exc_type = dot_tok.lexeme;
+                                    _ = self.advance();
+                                }
+                            }
+                        }
                         // Skip any additional types in tuple (for now just use first)
                         while (self.match(.Comma)) {
-                            if (self.peek()) |next_type| {
+                            // Skip dotted exception type
+                            while (self.peek()) |next_type| {
                                 if (next_type.type == .Ident) {
-                                    _ = self.advance(); // consume additional type
-                                }
+                                    _ = self.advance();
+                                    // Skip dots in the name
+                                    if (!self.match(.Dot)) break;
+                                } else break;
                             }
                         }
                     }
@@ -340,6 +353,14 @@ pub fn parseContinue(self: *Parser) ParseError!ast.Node {
 pub fn parseYield(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Yield);
 
+    // Check for "yield from expr" (PEP 380)
+    if (self.match(.From)) {
+        var value = try self.parseExpression();
+        errdefer value.deinit(self.allocator);
+        _ = self.expect(.Newline) catch {};
+        return ast.Node{ .yield_from_stmt = .{ .value = try self.allocNode(value) } };
+    }
+
     // Check if there's a value expression
     const value_ptr: ?*ast.Node = if (self.peek()) |tok| blk: {
         if (tok.type == .Newline) break :blk null;
@@ -439,6 +460,32 @@ pub fn parseGlobal(self: *Parser) ParseError!ast.Node {
 
     return ast.Node{
         .global_stmt = .{
+            .names = try names.toOwnedSlice(self.allocator),
+        },
+    };
+}
+
+/// Parse nonlocal statement: nonlocal x, y, z
+pub fn parseNonlocal(self: *Parser) ParseError!ast.Node {
+    _ = try self.expect(.Nonlocal);
+
+    var names = std.ArrayList([]const u8){};
+    defer names.deinit(self.allocator);
+
+    // Parse first identifier
+    const first_tok = try self.expect(.Ident);
+    try names.append(self.allocator, first_tok.lexeme);
+
+    // Parse additional identifiers separated by commas
+    while (self.match(.Comma)) {
+        const tok = try self.expect(.Ident);
+        try names.append(self.allocator, tok.lexeme);
+    }
+
+    _ = self.expect(.Newline) catch {};
+
+    return ast.Node{
+        .nonlocal_stmt = .{
             .names = try names.toOwnedSlice(self.allocator),
         },
     };

@@ -8,46 +8,53 @@ const Parser = @import("../../parser.zig").Parser;
 pub fn parseImport(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Import);
 
-    const first_tok = try self.expect(.Ident);
-
-    // Check for dotted module path (os.path, unittest.mock)
-    var module_name: []const u8 = first_tok.lexeme;
-
-    if (self.check(.Dot)) {
-        // Need to construct dotted name
-        var module_parts = std.ArrayList(u8){};
-        defer module_parts.deinit(self.allocator);
-
-        try module_parts.appendSlice(self.allocator, first_tok.lexeme);
-
-        while (self.match(.Dot)) {
-            try module_parts.append(self.allocator, '.');
-            const next_tok = try self.expect(.Ident);
-            try module_parts.appendSlice(self.allocator, next_tok.lexeme);
-        }
-
-        // Only allocate new string if we found dots
-        if (module_parts.items.len > first_tok.lexeme.len) {
-            module_name = try self.allocator.dupe(u8, module_parts.items);
-        }
-    }
+    const first_module = try parseModuleName(self);
 
     var asname: ?[]const u8 = null;
-
-    // Check for "as" clause
     if (self.match(.As)) {
         const alias_tok = try self.expect(.Ident);
         asname = alias_tok.lexeme;
+    }
+
+    // Handle multiple imports: import io, os, sys
+    // For now, skip additional imports (parse and discard) - use first one
+    while (self.match(.Comma)) {
+        _ = try parseModuleName(self);
+        if (self.match(.As)) {
+            _ = try self.expect(.Ident);
+        }
     }
 
     _ = self.match(.Newline);
 
     return ast.Node{
         .import_stmt = .{
-            .module = module_name,
+            .module = first_module,
             .asname = asname,
         },
     };
+}
+
+/// Parse a potentially dotted module name (os.path, unittest.mock)
+fn parseModuleName(self: *Parser) ParseError![]const u8 {
+    const first_tok = try self.expect(.Ident);
+
+    if (!self.check(.Dot)) {
+        return first_tok.lexeme;
+    }
+
+    var module_parts = std.ArrayList(u8){};
+    defer module_parts.deinit(self.allocator);
+
+    try module_parts.appendSlice(self.allocator, first_tok.lexeme);
+
+    while (self.match(.Dot)) {
+        try module_parts.append(self.allocator, '.');
+        const next_tok = try self.expect(.Ident);
+        try module_parts.appendSlice(self.allocator, next_tok.lexeme);
+    }
+
+    return try self.allocator.dupe(u8, module_parts.items);
 }
 
 /// Parse from-import: from numpy import array, zeros

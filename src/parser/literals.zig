@@ -4,21 +4,53 @@ const lexer = @import("../lexer.zig");
 const ParseError = @import("../parser.zig").ParseError;
 const Parser = @import("../parser.zig").Parser;
 
+/// Parse a comprehension target: single name or tuple of names (e.g., x or x, y)
+/// Returns a Name node for single target, or a Tuple node for multiple targets
+fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
+    var first = try self.parsePrimary();
+    errdefer first.deinit(self.allocator);
+
+    // Check if there are more targets (tuple unpacking)
+    if (!self.check(.Comma) or self.check(.In)) {
+        return first;
+    }
+
+    // It's a tuple target like: x, y in items
+    var elts = std.ArrayList(ast.Node){};
+    errdefer {
+        for (elts.items) |*e| e.deinit(self.allocator);
+        elts.deinit(self.allocator);
+    }
+
+    try elts.append(self.allocator, first);
+    first = ast.Node{ .pass = {} }; // Ownership transferred
+
+    while (self.check(.Comma) and !self.check(.In)) {
+        _ = self.advance(); // consume comma
+        if (self.check(.In)) break; // trailing comma before 'in'
+        var elem = try self.parsePrimary();
+        errdefer elem.deinit(self.allocator);
+        try elts.append(self.allocator, elem);
+    }
+
+    return ast.Node{
+        .tuple = .{
+            .elts = try elts.toOwnedSlice(self.allocator),
+        },
+    };
+}
+
 /// Parse a list literal: [1, 2, 3] or list comprehension: [x for x in items]
 pub fn parseList(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.LBracket);
 
     // Empty list
     if (self.match(.RBracket)) {
-        return ast.Node{
-            .list = .{
-                .elts = &[_]ast.Node{},
-            },
-        };
+        return ast.Node{ .list = .{ .elts = &[_]ast.Node{} } };
     }
 
-    // Parse first element
-    var first_elt = try self.parseExpression();
+    // Parse first element (may be starred: [*items, ...])
+    var first_elt = try parseListElement(self);
     errdefer first_elt.deinit(self.allocator);
 
     // Check if this is a list comprehension: [x for x in items]
@@ -35,26 +67,27 @@ pub fn parseList(self: *Parser) ParseError!ast.Node {
     try elts.append(self.allocator, first_elt);
 
     while (self.match(.Comma)) {
-        // Allow trailing comma
-        if (self.check(.RBracket)) {
-            break;
-        }
-        var elt = try self.parseExpression();
+        if (self.check(.RBracket)) break;
+        var elt = try parseListElement(self);
         errdefer elt.deinit(self.allocator);
         try elts.append(self.allocator, elt);
     }
 
     _ = try self.expect(.RBracket);
 
-    // Success - transfer ownership
     const result = try elts.toOwnedSlice(self.allocator);
-    elts = std.ArrayList(ast.Node){}; // Reset
+    elts = std.ArrayList(ast.Node){};
+    return ast.Node{ .list = .{ .elts = result } };
+}
 
-    return ast.Node{
-        .list = .{
-            .elts = result,
-        },
-    };
+/// Parse list element - handles starred expressions like *args
+fn parseListElement(self: *Parser) ParseError!ast.Node {
+    if (self.match(.Star)) {
+        var value = try self.parseExpression();
+        errdefer value.deinit(self.allocator);
+        return ast.Node{ .starred = .{ .value = try self.allocNode(value) } };
+    }
+    return self.parseExpression();
 }
 
 /// Parse list comprehension: [x for x in items if cond] or [x*y for x in range(3) for y in range(3)]
@@ -79,8 +112,8 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
 
     // Parse all "for ... in ..." clauses
     while (self.match(.For)) {
-        // Parse target as primary (just a name, not a full expression)
-        var target = try self.parsePrimary();
+        // Parse target (name or tuple of names for unpacking)
+        var target = try parseComprehensionTarget(self);
         errdefer target.deinit(self.allocator);
         _ = try self.expect(.In);
         // Use parseOrExpr to stop at 'if' keyword (not treat as ternary conditional)
@@ -262,8 +295,8 @@ pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!a
 
     // Parse all "for ... in ..." clauses
     while (self.match(.For)) {
-        // Parse target as primary (just a name, not a full expression)
-        var target = try self.parsePrimary();
+        // Parse target (name or tuple of names for unpacking)
+        var target = try parseComprehensionTarget(self);
         errdefer target.deinit(self.allocator);
         _ = try self.expect(.In);
         // Use parseOrExpr to stop at 'if' keyword (not treat as ternary conditional)

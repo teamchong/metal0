@@ -24,6 +24,7 @@ pub const Node = union(enum) {
     return_stmt: Return,
     list: List,
     listcomp: ListComp,
+    genexp: GenExp,
     dict: Dict,
     dictcomp: DictComp,
     set: Set,
@@ -42,6 +43,7 @@ pub const Node = union(enum) {
     continue_stmt: void,
     ellipsis_literal: void,
     global_stmt: GlobalStmt,
+    nonlocal_stmt: NonlocalStmt,
     with_stmt: With,
     starred: Starred,
     double_starred: DoubleStarred,
@@ -49,6 +51,7 @@ pub const Node = union(enum) {
     named_expr: NamedExpr,
     if_expr: IfExpr,
     yield_stmt: Yield,
+    yield_from_stmt: YieldFrom,
 
     // Type aliases for backward compatibility with nested access (ast.Node.FString)
     pub const FString = fstring.FString;
@@ -171,6 +174,11 @@ pub const Node = union(enum) {
         generators: []Comprehension, // One or more for clauses
     };
 
+    pub const GenExp = struct {
+        elt: *Node, // Expression to evaluate for each element
+        generators: []Comprehension, // One or more for clauses
+    };
+
     pub const Comprehension = struct {
         target: *Node, // Loop variable (e.g., 'x' in 'for x in items')
         iter: *Node, // Iterable (e.g., 'items')
@@ -270,9 +278,19 @@ pub const Node = union(enum) {
         value: ?*Node, // Value to yield (or null for bare yield)
     };
 
+    /// Yield from statement: yield from iterable (PEP 380)
+    pub const YieldFrom = struct {
+        value: *Node, // Iterable to yield from
+    };
+
     /// Global statement: global x, y, z
     pub const GlobalStmt = struct {
         names: [][]const u8, // Variable names to mark as global
+    };
+
+    /// Nonlocal statement: nonlocal x, y, z
+    pub const NonlocalStmt = struct {
+        names: [][]const u8, // Variable names to mark as nonlocal
     };
 
     /// With statement: with expr as var: body
