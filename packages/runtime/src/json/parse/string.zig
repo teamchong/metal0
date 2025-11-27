@@ -5,6 +5,40 @@ const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
 const simd = @import("json_simd");
 
+/// Comptime hex digit lookup table (like Rust serde_json)
+const HEX_TABLE: [256]u8 = blk: {
+    var table: [256]u8 = [_]u8{255} ** 256;
+    for ('0'..'9' + 1) |c| table[c] = @intCast(c - '0');
+    for ('a'..'f' + 1) |c| table[c] = @intCast(c - 'a' + 10);
+    for ('A'..'F' + 1) |c| table[c] = @intCast(c - 'A' + 10);
+    break :blk table;
+};
+
+/// Comptime escape character lookup table
+const ESCAPE_CHARS: [256]u8 = blk: {
+    var table: [256]u8 = [_]u8{0} ** 256;
+    table['"'] = '"';
+    table['\\'] = '\\';
+    table['/'] = '/';
+    table['b'] = '\x08';
+    table['f'] = '\x0C';
+    table['n'] = '\n';
+    table['r'] = '\r';
+    table['t'] = '\t';
+    table['u'] = 'u'; // Special marker for unicode
+    break :blk table;
+};
+
+/// Parse 4 hex digits to u16 using lookup table (no branching)
+inline fn parseHex4(hex: *const [4]u8) ?u16 {
+    const a = HEX_TABLE[hex[0]];
+    const b = HEX_TABLE[hex[1]];
+    const c = HEX_TABLE[hex[2]];
+    const d = HEX_TABLE[hex[3]];
+    if ((a | b | c | d) > 15) return null;
+    return (@as(u16, a) << 12) | (@as(u16, b) << 8) | (@as(u16, c) << 4) | @as(u16, d);
+}
+
 /// Parse JSON string with SIMD-accelerated scanning
 pub fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) JsonError!ParseResult(JsonValue) {
     if (pos >= data.len or data[pos] != '"') return JsonError.UnexpectedToken;
@@ -38,48 +72,73 @@ pub fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) J
     return JsonError.UnexpectedEndOfInput;
 }
 
-/// Unescape a JSON string with escape sequences
+/// Unescape a JSON string with escape sequences (optimized with bulk copy)
 fn unescapeString(escaped: []const u8, allocator: std.mem.Allocator) JsonError![]const u8 {
-    var result = std.ArrayList(u8){};
-    defer result.deinit(allocator);
+    // Pre-allocate: result is at most same length as input
+    var result = try allocator.alloc(u8, escaped.len);
+    errdefer allocator.free(result);
 
-    var i: usize = 0;
-    while (i < escaped.len) : (i += 1) {
-        if (escaped[i] == '\\') {
-            i += 1;
-            if (i >= escaped.len) return JsonError.InvalidEscape;
+    var write_pos: usize = 0;
+    var read_pos: usize = 0;
 
-            const c = escaped[i];
-            switch (c) {
-                '"' => try result.append(allocator, '"'),
-                '\\' => try result.append(allocator, '\\'),
-                '/' => try result.append(allocator, '/'),
-                'b' => try result.append(allocator, '\x08'),
-                'f' => try result.append(allocator, '\x0C'),
-                'n' => try result.append(allocator, '\n'),
-                'r' => try result.append(allocator, '\r'),
-                't' => try result.append(allocator, '\t'),
-                'u' => {
-                    // Unicode escape: \uXXXX
-                    if (i + 4 >= escaped.len) return JsonError.InvalidUnicode;
-                    const hex = escaped[i + 1 .. i + 5];
-                    const codepoint = std.fmt.parseInt(u16, hex, 16) catch return JsonError.InvalidUnicode;
+    while (read_pos < escaped.len) {
+        // Find next backslash
+        const chunk_start = read_pos;
+        while (read_pos < escaped.len and escaped[read_pos] != '\\') : (read_pos += 1) {}
 
-                    // Convert codepoint to UTF-8
-                    var utf8_buf: [4]u8 = undefined;
-                    const utf8_len = std.unicode.utf8Encode(@as(u21, codepoint), &utf8_buf) catch return JsonError.InvalidUnicode;
-                    try result.appendSlice(allocator, utf8_buf[0..utf8_len]);
+        // Bulk copy non-escaped chunk
+        const chunk_len = read_pos - chunk_start;
+        if (chunk_len > 0) {
+            @memcpy(result[write_pos..][0..chunk_len], escaped[chunk_start..][0..chunk_len]);
+            write_pos += chunk_len;
+        }
 
-                    i += 4; // Skip XXXX
-                },
-                else => return JsonError.InvalidEscape,
+        // Handle escape sequence
+        if (read_pos < escaped.len and escaped[read_pos] == '\\') {
+            read_pos += 1;
+            if (read_pos >= escaped.len) {
+                allocator.free(result);
+                return JsonError.InvalidEscape;
             }
-        } else {
-            try result.append(allocator, escaped[i]);
+
+            const c = escaped[read_pos];
+            const replacement = ESCAPE_CHARS[c];
+
+            if (replacement == 'u') {
+                if (read_pos + 4 >= escaped.len) {
+                    allocator.free(result);
+                    return JsonError.InvalidUnicode;
+                }
+                const hex = escaped[read_pos + 1 ..][0..4];
+                const codepoint = parseHex4(hex) orelse {
+                    allocator.free(result);
+                    return JsonError.InvalidUnicode;
+                };
+
+                var utf8_buf: [4]u8 = undefined;
+                const utf8_len = std.unicode.utf8Encode(@as(u21, codepoint), &utf8_buf) catch {
+                    allocator.free(result);
+                    return JsonError.InvalidUnicode;
+                };
+                @memcpy(result[write_pos..][0..utf8_len], utf8_buf[0..utf8_len]);
+                write_pos += utf8_len;
+                read_pos += 5;
+            } else if (replacement != 0) {
+                result[write_pos] = replacement;
+                write_pos += 1;
+                read_pos += 1;
+            } else {
+                allocator.free(result);
+                return JsonError.InvalidEscape;
+            }
         }
     }
 
-    return try result.toOwnedSlice(allocator);
+    // Shrink to actual size
+    if (write_pos < result.len) {
+        result = allocator.realloc(result, write_pos) catch result[0..write_pos];
+    }
+    return result[0..write_pos];
 }
 
 /// Get SIMD implementation info (for debugging/testing)
