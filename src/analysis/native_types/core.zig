@@ -188,7 +188,7 @@ pub const NativeType = union(enum) {
                 try inner_type.toZigType(allocator, buf);
             },
             .none => try buf.appendSlice(allocator, "?void"),
-            .unknown => try buf.appendSlice(allocator, "*const anyopaque"),
+            .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .path => try buf.appendSlice(allocator, "*pathlib.Path"),
         }
     }

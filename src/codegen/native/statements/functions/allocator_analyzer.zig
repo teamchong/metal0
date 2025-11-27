@@ -179,6 +179,12 @@ fn exprUsesAllocatorParam(expr: ast.Node, func_name: []const u8) bool {
     };
 }
 
+/// Builtins that use __global_allocator instead of param (don't count as using param)
+const GlobalAllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
+    .{ "str", {} }, // str() uses __global_allocator in codegen
+    .{ "print", {} }, // print with string concat uses __global_allocator
+});
+
 /// Check if a call uses allocator param
 /// func_name is the current function name to detect recursive calls
 fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
@@ -195,6 +201,8 @@ fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
     }
     if (call.func.* == .name) {
         const called_name = call.func.name.id;
+        // Skip builtins that use __global_allocator instead of the param
+        if (GlobalAllocatorBuiltins.has(called_name)) return false;
         // Recursive call: function calls itself, allocator will be passed
         if (std.mem.eql(u8, called_name, func_name)) return true;
         if (AllocatorBuiltins.has(called_name)) return true;

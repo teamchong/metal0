@@ -158,16 +158,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Regular iteration over collection
     try self.emitIndent();
 
-    // Handle dict iteration - need to use .keys() iterator
+    // Handle dict iteration - iterate over .keys()
     if (iter_type == .dict) {
-        try self.emit("{\n");
-        self.indent();
-        try self.emitIndent();
-        try self.emit("var __iter__ = ");
+        try self.emit("for (");
         try self.genExpr(for_stmt.iter.*);
-        try self.emit(".keyIterator();\n");
-        try self.emitIndent();
-        try self.emit("while (__iter__.next()) |");
+        try self.emit(".keys()) |");
         try self.emit(var_name);
         try self.emit("| {\n");
 
@@ -181,9 +176,6 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.popScope();
         self.dedent();
 
-        try self.emitIndent();
-        try self.emit("}\n");
-        self.dedent();
         try self.emitIndent();
         try self.emit("}\n");
         return;
