@@ -28,18 +28,33 @@ fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8) ![
 }
 
 pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, module_name: []const u8) !void {
-    _ = module_name; // Not used, inferred from path
-
-    // Read module source
-    const source = try std.fs.cwd().readFileAlloc(allocator, module_path, 10 * 1024 * 1024);
+    // Read module source (handle absolute paths)
+    const source = blk: {
+        if (std.fs.path.isAbsolute(module_path)) {
+            const file = try std.fs.openFileAbsolute(module_path, .{});
+            defer file.close();
+            break :blk try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+        } else {
+            break :blk try std.fs.cwd().readFileAlloc(allocator, module_path, 10 * 1024 * 1024);
+        }
+    };
     defer allocator.free(source);
 
-    // Get module name from path
-    const basename = std.fs.path.basename(module_path);
-    const mod_name = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
-        basename[0..idx]
-    else
-        basename;
+    // Use provided module_name if not empty, otherwise derive from path
+    const mod_name = if (module_name.len > 0) module_name else blk: {
+        const basename = std.fs.path.basename(module_path);
+        // For __init__.py, use parent directory name
+        if (std.mem.eql(u8, basename, "__init__.py")) {
+            if (std.fs.path.dirname(module_path)) |dir| {
+                break :blk std.fs.path.basename(dir);
+            }
+        }
+        // Regular module: strip .py extension
+        if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
+            break :blk basename[0..idx]
+        else
+            break :blk basename;
+    };
 
     // Generate Zig code for this module
     std.debug.print("  Generating Zig for module: {s}\n", .{module_path});
@@ -54,6 +69,7 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
     defer lexer_mod.freeTokens(allocator, tokens);
 
     var p = parser_mod.Parser.init(allocator, tokens);
+    defer p.deinit();
     const tree = try p.parse();
     defer tree.deinit(allocator);
 
@@ -163,6 +179,7 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     // PHASE 2: Parser - Build AST
     std.debug.print("Parsing...\n", .{});
     var p = parser.Parser.init(aa, tokens);
+    defer p.deinit();
     const tree = try p.parse();
 
     // Ensure tree is a module
@@ -299,6 +316,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // PHASE 2: Parser - Build AST
     std.debug.print("Parsing...\n", .{});
     var p = parser.Parser.init(allocator, tokens);
+    defer p.deinit();
     const tree = try p.parse();
     defer tree.deinit(allocator);
 
@@ -314,7 +332,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     defer import_graph.deinit();
 
     var visited = hashmap_helper.StringHashMap(void).init(allocator);
-    defer visited.deinit();
+    defer {
+        // Free all allocated keys before deinit
+        for (visited.keys()) |key| {
+            allocator.free(key);
+        }
+        visited.deinit();
+    }
 
     // Scan all imports recursively
     try import_graph.scanRecursive(opts.input_file, &visited);
@@ -324,13 +348,14 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     var iter = import_graph.modules.iterator();
     while (iter.next()) |entry| {
         const module_path = entry.key_ptr.*;
+        const module_info = entry.value_ptr.*;
 
         // Skip the main file itself
         if (std.mem.eql(u8, module_path, opts.input_file)) continue;
 
-        // Compile module
-        std.debug.print("  Compiling module: {s}\n", .{module_path});
-        compileModule(allocator, module_path, "") catch |err| {
+        // Compile module using the proper module name
+        std.debug.print("  Compiling module: {s} (as {s})\n", .{ module_path, module_info.module_name });
+        compileModule(allocator, module_path, module_info.module_name) catch |err| {
             std.debug.print("  Warning: Failed to compile module {s}: {}\n", .{ module_path, err });
             continue;
         };

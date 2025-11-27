@@ -104,6 +104,7 @@ fn compileModuleAsStructWithPrefix(
     const tokens = try lex.tokenize();
 
     var p = parser_mod.Parser.init(aa, tokens);
+    defer p.deinit();
     const tree = try p.parse();
 
     if (tree != .module) return error.InvalidAST;
@@ -165,8 +166,12 @@ fn compileModuleAsStructWithPrefix(
             // Build path to submodule
             const submod_path = try std.fmt.allocPrint(aa, "{s}/{s}.py", .{ pkg_info.package_dir, submod_name });
 
-            // Check if submodule exists
-            std.fs.cwd().access(submod_path, .{}) catch continue;
+            // Check if submodule exists (handle absolute paths)
+            const exists = if (std.fs.path.isAbsolute(submod_path))
+                std.fs.accessAbsolute(submod_path, .{})
+            else
+                std.fs.cwd().access(submod_path, .{});
+            exists catch continue;
 
             // Compile submodule (recursively, in case it's also a package)
             // Build full qualified prefix for submodule

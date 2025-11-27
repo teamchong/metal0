@@ -91,6 +91,9 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
         },
         .function_def => |f| {
             for (f.args) |arg| {
+                if (arg.type_annotation) |ta| {
+                    allocator.free(ta);
+                }
                 if (arg.default) |def| {
                     deinit(def, allocator);
                     allocator.destroy(def);
@@ -101,9 +104,15 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             allocator.free(f.body);
             for (f.decorators) |*d| deinit(d, allocator);
             allocator.free(f.decorators);
+            if (f.return_type) |rt| {
+                allocator.free(rt);
+            }
         },
         .lambda => |l| {
             for (l.args) |arg| {
+                if (arg.type_annotation) |ta| {
+                    allocator.free(ta);
+                }
                 if (arg.default) |def| {
                     deinit(def, allocator);
                     allocator.destroy(def);

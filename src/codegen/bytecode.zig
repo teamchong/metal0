@@ -193,6 +193,7 @@ pub fn compileSource(allocator: std.mem.Allocator, source: []const u8) !Bytecode
     defer lexer_mod.freeTokens(allocator, tokens);
 
     var p = parser_mod.Parser.init(allocator, tokens);
+    defer p.deinit();
     const tree = try p.parse();
     defer tree.deinit(allocator);
 
