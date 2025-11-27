@@ -130,6 +130,11 @@ pub fn inferCall(
         if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("Path")) {
             return .path;
         }
+
+        // Flask() constructor
+        if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("Flask")) {
+            return .flask_app;
+        }
     }
 
     // Check if this is a method call (attribute access)

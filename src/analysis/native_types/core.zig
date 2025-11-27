@@ -69,6 +69,7 @@ pub const NativeType = union(enum) {
     none: void, // void or ?T
     unknown: void, // Fallback to PyObject* (should be rare)
     path: void, // pathlib.Path
+    flask_app: void, // flask.Flask application instance
 
     /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
@@ -190,6 +191,7 @@ pub const NativeType = union(enum) {
             .none => try buf.appendSlice(allocator, "?void"),
             .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .path => try buf.appendSlice(allocator, "*pathlib.Path"),
+            .flask_app => try buf.appendSlice(allocator, "*runtime.flask.Flask"),
         }
     }
 

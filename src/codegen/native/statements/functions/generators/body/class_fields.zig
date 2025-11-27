@@ -135,6 +135,6 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
             }
         }
     }
-    // Fallback: use i64 as default
-    return "i64";
+    // Fallback: use i64 as default (must allocate since caller frees)
+    return try self.allocator.dupe(u8, "i64");
 }

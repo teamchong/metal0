@@ -358,9 +358,17 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("\n");
     }
 
-    // PHASE 6.5: Apply decorators (after allocator, before other code)
-    // This allows decorators to run after variables are defined but before main logic
+    // PHASE 7: Generate statements (skip class/function defs and imports - already handled)
+    // This will populate self.lambda_functions
+    for (module.body) |stmt| {
+        if (stmt != .function_def and stmt != .class_def and stmt != .import_stmt and stmt != .import_from) {
+            try self.generateStmt(stmt);
+        }
+    }
+
+    // PHASE 7.5: Apply decorators (after statements so variables like 'app' are defined)
     if (self.decorated_functions.items.len > 0) {
+        try self.emit("\n");
         try self.emitIndent();
         try self.emit("// Apply decorators\n");
         for (self.decorated_functions.items) |decorated_func| {
@@ -368,19 +376,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 try self.emitIndent();
                 try self.emit("_ = ");
                 try self.genExpr(decorator);
-                try self.emit("(&");
+                // Use .call() method to apply decorator (works for Flask route decorators)
+                try self.emit(".call(&");
                 try self.emit(decorated_func.name);
                 try self.emit(");\n");
             }
-        }
-        try self.emit("\n");
-    }
-
-    // PHASE 7: Generate statements (skip class/function defs and imports - already handled)
-    // This will populate self.lambda_functions
-    for (module.body) |stmt| {
-        if (stmt != .function_def and stmt != .class_def and stmt != .import_stmt and stmt != .import_from) {
-            try self.generateStmt(stmt);
         }
     }
 

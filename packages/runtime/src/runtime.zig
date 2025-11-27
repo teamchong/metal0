@@ -381,6 +381,7 @@ pub const math = @import("math.zig");
 pub const unittest = @import("unittest.zig");
 pub const pathlib = @import("pathlib.zig");
 pub const datetime = @import("datetime.zig");
+pub const flask = @import("flask.zig");
 pub const eval_module = @import("eval.zig");
 pub const exec_module = @import("exec.zig");
 pub const gzip = @import("gzip/gzip.zig");
