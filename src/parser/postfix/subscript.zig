@@ -4,16 +4,35 @@ const ParseError = @import("../../parser.zig").ParseError;
 const Parser = @import("../../parser.zig").Parser;
 
 /// Parse subscript/slice expression after '[' has been consumed
+/// Takes ownership of `value` - cleans it up on error
 pub fn parseSubscript(self: *Parser, value: ast.Node) ParseError!ast.Node {
+    var val = value;
+    var val_copied = false;
+
+    errdefer {
+        if (val_copied) {
+            // val was copied to node_ptr, don't double-free
+        } else {
+            val.deinit(self.allocator);
+        }
+    }
+
     const node_ptr = try self.allocator.create(ast.Node);
-    node_ptr.* = value;
+    node_ptr.* = val;
+    val_copied = true;
+
+    errdefer {
+        node_ptr.deinit(self.allocator);
+        self.allocator.destroy(node_ptr);
+    }
 
     // Check if it starts with colon (e.g., [:5] or [::2])
     if (self.check(.Colon)) {
         return parseSliceFromStart(self, node_ptr);
     }
 
-    const lower = try self.parseExpression();
+    var lower = try self.parseExpression();
+    errdefer lower.deinit(self.allocator);
 
     if (self.match(.Colon)) {
         return parseSliceWithLower(self, node_ptr, lower);

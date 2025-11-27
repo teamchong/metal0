@@ -140,6 +140,7 @@ pub fn parseShift(self: *Parser) ParseError!ast.Node {
 /// Parse addition and subtraction
 pub fn parseAddSub(self: *Parser) ParseError!ast.Node {
     var left = try parseMulDiv(self);
+    errdefer left.deinit(self.allocator);
 
     while (true) {
         var op: ?ast.Operator = null;
@@ -152,7 +153,8 @@ pub fn parseAddSub(self: *Parser) ParseError!ast.Node {
 
         if (op == null) break;
 
-        const right = try parseMulDiv(self);
+        var right = try parseMulDiv(self);
+        errdefer right.deinit(self.allocator);
 
         const left_ptr = try self.allocator.create(ast.Node);
         left_ptr.* = left;
@@ -175,6 +177,7 @@ pub fn parseAddSub(self: *Parser) ParseError!ast.Node {
 /// Parse multiplication, division, floor division, and modulo
 pub fn parseMulDiv(self: *Parser) ParseError!ast.Node {
     var left = try parsePower(self);
+    errdefer left.deinit(self.allocator);
 
     while (true) {
         var op: ?ast.Operator = null;
@@ -191,7 +194,8 @@ pub fn parseMulDiv(self: *Parser) ParseError!ast.Node {
 
         if (op == null) break;
 
-        const right = try parsePower(self);
+        var right = try parsePower(self);
+        errdefer right.deinit(self.allocator);
 
         const left_ptr = try self.allocator.create(ast.Node);
         left_ptr.* = left;
@@ -213,10 +217,12 @@ pub fn parseMulDiv(self: *Parser) ParseError!ast.Node {
 
 /// Parse power (exponentiation) - right associative
 pub fn parsePower(self: *Parser) ParseError!ast.Node {
-    const left = try self.parsePostfix();
+    var left = try self.parsePostfix();
+    errdefer left.deinit(self.allocator);
 
     if (self.match(.DoubleStar)) {
-        const right = try parsePower(self); // Right associative
+        var right = try parsePower(self); // Right associative
+        errdefer right.deinit(self.allocator);
 
         const left_ptr = try self.allocator.create(ast.Node);
         left_ptr.* = left;

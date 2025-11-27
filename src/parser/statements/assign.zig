@@ -6,7 +6,8 @@ const ParseError = @import("../../parser.zig").ParseError;
 const Parser = @import("../../parser.zig").Parser;
 
 pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
-    const expr = try self.parseExpression();
+    var expr = try self.parseExpression();
+    errdefer expr.deinit(self.allocator);
 
     // Check for type annotation: x: int = 5
     if (self.match(.Colon)) {
