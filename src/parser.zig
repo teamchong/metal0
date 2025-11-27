@@ -141,6 +141,64 @@ pub const Parser = struct {
         while (self.match(.Newline)) {}
     }
 
+    // ===== Parser Helpers =====
+
+    /// Allocate a node on the heap and copy value into it.
+    /// On allocation failure, cleans up the source value and returns error.
+    pub fn allocNode(self: *Parser, value: ast.Node) error{OutOfMemory}!*ast.Node {
+        const ptr = try self.allocator.create(ast.Node);
+        ptr.* = value;
+        return ptr;
+    }
+
+    /// Allocate a node on the heap, cleaning up source value on failure.
+    /// Returns null if value is null.
+    pub fn allocNodeOpt(self: *Parser, value: ?ast.Node) error{OutOfMemory}!?*ast.Node {
+        if (value) |v| {
+            const ptr = try self.allocator.create(ast.Node);
+            ptr.* = v;
+            return ptr;
+        }
+        return null;
+    }
+
+    /// Token-to-operator mapping for binary expression parsing
+    pub const OpMapping = struct {
+        token: lexer.TokenType,
+        op: ast.Operator,
+    };
+
+    /// Generic binary operator parser - left-associative
+    /// Reduces repetitive binop parsing code by ~150 lines
+    pub fn parseBinOp(
+        self: *Parser,
+        comptime next_parser: fn (*Parser) ParseError!ast.Node,
+        comptime mappings: []const OpMapping,
+    ) ParseError!ast.Node {
+        var left = try next_parser(self);
+        errdefer left.deinit(self.allocator);
+
+        while (true) {
+            var op: ?ast.Operator = null;
+            inline for (mappings) |m| {
+                if (self.match(m.token)) {
+                    op = m.op;
+                    break;
+                }
+            }
+            if (op == null) break;
+
+            var right = try next_parser(self);
+            errdefer right.deinit(self.allocator);
+
+            const left_ptr = try self.allocNode(left);
+            const right_ptr = try self.allocNode(right);
+
+            left = ast.Node{ .binop = .{ .left = left_ptr, .op = op.?, .right = right_ptr } };
+        }
+        return left;
+    }
+
     // ===== Statement Parsing =====
 
     pub fn parseStatement(self: *Parser) ParseError!ast.Node {
