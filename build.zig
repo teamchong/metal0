@@ -50,6 +50,12 @@ pub fn build(b: *std.Build) void {
     });
     gzip_module.addIncludePath(b.path("vendor/libdeflate"));
 
+    // Shared JSON library (2.17x faster than std.json)
+    // Available for modules that need fast JSON parsing (e.g., token_optimizer)
+    _ = b.addModule("json", .{
+        .root_source_file = b.path("packages/shared/json/json.zig"),
+    });
+
     // Module dependencies
     runtime.addImport("hashmap_helper", hashmap_helper);
     collections.addImport("runtime", runtime);

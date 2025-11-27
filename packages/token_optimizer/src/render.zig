@@ -1,6 +1,6 @@
 const std = @import("std");
 const font_5x7 = @import("font_5x7.zig");
-const json = @import("json.zig");
+const api_types = @import("api_types.zig");
 
 // 5×7 standard font for token compression
 // Bit pattern: 0 = background, 1 = foreground
@@ -11,7 +11,7 @@ pub const RoleColor = struct {
     g: u8,
     b: u8,
 
-    pub fn fromRole(role: json.Role) RoleColor {
+    pub fn fromRole(role: api_types.Role) RoleColor {
         return switch (role) {
             .user => .{ .r = 59, .g = 130, .b = 246 }, // Blue
             .assistant => .{ .r = 34, .g = 197, .b = 94 }, // Green
@@ -84,19 +84,19 @@ fn isWhitespace(char: u8) bool {
 pub const SingleLineResult = struct {
     text: []const u8,
     is_whitespace: []const bool, // true = render in gray (#CCC)
-    roles: []const json.Role, // role for each character (for coloring)
+    roles: []const api_types.Role, // role for each character (for coloring)
 };
 
 /// Convert text to single line with visual whitespace indicators
 /// Also carries over the role for each character
-pub fn toSingleLineWithRoles(allocator: std.mem.Allocator, text: []const u8, roles: []const json.Role) !SingleLineResult {
+pub fn toSingleLineWithRoles(allocator: std.mem.Allocator, text: []const u8, roles: []const api_types.Role) !SingleLineResult {
     var result = std.ArrayList(u8){};
     errdefer result.deinit(allocator);
 
     var is_ws = std.ArrayList(bool){};
     errdefer is_ws.deinit(allocator);
 
-    var out_roles = std.ArrayList(json.Role){};
+    var out_roles = std.ArrayList(api_types.Role){};
     errdefer out_roles.deinit(allocator);
 
     for (text, 0..) |c, i| {
@@ -131,7 +131,7 @@ pub fn toSingleLineWithRoles(allocator: std.mem.Allocator, text: []const u8, rol
 /// Legacy function without roles
 pub fn toSingleLine(allocator: std.mem.Allocator, text: []const u8) !SingleLineResult {
     // Create default roles array (all user)
-    const default_roles = try allocator.alloc(json.Role, text.len);
+    const default_roles = try allocator.alloc(api_types.Role, text.len);
     defer allocator.free(default_roles);
     @memset(default_roles, .user);
 
@@ -179,7 +179,7 @@ const COLOR_GRAY: u8 = 2; // Whitespace indicators (#CCC)
 pub fn renderTextWithRole(
     allocator: std.mem.Allocator,
     text: []const u8,
-    role: json.Role,
+    role: api_types.Role,
 ) !RenderedText {
     const color = RoleColor.fromRole(role);
     const color_idx = color.toIndex();
@@ -312,7 +312,7 @@ pub fn renderTextWithRole(
 pub fn renderTextWithRoles(
     allocator: std.mem.Allocator,
     text: []const u8,
-    roles: []const json.Role,
+    roles: []const api_types.Role,
 ) !RenderedText {
     // Convert to single line with visual whitespace and role tracking
     const single_line = try toSingleLineWithRoles(allocator, text, roles);
@@ -327,7 +327,7 @@ pub fn renderTextWithRoles(
     const LineInfo = struct {
         text: []const u8,
         is_ws: []const bool,
-        roles: []const json.Role,
+        roles: []const api_types.Role,
     };
     var lines = std.ArrayList(LineInfo){};
     defer lines.deinit(allocator);
@@ -344,7 +344,7 @@ pub fn renderTextWithRoles(
     }
 
     if (lines.items.len == 0) {
-        try lines.append(allocator, .{ .text = "", .is_ws = &[_]bool{}, .roles = &[_]json.Role{} });
+        try lines.append(allocator, .{ .text = "", .is_ws = &[_]bool{}, .roles = &[_]api_types.Role{} });
     }
 
     // Calculate dimensions
@@ -462,10 +462,12 @@ pub fn printAsciiArt(rendered: *const RenderedText) void {
 test "single line conversion" {
     const allocator = std.testing.allocator;
     const result = try toSingleLine(allocator, "Hello\nWorld\tTest");
-    defer allocator.free(result);
+    defer allocator.free(result.text);
+    defer allocator.free(result.is_whitespace);
+    defer allocator.free(result.roles);
 
     // Should contain visual indicators
-    try std.testing.expect(result.len > 0);
+    try std.testing.expect(result.text.len > 0);
 }
 
 test "render with role" {

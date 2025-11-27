@@ -1,5 +1,5 @@
 const std = @import("std");
-const json = @import("json.zig");
+const api_types = @import("api_types.zig");
 const render = @import("render.zig");
 const png = @import("png_zigimg.zig");
 
@@ -19,20 +19,20 @@ const ImageInfo = struct {
 /// Text compression via image encoding
 pub const TextCompressor = struct {
     allocator: std.mem.Allocator,
-    parser: json.MessageParser,
+    parser: api_types.MessageParser,
     enabled: bool,
 
     pub fn init(allocator: std.mem.Allocator, enabled: bool) TextCompressor {
         return .{
             .allocator = allocator,
-            .parser = json.MessageParser.init(allocator),
+            .parser = api_types.MessageParser.init(allocator),
             .enabled = enabled,
         };
     }
 
     /// Convert text to PNG image and encode as base64
     /// Each character is colored according to its role
-    fn textToBase64Png(self: TextCompressor, text: []const u8, roles: []const json.Role) !ImageInfo {
+    fn textToBase64Png(self: TextCompressor, text: []const u8, roles: []const api_types.Role) !ImageInfo {
         var rendered = try render.renderTextWithRoles(self.allocator, text, roles);
         defer rendered.deinit();
 
@@ -70,11 +70,11 @@ pub const TextCompressor = struct {
     /// Chunk of text with corresponding roles
     const TextChunk = struct {
         text: []const u8,
-        roles: []const json.Role,
+        roles: []const api_types.Role,
     };
 
     /// Split text into chunks that fit in MAX_CHARS_PER_IMAGE
-    fn splitIntoChunks(self: TextCompressor, text: []const u8, roles: []const json.Role) ![]TextChunk {
+    fn splitIntoChunks(self: TextCompressor, text: []const u8, roles: []const api_types.Role) ![]TextChunk {
         var chunks = std.ArrayList(TextChunk){};
         errdefer chunks.deinit(self.allocator);
 
@@ -189,7 +189,7 @@ pub const TextCompressor = struct {
         var text_to_compress = std.ArrayList(u8){};
         defer text_to_compress.deinit(self.allocator);
 
-        var char_roles = std.ArrayList(json.Role){};
+        var char_roles = std.ArrayList(api_types.Role){};
         defer char_roles.deinit(self.allocator);
 
         var compress_count: usize = 0;
@@ -403,7 +403,7 @@ pub const TextCompressor = struct {
         return rebuilt;
     }
 
-    fn appendMessageJson(self: TextCompressor, msg: json.Message, buffer: *std.ArrayList(u8)) !void {
+    fn appendMessageJson(self: TextCompressor, msg: api_types.Message, buffer: *std.ArrayList(u8)) !void {
         try buffer.appendSlice(self.allocator, "{\"role\":\"");
         try buffer.appendSlice(self.allocator, msg.role.toString());
         try buffer.appendSlice(self.allocator, "\",\"content\":");
@@ -426,7 +426,7 @@ pub const TextCompressor = struct {
         try buffer.append(self.allocator, '}');
     }
 
-    fn appendContentBlock(self: TextCompressor, block: json.ContentBlock, buffer: *std.ArrayList(u8)) !void {
+    fn appendContentBlock(self: TextCompressor, block: api_types.ContentBlock, buffer: *std.ArrayList(u8)) !void {
         switch (block.content_type) {
             .text => {
                 try buffer.appendSlice(self.allocator, "{\"type\":\"text\",\"text\":\"");

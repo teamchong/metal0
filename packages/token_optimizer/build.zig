@@ -10,6 +10,11 @@ pub fn build(b: *std.Build) void {
     });
     runtime_gzip.addIncludePath(b.path("../../vendor/libdeflate"));
 
+    // Import shared JSON library (2.17x faster than std.json)
+    const shared_json = b.addModule("json", .{
+        .root_source_file = b.path("../shared/json/json.zig"),
+    });
+
     // Import zigimg for GIF encoding
     const zigimg = b.dependency("zigimg", .{
         .target = target,
@@ -28,6 +33,7 @@ pub fn build(b: *std.Build) void {
     });
     proxy.root_module.addImport("gzip", runtime_gzip);
     proxy.root_module.addImport("zigimg", zigimg_module);
+    proxy.root_module.addImport("json", shared_json);
 
     // Add libdeflate for gzip compression
     proxy.linkLibC();
@@ -69,6 +75,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    test_render.root_module.addImport("json", shared_json);
 
     const run_test_render = b.addRunArtifact(test_render);
     const test_step = b.step("test", "Run all tests");
@@ -82,6 +89,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    test_compress.root_module.addImport("json", shared_json);
+    test_compress.root_module.addImport("zigimg", zigimg_module);
 
     const run_test_compress = b.addRunArtifact(test_compress);
     test_step.dependOn(&run_test_compress.step);

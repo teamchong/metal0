@@ -116,13 +116,13 @@ test "full compression pipeline - short text stays text" {
         \\{"model":"claude-3-5-sonnet-20241022","max_tokens":100,"messages":[{"role":"user","content":"Hi\nBye"}]}
     ;
 
-    const compressor = compress.TextCompressor.init(allocator);
+    const compressor = compress.TextCompressor.init(allocator, true);
     const compressed = try compressor.compressRequest(request);
     defer allocator.free(compressed);
 
     // Verify valid JSON using PyAOT JSON parser
-    const json_parser = @import("src/json.zig");
-    const parser = json_parser.MessageParser.init(allocator);
+    const api_types = @import("src/api_types.zig");
+    const parser = api_types.MessageParser.init(allocator);
 
     // Extract text to verify it's valid
     const text = try parser.extractText(compressed);
