@@ -112,18 +112,19 @@ pub const TextCompressor = struct {
 
         std.debug.print("[COMPRESS] Messages: {d}\n", .{msg_count});
 
-        // Find which messages can be compressed
-        // Rules:
-        // 1. Don't compress the last user message (current prompt)
-        // 2. Don't compress assistant messages with tool_use blocks
-        // 3. Don't compress user messages with tool_result blocks
-        // 4. Keep tool_use + tool_result pairs together
+        // New compression logic:
+        // 1. Tool pairs (tool_use + matching tool_result) are atomic - keep as-is
+        // 2. User messages with images - keep as-is (can't compress images)
+        // 3. Last user message + anything after - keep as-is
+        // 4. Everything else (regular user/assistant text) - compress into images
+        //
+        // This allows compressing chat between tool calls while preserving tool structure.
 
         var can_compress = try self.allocator.alloc(bool, msg_count);
         defer self.allocator.free(can_compress);
-        @memset(can_compress, true);
+        @memset(can_compress, true); // Default: compress everything
 
-        // Find last user message - never compress it
+        // Step 1: Find last user message - never compress it or anything after
         var last_user_idx: ?usize = null;
         var i = msg_count;
         while (i > 0) {
@@ -135,53 +136,67 @@ pub const TextCompressor = struct {
         }
         if (last_user_idx) |idx| {
             can_compress[idx] = false;
-            // Also don't compress anything after the last user message
             for (idx + 1..msg_count) |j| {
                 can_compress[j] = false;
             }
         }
 
-        // Mark messages with tool_use or tool_result as non-compressible
-        // IMPORTANT: Keep ALL messages from first tool to end (tool chains must stay intact)
-        var first_tool_idx: ?usize = null;
+        // Step 2: Mark tool_use and tool_result messages as non-compressible
+        // Tool pairs must stay intact for API validity
         var tool_msg_count: usize = 0;
         for (request.messages, 0..) |msg, idx| {
             for (msg.content) |block| {
                 if (block.content_type == .tool_use or block.content_type == .tool_result) {
+                    can_compress[idx] = false;
                     tool_msg_count += 1;
-                    if (first_tool_idx == null) {
-                        first_tool_idx = idx;
-                    }
                     break;
                 }
             }
         }
 
-        // If there are any tools, keep everything from first tool onward
-        // AND the message before (the user request that triggered it)
-        if (first_tool_idx) |first_idx| {
-            const start_keep = if (first_idx > 0) first_idx - 1 else first_idx;
-            for (start_keep..msg_count) |idx| {
-                can_compress[idx] = false;
+        // Step 3: Mark user messages with images as non-compressible
+        var image_msg_count: usize = 0;
+        for (request.messages, 0..) |msg, idx| {
+            if (msg.role != .user) continue;
+            for (msg.content) |block| {
+                if (block.content_type == .image) {
+                    can_compress[idx] = false;
+                    image_msg_count += 1;
+                    break;
+                }
             }
-            std.debug.print("[COMPRESS] Tool chain at idx {d}, keeping idx {d}+ ({d} tool blocks)\n", .{ first_idx, start_keep, tool_msg_count });
         }
+
+        // Count compressible messages
+        var compress_count: usize = 0;
+        for (can_compress) |c| {
+            if (c) compress_count += 1;
+        }
+
+        std.debug.print("[COMPRESS] Analysis: {d} total, {d} tool, {d} image, {d} compressible\n", .{
+            msg_count,
+            tool_msg_count,
+            image_msg_count,
+            compress_count,
+        });
 
         // Log which messages are compressed vs preserved
         std.debug.print("[COMPRESS] Message breakdown:\n", .{});
         for (request.messages, 0..) |msg, idx| {
             var has_tool_use = false;
             var has_tool_result = false;
+            var has_image = false;
             for (msg.content) |block| {
                 if (block.content_type == .tool_use) has_tool_use = true;
                 if (block.content_type == .tool_result) has_tool_result = true;
+                if (block.content_type == .image) has_image = true;
             }
-            const tool_info: []const u8 = if (has_tool_use) " [tool_use]" else if (has_tool_result) " [tool_result]" else "";
+            const tag: []const u8 = if (has_tool_use) " [tool_use]" else if (has_tool_result) " [tool_result]" else if (has_image) " [image]" else "";
             std.debug.print("  [{d}] {s}: {s}{s}\n", .{
                 idx,
                 if (can_compress[idx]) "COMPRESS" else "KEEP    ",
                 msg.role.toString(),
-                tool_info,
+                tag,
             });
         }
 
@@ -192,10 +207,8 @@ pub const TextCompressor = struct {
         var char_roles = std.ArrayList(api_types.Role){};
         defer char_roles.deinit(self.allocator);
 
-        var compress_count: usize = 0;
         for (request.messages, 0..) |msg, idx| {
             if (!can_compress[idx]) continue;
-            compress_count += 1;
 
             const role_prefix = switch (msg.role) {
                 .user => "[USER] ",
