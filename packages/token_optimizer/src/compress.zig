@@ -309,15 +309,18 @@ pub const TextCompressor = struct {
         }
 
         // Decision: only compress if we save tokens
-        const savings = @as(i64, @intCast(total_text_tokens)) - @as(i64, @intCast(total_image_tokens));
+        // Account for instruction text overhead (~50 tokens for before+after instructions)
+        const instruction_overhead: usize = 50;
+        const total_compressed_tokens = total_image_tokens + instruction_overhead;
+        const savings = @as(i64, @intCast(total_text_tokens)) - @as(i64, @intCast(total_compressed_tokens));
         const savings_pct = if (total_text_tokens > 0)
             @as(f64, @floatFromInt(savings)) / @as(f64, @floatFromInt(total_text_tokens)) * 100.0
         else
             0.0;
 
-        std.debug.print("[COMPRESS] Total: {d}tok text → {d}tok images ({d:.1}% {s})\n", .{
+        std.debug.print("[COMPRESS] Total: {d}tok text → {d}tok compressed ({d:.1}% {s})\n", .{
             total_text_tokens,
-            total_image_tokens,
+            total_compressed_tokens,
             @abs(savings_pct),
             if (savings > 0) "saved" else "added",
         });
@@ -417,7 +420,7 @@ pub const TextCompressor = struct {
 
         std.debug.print("[COMPRESS] Done: {d}tok→{d}tok ({d:.1}% saved)\n", .{
             total_text_tokens,
-            total_image_tokens,
+            total_compressed_tokens,
             savings_pct,
         });
 
