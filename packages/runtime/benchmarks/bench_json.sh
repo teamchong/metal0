@@ -381,17 +381,12 @@ echo "════════════════════════�
 echo "Running STRINGIFY benchmarks..."
 echo "═══════════════════════════════════"
 
-# Build PyAOT stringify benchmark (optimized with C allocator, WASM-compatible)
-echo "🔨 Building PyAOT stringify benchmark..."
-if [ -f bench_pyaot_json_stringify_fast.zig ]; then
-    zig build-exe bench_pyaot_json_stringify_fast.zig -O ReleaseFast -lc -femit-bin=/tmp/bench_pyaot_json_stringify 2>&1 | head -10
-    if [ -f /tmp/bench_pyaot_json_stringify ]; then
-        echo "✅ PyAOT stringify benchmark built (C allocator)"
-        PYAOT_STRINGIFY_AVAILABLE=true
-    else
-        echo "⚠️  PyAOT stringify build failed"
-        PYAOT_STRINGIFY_AVAILABLE=false
-    fi
+# Use pre-built PyAOT stringify benchmark
+echo "🔨 Using PyAOT stringify benchmark..."
+if [ -f "$PYAOT_ROOT/zig-out/bin/bench_pyaot_json_stringify" ]; then
+    ln -sf "$PYAOT_ROOT/zig-out/bin/bench_pyaot_json_stringify" /tmp/bench_pyaot_json_stringify
+    echo "✅ PyAOT stringify benchmark ready (C allocator)"
+    PYAOT_STRINGIFY_AVAILABLE=true
 else
     echo "⚠️  PyAOT stringify benchmark not found"
     PYAOT_STRINGIFY_AVAILABLE=false
@@ -403,19 +398,24 @@ STRINGIFY_CMD=(
     --warmup 2
     --runs 3
     --export-markdown bench_json_stringify_results.md
-    --command-name "Python (stringify)" "python3 /tmp/bench_json_stringify_python.py"
 )
 
-if [ "$PYAOT_STRINGIFY_AVAILABLE" = true ]; then
-    STRINGIFY_CMD+=(--command-name "PyAOT (stringify)" "/tmp/bench_pyaot_json_stringify")
+if [ "$RUST_AVAILABLE" = true ]; then
+    STRINGIFY_CMD+=(--command-name "Rust (serde_json)" "/tmp/bench_json_stringify_rust")
 fi
 
-if [ "$RUST_AVAILABLE" = true ]; then
-    STRINGIFY_CMD+=(--command-name "Rust (stringify)" "/tmp/bench_json_stringify_rust")
+if [ "$PYAOT_STRINGIFY_AVAILABLE" = true ]; then
+    STRINGIFY_CMD+=(--command-name "PyAOT" "/tmp/bench_pyaot_json_stringify")
+fi
+
+STRINGIFY_CMD+=(--command-name "Python" "python3 /tmp/bench_json_stringify_python.py")
+
+if command -v pypy3 &> /dev/null; then
+    STRINGIFY_CMD+=(--command-name "PyPy" "pypy3 /tmp/bench_json_stringify_python.py")
 fi
 
 if [ "$GO_AVAILABLE" = true ]; then
-    STRINGIFY_CMD+=(--command-name "Go (stringify)" "/tmp/bench_json_stringify_go")
+    STRINGIFY_CMD+=(--command-name "Go" "/tmp/bench_json_stringify_go")
 fi
 
 "${STRINGIFY_CMD[@]}"
