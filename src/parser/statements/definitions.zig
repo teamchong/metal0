@@ -171,7 +171,24 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.LParen);
 
     var args = std.ArrayList(ast.Arg){};
-    defer args.deinit(self.allocator);
+    var return_type_alloc: ?[]const u8 = null;
+    errdefer {
+        // Clean up args and their allocations on error
+        for (args.items) |arg| {
+            if (arg.type_annotation) |ta| {
+                self.allocator.free(ta);
+            }
+            if (arg.default) |def| {
+                def.deinit(self.allocator);
+                self.allocator.destroy(def);
+            }
+        }
+        args.deinit(self.allocator);
+        // Clean up return type if allocated
+        if (return_type_alloc) |rt| {
+            self.allocator.free(rt);
+        }
+    }
     var vararg_name: ?[]const u8 = null;
     var kwarg_name: ?[]const u8 = null;
 
@@ -247,7 +264,6 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
     }
 
     // Capture return type annotation if present (e.g., -> int, -> str, -> tuple[str, str])
-    var return_type: ?[]const u8 = null;
     if (self.tokens[self.current].type == .Arrow or
         (self.tokens[self.current].type == .Minus and
             self.current + 1 < self.tokens.len and
@@ -261,7 +277,7 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
             _ = self.match(.Gt);
         }
         // Parse the return type annotation (supports generics like tuple[str, str])
-        return_type = try parseTypeAnnotation(self);
+        return_type_alloc = try parseTypeAnnotation(self);
     }
 
     _ = try self.expect(.Colon);
@@ -302,14 +318,20 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
         return ParseError.UnexpectedEof;
     }
 
+    // Success - transfer ownership (errdefer won't run)
+    const final_args = try args.toOwnedSlice(self.allocator);
+    args = std.ArrayList(ast.Arg){}; // Reset so errdefer doesn't double-free
+    const final_return_type = return_type_alloc;
+    return_type_alloc = null; // Clear so errdefer doesn't double-free
+
     return ast.Node{
         .function_def = .{
             .name = name_tok.lexeme,
-            .args = try args.toOwnedSlice(self.allocator),
+            .args = final_args,
             .body = body,
             .is_async = is_async,
             .decorators = &[_]ast.Node{}, // Empty decorators for now
-            .return_type = return_type,
+            .return_type = final_return_type,
             .is_nested = is_nested,
             .vararg = vararg_name,
             .kwarg = kwarg_name,
@@ -325,7 +347,21 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
     // Supports: simple names (Animal), dotted names (abc.ABC), keyword args (metaclass=ABCMeta),
     // and function calls (with_metaclass(ABCMeta)) - function calls are parsed but not stored
     var bases = std.ArrayList([]const u8){};
-    defer bases.deinit(self.allocator);
+    var body_alloc: ?[]ast.Node = null;
+    errdefer {
+        // Clean up bases (they're duped strings)
+        for (bases.items) |base| {
+            self.allocator.free(base);
+        }
+        bases.deinit(self.allocator);
+        // Clean up body if allocated
+        if (body_alloc) |b| {
+            for (b) |*stmt| {
+                stmt.deinit(self.allocator);
+            }
+            self.allocator.free(b);
+        }
+    }
 
     if (self.match(.LParen)) {
         while (!self.match(.RParen)) {
@@ -368,7 +404,6 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Colon);
 
     // Check if this is a one-liner class (class C: pass or class C: ...)
-    var body: []ast.Node = undefined;
     if (self.peek()) |next_tok| {
         const is_oneliner = next_tok.type == .Pass or
             next_tok.type == .Ellipsis or
@@ -378,22 +413,28 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
             const stmt = try self.parseStatement();
             const body_slice = try self.allocator.alloc(ast.Node, 1);
             body_slice[0] = stmt;
-            body = body_slice;
+            body_alloc = body_slice;
         } else {
             _ = try self.expect(.Newline);
             _ = try self.expect(.Indent);
-            body = try misc.parseBlock(self);
+            body_alloc = try misc.parseBlock(self);
             _ = try self.expect(.Dedent);
         }
     } else {
         return ParseError.UnexpectedEof;
     }
 
+    // Success - transfer ownership
+    const final_bases = try bases.toOwnedSlice(self.allocator);
+    bases = std.ArrayList([]const u8){}; // Reset so errdefer doesn't double-free
+    const final_body = body_alloc.?;
+    body_alloc = null; // Clear so errdefer doesn't double-free
+
     return ast.Node{
         .class_def = .{
             .name = name_tok.lexeme,
-            .bases = try bases.toOwnedSlice(self.allocator),
-            .body = body,
+            .bases = final_bases,
+            .body = final_body,
         },
     };
 }

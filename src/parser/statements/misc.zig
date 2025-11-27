@@ -89,7 +89,13 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
 
 pub fn parseBlock(self: *Parser) ParseError![]ast.Node {
     var statements = std.ArrayList(ast.Node){};
-    defer statements.deinit(self.allocator);
+    errdefer {
+        // Clean up already parsed statements on error
+        for (statements.items) |*stmt| {
+            stmt.deinit(self.allocator);
+        }
+        statements.deinit(self.allocator);
+    }
 
     while (true) {
         if (self.peek()) |tok| {
@@ -102,15 +108,47 @@ pub fn parseBlock(self: *Parser) ParseError![]ast.Node {
         try statements.append(self.allocator, stmt);
     }
 
-    return try statements.toOwnedSlice(self.allocator);
+    // Success - transfer ownership
+    const result = try statements.toOwnedSlice(self.allocator);
+    statements = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
+    return result;
 }
 
 pub fn parseTry(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Try);
     _ = try self.expect(.Colon);
 
+    // Track allocations for cleanup on error
+    var body_alloc: ?[]ast.Node = null;
+    var handlers = std.ArrayList(ast.Node.ExceptHandler){};
+    var else_body_alloc: ?[]ast.Node = null;
+    var finally_body_alloc: ?[]ast.Node = null;
+
+    errdefer {
+        // Clean up body
+        if (body_alloc) |b| {
+            for (b) |*stmt| stmt.deinit(self.allocator);
+            self.allocator.free(b);
+        }
+        // Clean up handlers
+        for (handlers.items) |handler| {
+            for (handler.body) |*stmt| stmt.deinit(self.allocator);
+            self.allocator.free(handler.body);
+        }
+        handlers.deinit(self.allocator);
+        // Clean up else body
+        if (else_body_alloc) |b| {
+            for (b) |*stmt| stmt.deinit(self.allocator);
+            self.allocator.free(b);
+        }
+        // Clean up finally body
+        if (finally_body_alloc) |b| {
+            for (b) |*stmt| stmt.deinit(self.allocator);
+            self.allocator.free(b);
+        }
+    }
+
     // Parse try block body - check for one-liner
-    var body: []ast.Node = undefined;
     if (self.peek()) |next_tok| {
         const is_oneliner = next_tok.type == .Pass or
             next_tok.type == .Ellipsis or
@@ -124,20 +162,16 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
             const stmt = try self.parseStatement();
             const body_slice = try self.allocator.alloc(ast.Node, 1);
             body_slice[0] = stmt;
-            body = body_slice;
+            body_alloc = body_slice;
         } else {
             _ = try self.expect(.Newline);
             _ = try self.expect(.Indent);
-            body = try parseBlock(self);
+            body_alloc = try parseBlock(self);
             _ = try self.expect(.Dedent);
         }
     } else {
         return ParseError.UnexpectedEof;
     }
-
-    // Parse except handlers
-    var handlers = std.ArrayList(ast.Node.ExceptHandler){};
-    defer handlers.deinit(self.allocator);
 
     while (self.match(.Except)) {
         // Check for exception type: except ValueError: or except (Exception) as e:
@@ -211,31 +245,39 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
     }
 
     // Parse optional else block (runs if no exception)
-    var else_body: []ast.Node = &[_]ast.Node{};
     if (self.match(.Else)) {
         _ = try self.expect(.Colon);
         _ = try self.expect(.Newline);
         _ = try self.expect(.Indent);
-        else_body = try parseBlock(self);
+        else_body_alloc = try parseBlock(self);
         _ = try self.expect(.Dedent);
     }
 
     // Parse optional finally block
-    var finalbody: []ast.Node = &[_]ast.Node{};
     if (self.match(.Finally)) {
         _ = try self.expect(.Colon);
         _ = try self.expect(.Newline);
         _ = try self.expect(.Indent);
-        finalbody = try parseBlock(self);
+        finally_body_alloc = try parseBlock(self);
         _ = try self.expect(.Dedent);
     }
 
+    // Success - transfer ownership
+    const final_body = body_alloc.?;
+    body_alloc = null;
+    const final_handlers = try handlers.toOwnedSlice(self.allocator);
+    handlers = std.ArrayList(ast.Node.ExceptHandler){};
+    const final_else: []ast.Node = else_body_alloc orelse try self.allocator.alloc(ast.Node, 0);
+    else_body_alloc = null;
+    const final_finally: []ast.Node = finally_body_alloc orelse try self.allocator.alloc(ast.Node, 0);
+    finally_body_alloc = null;
+
     return ast.Node{
         .try_stmt = .{
-            .body = body,
-            .handlers = try handlers.toOwnedSlice(self.allocator),
-            .else_body = else_body,
-            .finalbody = finalbody,
+            .body = final_body,
+            .handlers = final_handlers,
+            .else_body = final_else,
+            .finalbody = final_finally,
         },
     };
 }
@@ -290,6 +332,13 @@ pub fn parseEllipsis(self: *Parser) ParseError!ast.Node {
 pub fn parseDecorated(self: *Parser) ParseError!ast.Node {
     // Parse decorators: @decorator_name or @decorator_func(args)
     var decorators = std.ArrayList(ast.Node){};
+    errdefer {
+        // Clean up decorators on error
+        for (decorators.items) |*d| {
+            d.deinit(self.allocator);
+        }
+        decorators.deinit(self.allocator);
+    }
 
     while (self.match(.At)) {
         // Parse decorator expression (name or call)
@@ -304,9 +353,13 @@ pub fn parseDecorated(self: *Parser) ParseError!ast.Node {
     // Attach decorators to function definition
     if (decorated_node == .function_def) {
         const decorators_slice = try decorators.toOwnedSlice(self.allocator);
+        decorators = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
         decorated_node.function_def.decorators = decorators_slice;
     } else {
         // If not a function, just free the decorators
+        for (decorators.items) |*d| {
+            d.deinit(self.allocator);
+        }
         decorators.deinit(self.allocator);
     }
 
