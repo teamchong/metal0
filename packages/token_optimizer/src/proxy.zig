@@ -223,8 +223,8 @@ pub const ProxyServer = struct {
             else => "200 OK",
         };
 
-        // Send response (with optional gzip compression)
-        const use_gzip = std.posix.getenv("PROXY_GZIP") != null;
+        // Send response with gzip compression (disable with NO_GZIP=1)
+        const use_gzip = std.posix.getenv("NO_GZIP") == null;
         if (use_gzip) {
             const compressed_response = try gzip.compress(self.allocator, response_body.items);
             defer self.allocator.free(compressed_response);
