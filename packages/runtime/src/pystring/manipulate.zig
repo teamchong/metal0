@@ -43,12 +43,13 @@ pub fn sliceWithStep(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i
         end = @max(-1, @min(end, str_len));
     }
 
-    // If step is 1, we can use simple substring extraction (optimization)
+    // If step is 1, use COW (zero-copy slice!)
     if (step == 1) {
         const start_idx: usize = @intCast(start);
         const end_idx: usize = @intCast(end);
         const substring = data.data[start_idx..end_idx];
-        return try PyString.create(allocator, substring);
+        // COW: borrow from source, no copy!
+        return try PyString.createBorrowed(allocator, obj, substring);
     }
 
     // Calculate result size for step != 1

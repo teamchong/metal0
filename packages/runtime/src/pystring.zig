@@ -7,13 +7,17 @@ const transform = @import("pystring/transform.zig");
 const search = @import("pystring/search.zig");
 const manipulate = @import("pystring/manipulate.zig");
 
-// Re-export PyString struct type
+// Re-export PyString struct type with COW support
 pub const PyString = struct {
     data: []const u8,
+    source: ?*@import("runtime.zig").PyObject = null, // COW: borrowed from this
 
     // Core operations
     pub const create = core.PyString.create;
     pub const createOwned = core.PyString.createOwned;
+    pub const createBorrowed = core.PyString.createBorrowed;
+    pub const isBorrowed = core.PyString.isBorrowed;
+    pub const deinit = core.PyString.deinit;
     pub const getValue = core.PyString.getValue;
     pub const len = core.PyString.len;
     pub const getItem = core.PyString.getItem;
