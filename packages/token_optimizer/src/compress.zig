@@ -411,7 +411,13 @@ pub const TextCompressor = struct {
         };
         validation.deinit();
 
-        std.debug.print("[COMPRESS] Success: {d}B → {d}B\n", .{ request_json.len, rebuilt.len });
+        std.debug.print("[COMPRESS] Success: {d}tok→{d}tok ({d:.1}% saved), {d}B→{d}B\n", .{
+            total_text_tokens,
+            total_image_tokens,
+            savings_pct,
+            request_json.len,
+            rebuilt.len,
+        });
 
         return rebuilt;
     }
