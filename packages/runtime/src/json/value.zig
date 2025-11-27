@@ -13,8 +13,8 @@ pub const JsonValue = union(enum) {
     array: std.ArrayList(JsonValue),
     object: std.StringHashMap(JsonValue),
 
-    /// Convert JsonValue to PyObject - main conversion point
-    pub fn toPyObject(self: *const JsonValue, allocator: std.mem.Allocator) !*runtime.PyObject {
+    /// Convert JsonValue to PyObject - transfers ownership (use shallowDeinit after!)
+    pub fn toPyObject(self: *JsonValue, allocator: std.mem.Allocator) !*runtime.PyObject {
         switch (self.*) {
             .null_value => {
                 // Create PyObject for None
@@ -49,10 +49,12 @@ pub const JsonValue = union(enum) {
                 return try runtime.PyInt.create(allocator, @intFromFloat(f));
             },
             .string => |s| {
-                // PyString.create will dupe the string, so just pass it through
-                return try runtime.PyString.create(allocator, s);
+                // Transfer ownership - no extra copy!
+                const result = try runtime.PyString.createOwned(allocator, s);
+                self.* = .null_value; // Clear to prevent double-free
+                return result;
             },
-            .array => |arr| {
+            .array => |*arr| {
                 const list = try runtime.PyList.create(allocator);
                 const list_data: *runtime.PyList = @ptrCast(@alignCast(list.data));
 
@@ -60,17 +62,21 @@ pub const JsonValue = union(enum) {
                     const py_item = try item.toPyObject(allocator);
                     try list_data.items.append(allocator, py_item);
                 }
+                arr.deinit(allocator); // Free container only (items transferred)
+                self.* = .null_value;
                 return list;
             },
-            .object => |obj| {
+            .object => |*obj| {
                 const dict = try runtime.PyDict.create(allocator);
 
                 var it = obj.iterator();
                 while (it.next()) |entry| {
                     const py_value = try entry.value_ptr.toPyObject(allocator);
-                    try runtime.PyDict.set(dict, entry.key_ptr.*, py_value);
-                    // Note: PyDict.set takes ownership, no decref needed
+                    // Transfer key ownership to PyDict
+                    try runtime.PyDict.setOwned(dict, entry.key_ptr.*, py_value);
                 }
+                obj.deinit(); // Free container only (keys/values transferred)
+                self.* = .null_value;
                 return dict;
             },
         }
