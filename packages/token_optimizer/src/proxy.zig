@@ -214,10 +214,23 @@ pub const ProxyServer = struct {
         const compressed_response = try gzip.compress(self.allocator, response_body.items);
         defer self.allocator.free(compressed_response);
 
+        // Preserve actual status code from API
+        const status_text = switch (response.head.status) {
+            .ok => "200 OK",
+            .bad_request => "400 Bad Request",
+            .unauthorized => "401 Unauthorized",
+            .forbidden => "403 Forbidden",
+            .not_found => "404 Not Found",
+            .too_many_requests => "429 Too Many Requests",
+            .internal_server_error => "500 Internal Server Error",
+            .service_unavailable => "503 Service Unavailable",
+            else => "200 OK",
+        };
+
         const response_header = try std.fmt.allocPrint(
             self.allocator,
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {d}\r\n\r\n",
-            .{compressed_response.len},
+            "HTTP/1.1 {s}\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {d}\r\n\r\n",
+            .{ status_text, compressed_response.len },
         );
         defer self.allocator.free(response_header);
 
