@@ -8,8 +8,22 @@ const misc = @import("misc.zig");
 
 pub fn parseIf(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.If);
-    var condition_expr = try self.parseExpression();
-    errdefer condition_expr.deinit(self.allocator);
+
+    // Parse condition and immediately allocate on heap
+    var condition_ptr: ?*ast.Node = null;
+    errdefer if (condition_ptr) |ptr| {
+        ptr.deinit(self.allocator);
+        self.allocator.destroy(ptr);
+    };
+    {
+        var condition_expr = try self.parseExpression();
+        condition_ptr = self.allocator.create(ast.Node) catch |err| {
+            condition_expr.deinit(self.allocator);
+            return err;
+        };
+        condition_ptr.?.* = condition_expr;
+    }
+
     _ = try self.expect(.Colon);
 
     // Track if_body for cleanup
@@ -33,8 +47,10 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
 
         if (is_oneliner) {
             var stmt = try self.parseStatement();
-            errdefer stmt.deinit(self.allocator);
-            const body_slice = try self.allocator.alloc(ast.Node, 1);
+            const body_slice = self.allocator.alloc(ast.Node, 1) catch |err| {
+                stmt.deinit(self.allocator);
+                return err;
+            };
             body_slice[0] = stmt;
             if_body = body_slice;
         } else {
@@ -47,15 +63,6 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
         return ParseError.UnexpectedEof;
     }
 
-    // Allocate condition on heap
-    var condition_ptr: ?*ast.Node = null;
-    errdefer if (condition_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-    condition_ptr = try self.allocator.create(ast.Node);
-    condition_ptr.?.* = condition_expr;
-
     // Check for elif/else
     var else_stmts = std.ArrayList(ast.Node){};
     errdefer {
@@ -64,8 +71,21 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
     }
 
     while (self.match(.Elif)) {
-        var elif_condition = try self.parseExpression();
-        errdefer elif_condition.deinit(self.allocator);
+        // Parse condition and immediately allocate on heap
+        var elif_condition_ptr: ?*ast.Node = null;
+        errdefer if (elif_condition_ptr) |ptr| {
+            ptr.deinit(self.allocator);
+            self.allocator.destroy(ptr);
+        };
+        {
+            var elif_condition = try self.parseExpression();
+            elif_condition_ptr = self.allocator.create(ast.Node) catch |err| {
+                elif_condition.deinit(self.allocator);
+                return err;
+            };
+            elif_condition_ptr.?.* = elif_condition;
+        }
+
         _ = try self.expect(.Colon);
 
         // Track elif_body for cleanup
@@ -89,8 +109,10 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
 
             if (is_oneliner) {
                 var stmt = try self.parseStatement();
-                errdefer stmt.deinit(self.allocator);
-                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                const body_slice = self.allocator.alloc(ast.Node, 1) catch |err| {
+                    stmt.deinit(self.allocator);
+                    return err;
+                };
                 body_slice[0] = stmt;
                 elif_body = body_slice;
             } else {
@@ -102,14 +124,6 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
         } else {
             return ParseError.UnexpectedEof;
         }
-
-        var elif_condition_ptr: ?*ast.Node = null;
-        errdefer if (elif_condition_ptr) |ptr| {
-            ptr.deinit(self.allocator);
-            self.allocator.destroy(ptr);
-        };
-        elif_condition_ptr = try self.allocator.create(ast.Node);
-        elif_condition_ptr.?.* = elif_condition;
 
         // Transfer ownership to else_stmts
         try else_stmts.append(self.allocator, ast.Node{
@@ -147,8 +161,10 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
 
             if (is_oneliner) {
                 var stmt = try self.parseStatement();
-                errdefer stmt.deinit(self.allocator);
-                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                const body_slice = self.allocator.alloc(ast.Node, 1) catch |err| {
+                    stmt.deinit(self.allocator);
+                    return err;
+                };
                 body_slice[0] = stmt;
                 else_body = body_slice;
             } else {

@@ -14,29 +14,19 @@ pub const parsePrimary = primary.parsePrimary;
 /// Parse postfix expressions: function calls, subscripts, attribute access
 pub fn parsePostfix(self: *Parser) ParseError!ast.Node {
     var node = try parsePrimary(self);
-    var owned = true; // Track if we still own node (for cleanup)
-
-    errdefer {
-        if (owned) {
-            node.deinit(self.allocator);
-        }
-    }
+    // We own node until we successfully return it or pass it to a sub-function
+    // Sub-functions take ownership and are responsible for cleanup on error
 
     while (true) {
         if (self.match(.LParen)) {
-            // parseCall takes ownership - if it fails after copying, it cleans up
-            // We don't own node anymore once we pass it
-            owned = false;
-            node = try parseCall(self, node);
-            owned = true; // We now own the result
+            // parseCall takes ownership immediately - if it fails, it cleans up
+            node = parseCall(self, node) catch |err| return err;
         } else if (self.match(.LBracket)) {
-            owned = false;
-            node = try subscript.parseSubscript(self, node);
-            owned = true;
+            // parseSubscript takes ownership immediately
+            node = subscript.parseSubscript(self, node) catch |err| return err;
         } else if (self.match(.Dot)) {
-            owned = false;
-            node = try parseAttribute(self, node);
-            owned = true;
+            // parseAttribute takes ownership immediately
+            node = parseAttribute(self, node) catch |err| return err;
         } else {
             break;
         }
@@ -49,11 +39,16 @@ pub fn parsePostfix(self: *Parser) ParseError!ast.Node {
 /// Takes ownership of `value` - cleans it up on error
 fn parseAttribute(self: *Parser, value: ast.Node) ParseError!ast.Node {
     var val = value;
-    errdefer val.deinit(self.allocator);
 
-    const attr_tok = try self.expect(.Ident);
+    const attr_tok = self.expect(.Ident) catch |err| {
+        val.deinit(self.allocator);
+        return err;
+    };
 
-    const node_ptr = try self.allocator.create(ast.Node);
+    const node_ptr = self.allocator.create(ast.Node) catch |err| {
+        val.deinit(self.allocator);
+        return err;
+    };
     node_ptr.* = val;
     // On success, ownership transfers to node_ptr in returned node
 

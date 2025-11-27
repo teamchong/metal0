@@ -7,19 +7,13 @@ const Parser = @import("../../parser.zig").Parser;
 /// Takes ownership of `value` - cleans it up on error
 pub fn parseSubscript(self: *Parser, value: ast.Node) ParseError!ast.Node {
     var val = value;
-    var val_copied = false;
 
-    errdefer {
-        if (val_copied) {
-            // val was copied to node_ptr, don't double-free
-        } else {
-            val.deinit(self.allocator);
-        }
-    }
-
-    const node_ptr = try self.allocator.create(ast.Node);
+    // Immediately allocate and copy to heap
+    const node_ptr = self.allocator.create(ast.Node) catch |err| {
+        val.deinit(self.allocator);
+        return err;
+    };
     node_ptr.* = val;
-    val_copied = true;
 
     errdefer {
         node_ptr.deinit(self.allocator);

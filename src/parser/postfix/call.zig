@@ -4,9 +4,22 @@ const ParseError = @import("../../parser.zig").ParseError;
 const Parser = @import("../../parser.zig").Parser;
 
 /// Parse function call after '(' has been consumed
+/// Takes ownership of `func` - cleans it up on error
 pub fn parseCall(self: *Parser, func: ast.Node) ParseError!ast.Node {
+    // Take ownership of func immediately - we're responsible for cleanup on any error
     var fn_node = func;
-    errdefer fn_node.deinit(self.allocator);
+
+    // Immediately allocate func on heap
+    var func_ptr: ?*ast.Node = self.allocator.create(ast.Node) catch |err| {
+        // Allocation failed - clean up func before returning error
+        fn_node.deinit(self.allocator);
+        return err;
+    };
+    func_ptr.?.* = fn_node;
+    errdefer if (func_ptr) |ptr| {
+        ptr.deinit(self.allocator);
+        self.allocator.destroy(ptr);
+    };
 
     var args = std.ArrayList(ast.Node){};
     errdefer {
@@ -42,15 +55,6 @@ pub fn parseCall(self: *Parser, func: ast.Node) ParseError!ast.Node {
             break;
         }
     }
-
-    var func_ptr: ?*ast.Node = null;
-    errdefer if (func_ptr) |ptr| {
-        ptr.deinit(self.allocator);
-        self.allocator.destroy(ptr);
-    };
-
-    func_ptr = try self.allocator.create(ast.Node);
-    func_ptr.?.* = fn_node;
 
     // Success - transfer ownership
     const final_func = func_ptr.?;
