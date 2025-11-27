@@ -358,7 +358,7 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             }
         },
         // Leaf nodes
-        .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .global_stmt, .ellipsis_literal, .raise_stmt => {
+        .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .global_stmt, .ellipsis_literal, .raise_stmt, .yield_stmt => {
             // No variables to track
         },
     }

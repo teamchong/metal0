@@ -497,6 +497,10 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .continue_stmt => try statements.genContinue(self),
         .global_stmt => |global| try statements.genGlobal(self, global),
         .del_stmt => |del| try statements.genDel(self, del),
+        .yield_stmt => {
+            // Yield is parsed but not compiled - generators use CPython at runtime
+            try statements.genPass(self);
+        },
         else => {},
     }
 }

@@ -5,7 +5,7 @@ const discovery = @import("discovery.zig");
 
 /// Check if a module is a built-in Zig module that should not be scanned/compiled
 /// Built-in modules: json, http, asyncio, re, numpy, sqlite3, zlib, ssl, sys
-/// Also skip stdlib modules with unsupported syntax (chained assignment, walrus, etc.)
+/// Also skip stdlib modules with unsupported syntax (set comprehensions, walrus, etc.)
 pub fn isBuiltinModule(module_name: []const u8) bool {
     const builtins = [_][]const u8{
         "json",       "http",       "asyncio",   "re",
@@ -14,10 +14,23 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
         "sys",        "time",       "unittest",
         // Skip modules with unsupported Python syntax
         "subprocess", "tempfile",   "typing",    "os",
+        // Stdlib modules with complex syntax (set comprehensions, etc.)
+        "functools",  "collections", "inspect",  "contextlib",
+        "abc",        "operator",    "itertools", "enum",
+        "dataclasses", "warnings",   "logging",  "traceback",
+        "copy",       "weakref",     "types",    "codecs",
+        "io",         "threading",   "socket",   "secrets",
+        "hashlib",    "hmac",        "pickle",   "struct",
+        "base64",     "binascii",    "textwrap", "string",
+        "platform",   "shutil",      "glob",     "fnmatch",
+        "stat",       "posixpath",   "genericpath",
         // Testing frameworks - skip as they're for CPython testing
         "pytest",
         // Python directive modules (not runtime code)
         "__future__",
+        // Flask's dependencies (handled at runtime by CPython)
+        "werkzeug",   "click",       "jinja2",   "markupsafe",
+        "itsdangerous", "blinker",
     };
     for (builtins) |builtin_module| {
         if (std.mem.eql(u8, module_name, builtin_module)) {

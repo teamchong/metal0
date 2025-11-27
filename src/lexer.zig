@@ -36,6 +36,7 @@ pub const TokenType = enum {
     With,
     Is,
     Del,
+    Yield,
 
     // Literals
     Ident,
@@ -358,6 +359,7 @@ pub const Lexer = struct {
             .{ "with", .With },
             .{ "is", .Is },
             .{ "del", .Del },
+            .{ "yield", .Yield },
         });
 
         return keywords.get(lexeme) orelse .Ident;
