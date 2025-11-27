@@ -43,8 +43,51 @@ fn collectDottedParts(self: *Parser, node: ast.Node, parts: *std.ArrayList(u8)) 
 
 /// Parse type annotation supporting PEP 585 generics (e.g., int, str, list[int], tuple[str, str], dict[str, int])
 /// Also supports dotted types like typing.Any, t.Optional[str]
+/// Also supports parenthesized types like (int | str), (tuple[...] | tuple[...])
 fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
     if (self.current >= self.tokens.len) return null;
+
+    // Handle parenthesized type annotations: (type | type)
+    if (self.tokens[self.current].type == .LParen) {
+        self.current += 1; // consume '('
+
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+
+        try type_buf.append(self.allocator, '(');
+
+        var paren_depth: usize = 1;
+        while (self.current < self.tokens.len and paren_depth > 0) {
+            const tok = self.tokens[self.current];
+            switch (tok.type) {
+                .LParen => {
+                    try type_buf.append(self.allocator, '(');
+                    paren_depth += 1;
+                },
+                .RParen => {
+                    try type_buf.append(self.allocator, ')');
+                    paren_depth -= 1;
+                },
+                .LBracket => try type_buf.append(self.allocator, '['),
+                .RBracket => try type_buf.append(self.allocator, ']'),
+                .Comma => try type_buf.appendSlice(self.allocator, ", "),
+                .Pipe => try type_buf.appendSlice(self.allocator, " | "),
+                .Dot => try type_buf.append(self.allocator, '.'),
+                .Colon => try type_buf.append(self.allocator, ':'),
+                .Ellipsis => try type_buf.appendSlice(self.allocator, "..."),
+                .Ident => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                .True => try type_buf.appendSlice(self.allocator, "True"),
+                .False => try type_buf.appendSlice(self.allocator, "False"),
+                .None => try type_buf.appendSlice(self.allocator, "None"),
+                .String => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                .Number => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                else => break,
+            }
+            self.current += 1;
+        }
+
+        return try self.allocator.dupe(u8, type_buf.items);
+    }
 
     // Handle both identifiers and None/True/False as type names
     const tok_type = self.tokens[self.current].type;
@@ -123,6 +166,33 @@ fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
                     need_separator = false;
                 },
                 .Ident => {
+                    if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
+                    try type_buf.appendSlice(self.allocator, tok.lexeme);
+                    need_separator = true;
+                },
+                .True => {
+                    if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
+                    try type_buf.appendSlice(self.allocator, "True");
+                    need_separator = true;
+                },
+                .False => {
+                    if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
+                    try type_buf.appendSlice(self.allocator, "False");
+                    need_separator = true;
+                },
+                .None => {
+                    if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
+                    try type_buf.appendSlice(self.allocator, "None");
+                    need_separator = true;
+                },
+                .String => {
+                    // String literal in type annotation (e.g., Literal["hello"])
+                    if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
+                    try type_buf.appendSlice(self.allocator, tok.lexeme);
+                    need_separator = true;
+                },
+                .Number => {
+                    // Number literal in type annotation (e.g., Literal[1])
                     if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
                     try type_buf.appendSlice(self.allocator, tok.lexeme);
                     need_separator = true;
@@ -226,6 +296,11 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
             const arg_name = try self.expect(.Ident);
             kwarg_name = arg_name.lexeme;
 
+            // Skip type annotation if present (e.g., **kwargs: t.Any)
+            if (self.match(.Colon)) {
+                _ = try parseTypeAnnotation(self);
+            }
+
             // **kwargs must be last parameter
             if (!self.match(.Comma)) {
                 _ = try self.expect(.RParen);
@@ -241,6 +316,11 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
                 // *args: has identifier after *
                 const arg_name = try self.expect(.Ident);
                 vararg_name = arg_name.lexeme;
+
+                // Skip type annotation if present (e.g., *args: t.Any)
+                if (self.match(.Colon)) {
+                    _ = try parseTypeAnnotation(self);
+                }
             }
             // else: bare * is keyword-only marker, just skip it
 

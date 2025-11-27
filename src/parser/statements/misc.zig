@@ -208,11 +208,28 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
 
     while (self.match(.Except)) {
         // Check for exception type: except ValueError: or except (Exception) as e:
+        // Also handles dotted types: except click.BadParameter:
         var exc_type: ?[]const u8 = null;
         if (self.peek()) |tok| {
             if (tok.type == .Ident) {
-                exc_type = tok.lexeme;
+                // Check for dotted exception type: click.BadParameter
+                var type_name = tok.lexeme;
                 _ = self.advance();
+
+                // Handle dotted names
+                while (self.peek()) |next_tok| {
+                    if (next_tok.type == .Dot) {
+                        _ = self.advance(); // consume '.'
+                        if (self.peek()) |name_tok| {
+                            if (name_tok.type == .Ident) {
+                                // For now, just use the last part of the dotted name
+                                type_name = name_tok.lexeme;
+                                _ = self.advance();
+                            } else break;
+                        } else break;
+                    } else break;
+                }
+                exc_type = type_name;
             } else if (tok.type == .LParen) {
                 // Parenthesized exception type: except (Exception) as e:
                 // or except (ValueError, TypeError) as e:
@@ -324,6 +341,12 @@ pub fn parseRaise(self: *Parser) ParseError!ast.Node {
         self.allocator.destroy(ptr);
     };
 
+    var cause_ptr: ?*ast.Node = null;
+    errdefer if (cause_ptr) |ptr| {
+        ptr.deinit(self.allocator);
+        self.allocator.destroy(ptr);
+    };
+
     // Check if there's an exception expression
     if (self.peek()) |tok| {
         if (tok.type != .Newline) {
@@ -331,6 +354,17 @@ pub fn parseRaise(self: *Parser) ParseError!ast.Node {
             errdefer exc.deinit(self.allocator);
             exc_ptr = try self.allocator.create(ast.Node);
             exc_ptr.?.* = exc;
+
+            // Check for "from" clause: raise X from Y
+            if (self.peek()) |next_tok| {
+                if (next_tok.type == .From) {
+                    _ = self.advance(); // consume 'from'
+                    var cause = try self.parseExpression();
+                    errdefer cause.deinit(self.allocator);
+                    cause_ptr = try self.allocator.create(ast.Node);
+                    cause_ptr.?.* = cause;
+                }
+            }
         }
     }
 
@@ -339,10 +373,13 @@ pub fn parseRaise(self: *Parser) ParseError!ast.Node {
     // Success - transfer ownership
     const final_exc = exc_ptr;
     exc_ptr = null;
+    const final_cause = cause_ptr;
+    cause_ptr = null;
 
     return ast.Node{
         .raise_stmt = .{
             .exc = final_exc,
+            .cause = final_cause,
         },
     };
 }
@@ -363,6 +400,61 @@ pub fn parseContinue(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Continue);
     _ = self.expect(.Newline) catch {};
     return ast.Node{ .continue_stmt = {} };
+}
+
+pub fn parseYield(self: *Parser) ParseError!ast.Node {
+    _ = try self.expect(.Yield);
+
+    var value_ptr: ?*ast.Node = null;
+    errdefer if (value_ptr) |ptr| {
+        ptr.deinit(self.allocator);
+        self.allocator.destroy(ptr);
+    };
+
+    // Check if there's a value expression
+    if (self.peek()) |tok| {
+        if (tok.type != .Newline) {
+            // Parse first value
+            var first_value = try self.parseExpression();
+            errdefer first_value.deinit(self.allocator);
+
+            // Check if this is a tuple: yield a, b, c
+            var value = if (self.check(.Comma)) blk: {
+                var value_list = std.ArrayList(ast.Node){};
+                errdefer {
+                    for (value_list.items) |*v| v.deinit(self.allocator);
+                    value_list.deinit(self.allocator);
+                }
+                try value_list.append(self.allocator, first_value);
+
+                while (self.match(.Comma)) {
+                    var val = try self.parseExpression();
+                    errdefer val.deinit(self.allocator);
+                    try value_list.append(self.allocator, val);
+                }
+
+                const value_array = try value_list.toOwnedSlice(self.allocator);
+                value_list = std.ArrayList(ast.Node){}; // Reset
+                break :blk ast.Node{ .tuple = .{ .elts = value_array } };
+            } else first_value;
+            errdefer value.deinit(self.allocator);
+
+            value_ptr = try self.allocator.create(ast.Node);
+            value_ptr.?.* = value;
+        }
+    }
+
+    _ = self.expect(.Newline) catch {};
+
+    // Success - transfer ownership
+    const final_value = value_ptr;
+    value_ptr = null;
+
+    return ast.Node{
+        .yield_stmt = .{
+            .value = final_value,
+        },
+    };
 }
 
 pub fn parseEllipsis(self: *Parser) ParseError!ast.Node {
@@ -470,6 +562,7 @@ pub fn parseDel(self: *Parser) ParseError!ast.Node {
 }
 
 /// Parse with statement: with expr as var: body
+/// Also supports multiple context managers: with ctx1, ctx2 as var: body
 pub fn parseWith(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.With);
 
@@ -491,6 +584,18 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
     if (self.match(.As)) {
         const var_tok = try self.expect(.Ident);
         optional_vars = var_tok.lexeme;
+    }
+
+    // Handle multiple context managers: with ctx1, ctx2, ctx3:
+    // For now, just parse and skip additional context managers (use first one)
+    while (self.match(.Comma)) {
+        var extra_ctx = try self.parseExpression();
+        extra_ctx.deinit(self.allocator); // Discard additional context managers
+
+        // Check for optional "as variable" on additional context
+        if (self.match(.As)) {
+            _ = try self.expect(.Ident); // Skip the variable name
+        }
     }
 
     _ = try self.expect(.Colon);

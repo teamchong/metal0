@@ -48,6 +48,7 @@ pub const Node = union(enum) {
     del_stmt: Del,
     named_expr: NamedExpr,
     if_expr: IfExpr,
+    yield_stmt: Yield,
 
     // Type aliases for backward compatibility with nested access (ast.Node.FString)
     pub const FString = fstring.FString;
@@ -258,9 +259,15 @@ pub const Node = union(enum) {
         body: []Node, // Handler body
     };
 
-    /// Raise statement: raise or raise Exception("msg")
+    /// Raise statement: raise or raise Exception("msg") or raise Exception("msg") from cause
     pub const Raise = struct {
         exc: ?*Node, // Exception to raise (or null for bare raise)
+        cause: ?*Node = null, // Cause exception for "raise X from Y" syntax
+    };
+
+    /// Yield statement: yield or yield value or yield a, b
+    pub const Yield = struct {
+        value: ?*Node, // Value to yield (or null for bare yield)
     };
 
     /// Global statement: global x, y, z

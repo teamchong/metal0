@@ -216,13 +216,54 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         };
     }
 
-    // Check for regular assignment
+    // Check for regular assignment (including chained: a = b = c)
     if (self.match(.Eq)) {
-        var value = try self.parseExpression();
+        // Collect all assignment targets for chained assignment
+        var all_targets = std.ArrayList(ast.Node){};
+        errdefer {
+            for (all_targets.items) |*t| t.deinit(self.allocator);
+            all_targets.deinit(self.allocator);
+        }
+        try all_targets.append(self.allocator, expr);
+
+        // Parse value (or next target in chain)
+        var first_value = try self.parseExpression();
+        errdefer first_value.deinit(self.allocator);
+
+        // Check if value is a tuple (comma-separated): x = a, b, c
+        var value = if (self.check(.Comma) and !self.check(.Eq)) blk: {
+            var value_list = std.ArrayList(ast.Node){};
+            errdefer {
+                for (value_list.items) |*v| v.deinit(self.allocator);
+                value_list.deinit(self.allocator);
+            }
+            try value_list.append(self.allocator, first_value);
+
+            while (self.match(.Comma)) {
+                // Check if next is '=' (chained assignment) - if so, stop tuple building
+                if (self.check(.Eq)) break;
+                var val = try self.parseExpression();
+                errdefer val.deinit(self.allocator);
+                try value_list.append(self.allocator, val);
+            }
+
+            const value_array = try value_list.toOwnedSlice(self.allocator);
+            value_list = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
+            break :blk ast.Node{ .tuple = .{ .elts = value_array } };
+        } else first_value;
         errdefer value.deinit(self.allocator);
+
+        // Handle chained assignment: a = b = c
+        while (self.match(.Eq)) {
+            // Current value is actually another target
+            try all_targets.append(self.allocator, value);
+            // Parse the next value
+            value = try self.parseExpression();
+        }
+
         _ = self.expect(.Newline) catch {};
 
-        // Allocate nodes on heap
+        // Allocate value on heap
         var value_ptr: ?*ast.Node = null;
         errdefer if (value_ptr) |ptr| {
             ptr.deinit(self.allocator);
@@ -232,9 +273,9 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         value_ptr = try self.allocator.create(ast.Node);
         value_ptr.?.* = value;
 
-        // For simplicity, wrap expr in array (single target)
-        var targets = try self.allocator.alloc(ast.Node, 1);
-        targets[0] = expr;
+        // Convert targets to owned slice
+        const targets = try all_targets.toOwnedSlice(self.allocator);
+        all_targets = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
 
         // Success - transfer ownership
         const final_value = value_ptr.?;

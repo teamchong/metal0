@@ -152,6 +152,34 @@ pub fn parseLambda(self: *Parser) ParseError!ast.Node {
     if (!self.check(.Colon)) {
         while (true) {
             if (self.peek()) |tok| {
+                // Handle **kwargs in lambda
+                if (tok.type == .DoubleStar) {
+                    _ = self.advance(); // consume **
+                    const param_name = (try self.expect(.Ident)).lexeme;
+                    // Store as **name to indicate it's kwargs
+                    try args.append(self.allocator, .{
+                        .name = param_name,
+                        .type_annotation = null,
+                        .default = null,
+                    });
+                    // **kwargs must be last, break out
+                    break;
+                }
+                // Handle *args in lambda
+                if (tok.type == .Star) {
+                    _ = self.advance(); // consume *
+                    const param_name = (try self.expect(.Ident)).lexeme;
+                    try args.append(self.allocator, .{
+                        .name = param_name,
+                        .type_annotation = null,
+                        .default = null,
+                    });
+                    if (self.match(.Comma)) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
                 if (tok.type == .Ident) {
                     const param_name = self.advance().?.lexeme;
 

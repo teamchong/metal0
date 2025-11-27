@@ -256,6 +256,10 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
                 deinit(exc, allocator);
                 allocator.destroy(exc);
             }
+            if (r.cause) |cause| {
+                deinit(cause, allocator);
+                allocator.destroy(cause);
+            }
         },
         .fstring => |f| {
             for (f.parts) |*part| {
@@ -303,6 +307,12 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             allocator.destroy(n.target);
             deinit(n.value, allocator);
             allocator.destroy(n.value);
+        },
+        .yield_stmt => |y| {
+            if (y.value) |v| {
+                deinit(v, allocator);
+                allocator.destroy(v);
+            }
         },
         // Leaf nodes need no cleanup
         .name, .constant, .pass, .break_stmt, .continue_stmt, .ellipsis_literal => {},

@@ -43,30 +43,53 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
     return error.UnexpectedEof;
 }
 
+/// Strip underscores from numeric literal (Python allows 1_000_000)
+fn stripUnderscores(input: []const u8, buf: []u8) []const u8 {
+    var out_idx: usize = 0;
+    for (input) |c| {
+        if (c != '_') {
+            if (out_idx < buf.len) {
+                buf[out_idx] = c;
+                out_idx += 1;
+            }
+        }
+    }
+    return buf[0..out_idx];
+}
+
 fn parseNumber(self: *Parser) ParseError!ast.Node {
     const num_tok = self.advance().?;
     const lexeme = num_tok.lexeme;
+
+    // Buffer for stripping underscores (max reasonable number length)
+    var buf: [64]u8 = undefined;
 
     // Detect base from prefix
     if (lexeme.len >= 2 and lexeme[0] == '0') {
         const prefix = lexeme[1];
         if (prefix == 'x' or prefix == 'X') {
-            const int_val = std.fmt.parseInt(i64, lexeme[2..], 16) catch 0;
+            const clean = stripUnderscores(lexeme[2..], &buf);
+            const int_val = std.fmt.parseInt(i64, clean, 16) catch 0;
             return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
         } else if (prefix == 'o' or prefix == 'O') {
-            const int_val = std.fmt.parseInt(i64, lexeme[2..], 8) catch 0;
+            const clean = stripUnderscores(lexeme[2..], &buf);
+            const int_val = std.fmt.parseInt(i64, clean, 8) catch 0;
             return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
         } else if (prefix == 'b' or prefix == 'B') {
-            const int_val = std.fmt.parseInt(i64, lexeme[2..], 2) catch 0;
+            const clean = stripUnderscores(lexeme[2..], &buf);
+            const int_val = std.fmt.parseInt(i64, clean, 2) catch 0;
             return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
         }
     }
 
+    // Strip underscores for decimal parsing
+    const clean = stripUnderscores(lexeme, &buf);
+
     // Try to parse as decimal int, fall back to float
-    if (std.fmt.parseInt(i64, lexeme, 10)) |int_val| {
+    if (std.fmt.parseInt(i64, clean, 10)) |int_val| {
         return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
     } else |_| {
-        const float_val = try std.fmt.parseFloat(f64, lexeme);
+        const float_val = try std.fmt.parseFloat(f64, clean);
         return ast.Node{ .constant = .{ .value = .{ .float = float_val } } };
     }
 }
