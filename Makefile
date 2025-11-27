@@ -153,8 +153,8 @@ benchmark-fib-tail: build-release
 	@rm -f ./bench_fib_tail_pyaot ./bench_fib_tail_rust ./bench_fib_tail_go
 
 benchmark-json:
-	@echo "JSON Benchmark: shared/json vs std.json"
-	@cd packages/shared/json && zig build-exe -OReleaseFast bench.zig -femit-bin=bench && ./bench
+	@echo "JSON Benchmark: shared/json vs std.json (with c_allocator + arena)"
+	@cd packages/shared/json && zig build-exe -OReleaseFast bench.zig -femit-bin=bench -lc && ./bench
 	@rm -f packages/shared/json/bench
 
 # =============================================================================

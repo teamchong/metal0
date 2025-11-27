@@ -159,6 +159,10 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
 
             try buffer.append(allocator, '}');
         },
+        .numpy_array, .regex => {
+            // Not JSON serializable - output null
+            try buffer.appendSlice(allocator, JSON_NULL);
+        },
     }
 }
 

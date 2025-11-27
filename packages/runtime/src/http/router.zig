@@ -71,7 +71,7 @@ pub const Router = struct {
 
     pub fn init(allocator: std.mem.Allocator) Router {
         return .{
-            .routes = std.ArrayList(Route).init(allocator),
+            .routes = std.ArrayList(Route){},
             .allocator = allocator,
             .not_found_handler = null,
         };

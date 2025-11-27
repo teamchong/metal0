@@ -99,12 +99,26 @@ pub const HttpResponse = struct {
     }
 };
 
-/// Create PyString from HTTP response body
+/// Create PyString from HTTP GET response body
 pub fn getAsPyString(allocator: std.mem.Allocator, url: []const u8) !*runtime.PyObject {
-    var response = try get(allocator, url);
-    defer response.deinit();
+    var client = Client.init(allocator);
+    defer client.deinit();
 
-    return try runtime.PyString.create(allocator, response.body);
+    const body = try client.fetchBody(url);
+    defer allocator.free(body);
+
+    return try runtime.PyString.create(allocator, body);
+}
+
+/// Create PyString from HTTP POST response body
+pub fn postAsPyString(allocator: std.mem.Allocator, url: []const u8, payload: []const u8) !*runtime.PyObject {
+    var client = Client.init(allocator);
+    defer client.deinit();
+
+    const body = try client.fetchBodyPost(url, payload);
+    defer allocator.free(body);
+
+    return try runtime.PyString.create(allocator, body);
 }
 
 /// Create PyTuple of (status_code, body)

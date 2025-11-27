@@ -353,20 +353,25 @@ PARSE_CMD=(
     --warmup 2
     --runs 3
     --export-markdown bench_json_parse_results.md
-    --command-name "Zig (stdlib parse)" "/tmp/bench_json_parse_zig"
-    --command-name "Python (parse)" "python3 /tmp/bench_json_parse_python.py"
 )
 
-if [ "$PYAOT_AVAILABLE" = true ]; then
-    PARSE_CMD+=(--command-name "PyAOT (parse)" "/tmp/bench_pyaot_json_parse")
+if [ "$RUST_AVAILABLE" = true ]; then
+    PARSE_CMD+=(--command-name "Rust (serde_json)" "/tmp/bench_json_parse_rust")
 fi
 
-if [ "$RUST_AVAILABLE" = true ]; then
-    PARSE_CMD+=(--command-name "Rust (parse)" "/tmp/bench_json_parse_rust")
+if [ "$PYAOT_AVAILABLE" = true ]; then
+    PARSE_CMD+=(--command-name "PyAOT" "/tmp/bench_pyaot_json_parse")
+fi
+
+PARSE_CMD+=(--command-name "Zig (std.json)" "/tmp/bench_json_parse_zig")
+PARSE_CMD+=(--command-name "Python" "python3 /tmp/bench_json_parse_python.py")
+
+if command -v pypy3 &> /dev/null; then
+    PARSE_CMD+=(--command-name "PyPy" "pypy3 /tmp/bench_json_parse_python.py")
 fi
 
 if [ "$GO_AVAILABLE" = true ]; then
-    PARSE_CMD+=(--command-name "Go (parse)" "/tmp/bench_json_parse_go")
+    PARSE_CMD+=(--command-name "Go" "/tmp/bench_json_parse_go")
 fi
 
 "${PARSE_CMD[@]}"

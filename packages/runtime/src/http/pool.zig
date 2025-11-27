@@ -57,7 +57,7 @@ pub const ConnectionPool = struct {
 
     pub fn init(allocator: std.mem.Allocator, max_connections: usize) ConnectionPool {
         return .{
-            .connections = std.ArrayList(Connection).init(allocator),
+            .connections = std.ArrayList(Connection){},
             .allocator = allocator,
             .max_connections = max_connections,
             .mutex = .{},

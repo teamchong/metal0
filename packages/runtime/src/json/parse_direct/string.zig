@@ -3,7 +3,7 @@ const std = @import("std");
 const runtime = @import("../../runtime.zig");
 const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
-const simd = @import("../simd/dispatch.zig");
+const simd = @import("json_simd");
 
 /// Parse JSON string directly to PyString (single SIMD pass for speed!)
 pub fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) JsonError!ParseResult(*runtime.PyObject) {

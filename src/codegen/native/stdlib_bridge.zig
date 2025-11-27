@@ -152,8 +152,9 @@ pub fn genFieldAccessCall(comptime spec: FieldAccessCallSpec) fn (*NativeCodegen
                 return;
             }
 
+            // For field access on error union: (try fn()).field
             if (spec.needs_try) {
-                try self.emit("try ");
+                try self.emit("(try ");
             }
             try self.emit(spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
@@ -169,7 +170,11 @@ pub fn genFieldAccessCall(comptime spec: FieldAccessCallSpec) fn (*NativeCodegen
                 try self.genExpr(args[i]);
             }
 
-            try self.emit(")." ++ spec.field);
+            if (spec.needs_try) {
+                try self.emit("))." ++ spec.field);
+            } else {
+                try self.emit(")." ++ spec.field);
+            }
         }
     }.handler;
 }

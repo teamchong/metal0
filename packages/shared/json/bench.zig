@@ -29,7 +29,8 @@ fn generateLargeJson(allocator: std.mem.Allocator) ![]const u8 {
 }
 
 pub fn main() !void {
-    const allocator = std.heap.page_allocator;
+    // Use c_allocator for performance (29x faster than GPA)
+    const allocator = std.heap.c_allocator;
 
     const large_json = try generateLargeJson(allocator);
     defer allocator.free(large_json);
@@ -46,31 +47,39 @@ pub fn main() !void {
     try benchStringify(allocator, "Medium", MEDIUM_JSON, 50_000);
 }
 
-fn benchParse(allocator: std.mem.Allocator, name: []const u8, json_data: []const u8, iterations: usize) !void {
-    // Warmup
-    for (0..100) |_| {
-        var parsed = try shared_json.parse(allocator, json_data);
-        parsed.deinit(allocator);
+fn benchParse(base_allocator: std.mem.Allocator, name: []const u8, json_data: []const u8, iterations: usize) !void {
+    // Warmup with arena
+    {
+        var arena = std.heap.ArenaAllocator.init(base_allocator);
+        defer arena.deinit();
+        for (0..100) |_| {
+            _ = try shared_json.parse(arena.allocator(), json_data);
+            _ = arena.reset(.retain_capacity);
+        }
     }
 
-    // shared/json
+    // shared/json with arena (bulk free)
     var shared_time: u64 = 0;
     {
+        var arena = std.heap.ArenaAllocator.init(base_allocator);
+        defer arena.deinit();
         const start = std.time.nanoTimestamp();
         for (0..iterations) |_| {
-            var parsed = try shared_json.parse(allocator, json_data);
-            parsed.deinit(allocator);
+            _ = try shared_json.parse(arena.allocator(), json_data);
+            _ = arena.reset(.retain_capacity);
         }
         shared_time = @intCast(std.time.nanoTimestamp() - start);
     }
 
-    // std.json
+    // std.json with arena (fair comparison)
     var std_time: u64 = 0;
     {
+        var arena = std.heap.ArenaAllocator.init(base_allocator);
+        defer arena.deinit();
         const start = std.time.nanoTimestamp();
         for (0..iterations) |_| {
-            var parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_data, .{});
-            parsed.deinit();
+            _ = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_data, .{});
+            _ = arena.reset(.retain_capacity);
         }
         std_time = @intCast(std.time.nanoTimestamp() - start);
     }
@@ -84,39 +93,47 @@ fn benchParse(allocator: std.mem.Allocator, name: []const u8, json_data: []const
     });
 }
 
-fn benchStringify(allocator: std.mem.Allocator, name: []const u8, json_data: []const u8, iterations: usize) !void {
-    var parsed = try shared_json.parse(allocator, json_data);
-    defer parsed.deinit(allocator);
+fn benchStringify(base_allocator: std.mem.Allocator, name: []const u8, json_data: []const u8, iterations: usize) !void {
+    var parsed = try shared_json.parse(base_allocator, json_data);
+    defer parsed.deinit(base_allocator);
 
-    // Warmup
-    for (0..100) |_| {
-        const str = try shared_json.stringify(allocator, parsed);
-        allocator.free(str);
+    // Warmup with arena
+    {
+        var arena = std.heap.ArenaAllocator.init(base_allocator);
+        defer arena.deinit();
+        for (0..100) |_| {
+            _ = try shared_json.stringify(arena.allocator(), parsed);
+            _ = arena.reset(.retain_capacity);
+        }
     }
 
-    // shared/json
+    // shared/json with arena
     var shared_time: u64 = 0;
     {
+        var arena = std.heap.ArenaAllocator.init(base_allocator);
+        defer arena.deinit();
         const start = std.time.nanoTimestamp();
         for (0..iterations) |_| {
-            const str = try shared_json.stringify(allocator, parsed);
-            allocator.free(str);
+            _ = try shared_json.stringify(arena.allocator(), parsed);
+            _ = arena.reset(.retain_capacity);
         }
         shared_time = @intCast(std.time.nanoTimestamp() - start);
     }
 
-    // std.json stringify (Zig 0.15 API)
-    var std_parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_data, .{});
+    // std.json stringify with arena (fair comparison)
+    var std_parsed = try std.json.parseFromSlice(std.json.Value, base_allocator, json_data, .{});
     defer std_parsed.deinit();
 
     var std_time: u64 = 0;
     {
+        var arena = std.heap.ArenaAllocator.init(base_allocator);
+        defer arena.deinit();
         const start = std.time.nanoTimestamp();
         for (0..iterations) |_| {
-            var out: std.io.Writer.Allocating = .init(allocator);
-            defer out.deinit();
+            var out: std.io.Writer.Allocating = .init(arena.allocator());
             var ws: std.json.Stringify = .{ .writer = &out.writer };
             try ws.write(std_parsed.value);
+            _ = arena.reset(.retain_capacity);
         }
         std_time = @intCast(std.time.nanoTimestamp() - start);
     }

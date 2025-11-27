@@ -11,6 +11,26 @@ const runtime = @import("../async/runtime.zig");
 const Poller = @import("../async/poller.zig").Poller;
 const common = @import("../async/poller.zig");
 
+/// Extract raw string from Uri.Component (Zig 0.15 API)
+fn getComponentString(component: std.Uri.Component) []const u8 {
+    return switch (component) {
+        .raw => |raw| raw,
+        .percent_encoded => |enc| enc,
+    };
+}
+
+fn getHostString(host: ?std.Uri.Component) []const u8 {
+    if (host) |h| {
+        return getComponentString(h);
+    }
+    return "";
+}
+
+fn getPathString(path: std.Uri.Component) []const u8 {
+    const p = getComponentString(path);
+    return if (p.len > 0) p else "/";
+}
+
 pub const AsyncClientError = error{
     InvalidUrl,
     ConnectionFailed,
@@ -193,7 +213,9 @@ fn fetchTask(context_ptr: *anyopaque) anyerror!void {
 /// Async connect (non-blocking)
 fn asyncConnect(sock: std.posix.fd_t, uri: *const std.Uri) !void {
     // Resolve address
-    const addr = try resolveAddress(uri.host orelse return error.InvalidUrl);
+    const host = getHostString(uri.host);
+    if (host.len == 0) return error.InvalidUrl;
+    const addr = try resolveAddress(host);
 
     // Non-blocking connect
     const result = std.posix.connect(sock, &addr.any, addr.getOsSockLen());
@@ -325,11 +347,11 @@ fn buildRequest(context: *const RequestContext, uri: *const std.Uri) ![]const u8
         .PATCH => "PATCH",
     };
 
-    const path = if (uri.path.raw.len > 0) uri.path.raw else "/";
+    const path = getPathString(uri.path);
     try writer.print("{s} {s} HTTP/1.1\r\n", .{ method_str, path });
 
     // Host header
-    try writer.print("Host: {s}\r\n", .{uri.host orelse ""});
+    try writer.print("Host: {s}\r\n", .{getHostString(uri.host)});
 
     // Default headers
     var it = context.client.default_headers.iterator();

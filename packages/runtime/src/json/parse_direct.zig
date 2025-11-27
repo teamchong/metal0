@@ -2,7 +2,7 @@
 /// This eliminates double allocations and conversions for maximum performance
 const std = @import("std");
 const runtime = @import("../runtime.zig");
-const simd = @import("simd/dispatch.zig");
+const simd = @import("json_simd");
 const JsonError = @import("errors.zig").JsonError;
 const ParseResult = @import("errors.zig").ParseResult;
 

@@ -2,7 +2,7 @@
 const std = @import("std");
 const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
-const simd = @import("../simd/dispatch.zig");
+const simd = @import("json_simd");
 
 /// Parse JSON string directly to raw string (no PyObject wrapper, single SIMD pass!)
 /// This is used for dict keys where we don't need the PyString overhead

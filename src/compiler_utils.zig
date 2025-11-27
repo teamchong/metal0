@@ -37,12 +37,17 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
 
             var content = try src_file.readToEndAlloc(allocator, 10 * 1024 * 1024);
 
-            // Patch relative utils imports to use local utils/ directory
+            // Patch imports for standalone compilation
             // Files at different depths need different patterns patched
             if (std.mem.endsWith(u8, entry.name, ".zig")) {
+                // Patch relative utils imports to use local utils/ directory
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"../../../../src/utils/", "@import(\"../utils/");
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"../../../src/utils/", "@import(\"utils/");
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"../../src/utils/", "@import(\"utils/");
+                // Patch module imports to file imports (for modules defined in build.zig)
+                content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
+                content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
+                content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"runtime.zig\")", "@import(\"../runtime.zig\")");
             }
 
             try dst_file.writeAll(content);

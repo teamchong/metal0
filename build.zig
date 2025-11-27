@@ -50,14 +50,20 @@ pub fn build(b: *std.Build) void {
     });
     gzip_module.addIncludePath(b.path("vendor/libdeflate"));
 
-    // Shared JSON library (2.17x faster than std.json)
-    // Available for modules that need fast JSON parsing (e.g., token_optimizer)
+    // Shared JSON library with SIMD acceleration
+    // Available for modules that need fast JSON parsing
     _ = b.addModule("json", .{
         .root_source_file = b.path("packages/shared/json/json.zig"),
     });
 
+    // SIMD dispatch for JSON parsing (shared between runtime and shared/json)
+    const json_simd = b.addModule("json_simd", .{
+        .root_source_file = b.path("packages/shared/json/simd/dispatch.zig"),
+    });
+
     // Module dependencies
     runtime.addImport("hashmap_helper", hashmap_helper);
+    runtime.addImport("json_simd", json_simd);
     collections.addImport("runtime", runtime);
 
     // C interop module
@@ -249,6 +255,25 @@ pub fn build(b: *std.Build) void {
     const run_bench_json_parse = b.addRunArtifact(bench_json_parse);
     const bench_json_parse_step = b.step("bench-json-parse", "Build and run JSON parse benchmark");
     bench_json_parse_step.dependOn(&run_bench_json_parse.step);
+
+    // JSON stringify benchmark
+    const bench_json_stringify = b.addExecutable(.{
+        .name = "bench_pyaot_json_stringify",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/runtime/benchmarks/bench_pyaot_json_stringify_fast.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    bench_json_stringify.root_module.addImport("runtime", runtime);
+    bench_json_stringify.root_module.addImport("allocator_helper", allocator_helper);
+    bench_json_stringify.linkLibC();
+
+    b.installArtifact(bench_json_stringify);
+
+    const run_bench_json_stringify = b.addRunArtifact(bench_json_stringify);
+    const bench_json_stringify_step = b.step("bench-json-stringify", "Build and run JSON stringify benchmark");
+    bench_json_stringify_step.dependOn(&run_bench_json_stringify.step);
 
     // Token optimizer proxy - build from packages/token_optimizer/ directory
     // It has its own build.zig with zigimg dependency

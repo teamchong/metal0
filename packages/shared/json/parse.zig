@@ -1,11 +1,16 @@
 //! JSON Parser - shared library implementation
-//! Portable, no SIMD dependencies, optimized for common cases
+//! SIMD-accelerated parsing with scalar fallback for portability
 //!
 //! Based on packages/runtime/src/json/parse.zig but without PyObject dependencies.
 
 const std = @import("std");
 const Value = @import("value.zig").Value;
-const skipWhitespace = @import("value.zig").skipWhitespace;
+const simd = @import("simd/dispatch.zig");
+
+// Use SIMD-accelerated whitespace skipping
+fn skipWhitespace(data: []const u8, offset: usize) usize {
+    return simd.skipWhitespace(data, offset);
+}
 
 pub const ParseError = error{
     UnexpectedToken,
@@ -226,38 +231,26 @@ fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) Parse
     if (pos >= data.len or data[pos] != '"') return ParseError.UnexpectedToken;
 
     const start = pos + 1; // Skip opening quote
-    var i = start;
-    var has_escapes = false;
 
-    // Scan for closing quote and check for escapes
-    while (i < data.len) {
-        const c = data[i];
-        if (c == '"') {
-            // Found closing quote
-            if (!has_escapes) {
-                // Fast path: No escapes, just copy
-                const str = allocator.dupe(u8, data[start..i]) catch return ParseError.OutOfMemory;
-                return ParseResult.init(
-                    .{ .string = str },
-                    i + 1 - pos,
-                );
-            } else {
-                // Slow path: Need to unescape
-                const unescaped = try unescapeString(data[start..i], allocator);
-                return ParseResult.init(
-                    .{ .string = unescaped },
-                    i + 1 - pos,
-                );
-            }
-        } else if (c == '\\') {
-            has_escapes = true;
-            i += 1; // Skip escaped character
-            if (i >= data.len) return ParseError.UnterminatedString;
-        } else if (c < 0x20) {
-            // Control characters not allowed in strings
-            return ParseError.InvalidString;
+    // Use SIMD to find closing quote AND check for escapes in single pass
+    if (simd.findClosingQuoteAndEscapes(data[start..])) |result| {
+        const i = start + result.quote_pos;
+
+        if (!result.has_escapes) {
+            // Fast path: No escapes, just copy
+            const str = allocator.dupe(u8, data[start..i]) catch return ParseError.OutOfMemory;
+            return ParseResult.init(
+                .{ .string = str },
+                i + 1 - pos,
+            );
+        } else {
+            // Slow path: Need to unescape
+            const unescaped = try unescapeString(data[start..i], allocator);
+            return ParseResult.init(
+                .{ .string = unescaped },
+                i + 1 - pos,
+            );
         }
-        i += 1;
     }
 
     return ParseError.UnterminatedString;
