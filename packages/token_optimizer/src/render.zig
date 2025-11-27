@@ -138,13 +138,10 @@ pub fn toSingleLine(allocator: std.mem.Allocator, text: []const u8) !SingleLineR
     return toSingleLineWithRoles(allocator, text, default_roles);
 }
 
-// Minimum width in pixels (for readability)
-const MIN_WIDTH_PIXELS: usize = 200;
-const MIN_WIDTH_CHARS: usize = MIN_WIDTH_PIXELS / SCALE / (CHAR_WIDTH + CHAR_SPACING);
+// No minimum width - let images be as compact as possible for max token savings
 
 /// Calculate optimal wrap width for square image
-/// - Minimum width: 200 pixels
-/// - Target: square image when text is large enough
+/// - Target: square image for optimal LLM vision processing
 /// - Max: stays under MAX_IMAGE_DIM (1024 pixels)
 fn calculateWrapWidth(text_len: usize) usize {
     // For square image: width_pixels ≈ height_pixels
@@ -154,14 +151,12 @@ fn calculateWrapWidth(text_len: usize) usize {
     // Solving for square: width_chars = sqrt(text_len * (CHAR_HEIGHT + LINE_SPACING) / (CHAR_WIDTH + CHAR_SPACING))
 
     const char_width_px = CHAR_WIDTH + CHAR_SPACING;
-    const line_height_px = CHAR_HEIGHT + LINE_SPACING;
-    _ = line_height_px; // Used in comment for documentation
     const ratio = @as(f64, @floatFromInt(CHAR_HEIGHT + LINE_SPACING)) / @as(f64, @floatFromInt(char_width_px));
     const width_chars_f = @sqrt(@as(f64, @floatFromInt(text_len)) * ratio);
     var width_chars = @as(usize, @intFromFloat(width_chars_f));
 
-    // Minimum: 200 pixels worth of chars (~16 chars at scale 2)
-    width_chars = @max(MIN_WIDTH_CHARS, width_chars);
+    // Minimum: at least 1 character
+    width_chars = @max(1, width_chars);
 
     // Maximum: stay under MAX_IMAGE_DIM (1024 pixels)
     const max_chars_for_dim = MAX_IMAGE_DIM / SCALE / char_width_px;

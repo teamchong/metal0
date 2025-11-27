@@ -56,6 +56,38 @@ pub fn postJson(allocator: std.mem.Allocator, url: []const u8, json: []const u8)
     return try client.postJson(url, json);
 }
 
+/// Simple HTTP PUT request
+pub fn put(allocator: std.mem.Allocator, url: []const u8, body: []const u8) !Response {
+    var client = Client.init(allocator);
+    defer client.deinit();
+
+    return try client.put(url, body);
+}
+
+/// Simple HTTP DELETE request
+pub fn delete(allocator: std.mem.Allocator, url: []const u8) !Response {
+    var client = Client.init(allocator);
+    defer client.deinit();
+
+    return try client.delete(url);
+}
+
+/// Simple HTTP PATCH request
+pub fn patch(allocator: std.mem.Allocator, url: []const u8, body: []const u8) !Response {
+    var client = Client.init(allocator);
+    defer client.deinit();
+
+    return try client.patch(url, body);
+}
+
+/// Simple HTTP HEAD request
+pub fn head(allocator: std.mem.Allocator, url: []const u8) !Response {
+    var client = Client.init(allocator);
+    defer client.deinit();
+
+    return try client.head(url);
+}
+
 // Legacy compatibility functions for existing code
 pub const HttpResponse = struct {
     status: u16,

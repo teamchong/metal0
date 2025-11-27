@@ -336,26 +336,30 @@ pub const TextCompressor = struct {
         // 1. Single user message with: images first, then instruction text
         try new_messages.appendSlice(self.allocator, "{\"role\":\"user\",\"content\":[");
 
+        // Sandwich pattern: instruction BEFORE + images + instruction AFTER
+        // This helps LLM understand context before and after processing images
+
+        // BEFORE instruction
+        var before_buf: [256]u8 = undefined;
+        const before_instruction = try std.fmt.bufPrint(&before_buf,
+            \\Read {d} images below. Format: | = newline, > = tab. Colors: blue=[USER], green=[ASST], yellow=[SYS], red=[TOOL], purple=[RESULT]
+        , .{images.items.len});
+
+        try new_messages.appendSlice(self.allocator, "{\"type\":\"text\",\"text\":\"");
+        try self.appendEscapedJson(before_instruction, &new_messages);
+        try new_messages.appendSlice(self.allocator, "\"}");
+
         // Add all images
-        for (images.items, 0..) |img, img_idx| {
-            if (img_idx > 0) try new_messages.append(self.allocator, ',');
+        for (images.items) |img| {
+            try new_messages.append(self.allocator, ',');
             try new_messages.appendSlice(self.allocator, "{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/png\",\"data\":\"");
             try new_messages.appendSlice(self.allocator, img.data);
             try new_messages.appendSlice(self.allocator, "\"}}");
         }
 
-        // Add instruction text after images
-        var instruction_buf: [512]u8 = undefined;
-        const instruction = try std.fmt.bufPrint(&instruction_buf,
-            \\These {d} images are conversation history. Read line by line.
-            \\Format: | = newline, > = tab
-            \\Colors: blue=[USER], green=[ASST], yellow=[SYS], red=[TOOL], purple=[RESULT]
-        , .{images.items.len});
-
+        // AFTER instruction
         try new_messages.append(self.allocator, ',');
-        try new_messages.appendSlice(self.allocator, "{\"type\":\"text\",\"text\":\"");
-        try self.appendEscapedJson(instruction, &new_messages);
-        try new_messages.appendSlice(self.allocator, "\"}");
+        try new_messages.appendSlice(self.allocator, "{\"type\":\"text\",\"text\":\"Above images contain conversation history. Continue from where we left off.\"}");
 
         try new_messages.appendSlice(self.allocator, "]}");
 

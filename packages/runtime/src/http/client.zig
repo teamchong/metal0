@@ -87,6 +87,56 @@ pub const Client = struct {
         return try self.send(&request, &uri);
     }
 
+    /// Simple PUT request
+    pub fn put(self: *Client, url: []const u8, body: []const u8) !Response {
+        const uri = try std.Uri.parse(url);
+        var request = try Request.init(self.allocator, .PUT, uri.path.raw);
+        defer request.deinit();
+
+        try self.applyDefaultHeaders(&request);
+        try request.setHeader("Host", uri.host orelse "");
+        try request.setBody(body);
+
+        return try self.send(&request, &uri);
+    }
+
+    /// Simple DELETE request
+    pub fn delete(self: *Client, url: []const u8) !Response {
+        const uri = try std.Uri.parse(url);
+        var request = try Request.init(self.allocator, .DELETE, uri.path.raw);
+        defer request.deinit();
+
+        try self.applyDefaultHeaders(&request);
+        try request.setHeader("Host", uri.host orelse "");
+
+        return try self.send(&request, &uri);
+    }
+
+    /// Simple PATCH request
+    pub fn patch(self: *Client, url: []const u8, body: []const u8) !Response {
+        const uri = try std.Uri.parse(url);
+        var request = try Request.init(self.allocator, .PATCH, uri.path.raw);
+        defer request.deinit();
+
+        try self.applyDefaultHeaders(&request);
+        try request.setHeader("Host", uri.host orelse "");
+        try request.setBody(body);
+
+        return try self.send(&request, &uri);
+    }
+
+    /// Simple HEAD request
+    pub fn head(self: *Client, url: []const u8) !Response {
+        const uri = try std.Uri.parse(url);
+        var request = try Request.init(self.allocator, .HEAD, uri.path.raw);
+        defer request.deinit();
+
+        try self.applyDefaultHeaders(&request);
+        try request.setHeader("Host", uri.host orelse "");
+
+        return try self.send(&request, &uri);
+    }
+
     /// Send a request
     fn send(self: *Client, request: *const Request, uri: *const std.Uri) !Response {
         // Use Zig's built-in HTTP client for now

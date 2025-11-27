@@ -1,4 +1,4 @@
-.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string clean format
+.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json clean format
 
 # =============================================================================
 # HELP
@@ -22,6 +22,7 @@ help:
 	@echo "  make benchmark-fib-tail  Tail-recursive Fibonacci"
 	@echo "  make benchmark-dict      Dict operations"
 	@echo "  make benchmark-string    String operations"
+	@echo "  make benchmark-json      JSON parse/stringify (shared/json vs std.json)"
 	@echo ""
 	@echo "Other:"
 	@echo "  make format         Format Zig code"
@@ -150,6 +151,11 @@ benchmark-fib-tail: build-release
 	hyperfine --warmup 2 --runs 5 \
 		'./bench_fib_tail_pyaot'
 	@rm -f ./bench_fib_tail_pyaot ./bench_fib_tail_rust ./bench_fib_tail_go
+
+benchmark-json:
+	@echo "JSON Benchmark: shared/json vs std.json"
+	@cd packages/shared/json && zig build-exe -OReleaseFast bench.zig -femit-bin=bench && ./bench
+	@rm -f packages/shared/json/bench
 
 # =============================================================================
 # UTILITIES
