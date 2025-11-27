@@ -244,40 +244,11 @@ pub fn build(b: *std.Build) void {
     const bench_json_parse_step = b.step("bench-json-parse", "Build and run JSON parse benchmark");
     bench_json_parse_step.dependOn(&run_bench_json_parse.step);
 
-    // Token optimizer proxy
-    const token_optimizer = b.addExecutable(.{
-        .name = "token_optimizer",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("packages/token_optimizer/src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    token_optimizer.root_module.addImport("gzip", gzip_module);
-    token_optimizer.linkLibC();
-    token_optimizer.addIncludePath(b.path("vendor/libdeflate"));
-    token_optimizer.addCSourceFiles(.{
-        .files = &.{
-            "vendor/libdeflate/lib/deflate_compress.c",
-            "vendor/libdeflate/lib/deflate_decompress.c",
-            "vendor/libdeflate/lib/utils.c",
-            "vendor/libdeflate/lib/gzip_compress.c",
-            "vendor/libdeflate/lib/gzip_decompress.c",
-            "vendor/libdeflate/lib/zlib_compress.c",
-            "vendor/libdeflate/lib/zlib_decompress.c",
-            "vendor/libdeflate/lib/adler32.c",
-            "vendor/libdeflate/lib/crc32.c",
-            "vendor/libdeflate/lib/arm/cpu_features.c",
-            "vendor/libdeflate/lib/x86/cpu_features.c",
-        },
-        .flags = &[_][]const u8{ "-std=c99", "-O3" },
-    });
-
-    b.installArtifact(token_optimizer);
-
-    const run_token_optimizer = b.addRunArtifact(token_optimizer);
-    const token_optimizer_step = b.step("token-optimizer", "Run token optimizer proxy");
-    token_optimizer_step.dependOn(&run_token_optimizer.step);
+    // Token optimizer proxy - build from packages/token_optimizer/ directory
+    // It has its own build.zig with zigimg dependency
+    // Run: cd packages/token_optimizer && zig build
+    const token_optimizer_step = b.step("token-optimizer", "Token optimizer (build from packages/token_optimizer/)");
+    _ = token_optimizer_step;
 
     // Gzip tests with libdeflate
     const gzip_tests = b.addTest(.{

@@ -95,9 +95,15 @@ pub const ProxyServer = struct {
         const method = parts.next() orelse return;
         const path = parts.next() orelse return;
 
-        std.debug.print("\n=== INCOMING REQUEST ===\n", .{});
-        std.debug.print("Method: {s}\n", .{method});
-        std.debug.print("Path: {s}\n", .{path});
+        // Handle /health endpoint
+        const trimmed_path = std.mem.trim(u8, path, "\r");
+        if (std.mem.eql(u8, trimmed_path, "/health")) {
+            const health_response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 15\r\n\r\n{\"status\":\"ok\"}";
+            try connection.stream.writeAll(health_response);
+            return;
+        }
+
+        std.debug.print("\n[PROXY] {s} {s} ({d}B)\n", .{ method, trimmed_path, request_buffer.items.len });
 
         // Extract headers
         var headers = std.ArrayList(std.http.Header){};
@@ -126,12 +132,6 @@ pub const ProxyServer = struct {
 
         const body = if (body_start < request.len) request[body_start..] else &[_]u8{};
 
-        std.debug.print("Headers count: {d}\n", .{headers.items.len});
-        for (headers.items) |header| {
-            std.debug.print("  {s}: {s}\n", .{ header.name, header.value });
-        }
-        std.debug.print("Body size: {d} bytes\n", .{body.len});
-
         // Compress request (convert text to images)
         const compressed_body = if (body.len > 0)
             try self.compressor.compressRequest(body)
@@ -139,23 +139,10 @@ pub const ProxyServer = struct {
             try self.allocator.dupe(u8, body);
         defer self.allocator.free(compressed_body);
 
-        std.debug.print("Compression: {d} bytes → {d} bytes", .{ body.len, compressed_body.len });
-        if (body.len > 0) {
-            const body_len_f = @as(f64, @floatFromInt(body.len));
-            const compressed_len_f = @as(f64, @floatFromInt(compressed_body.len));
-            const savings = (body_len_f - compressed_len_f) / body_len_f * 100.0;
-            std.debug.print(" ({d:.1}% savings)", .{savings});
-        }
-        std.debug.print("\n", .{});
-
-        // Forward to Anthropic API using native Zig HTTP client
-        std.debug.print("\n=== FORWARDING TO ANTHROPIC (std.http.Client) ===\n", .{});
-
-        // Build API URL
-        const url_str = try std.fmt.allocPrint(self.allocator, "https://api.anthropic.com{s}", .{path});
+        // Forward to Anthropic API
+        const url_str = try std.fmt.allocPrint(self.allocator, "https://api.anthropic.com{s}", .{trimmed_path});
         defer self.allocator.free(url_str);
 
-        // Create HTTP client
         var client = std.http.Client{ .allocator = self.allocator };
         defer client.deinit();
 
@@ -181,12 +168,6 @@ pub const ProxyServer = struct {
             try req_headers.append(self.allocator, header);
         }
 
-        std.debug.print("Request headers count: {d}\n", .{req_headers.items.len});
-        for (req_headers.items) |header| {
-            std.debug.print("  {s}: {s}\n", .{ header.name, header.value });
-        }
-
-        // Use manual request API - more control, avoids fetch() writer issues
         const uri = try std.Uri.parse(url_str);
 
         var req = try client.request(.POST, uri, .{
@@ -194,17 +175,16 @@ pub const ProxyServer = struct {
         });
         defer req.deinit();
 
-        // Send body (API requires mutable slice for buffer reuse, but doesn't actually modify)
         req.transfer_encoding = .{ .content_length = compressed_body.len };
         const body_mut = @constCast(compressed_body);
         try req.sendBodyComplete(body_mut);
         try req.connection.?.flush();
 
-        // Receive response headers first
+        // Receive response headers
         var redirect_buf: [8192]u8 = undefined;
         var response = try req.receiveHead(&redirect_buf);
 
-        // Read response body using Reader.allocRemaining
+        // Read response body
         var transfer_buf: [8192]u8 = undefined;
         const reader = response.reader(&transfer_buf);
 
@@ -212,52 +192,27 @@ pub const ProxyServer = struct {
         const response_bytes = try reader.*.allocRemaining(self.allocator, @enumFromInt(max_size));
         defer self.allocator.free(response_bytes);
 
-        // Copy to ArrayList for compatibility
         var response_body = std.ArrayList(u8){};
         defer response_body.deinit(self.allocator);
         try response_body.appendSlice(self.allocator, response_bytes);
 
-        const result = .{ .status = response.head.status };
+        const status = @intFromEnum(response.head.status);
+        std.debug.print("[PROXY] Response: {d} ({d}B)\n", .{ status, response_body.items.len });
 
-        std.debug.print("\n=== API RESPONSE ===\n", .{});
-        std.debug.print("Status: {d} {s}\n", .{ @intFromEnum(result.status), @tagName(result.status) });
-
-        const response_content_length: ?usize = response_body.items.len;
-
-        std.debug.print("Response body size: {d} bytes", .{response_body.items.len});
-        if (response_content_length) |expected| {
-            if (response_body.items.len != expected) {
-                std.debug.print(" (WARNING: expected {d} bytes, got {d})\n", .{ expected, response_body.items.len });
-            } else {
-                std.debug.print(" (matches Content-Length)\n", .{});
-            }
-        } else {
-            std.debug.print("\n", .{});
+        // Log error responses
+        if (status >= 400 and response_body.items.len > 0) {
+            const preview_len = @min(500, response_body.items.len);
+            std.debug.print("[PROXY] Error body: {s}\n", .{response_body.items[0..preview_len]});
         }
 
-        // Debug: Show first and last 100 bytes of response
+        // Extract and log token usage from response
         if (response_body.items.len > 0) {
-            const preview_size = @min(100, response_body.items.len);
-            std.debug.print("Response preview (first {d} bytes): {s}\n", .{ preview_size, response_body.items[0..preview_size] });
-
-            if (response_body.items.len > 100) {
-                const tail_start = response_body.items.len - 100;
-                std.debug.print("Response tail (last 100 bytes): {s}\n", .{response_body.items[tail_start..]});
-            }
+            self.logTokenUsage(response_body.items);
         }
 
-        // Compress response with gzip before sending to client
+        // Compress response with gzip
         const compressed_response = try gzip.compress(self.allocator, response_body.items);
         defer self.allocator.free(compressed_response);
-
-        std.debug.print("\n=== SENDING TO CLIENT ===\n", .{});
-        std.debug.print("Status: 200 OK\n", .{});
-        std.debug.print("Body size (uncompressed): {d} bytes\n", .{response_body.items.len});
-        std.debug.print("Body size (gzip): {d} bytes ({d:.1}% of original)\n", .{
-            compressed_response.len,
-            @as(f64, @floatFromInt(compressed_response.len)) / @as(f64, @floatFromInt(response_body.items.len)) * 100.0,
-        });
-        std.debug.print("=== REQUEST COMPLETE ===\n\n", .{});
 
         const response_header = try std.fmt.allocPrint(
             self.allocator,
@@ -268,5 +223,70 @@ pub const ProxyServer = struct {
 
         try connection.stream.writeAll(response_header);
         try connection.stream.writeAll(compressed_response);
+    }
+
+    /// Extract and log token usage from API response
+    fn logTokenUsage(self: *ProxyServer, response_json: []const u8) void {
+        _ = self;
+
+        // Look for "usage" in response
+        const usage_start = std.mem.indexOf(u8, response_json, "\"usage\"") orelse return;
+
+        // Find the closing brace for usage object
+        var brace_depth: i32 = 0;
+        var usage_end: usize = usage_start;
+        var in_usage = false;
+
+        for (response_json[usage_start..], 0..) |c, i| {
+            if (c == '{') {
+                brace_depth += 1;
+                in_usage = true;
+            } else if (c == '}') {
+                brace_depth -= 1;
+                if (in_usage and brace_depth == 0) {
+                    usage_end = usage_start + i + 1;
+                    break;
+                }
+            }
+        }
+
+        if (usage_end <= usage_start) return;
+
+        const usage_section = response_json[usage_start..usage_end];
+
+        // Extract input_tokens
+        var input_tokens: ?i64 = null;
+        if (std.mem.indexOf(u8, usage_section, "\"input_tokens\"")) |pos| {
+            const after_key = usage_section[pos + 14 ..];
+            if (std.mem.indexOfScalar(u8, after_key, ':')) |colon| {
+                var i = colon + 1;
+                while (i < after_key.len and (after_key[i] == ' ' or after_key[i] == '\n')) : (i += 1) {}
+                var end = i;
+                while (end < after_key.len and after_key[end] >= '0' and after_key[end] <= '9') : (end += 1) {}
+                if (end > i) {
+                    input_tokens = std.fmt.parseInt(i64, after_key[i..end], 10) catch null;
+                }
+            }
+        }
+
+        // Extract output_tokens
+        var output_tokens: ?i64 = null;
+        if (std.mem.indexOf(u8, usage_section, "\"output_tokens\"")) |pos| {
+            const after_key = usage_section[pos + 15 ..];
+            if (std.mem.indexOfScalar(u8, after_key, ':')) |colon| {
+                var i = colon + 1;
+                while (i < after_key.len and (after_key[i] == ' ' or after_key[i] == '\n')) : (i += 1) {}
+                var end = i;
+                while (end < after_key.len and after_key[end] >= '0' and after_key[end] <= '9') : (end += 1) {}
+                if (end > i) {
+                    output_tokens = std.fmt.parseInt(i64, after_key[i..end], 10) catch null;
+                }
+            }
+        }
+
+        if (input_tokens != null or output_tokens != null) {
+            const total = (input_tokens orelse 0) + (output_tokens orelse 0);
+            std.debug.print("[TOKENS] In: {?d} | Out: {?d} | Total: {d}\n", .{ input_tokens, output_tokens, total });
+        }
     }
 };

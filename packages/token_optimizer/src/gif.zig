@@ -1,11 +1,22 @@
 const std = @import("std");
 
+/// Maximum GIF dimension (u16 max)
+const MAX_GIF_DIM: usize = 65535;
+
 /// Encodes a pixel buffer to GIF89a format (uncompressed)
 /// Pixels: [][]u8 where 0=white, 1=black, 2=gray
 pub fn encodeGif(allocator: std.mem.Allocator, pixels: []const []const u8) ![]u8 {
     if (pixels.len == 0) return error.EmptyImage;
     const height = pixels.len;
     const width = pixels[0].len;
+
+    // Check dimensions fit in u16 (GIF format limit)
+    if (width > MAX_GIF_DIM or height > MAX_GIF_DIM) {
+        std.debug.print("ERROR: Image too large for GIF: {d}x{d} (max {d}x{d})\n", .{
+            width, height, MAX_GIF_DIM, MAX_GIF_DIM,
+        });
+        return error.ImageTooLarge;
+    }
 
     // Calculate total size (conservative estimate)
     var buffer = std.ArrayList(u8){};
@@ -17,15 +28,19 @@ pub fn encodeGif(allocator: std.mem.Allocator, pixels: []const []const u8) ![]u8
     // Logical Screen Descriptor
     try writeU16LE(&buffer, allocator, @intCast(width));   // Width
     try writeU16LE(&buffer, allocator, @intCast(height));  // Height
-    try buffer.append(allocator, 0b10000001);  // Global color table: 4 colors (2 bits)
+    try buffer.append(allocator, 0b10000010);  // Global color table: 8 colors (3 bits)
     try buffer.append(allocator, 0);           // Background color index
     try buffer.append(allocator, 0);           // Pixel aspect ratio
 
-    // Global Color Table (4 colors: white, black, gray, unused)
-    try buffer.appendSlice(allocator, &[_]u8{ 255, 255, 255 }); // Color 0: White
-    try buffer.appendSlice(allocator, &[_]u8{ 0, 0, 0 });       // Color 1: Black
-    try buffer.appendSlice(allocator, &[_]u8{ 128, 128, 128 }); // Color 2: Gray (50% lighter)
-    try buffer.appendSlice(allocator, &[_]u8{ 0, 0, 0 });       // Color 3: Unused (black)
+    // Global Color Table (8 colors for role-based coloring)
+    try buffer.appendSlice(allocator, &[_]u8{ 255, 255, 255 }); // 0: White (background)
+    try buffer.appendSlice(allocator, &[_]u8{ 59, 130, 246 });  // 1: Blue (user)
+    try buffer.appendSlice(allocator, &[_]u8{ 34, 197, 94 });   // 2: Green (assistant)
+    try buffer.appendSlice(allocator, &[_]u8{ 234, 179, 8 });   // 3: Yellow (system)
+    try buffer.appendSlice(allocator, &[_]u8{ 239, 68, 68 });   // 4: Red (tool_use)
+    try buffer.appendSlice(allocator, &[_]u8{ 168, 85, 247 });  // 5: Purple (tool_result)
+    try buffer.appendSlice(allocator, &[_]u8{ 128, 128, 128 }); // 6: Gray (unused)
+    try buffer.appendSlice(allocator, &[_]u8{ 0, 0, 0 });       // 7: Black (unused)
 
     // Image Descriptor
     try buffer.append(allocator, 0x2C);        // Image separator
@@ -36,7 +51,7 @@ pub fn encodeGif(allocator: std.mem.Allocator, pixels: []const []const u8) ![]u8
     try buffer.append(allocator, 0);           // No local color table
 
     // Image Data (uncompressed using minimum code size)
-    try buffer.append(allocator, 2);           // LZW minimum code size
+    try buffer.append(allocator, 3);           // LZW minimum code size (3 bits for 8 colors)
 
     // Convert pixels to uncompressed LZW data
     try encodeUncompressedLZW(&buffer, allocator, pixels);
@@ -56,17 +71,17 @@ fn writeU16LE(buffer: *std.ArrayList(u8), allocator: std.mem.Allocator, value: u
 }
 
 /// Encode image data using uncompressed LZW format
-/// For 4-color images, we use codes 0-7: {0, 1, 2, 3, clear, end}
+/// For 8-color images, we use codes 0-15: {0-7 colors, 8=clear, 9=end}
 fn encodeUncompressedLZW(buffer: *std.ArrayList(u8), allocator: std.mem.Allocator, pixels: []const []const u8) !void {
     // CRITICAL: Reset global state for each GIF
     sub_block_size = 0;
 
-    const clear_code: u16 = 4;  // Clear code (2^2 = 4)
-    const end_code: u16 = 5;    // End code
+    const clear_code: u16 = 8;  // Clear code (2^3 = 8)
+    const end_code: u16 = 9;    // End code
 
     var bit_buffer: u32 = 0;
     var bits_in_buffer: u5 = 0;
-    const code_size: u5 = 3;  // Start with 3 bits (codes 0-7)
+    const code_size: u5 = 4;  // Start with 4 bits (codes 0-15)
 
     // Start with clear code
     try writeLZWCode(buffer, allocator, &bit_buffer, &bits_in_buffer, clear_code, code_size);

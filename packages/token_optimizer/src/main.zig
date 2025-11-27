@@ -16,5 +16,11 @@ pub fn main() !void {
 
     var server = proxy.ProxyServer.init(allocator, compress_enabled);
 
-    try server.listen(8080);
+    // Use unique port to avoid conflicts (can override with PORT env var)
+    const port: u16 = blk: {
+        const env_port = std.posix.getenv("PORT") orelse break :blk 19847;
+        break :blk std.fmt.parseInt(u16, env_port, 10) catch 19847;
+    };
+
+    try server.listen(port);
 }

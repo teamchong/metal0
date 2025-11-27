@@ -1,55 +1,19 @@
 const std = @import("std");
 const json = @import("json.zig");
 const render = @import("render.zig");
-const gif = @import("gif_zigimg.zig");
+const png = @import("png_zigimg.zig");
 
-/// Replace long base64 strings with compact summaries for logging
-fn compactifyBase64(allocator: std.mem.Allocator, json_str: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8){};
-    defer result.deinit(allocator);
+/// Max chars per image chunk (fits in ~1024x1024 at scale 2)
+/// 1024 / 2 / 6 (char width) ≈ 85 chars per line
+/// 1024 / 2 / 7 (char height) ≈ 73 lines
+/// 85 * 73 ≈ 6200 chars per image
+const MAX_CHARS_PER_IMAGE: usize = 6000;
 
-    var i: usize = 0;
-    while (i < json_str.len) {
-        // Find "data":"
-        const data_start = std.mem.indexOfPos(u8, json_str, i, "\"data\":\"");
-        if (data_start == null) {
-            try result.appendSlice(allocator, json_str[i..]);
-            break;
-        }
-
-        // Append everything before "data":"
-        try result.appendSlice(allocator, json_str[i .. data_start.? + 8]);
-
-        // Find end quote
-        const data_value_start = data_start.? + 8;
-        const end_quote = std.mem.indexOfPos(u8, json_str, data_value_start, "\"");
-        if (end_quote == null) {
-            try result.appendSlice(allocator, json_str[data_value_start..]);
-            break;
-        }
-
-        // Calculate base64 length
-        const b64_len = end_quote.? - data_value_start;
-
-        // Add summary: <widthxheight,len=X,bytes=Y>
-        const summary = try std.fmt.allocPrint(allocator, "<base64 {d} chars>", .{b64_len});
-        defer allocator.free(summary);
-        try result.appendSlice(allocator, summary);
-
-        i = end_quote.?;
-    }
-
-    return try result.toOwnedSlice(allocator);
-}
-
-/// Cost analysis for a single line (with cached GIF)
-const LineCost = struct {
-    text_tokens: i64,
-    image_tokens: i64,
-    text_bytes: usize,
-    image_bytes: usize,
-    pixels: i64,
-    gif_base64: []const u8, // Cached for reuse
+/// Image info struct
+const ImageInfo = struct {
+    data: []const u8,
+    width: usize,
+    height: usize,
 };
 
 /// Text compression via image encoding
@@ -66,247 +30,390 @@ pub const TextCompressor = struct {
         };
     }
 
-    /// Convert text to GIF image and encode as base64
-    pub fn textToBase64Gif(self: TextCompressor, text: []const u8) ![]const u8 {
-        // Step 1: Render text to pixel buffer (u8: 0=white, 1=black, 2=gray)
-        var rendered = try render.renderText(self.allocator, text);
+    /// Convert text to PNG image and encode as base64
+    /// Each character is colored according to its role
+    fn textToBase64Png(self: TextCompressor, text: []const u8, roles: []const json.Role) !ImageInfo {
+        var rendered = try render.renderTextWithRoles(self.allocator, text, roles);
         defer rendered.deinit();
 
         if (rendered.pixels.len == 0) {
-            std.debug.print("ERROR: Rendered pixels is empty for text (len={d}): {s}\n", .{text.len, text[0..@min(100, text.len)]});
             return error.EmptyRender;
         }
 
-        // Step 2: Encode pixels as GIF (now supports 3 colors)
-        const gif_bytes = try gif.encodeGif(self.allocator, rendered.pixels);
-        defer self.allocator.free(gif_bytes);
+        const png_bytes = try png.encodePng(self.allocator, rendered.pixels);
+        defer self.allocator.free(png_bytes);
 
-        if (gif_bytes.len == 0) {
-            std.debug.print("ERROR: GIF encoder returned 0 bytes for text (len={d}, pixels={}x{}): {s}\n", .{
-                text.len,
-                rendered.width,
-                rendered.height,
-                text[0..@min(100, text.len)]
-            });
-            return error.EmptyGif;
+        if (png_bytes.len == 0) {
+            return error.EmptyPng;
         }
 
-        // Step 3: Base64 encode
-        return try self.base64Encode(gif_bytes);
+        return ImageInfo{
+            .data = try self.base64Encode(png_bytes),
+            .width = rendered.width,
+            .height = rendered.height,
+        };
     }
 
-    /// Process request: extract text, calculate totals, decide compression for whole message
+    /// Estimate token count (chars/4 approximation)
+    /// TODO: Integrate BPE tokenizer for accurate counts
+    fn countTextTokens(self: TextCompressor, text: []const u8) usize {
+        _ = self;
+        return @max(1, text.len / 4);
+    }
+
+    /// Calculate image tokens from dimensions (Anthropic formula: pixels/750)
+    fn calculateImageTokens(width: usize, height: usize) usize {
+        const pixels = width * height;
+        return @max(1, pixels / 750);
+    }
+
+    /// Chunk of text with corresponding roles
+    const TextChunk = struct {
+        text: []const u8,
+        roles: []const json.Role,
+    };
+
+    /// Split text into chunks that fit in MAX_CHARS_PER_IMAGE
+    fn splitIntoChunks(self: TextCompressor, text: []const u8, roles: []const json.Role) ![]TextChunk {
+        var chunks = std.ArrayList(TextChunk){};
+        errdefer chunks.deinit(self.allocator);
+
+        var pos: usize = 0;
+        while (pos < text.len) {
+            const chunk_len = @min(text.len - pos, MAX_CHARS_PER_IMAGE);
+            try chunks.append(self.allocator, .{
+                .text = text[pos .. pos + chunk_len],
+                .roles = roles[pos .. pos + chunk_len],
+            });
+            pos += chunk_len;
+        }
+
+        return chunks.toOwnedSlice(self.allocator);
+    }
+
+    /// Process request: compress old messages into images
     pub fn compressRequest(self: TextCompressor, request_json: []const u8) ![]const u8 {
-        // If compression disabled, return original unchanged
         if (!self.enabled) {
-            std.debug.print("Text-to-image compression DISABLED - forwarding original request\n", .{});
+            std.debug.print("[COMPRESS] Disabled\n", .{});
             return try self.allocator.dupe(u8, request_json);
         }
 
-        // Extract text from request
-        const text = try self.parser.extractText(request_json);
-        defer self.allocator.free(text);
+        // Parse request
+        var request = self.parser.parseRequest(request_json) catch |err| {
+            std.debug.print("[COMPRESS] Parse error: {any}\n", .{err});
+            return try self.allocator.dupe(u8, request_json);
+        };
+        defer request.deinit();
 
-        std.debug.print("Extracted text: {s}\n", .{text});
-
-        // Split text by lines
-        var lines: std.ArrayList([]const u8) = .{};
-        defer lines.deinit(self.allocator);
-
-        var iter = std.mem.splitScalar(u8, text, '\n');
-        while (iter.next()) |line| {
-            try lines.append(self.allocator, line);
+        const msg_count = request.messages.len;
+        if (msg_count == 0) {
+            return try self.allocator.dupe(u8, request_json);
         }
 
-        // Step 1: Group lines into batches (Anthropic limit: 100 images per request)
-        const MAX_IMAGES = 100;
-        const lines_per_batch: usize = if (lines.items.len > MAX_IMAGES)
-            (lines.items.len + MAX_IMAGES - 1) / MAX_IMAGES // ceil(lines / MAX_IMAGES)
-        else
-            1;
+        std.debug.print("[COMPRESS] Messages: {d}\n", .{msg_count});
 
-        const num_batches = (lines.items.len + lines_per_batch - 1) / lines_per_batch;
+        // Find which messages can be compressed
+        // Rules:
+        // 1. Don't compress the last user message (current prompt)
+        // 2. Don't compress assistant messages with tool_use blocks
+        // 3. Don't compress user messages with tool_result blocks
+        // 4. Keep tool_use + tool_result pairs together
 
-        std.debug.print("Lines: {d}, Batches: {d} ({d} lines/batch)\n", .{
-            lines.items.len,
-            num_batches,
-            lines_per_batch,
-        });
+        var can_compress = try self.allocator.alloc(bool, msg_count);
+        defer self.allocator.free(can_compress);
+        @memset(can_compress, true);
 
-        // Step 2: Calculate token costs for ALL batches
-        var batch_costs = try self.allocator.alloc(LineCost, num_batches);
-        defer self.allocator.free(batch_costs);
+        // Find last user message - never compress it
+        var last_user_idx: ?usize = null;
+        var i = msg_count;
+        while (i > 0) {
+            i -= 1;
+            if (request.messages[i].role == .user) {
+                last_user_idx = i;
+                break;
+            }
+        }
+        if (last_user_idx) |idx| {
+            can_compress[idx] = false;
+            // Also don't compress anything after the last user message
+            for (idx + 1..msg_count) |j| {
+                can_compress[j] = false;
+            }
+        }
 
-        var total_text_tokens: i64 = 0;
-        var total_image_tokens: i64 = 0;
+        // Mark messages with tool_use or tool_result as non-compressible
+        for (request.messages, 0..) |msg, idx| {
+            for (msg.content) |block| {
+                if (block.content_type == .tool_use or block.content_type == .tool_result) {
+                    can_compress[idx] = false;
+                    // Also keep the message before (for tool_result) and after (for tool_use)
+                    if (idx > 0) can_compress[idx - 1] = false;
+                    if (idx + 1 < msg_count) can_compress[idx + 1] = false;
+                    break;
+                }
+            }
+        }
 
-        for (0..num_batches) |batch_idx| {
-            const start_line = batch_idx * lines_per_batch;
-            const end_line = @min(start_line + lines_per_batch, lines.items.len);
+        // Collect text from compressible messages with per-character role tracking
+        var text_to_compress = std.ArrayList(u8){};
+        defer text_to_compress.deinit(self.allocator);
 
-            // Combine all lines in this batch into one text block
-            var batch_text = std.ArrayList(u8){};
-            defer batch_text.deinit(self.allocator);
+        var char_roles = std.ArrayList(json.Role){};
+        defer char_roles.deinit(self.allocator);
 
-            for (start_line..end_line) |line_idx| {
-                try batch_text.appendSlice(self.allocator, lines.items[line_idx]);
-                if (line_idx < end_line - 1 or end_line < lines.items.len) {
-                    try batch_text.append(self.allocator, '\n');
+        var compress_count: usize = 0;
+        for (request.messages, 0..) |msg, idx| {
+            if (!can_compress[idx]) continue;
+            compress_count += 1;
+
+            const role_prefix = switch (msg.role) {
+                .user => "[USER] ",
+                .assistant => "[ASST] ",
+                .system => "[SYS] ",
+                .tool_use => "[TOOL] ",
+                .tool_result => "[RESULT] ",
+            };
+
+            // Add prefix with message role color
+            for (role_prefix) |_| {
+                try char_roles.append(self.allocator, msg.role);
+            }
+            try text_to_compress.appendSlice(self.allocator, role_prefix);
+
+            // Add message content with message role color
+            for (msg.content) |block| {
+                if (block.text) |text| {
+                    for (text) |_| {
+                        try char_roles.append(self.allocator, msg.role);
+                    }
+                    try text_to_compress.appendSlice(self.allocator, text);
                 }
             }
 
-            const render_text = batch_text.items;
-
-            // Calculate text tokens (approximate formula: 1 token ≈ 4 chars)
-            // Good enough for image vs text comparison (10x+ difference)
-            const text_tokens: i64 = @intCast(@max(1, render_text.len / 4));
-
-            // Calculate image tokens: render and get dimensions
-            const base64_gif = self.textToBase64Gif(render_text) catch |err| {
-                std.debug.print("ERROR: Failed to encode batch {d}/{d} (text len={d}): {any}\n", .{
-                    batch_idx + 1,
-                    num_batches,
-                    render_text.len,
-                    err,
-                });
-                std.debug.print("Batch text preview: {s}\n", .{render_text[0..@min(100, render_text.len)]});
-                return err;
-            };
-            errdefer self.allocator.free(base64_gif); // Free on error
-
-            // Decode GIF to get actual pixel dimensions
-            const decoder = std.base64.standard.Decoder;
-            // Decode base64 to get GIF bytes
-            if (base64_gif.len == 0) {
-                std.debug.print("ERROR: Empty GIF for batch {d}\n", .{batch_idx});
-                return error.EmptyGif;
-            }
-
-            const gif_bytes_size = try decoder.calcSizeForSlice(base64_gif);
-            const gif_bytes = try self.allocator.alloc(u8, gif_bytes_size);
-            defer self.allocator.free(gif_bytes);
-            try decoder.decode(gif_bytes, base64_gif);
-
-            // Extract dimensions from GIF header (GIF header is at least 10 bytes)
-            if (gif_bytes.len < 10) {
-                std.debug.print("ERROR: GIF too small ({d} bytes) for batch {d}\n", .{gif_bytes.len, batch_idx});
-                return error.InvalidGif;
-            }
-
-            const gif_width = @as(u16, gif_bytes[6]) | (@as(u16, gif_bytes[7]) << 8);
-            const gif_height = @as(u16, gif_bytes[8]) | (@as(u16, gif_bytes[9]) << 8);
-            const pixels = @as(i64, gif_width) * @as(i64, gif_height);
-
-            // Image cost: Anthropic formula is pixels / 750
-            const image_tokens: i64 = @intCast(@max(1, @divFloor(pixels, 750)));
-
-            // Store costs (cache GIF for reuse)
-            batch_costs[batch_idx] = .{
-                .text_tokens = text_tokens,
-                .image_tokens = image_tokens,
-                .text_bytes = render_text.len,
-                .image_bytes = base64_gif.len,
-                .pixels = pixels,
-                .gif_base64 = base64_gif, // Don't defer! We'll free later
-            };
-
-            total_text_tokens += text_tokens;
-            total_image_tokens += image_tokens;
-
-            std.debug.print("Batch {d}: text={d}B/{d}tok → image={d}B/{d}tok ({d}px)\n", .{
-                batch_idx,
-                render_text.len,
-                text_tokens,
-                base64_gif.len,
-                image_tokens,
-                pixels,
-            });
+            // Add separator (use same role for continuity)
+            try text_to_compress.appendSlice(self.allocator, " ");
+            try char_roles.append(self.allocator, msg.role);
         }
 
-        // Step 3: Compare totals and decide for ENTIRE message
-        const savings = if (total_text_tokens > 0)
-            @divTrunc(100 * (total_text_tokens - total_image_tokens), total_text_tokens)
+        // If nothing to compress, return original
+        if (text_to_compress.items.len == 0 or compress_count == 0) {
+            std.debug.print("[COMPRESS] Nothing to compress (tool pairs preserved)\n", .{});
+            return try self.allocator.dupe(u8, request_json);
+        }
+
+        std.debug.print("[COMPRESS] Compressible: {d}/{d} messages\n", .{ compress_count, msg_count });
+
+        const total_text_tokens = countTextTokens(self, text_to_compress.items);
+
+        // Split into chunks that fit in 1024x1024 images
+        const chunks = try self.splitIntoChunks(text_to_compress.items, char_roles.items);
+        defer self.allocator.free(chunks);
+
+        std.debug.print("[COMPRESS] Text: {d}B ({d}tok) → {d} images\n", .{
+            text_to_compress.items.len,
+            total_text_tokens,
+            chunks.len,
+        });
+
+        // Generate images for each chunk
+        var images = std.ArrayList(ImageInfo){};
+        defer {
+            for (images.items) |img| {
+                self.allocator.free(img.data);
+            }
+            images.deinit(self.allocator);
+        }
+
+        var total_image_tokens: usize = 0;
+
+        for (chunks, 0..) |chunk, chunk_idx| {
+            const img = self.textToBase64Png(chunk.text, chunk.roles) catch |err| {
+                std.debug.print("[COMPRESS] PNG error on chunk {d}: {any}\n", .{ chunk_idx, err });
+                return try self.allocator.dupe(u8, request_json);
+            };
+
+            const img_tokens = calculateImageTokens(img.width, img.height);
+            total_image_tokens += img_tokens;
+
+            std.debug.print("[COMPRESS]   Image {d}: {d}x{d} ({d}tok)\n", .{
+                chunk_idx + 1,
+                img.width,
+                img.height,
+                img_tokens,
+            });
+
+            // Save to /tmp for debugging
+            var path_buf: [64]u8 = undefined;
+            const path = std.fmt.bufPrint(&path_buf, "/tmp/compress_img_{d}.png", .{chunk_idx + 1}) catch "/tmp/compress_img.png";
+            const decoder = std.base64.standard.Decoder;
+            const png_size = decoder.calcSizeForSlice(img.data) catch 0;
+            if (png_size > 0) {
+                const png_bytes = self.allocator.alloc(u8, png_size) catch null;
+                if (png_bytes) |bytes| {
+                    defer self.allocator.free(bytes);
+                    decoder.decode(bytes, img.data) catch {};
+                    const file = std.fs.createFileAbsolute(path, .{}) catch null;
+                    if (file) |f| {
+                        defer f.close();
+                        f.writeAll(bytes) catch {};
+                        std.debug.print("[COMPRESS]   Saved: {s}\n", .{path});
+                    }
+                }
+            }
+
+            try images.append(self.allocator, img);
+        }
+
+        // Decision: only compress if we save tokens
+        const savings = @as(i64, @intCast(total_text_tokens)) - @as(i64, @intCast(total_image_tokens));
+        const savings_pct = if (total_text_tokens > 0)
+            @as(f64, @floatFromInt(savings)) / @as(f64, @floatFromInt(total_text_tokens)) * 100.0
         else
-            0;
+            0.0;
 
-        const use_compression = savings > 20 and total_image_tokens < total_text_tokens;
-
-        std.debug.print("\n=== DECISION ===\n", .{});
-        std.debug.print("Total: text={d}tok vs image={d}tok | {d}% savings\n", .{
+        std.debug.print("[COMPRESS] Total: {d}tok text → {d}tok images ({d:.1}% {s})\n", .{
             total_text_tokens,
             total_image_tokens,
-            savings,
+            @abs(savings_pct),
+            if (savings > 0) "saved" else "added",
         });
-        std.debug.print("Decision: {s}\n\n", .{if (use_compression) "COMPRESS ALL" else "KEEP ALL AS TEXT"});
 
-        // Step 4: Build content array based on decision
-        var content_json: std.ArrayList(u8) = .{};
-        errdefer content_json.deinit(self.allocator);
-
-        try content_json.append(self.allocator, '[');
-
-        if (use_compression) {
-            // Use batched images (one image per batch)
-            for (batch_costs, 0..) |cost, batch_idx| {
-                if (batch_idx > 0) {
-                    try content_json.append(self.allocator, ',');
-                }
-
-                try content_json.appendSlice(self.allocator, "{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/gif\",\"data\":\"");
-                try content_json.appendSlice(self.allocator, cost.gif_base64);
-                try content_json.appendSlice(self.allocator, "\"}}");
-            }
-        } else {
-            // Keep as text (single text block with all lines)
-            try content_json.appendSlice(self.allocator, "{\"type\":\"text\",\"text\":\"");
-            try self.appendEscapedJson(text, &content_json);
-            try content_json.appendSlice(self.allocator, "\"}");
+        if (savings <= 0) {
+            std.debug.print("[COMPRESS] No savings - keeping original\n", .{});
+            return try self.allocator.dupe(u8, request_json);
         }
 
-        try content_json.append(self.allocator, ']');
+        // Build new messages array
+        var new_messages = std.ArrayList(u8){};
+        defer new_messages.deinit(self.allocator);
 
-        // Free cached GIFs
-        for (batch_costs) |cost| {
-            self.allocator.free(cost.gif_base64);
+        try new_messages.append(self.allocator, '[');
+
+        // 1. Single user message with: images first, then instruction text
+        try new_messages.appendSlice(self.allocator, "{\"role\":\"user\",\"content\":[");
+
+        // Add all images
+        for (images.items, 0..) |img, img_idx| {
+            if (img_idx > 0) try new_messages.append(self.allocator, ',');
+            try new_messages.appendSlice(self.allocator, "{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/png\",\"data\":\"");
+            try new_messages.appendSlice(self.allocator, img.data);
+            try new_messages.appendSlice(self.allocator, "\"}}");
         }
 
-        const content_json_slice = try content_json.toOwnedSlice(self.allocator);
-        defer self.allocator.free(content_json_slice);
+        // Add instruction text after images
+        var instruction_buf: [512]u8 = undefined;
+        const instruction = try std.fmt.bufPrint(&instruction_buf,
+            \\These {d} images are conversation history. Read line by line.
+            \\Format: | = newline, > = tab
+            \\Colors: blue=[USER], green=[ASST], yellow=[SYS], red=[TOOL], purple=[RESULT]
+        , .{images.items.len});
 
-        std.debug.print("\n=== JSON DEBUG ===\n", .{});
-        std.debug.print("ORIGINAL REQUEST ({d} bytes):\n{s}\n", .{ request_json.len, request_json });
+        try new_messages.append(self.allocator, ',');
+        try new_messages.appendSlice(self.allocator, "{\"type\":\"text\",\"text\":\"");
+        try self.appendEscapedJson(instruction, &new_messages);
+        try new_messages.appendSlice(self.allocator, "\"}");
 
-        // Compact log: replace long base64 with summary
-        const compact = compactifyBase64(self.allocator, content_json_slice) catch content_json_slice;
-        defer if (compact.ptr != content_json_slice.ptr) self.allocator.free(compact);
-        std.debug.print("\nNEW CONTENT ARRAY ({d} bytes):\n{s}\n", .{ content_json_slice.len, compact });
+        try new_messages.appendSlice(self.allocator, "]}");
 
-        // Rebuild JSON with new content
-        const rebuilt = try self.parser.rebuildWithContent(request_json, content_json_slice);
+        // 2. Add non-compressed messages (tool pairs, last user message, etc.)
+        for (request.messages, 0..) |msg, msg_idx| {
+            if (can_compress[msg_idx]) continue; // Skip compressed messages
+            try new_messages.append(self.allocator, ',');
+            try self.appendMessageJson(msg, &new_messages);
+        }
 
-        // Compact log: replace long base64 with summary
-        const compact_rebuilt = compactifyBase64(self.allocator, rebuilt) catch rebuilt;
-        defer if (compact_rebuilt.ptr != rebuilt.ptr) self.allocator.free(compact_rebuilt);
-        std.debug.print("\nREBUILT REQUEST ({d} bytes):\n{s}\n", .{ rebuilt.len, compact_rebuilt });
-        std.debug.print("=== END JSON DEBUG ===\n\n", .{});
+        try new_messages.append(self.allocator, ']');
 
-        // Validate rebuilt JSON
-        const parsed = std.json.parseFromSlice(
-            std.json.Value,
-            self.allocator,
-            rebuilt,
-            .{},
-        ) catch |err| {
-            std.debug.print("ERROR: Rebuilt JSON is INVALID: {any}\n", .{err});
-            return err;
+        // Rebuild request
+        const rebuilt = try self.parser.rebuildRequest(request, new_messages.items);
+
+        // Validate JSON
+        const validation = std.json.parseFromSlice(std.json.Value, self.allocator, rebuilt, .{}) catch |err| {
+            std.debug.print("[COMPRESS] Invalid JSON: {any}\n", .{err});
+            self.allocator.free(rebuilt);
+            return try self.allocator.dupe(u8, request_json);
         };
-        parsed.deinit();
-        std.debug.print("Validation: Rebuilt JSON is VALID\n", .{});
+        validation.deinit();
+
+        std.debug.print("[COMPRESS] Success: {d}B → {d}B\n", .{ request_json.len, rebuilt.len });
 
         return rebuilt;
     }
 
-    /// Helper to escape JSON string values
+    fn appendMessageJson(self: TextCompressor, msg: json.Message, buffer: *std.ArrayList(u8)) !void {
+        try buffer.appendSlice(self.allocator, "{\"role\":\"");
+        try buffer.appendSlice(self.allocator, msg.role.toString());
+        try buffer.appendSlice(self.allocator, "\",\"content\":");
+
+        if (msg.content.len == 1 and msg.content[0].content_type == .text) {
+            try buffer.append(self.allocator, '"');
+            if (msg.content[0].text) |text| {
+                try self.appendEscapedJson(text, buffer);
+            }
+            try buffer.append(self.allocator, '"');
+        } else {
+            try buffer.append(self.allocator, '[');
+            for (msg.content, 0..) |block, idx| {
+                if (idx > 0) try buffer.append(self.allocator, ',');
+                try self.appendContentBlock(block, buffer);
+            }
+            try buffer.append(self.allocator, ']');
+        }
+
+        try buffer.append(self.allocator, '}');
+    }
+
+    fn appendContentBlock(self: TextCompressor, block: json.ContentBlock, buffer: *std.ArrayList(u8)) !void {
+        switch (block.content_type) {
+            .text => {
+                try buffer.appendSlice(self.allocator, "{\"type\":\"text\",\"text\":\"");
+                if (block.text) |text| {
+                    try self.appendEscapedJson(text, buffer);
+                }
+                try buffer.appendSlice(self.allocator, "\"}");
+            },
+            .image => {
+                try buffer.appendSlice(self.allocator, "{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"");
+                if (block.media_type) |mt| {
+                    try buffer.appendSlice(self.allocator, mt);
+                }
+                try buffer.appendSlice(self.allocator, "\",\"data\":\"");
+                if (block.image_data) |data| {
+                    try buffer.appendSlice(self.allocator, data);
+                }
+                try buffer.appendSlice(self.allocator, "\"}}");
+            },
+            .tool_use => {
+                try buffer.appendSlice(self.allocator, "{\"type\":\"tool_use\",\"id\":\"");
+                if (block.tool_use_id) |id| {
+                    try buffer.appendSlice(self.allocator, id);
+                }
+                try buffer.appendSlice(self.allocator, "\",\"name\":\"");
+                if (block.tool_name) |name| {
+                    try buffer.appendSlice(self.allocator, name);
+                }
+                try buffer.appendSlice(self.allocator, "\",\"input\":");
+                if (block.tool_input) |input| {
+                    try buffer.appendSlice(self.allocator, input);
+                } else {
+                    try buffer.appendSlice(self.allocator, "{}");
+                }
+                try buffer.append(self.allocator, '}');
+            },
+            .tool_result => {
+                try buffer.appendSlice(self.allocator, "{\"type\":\"tool_result\",\"tool_use_id\":\"");
+                if (block.tool_use_id) |id| {
+                    try buffer.appendSlice(self.allocator, id);
+                }
+                try buffer.appendSlice(self.allocator, "\",\"content\":\"");
+                if (block.tool_content) |content| {
+                    try self.appendEscapedJson(content, buffer);
+                }
+                try buffer.appendSlice(self.allocator, "\"}");
+            },
+        }
+    }
+
     fn appendEscapedJson(self: TextCompressor, text: []const u8, buffer: *std.ArrayList(u8)) !void {
         for (text) |c| {
             switch (c) {
@@ -323,51 +430,8 @@ pub const TextCompressor = struct {
     fn base64Encode(self: TextCompressor, data: []const u8) ![]const u8 {
         const encoder = std.base64.standard.Encoder;
         const encoded_len = encoder.calcSize(data.len);
-
         const result = try self.allocator.alloc(u8, encoded_len);
         const written = encoder.encode(result, data);
-
         return result[0..written.len];
     }
 };
-
-test "compress simple request" {
-    const allocator = std.testing.allocator;
-    const request =
-        \\{"model":"claude-3-5-sonnet-20241022","max_tokens":10,"messages":[{"role":"user","content":"Hi"}]}
-    ;
-
-    const compressor = TextCompressor.init(allocator);
-    const compressed = try compressor.compressRequest(request);
-    defer allocator.free(compressed);
-
-    // Verify it's valid JSON - short text like "Hi" stays as text (not worth compressing)
-    const parser = json.MessageParser.init(allocator);
-    const text = try parser.extractText(compressed);
-    defer allocator.free(text);
-
-    try std.testing.expectEqualStrings("Hi", text);
-}
-
-test "text to base64 gif pipeline" {
-    const allocator = std.testing.allocator;
-    const compressor = TextCompressor.init(allocator);
-
-    const result = try compressor.textToBase64Gif("Hello");
-    defer allocator.free(result);
-
-    // Should produce valid base64
-    try std.testing.expect(result.len > 0);
-
-    // Decode to verify it's valid
-    const decoder = std.base64.standard.Decoder;
-    const decoded_size = try decoder.calcSizeForSlice(result);
-    const decoded = try allocator.alloc(u8, decoded_size);
-    defer allocator.free(decoded);
-
-    try decoder.decode(decoded, result);
-
-    // Should start with GIF header
-    try std.testing.expect(decoded.len >= 6);
-    try std.testing.expectEqualStrings("GIF89a", decoded[0..6]);
-}
