@@ -28,17 +28,22 @@ fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8) ![
 }
 
 pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, module_name: []const u8) !void {
+    // Use arena allocator for all intermediate allocations to avoid leaks on parse errors
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
     // Read module source (handle absolute paths)
     const source = blk: {
         if (std.fs.path.isAbsolute(module_path)) {
             const file = try std.fs.openFileAbsolute(module_path, .{});
             defer file.close();
-            break :blk try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+            break :blk try file.readToEndAlloc(aa, 10 * 1024 * 1024);
         } else {
-            break :blk try std.fs.cwd().readFileAlloc(allocator, module_path, 10 * 1024 * 1024);
+            break :blk try std.fs.cwd().readFileAlloc(aa, module_path, 10 * 1024 * 1024);
         }
     };
-    defer allocator.free(source);
+    // No defer needed - arena handles cleanup
 
     // Use provided module_name if not empty, otherwise derive from path
     const mod_name = if (module_name.len > 0) module_name else blk: {
@@ -63,33 +68,33 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
     const lexer_mod = @import("../lexer.zig");
     const parser_mod = @import("../parser.zig");
 
-    var lex = try lexer_mod.Lexer.init(allocator, source);
+    var lex = try lexer_mod.Lexer.init(aa, source);
     defer lex.deinit();
     const tokens = try lex.tokenize();
-    defer lexer_mod.freeTokens(allocator, tokens);
+    // No defer needed for tokens - arena handles cleanup
 
-    var p = parser_mod.Parser.init(allocator, tokens);
+    var p = parser_mod.Parser.init(aa, tokens);
     defer p.deinit();
     const tree = try p.parse();
-    defer tree.deinit(allocator);
+    // No defer needed for tree - arena handles cleanup
 
     // Perform semantic analysis
     const semantic_types_mod = @import("../analysis/types.zig");
     const lifetime_analysis_mod = @import("../analysis/lifetime.zig");
     const native_types_mod = @import("../analysis/native_types.zig");
 
-    var semantic_info = semantic_types_mod.SemanticInfo.init(allocator);
+    var semantic_info = semantic_types_mod.SemanticInfo.init(aa);
     defer semantic_info.deinit();
     _ = try lifetime_analysis_mod.analyzeLifetimes(&semantic_info, tree, 1);
 
-    var type_inferrer = try native_types_mod.TypeInferrer.init(allocator);
+    var type_inferrer = try native_types_mod.TypeInferrer.init(aa);
     defer type_inferrer.deinit();
     if (tree == .module) {
         try type_inferrer.analyze(tree.module);
     }
 
     // Generate Zig code in module mode (top-level exports, no struct wrapper)
-    var codegen = try native_codegen.NativeCodegen.init(allocator, &type_inferrer, &semantic_info);
+    var codegen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
     defer codegen.deinit();
 
     codegen.mode = .module;
@@ -99,11 +104,11 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
         try codegen.generate(tree.module)
     else
         return error.InvalidAST;
-    defer allocator.free(zig_code);
+    // zig_code allocated by arena - no defer needed
 
-    // Save to .build/module_name.zig
-    const output_path = try std.fmt.allocPrint(allocator, ".build/{s}.zig", .{mod_name});
-    defer allocator.free(output_path);
+    // Save to .build/module_name.zig (use arena)
+    const output_path = try std.fmt.allocPrint(aa, ".build/{s}.zig", .{mod_name});
+    // output_path allocated by arena - no defer needed
 
     const file = try std.fs.cwd().createFile(output_path, .{});
     defer file.close();
