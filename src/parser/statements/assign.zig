@@ -11,37 +11,72 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
 
     // Check for type annotation: x: int = 5
     if (self.match(.Colon)) {
-        const annotation = try self.parseExpression();
+        var annotation = try self.parseExpression();
+        errdefer annotation.deinit(self.allocator);
 
-        const target_ptr = try self.allocator.create(ast.Node);
-        target_ptr.* = expr;
+        var target_ptr: ?*ast.Node = null;
+        errdefer if (target_ptr) |ptr| {
+            ptr.deinit(self.allocator);
+            self.allocator.destroy(ptr);
+        };
 
-        const annotation_ptr = try self.allocator.create(ast.Node);
-        annotation_ptr.* = annotation;
+        var annotation_ptr: ?*ast.Node = null;
+        errdefer if (annotation_ptr) |ptr| {
+            ptr.deinit(self.allocator);
+            self.allocator.destroy(ptr);
+        };
+
+        target_ptr = try self.allocator.create(ast.Node);
+        target_ptr.?.* = expr;
+
+        annotation_ptr = try self.allocator.create(ast.Node);
+        annotation_ptr.?.* = annotation;
 
         // Check for assignment value
         if (self.match(.Eq)) {
-            const value = try self.parseExpression();
+            var value = try self.parseExpression();
+            errdefer value.deinit(self.allocator);
             _ = self.expect(.Newline) catch {};
 
-            const value_ptr = try self.allocator.create(ast.Node);
-            value_ptr.* = value;
+            var value_ptr: ?*ast.Node = null;
+            errdefer if (value_ptr) |ptr| {
+                ptr.deinit(self.allocator);
+                self.allocator.destroy(ptr);
+            };
+
+            value_ptr = try self.allocator.create(ast.Node);
+            value_ptr.?.* = value;
+
+            // Success - transfer ownership
+            const final_target = target_ptr.?;
+            target_ptr = null;
+            const final_annotation = annotation_ptr.?;
+            annotation_ptr = null;
+            const final_value = value_ptr.?;
+            value_ptr = null;
 
             return ast.Node{
                 .ann_assign = .{
-                    .target = target_ptr,
-                    .annotation = annotation_ptr,
-                    .value = value_ptr,
+                    .target = final_target,
+                    .annotation = final_annotation,
+                    .value = final_value,
                     .simple = true,
                 },
             };
         } else {
             // Type annotation without assignment (e.g., x: int)
             _ = self.expect(.Newline) catch {};
+
+            // Success - transfer ownership
+            const final_target = target_ptr.?;
+            target_ptr = null;
+            const final_annotation = annotation_ptr.?;
+            annotation_ptr = null;
+
             return ast.Node{
                 .ann_assign = .{
-                    .target = target_ptr,
-                    .annotation = annotation_ptr,
+                    .target = final_target,
+                    .annotation = final_annotation,
                     .value = null,
                     .simple = true,
                 },
@@ -53,47 +88,70 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
     if (self.check(.Comma)) {
         // Parse comma-separated targets: a, b, c
         var targets_list = std.ArrayList(ast.Node){};
+        errdefer {
+            for (targets_list.items) |*t| t.deinit(self.allocator);
+            targets_list.deinit(self.allocator);
+        }
         try targets_list.append(self.allocator, expr);
 
         while (self.match(.Comma)) {
-            const target = try self.parseExpression();
+            var target = try self.parseExpression();
+            errdefer target.deinit(self.allocator);
             try targets_list.append(self.allocator, target);
         }
 
         // Now expect assignment
         if (self.match(.Eq)) {
-            const first_value = try self.parseExpression();
+            var first_value = try self.parseExpression();
+            errdefer first_value.deinit(self.allocator);
 
             // Check if the value side is also a tuple (comma-separated)
-            const value = if (self.check(.Comma)) blk: {
+            var value = if (self.check(.Comma)) blk: {
                 var value_list = std.ArrayList(ast.Node){};
-                defer value_list.deinit(self.allocator);
+                errdefer {
+                    for (value_list.items) |*v| v.deinit(self.allocator);
+                    value_list.deinit(self.allocator);
+                }
                 try value_list.append(self.allocator, first_value);
 
                 while (self.match(.Comma)) {
-                    const val = try self.parseExpression();
+                    var val = try self.parseExpression();
+                    errdefer val.deinit(self.allocator);
                     try value_list.append(self.allocator, val);
                 }
 
                 const value_array = try value_list.toOwnedSlice(self.allocator);
+                value_list = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
                 break :blk ast.Node{ .tuple = .{ .elts = value_array } };
             } else first_value;
+            errdefer value.deinit(self.allocator);
 
             _ = self.expect(.Newline) catch {};
 
             // Allocate value on heap
-            const value_ptr = try self.allocator.create(ast.Node);
-            value_ptr.* = value;
+            var value_ptr: ?*ast.Node = null;
+            errdefer if (value_ptr) |ptr| {
+                ptr.deinit(self.allocator);
+                self.allocator.destroy(ptr);
+            };
+
+            value_ptr = try self.allocator.create(ast.Node);
+            value_ptr.?.* = value;
 
             // Create a tuple node for the targets (directly in array, no intermediate pointer)
             const targets_array = try targets_list.toOwnedSlice(self.allocator);
+            targets_list = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
             var targets = try self.allocator.alloc(ast.Node, 1);
             targets[0] = ast.Node{ .tuple = .{ .elts = targets_array } };
+
+            // Success - transfer ownership
+            const final_value = value_ptr.?;
+            value_ptr = null;
 
             return ast.Node{
                 .assign = .{
                     .targets = targets,
-                    .value = value_ptr,
+                    .value = final_value,
                 },
             };
         } else {
@@ -120,42 +178,72 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
     };
 
     if (aug_op) |op| {
-        const value = try self.parseExpression();
+        var value = try self.parseExpression();
+        errdefer value.deinit(self.allocator);
         _ = self.expect(.Newline) catch {};
 
         // Allocate nodes on heap
-        const target_ptr = try self.allocator.create(ast.Node);
-        target_ptr.* = expr;
+        var target_ptr: ?*ast.Node = null;
+        errdefer if (target_ptr) |ptr| {
+            ptr.deinit(self.allocator);
+            self.allocator.destroy(ptr);
+        };
 
-        const value_ptr = try self.allocator.create(ast.Node);
-        value_ptr.* = value;
+        var value_ptr: ?*ast.Node = null;
+        errdefer if (value_ptr) |ptr| {
+            ptr.deinit(self.allocator);
+            self.allocator.destroy(ptr);
+        };
+
+        target_ptr = try self.allocator.create(ast.Node);
+        target_ptr.?.* = expr;
+
+        value_ptr = try self.allocator.create(ast.Node);
+        value_ptr.?.* = value;
+
+        // Success - transfer ownership
+        const final_target = target_ptr.?;
+        target_ptr = null;
+        const final_value = value_ptr.?;
+        value_ptr = null;
 
         return ast.Node{
             .aug_assign = .{
-                .target = target_ptr,
+                .target = final_target,
                 .op = op,
-                .value = value_ptr,
+                .value = final_value,
             },
         };
     }
 
     // Check for regular assignment
     if (self.match(.Eq)) {
-        const value = try self.parseExpression();
+        var value = try self.parseExpression();
+        errdefer value.deinit(self.allocator);
         _ = self.expect(.Newline) catch {};
 
         // Allocate nodes on heap
-        const value_ptr = try self.allocator.create(ast.Node);
-        value_ptr.* = value;
+        var value_ptr: ?*ast.Node = null;
+        errdefer if (value_ptr) |ptr| {
+            ptr.deinit(self.allocator);
+            self.allocator.destroy(ptr);
+        };
+
+        value_ptr = try self.allocator.create(ast.Node);
+        value_ptr.?.* = value;
 
         // For simplicity, wrap expr in array (single target)
         var targets = try self.allocator.alloc(ast.Node, 1);
         targets[0] = expr;
 
+        // Success - transfer ownership
+        const final_value = value_ptr.?;
+        value_ptr = null;
+
         return ast.Node{
             .assign = .{
                 .targets = targets,
-                .value = value_ptr,
+                .value = final_value,
             },
         };
     }

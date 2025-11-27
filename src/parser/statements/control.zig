@@ -8,7 +8,8 @@ const misc = @import("misc.zig");
 
 pub fn parseIf(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.If);
-    const condition_expr = try self.parseExpression();
+    var condition_expr = try self.parseExpression();
+    errdefer condition_expr.deinit(self.allocator);
     _ = try self.expect(.Colon);
 
     // Check if this is a one-liner if (if x: statement)
@@ -48,7 +49,8 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
     defer else_stmts.deinit(self.allocator);
 
     while (self.match(.Elif)) {
-        const elif_condition = try self.parseExpression();
+        var elif_condition = try self.parseExpression();
+        errdefer elif_condition.deinit(self.allocator);
         _ = try self.expect(.Colon);
 
         // Check if this is a one-liner elif
@@ -153,7 +155,8 @@ pub fn parseFor(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.In);
 
     // Parse iterable - may be a tuple without parens (e.g., 1, 2, 3)
-    const first_expr = try self.parseExpression();
+    var first_expr = try self.parseExpression();
+    errdefer first_expr.deinit(self.allocator);
 
     const iter = blk: {
         if (self.check(.Comma)) {
@@ -232,7 +235,8 @@ pub fn parseFor(self: *Parser) ParseError!ast.Node {
 
 pub fn parseWhile(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.While);
-    const condition_expr = try self.parseExpression();
+    var condition_expr = try self.parseExpression();
+    errdefer condition_expr.deinit(self.allocator);
     _ = try self.expect(.Colon);
 
     // Check if this is a one-liner while (while x: statement)

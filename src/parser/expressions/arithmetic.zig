@@ -6,6 +6,7 @@ const Parser = @import("../../parser.zig").Parser;
 /// Parse bitwise OR expression
 pub fn parseBitOr(self: *Parser) ParseError!ast.Node {
     var left = try parseBitXor(self);
+    errdefer left.deinit(self.allocator);
 
     while (true) {
         var op: ?ast.Operator = null;
@@ -16,7 +17,8 @@ pub fn parseBitOr(self: *Parser) ParseError!ast.Node {
 
         if (op == null) break;
 
-        const right = try parseBitXor(self);
+        var right = try parseBitXor(self);
+        errdefer right.deinit(self.allocator);
 
         const left_ptr = try self.allocator.create(ast.Node);
         left_ptr.* = left;
@@ -39,6 +41,7 @@ pub fn parseBitOr(self: *Parser) ParseError!ast.Node {
 /// Parse bitwise XOR expression
 pub fn parseBitXor(self: *Parser) ParseError!ast.Node {
     var left = try parseBitAnd(self);
+    errdefer left.deinit(self.allocator);
 
     while (true) {
         var op: ?ast.Operator = null;
@@ -49,7 +52,8 @@ pub fn parseBitXor(self: *Parser) ParseError!ast.Node {
 
         if (op == null) break;
 
-        const right = try parseBitAnd(self);
+        var right = try parseBitAnd(self);
+        errdefer right.deinit(self.allocator);
 
         const left_ptr = try self.allocator.create(ast.Node);
         left_ptr.* = left;
@@ -72,6 +76,7 @@ pub fn parseBitXor(self: *Parser) ParseError!ast.Node {
 /// Parse bitwise AND expression
 pub fn parseBitAnd(self: *Parser) ParseError!ast.Node {
     var left = try parseShift(self);
+    errdefer left.deinit(self.allocator);
 
     while (true) {
         var op: ?ast.Operator = null;
@@ -82,7 +87,8 @@ pub fn parseBitAnd(self: *Parser) ParseError!ast.Node {
 
         if (op == null) break;
 
-        const right = try parseShift(self);
+        var right = try parseShift(self);
+        errdefer right.deinit(self.allocator);
 
         const left_ptr = try self.allocator.create(ast.Node);
         left_ptr.* = left;
@@ -105,6 +111,7 @@ pub fn parseBitAnd(self: *Parser) ParseError!ast.Node {
 /// Parse bitwise shift operators: << and >>
 pub fn parseShift(self: *Parser) ParseError!ast.Node {
     var left = try parseAddSub(self);
+    errdefer left.deinit(self.allocator);
 
     while (true) {
         var op: ?ast.Operator = null;
@@ -117,7 +124,8 @@ pub fn parseShift(self: *Parser) ParseError!ast.Node {
 
         if (op == null) break;
 
-        const right = try parseAddSub(self);
+        var right = try parseAddSub(self);
+        errdefer right.deinit(self.allocator);
 
         const left_ptr = try self.allocator.create(ast.Node);
         left_ptr.* = left;
