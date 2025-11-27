@@ -6,6 +6,7 @@ const Method = @import("request.zig").Method;
 const Status = @import("response.zig").Status;
 const ConnectionPool = @import("pool.zig").ConnectionPool;
 const hashmap_helper = @import("hashmap_helper");
+const LazyResponse = @import("lazy_response.zig").LazyResponse;
 
 /// Extract raw string from Uri.Component (Zig 0.15 API)
 fn getComponentString(component: std.Uri.Component) []const u8 {
@@ -213,6 +214,16 @@ pub const Client = struct {
         var buf: [16]u8 = undefined;
         const status_str = std.fmt.bufPrint(&buf, "{d}", .{@intFromEnum(result.status)}) catch "0";
         return try self.allocator.dupe(u8, status_str);
+    }
+
+    /// Lazy GET - body read deferred until accessed
+    pub fn getLazy(self: *Client, url: []const u8) !LazyResponse {
+        return try LazyResponse.init(self.allocator, url);
+    }
+
+    /// Lazy POST - body read deferred until accessed
+    pub fn postLazy(self: *Client, url: []const u8, payload: []const u8) !LazyResponse {
+        return try LazyResponse.initPost(self.allocator, url, payload);
     }
 
     fn applyDefaultHeaders(self: *Client, request: *Request) !void {

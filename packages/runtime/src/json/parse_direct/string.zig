@@ -1,9 +1,11 @@
 /// Parse JSON strings directly to PyString (optimized with lookup tables)
+/// Supports lazy mode: borrows from source when no escapes (zero-copy)
 const std = @import("std");
 const runtime = @import("../../runtime.zig");
 const JsonError = @import("../errors.zig").JsonError;
 const ParseResult = @import("../errors.zig").ParseResult;
 const simd = @import("json_simd");
+const parse_direct = @import("../parse_direct.zig");
 
 /// Comptime hex digit lookup table (like Rust serde_json)
 /// Returns 0-15 for valid hex, 255 for invalid
@@ -27,6 +29,7 @@ inline fn parseHex4(hex: *const [4]u8) ?u16 {
 }
 
 /// Parse JSON string directly to PyString (single SIMD pass for speed!)
+/// If lazy_source is set and no escapes, borrows from source (zero-copy)
 pub fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) JsonError!ParseResult(*runtime.PyObject) {
     if (pos >= data.len or data[pos] != '"') return JsonError.UnexpectedToken;
 
@@ -35,17 +38,20 @@ pub fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) J
     // Single-pass SIMD: find closing quote AND check for escapes simultaneously
     if (simd.findClosingQuoteAndEscapes(data[start..])) |result| {
         const i = start + result.quote_pos;
+        const slice = data[start..i];
 
-        const str_data: []const u8 = if (!result.has_escapes)
-            // Fast path: No escapes, just copy once
-            try allocator.dupe(u8, data[start..i])
+        // Check if we can use lazy/borrowed string
+        const lazy_source = parse_direct.getLazySource();
+
+        const py_str = if (!result.has_escapes and lazy_source != null)
+            // Lazy path: borrow from source (zero-copy!)
+            try runtime.PyString.createBorrowed(allocator, lazy_source.?, slice)
+        else if (!result.has_escapes)
+            // Eager path: copy the string
+            try runtime.PyString.createOwned(allocator, try allocator.dupe(u8, slice))
         else
-            // Slow path: Need to unescape
-            try unescapeString(data[start..i], allocator)
-        ;
-
-        // Create PyString with ownership transfer (no extra copy!)
-        const py_str = try runtime.PyString.createOwned(allocator, str_data);
+            // Has escapes: must unescape (always copies)
+            try runtime.PyString.createOwned(allocator, try unescapeString(slice, allocator));
 
         return ParseResult(*runtime.PyObject).init(
             py_str,

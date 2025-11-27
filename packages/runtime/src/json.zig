@@ -7,8 +7,9 @@ const parse_direct = @import("json/parse_direct.zig");
 pub const parse = @import("json/parse.zig");
 pub const JsonValue = @import("json/value.zig").JsonValue;
 
-/// Deserialize JSON string to PyObject
+/// Deserialize JSON string to PyObject (lazy mode - zero-copy strings!)
 /// Python: json.loads(json_str) -> obj
+/// Strings without escapes borrow from json_str (kept alive via refcount)
 pub fn loads(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
     // Validate input is a string
     if (json_str.type_id != .string) {
@@ -18,8 +19,9 @@ pub fn loads(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtim
     const str_data: *runtime.PyString = @ptrCast(@alignCast(json_str.data));
     const json_bytes = str_data.data;
 
-    // Parse JSON directly to PyObject (no intermediate representation!)
-    const result = try parse_direct.parse(json_bytes, allocator);
+    // Parse with lazy mode - strings borrow from source (zero-copy!)
+    // Source is kept alive because borrowed strings hold refcount to it
+    const result = try parse_direct.parseWithSource(json_bytes, allocator, json_str);
 
     return result;
 }

@@ -388,13 +388,13 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 | Implementation | Time | Relative |
 |---------------|------|----------|
 | **PyPy** | **5.2s ± 0.0s** | **1.00x** 🏆 | *(JIT advantage from repeated same-structure parsing)*
-| Rust (serde_json) | 6.1s ± 0.0s | 1.17x |
-| PyAOT | 8.1s ± 0.2s | 1.56x |
+| Rust (serde_json) | 6.2s ± 0.0s | 1.19x |
+| PyAOT | 7.9s ± 0.2s | 1.52x |
 | Zig (std.json) | 11.6s ± 0.4s | 2.24x |
 | Python | 15.2s ± 0.1s | 2.93x |
 | Go | 20.0s ± 0.2s | 3.88x |
 
-*PyAOT is 1.33x slower than Rust due to PyObject allocation overhead required for C API compatibility (NumPy, etc.)*
+*PyAOT is 1.29x slower than Rust due to PyObject allocation overhead required for C API compatibility (NumPy, etc.)*
 
 **JSON Stringify (50K × 62KB = 3.1GB processed):**
 
