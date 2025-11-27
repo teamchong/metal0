@@ -320,10 +320,7 @@ fn parseEmbeddedExpr(self: *Parser, expr_text: []const u8) ParseError!*ast.Node 
 
     var expr_node = try expr_parser.parseExpression();
     errdefer expr_node.deinit(self.allocator);
-
-    const expr_ptr = try self.allocator.create(ast.Node);
-    expr_ptr.* = expr_node;
-    return expr_ptr;
+    return try self.allocNode(expr_node);
 }
 
 fn parseTrue(self: *Parser) ast.Node {
@@ -355,10 +352,7 @@ fn parseAwait(self: *Parser) ParseError!ast.Node {
     _ = self.advance();
     var value = try parsePostfix(self);
     errdefer value.deinit(self.allocator);
-
-    const value_ptr = try self.allocator.create(ast.Node);
-    value_ptr.* = value;
-    return ast.Node{ .await_expr = .{ .value = value_ptr } };
+    return ast.Node{ .await_expr = .{ .value = try self.allocNode(value) } };
 }
 
 fn parseGroupedOrTuple(self: *Parser) ParseError!ast.Node {
@@ -405,28 +399,19 @@ fn parseUnaryMinus(self: *Parser) ParseError!ast.Node {
     _ = self.advance();
     var operand = try parsePrimary(self);
     errdefer operand.deinit(self.allocator);
-
-    const operand_ptr = try self.allocator.create(ast.Node);
-    operand_ptr.* = operand;
-    return ast.Node{ .unaryop = .{ .op = .USub, .operand = operand_ptr } };
+    return ast.Node{ .unaryop = .{ .op = .USub, .operand = try self.allocNode(operand) } };
 }
 
 fn parseUnaryPlus(self: *Parser) ParseError!ast.Node {
     _ = self.advance();
     var operand = try parsePrimary(self);
     errdefer operand.deinit(self.allocator);
-
-    const operand_ptr = try self.allocator.create(ast.Node);
-    operand_ptr.* = operand;
-    return ast.Node{ .unaryop = .{ .op = .UAdd, .operand = operand_ptr } };
+    return ast.Node{ .unaryop = .{ .op = .UAdd, .operand = try self.allocNode(operand) } };
 }
 
 fn parseBitwiseNot(self: *Parser) ParseError!ast.Node {
     _ = self.advance();
     var operand = try parsePrimary(self);
     errdefer operand.deinit(self.allocator);
-
-    const operand_ptr = try self.allocator.create(ast.Node);
-    operand_ptr.* = operand;
-    return ast.Node{ .unaryop = .{ .op = .Invert, .operand = operand_ptr } };
+    return ast.Node{ .unaryop = .{ .op = .Invert, .operand = try self.allocNode(operand) } };
 }

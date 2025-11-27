@@ -6,14 +6,11 @@ const Parser = @import("../../parser.zig").Parser;
 /// Parse subscript/slice expression after '[' has been consumed
 /// Takes ownership of `value` - cleans it up on error
 pub fn parseSubscript(self: *Parser, value: ast.Node) ParseError!ast.Node {
-    var val = value;
-
-    // Immediately allocate and copy to heap
-    const node_ptr = self.allocator.create(ast.Node) catch |err| {
-        val.deinit(self.allocator);
+    const node_ptr = self.allocNode(value) catch |err| {
+        var v = value;
+        v.deinit(self.allocator);
         return err;
     };
-    node_ptr.* = val;
 
     errdefer {
         node_ptr.deinit(self.allocator);
@@ -47,22 +44,10 @@ fn parseSliceFromStart(self: *Parser, node_ptr: *ast.Node) ParseError!ast.Node {
         const step = if (!self.check(.RBracket)) try self.parseExpression() else null;
         _ = try self.expect(.RBracket);
 
-        const step_ptr = if (step) |s| blk: {
-            const ptr = try self.allocator.create(ast.Node);
-            ptr.* = s;
-            break :blk ptr;
-        } else null;
-
         return ast.Node{
             .subscript = .{
                 .value = node_ptr,
-                .slice = .{
-                    .slice = .{
-                        .lower = null,
-                        .upper = null,
-                        .step = step_ptr,
-                    },
-                },
+                .slice = .{ .slice = .{ .lower = null, .upper = null, .step = try self.allocNodeOpt(step) } },
             },
         };
     }
@@ -72,37 +57,19 @@ fn parseSliceFromStart(self: *Parser, node_ptr: *ast.Node) ParseError!ast.Node {
 
     // Check for step: [:upper:step]
     const step = if (self.match(.Colon)) blk: {
-        if (!self.check(.RBracket)) {
-            break :blk try self.parseExpression();
-        } else {
-            break :blk null;
-        }
+        if (!self.check(.RBracket)) break :blk try self.parseExpression() else break :blk null;
     } else null;
 
     _ = try self.expect(.RBracket);
 
-    const upper_ptr = if (upper) |u| blk: {
-        const ptr = try self.allocator.create(ast.Node);
-        ptr.* = u;
-        break :blk ptr;
-    } else null;
-
-    const step_ptr = if (step) |s| blk: {
-        const ptr = try self.allocator.create(ast.Node);
-        ptr.* = s;
-        break :blk ptr;
-    } else null;
-
     return ast.Node{
         .subscript = .{
             .value = node_ptr,
-            .slice = .{
-                .slice = .{
-                    .lower = null,
-                    .upper = upper_ptr,
-                    .step = step_ptr,
-                },
-            },
+            .slice = .{ .slice = .{
+                .lower = null,
+                .upper = try self.allocNodeOpt(upper),
+                .step = try self.allocNodeOpt(step),
+            } },
         },
     };
 }
@@ -113,40 +80,19 @@ fn parseSliceWithLower(self: *Parser, node_ptr: *ast.Node, lower: ast.Node) Pars
 
     // Check for step: [start:end:step]
     const step = if (self.match(.Colon)) blk: {
-        if (!self.check(.RBracket)) {
-            break :blk try self.parseExpression();
-        } else {
-            break :blk null;
-        }
+        if (!self.check(.RBracket)) break :blk try self.parseExpression() else break :blk null;
     } else null;
 
     _ = try self.expect(.RBracket);
 
-    const lower_ptr = try self.allocator.create(ast.Node);
-    lower_ptr.* = lower;
-
-    const upper_ptr = if (upper) |u| blk: {
-        const ptr = try self.allocator.create(ast.Node);
-        ptr.* = u;
-        break :blk ptr;
-    } else null;
-
-    const step_ptr = if (step) |s| blk: {
-        const ptr = try self.allocator.create(ast.Node);
-        ptr.* = s;
-        break :blk ptr;
-    } else null;
-
     return ast.Node{
         .subscript = .{
             .value = node_ptr,
-            .slice = .{
-                .slice = .{
-                    .lower = lower_ptr,
-                    .upper = upper_ptr,
-                    .step = step_ptr,
-                },
-            },
+            .slice = .{ .slice = .{
+                .lower = try self.allocNode(lower),
+                .upper = try self.allocNodeOpt(upper),
+                .step = try self.allocNodeOpt(step),
+            } },
         },
     };
 }
@@ -165,15 +111,12 @@ fn parseMultiSubscript(self: *Parser, node_ptr: *ast.Node, first: ast.Node) Pars
 
     _ = try self.expect(.RBracket);
 
-    const index_ptr = try self.allocator.create(ast.Node);
-    index_ptr.* = ast.Node{
-        .tuple = .{ .elts = try indices.toOwnedSlice(self.allocator) },
-    };
-
     return ast.Node{
         .subscript = .{
             .value = node_ptr,
-            .slice = .{ .index = index_ptr },
+            .slice = .{ .index = try self.allocNode(ast.Node{
+                .tuple = .{ .elts = try indices.toOwnedSlice(self.allocator) },
+            }) },
         },
     };
 }
@@ -181,14 +124,10 @@ fn parseMultiSubscript(self: *Parser, node_ptr: *ast.Node, first: ast.Node) Pars
 /// Parse simple index: [0]
 fn parseSimpleIndex(self: *Parser, node_ptr: *ast.Node, lower: ast.Node) ParseError!ast.Node {
     _ = try self.expect(.RBracket);
-
-    const index_ptr = try self.allocator.create(ast.Node);
-    index_ptr.* = lower;
-
     return ast.Node{
         .subscript = .{
             .value = node_ptr,
-            .slice = .{ .index = index_ptr },
+            .slice = .{ .index = try self.allocNode(lower) },
         },
     };
 }
