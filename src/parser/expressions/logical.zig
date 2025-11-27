@@ -7,9 +7,11 @@ const arithmetic = @import("arithmetic.zig");
 /// Parse logical OR expression
 pub fn parseOrExpr(self: *Parser) ParseError!ast.Node {
     var left = try parseAndExpr(self);
+    errdefer left.deinit(self.allocator);
 
     while (self.match(.Or)) {
-        const right = try parseAndExpr(self);
+        var right = try parseAndExpr(self);
+        errdefer right.deinit(self.allocator);
 
         // Create BoolOp node
         var values = try self.allocator.alloc(ast.Node, 2);
@@ -30,9 +32,11 @@ pub fn parseOrExpr(self: *Parser) ParseError!ast.Node {
 /// Parse logical AND expression
 pub fn parseAndExpr(self: *Parser) ParseError!ast.Node {
     var left = try parseNotExpr(self);
+    errdefer left.deinit(self.allocator);
 
     while (self.match(.And)) {
-        const right = try parseNotExpr(self);
+        var right = try parseNotExpr(self);
+        errdefer right.deinit(self.allocator);
 
         var values = try self.allocator.alloc(ast.Node, 2);
         values[0] = left;
@@ -52,7 +56,8 @@ pub fn parseAndExpr(self: *Parser) ParseError!ast.Node {
 /// Parse logical NOT expression
 pub fn parseNotExpr(self: *Parser) ParseError!ast.Node {
     if (self.match(.Not)) {
-        const operand = try parseNotExpr(self); // Recursive for multiple nots
+        var operand = try parseNotExpr(self); // Recursive for multiple nots
+        errdefer operand.deinit(self.allocator);
 
         const operand_ptr = try self.allocator.create(ast.Node);
         operand_ptr.* = operand;
@@ -70,14 +75,18 @@ pub fn parseNotExpr(self: *Parser) ParseError!ast.Node {
 
 /// Parse comparison operators: ==, !=, <, >, <=, >=, in, not in
 pub fn parseComparison(self: *Parser) ParseError!ast.Node {
-    const left = try arithmetic.parseBitOr(self);
+    var left = try arithmetic.parseBitOr(self);
+    errdefer left.deinit(self.allocator);
 
     // Check for comparison operators
     var ops = std.ArrayList(ast.CompareOp){};
-    defer ops.deinit(self.allocator);
+    errdefer ops.deinit(self.allocator);
 
     var comparators = std.ArrayList(ast.Node){};
-    defer comparators.deinit(self.allocator);
+    errdefer {
+        for (comparators.items) |*c| c.deinit(self.allocator);
+        comparators.deinit(self.allocator);
+    }
 
     while (true) {
         var found = false;
@@ -124,7 +133,8 @@ pub fn parseComparison(self: *Parser) ParseError!ast.Node {
 
         if (!found) break;
 
-        const right = try arithmetic.parseBitOr(self);
+        var right = try arithmetic.parseBitOr(self);
+        errdefer right.deinit(self.allocator);
         try comparators.append(self.allocator, right);
     }
 
@@ -132,11 +142,17 @@ pub fn parseComparison(self: *Parser) ParseError!ast.Node {
         const left_ptr = try self.allocator.create(ast.Node);
         left_ptr.* = left;
 
+        // Success - transfer ownership
+        const final_ops = try ops.toOwnedSlice(self.allocator);
+        ops = std.ArrayList(ast.CompareOp){}; // Reset
+        const final_comparators = try comparators.toOwnedSlice(self.allocator);
+        comparators = std.ArrayList(ast.Node){}; // Reset
+
         return ast.Node{
             .compare = .{
                 .left = left_ptr,
-                .ops = try ops.toOwnedSlice(self.allocator),
-                .comparators = try comparators.toOwnedSlice(self.allocator),
+                .ops = final_ops,
+                .comparators = final_comparators,
             },
         };
     }

@@ -44,7 +44,11 @@ fn collectDottedParts(self: *Parser, node: ast.Node, parts: *std.ArrayList(u8)) 
 /// Parse type annotation supporting PEP 585 generics (e.g., int, str, list[int], tuple[str, str], dict[str, int])
 /// Also supports dotted types like typing.Any, t.Optional[str]
 fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
-    if (self.current >= self.tokens.len or self.tokens[self.current].type != .Ident) {
+    if (self.current >= self.tokens.len) return null;
+
+    // Handle both identifiers and None/True/False as type names
+    const tok_type = self.tokens[self.current].type;
+    if (tok_type != .Ident and tok_type != .None and tok_type != .True and tok_type != .False) {
         return null;
     }
 
@@ -52,7 +56,9 @@ fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
     var type_parts = std.ArrayList(u8){};
     defer type_parts.deinit(self.allocator);
 
-    try type_parts.appendSlice(self.allocator, self.tokens[self.current].lexeme);
+    // For None, True, False - use the keyword name directly
+    const lexeme = if (tok_type == .None) "None" else if (tok_type == .True) "True" else if (tok_type == .False) "False" else self.tokens[self.current].lexeme;
+    try type_parts.appendSlice(self.allocator, lexeme);
     self.current += 1;
 
     // Handle dotted types: t.Any, typing.Optional, etc.
@@ -144,6 +150,19 @@ fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
                 else => break, // unexpected token, stop parsing
             }
             self.current += 1;
+        }
+
+        // Check for union type AFTER generic brackets: Type[...] | OtherType
+        if (self.current < self.tokens.len and self.tokens[self.current].type == .Pipe) {
+            try type_buf.appendSlice(self.allocator, " | ");
+            self.current += 1; // consume '|'
+
+            // Parse the next type in the union
+            const next_type = try parseTypeAnnotation(self);
+            if (next_type) |nt| {
+                defer self.allocator.free(nt);
+                try type_buf.appendSlice(self.allocator, nt);
+            }
         }
 
         return try self.allocator.dupe(u8, type_buf.items);
@@ -245,7 +264,9 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
         var default_value: ?*ast.Node = null;
         if (self.match(.Eq)) {
             // Parse the default expression
-            const default_expr = try self.parseExpression();
+            var default_expr = try self.parseExpression();
+            errdefer default_expr.deinit(self.allocator);
+
             const default_ptr = try self.allocator.create(ast.Node);
             default_ptr.* = default_expr;
             default_value = default_ptr;
