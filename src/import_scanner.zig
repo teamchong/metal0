@@ -256,8 +256,13 @@ fn extractImports(allocator: std.mem.Allocator, source: []const u8) ![][]const u
         imports.deinit(allocator);
     }
 
+    // Use arena for parsing to avoid leaks on parse errors
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
     // Tokenize
-    var lex = lexer.Lexer.init(allocator, source) catch {
+    var lex = lexer.Lexer.init(aa, source) catch {
         // If lexer init fails, return empty list
         return imports.toOwnedSlice(allocator);
     };
@@ -267,16 +272,16 @@ fn extractImports(allocator: std.mem.Allocator, source: []const u8) ![][]const u
         // If tokenization fails, return empty list
         return imports.toOwnedSlice(allocator);
     };
-    defer lexer.freeTokens(allocator, tokens);
+    // tokens freed by arena
 
     // Parse to AST
-    var p = parser.Parser.init(allocator, tokens);
+    var p = parser.Parser.init(aa, tokens);
     defer p.deinit();
     const tree = p.parse() catch {
-        // If parsing fails, return empty list
+        // If parsing fails, arena cleanup handles partial AST
         return imports.toOwnedSlice(allocator);
     };
-    defer tree.deinit(allocator);
+    // tree freed by arena
 
     // Find all import nodes
     switch (tree) {
