@@ -394,6 +394,8 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 | Python | 15.2s ± 0.1s | 2.93x |
 | Go | 20.0s ± 0.2s | 3.88x |
 
+*PyAOT is 1.33x slower than Rust due to PyObject allocation overhead required for C API compatibility (NumPy, etc.)*
+
 **JSON Stringify (50K × 62KB = 3.1GB processed):**
 
 | Implementation | Time | Relative |
@@ -403,6 +405,8 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 | PyPy | 9.4s ± 0.0s | 4.55x |
 | Python | 9.6s ± 0.1s | 4.68x |
 | Go | 10.3s ± 0.1s | 4.99x |
+
+*PyAOT stringify is 2.2x faster than Rust thanks to SIMD escaping and comptime lookup tables.*
 
 **Key optimizations:**
 - SIMD whitespace skipping (AVX2/NEON) - process 32 bytes per iteration
