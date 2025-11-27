@@ -39,8 +39,38 @@ pub const Regex = struct {
         return try vm.find(text);
     }
 
+    /// Find all non-overlapping matches in text (zero-copy - returns spans)
+    /// Use this when you only need positions, not copied strings
+    pub fn findAllSpans(self: *Regex, text: []const u8) !std.ArrayList(Span) {
+        var results = std.ArrayList(Span){};
+        var vm = pikevm.PikeVM.init(self.allocator, &self.nfa);
+
+        var pos: usize = 0;
+        while (pos < text.len) {
+            const maybe_match = try vm.findFrom(text, pos);
+            if (maybe_match) |m| {
+                var match = m;
+                defer match.deinit(self.allocator);
+
+                // Store span only - no copy!
+                try results.append(self.allocator, match.span);
+
+                if (match.span.end > pos) {
+                    pos = match.span.end;
+                } else {
+                    pos += 1;
+                }
+            } else {
+                break;
+            }
+        }
+
+        return results;
+    }
+
     /// Find all non-overlapping matches in text
     /// Returns list of matched strings (caller must free)
+    /// Use findAllSpans for zero-copy version
     pub fn findAll(self: *Regex, text: []const u8) !std.ArrayList([]const u8) {
         var results = std.ArrayList([]const u8){};
         var vm = pikevm.PikeVM.init(self.allocator, &self.nfa);
