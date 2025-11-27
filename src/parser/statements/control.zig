@@ -12,8 +12,14 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
     errdefer condition_expr.deinit(self.allocator);
     _ = try self.expect(.Colon);
 
+    // Track if_body for cleanup
+    var if_body: ?[]ast.Node = null;
+    errdefer if (if_body) |body| {
+        for (body) |*stmt| stmt.deinit(self.allocator);
+        self.allocator.free(body);
+    };
+
     // Check if this is a one-liner if (if x: statement)
-    var if_body: []ast.Node = undefined;
     if (self.peek()) |next_tok| {
         const is_oneliner = next_tok.type == .Pass or
             next_tok.type == .Ellipsis or
@@ -26,7 +32,8 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
             next_tok.type == .Ident; // for assignments and expressions
 
         if (is_oneliner) {
-            const stmt = try self.parseStatement();
+            var stmt = try self.parseStatement();
+            errdefer stmt.deinit(self.allocator);
             const body_slice = try self.allocator.alloc(ast.Node, 1);
             body_slice[0] = stmt;
             if_body = body_slice;
@@ -41,20 +48,34 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
     }
 
     // Allocate condition on heap
-    const condition_ptr = try self.allocator.create(ast.Node);
-    condition_ptr.* = condition_expr;
+    var condition_ptr: ?*ast.Node = null;
+    errdefer if (condition_ptr) |ptr| {
+        ptr.deinit(self.allocator);
+        self.allocator.destroy(ptr);
+    };
+    condition_ptr = try self.allocator.create(ast.Node);
+    condition_ptr.?.* = condition_expr;
 
     // Check for elif/else
     var else_stmts = std.ArrayList(ast.Node){};
-    defer else_stmts.deinit(self.allocator);
+    errdefer {
+        for (else_stmts.items) |*stmt| stmt.deinit(self.allocator);
+        else_stmts.deinit(self.allocator);
+    }
 
     while (self.match(.Elif)) {
         var elif_condition = try self.parseExpression();
         errdefer elif_condition.deinit(self.allocator);
         _ = try self.expect(.Colon);
 
+        // Track elif_body for cleanup
+        var elif_body: ?[]ast.Node = null;
+        errdefer if (elif_body) |body| {
+            for (body) |*stmt| stmt.deinit(self.allocator);
+            self.allocator.free(body);
+        };
+
         // Check if this is a one-liner elif
-        var elif_body: []ast.Node = undefined;
         if (self.peek()) |next_tok| {
             const is_oneliner = next_tok.type == .Pass or
                 next_tok.type == .Ellipsis or
@@ -67,7 +88,8 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
                 next_tok.type == .Ident;
 
             if (is_oneliner) {
-                const stmt = try self.parseStatement();
+                var stmt = try self.parseStatement();
+                errdefer stmt.deinit(self.allocator);
                 const body_slice = try self.allocator.alloc(ast.Node, 1);
                 body_slice[0] = stmt;
                 elif_body = body_slice;
@@ -81,23 +103,37 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
             return ParseError.UnexpectedEof;
         }
 
-        const elif_condition_ptr = try self.allocator.create(ast.Node);
-        elif_condition_ptr.* = elif_condition;
+        var elif_condition_ptr: ?*ast.Node = null;
+        errdefer if (elif_condition_ptr) |ptr| {
+            ptr.deinit(self.allocator);
+            self.allocator.destroy(ptr);
+        };
+        elif_condition_ptr = try self.allocator.create(ast.Node);
+        elif_condition_ptr.?.* = elif_condition;
 
+        // Transfer ownership to else_stmts
         try else_stmts.append(self.allocator, ast.Node{
             .if_stmt = .{
-                .condition = elif_condition_ptr,
-                .body = elif_body,
+                .condition = elif_condition_ptr.?,
+                .body = elif_body.?,
                 .else_body = &[_]ast.Node{},
             },
         });
+        elif_body = null; // Ownership transferred
+        elif_condition_ptr = null; // Ownership transferred
     }
 
     if (self.match(.Else)) {
         _ = try self.expect(.Colon);
 
+        // Track else_body for cleanup
+        var else_body: ?[]ast.Node = null;
+        errdefer if (else_body) |body| {
+            for (body) |*stmt| stmt.deinit(self.allocator);
+            self.allocator.free(body);
+        };
+
         // Check if this is a one-liner else
-        var else_body: []ast.Node = undefined;
         if (self.peek()) |next_tok| {
             const is_oneliner = next_tok.type == .Pass or
                 next_tok.type == .Ellipsis or
@@ -110,7 +146,8 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
                 next_tok.type == .Ident;
 
             if (is_oneliner) {
-                const stmt = try self.parseStatement();
+                var stmt = try self.parseStatement();
+                errdefer stmt.deinit(self.allocator);
                 const body_slice = try self.allocator.alloc(ast.Node, 1);
                 body_slice[0] = stmt;
                 else_body = body_slice;
@@ -124,16 +161,27 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
             return ParseError.UnexpectedEof;
         }
 
-        for (else_body) |stmt| {
+        // Transfer ownership to else_stmts
+        for (else_body.?) |stmt| {
             try else_stmts.append(self.allocator, stmt);
         }
+        self.allocator.free(else_body.?); // Free the slice wrapper, items transferred
+        else_body = null;
     }
+
+    // Success - transfer ownership
+    const final_condition = condition_ptr.?;
+    condition_ptr = null;
+    const final_if_body = if_body.?;
+    if_body = null;
+    const final_else_body = try else_stmts.toOwnedSlice(self.allocator);
+    else_stmts = std.ArrayList(ast.Node){}; // Reset
 
     return ast.Node{
         .if_stmt = .{
-            .condition = condition_ptr,
-            .body = if_body,
-            .else_body = try else_stmts.toOwnedSlice(self.allocator),
+            .condition = final_condition,
+            .body = final_if_body,
+            .else_body = final_else_body,
         },
     };
 }
