@@ -21,6 +21,9 @@ pub const Parser = struct {
     allocator: std.mem.Allocator,
     function_depth: usize = 0,
     is_first_statement: bool = true,
+    /// Track strings allocated during parsing (e.g., string concatenation)
+    /// These need to be freed separately since they're not token lexemes
+    allocated_strings: std.ArrayList([]const u8),
 
     pub fn init(allocator: std.mem.Allocator, tokens: []const lexer.Token) Parser {
         return Parser{
@@ -29,7 +32,15 @@ pub const Parser = struct {
             .allocator = allocator,
             .function_depth = 0,
             .is_first_statement = true,
+            .allocated_strings = std.ArrayList([]const u8){},
         };
+    }
+
+    pub fn deinit(self: *Parser) void {
+        for (self.allocated_strings.items) |str| {
+            self.allocator.free(str);
+        }
+        self.allocated_strings.deinit(self.allocator);
     }
 
     pub fn parse(self: *Parser) ParseError!ast.Node {

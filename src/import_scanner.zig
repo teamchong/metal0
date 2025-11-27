@@ -8,11 +8,13 @@ const hashmap_helper = @import("hashmap_helper");
 
 pub const ModuleInfo = struct {
     path: []const u8, // Full path to .py file
+    module_name: []const u8, // Logical module name (e.g., "flask" for flask/__init__.py)
     imports: [][]const u8, // List of imported modules
     compiled_path: ?[]const u8, // Path to compiled .so
 
     pub fn deinit(self: *ModuleInfo, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
+        allocator.free(self.module_name);
         for (self.imports) |imp| {
             allocator.free(imp);
         }
@@ -74,6 +76,16 @@ pub const ImportGraph = struct {
         file_path: []const u8,
         visited: *hashmap_helper.StringHashMap(void),
     ) !void {
+        try self.scanRecursiveWithName(file_path, null, visited);
+    }
+
+    /// Recursively scan file with an explicit module name
+    pub fn scanRecursiveWithName(
+        self: *ImportGraph,
+        file_path: []const u8,
+        explicit_module_name: ?[]const u8,
+        visited: *hashmap_helper.StringHashMap(void),
+    ) !void {
         // Skip non-.py files - optimized with comptime length check
         if (!isPythonFileRuntime(file_path)) return;
 
@@ -82,10 +94,20 @@ pub const ImportGraph = struct {
 
         // Check if already scanned
         if (visited.contains(file_path)) return;
-        try visited.put(file_path, {});
+        // Always dupe the key so we can safely free all keys later
+        const key = try self.allocator.dupe(u8, file_path);
+        try visited.put(key, {});
 
-        // Read file
-        const source = try std.fs.cwd().readFileAlloc(self.allocator, file_path, 100_000_000);
+        // Read file (handle absolute paths)
+        const source = blk: {
+            if (std.fs.path.isAbsolute(file_path)) {
+                const file = std.fs.openFileAbsolute(file_path, .{}) catch return;
+                defer file.close();
+                break :blk file.readToEndAlloc(self.allocator, 100_000_000) catch return;
+            } else {
+                break :blk std.fs.cwd().readFileAlloc(self.allocator, file_path, 100_000_000) catch return;
+            }
+        };
         defer self.allocator.free(source);
 
         // Parse to find imports
@@ -99,8 +121,29 @@ pub const ImportGraph = struct {
         const path_copy = try self.allocator.dupe(u8, file_path);
         errdefer self.allocator.free(path_copy);
 
+        // Derive module name from path if not explicit
+        // For __init__.py, use parent directory name (e.g., flask/__init__.py -> flask)
+        const mod_name = if (explicit_module_name) |name|
+            try self.allocator.dupe(u8, name)
+        else blk: {
+            const basename = std.fs.path.basename(file_path);
+            if (std.mem.eql(u8, basename, "__init__.py")) {
+                // Package: use parent directory name
+                if (std.fs.path.dirname(file_path)) |dir| {
+                    break :blk try self.allocator.dupe(u8, std.fs.path.basename(dir));
+                }
+            }
+            // Regular module: strip .py extension
+            if (std.mem.endsWith(u8, basename, ".py")) {
+                break :blk try self.allocator.dupe(u8, basename[0 .. basename.len - 3]);
+            }
+            break :blk try self.allocator.dupe(u8, basename);
+        };
+        errdefer self.allocator.free(mod_name);
+
         try self.modules.put(path_copy, .{
             .path = path_copy,
+            .module_name = mod_name,
             .imports = imports,
             .compiled_path = null,
         });
@@ -119,18 +162,24 @@ pub const ImportGraph = struct {
                             self.allocator.free(path);
                             continue;
                         }
-                        // Check if file exists
-                        std.fs.cwd().access(path, .{}) catch {
+                        // Check if file exists (handle absolute paths)
+                        const exists = if (std.fs.path.isAbsolute(path))
+                            std.fs.accessAbsolute(path, .{})
+                        else
+                            std.fs.cwd().access(path, .{});
+                        exists catch {
                             std.debug.print("  Skipped import (not found): {s} -> {s}\n", .{ import_name, path });
                             self.allocator.free(path);
                             continue;
                         };
                         std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, path });
-                        // Add to visited before recursing
-                        const resolved_copy = try self.allocator.dupe(u8, path);
-                        try visited.put(resolved_copy, {});
-                        self.allocator.free(path);
-                        try self.scanRecursive(resolved_copy, visited);
+                        defer self.allocator.free(path);
+                        // Extract module name from relative import (strip leading dots)
+                        var dots: usize = 0;
+                        while (dots < import_name.len and import_name[dots] == '.') : (dots += 1) {}
+                        const rel_mod_name = import_name[dots..];
+                        // scanRecursiveWithName will add to visited with a dupe'd key
+                        try self.scanRecursiveWithName(path, if (rel_mod_name.len > 0) rel_mod_name else null, visited);
                     } else {
                         std.debug.print("  Skipped import (relative, no dir): {s}\n", .{import_name});
                     }
@@ -138,11 +187,16 @@ pub const ImportGraph = struct {
                 continue;
             }
 
-            // Non-relative imports
+            // Non-relative imports - pass import_name as explicit module name
+            // Skip builtin modules (they're handled by runtime, not compiled from Python)
+            if (import_resolver.isBuiltinModule(import_name)) {
+                std.debug.print("  Skipped import (builtin): {s}\n", .{import_name});
+                continue;
+            }
             if (try import_resolver.resolveImportSource(import_name, dir, self.allocator)) |resolved| {
                 std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, resolved });
                 defer self.allocator.free(resolved);
-                try self.scanRecursive(resolved, visited);
+                try self.scanRecursiveWithName(resolved, import_name, visited);
             } else {
                 std.debug.print("  Skipped import (external): {s}\n", .{import_name});
             }
@@ -217,6 +271,7 @@ fn extractImports(allocator: std.mem.Allocator, source: []const u8) ![][]const u
 
     // Parse to AST
     var p = parser.Parser.init(allocator, tokens);
+    defer p.deinit();
     const tree = p.parse() catch {
         // If parsing fails, return empty list
         return imports.toOwnedSlice(allocator);

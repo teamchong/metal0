@@ -16,6 +16,8 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
         "subprocess", "tempfile",   "typing",    "os",
         // Testing frameworks - skip as they're for CPython testing
         "pytest",
+        // Python directive modules (not runtime code)
+        "__future__",
     };
     for (builtins) |builtin_module| {
         if (std.mem.eql(u8, module_name, builtin_module)) {
@@ -154,18 +156,22 @@ fn resolveImportInternal(
             .aarch64 => "arm64",
             else => "unknown",
         };
-        const compiled_paths = [_][]const u8{
-            try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}/{s}.cpython-312-darwin.so", .{ arch, module_name }),
-            try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}/{s}/__init__.cpython-312-darwin.so", .{ arch, module_name }),
-        };
+        const path1 = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}/{s}.cpython-312-darwin.so", .{ arch, module_name });
+        const path2 = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}/{s}/__init__.cpython-312-darwin.so", .{ arch, module_name });
 
-        for (compiled_paths) |compiled_path| {
-            std.fs.cwd().access(compiled_path, .{}) catch {
-                allocator.free(compiled_path);
-                continue;
-            };
-            // Found compiled module - return it!
-            return compiled_path;
+        // Check path1
+        if (std.fs.cwd().access(path1, .{})) |_| {
+            allocator.free(path2); // Free unused path
+            return path1;
+        } else |_| {
+            allocator.free(path1);
+        }
+
+        // Check path2
+        if (std.fs.cwd().access(path2, .{})) |_| {
+            return path2;
+        } else |_| {
+            allocator.free(path2);
         }
     }
 

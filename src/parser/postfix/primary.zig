@@ -81,6 +81,7 @@ fn parseComplexNumber(self: *Parser) ParseError!ast.Node {
 fn parseString(self: *Parser) ParseError!ast.Node {
     const str_tok = self.advance().?;
     var result_str = str_tok.lexeme;
+    var prev_allocated: ?[]const u8 = null; // Track previously allocated string for cleanup
 
     // Handle implicit string concatenation: "a" "b" -> "ab"
     while (true) {
@@ -103,10 +104,21 @@ fn parseString(self: *Parser) ParseError!ast.Node {
             const new_str = try self.allocator.alloc(u8, new_len);
             @memcpy(new_str[0..first_content.len], first_content);
             @memcpy(new_str[first_content.len..], second_content);
+
+            // Free the previous allocated string (if any)
+            if (prev_allocated) |prev| {
+                self.allocator.free(prev);
+            }
             result_str = new_str;
+            prev_allocated = new_str;
         } else {
             break;
         }
+    }
+
+    // Track the final allocated string for cleanup when parser is deinitialized
+    if (prev_allocated) |_| {
+        self.allocated_strings.append(self.allocator, result_str) catch {};
     }
 
     return ast.Node{ .constant = .{ .value = .{ .string = result_str } } };
@@ -175,6 +187,7 @@ fn parseEmbeddedExpr(self: *Parser, expr_text: []const u8) ParseError!*ast.Node 
     defer lexer.freeTokens(self.allocator, expr_tokens);
 
     var expr_parser = Parser.init(self.allocator, expr_tokens);
+    defer expr_parser.deinit();
     const expr_node = try expr_parser.parseExpression();
 
     const expr_ptr = try self.allocator.create(ast.Node);

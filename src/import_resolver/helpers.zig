@@ -66,15 +66,27 @@ pub fn analyzePackage(
         submodules.deinit(allocator);
     }
 
-    // Try to open directory
-    var dir = std.fs.cwd().openDir(package_dir, .{ .iterate = true }) catch {
-        // Can't open directory - treat as simple package
-        return PackageInfo{
-            .is_package = true,
-            .init_path = try allocator.dupe(u8, import_path),
-            .package_dir = try allocator.dupe(u8, package_dir),
-            .submodules = &[_][]const u8{},
-        };
+    // Try to open directory (handle both absolute and relative paths)
+    var dir = blk: {
+        if (std.fs.path.isAbsolute(package_dir)) {
+            break :blk std.fs.openDirAbsolute(package_dir, .{ .iterate = true }) catch {
+                return PackageInfo{
+                    .is_package = true,
+                    .init_path = try allocator.dupe(u8, import_path),
+                    .package_dir = try allocator.dupe(u8, package_dir),
+                    .submodules = &[_][]const u8{},
+                };
+            };
+        } else {
+            break :blk std.fs.cwd().openDir(package_dir, .{ .iterate = true }) catch {
+                return PackageInfo{
+                    .is_package = true,
+                    .init_path = try allocator.dupe(u8, import_path),
+                    .package_dir = try allocator.dupe(u8, package_dir),
+                    .submodules = &[_][]const u8{},
+                };
+            };
+        }
     };
     defer dir.close();
 
@@ -96,7 +108,12 @@ pub fn analyzePackage(
                 const subpkg_init = try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{ package_dir, entry.name });
                 defer allocator.free(subpkg_init);
 
-                std.fs.cwd().access(subpkg_init, .{}) catch continue;
+                // Handle both absolute and relative paths
+                const exists = if (std.fs.path.isAbsolute(subpkg_init))
+                    std.fs.accessAbsolute(subpkg_init, .{})
+                else
+                    std.fs.cwd().access(subpkg_init, .{});
+                exists catch continue;
 
                 // It's a subpackage
                 const subpkg_name = try allocator.dupe(u8, entry.name);

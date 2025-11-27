@@ -2,6 +2,7 @@ const std = @import("std");
 const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
 const hashmap_helper = @import("hashmap_helper");
+const import_resolver = @import("../../../import_resolver.zig");
 
 /// Generate from-import symbol re-exports with deduplication
 /// For "from json import loads", generates: const loads = json.loads;
@@ -11,6 +12,17 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
     defer generated_symbols.deinit();
 
     for (self.from_imports.items) |from_imp| {
+        // Skip relative imports (starting with .) - these are internal package imports
+        // that don't make sense in standalone compiled modules
+        if (from_imp.module.len > 0 and from_imp.module[0] == '.') {
+            continue;
+        }
+
+        // Skip builtin modules (they're not compiled, so can't reference them)
+        if (import_resolver.isBuiltinModule(from_imp.module)) {
+            continue;
+        }
+
         // Check if this is a Tier 1 runtime module (functions need allocator)
         const is_runtime_module = self.import_registry.lookup(from_imp.module) != null and
             (std.mem.eql(u8, from_imp.module, "json") or
