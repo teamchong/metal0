@@ -83,6 +83,7 @@ pub const TokenType = enum {
     LtLtEq, // <<=
     GtGtEq, // >>=
     ColonEq, // Walrus operator :=
+    AtEq, // Matrix multiplication @=
 
     // Delimiters
     LParen,

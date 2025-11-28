@@ -28,10 +28,11 @@ pub const JsonArena = struct {
 
     /// Create a new arena with specified size (tries pool first)
     pub fn init(backing: std.mem.Allocator, size: usize) !*JsonArena {
-        // Try to get from pool (only if size fits)
-        if (size <= DEFAULT_SIZE) {
-            for (&arena_pool) |*slot| {
-                if (slot.*) |pooled| {
+        // Always try pool first for standard sizes
+        for (&arena_pool) |*slot| {
+            if (slot.*) |pooled| {
+                // Only reuse if buffer is large enough
+                if (pooled.buffer.len >= size) {
                     slot.* = null;
                     pooled.pos = 0; // Reset for reuse
                     pooled.ref_count = 1;
@@ -40,7 +41,7 @@ pub const JsonArena = struct {
             }
         }
 
-        // Pool empty or size too large - allocate new
+        // Pool empty or no suitable arena - allocate new
         const arena = try backing.create(JsonArena);
         errdefer backing.destroy(arena);
 

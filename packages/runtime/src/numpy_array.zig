@@ -1086,6 +1086,47 @@ pub fn extractBoolArray(obj: *runtime.PyObject) !*BoolArray {
     return @ptrCast(@alignCast(obj.data));
 }
 
+/// Boolean indexing: arr[mask] - filter array by boolean mask
+/// Returns new array with only elements where mask is true
+pub fn booleanIndex(arr: *NumpyArray, mask: *BoolArray, allocator: std.mem.Allocator) !*NumpyArray {
+    if (arr.size != mask.size) return error.ShapeMismatch;
+
+    // Count true values to determine result size
+    const count = mask.countTrue();
+
+    if (count == 0) {
+        return NumpyArray.zeros(allocator, &[_]usize{0});
+    }
+
+    const result = try allocator.create(NumpyArray);
+    const data = try allocator.alloc(f64, count);
+
+    // Copy matching elements
+    var idx: usize = 0;
+    for (arr.data, mask.data) |val, include| {
+        if (include) {
+            data[idx] = val;
+            idx += 1;
+        }
+    }
+
+    const shape = try allocator.alloc(usize, 1);
+    shape[0] = count;
+
+    const strides = try allocator.alloc(usize, 1);
+    strides[0] = 1;
+
+    result.* = .{
+        .data = data,
+        .shape = shape,
+        .strides = strides,
+        .size = count,
+        .allocator = allocator,
+    };
+
+    return result;
+}
+
 // Tests
 test "create 1D array from slice" {
     const allocator = std.testing.allocator;
