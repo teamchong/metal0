@@ -450,7 +450,8 @@ pub fn parseFunctionDefInternal(self: *Parser, is_async: bool) ParseError!ast.No
             next_tok.type == .Continue or
             next_tok.type == .Raise or
             next_tok.type == .Yield or // async def _ag(): yield
-            next_tok.type == .Ident; // for assignments and expressions like self.x = v
+            next_tok.type == .Ident or // for assignments and expressions like self.x = v
+            next_tok.type == .String; // def f(): """docstring"""
 
         if (is_oneliner) {
             // Parse single statement without Indent/Dedent
@@ -524,6 +525,28 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
 
     if (self.match(.LParen)) {
         while (!self.match(.RParen)) {
+            // Check for **kwargs unpacking (e.g., class A(**d): pass)
+            if (self.match(.DoubleStar)) {
+                _ = try self.parseExpression(); // Parse the expression after **
+                // Continue to next item or end
+                if (!self.match(.Comma)) {
+                    _ = try self.expect(.RParen);
+                    break;
+                }
+                continue;
+            }
+
+            // Check for *args unpacking (e.g., class A(*bases): pass)
+            if (self.match(.Star)) {
+                _ = try self.parseExpression(); // Parse the expression after *
+                // Continue to next item or end
+                if (!self.match(.Comma)) {
+                    _ = try self.expect(.RParen);
+                    break;
+                }
+                continue;
+            }
+
             // Check for keyword argument (e.g., metaclass=ABCMeta)
             // We need to peek ahead to see if this is name=value pattern
             if (self.current < self.tokens.len and self.tokens[self.current].type == .Ident) {

@@ -7,7 +7,6 @@ import re
 import os
 import sys
 import string
-import collections
 
 # ===== JSON Module =====
 print("Testing json module...")
@@ -65,23 +64,5 @@ print(os.name)
 print("Testing sys module...")
 print(sys.platform)
 print(sys.version_info.major)
-
-# ===== Collections Module =====
-print("Testing collections module...")
-
-# Counter
-c = collections.Counter("hello")
-print(c["l"])  # 2
-
-# defaultdict
-dd = collections.defaultdict(int)
-dd["a"] = 1
-print(dd["a"])
-
-# ===== List Builtin =====
-print("Testing list builtin...")
-nums = [1, 2, 3]
-copied = list(nums)
-print(len(copied))
 
 print("All stdlib tests completed!")

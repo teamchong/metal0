@@ -8,7 +8,9 @@ const hashmap_helper = @import("hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
 // Static string maps for DCE optimization
+// Includes Python builtins, modules, and inline stdlib functions
 const BuiltinFuncs = std.StaticStringMap(void).initComptime(.{
+    // Python builtins
     .{ "print", {} },
     .{ "len", {} },
     .{ "range", {} },
@@ -20,6 +22,47 @@ const BuiltinFuncs = std.StaticStringMap(void).initComptime(.{
     .{ "dict", {} },
     .{ "set", {} },
     .{ "tuple", {} },
+    .{ "input", {} },
+    .{ "open", {} },
+    .{ "abs", {} },
+    .{ "max", {} },
+    .{ "min", {} },
+    .{ "sum", {} },
+    .{ "sorted", {} },
+    .{ "reversed", {} },
+    .{ "enumerate", {} },
+    .{ "zip", {} },
+    .{ "map", {} },
+    .{ "filter", {} },
+    // Standard library modules (accessed via module.function())
+    .{ "math", {} },
+    .{ "json", {} },
+    .{ "re", {} },
+    .{ "hashlib", {} },
+    .{ "random", {} },
+    .{ "sys", {} },
+    .{ "io", {} },
+    .{ "os", {} },
+    .{ "operator", {} },
+    .{ "collections", {} },
+    .{ "itertools", {} },
+    .{ "functools", {} },
+    .{ "time", {} },
+    .{ "datetime", {} },
+    .{ "pathlib", {} },
+    .{ "urllib", {} },
+    .{ "http", {} },
+    .{ "asyncio", {} },
+    // Inline stdlib functions (from inline-only modules)
+    .{ "Counter", {} },  // collections.Counter
+    .{ "chain", {} },    // itertools.chain
+    .{ "product", {} },  // itertools.product
+    .{ "combinations", {} }, // itertools.combinations
+    .{ "permutations", {} }, // itertools.permutations
+    .{ "randint", {} },  // random.randint
+    .{ "choice", {} },   // random.choice
+    .{ "shuffle", {} },  // random.shuffle
+    .{ "seed", {} },     // random.seed
 });
 
 const ExceptionMap = std.StaticStringMap([]const u8).initComptime(.{
@@ -106,6 +149,44 @@ fn findWrittenVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap) !void {
             },
             .for_stmt => |for_stmt| {
                 try findWrittenVarsInStmts(for_stmt.body, vars);
+            },
+            else => {},
+        }
+    }
+}
+
+/// Find all variables locally declared within statements (including for-loop targets)
+/// These are variables that should NOT be captured from outer scope
+fn findLocallyDeclaredVars(stmts: []ast.Node, vars: *FnvVoidMap) !void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .assign => |assign| {
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        try vars.put(target.name.id, {});
+                    }
+                }
+            },
+            .for_stmt => |for_stmt| {
+                // For-loop target variables are locally declared
+                if (for_stmt.target.* == .name) {
+                    try vars.put(for_stmt.target.name.id, {});
+                } else if (for_stmt.target.* == .tuple) {
+                    // Handle tuple unpacking: for a, b in items
+                    for (for_stmt.target.tuple.elts) |elt| {
+                        if (elt == .name) {
+                            try vars.put(elt.name.id, {});
+                        }
+                    }
+                }
+                try findLocallyDeclaredVars(for_stmt.body, vars);
+            },
+            .if_stmt => |if_stmt| {
+                try findLocallyDeclaredVars(if_stmt.body, vars);
+                try findLocallyDeclaredVars(if_stmt.else_body, vars);
+            },
+            .while_stmt => |while_stmt| {
+                try findLocallyDeclaredVars(while_stmt.body, vars);
             },
             else => {},
         }
@@ -236,6 +317,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         defer referenced_vars.deinit();
         try findReferencedVarsInStmts(try_node.body, &referenced_vars, self.allocator);
 
+        // Find locally declared variables (including for-loop targets) - these should NOT be captured
+        var locally_declared = FnvVoidMap.init(self.allocator);
+        defer locally_declared.deinit();
+        try findLocallyDeclaredVars(try_node.body, &locally_declared);
+
         // Categorize variables:
         // 1. declared_vars: first declared in try block (hoisted, passed as pointer)
         // 2. written_outer_vars: from outer scope, written in try block (passed as pointer)
@@ -246,6 +332,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
             // Skip if declared in try block (already in declared_vars)
             if (declared_var_set.contains(name)) continue;
+
+            // Skip locally declared variables (for-loop targets, etc.) - they don't exist outside try
+            if (locally_declared.contains(name)) continue;
 
             // Skip built-in functions
             if (BuiltinFuncs.has(name)) continue;
