@@ -15,6 +15,8 @@ const re_mod = @import("../re.zig");
 const os_mod = @import("../os.zig");
 const pathlib_mod = @import("../pathlib.zig");
 const datetime_mod = @import("../datetime.zig");
+const io_mod = @import("../io.zig");
+const collections_mod = @import("../collections_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -93,6 +95,105 @@ const NumpyFuncs = FuncMap.initComptime(.{
     // Statistics
     .{ "median", numpy_mod.genMedian },
     .{ "percentile", numpy_mod.genPercentile },
+    // Array manipulation
+    .{ "concatenate", numpy_mod.genConcatenate },
+    .{ "vstack", numpy_mod.genVstack },
+    .{ "hstack", numpy_mod.genHstack },
+    .{ "stack", numpy_mod.genStack },
+    .{ "split", numpy_mod.genSplit },
+    // Conditional and rounding
+    .{ "where", numpy_mod.genWhere },
+    .{ "clip", numpy_mod.genClip },
+    .{ "floor", numpy_mod.genFloor },
+    .{ "ceil", numpy_mod.genCeil },
+    .{ "round", numpy_mod.genRound },
+    .{ "rint", numpy_mod.genRound },
+    // Sorting and searching
+    .{ "sort", numpy_mod.genSort },
+    .{ "argsort", numpy_mod.genArgsort },
+    .{ "unique", numpy_mod.genUnique },
+    .{ "searchsorted", numpy_mod.genSearchsorted },
+    // Array copying
+    .{ "copy", numpy_mod.genCopy },
+    .{ "asarray", numpy_mod.genAsarray },
+    // Repeating and flipping
+    .{ "tile", numpy_mod.genTile },
+    .{ "repeat", numpy_mod.genRepeat },
+    .{ "flip", numpy_mod.genFlip },
+    .{ "flipud", numpy_mod.genFlipud },
+    .{ "fliplr", numpy_mod.genFliplr },
+    // Cumulative operations
+    .{ "cumsum", numpy_mod.genCumsum },
+    .{ "cumprod", numpy_mod.genCumprod },
+    .{ "diff", numpy_mod.genDiff },
+    // Comparison
+    .{ "allclose", numpy_mod.genAllclose },
+    .{ "array_equal", numpy_mod.genArrayEqual },
+    // Matrix construction
+    .{ "diag", numpy_mod.genDiag },
+    .{ "triu", numpy_mod.genTriu },
+    .{ "tril", numpy_mod.genTril },
+    // Additional math
+    .{ "tan", numpy_mod.genTan },
+    .{ "arcsin", numpy_mod.genArcsin },
+    .{ "arccos", numpy_mod.genArccos },
+    .{ "arctan", numpy_mod.genArctan },
+    .{ "sinh", numpy_mod.genSinh },
+    .{ "cosh", numpy_mod.genCosh },
+    .{ "tanh", numpy_mod.genTanh },
+    .{ "log10", numpy_mod.genLog10 },
+    .{ "log2", numpy_mod.genLog2 },
+    .{ "exp2", numpy_mod.genExp2 },
+    .{ "expm1", numpy_mod.genExpm1 },
+    .{ "log1p", numpy_mod.genLog1p },
+    .{ "sign", numpy_mod.genSign },
+    .{ "negative", numpy_mod.genNegative },
+    .{ "reciprocal", numpy_mod.genReciprocal },
+    .{ "square", numpy_mod.genSquare },
+    .{ "cbrt", numpy_mod.genCbrt },
+    .{ "maximum", numpy_mod.genMaximum },
+    .{ "minimum", numpy_mod.genMinimum },
+    .{ "mod", numpy_mod.genMod },
+    .{ "remainder", numpy_mod.genMod },
+    // Array manipulation (roll, rot90, pad, take, put, cross)
+    .{ "roll", numpy_mod.genRoll },
+    .{ "rot90", numpy_mod.genRot90 },
+    .{ "pad", numpy_mod.genPad },
+    .{ "take", numpy_mod.genTake },
+    .{ "put", numpy_mod.genPut },
+    .{ "cross", numpy_mod.genCross },
+    // Logical functions
+    .{ "any", numpy_mod.genAny },
+    .{ "all", numpy_mod.genAll },
+    .{ "logical_and", numpy_mod.genLogicalAnd },
+    .{ "logical_or", numpy_mod.genLogicalOr },
+    .{ "logical_not", numpy_mod.genLogicalNot },
+    .{ "logical_xor", numpy_mod.genLogicalXor },
+    // Set functions
+    .{ "setdiff1d", numpy_mod.genSetdiff1d },
+    .{ "union1d", numpy_mod.genUnion1d },
+    .{ "intersect1d", numpy_mod.genIntersect1d },
+    .{ "isin", numpy_mod.genIsin },
+    // Numerical functions
+    .{ "gradient", numpy_mod.genGradient },
+    .{ "trapz", numpy_mod.genTrapz },
+    .{ "interp", numpy_mod.genInterp },
+    .{ "convolve", numpy_mod.genConvolve },
+    .{ "correlate", numpy_mod.genCorrelate },
+    // Utility functions
+    .{ "nonzero", numpy_mod.genNonzero },
+    .{ "count_nonzero", numpy_mod.genCountNonzero },
+    .{ "flatnonzero", numpy_mod.genFlatnonzero },
+    .{ "meshgrid", numpy_mod.genMeshgrid },
+    .{ "histogram", numpy_mod.genHistogram },
+    .{ "bincount", numpy_mod.genBincount },
+    .{ "digitize", numpy_mod.genDigitize },
+    .{ "nan_to_num", numpy_mod.genNanToNum },
+    .{ "isnan", numpy_mod.genIsnan },
+    .{ "isinf", numpy_mod.genIsinf },
+    .{ "isfinite", numpy_mod.genIsfinite },
+    .{ "absolute", numpy_mod.genAbsolute },
+    .{ "fabs", numpy_mod.genAbsolute },
 });
 
 /// NumPy linalg module functions
@@ -101,6 +202,11 @@ const NumpyLinalgFuncs = FuncMap.initComptime(.{
     .{ "det", numpy_mod.genDet },
     .{ "inv", numpy_mod.genInv },
     .{ "solve", numpy_mod.genSolve },
+    .{ "qr", numpy_mod.genQr },
+    .{ "cholesky", numpy_mod.genCholesky },
+    .{ "eig", numpy_mod.genEig },
+    .{ "svd", numpy_mod.genSvd },
+    .{ "lstsq", numpy_mod.genLstsq },
 });
 
 /// NumPy random module functions
@@ -169,6 +275,22 @@ const DatetimeFuncs = FuncMap.initComptime(.{
     .{ "timedelta", datetime_mod.genTimedelta },
 });
 
+/// IO module functions
+const IoFuncs = FuncMap.initComptime(.{
+    .{ "StringIO", io_mod.genStringIO },
+    .{ "BytesIO", io_mod.genBytesIO },
+    .{ "open", io_mod.genOpen },
+});
+
+/// collections module functions
+const CollectionsFuncs = FuncMap.initComptime(.{
+    .{ "Counter", collections_mod.genCounter },
+    .{ "defaultdict", collections_mod.genDefaultdict },
+    .{ "deque", collections_mod.genDeque },
+    .{ "OrderedDict", collections_mod.genOrderedDict },
+    .{ "namedtuple", collections_mod.genNamedtuple },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -192,6 +314,8 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "datetime", DatetimeFuncs },
     .{ "datetime.datetime", DatetimeDatetimeFuncs },
     .{ "datetime.date", DatetimeDateFuncs },
+    .{ "io", IoFuncs },
+    .{ "collections", CollectionsFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
