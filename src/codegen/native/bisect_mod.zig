@@ -14,9 +14,9 @@ pub fn genBisectLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("bisect_left_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _a = ");
+    try self.emit("const _a = &");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("const _x = ");
     try self.genExpr(args[1]);
@@ -52,9 +52,9 @@ pub fn genBisectRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.emit("bisect_right_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _a = ");
+    try self.emit("const _a = &");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("const _x = ");
     try self.genExpr(args[1]);
@@ -114,7 +114,7 @@ pub fn genInsortLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("_a.insert(allocator, _lo, _x) catch {};\n");
+    try self.emit("_a.insert(__global_allocator, _lo, _x) catch {};\n");
     try self.emitIndent();
     try self.emit("break :insort_left_blk;\n");
     self.dedent();
@@ -151,7 +151,7 @@ pub fn genInsortRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("_a.insert(allocator, _lo, _x) catch {};\n");
+    try self.emit("_a.insert(__global_allocator, _lo, _x) catch {};\n");
     try self.emitIndent();
     try self.emit("break :insort_right_blk;\n");
     self.dedent();

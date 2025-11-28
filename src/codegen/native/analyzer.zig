@@ -361,6 +361,18 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                         if (NumpyAllocFuncs.has(attr.attr)) {
                             analysis.needs_allocator = true;
                         }
+                    } else if (std.mem.eql(u8, module_name, "collections")) {
+                        // collections module functions need hashmap_helper
+                        if (std.mem.eql(u8, attr.attr, "Counter") or
+                            std.mem.eql(u8, attr.attr, "defaultdict") or
+                            std.mem.eql(u8, attr.attr, "OrderedDict"))
+                        {
+                            analysis.needs_hashmap_helper = true;
+                            analysis.needs_allocator = true;
+                        } else if (std.mem.eql(u8, attr.attr, "deque")) {
+                            analysis.needs_std = true;
+                            analysis.needs_allocator = true;
+                        }
                     }
                 }
             }

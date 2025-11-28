@@ -20,7 +20,7 @@ pub fn genTimeNs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    try self.emit("std.time.sleep(@as(u64, @intFromFloat(");
+    try self.emit("std.Thread.sleep(@as(u64, @intFromFloat(");
     try self.genExpr(args[0]);
     try self.emit(" * 1_000_000_000)))");
 }

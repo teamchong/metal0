@@ -633,6 +633,115 @@ pub fn inferCall(
                     }
                     return .unknown;
                 },
+                fnv_hash.hash("bisect") => {
+                    // bisect module - bisect_left/right/bisect return int, insort returns None
+                    const func_hash = fnv_hash.hash(func_name);
+                    const BISECT_LEFT_HASH = comptime fnv_hash.hash("bisect_left");
+                    const BISECT_RIGHT_HASH = comptime fnv_hash.hash("bisect_right");
+                    const BISECT_HASH = comptime fnv_hash.hash("bisect");
+                    const INSORT_LEFT_HASH = comptime fnv_hash.hash("insort_left");
+                    const INSORT_RIGHT_HASH = comptime fnv_hash.hash("insort_right");
+                    const INSORT_HASH = comptime fnv_hash.hash("insort");
+                    if (func_hash == BISECT_LEFT_HASH or
+                        func_hash == BISECT_RIGHT_HASH or
+                        func_hash == BISECT_HASH)
+                    {
+                        return .int;
+                    }
+                    if (func_hash == INSORT_LEFT_HASH or
+                        func_hash == INSORT_RIGHT_HASH or
+                        func_hash == INSORT_HASH)
+                    {
+                        return .none;
+                    }
+                    return .unknown;
+                },
+                fnv_hash.hash("textwrap") => {
+                    // textwrap module
+                    const func_hash = fnv_hash.hash(func_name);
+                    const FILL_HASH = comptime fnv_hash.hash("fill");
+                    const DEDENT_HASH = comptime fnv_hash.hash("dedent");
+                    const INDENT_HASH = comptime fnv_hash.hash("indent");
+                    const SHORTEN_HASH = comptime fnv_hash.hash("shorten");
+                    if (func_hash == FILL_HASH or func_hash == DEDENT_HASH or
+                        func_hash == INDENT_HASH or func_hash == SHORTEN_HASH)
+                    {
+                        return .{ .string = .runtime };
+                    }
+                    return .unknown; // wrap returns list which needs element type
+                },
+                fnv_hash.hash("heapq") => {
+                    // heapq module
+                    const func_hash = fnv_hash.hash(func_name);
+                    const HEAPIFY_HASH = comptime fnv_hash.hash("heapify");
+                    const HEAPPUSH_HASH = comptime fnv_hash.hash("heappush");
+                    const HEAPPOP_HASH = comptime fnv_hash.hash("heappop");
+                    const HEAPREPLACE_HASH = comptime fnv_hash.hash("heapreplace");
+                    const HEAPPUSHPOP_HASH = comptime fnv_hash.hash("heappushpop");
+                    if (func_hash == HEAPIFY_HASH or func_hash == HEAPPUSH_HASH) {
+                        return .none;
+                    }
+                    if (func_hash == HEAPPOP_HASH or func_hash == HEAPREPLACE_HASH or
+                        func_hash == HEAPPUSHPOP_HASH)
+                    {
+                        return .int; // Returns element from heap
+                    }
+                    return .unknown; // nlargest/nsmallest returns list
+                },
+                fnv_hash.hash("functools") => {
+                    // functools module - reduce returns element type
+                    const func_hash = fnv_hash.hash(func_name);
+                    const REDUCE_HASH = comptime fnv_hash.hash("reduce");
+                    const PARTIAL_HASH = comptime fnv_hash.hash("partial");
+                    const CACHE_HASH = comptime fnv_hash.hash("cache");
+                    const LRU_CACHE_HASH = comptime fnv_hash.hash("lru_cache");
+                    if (func_hash == REDUCE_HASH) {
+                        return .int; // Most common use is numeric reduction
+                    }
+                    if (func_hash == PARTIAL_HASH or func_hash == CACHE_HASH or
+                        func_hash == LRU_CACHE_HASH)
+                    {
+                        return .unknown; // Returns decorated function
+                    }
+                    return .unknown;
+                },
+                fnv_hash.hash("operator") => {
+                    // operator module - math ops return int/float
+                    const func_hash = fnv_hash.hash(func_name);
+                    const ADD_HASH = comptime fnv_hash.hash("add");
+                    const SUB_HASH = comptime fnv_hash.hash("sub");
+                    const MUL_HASH = comptime fnv_hash.hash("mul");
+                    const TRUEDIV_HASH = comptime fnv_hash.hash("truediv");
+                    const FLOORDIV_HASH = comptime fnv_hash.hash("floordiv");
+                    const MOD_HASH = comptime fnv_hash.hash("mod");
+                    const POW_HASH = comptime fnv_hash.hash("pow");
+                    const NEG_HASH = comptime fnv_hash.hash("neg");
+                    const ABS_HASH = comptime fnv_hash.hash("abs");
+                    if (func_hash == ADD_HASH or func_hash == SUB_HASH or
+                        func_hash == MUL_HASH or func_hash == FLOORDIV_HASH or
+                        func_hash == MOD_HASH or func_hash == POW_HASH or
+                        func_hash == NEG_HASH or func_hash == ABS_HASH)
+                    {
+                        return .int;
+                    }
+                    if (func_hash == TRUEDIV_HASH) {
+                        return .float;
+                    }
+                    return .unknown;
+                },
+                fnv_hash.hash("copy") => {
+                    // copy module - returns same type as input (unknown)
+                    return .unknown;
+                },
+                fnv_hash.hash("collections") => {
+                    // collections module
+                    const func_hash = fnv_hash.hash(func_name);
+                    const COUNTER_HASH = comptime fnv_hash.hash("Counter");
+                    const DEQUE_HASH = comptime fnv_hash.hash("deque");
+                    if (func_hash == COUNTER_HASH) return .counter;
+                    if (func_hash == DEQUE_HASH) return .deque;
+                    return .unknown;
+                },
                 PICKLE_HASH => {
                     // pickle.dumps() returns bytes, pickle.loads() returns dynamic value
                     const func_hash = fnv_hash.hash(func_name);

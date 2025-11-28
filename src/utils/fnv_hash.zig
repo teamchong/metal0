@@ -2,6 +2,7 @@ const std = @import("std");
 
 /// Standalone FNV-1a hash for string keys (comptime and runtime)
 pub fn hash(key: []const u8) u64 {
+    @setEvalBranchQuota(10000);
     const FNV_OFFSET: u64 = 0xcbf29ce484222325;
     const FNV_PRIME: u64 = 0x100000001b3;
 
