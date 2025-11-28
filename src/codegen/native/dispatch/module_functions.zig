@@ -30,6 +30,7 @@ const string_mod = @import("../string_mod.zig");
 const time_mod = @import("../time_mod.zig");
 const sys_mod = @import("../sys_mod.zig");
 const uuid_mod = @import("../uuid_mod.zig");
+const subprocess_mod = @import("../subprocess_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -491,6 +492,20 @@ const UuidFuncs = FuncMap.initComptime(.{
     .{ "getnode", uuid_mod.genGetnode },
 });
 
+/// subprocess module functions
+const SubprocessFuncs = FuncMap.initComptime(.{
+    .{ "run", subprocess_mod.genRun },
+    .{ "call", subprocess_mod.genCall },
+    .{ "check_call", subprocess_mod.genCheckCall },
+    .{ "check_output", subprocess_mod.genCheckOutput },
+    .{ "Popen", subprocess_mod.genPopen },
+    .{ "getoutput", subprocess_mod.genGetoutput },
+    .{ "getstatusoutput", subprocess_mod.genGetstatusoutput },
+    .{ "PIPE", subprocess_mod.genPIPE },
+    .{ "STDOUT", subprocess_mod.genSTDOUT },
+    .{ "DEVNULL", subprocess_mod.genDEVNULL },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -529,6 +544,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "time", TimeFuncs },
     .{ "sys", SysFuncs },
     .{ "uuid", UuidFuncs },
+    .{ "subprocess", SubprocessFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
