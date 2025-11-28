@@ -588,7 +588,7 @@ pub fn randomRandint(low: i64, high: i64, size: usize, allocator: std.mem.Alloca
     const random = random_state.random();
     const range: u64 = @intCast(high - low);
     for (data) |*val| {
-        const rand_int = random.intRangeLessThan(u64, range);
+        const rand_int = random.intRangeLessThan(u64, 0, range);
         val.* = @floatFromInt(@as(i64, @intCast(rand_int)) + low);
     }
     const np_array = try NumpyArray.fromOwnedSlice(allocator, data);
@@ -615,7 +615,7 @@ pub fn randomChoice(arr_obj: *PyObject, size: usize, allocator: std.mem.Allocato
     const data = try allocator.alloc(f64, size);
     const random = random_state.random();
     for (data) |*val| {
-        const idx = random.intRangeLessThan(usize, arr.size);
+        const idx = random.intRangeLessThan(usize, 0, arr.size);
         val.* = arr.data[idx];
     }
     const np_array = try NumpyArray.fromOwnedSlice(allocator, data);
@@ -630,7 +630,7 @@ pub fn randomShuffle(arr_obj: *PyObject) !void {
     var i: usize = arr.size;
     while (i > 1) {
         i -= 1;
-        const j = random.intRangeLessThan(usize, i + 1);
+        const j = random.intRangeLessThan(usize, 0, i + 1);
         const tmp = arr.data[i];
         arr.data[i] = arr.data[j];
         arr.data[j] = tmp;
@@ -647,7 +647,7 @@ pub fn randomPermutation(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyO
     var i: usize = arr.size;
     while (i > 1) {
         i -= 1;
-        const j = random.intRangeLessThan(usize, i + 1);
+        const j = random.intRangeLessThan(usize, 0, i + 1);
         const tmp = data[i];
         data[i] = data[j];
         data[j] = tmp;
