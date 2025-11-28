@@ -18,6 +18,7 @@ const datetime_mod = @import("../datetime.zig");
 const io_mod = @import("../io.zig");
 const collections_mod = @import("../collections_mod.zig");
 const functools_mod = @import("../functools_mod.zig");
+const itertools_mod = @import("../itertools_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -303,6 +304,20 @@ const FunctoolsFuncs = FuncMap.initComptime(.{
     .{ "total_ordering", functools_mod.genTotalOrdering },
 });
 
+/// itertools module functions
+const ItertoolsFuncs = FuncMap.initComptime(.{
+    .{ "chain", itertools_mod.genChain },
+    .{ "repeat", itertools_mod.genRepeat },
+    .{ "count", itertools_mod.genCount },
+    .{ "cycle", itertools_mod.genCycle },
+    .{ "islice", itertools_mod.genIslice },
+    .{ "zip_longest", itertools_mod.genZipLongest },
+    .{ "product", itertools_mod.genProduct },
+    .{ "permutations", itertools_mod.genPermutations },
+    .{ "combinations", itertools_mod.genCombinations },
+    .{ "groupby", itertools_mod.genGroupby },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -329,6 +344,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "io", IoFuncs },
     .{ "collections", CollectionsFuncs },
     .{ "functools", FunctoolsFuncs },
+    .{ "itertools", ItertoolsFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
