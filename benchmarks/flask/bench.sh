@@ -132,18 +132,7 @@ if [ "$PYPY_AVAILABLE" = true ]; then
     fi
 fi
 
-# Use venv for Python (flask needs install)
-VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python"
-if [ -f "$VENV_PYTHON" ]; then
-    if $VENV_PYTHON -c "import flask, requests" 2>/dev/null; then
-        BENCH_CMD+=(-n "Python" "$VENV_PYTHON flask_bench.py")
-        echo -e "  ${GREEN}✓${NC} Python (venv)"
-    else
-        echo -e "  ${YELLOW}⚠${NC} Python skipped (flask/requests not installed in .venv)"
-    fi
-else
-    echo -e "  ${YELLOW}⚠${NC} Python skipped (run: python3 -m venv .venv && .venv/bin/pip install flask requests)"
-fi
+add_python BENCH_CMD flask_bench.py flask requests
 
 "${BENCH_CMD[@]}"
 

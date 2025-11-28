@@ -127,7 +127,7 @@ if [ "$PYPY_AVAILABLE" = true ]; then
     fi
 fi
 
-add_python BENCH_CMD http_bench.py
+add_python BENCH_CMD http_bench.py requests
 
 "${BENCH_CMD[@]}"
 
