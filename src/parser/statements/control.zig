@@ -277,11 +277,23 @@ pub fn parseFor(self: *Parser) ParseError!ast.Node {
     else
         ast.Node{ .list = .{ .elts = try targets.toOwnedSlice(self.allocator) } };
 
+    // Check for optional else clause (for/else)
+    var orelse_body: ?[]ast.Node = null;
+    if (self.check(.Else)) {
+        _ = self.advance(); // consume 'else'
+        _ = try self.expect(.Colon);
+        _ = try self.expect(.Newline);
+        _ = try self.expect(.Indent);
+        orelse_body = try misc.parseBlock(self);
+        _ = try self.expect(.Dedent);
+    }
+
     return ast.Node{
         .for_stmt = .{
             .target = try self.allocNode(target_node),
             .iter = try self.allocNode(iter),
             .body = body,
+            .orelse_body = orelse_body,
         },
     };
 }
@@ -320,10 +332,22 @@ pub fn parseWhile(self: *Parser) ParseError!ast.Node {
         return ParseError.UnexpectedEof;
     }
 
+    // Check for optional else clause (while/else)
+    var orelse_body: ?[]ast.Node = null;
+    if (self.check(.Else)) {
+        _ = self.advance(); // consume 'else'
+        _ = try self.expect(.Colon);
+        _ = try self.expect(.Newline);
+        _ = try self.expect(.Indent);
+        orelse_body = try misc.parseBlock(self);
+        _ = try self.expect(.Dedent);
+    }
+
     return ast.Node{
         .while_stmt = .{
             .condition = try self.allocNode(condition_expr),
             .body = body,
+            .orelse_body = orelse_body,
         },
     };
 }

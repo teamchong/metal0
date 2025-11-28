@@ -23,6 +23,7 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
             .Ellipsis => return parseEllipsis(self),
             .Ident => return parseIdent(self),
             .Await => return parseAwait(self),
+            .Yield => return parseYieldExpr(self),
             .Lambda => return expressions.parseLambda(self),
             .LParen => return parseGroupedOrTuple(self),
             .LBracket => return literals.parseList(self),
@@ -120,11 +121,17 @@ fn parseString(self: *Parser) ParseError!ast.Node {
 
         const next_type = self.tokens[self.current + lookahead].type;
 
-        if (next_type == .String) {
+        if (next_type == .String or next_type == .RawString) {
             self.skipNewlines();
             const next_str = self.advance().?;
+            // Strip 'r' prefix if it's a raw string
+            const next_content_raw = if (next_type == .RawString and next_str.lexeme.len > 0 and next_str.lexeme[0] == 'r')
+                next_str.lexeme[1..]
+            else
+                next_str.lexeme;
+
             const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
-            const second_content = if (next_str.lexeme.len >= 2) next_str.lexeme[1..] else next_str.lexeme;
+            const second_content = if (next_content_raw.len >= 2) next_content_raw[1..] else next_content_raw;
 
             const new_len = first_content.len + second_content.len;
             const new_str = try self.allocator.alloc(u8, new_len);
@@ -188,11 +195,81 @@ fn parseByteString(self: *Parser) ParseError!ast.Node {
 
 fn parseRawString(self: *Parser) ParseError!ast.Node {
     const str_tok = self.advance().?;
-    const stripped = if (str_tok.lexeme.len > 0 and str_tok.lexeme[0] == 'r')
+    // Strip the 'r' prefix
+    var result_str = if (str_tok.lexeme.len > 0 and str_tok.lexeme[0] == 'r')
         str_tok.lexeme[1..]
     else
         str_tok.lexeme;
-    return ast.Node{ .constant = .{ .value = .{ .string = stripped } } };
+    var prev_allocated: ?[]const u8 = null;
+
+    // Handle implicit string concatenation: r"a" r"b" or r"a" "b" -> "ab"
+    while (true) {
+        var lookahead: usize = 0;
+        while (self.current + lookahead < self.tokens.len and
+            self.tokens[self.current + lookahead].type == .Newline)
+        {
+            lookahead += 1;
+        }
+
+        if (self.current + lookahead >= self.tokens.len) break;
+
+        const next_type = self.tokens[self.current + lookahead].type;
+
+        if (next_type == .RawString or next_type == .String) {
+            self.skipNewlines();
+            const next_str = self.advance().?;
+            // Strip 'r' prefix if it's a raw string
+            const next_content_raw = if (next_type == .RawString and next_str.lexeme.len > 0 and next_str.lexeme[0] == 'r')
+                next_str.lexeme[1..]
+            else
+                next_str.lexeme;
+
+            // Strip quotes: first_content is everything except trailing quote
+            // second_content is everything except leading quote
+            const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
+            const second_content = if (next_content_raw.len >= 2) next_content_raw[1..] else next_content_raw;
+
+            const new_len = first_content.len + second_content.len;
+            const new_str = try self.allocator.alloc(u8, new_len);
+            @memcpy(new_str[0..first_content.len], first_content);
+            @memcpy(new_str[first_content.len..], second_content);
+
+            if (prev_allocated) |prev| {
+                self.allocator.free(prev);
+            }
+            result_str = new_str;
+            prev_allocated = new_str;
+        } else if (next_type == .FString) {
+            // Raw string followed by f-string
+            self.skipNewlines();
+            const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
+
+            if (prev_allocated) |prev| {
+                self.allocator.free(prev);
+            }
+
+            var fstring_node = try parseFString(self);
+
+            if (first_content.len > 0) {
+                const old_parts = fstring_node.fstring.parts;
+                const new_parts = try self.allocator.alloc(ast.FStringPart, old_parts.len + 1);
+                new_parts[0] = .{ .literal = first_content };
+                @memcpy(new_parts[1..], old_parts);
+                self.allocator.free(old_parts);
+                fstring_node.fstring.parts = new_parts;
+            }
+
+            return fstring_node;
+        } else {
+            break;
+        }
+    }
+
+    if (prev_allocated) |_| {
+        self.allocated_strings.append(self.allocator, result_str) catch {};
+    }
+
+    return ast.Node{ .constant = .{ .value = .{ .string = result_str } } };
 }
 
 fn parseFString(self: *Parser) ParseError!ast.Node {
@@ -353,6 +430,37 @@ fn parseAwait(self: *Parser) ParseError!ast.Node {
     var value = try parsePostfix(self);
     errdefer value.deinit(self.allocator);
     return ast.Node{ .await_expr = .{ .value = try self.allocNode(value) } };
+}
+
+/// Parse yield expression (used when yield appears inside parentheses or as part of larger expression)
+fn parseYieldExpr(self: *Parser) ParseError!ast.Node {
+    _ = self.advance(); // consume 'yield'
+
+    // Check for "yield from expr" (PEP 380)
+    if (self.match(.From)) {
+        var value = try self.parseExpression();
+        errdefer value.deinit(self.allocator);
+        return ast.Node{ .yield_from_stmt = .{ .value = try self.allocNode(value) } };
+    }
+
+    // Check if there's a value expression - stop at ), ], }, newline, or comma
+    const value_ptr: ?*ast.Node = blk: {
+        if (self.peek()) |tok| {
+            if (tok.type == .Newline or tok.type == .RParen or tok.type == .RBracket or
+                tok.type == .RBrace or tok.type == .Comma)
+            {
+                break :blk null;
+            }
+        } else {
+            break :blk null;
+        }
+
+        var value = try self.parseExpression();
+        errdefer value.deinit(self.allocator);
+        break :blk try self.allocNode(value);
+    };
+
+    return ast.Node{ .yield_stmt = .{ .value = value_ptr } };
 }
 
 fn parseGroupedOrTuple(self: *Parser) ParseError!ast.Node {
