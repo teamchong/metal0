@@ -222,6 +222,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("hmac", .zig_runtime, "std", null); // hmac uses std.crypto.auth.hmac
     try registry.register("socket", .zig_runtime, "std", null); // socket uses std.posix
     try registry.register("os", .zig_runtime, "std", null); // os uses std.fs and std.process
+    try registry.register("random", .zig_runtime, "std", null); // random uses std.Random
 
     // Additional Tier 1: OS and filesystem modules
     try registry.register("pathlib", .zig_runtime, "runtime.pathlib", null);

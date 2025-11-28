@@ -419,6 +419,7 @@ pub fn inferCall(
             const OS_HASH = comptime fnv_hash.hash("os");
             const OS_PATH_HASH = comptime fnv_hash.hash("os.path");
             const PATH_HASH = comptime fnv_hash.hash("path");
+            const RANDOM_HASH = comptime fnv_hash.hash("random");
 
             switch (module_hash) {
                 BASE64_HASH => {
@@ -491,6 +492,38 @@ pub fn inferCall(
                     }
                     if (func_hash == JOIN_HASH or func_hash == DIRNAME_HASH or func_hash == BASENAME_HASH) {
                         return .{ .string = .runtime };
+                    }
+                    return .unknown;
+                },
+                RANDOM_HASH => {
+                    // random module type inference
+                    const func_hash = fnv_hash.hash(func_name);
+                    const RANDOM_FN_HASH = comptime fnv_hash.hash("random");
+                    const UNIFORM_HASH = comptime fnv_hash.hash("uniform");
+                    const GAUSS_HASH = comptime fnv_hash.hash("gauss");
+                    const RANDINT_HASH = comptime fnv_hash.hash("randint");
+                    const RANDRANGE_HASH = comptime fnv_hash.hash("randrange");
+                    const GETRANDBITS_HASH = comptime fnv_hash.hash("getrandbits");
+                    const SEED_HASH = comptime fnv_hash.hash("seed");
+                    const CHOICE_HASH = comptime fnv_hash.hash("choice");
+                    const SHUFFLE_HASH = comptime fnv_hash.hash("shuffle");
+                    const SAMPLE_HASH = comptime fnv_hash.hash("sample");
+                    const CHOICES_HASH = comptime fnv_hash.hash("choices");
+                    // Float-returning functions
+                    if (func_hash == RANDOM_FN_HASH or func_hash == UNIFORM_HASH or func_hash == GAUSS_HASH) {
+                        return .float;
+                    }
+                    // Int-returning functions
+                    if (func_hash == RANDINT_HASH or func_hash == RANDRANGE_HASH or func_hash == GETRANDBITS_HASH) {
+                        return .int;
+                    }
+                    // Void-returning functions
+                    if (func_hash == SEED_HASH or func_hash == SHUFFLE_HASH) {
+                        return .none;
+                    }
+                    // Unknown (choice returns element type, sample/choices return list)
+                    if (func_hash == CHOICE_HASH or func_hash == SAMPLE_HASH or func_hash == CHOICES_HASH) {
+                        return .unknown;
                     }
                     return .unknown;
                 },
