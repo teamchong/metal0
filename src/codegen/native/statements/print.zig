@@ -251,7 +251,21 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
     }
 
     try self.emit("        if (__idx > 0) std.debug.print(\", \", .{});\n");
-    try self.emit("        std.debug.print(\"{d}\", .{__elem});\n");
+
+    // Get element format based on element type
+    const elem_fmt = if (arg_type == .list) blk: {
+        // ArrayList element type
+        const elem_type = arg_type.list.*;
+        break :blk elem_type.getPrintFormat();
+    } else if (arg_type == .array) blk: {
+        // Fixed array element type
+        const elem_type = arg_type.array.element_type.*;
+        break :blk elem_type.getPrintFormat();
+    } else "{d}"; // Default to integer format
+
+    try self.emit("        std.debug.print(\"");
+    try self.emit(elem_fmt);
+    try self.emit("\", .{__elem});\n");
     try self.emit("    }\n");
     try self.emit("    std.debug.print(\"]\", .{});\n");
     try self.emit("}\n");

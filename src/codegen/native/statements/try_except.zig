@@ -174,16 +174,22 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     // Hoist variable declarations BEFORE the block (so they're accessible after try)
     for (declared_vars.items) |var_name| {
+        // Get the actual type from type inference (already computed)
+        const var_type = self.type_inferrer.var_types.get(var_name);
+        const zig_type = if (var_type) |vt| blk: {
+            break :blk try self.nativeTypeToZigType(vt);
+        } else "i64";
+        defer if (var_type != null) self.allocator.free(zig_type);
+
         try self.emitIndent();
         try self.emit("var ");
         try self.emit(var_name);
-        try self.emit(": i64 = undefined;\n");
+        try self.emit(": ");
+        try self.emit(zig_type);
+        try self.emit(" = undefined;\n");
 
         // Mark as hoisted so assignment generation skips declaration
         try self.hoisted_vars.put(var_name, {});
-
-        // Register type in type inferrer so print() knows the type
-        try self.type_inferrer.var_types.put(var_name, .int);
     }
 
     // Wrap in block for defer scope
@@ -282,14 +288,28 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (param_count > 0) try self.emit(", ");
             try self.emit("p_");
             try self.emit(var_name);
-            try self.emit(": *i64"); // Pointer for mutable access
+            // Get actual type from type inference
+            const var_type = self.type_inferrer.var_types.get(var_name);
+            const zig_type = if (var_type) |vt| blk: {
+                break :blk try self.nativeTypeToZigType(vt);
+            } else "i64";
+            defer if (var_type != null) self.allocator.free(zig_type);
+            try self.emit(": *");
+            try self.emit(zig_type); // Pointer for mutable access
             param_count += 1;
         }
         for (declared_vars.items) |var_name| {
             if (param_count > 0) try self.emit(", ");
             try self.emit("p_");
             try self.emit(var_name);
-            try self.emit(": *i64"); // Pointer for mutable access
+            // Get actual type from type inference
+            const var_type = self.type_inferrer.var_types.get(var_name);
+            const zig_type = if (var_type) |vt| blk: {
+                break :blk try self.nativeTypeToZigType(vt);
+            } else "i64";
+            defer if (var_type != null) self.allocator.free(zig_type);
+            try self.emit(": *");
+            try self.emit(zig_type); // Pointer for mutable access
             param_count += 1;
         }
 

@@ -268,6 +268,32 @@ pub fn visitStmt(
                         // range() produces indices → type as usize
                         try var_types.put(target_name, .usize);
                     }
+                } else if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .attribute) {
+                    // Handle method calls like dict.keys(), dict.values()
+                    const method_name = for_stmt.iter.call.func.attribute.attr;
+                    const obj = for_stmt.iter.call.func.attribute.value.*;
+
+                    if (std.mem.eql(u8, method_name, "keys")) {
+                        // dict.keys() always returns strings for StringHashMap
+                        try var_types.put(target_name, .{ .string = .runtime });
+                    } else if (std.mem.eql(u8, method_name, "values")) {
+                        // dict.values() - get value type from dict
+                        if (obj == .name) {
+                            const dict_type = var_types.get(obj.name.id) orelse .unknown;
+                            if (dict_type == .dict) {
+                                try var_types.put(target_name, dict_type.dict.value.*);
+                            }
+                        }
+                    } else {
+                        // Generic method call - try to infer from return type
+                        const iter_type = inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.*) catch .unknown;
+                        const elem_type = switch (iter_type) {
+                            .list => |l| l.*,
+                            .array => |a| a.element_type.*,
+                            else => .unknown,
+                        };
+                        try var_types.put(target_name, elem_type);
+                    }
                 } else if (for_stmt.iter.* == .name) {
                     const iter_type = var_types.get(for_stmt.iter.name.id) orelse .unknown;
                     const elem_type = switch (iter_type) {
@@ -298,6 +324,18 @@ pub fn visitStmt(
             }
             // Visit function body
             for (func_def.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+        },
+        .try_stmt => |try_stmt| {
+            // Visit try body
+            for (try_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            // Visit except handlers
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            }
+            // Visit else body
+            for (try_stmt.else_body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            // Visit finally body
+            for (try_stmt.finalbody) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
         },
         else => {},
     }

@@ -33,14 +33,19 @@ pub const genRjust = formatting.genRjust;
 pub const genCenter = formatting.genCenter;
 pub const genZfill = formatting.genZfill;
 
-/// Generate code for text.split(separator)
+/// Generate code for text.split(separator) or text.split() for whitespace
 /// Example: "a b c".split(" ") -> ArrayList([]const u8)
+/// Example: "a  b c".split() -> splits on any whitespace, removes empty strings
 pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        // TODO: Error handling
+    if (args.len == 0) {
+        // split() with no args - split on whitespace using runtime function
+        try self.emit("try runtime.stringSplitWhitespace(");
+        try self.genExpr(obj);
+        try self.emit(", __global_allocator)");
         return;
     }
 
+    // split(separator) - use std.mem.splitSequence
     // Generate block expression that returns ArrayList([]const u8)
     // Keep as ArrayList to match type inference (.list type)
     try self.emit("blk: {\n");

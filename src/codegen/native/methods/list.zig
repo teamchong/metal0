@@ -41,12 +41,25 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: try list.appendSlice(__global_allocator, other.items)
-    try self.emit("try ");
-    try self.genExpr(obj);
-    try self.emit(".appendSlice(__global_allocator, ");
-    try self.genExpr(args[0]);
-    try self.emit(".items)");
+    const arg = args[0];
+
+    // Check if argument is a list literal - use & slice syntax
+    if (arg == .list) {
+        // Generate: try list.appendSlice(__global_allocator, &[_]T{...})
+        try self.emit("try ");
+        try self.genExpr(obj);
+        try self.emit(".appendSlice(__global_allocator, &");
+        try self.genExpr(arg);
+        try self.emit(")");
+    } else {
+        // Assume ArrayList variable - use .items
+        // Generate: try list.appendSlice(__global_allocator, other.items)
+        try self.emit("try ");
+        try self.genExpr(obj);
+        try self.emit(".appendSlice(__global_allocator, ");
+        try self.genExpr(arg);
+        try self.emit(".items)");
+    }
 }
 
 /// Generate code for list.insert(index, item)

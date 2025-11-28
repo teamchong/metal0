@@ -5,6 +5,7 @@ const statements = @import("statements.zig");
 const expressions = @import("expressions.zig");
 const hashmap_helper = @import("hashmap_helper");
 const closures = @import("closures.zig");
+const mutation_analyzer = @import("mutation_analyzer.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -95,6 +96,34 @@ pub const TypeInferrer = struct {
         // Fifth pass: Analyze all statements (must run after return type inference)
         for (module.body) |stmt| {
             try self.visitStmt(stmt);
+        }
+
+        // Sixth pass: Promote array types to list types for mutated variables
+        // This ensures list literals assigned to variables that later have methods
+        // like .sort(), .append(), etc. called on them become ArrayLists
+        const mutations = mutation_analyzer.analyzeMutations(module, self.allocator) catch null;
+        if (mutations) |muts| {
+            defer {
+                var mut_copy = muts;
+                for (mut_copy.values()) |*info| {
+                    @constCast(info).mutation_types.deinit(self.allocator);
+                }
+                mut_copy.deinit();
+            }
+
+            // Check each variable - if it's an array and has list mutations, promote to list
+            var var_iter = self.var_types.iterator();
+            while (var_iter.next()) |entry| {
+                const var_name = entry.key_ptr.*;
+                const var_type = entry.value_ptr.*;
+
+                if (var_type == .array) {
+                    if (mutation_analyzer.hasListMutation(muts, var_name)) {
+                        // Promote array to list (ArrayList)
+                        entry.value_ptr.* = .{ .list = var_type.array.element_type };
+                    }
+                }
+            }
         }
     }
 

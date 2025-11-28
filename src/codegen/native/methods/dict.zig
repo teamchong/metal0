@@ -40,7 +40,7 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // keys() takes no arguments
 
-    // Generate block that builds list of keys
+    // Generate block that builds list of keys using .keys() slice
     try self.emit("blk: {\n");
     self.indent_level += 1;
 
@@ -48,16 +48,13 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     try self.emit("var _keys_list = std.ArrayList([]const u8){};\n");
 
     try self.emitIndent();
-    try self.emit("var _iter = ");
+    try self.emit("for (");
     try self.genExpr(obj);
-    try self.emit(".keyIterator();\n");
-
-    try self.emitIndent();
-    try self.emit("while (_iter.next()) |key_ptr| {\n");
+    try self.emit(".keys()) |key| {\n");
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("try _keys_list.append(__global_allocator, key_ptr.*);\n");
+    try self.emit("try _keys_list.append(__global_allocator, key);\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
