@@ -9,18 +9,16 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
     // Only Python stdlib modules - NO third-party packages here
     // Third-party packages (flask, requests, werkzeug, etc.) are handled by import_registry
     const stdlib_modules = [_][]const u8{
-        // Core Python stdlib
-        "sys",        "io",         "typing",
-        "pathlib",    "urllib",     "datetime",  "importlib",
-        "subprocess", "tempfile",   "threading",
-        // Stdlib modules with complex/unsupported syntax
-        "functools",  "collections", "inspect",  "contextlib",
-        "abc",        "operator",    "itertools", "enum",
-        "dataclasses", "warnings",   "logging",  "traceback",
-        "copy",       "weakref",     "types",    "codecs",
-        "secrets",                   "binascii", "textwrap",
-        "string",     "platform",    "shutil",   "glob",
-        "fnmatch",    "stat",        "posixpath", "genericpath",
+        // Core Python stdlib (still need Python source)
+        "sys",        "io",         "pathlib",
+        "urllib",     "importlib",  "threading",
+        // Complex/unsupported syntax
+        "inspect",    "abc",        "operator",
+        "enum",       "dataclasses", "warnings",
+        "logging",    "traceback",  "weakref",
+        "types",      "codecs",     "binascii",
+        "platform",   "stat",       "posixpath",
+        "genericpath",
         // Python directive modules
         "__future__",
     };
