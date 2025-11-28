@@ -43,6 +43,7 @@ const secrets_mod = @import("../secrets_mod.zig");
 const csv_mod = @import("../csv_mod.zig");
 const configparser_mod = @import("../configparser_mod.zig");
 const argparse_mod = @import("../argparse_mod.zig");
+const zipfile_mod = @import("../zipfile_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -429,6 +430,22 @@ const HmacFuncs = FuncMap.initComptime(.{
     .{ "compare_digest", hmac_mod.genCompareDigest },
 });
 
+/// socket module functions (TCP/UDP networking)
+const SocketFuncs = FuncMap.initComptime(.{
+    .{ "socket", socket_mod.genSocket },
+    .{ "create_connection", socket_mod.genCreateConnection },
+    .{ "gethostname", socket_mod.genGethostname },
+    .{ "getfqdn", socket_mod.genGetfqdn },
+    .{ "inet_aton", socket_mod.genInetAton },
+    .{ "inet_ntoa", socket_mod.genInetNtoa },
+    .{ "htons", socket_mod.genHtons },
+    .{ "htonl", socket_mod.genHtonl },
+    .{ "ntohs", socket_mod.genNtohs },
+    .{ "ntohl", socket_mod.genNtohl },
+    .{ "setdefaulttimeout", socket_mod.genSetdefaulttimeout },
+    .{ "getdefaulttimeout", socket_mod.genGetdefaulttimeout },
+});
+
 /// random module functions
 const RandomFuncs = FuncMap.initComptime(.{
     .{ "random", random_mod.genRandom },
@@ -633,6 +650,19 @@ const ArgparseFuncs = FuncMap.initComptime(.{
     .{ "ONE_OR_MORE", argparse_mod.genONE_OR_MORE },
 });
 
+/// zipfile module functions
+const ZipfileFuncs = FuncMap.initComptime(.{
+    .{ "ZipFile", zipfile_mod.genZipFile },
+    .{ "is_zipfile", zipfile_mod.genIsZipfile },
+    .{ "ZipInfo", zipfile_mod.genZipInfo },
+    .{ "ZIP_STORED", zipfile_mod.genZIP_STORED },
+    .{ "ZIP_DEFLATED", zipfile_mod.genZIP_DEFLATED },
+    .{ "ZIP_BZIP2", zipfile_mod.genZIP_BZIP2 },
+    .{ "ZIP_LZMA", zipfile_mod.genZIP_LZMA },
+    .{ "BadZipFile", zipfile_mod.genBadZipFile },
+    .{ "LargeZipFile", zipfile_mod.genLargeZipFile },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -668,6 +698,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "base64", Base64Funcs },
     .{ "pickle", PickleFuncs },
     .{ "hmac", HmacFuncs },
+    .{ "socket", SocketFuncs },
     .{ "random", RandomFuncs },
     .{ "string", StringFuncs },
     .{ "time", TimeFuncs },
@@ -683,6 +714,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "csv", CsvFuncs },
     .{ "configparser", ConfigparserFuncs },
     .{ "argparse", ArgparseFuncs },
+    .{ "zipfile", ZipfileFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
