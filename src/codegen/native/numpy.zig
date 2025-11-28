@@ -121,10 +121,24 @@ pub fn genMatmul(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genZeros(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    // numpy.zeros(n) -> create 1D array of n zeros
-    try self.emit("try numpy.zeros(&[_]usize{@intCast(");
-    try self.genExpr(args[0]);
-    try self.emit(")}, allocator)");
+    const arg = args[0];
+
+    // Check if shape is a tuple (multi-dimensional)
+    if (arg == .tuple) {
+        try self.emit("try numpy.zeros(&[_]usize{");
+        for (arg.tuple.elts, 0..) |dim, i| {
+            if (i > 0) try self.emit(", ");
+            try self.emit("@intCast(");
+            try self.genExpr(dim);
+            try self.emit(")");
+        }
+        try self.emit("}, allocator)");
+    } else {
+        // numpy.zeros(n) -> create 1D array of n zeros
+        try self.emit("try numpy.zeros(&[_]usize{@intCast(");
+        try self.genExpr(arg);
+        try self.emit(")}, allocator)");
+    }
 }
 
 /// Generate numpy.ones() call
@@ -132,10 +146,24 @@ pub fn genZeros(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genOnes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    // numpy.ones(n) -> create 1D array of n ones
-    try self.emit("try numpy.ones(&[_]usize{@intCast(");
-    try self.genExpr(args[0]);
-    try self.emit(")}, allocator)");
+    const arg = args[0];
+
+    // Check if shape is a tuple (multi-dimensional)
+    if (arg == .tuple) {
+        try self.emit("try numpy.ones(&[_]usize{");
+        for (arg.tuple.elts, 0..) |dim, i| {
+            if (i > 0) try self.emit(", ");
+            try self.emit("@intCast(");
+            try self.genExpr(dim);
+            try self.emit(")");
+        }
+        try self.emit("}, allocator)");
+    } else {
+        // numpy.ones(n) -> create 1D array of n ones
+        try self.emit("try numpy.ones(&[_]usize{@intCast(");
+        try self.genExpr(arg);
+        try self.emit(")}, allocator)");
+    }
 }
 
 // ============================================================================
@@ -233,11 +261,28 @@ pub fn genLogspace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genReshape(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
 
+    const shape_arg = args[1];
+
     try self.emit("try numpy.reshape(");
     try self.genExpr(args[0]);
-    try self.emit(", &[_]usize{@intCast(");
-    try self.genExpr(args[1]);
-    try self.emit(")}, allocator)");
+    try self.emit(", ");
+
+    // Check if shape is a tuple (multi-dimensional)
+    if (shape_arg == .tuple) {
+        try self.emit("&[_]usize{");
+        for (shape_arg.tuple.elts, 0..) |dim, i| {
+            if (i > 0) try self.emit(", ");
+            try self.emit("@intCast(");
+            try self.genExpr(dim);
+            try self.emit(")");
+        }
+        try self.emit("}");
+    } else {
+        try self.emit("&[_]usize{@intCast(");
+        try self.genExpr(shape_arg);
+        try self.emit(")}");
+    }
+    try self.emit(", allocator)");
 }
 
 /// Generate numpy.ravel() or numpy.flatten() call

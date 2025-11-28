@@ -87,7 +87,13 @@ pub fn inferExpr(
                         // If we can't determine constant index, return unknown
                         break :blk .unknown;
                     } else if (obj_type == .numpy_array) {
-                        // NumPy array indexing returns float (f64)
+                        // Check if index is a boolean array (boolean indexing)
+                        const idx_type = try inferExpr(allocator, var_types, class_fields, func_return_types, idx.*);
+                        if (idx_type == .bool_array) {
+                            // Boolean indexing returns a numpy array
+                            break :blk .numpy_array;
+                        }
+                        // Single index access returns float (f64)
                         break :blk .float;
                     } else {
                         break :blk .unknown;

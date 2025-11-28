@@ -53,6 +53,7 @@ pub const ComptimeEvaluator = struct {
             .Add => arithmetic.evalAdd(self.allocator, left, right),
             .Sub => arithmetic.evalSub(self.allocator, left, right),
             .Mult => arithmetic.evalMul(self.allocator, left, right),
+            .MatMul => null, // Matrix multiplication cannot be evaluated at compile time
             .Div => arithmetic.evalDiv(self.allocator, left, right),
             .FloorDiv => arithmetic.evalFloorDiv(self.allocator, left, right),
             .Mod => arithmetic.evalMod(self.allocator, left, right),

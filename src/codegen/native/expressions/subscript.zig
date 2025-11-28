@@ -79,6 +79,48 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
             // Check if this is a dict, list, or dataframe subscript
             const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
+
+            // NumPy array indexing
+            if (value_type == .numpy_array) {
+                const index = subscript.slice.index.*;
+
+                // Check for boolean indexing: arr[mask] where mask is a boolean array
+                const index_type = try self.type_inferrer.inferExpr(index);
+                if (index_type == .bool_array) {
+                    // Boolean indexing: arr[mask] → numpy.booleanIndex(arr, mask, allocator)
+                    try self.emit("try numpy.booleanIndex(");
+                    try genExpr(self, subscript.value.*);
+                    try self.emit(", ");
+                    try genExpr(self, index);
+                    try self.emit(", allocator)");
+                    return;
+                }
+
+                // Check for 2D indexing: arr[i, j] - parsed as arr[tuple(i, j)]
+                if (index == .tuple) {
+                    const indices = index.tuple.elts;
+                    if (indices.len == 2) {
+                        // 2D indexing: arr[i, j] → numpy.getIndex2D(arr, i, j)
+                        try self.emit("try numpy.getIndex2D(");
+                        try genExpr(self, subscript.value.*);
+                        try self.emit(", @intCast(");
+                        try genExpr(self, indices[0]);
+                        try self.emit("), @intCast(");
+                        try genExpr(self, indices[1]);
+                        try self.emit("))");
+                        return;
+                    }
+                }
+
+                // Single index: arr[i] → numpy.getIndex(arr, i)
+                try self.emit("try numpy.getIndex(");
+                try genExpr(self, subscript.value.*);
+                try self.emit(", @intCast(");
+                try genExpr(self, index);
+                try self.emit("))");
+                return;
+            }
+
             const is_dict = (value_type == .dict);
             const is_dataframe = (value_type == .dataframe);
             const is_unknown_pyobject = (value_type == .unknown);

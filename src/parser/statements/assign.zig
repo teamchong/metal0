@@ -101,6 +101,7 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         if (self.match(.PlusEq)) break :blk ast.Operator.Add;
         if (self.match(.MinusEq)) break :blk ast.Operator.Sub;
         if (self.match(.StarEq)) break :blk ast.Operator.Mult;
+        if (self.match(.AtEq)) break :blk ast.Operator.MatMul;
         if (self.match(.SlashEq)) break :blk ast.Operator.Div;
         if (self.match(.DoubleSlashEq)) break :blk ast.Operator.FloorDiv;
         if (self.match(.PercentEq)) break :blk ast.Operator.Mod;

@@ -251,7 +251,13 @@ pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usi
             break :blk .Caret;
         },
         '~' => .Tilde,
-        '@' => .At,
+        '@' => blk: {
+            if (self.peek() == '=') {
+                _ = self.advance();
+                break :blk .AtEq;
+            }
+            break :blk .At;
+        },
         else => return null,
     };
 

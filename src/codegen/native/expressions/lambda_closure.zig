@@ -275,6 +275,7 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                 .Add => " + ",
                 .Sub => " - ",
                 .Mult => " * ",
+                .MatMul => " @ ", // Matrix multiplication - runtime only
                 .Div => " / ",
                 .FloorDiv => " / ",
                 .Mod => " % ",

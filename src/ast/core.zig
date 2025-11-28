@@ -338,6 +338,7 @@ pub const Operator = enum {
     Add,
     Sub,
     Mult,
+    MatMul, // Matrix multiplication (@)
     Div,
     FloorDiv,
     Mod,

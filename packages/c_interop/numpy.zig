@@ -710,6 +710,38 @@ pub fn boolAll(arr_obj: *PyObject, _: std.mem.Allocator) !bool {
     return arr.all();
 }
 
+/// Boolean indexing: arr[mask]
+pub fn booleanIndex(arr_obj: *PyObject, mask_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+    const arr = try numpy_array_mod.extractArray(arr_obj);
+    const mask = try numpy_array_mod.extractBoolArray(mask_obj);
+    const result = try numpy_array_mod.booleanIndex(arr, mask, allocator);
+    return try numpy_array_mod.createPyObject(allocator, result);
+}
+
+/// Single index access: arr[i] - returns element at flat index
+pub fn getIndex(arr_obj: *PyObject, idx: usize) !f64 {
+    const arr = try numpy_array_mod.extractArray(arr_obj);
+    if (idx >= arr.size) {
+        return error.IndexOutOfBounds;
+    }
+    return arr.data[idx];
+}
+
+/// 2D index access: arr[i, j] - returns element at row i, column j
+pub fn getIndex2D(arr_obj: *PyObject, row: usize, col: usize) !f64 {
+    const arr = try numpy_array_mod.extractArray(arr_obj);
+    // Assumes row-major order (C-style)
+    if (arr.shape.len < 2) {
+        return error.InvalidDimensions;
+    }
+    const cols = arr.shape[1];
+    const flat_idx = row * cols + col;
+    if (flat_idx >= arr.size) {
+        return error.IndexOutOfBounds;
+    }
+    return arr.data[flat_idx];
+}
+
 test "array creation from integers" {
     const allocator = std.testing.allocator;
 

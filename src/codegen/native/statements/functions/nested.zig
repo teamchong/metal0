@@ -630,6 +630,7 @@ fn genExprWithCaptureStruct(
                 .Add => " + ",
                 .Sub => " - ",
                 .Mult => " * ",
+                .MatMul => " @ ", // Matrix multiplication - handled by numpy at runtime
                 .Div => " / ",
                 .FloorDiv => " / ",
                 .Mod => " % ",

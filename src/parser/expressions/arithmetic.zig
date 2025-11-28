@@ -35,10 +35,11 @@ pub fn parseAddSub(self: *Parser) ParseError!ast.Node {
     });
 }
 
-/// Parse multiplication, division, floor division, and modulo
+/// Parse multiplication, division, floor division, modulo, and matrix multiplication
 pub fn parseMulDiv(self: *Parser) ParseError!ast.Node {
     return self.parseBinOp(parsePower, &.{
         .{ .token = .Star, .op = .Mult },
+        .{ .token = .At, .op = .MatMul },
         .{ .token = .Slash, .op = .Div },
         .{ .token = .DoubleSlash, .op = .FloorDiv },
         .{ .token = .Percent, .op = .Mod },
