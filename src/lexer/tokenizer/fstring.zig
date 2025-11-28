@@ -32,6 +32,8 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
             // Parse expression inside {}
             const expr_start = self.current;
             var brace_depth: usize = 1;
+            var bracket_depth: usize = 0; // Track [] for slice expressions
+            var paren_depth: usize = 0; // Track () for function calls
             var has_format_spec = false;
             var has_conversion = false;
             var conversion_char: u8 = 0;
@@ -46,7 +48,23 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
                 } else if (c == '}') {
                     brace_depth -= 1;
                     if (brace_depth == 0) break;
-                } else if (c == '!' and brace_depth == 1 and !has_conversion and !has_format_spec) {
+                } else if (c == '[') {
+                    bracket_depth += 1;
+                    _ = self.advance();
+                    continue;
+                } else if (c == ']') {
+                    if (bracket_depth > 0) bracket_depth -= 1;
+                    _ = self.advance();
+                    continue;
+                } else if (c == '(') {
+                    paren_depth += 1;
+                    _ = self.advance();
+                    continue;
+                } else if (c == ')') {
+                    if (paren_depth > 0) paren_depth -= 1;
+                    _ = self.advance();
+                    continue;
+                } else if (c == '!' and brace_depth == 1 and bracket_depth == 0 and paren_depth == 0 and !has_conversion and !has_format_spec) {
                     // Conversion specifier !r, !s, or !a
                     expr_end = self.current;
                     _ = self.advance(); // consume '!'
@@ -57,7 +75,7 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
                         _ = self.advance(); // consume conversion char
                     }
                     // Continue to check for format spec
-                } else if (c == ':' and brace_depth == 1 and !has_format_spec) {
+                } else if (c == ':' and brace_depth == 1 and bracket_depth == 0 and paren_depth == 0 and !has_format_spec) {
                     // Format specifier
                     has_format_spec = true;
                     if (!has_conversion) {
