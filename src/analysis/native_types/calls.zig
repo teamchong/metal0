@@ -395,11 +395,19 @@ pub fn inferCall(
             const STRUCT_HASH = comptime fnv_hash.hash("struct");
             const BASE64_HASH = comptime fnv_hash.hash("base64");
             const PICKLE_HASH = comptime fnv_hash.hash("pickle");
+            const HMAC_HASH = comptime fnv_hash.hash("hmac");
 
             switch (module_hash) {
                 BASE64_HASH => {
                     // All base64 functions return bytes/string
                     return .{ .string = .runtime };
+                },
+                HMAC_HASH => {
+                    // hmac.new() and hmac.digest() return bytes, compare_digest returns bool
+                    const func_hash = fnv_hash.hash(func_name);
+                    const COMPARE_DIGEST_HASH = comptime fnv_hash.hash("compare_digest");
+                    if (func_hash == COMPARE_DIGEST_HASH) return .bool;
+                    return .{ .string = .runtime }; // new/digest return hex strings
                 },
                 PICKLE_HASH => {
                     // pickle.dumps() returns bytes, pickle.loads() returns dynamic value
