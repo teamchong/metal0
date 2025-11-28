@@ -227,15 +227,14 @@ pub fn visitStmt(
                         // zip(list1, list2, ...) - infer from each list
                         for (for_stmt.iter.call.args, 0..) |arg, i| {
                             if (i < targets.len and targets[i] == .name) {
-                                if (arg == .name) {
-                                    const list_type = var_types.get(arg.name.id) orelse .unknown;
-                                    const elem_type = switch (list_type) {
-                                        .list => |l| l.*,
-                                        .array => |a| a.element_type.*,
-                                        else => .unknown,
-                                    };
-                                    try var_types.put(targets[i].name.id, elem_type);
-                                }
+                                // Infer element type from the arg (could be name or list literal)
+                                const arg_type = inferExprFn(allocator, var_types, class_fields, func_return_types, arg) catch .unknown;
+                                const elem_type = switch (arg_type) {
+                                    .list => |l| l.*,
+                                    .array => |a| a.element_type.*,
+                                    else => .unknown,
+                                };
+                                try var_types.put(targets[i].name.id, elem_type);
                             }
                         }
                     }

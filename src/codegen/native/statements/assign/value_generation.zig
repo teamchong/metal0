@@ -173,7 +173,13 @@ pub fn trackVariableMetadata(
         }
     }
 
-    // Track dict comprehension variables (generates ArrayList of KV)
+    // Track list comprehension variables (generates ArrayList)
+    if (is_first_assignment and assign.value.* == .listcomp) {
+        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        try self.arraylist_vars.put(var_name_copy, {});
+    }
+
+    // Track dict comprehension variables (generates HashMap)
     if (is_first_assignment and assign.value.* == .dictcomp) {
         const var_name_copy = try self.allocator.dupe(u8, var_name);
         try self.arraylist_vars.put(var_name_copy, {});

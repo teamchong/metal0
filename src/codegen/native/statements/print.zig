@@ -230,8 +230,8 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
     // Check if this is an array slice vs ArrayList vs plain array
     const is_array_slice = isArraySlice(self, arg);
     const is_plain_array = arg_type == .array;
-    // Check if this is a slice from listcomp (not in arraylist_vars)
-    const is_slice_var = if (arg == .name) !self.arraylist_vars.contains(arg.name.id) else false;
+    // .list type means ArrayList - always use .items
+    const is_arraylist = arg_type == .list;
 
     // Generate loop to print list/array elements
     try self.emit("{\n");
@@ -240,10 +240,13 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
     try self.emit(";\n");
     try self.emit("    std.debug.print(\"[\", .{});\n");
 
-    // Plain arrays, array slices, and listcomp slices: iterate directly, ArrayList: use .items
-    if (is_plain_array or is_array_slice or is_slice_var) {
+    // ArrayList uses .items, plain arrays and slices iterate directly
+    if (is_arraylist) {
+        try self.emit("    for (__list.items, 0..) |__elem, __idx| {\n");
+    } else if (is_plain_array or is_array_slice) {
         try self.emit("    for (__list, 0..) |__elem, __idx| {\n");
     } else {
+        // Default to .items for safety (covers all list-like types)
         try self.emit("    for (__list.items, 0..) |__elem, __idx| {\n");
     }
 

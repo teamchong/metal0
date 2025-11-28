@@ -123,9 +123,10 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         try self.emit("}\n");
     }
 
-    // Generate: break :blk try __comp_result.toOwnedSlice(allocator);
+    // Generate: break :blk __comp_result;
+    // Return the ArrayList itself (not a slice) so caller can use .items or .append
     try self.emitIndent();
-    try self.emit("break :blk try __comp_result.toOwnedSlice(allocator);\n");
+    try self.emit("break :blk __comp_result;\n");
 
     self.dedent();
     try self.emitIndent();

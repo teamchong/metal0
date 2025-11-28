@@ -86,6 +86,9 @@ pub fn inferExpr(
                         }
                         // If we can't determine constant index, return unknown
                         break :blk .unknown;
+                    } else if (obj_type == .numpy_array) {
+                        // NumPy array indexing returns float (f64)
+                        break :blk .float;
                     } else {
                         break :blk .unknown;
                     }
@@ -95,6 +98,7 @@ pub fn inferExpr(
                     // string[1:4] -> string
                     // array[1:4] -> slice (converted to list)
                     // list[1:4] -> list
+                    // numpy_array[1:4] -> numpy_array
                     if (obj_type == .string) {
                         break :blk .{ .string = .slice };
                     } else if (obj_type == .array) {
@@ -102,6 +106,9 @@ pub fn inferExpr(
                         break :blk .{ .list = obj_type.array.element_type };
                     } else if (obj_type == .list) {
                         break :blk obj_type;
+                    } else if (obj_type == .numpy_array) {
+                        // NumPy array slicing returns numpy_array
+                        break :blk .numpy_array;
                     } else {
                         break :blk .unknown;
                     }
@@ -256,10 +263,23 @@ pub fn inferExpr(
             } };
         },
         .listcomp => |lc| blk: {
+            // First, type the loop variables from generators so they're available for elt inference
+            for (lc.generators) |gen| {
+                if (gen.target.* == .name) {
+                    // Check if iterator is range() - gives i64 loop variable
+                    if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
+                        const func_name = gen.iter.call.func.name.id;
+                        if (std.mem.eql(u8, func_name, "range")) {
+                            try var_types.put(gen.target.name.id, .int);
+                        }
+                    }
+                }
+            }
+
             // Infer element type from the comprehension expression
             const elem_type = try inferExpr(allocator, var_types, class_fields, func_return_types, lc.elt.*);
 
-            // List comprehensions produce slices ([]T) via toOwnedSlice
+            // List comprehensions produce ArrayList(T)
             const elem_ptr = try allocator.create(NativeType);
             elem_ptr.* = elem_type;
             break :blk .{ .list = elem_ptr };
