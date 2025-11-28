@@ -29,6 +29,7 @@ const random_mod = @import("../random_mod.zig");
 const string_mod = @import("../string_mod.zig");
 const time_mod = @import("../time_mod.zig");
 const sys_mod = @import("../sys_mod.zig");
+const uuid_mod = @import("../uuid_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -476,6 +477,20 @@ const SysFuncs = FuncMap.initComptime(.{
     .{ "modules", sys_mod.genModules },
 });
 
+/// uuid module functions
+const UuidFuncs = FuncMap.initComptime(.{
+    .{ "uuid4", uuid_mod.genUuid4 },
+    .{ "uuid1", uuid_mod.genUuid1 },
+    .{ "uuid3", uuid_mod.genUuid3 },
+    .{ "uuid5", uuid_mod.genUuid5 },
+    .{ "UUID", uuid_mod.genUUID },
+    .{ "NAMESPACE_DNS", uuid_mod.genNamespaceDns },
+    .{ "NAMESPACE_URL", uuid_mod.genNamespaceUrl },
+    .{ "NAMESPACE_OID", uuid_mod.genNamespaceOid },
+    .{ "NAMESPACE_X500", uuid_mod.genNamespaceX500 },
+    .{ "getnode", uuid_mod.genGetnode },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -513,6 +528,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "string", StringFuncs },
     .{ "time", TimeFuncs },
     .{ "sys", SysFuncs },
+    .{ "uuid", UuidFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
