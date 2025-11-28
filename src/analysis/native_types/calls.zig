@@ -691,16 +691,21 @@ pub fn inferCall(
                 fnv_hash.hash("textwrap") => {
                     // textwrap module
                     const func_hash = fnv_hash.hash(func_name);
+                    const WRAP_HASH = comptime fnv_hash.hash("wrap");
                     const FILL_HASH = comptime fnv_hash.hash("fill");
                     const DEDENT_HASH = comptime fnv_hash.hash("dedent");
                     const INDENT_HASH = comptime fnv_hash.hash("indent");
                     const SHORTEN_HASH = comptime fnv_hash.hash("shorten");
+                    // wrap returns list of strings (array type for .len support)
+                    if (func_hash == WRAP_HASH) {
+                        return .{ .array = @constCast(&NativeType{ .string = .slice }) };
+                    }
                     if (func_hash == FILL_HASH or func_hash == DEDENT_HASH or
                         func_hash == INDENT_HASH or func_hash == SHORTEN_HASH)
                     {
                         return .{ .string = .runtime };
                     }
-                    return .unknown; // wrap returns list which needs element type
+                    return .unknown;
                 },
                 fnv_hash.hash("heapq") => {
                     // heapq module

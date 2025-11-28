@@ -427,6 +427,26 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
         // Always import allocator_helper (matches the non-lambda path)
         try self.emit("const allocator_helper = @import(\"./utils/allocator_helper.zig\");\n");
+
+        // Add module imports (Phase 3.7 copy for lambda path)
+        for (self.imported_modules.keys()) |mod_name| {
+            if (self.import_registry.lookup(mod_name)) |info| {
+                switch (info.strategy) {
+                    .zig_runtime, .c_library => {
+                        try self.emit("const ");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
+                        try self.emit(" = ");
+                        if (info.zig_import) |zig_import| {
+                            try self.emit(zig_import);
+                        } else {
+                            try self.emit("struct {}");
+                        }
+                        try self.emit(";\n");
+                    },
+                    else => {},
+                }
+            }
+        }
         try self.emit("\n");
 
         // Add __name__ constant

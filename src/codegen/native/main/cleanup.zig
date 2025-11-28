@@ -129,6 +129,10 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.skipped_functions);
     self.skipped_functions.deinit();
 
+    // Clean up local_var_types tracking
+    // Note: Keys are references to AST data or var_name parameters, not owned - don't free
+    self.local_var_types.deinit();
+
     self.allocator.destroy(self);
 }
 

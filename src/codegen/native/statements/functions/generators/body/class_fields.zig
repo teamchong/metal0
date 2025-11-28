@@ -4,6 +4,7 @@ const ast = @import("ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
 const signature = @import("../signature.zig");
+const zig_keywords = @import("zig_keywords");
 
 /// Generate struct fields from __init__ method
 pub fn genClassFields(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef) CodegenError!void {
@@ -81,6 +82,9 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     defer self.allocator.free(field_type_str);
 
                     try self.emitIndent();
+                    // Escape field name if it's a Zig keyword (e.g., "test")
+                    const writer = self.output.writer(self.allocator);
+                    try zig_keywords.writeEscapedIdent(writer, field_name);
                     if (with_defaults) {
                         // Add default value for fields set at runtime (e.g., setUp)
                         const default_val = switch (inferred) {
@@ -91,9 +95,9 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                             .dict, .list, .set => ".{}", // Empty struct init
                             else => "undefined",
                         };
-                        try self.output.writer(self.allocator).print("{s}: {s} = {s},\n", .{ field_name, field_type_str, default_val });
+                        try writer.print(": {s} = {s},\n", .{ field_type_str, default_val });
                     } else {
-                        try self.output.writer(self.allocator).print("{s}: {s},\n", .{ field_name, field_type_str });
+                        try writer.print(": {s},\n", .{field_type_str});
                     }
                 }
             }
