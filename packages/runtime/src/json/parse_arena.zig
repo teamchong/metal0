@@ -158,7 +158,7 @@ fn parseValue(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseRe
 }
 
 /// Parse null literal
-fn parseNull(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+inline fn parseNull(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
     if (pos + 4 > data.len) return JsonError.UnexpectedEndOfInput;
     if (!std.mem.eql(u8, data[pos..][0..4], "null")) return JsonError.UnexpectedToken;
 
@@ -173,7 +173,7 @@ fn parseNull(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseRes
 }
 
 /// Parse true literal
-fn parseTrue(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+inline fn parseTrue(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
     if (pos + 4 > data.len) return JsonError.UnexpectedEndOfInput;
     if (!std.mem.eql(u8, data[pos..][0..4], "true")) return JsonError.UnexpectedToken;
 
@@ -190,7 +190,7 @@ fn parseTrue(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseRes
 }
 
 /// Parse false literal
-fn parseFalse(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+inline fn parseFalse(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
     if (pos + 5 > data.len) return JsonError.UnexpectedEndOfInput;
     if (!std.mem.eql(u8, data[pos..][0..5], "false")) return JsonError.UnexpectedToken;
 
