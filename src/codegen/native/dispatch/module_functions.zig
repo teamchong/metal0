@@ -40,6 +40,7 @@ const glob_mod = @import("../glob_mod.zig");
 const fnmatch_mod = @import("../fnmatch_mod.zig");
 const secrets_mod = @import("../secrets_mod.zig");
 const csv_mod = @import("../csv_mod.zig");
+const configparser_mod = @import("../configparser_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -611,6 +612,13 @@ const CsvFuncs = FuncMap.initComptime(.{
     .{ "QUOTE_NONE", csv_mod.genQuoteNone },
 });
 
+/// configparser module functions
+const ConfigparserFuncs = FuncMap.initComptime(.{
+    .{ "ConfigParser", configparser_mod.genConfigParser },
+    .{ "RawConfigParser", configparser_mod.genRawConfigParser },
+    .{ "SafeConfigParser", configparser_mod.genSafeConfigParser },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -645,6 +653,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "struct", StructFuncs },
     .{ "base64", Base64Funcs },
     .{ "pickle", PickleFuncs },
+    .{ "hmac", HmacFuncs },
     .{ "random", RandomFuncs },
     .{ "string", StringFuncs },
     .{ "time", TimeFuncs },
@@ -658,6 +667,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "fnmatch", FnmatchFuncs },
     .{ "secrets", SecretsFuncs },
     .{ "csv", CsvFuncs },
+    .{ "configparser", ConfigparserFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
