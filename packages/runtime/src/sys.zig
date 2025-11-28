@@ -23,6 +23,9 @@ pub const version_info = VersionInfo{
     .micro = 0,
 };
 
+/// Python version string (like "3.12.0 (pyaot)")
+pub const version: []const u8 = "3.12.0 (PyAOT - Ahead-of-Time Compiled Python)";
+
 /// Command-line arguments (set at startup)
 pub var argv: [][]const u8 = &.{};
 

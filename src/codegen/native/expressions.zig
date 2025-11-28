@@ -76,8 +76,35 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .yield_stmt => |y| try genYield(self, y),
         .yield_from_stmt => |yf| try genYieldFrom(self, yf),
         .genexp => |ge| try comprehensions.genGenExp(self, ge),
+        .slice_expr => |sl| try genSliceExpr(self, sl),
         else => {},
     }
+}
+
+/// Generate a standalone slice expression for multi-dim subscripts
+/// This creates a Zig struct representing Python's slice(start, stop, step)
+fn genSliceExpr(self: *NativeCodegen, sl: ast.Node.SliceRange) CodegenError!void {
+    // For multi-dim subscripts like arr[1:, 2], generate a slice struct
+    // We represent it as a struct with optional start/stop/step fields
+    try self.emit(".{ .start = ");
+    if (sl.lower) |l| {
+        try genExpr(self, l.*);
+    } else {
+        try self.emit("null");
+    }
+    try self.emit(", .stop = ");
+    if (sl.upper) |u| {
+        try genExpr(self, u.*);
+    } else {
+        try self.emit("null");
+    }
+    try self.emit(", .step = ");
+    if (sl.step) |s| {
+        try genExpr(self, s.*);
+    } else {
+        try self.emit("null");
+    }
+    try self.emit(" }");
 }
 
 /// Generate yield expression - currently emits null as placeholder

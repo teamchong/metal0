@@ -415,7 +415,8 @@ pub fn parseSetComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
 
         _ = try self.expect(.In);
 
-        var iter = try self.parseExpression();
+        // Use parseOrExpr to stop at 'if' keyword (not treat as ternary conditional)
+        var iter = try self.parseOrExpr();
         errdefer iter.deinit(self.allocator);
 
         // Parse any "if" conditions attached to this generator
@@ -427,7 +428,8 @@ pub fn parseSetComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
 
         while (self.check(.If) and !self.check(.For) and !self.check(.Async)) {
             _ = self.advance();
-            var cond = try self.parseExpression();
+            // Use parseOrExpr so nested 'if' doesn't get consumed as ternary
+            var cond = try self.parseOrExpr();
             errdefer cond.deinit(self.allocator);
             try ifs.append(self.allocator, cond);
         }

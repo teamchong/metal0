@@ -370,6 +370,18 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
                 }
             }
         },
+        .slice_expr => |slice| {
+            // Standalone slice expression (for multi-dim subscripts)
+            if (slice.lower) |lower| {
+                line = try analyzeLifetimes(info, lower.*, line);
+            }
+            if (slice.upper) |upper| {
+                line = try analyzeLifetimes(info, upper.*, line);
+            }
+            if (slice.step) |step| {
+                line = try analyzeLifetimes(info, step.*, line);
+            }
+        },
         // Leaf nodes
         .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .global_stmt, .nonlocal_stmt, .ellipsis_literal, .raise_stmt, .yield_stmt, .yield_from_stmt => {
             // No variables to track

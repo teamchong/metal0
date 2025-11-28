@@ -134,6 +134,61 @@ fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
 
     const base_type = try self.allocator.dupe(u8, type_parts.items);
 
+    // Check for function call style annotations: Type(...) - used in forward references
+    if (self.current < self.tokens.len and self.tokens[self.current].type == .LParen) {
+        defer self.allocator.free(base_type);
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+
+        try type_buf.appendSlice(self.allocator, base_type);
+        try type_buf.append(self.allocator, '(');
+        self.current += 1; // consume '('
+
+        var paren_depth: usize = 1;
+        while (self.current < self.tokens.len and paren_depth > 0) {
+            const tok = self.tokens[self.current];
+            switch (tok.type) {
+                .LParen => {
+                    try type_buf.append(self.allocator, '(');
+                    paren_depth += 1;
+                },
+                .RParen => {
+                    try type_buf.append(self.allocator, ')');
+                    paren_depth -= 1;
+                },
+                .LBracket => try type_buf.append(self.allocator, '['),
+                .RBracket => try type_buf.append(self.allocator, ']'),
+                .Comma => try type_buf.appendSlice(self.allocator, ", "),
+                .Ident => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                .String => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                .Number => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                .Dot => try type_buf.append(self.allocator, '.'),
+                .Pipe => try type_buf.appendSlice(self.allocator, " | "),
+                .Star => try type_buf.append(self.allocator, '*'),
+                .DoubleStar => try type_buf.appendSlice(self.allocator, "**"),
+                .Eq => try type_buf.append(self.allocator, '='),
+                .True => try type_buf.appendSlice(self.allocator, "True"),
+                .False => try type_buf.appendSlice(self.allocator, "False"),
+                .None => try type_buf.appendSlice(self.allocator, "None"),
+                else => break,
+            }
+            self.current += 1;
+        }
+
+        // Check for union type after call: Type(...) | OtherType
+        if (self.current < self.tokens.len and self.tokens[self.current].type == .Pipe) {
+            try type_buf.appendSlice(self.allocator, " | ");
+            self.current += 1;
+            const next_type = try parseTypeAnnotation(self);
+            if (next_type) |nt| {
+                defer self.allocator.free(nt);
+                try type_buf.appendSlice(self.allocator, nt);
+            }
+        }
+
+        return try self.allocator.dupe(u8, type_buf.items);
+    }
+
     // Check for generic type parameters: Type[...]
     if (self.current < self.tokens.len and self.tokens[self.current].type == .LBracket) {
         defer self.allocator.free(base_type); // Free base_type since we'll return a new string
