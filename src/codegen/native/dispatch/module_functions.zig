@@ -27,6 +27,7 @@ const struct_mod = @import("../struct_mod.zig");
 const base64_mod = @import("../base64_mod.zig");
 const pickle_mod = @import("../pickle_mod.zig");
 const hmac_mod = @import("../hmac_mod.zig");
+const socket_mod = @import("../socket_mod.zig");
 const random_mod = @import("../random_mod.zig");
 const string_mod = @import("../string_mod.zig");
 const time_mod = @import("../time_mod.zig");
@@ -41,6 +42,7 @@ const fnmatch_mod = @import("../fnmatch_mod.zig");
 const secrets_mod = @import("../secrets_mod.zig");
 const csv_mod = @import("../csv_mod.zig");
 const configparser_mod = @import("../configparser_mod.zig");
+const argparse_mod = @import("../argparse_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -619,6 +621,18 @@ const ConfigparserFuncs = FuncMap.initComptime(.{
     .{ "SafeConfigParser", configparser_mod.genSafeConfigParser },
 });
 
+/// argparse module functions
+const ArgparseFuncs = FuncMap.initComptime(.{
+    .{ "ArgumentParser", argparse_mod.genArgumentParser },
+    .{ "Namespace", argparse_mod.genNamespace },
+    .{ "FileType", argparse_mod.genFileType },
+    .{ "REMAINDER", argparse_mod.genREMAINDER },
+    .{ "SUPPRESS", argparse_mod.genSUPPRESS },
+    .{ "OPTIONAL", argparse_mod.genOPTIONAL },
+    .{ "ZERO_OR_MORE", argparse_mod.genZERO_OR_MORE },
+    .{ "ONE_OR_MORE", argparse_mod.genONE_OR_MORE },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -668,6 +682,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "secrets", SecretsFuncs },
     .{ "csv", CsvFuncs },
     .{ "configparser", ConfigparserFuncs },
+    .{ "argparse", ArgparseFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
