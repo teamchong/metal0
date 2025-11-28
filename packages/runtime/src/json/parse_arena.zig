@@ -2,9 +2,10 @@
 ///
 /// Key optimizations:
 /// 1. Single arena allocation for entire parse (bump pointer = 2 cycles)
-/// 2. Pre-sized containers when possible
+/// 2. Small integer cache (-10 to 256) - avoids allocation for common ints
 /// 3. Key interning for repeated dictionary keys
 /// 4. SIMD whitespace skipping
+/// 5. SWAR string scanning (8 bytes at a time)
 ///
 /// Memory strategy:
 /// - All PyObjects, PyDict, PyList, strings allocated from arena
@@ -25,6 +26,43 @@ threadlocal var key_cache_idx: usize = 0;
 
 /// Thread-local arena for current parse operation
 threadlocal var current_arena: ?*JsonArena = null;
+
+/// Small integer cache (PyPy style: -10 to 256)
+/// Pre-allocated PyObjects for common small integers - avoids arena allocation
+const INT_CACHE_START: i64 = -10;
+const INT_CACHE_END: i64 = 257; // exclusive
+const INT_CACHE_SIZE = INT_CACHE_END - INT_CACHE_START;
+
+/// Static storage for cached integers (allocated once at startup)
+var int_cache_storage: [INT_CACHE_SIZE]runtime.PyObject = undefined;
+var int_cache_data: [INT_CACHE_SIZE]runtime.PyInt = undefined;
+var int_cache_initialized: bool = false;
+
+/// Initialize small integer cache (called once)
+fn initIntCache() void {
+    if (int_cache_initialized) return;
+
+    for (0..INT_CACHE_SIZE) |idx| {
+        const value: i64 = @as(i64, @intCast(idx)) + INT_CACHE_START;
+        int_cache_data[idx] = .{ .value = value };
+        int_cache_storage[idx] = .{
+            .ref_count = 1, // Never freed
+            .type_id = .int,
+            .data = &int_cache_data[idx],
+            .arena_ptr = null,
+        };
+    }
+    int_cache_initialized = true;
+}
+
+/// Get cached integer if in range, otherwise null
+inline fn getCachedInt(value: i64) ?*runtime.PyObject {
+    if (value >= INT_CACHE_START and value < INT_CACHE_END) {
+        const idx: usize = @intCast(value - INT_CACHE_START);
+        return &int_cache_storage[idx];
+    }
+    return null;
+}
 
 /// Intern a key string - returns cached version if seen recently
 fn internKey(key: []const u8, arena: *JsonArena) ![]const u8 {
@@ -59,6 +97,9 @@ pub fn parseWithArena(data: []const u8, backing_allocator: std.mem.Allocator) Js
 
     const arena = JsonArena.init(backing_allocator, arena_size) catch return JsonError.OutOfMemory;
     errdefer arena.decref();
+
+    // Initialize small integer cache (once per process)
+    initIntCache();
 
     // Set thread-local for nested parsing
     current_arena = arena;
@@ -152,7 +193,7 @@ fn parseFalse(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseRe
     return ParseResult(*runtime.PyObject).init(obj, 5);
 }
 
-/// Parse number (integer or float)
+/// Parse number (integer or float) - uses small int cache for common values
 fn parseNumber(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
     var i = pos;
     var is_float = false;
@@ -188,9 +229,9 @@ fn parseNumber(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
     }
 
     const num_str = data[pos..i];
-    const obj = arena.alloc(runtime.PyObject) catch return JsonError.OutOfMemory;
 
     if (is_float) {
+        const obj = arena.alloc(runtime.PyObject) catch return JsonError.OutOfMemory;
         const float_data = arena.alloc(runtime.PyFloat) catch return JsonError.OutOfMemory;
         float_data.* = .{
             .value = std.fmt.parseFloat(f64, num_str) catch return JsonError.InvalidNumber,
@@ -201,18 +242,29 @@ fn parseNumber(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
             .data = float_data,
             .arena_ptr = null,
         };
-    } else {
-        const int_data = arena.alloc(runtime.PyInt) catch return JsonError.OutOfMemory;
-        int_data.* = .{
-            .value = std.fmt.parseInt(i64, num_str, 10) catch return JsonError.InvalidNumber,
-        };
-        obj.* = .{
-            .ref_count = 1,
-            .type_id = .int,
-            .data = int_data,
-            .arena_ptr = null,
-        };
+        return ParseResult(*runtime.PyObject).init(obj, i - pos);
     }
+
+    // Parse integer
+    const int_value = std.fmt.parseInt(i64, num_str, 10) catch return JsonError.InvalidNumber;
+
+    // Check small integer cache first (avoids allocation!)
+    if (getCachedInt(int_value)) |cached| {
+        return ParseResult(*runtime.PyObject).init(cached, i - pos);
+    }
+
+    // Not in cache - allocate from arena
+    const obj = arena.alloc(runtime.PyObject) catch return JsonError.OutOfMemory;
+    const int_data = arena.alloc(runtime.PyInt) catch return JsonError.OutOfMemory;
+    int_data.* = .{
+        .value = int_value,
+    };
+    obj.* = .{
+        .ref_count = 1,
+        .type_id = .int,
+        .data = int_data,
+        .arena_ptr = null,
+    };
 
     return ParseResult(*runtime.PyObject).init(obj, i - pos);
 }

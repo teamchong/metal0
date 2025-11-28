@@ -144,11 +144,26 @@ add_go() {
     fi
 }
 
-# Add benchmark command for Python
+# Add benchmark command for Python (using uv for dependency management)
+# Usage: add_python <cmd_array_name> <script> [deps...]
+# Example: add_python BENCH_CMD script.py requests flask
 add_python() {
     local arr_name=$1
     local script="$2"
-    eval "$arr_name+=(--command-name \"Python\" \"python3 $script\")"
+    shift 2
+    local deps="$*"
+
+    if [ -n "$deps" ]; then
+        # Use uv run with inline dependencies
+        local dep_args=""
+        for dep in $deps; do
+            dep_args="$dep_args --with $dep"
+        done
+        eval "$arr_name+=(--command-name \"Python\" \"uv run $dep_args python $script\")"
+    else
+        # Simple case - no deps
+        eval "$arr_name+=(--command-name \"Python\" \"python3 $script\")"
+    fi
 }
 
 # Add benchmark command for PyPy

@@ -428,12 +428,12 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 | Implementation | Time | vs PyPy |
 |---------------|------|---------|
 | **PyPy** | **3.1s ± 0.0s** | **1.00x** 🏆 |
-| **PyAOT** | **3.9s ± 0.2s** | **1.24x** |
-| Rust (serde_json) | 4.4s ± 0.0s | 1.39x |
-| Python | 8.2s ± 0.1s | 2.61x |
-| Go | 13.6s ± 0.3s | 4.35x |
+| **PyAOT** | **3.7s ± 0.0s** | **1.18x** |
+| Rust (serde_json) | 4.5s ± 0.1s | 1.42x |
+| Python | 8.1s ± 0.1s | 2.57x |
+| Go | 13.3s ± 0.1s | 4.25x |
 
-*PyAOT is within 24% of PyPy thanks to arena allocation (single malloc for entire parse, bulk free).*
+*PyAOT is within 18% of PyPy thanks to PyPy-inspired optimizations: arena allocation, SWAR string scanning, small integer cache.*
 
 **JSON Stringify (100K × 38KB = 3.8GB processed):**
 
@@ -442,20 +442,20 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 | **PyAOT** | **2.9s ± 0.0s** | **1.00x** 🏆 |
 | Rust (serde_json) | 3.0s ± 0.0s | 1.05x |
 | Python | 12.2s ± 0.1s | 4.29x |
-| PyPy | 12.3s ± 0.1s | 4.31x |
-| Go | 15.1s ± 0.2s | 5.27x |
+| PyPy | 12.3s ± 0.1s | 4.33x |
+| Go | 15.2s ± 0.4s | 5.34x |
 
 *PyAOT stringify beats ALL including Rust, PyPy, and Python thanks to SIMD escaping and comptime lookup tables.*
 
-**Key optimizations:**
+**Key optimizations (PyPy-inspired):**
 - **Arena allocator** - Single 1MB allocation for entire parse, bump-pointer (~2 CPU cycles per alloc vs ~100+ for malloc), bulk free when done
+- **SWAR string scanning** - Process 8 bytes at a time using 64-bit word operations (PyPy's technique)
+- **Small integer cache** - Pre-allocated PyObjects for -10 to 256 (avoids allocation for common ints)
 - **Key interning** - 32-entry LRU cache for repeated dictionary keys (avoids allocations for "id", "name", etc.)
 - SIMD whitespace skipping (AVX2/NEON) - process 32 bytes per iteration
-- SIMD number parsing (8-digit chunks) - vectorized digit conversion
 - SIMD string escaping (`@Vector(16, u8)`) - 4.3x speedup on ARM64 NEON
 - 64KB pre-allocated buffer for stringify (eliminates reallocation)
 - Comptime lookup tables for escape detection (256-byte table)
-- Single-pass parsing with quote/escape detection
 - Zero-copy dictionary keys
 
 **Dict Benchmark (10M lookups, 8 keys):**
