@@ -33,6 +33,7 @@ const uuid_mod = @import("../uuid_mod.zig");
 const subprocess_mod = @import("../subprocess_mod.zig");
 const tempfile_mod = @import("../tempfile_mod.zig");
 const textwrap_mod = @import("../textwrap_mod.zig");
+const shutil_mod = @import("../shutil_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -531,6 +532,23 @@ const TextwrapFuncs = FuncMap.initComptime(.{
     .{ "TextWrapper", textwrap_mod.genTextWrapper },
 });
 
+/// shutil module functions
+const ShutilFuncs = FuncMap.initComptime(.{
+    .{ "copy", shutil_mod.genCopy },
+    .{ "copy2", shutil_mod.genCopy2 },
+    .{ "copyfile", shutil_mod.genCopyfile },
+    .{ "copystat", shutil_mod.genCopystat },
+    .{ "copymode", shutil_mod.genCopymode },
+    .{ "move", shutil_mod.genMove },
+    .{ "rmtree", shutil_mod.genRmtree },
+    .{ "copytree", shutil_mod.genCopytree },
+    .{ "disk_usage", shutil_mod.genDiskUsage },
+    .{ "which", shutil_mod.genWhich },
+    .{ "get_terminal_size", shutil_mod.genGetTerminalSize },
+    .{ "make_archive", shutil_mod.genMakeArchive },
+    .{ "unpack_archive", shutil_mod.genUnpackArchive },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -572,6 +590,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "subprocess", SubprocessFuncs },
     .{ "tempfile", TempfileFuncs },
     .{ "textwrap", TextwrapFuncs },
+    .{ "shutil", ShutilFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
