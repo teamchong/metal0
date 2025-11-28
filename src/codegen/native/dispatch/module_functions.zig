@@ -54,6 +54,12 @@ const xml_mod = @import("../xml_mod.zig");
 const decimal_mod = @import("../decimal_mod.zig");
 const fractions_mod = @import("../fractions_mod.zig");
 const email_mod = @import("../email_mod.zig");
+const sqlite3_mod = @import("../sqlite3_mod.zig");
+const heapq_mod = @import("../heapq_mod.zig");
+const weakref_mod = @import("../weakref_mod.zig");
+const types_mod = @import("../types_mod.zig");
+const bisect_mod = @import("../bisect_mod.zig");
+const statistics_mod = @import("../statistics_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -837,6 +843,122 @@ const EmailUtilsFuncs = FuncMap.initComptime(.{
     .{ "make_msgid", email_mod.genMakeMsgid },
 });
 
+/// sqlite3 module functions
+const Sqlite3Funcs = FuncMap.initComptime(.{
+    .{ "connect", sqlite3_mod.genConnect },
+    .{ "Connection", sqlite3_mod.genConnection },
+    .{ "Cursor", sqlite3_mod.genCursor },
+    .{ "Row", sqlite3_mod.genRow },
+    .{ "Error", sqlite3_mod.genError },
+    .{ "DatabaseError", sqlite3_mod.genDatabaseError },
+    .{ "IntegrityError", sqlite3_mod.genIntegrityError },
+    .{ "OperationalError", sqlite3_mod.genOperationalError },
+    .{ "ProgrammingError", sqlite3_mod.genProgrammingError },
+    .{ "PARSE_DECLTYPES", sqlite3_mod.genPARSE_DECLTYPES },
+    .{ "PARSE_COLNAMES", sqlite3_mod.genPARSE_COLNAMES },
+    .{ "SQLITE_OK", sqlite3_mod.genSQLITE_OK },
+    .{ "SQLITE_DENY", sqlite3_mod.genSQLITE_DENY },
+    .{ "SQLITE_IGNORE", sqlite3_mod.genSQLITE_IGNORE },
+    .{ "version", sqlite3_mod.genVersion },
+    .{ "sqlite_version", sqlite3_mod.genSqliteVersion },
+    .{ "register_adapter", sqlite3_mod.genRegisterAdapter },
+    .{ "register_converter", sqlite3_mod.genRegisterConverter },
+});
+
+/// heapq module functions
+const HeapqFuncs = FuncMap.initComptime(.{
+    .{ "heappush", heapq_mod.genHeappush },
+    .{ "heappop", heapq_mod.genHeappop },
+    .{ "heapify", heapq_mod.genHeapify },
+    .{ "heapreplace", heapq_mod.genHeapreplace },
+    .{ "heappushpop", heapq_mod.genHeappushpop },
+    .{ "nlargest", heapq_mod.genNlargest },
+    .{ "nsmallest", heapq_mod.genNsmallest },
+    .{ "merge", heapq_mod.genMerge },
+});
+
+/// weakref module functions
+const WeakrefFuncs = FuncMap.initComptime(.{
+    .{ "ref", weakref_mod.genRef },
+    .{ "proxy", weakref_mod.genProxy },
+    .{ "getweakrefcount", weakref_mod.genGetweakrefcount },
+    .{ "getweakrefs", weakref_mod.genGetweakrefs },
+    .{ "WeakSet", weakref_mod.genWeakSet },
+    .{ "WeakKeyDictionary", weakref_mod.genWeakKeyDictionary },
+    .{ "WeakValueDictionary", weakref_mod.genWeakValueDictionary },
+    .{ "WeakMethod", weakref_mod.genWeakMethod },
+    .{ "finalize", weakref_mod.genFinalize },
+    .{ "ReferenceType", weakref_mod.genReferenceType },
+    .{ "ProxyType", weakref_mod.genProxyType },
+    .{ "CallableProxyType", weakref_mod.genCallableProxyType },
+});
+
+/// types module functions
+const TypesFuncs = FuncMap.initComptime(.{
+    .{ "FunctionType", types_mod.genFunctionType },
+    .{ "LambdaType", types_mod.genLambdaType },
+    .{ "GeneratorType", types_mod.genGeneratorType },
+    .{ "CoroutineType", types_mod.genCoroutineType },
+    .{ "AsyncGeneratorType", types_mod.genAsyncGeneratorType },
+    .{ "CodeType", types_mod.genCodeType },
+    .{ "CellType", types_mod.genCellType },
+    .{ "MethodType", types_mod.genMethodType },
+    .{ "BuiltinFunctionType", types_mod.genBuiltinFunctionType },
+    .{ "BuiltinMethodType", types_mod.genBuiltinMethodType },
+    .{ "ModuleType", types_mod.genModuleType },
+    .{ "TracebackType", types_mod.genTracebackType },
+    .{ "FrameType", types_mod.genFrameType },
+    .{ "GetSetDescriptorType", types_mod.genGetSetDescriptorType },
+    .{ "MemberDescriptorType", types_mod.genMemberDescriptorType },
+    .{ "MappingProxyType", types_mod.genMappingProxyType },
+    .{ "SimpleNamespace", types_mod.genSimpleNamespace },
+    .{ "DynamicClassAttribute", types_mod.genDynamicClassAttribute },
+    .{ "NoneType", types_mod.genNoneType },
+    .{ "NotImplementedType", types_mod.genNotImplementedType },
+    .{ "EllipsisType", types_mod.genEllipsisType },
+    .{ "UnionType", types_mod.genUnionType },
+    .{ "GenericAlias", types_mod.genGenericAlias },
+    .{ "new_class", types_mod.genNewClass },
+    .{ "resolve_bases", types_mod.genResolveBases },
+    .{ "prepare_class", types_mod.genPrepareClass },
+    .{ "get_original_bases", types_mod.genGetOriginalBases },
+    .{ "coroutine", types_mod.genCoroutine },
+});
+
+/// bisect module functions
+const BisectFuncs = FuncMap.initComptime(.{
+    .{ "bisect_left", bisect_mod.genBisectLeft },
+    .{ "bisect_right", bisect_mod.genBisectRight },
+    .{ "bisect", bisect_mod.genBisect },
+    .{ "insort_left", bisect_mod.genInsortLeft },
+    .{ "insort_right", bisect_mod.genInsortRight },
+    .{ "insort", bisect_mod.genInsort },
+});
+
+/// statistics module functions
+const StatisticsFuncs = FuncMap.initComptime(.{
+    .{ "mean", statistics_mod.genMean },
+    .{ "fmean", statistics_mod.genFmean },
+    .{ "geometric_mean", statistics_mod.genGeometricMean },
+    .{ "harmonic_mean", statistics_mod.genHarmonicMean },
+    .{ "median", statistics_mod.genMedian },
+    .{ "median_low", statistics_mod.genMedianLow },
+    .{ "median_high", statistics_mod.genMedianHigh },
+    .{ "median_grouped", statistics_mod.genMedianGrouped },
+    .{ "mode", statistics_mod.genMode },
+    .{ "multimode", statistics_mod.genMultimode },
+    .{ "pstdev", statistics_mod.genPstdev },
+    .{ "pvariance", statistics_mod.genPvariance },
+    .{ "stdev", statistics_mod.genStdev },
+    .{ "variance", statistics_mod.genVariance },
+    .{ "quantiles", statistics_mod.genQuantiles },
+    .{ "covariance", statistics_mod.genCovariance },
+    .{ "correlation", statistics_mod.genCorrelation },
+    .{ "linear_regression", statistics_mod.genLinearRegression },
+    .{ "NormalDist", statistics_mod.genNormalDist },
+    .{ "StatisticsError", statistics_mod.genStatisticsError },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -907,6 +1029,12 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "email.mime.image", EmailMimeBaseFuncs },
     .{ "email.mime.audio", EmailMimeBaseFuncs },
     .{ "email.utils", EmailUtilsFuncs },
+    .{ "sqlite3", Sqlite3Funcs },
+    .{ "heapq", HeapqFuncs },
+    .{ "weakref", WeakrefFuncs },
+    .{ "types", TypesFuncs },
+    .{ "bisect", BisectFuncs },
+    .{ "statistics", StatisticsFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
