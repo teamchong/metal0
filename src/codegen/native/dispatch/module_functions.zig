@@ -19,6 +19,7 @@ const io_mod = @import("../io.zig");
 const collections_mod = @import("../collections_mod.zig");
 const functools_mod = @import("../functools_mod.zig");
 const itertools_mod = @import("../itertools_mod.zig");
+const copy_mod = @import("../copy_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -318,6 +319,12 @@ const ItertoolsFuncs = FuncMap.initComptime(.{
     .{ "groupby", itertools_mod.genGroupby },
 });
 
+/// copy module functions
+const CopyFuncs = FuncMap.initComptime(.{
+    .{ "copy", copy_mod.genCopy },
+    .{ "deepcopy", copy_mod.genDeepcopy },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -345,6 +352,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "collections", CollectionsFuncs },
     .{ "functools", FunctoolsFuncs },
     .{ "itertools", ItertoolsFuncs },
+    .{ "copy", CopyFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

@@ -9,6 +9,7 @@ const io_mod = @import("../io.zig");
 const collections_mod = @import("../collections_mod.zig");
 const functools_mod = @import("../functools_mod.zig");
 const itertools_mod = @import("../itertools_mod.zig");
+const copy_mod = @import("../copy_mod.zig");
 
 /// Handler function type for builtin dispatchers
 const BuiltinHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -77,6 +78,8 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "cycle", itertools_mod.genCycle },
     .{ "islice", itertools_mod.genIslice },
     .{ "zip_longest", itertools_mod.genZipLongest },
+    // copy module (from copy import copy, deepcopy)
+    .{ "deepcopy", copy_mod.genDeepcopy },
 });
 
 /// Try to dispatch built-in function call
