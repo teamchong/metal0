@@ -32,6 +32,7 @@ const sys_mod = @import("../sys_mod.zig");
 const uuid_mod = @import("../uuid_mod.zig");
 const subprocess_mod = @import("../subprocess_mod.zig");
 const tempfile_mod = @import("../tempfile_mod.zig");
+const textwrap_mod = @import("../textwrap_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -520,6 +521,16 @@ const TempfileFuncs = FuncMap.initComptime(.{
     .{ "TemporaryDirectory", tempfile_mod.genTemporaryDirectory },
 });
 
+/// textwrap module functions
+const TextwrapFuncs = FuncMap.initComptime(.{
+    .{ "wrap", textwrap_mod.genWrap },
+    .{ "fill", textwrap_mod.genFill },
+    .{ "dedent", textwrap_mod.genDedent },
+    .{ "indent", textwrap_mod.genIndent },
+    .{ "shorten", textwrap_mod.genShorten },
+    .{ "TextWrapper", textwrap_mod.genTextWrapper },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -560,6 +571,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "uuid", UuidFuncs },
     .{ "subprocess", SubprocessFuncs },
     .{ "tempfile", TempfileFuncs },
+    .{ "textwrap", TextwrapFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
