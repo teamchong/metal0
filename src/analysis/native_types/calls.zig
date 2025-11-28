@@ -464,6 +464,7 @@ pub fn inferCall(
             const THREADING_HASH = comptime fnv_hash.hash("threading");
             const SQLITE3_HASH = comptime fnv_hash.hash("sqlite3");
             const ZLIB_HASH = comptime fnv_hash.hash("zlib");
+            const RE_HASH = comptime fnv_hash.hash("re");
 
             switch (module_hash) {
                 SQLITE3_HASH => {
@@ -825,6 +826,12 @@ pub fn inferCall(
                     if (func_hash == comptime fnv_hash.hash("dumps")) return .{ .string = .runtime };
                     if (func_hash == comptime fnv_hash.hash("loads")) return .unknown;
                     return .unknown;
+                },
+                RE_HASH => {
+                    // re module functions all return *runtime.PyObject
+                    // match/search return Match or None, findall/split return PyList,
+                    // sub returns PyString - all are PyObject pointers
+                    return .unknown; // All re funcs return *runtime.PyObject
                 },
                 MATH_HASH => {
                     if (MathIntFuncs.has(func_name)) return .int;

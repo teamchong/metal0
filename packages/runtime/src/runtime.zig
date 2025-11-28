@@ -592,6 +592,18 @@ pub fn pyHash(value: anytype) i64 {
     return 0;
 }
 
+/// Python len() builtin for PyObject* types
+/// Dispatches to the appropriate type's len function based on type_id
+pub fn pyLen(obj: *PyObject) usize {
+    return switch (obj.type_id) {
+        .list => PyList.len(obj),
+        .dict => PyDict.len(obj),
+        .tuple => PyTuple.len(obj),
+        .string => PyString.len(obj),
+        else => 0, // None, int, float, bool don't have length
+    };
+}
+
 /// Bounds-checked array list access for exception handling
 /// Returns element at index or IndexError if out of bounds
 pub fn arrayListGet(comptime T: type, list: std.ArrayList(T), index: i64) PythonError!T {

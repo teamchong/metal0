@@ -708,9 +708,19 @@ pub fn parseMatch(self: *Parser) ParseError!ast.Node {
     // Consume "match" soft keyword (it's an Ident)
     _ = try self.expect(.Ident);
 
-    // Parse the subject expression
+    // Parse the subject expression (may be a tuple like: match x, y:)
     var subject = try self.parseExpression();
     errdefer subject.deinit(self.allocator);
+
+    // Handle tuple subject: match x, y:
+    while (self.match(.Comma)) {
+        // Check for trailing comma before colon
+        if (self.check(.Colon)) break;
+        var next_expr = try self.parseExpression();
+        errdefer next_expr.deinit(self.allocator);
+        // Discard - we're not building a proper tuple, just skipping
+        next_expr.deinit(self.allocator);
+    }
 
     _ = try self.expect(.Colon);
     _ = try self.expect(.Newline);

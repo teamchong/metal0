@@ -62,9 +62,20 @@ pub fn assertFalse(value: bool) void {
 
 /// Assertion: assertIsNone(x) - value must be None/null
 pub fn assertIsNone(value: anytype) void {
+    const runtime = @import("../runtime.zig");
     const is_none = switch (@typeInfo(@TypeOf(value))) {
         .optional => value == null,
-        .pointer => |ptr| if (ptr.size == .one) false else value.len == 0,
+        .pointer => |ptr| blk: {
+            // Check if it's a PyObject pointer
+            if (ptr.size == .one and ptr.child == runtime.PyObject) {
+                break :blk value.type_id == .none;
+            }
+            // For slices, check if empty
+            if (ptr.size != .one) {
+                break :blk value.len == 0;
+            }
+            break :blk false;
+        },
         else => false,
     };
 

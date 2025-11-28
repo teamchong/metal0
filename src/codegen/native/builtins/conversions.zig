@@ -72,7 +72,14 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     };
 
+    // Check if the type is unknown (PyObject*) - needs runtime dispatch
+    const is_pyobject = switch (arg_type) {
+        .unknown => true,
+        else => false,
+    };
+
     // Generate:
+    // - runtime.pyLen(obj) for unknown/PyObject* types
     // - runtime.PyDict.len(obj) for **kwargs parameters
     // - obj.items.len for ArrayList (including dict comprehensions)
     // - obj.count() for HashMap/dict/set
@@ -80,7 +87,12 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // - obj.len for slices/arrays/strings
     // All results are cast to i64 since Python len() returns int
     try self.emit("@as(i64, @intCast(");
-    if (is_kwarg_param) {
+    if (is_pyobject) {
+        // Unknown type (PyObject*) - use runtime.pyLen for dynamic dispatch
+        try self.emit("runtime.pyLen(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    } else if (is_kwarg_param) {
         // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()
         try self.emit("runtime.PyDict.len(");
         try self.genExpr(args[0]);

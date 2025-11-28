@@ -37,7 +37,6 @@ pub const StringKind = enum { regular, byte, raw };
 
 pub fn tokenizePrefixedString(self: *Lexer, start: usize, start_column: usize, kind: StringKind) !Token {
     const quote = self.advance().?; // Consume opening quote
-    const process_escapes = kind != .raw;
 
     // Check for triple quotes
     const is_triple = (self.peek() == quote and self.peekAhead(1) == quote);
@@ -58,9 +57,12 @@ pub fn tokenizePrefixedString(self: *Lexer, start: usize, start_column: usize, k
     } else {
         // Single or double quoted string
         while (self.peek() != quote and !self.isAtEnd()) {
-            if (process_escapes and self.peek() == '\\') {
+            if (self.peek() == '\\') {
                 _ = self.advance(); // Consume backslash
-                _ = self.advance(); // Consume escaped character
+                // In raw strings, backslash-quote doesn't end the string but keeps both chars
+                // In regular strings, backslash escapes the next char
+                // Either way, consume the next character if it exists
+                if (!self.isAtEnd()) _ = self.advance(); // Consume escaped/following character
             } else {
                 _ = self.advance();
             }
