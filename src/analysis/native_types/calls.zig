@@ -461,6 +461,7 @@ pub fn inferCall(
             const RANDOM_HASH = comptime fnv_hash.hash("random");
             const TIME_HASH = comptime fnv_hash.hash("time");
             const UUID_HASH = comptime fnv_hash.hash("uuid");
+            const THREADING_HASH = comptime fnv_hash.hash("threading");
 
             switch (module_hash) {
                 BASE64_HASH => {
@@ -600,6 +601,15 @@ pub fn inferCall(
                         return .{ .string = .runtime }; // UUID as string
                     }
                     return .unknown;
+                },
+                THREADING_HASH => {
+                    // threading module type inference
+                    const func_hash = fnv_hash.hash(func_name);
+                    const ACTIVE_COUNT_HASH = comptime fnv_hash.hash("active_count");
+                    if (func_hash == ACTIVE_COUNT_HASH) {
+                        return .int;
+                    }
+                    return .unknown; // Thread, Lock, Event etc. are structs
                 },
                 PICKLE_HASH => {
                     // pickle.dumps() returns bytes, pickle.loads() returns dynamic value
