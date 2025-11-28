@@ -164,6 +164,8 @@ const venv_mod = @import("../venv_mod.zig");
 const zipimport_mod = @import("../zipimport_mod.zig");
 const compileall_mod = @import("../compileall_mod.zig");
 const py_compile_mod = @import("../py_compile_mod.zig");
+const contextvars_mod = @import("../contextvars_mod.zig");
+const site_mod = @import("../site_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -392,6 +394,9 @@ const OsFuncs = FuncMap.initComptime(.{
     .{ "getcwd", os_mod.genGetcwd },
     .{ "chdir", os_mod.genChdir },
     .{ "listdir", os_mod.genListdir },
+    .{ "getenv", os_mod.genGetenv },
+    .{ "mkdir", os_mod.genMkdir },
+    .{ "makedirs", os_mod.genMakedirs },
 });
 
 /// OS.path module functions
@@ -3369,6 +3374,28 @@ const PyCompileFuncs = FuncMap.initComptime(.{
     .{ "PycInvalidationMode", py_compile_mod.genPycInvalidationMode },
 });
 
+/// contextvars module functions
+const ContextvarsFuncs = FuncMap.initComptime(.{
+    .{ "ContextVar", contextvars_mod.genContextVar },
+    .{ "Token", contextvars_mod.genToken },
+    .{ "Context", contextvars_mod.genContext },
+    .{ "copy_context", contextvars_mod.genCopy_context },
+});
+
+/// site module functions
+const SiteFuncs = FuncMap.initComptime(.{
+    .{ "PREFIXES", site_mod.genPREFIXES },
+    .{ "ENABLE_USER_SITE", site_mod.genENABLE_USER_SITE },
+    .{ "USER_SITE", site_mod.genUSER_SITE },
+    .{ "USER_BASE", site_mod.genUSER_BASE },
+    .{ "main", site_mod.genMain },
+    .{ "addsitedir", site_mod.genAddsitedir },
+    .{ "getsitepackages", site_mod.genGetsitepackages },
+    .{ "getuserbase", site_mod.genGetuserbase },
+    .{ "getusersitepackages", site_mod.genGetusersitepackages },
+    .{ "removeduppaths", site_mod.genRemoveduppaths },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -3565,6 +3592,8 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "zipimport", ZipimportFuncs },
     .{ "compileall", CompileallFuncs },
     .{ "py_compile", PyCompileFuncs },
+    .{ "contextvars", ContextvarsFuncs },
+    .{ "site", SiteFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
