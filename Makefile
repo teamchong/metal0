@@ -1,4 +1,4 @@
-.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-regex benchmark-tokenizer clean format
+.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-regex benchmark-tokenizer benchmark-numpy clean format
 
 # =============================================================================
 # HELP
@@ -28,6 +28,7 @@ help:
 	@echo "  make benchmark-flask     Flask + requests (PyAOT vs Rust vs Go vs Python)"
 	@echo "  make benchmark-regex     Regex (PyAOT vs Python vs Rust vs Go)"
 	@echo "  make benchmark-tokenizer BPE tokenizer (vs tiktoken/HuggingFace)"
+	@echo "  make benchmark-numpy     NumPy matmul (PyAOT+BLAS vs Python+NumPy)"
 	@echo ""
 	@echo "Other:"
 	@echo "  make format         Format Zig code"
@@ -172,6 +173,11 @@ benchmark-tokenizer: build-release
 	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
 	@echo "Tokenizer Benchmark: PyAOT BPE vs tiktoken vs HuggingFace"
 	@cd benchmarks/tokenizer && bash bench.sh
+
+benchmark-numpy: build-release
+	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
+	@echo "NumPy Matrix Multiplication: PyAOT+BLAS vs Python+NumPy"
+	@cd benchmarks/numpy && bash bench.sh
 
 # =============================================================================
 # UTILITIES
