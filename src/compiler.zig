@@ -37,6 +37,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"scheduler\")", "@import(\"scheduler.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"regex\")", "@import(\"regex/src/pyregex/regex.zig\")");
 
         // Patch relative utils imports to use local utils/ directory
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"../../src/utils/", "@import(\"utils/");
@@ -382,6 +383,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"scheduler\")", "@import(\"scheduler.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"regex\")", "@import(\"regex/src/pyregex/regex.zig\")");
 
         // Patch relative utils imports to use local utils/ directory
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"../../src/utils/", "@import(\"utils/");
