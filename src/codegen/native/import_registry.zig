@@ -226,6 +226,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("collections", .zig_runtime, "std", null); // collections module
     try registry.register("functools", .zig_runtime, "std", null); // functools module
     try registry.register("itertools", .zig_runtime, "std", null); // itertools module
+    try registry.register("logging", .zig_runtime, "std", null); // logging module
     try registry.register("copy", .zig_runtime, "std", null); // copy module
     try registry.register("typing", .zig_runtime, "std", null); // typing module (no-ops)
     try registry.register("contextlib", .zig_runtime, "std", null); // contextlib module
