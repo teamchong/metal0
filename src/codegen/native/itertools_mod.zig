@@ -37,14 +37,13 @@ pub fn genChain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Repeat a value infinitely or n times
 pub fn genRepeat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-    
+
     try self.emit("repeat_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(@TypeOf(");
-    try self.genExpr(args[0]);
-    try self.emit(")).init(allocator);\n");
-    
+    // Use i64 for numeric values, avoids comptime_int issues
+    try self.emit("var _result = std.ArrayList(i64).init(allocator);\n");
+
     try self.emitIndent();
     if (args.len > 1) {
         try self.emit("var _i: usize = 0; while (_i < @as(usize, @intCast(");
@@ -58,7 +57,7 @@ pub fn genRepeat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit(") catch {};\n");
     }
-    
+
     try self.emitIndent();
     try self.emit("break :repeat_blk _result;\n");
     self.dedent();
