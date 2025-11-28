@@ -425,35 +425,36 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 
 **JSON Parse (50K × 38KB = 1.9GB processed):**
 
-| Implementation | Time | vs Python |
-|---------------|------|-----------|
-| **PyPy** | **3.1s ± 0.0s** | **2.65x faster** 🏆 |
-| Rust (serde_json) | 4.4s ± 0.0s | 1.86x faster |
-| PyAOT | 5.3s ± 0.2s | 1.56x faster |
-| Python | 8.3s ± 0.1s | baseline |
-| Go | 13.8s ± 0.0s | 0.60x (slower) |
+| Implementation | Time | vs PyPy |
+|---------------|------|---------|
+| **PyPy** | **3.1s ± 0.0s** | **1.00x** 🏆 |
+| **PyAOT** | **3.9s ± 0.2s** | **1.24x** |
+| Rust (serde_json) | 4.4s ± 0.0s | 1.39x |
+| Python | 8.2s ± 0.1s | 2.61x |
+| Go | 13.6s ± 0.3s | 4.35x |
 
-*PyAOT is 1.20x slower than Rust due to PyObject allocation overhead required for C API compatibility.*
+*PyAOT is within 24% of PyPy thanks to arena allocation (single malloc for entire parse, bulk free).*
 
-**JSON Stringify (50K × 38KB = 1.9GB processed):**
+**JSON Stringify (100K × 38KB = 3.8GB processed):**
 
-| Implementation | Time | vs Python |
-|---------------|------|-----------|
-| **PyAOT** | **1.4s ± 0.0s** | **4.27x faster** 🏆 |
-| Rust (serde_json) | 1.6s ± 0.2s | 3.79x faster |
-| Python | 6.1s ± 0.0s | baseline |
-| PyPy | 6.2s ± 0.0s | 0.99x (same) |
-| Go | 7.9s ± 0.0s | 0.78x (slower) |
+| Implementation | Time | vs PyAOT |
+|---------------|------|----------|
+| **PyAOT** | **2.9s ± 0.0s** | **1.00x** 🏆 |
+| Rust (serde_json) | 3.0s ± 0.0s | 1.05x |
+| Python | 12.2s ± 0.1s | 4.29x |
+| PyPy | 12.3s ± 0.1s | 4.31x |
+| Go | 15.1s ± 0.2s | 5.27x |
 
-*PyAOT stringify beats Rust by 12% thanks to SIMD escaping and comptime lookup tables.*
+*PyAOT stringify beats ALL including Rust, PyPy, and Python thanks to SIMD escaping and comptime lookup tables.*
 
 **Key optimizations:**
+- **Arena allocator** - Single 1MB allocation for entire parse, bump-pointer (~2 CPU cycles per alloc vs ~100+ for malloc), bulk free when done
+- **Key interning** - 32-entry LRU cache for repeated dictionary keys (avoids allocations for "id", "name", etc.)
 - SIMD whitespace skipping (AVX2/NEON) - process 32 bytes per iteration
 - SIMD number parsing (8-digit chunks) - vectorized digit conversion
 - SIMD string escaping (`@Vector(16, u8)`) - 4.3x speedup on ARM64 NEON
 - 64KB pre-allocated buffer for stringify (eliminates reallocation)
 - Comptime lookup tables for escape detection (256-byte table)
-- Arena allocator with capacity retention
 - Single-pass parsing with quote/escape detection
 - Zero-copy dictionary keys
 

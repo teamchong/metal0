@@ -445,15 +445,8 @@ fn parseObject(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
         return ParseResult(*runtime.PyObject).init(obj, i + 1 - pos);
     }
 
-    // Pre-size dict for large objects to avoid resizing during parse
-    // Only pre-count if object looks large (worth the double-scan cost)
-    // Heuristic: if remaining data is > 200 bytes, it's likely a large object
-    if (data.len - pos > 200) {
-        const key_count = countObjectKeys(data, pos);
-        if (key_count > 8) {
-            dict_data.map.ensureTotalCapacity(@intCast(key_count)) catch {};
-        }
-    }
+    // Note: Pre-sizing was tested but double-scanning hurts performance
+    // Arena allocator already handles the resize overhead efficiently
 
     // Parse key-value pairs
     while (true) {
