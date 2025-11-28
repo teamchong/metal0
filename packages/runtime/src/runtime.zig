@@ -415,6 +415,7 @@ pub const requests = @import("requests.zig");
 pub const eval_module = @import("eval.zig");
 pub const exec_module = @import("exec.zig");
 pub const gzip = @import("gzip/gzip.zig");
+pub const hashlib = @import("hashlib.zig");
 
 // Green thread runtime (real M:N scheduler)
 pub const GreenThread = @import("green_thread.zig").GreenThread;
