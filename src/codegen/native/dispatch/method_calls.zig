@@ -6,6 +6,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 const zig_keywords = @import("zig_keywords");
 
 const methods = @import("../methods.zig");
+const io_mod = @import("../io.zig");
 const pandas_mod = @import("../pandas.zig");
 const unittest_mod = @import("../unittest/mod.zig");
 
@@ -73,6 +74,17 @@ const FileMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "read", methods.genFileRead },
     .{ "write", methods.genFileWrite },
     .{ "close", methods.genFileClose },
+});
+
+// StringIO/BytesIO stream methods - O(1) lookup
+const StreamMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "write", {} },
+    .{ "read", {} },
+    .{ "getvalue", {} },
+    .{ "seek", {} },
+    .{ "tell", {} },
+    .{ "truncate", {} },
+    .{ "close", {} },
 });
 
 // Pandas column methods - O(1) lookup via StaticStringMap
@@ -168,10 +180,22 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         return true;
     }
 
-    // Try file methods
-    if (FileMethods.get(method_name)) |handler| {
-        try handler(self, obj, call.args);
-        return true;
+    // Try file/stream methods with type-aware dispatch
+    if (FileMethods.has(method_name) or StreamMethods.has(method_name)) {
+        // Infer object type to dispatch correctly
+        const obj_type = self.type_inferrer.inferExpr(obj) catch .unknown;
+        if (obj_type == .stringio or obj_type == .bytesio) {
+            // StringIO/BytesIO stream methods
+            if (try handleStreamMethod(self, method_name, obj, call.args)) {
+                return true;
+            }
+        } else {
+            // File methods (PyFile)
+            if (FileMethods.get(method_name)) |handler| {
+                try handler(self, obj, call.args);
+                return true;
+            }
+        }
     }
 
     // Special cases that need custom handling (count, index, get)
@@ -310,5 +334,63 @@ fn handleQueueMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: []
         try self.emit(")");
     }
 
+    return true;
+}
+
+/// Handle StringIO/BytesIO stream methods
+fn handleStreamMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.Node, args: []ast.Node) CodegenError!bool {
+    const parent = @import("../expressions.zig");
+
+    // Generate receiver expression once
+    var receiver_buf = std.ArrayList(u8){};
+    defer receiver_buf.deinit(self.allocator);
+    const saved_output = self.output;
+    self.output = receiver_buf;
+    try parent.genExpr(self, obj);
+    const receiver = try self.output.toOwnedSlice(self.allocator);
+    defer self.allocator.free(receiver);
+    self.output = saved_output;
+
+    // Use simple string comparison for method dispatch
+    const fnv = @import("fnv_hash");
+    const WRITE = comptime fnv.hash("write");
+    const READ = comptime fnv.hash("read");
+    const GETVALUE = comptime fnv.hash("getvalue");
+    const SEEK = comptime fnv.hash("seek");
+    const TELL = comptime fnv.hash("tell");
+    const TRUNCATE = comptime fnv.hash("truncate");
+    const CLOSE = comptime fnv.hash("close");
+
+    const method_hash = fnv.hash(method_name);
+    if (method_hash == WRITE) {
+        // _ = stream.write(data) - returns bytes written
+        try self.emit("_ = ");
+        try self.emit(receiver);
+        try self.emit(".write(");
+        if (args.len > 0) try parent.genExpr(self, args[0]);
+        try self.emit(")");
+    } else if (method_hash == READ) {
+        try self.emit(receiver);
+        try self.emit(".read()");
+    } else if (method_hash == GETVALUE) {
+        try self.emit(receiver);
+        try self.emit(".getvalue()");
+    } else if (method_hash == SEEK) {
+        try self.emit(receiver);
+        try self.emit(".seek(");
+        if (args.len > 0) try parent.genExpr(self, args[0]) else try self.emit("0");
+        try self.emit(")");
+    } else if (method_hash == TELL) {
+        try self.emit(receiver);
+        try self.emit(".tell()");
+    } else if (method_hash == TRUNCATE) {
+        try self.emit(receiver);
+        try self.emit(".truncate()");
+    } else if (method_hash == CLOSE) {
+        try self.emit(receiver);
+        try self.emit(".close()");
+    } else {
+        return false;
+    }
     return true;
 }

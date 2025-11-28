@@ -17,6 +17,9 @@ const AllocatorMethods = std.StaticStringMap(void).initComptime(.{
     .{ "append", {} },
     .{ "extend", {} },
     .{ "insert", {} },
+    // StringIO/BytesIO methods
+    .{ "write", {} },
+    .{ "getvalue", {} },
 });
 
 /// unittest assertion methods - these don't need allocator
@@ -53,6 +56,8 @@ const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "dict", {} },
     .{ "format", {} },
     .{ "input", {} },
+    .{ "StringIO", {} },
+    .{ "BytesIO", {} },
 });
 
 /// Functions that return strings (for mightBeString)

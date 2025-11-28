@@ -73,6 +73,9 @@ pub const NativeType = union(enum) {
     numpy_array: void, // NumPy ndarray - wraps *runtime.PyObject with numpy_array type_id
     bool_array: void, // Boolean array - result of numpy comparison operations
     usize_slice: void, // []const usize - used for numpy shape/strides
+    stringio: void, // io.StringIO in-memory text stream
+    bytesio: void, // io.BytesIO in-memory binary stream
+    file: void, // File object from open()
 
     /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
@@ -210,6 +213,9 @@ pub const NativeType = union(enum) {
             .numpy_array => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .bool_array => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .usize_slice => try buf.appendSlice(allocator, "[]const usize"),
+            .stringio => try buf.appendSlice(allocator, "*runtime.io.StringIO"),
+            .bytesio => try buf.appendSlice(allocator, "*runtime.io.BytesIO"),
+            .file => try buf.appendSlice(allocator, "*runtime.PyFile"),
         }
     }
 
@@ -243,6 +249,10 @@ pub const NativeType = union(enum) {
         // usize and float → promote to float
         if ((self_tag == .usize and other_tag == .float) or
             (self_tag == .float and other_tag == .usize)) return .float;
+
+        // IO types stay as their own types (no widening)
+        if (self_tag == .stringio or self_tag == .bytesio or self_tag == .file) return self;
+        if (other_tag == .stringio or other_tag == .bytesio or other_tag == .file) return other;
 
         // Different incompatible types → fallback to unknown
         return .unknown;

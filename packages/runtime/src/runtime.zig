@@ -401,6 +401,7 @@ pub const NumpyArray = numpy_array.NumpyArray;
 pub const http = @import("http.zig");
 pub const async_runtime = @import("async.zig");
 pub const asyncio = @import("asyncio.zig");
+pub const io = @import("io.zig");
 pub const json = @import("json.zig");
 pub const re = @import("re.zig");
 pub const sys = @import("sys.zig");

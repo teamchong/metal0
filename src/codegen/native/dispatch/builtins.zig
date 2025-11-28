@@ -5,6 +5,7 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
 const builtins = @import("../builtins.zig");
+const io_mod = @import("../io.zig");
 
 /// Handler function type for builtin dispatchers
 const BuiltinHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -52,6 +53,9 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "locals", builtins.genLocals },
     // I/O
     .{ "open", builtins.genOpen },
+    // io module (from io import StringIO, BytesIO)
+    .{ "StringIO", io_mod.genStringIO },
+    .{ "BytesIO", io_mod.genBytesIO },
 });
 
 /// Try to dispatch built-in function call

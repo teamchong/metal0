@@ -23,6 +23,9 @@ const BuiltinFuncMap = std.StaticStringMap(NativeType).initComptime(.{
     .{ "max", NativeType.int },
     .{ "sum", NativeType.int },
     .{ "hash", NativeType.int },
+    // io module (from io import StringIO, BytesIO)
+    .{ "StringIO", NativeType.stringio },
+    .{ "BytesIO", NativeType.bytesio },
 });
 
 const StringMethods = std.StaticStringMap(NativeType).initComptime(.{
@@ -105,6 +108,10 @@ const NumpyArrayFuncs = std.StaticStringMap(void).initComptime(.{
     .{ "transpose", {} },
     .{ "squeeze", {} },
     .{ "expand_dims", {} },
+    .{ "concatenate", {} },
+    .{ "vstack", {} },
+    .{ "hstack", {} },
+    .{ "stack", {} },
     // Element-wise math
     .{ "add", {} },
     .{ "subtract", {} },
@@ -120,6 +127,91 @@ const NumpyArrayFuncs = std.StaticStringMap(void).initComptime(.{
     // Linear algebra that returns arrays
     .{ "matmul", {} },
     .{ "outer", {} },
+    // Conditional and rounding
+    .{ "where", {} },
+    .{ "clip", {} },
+    .{ "floor", {} },
+    .{ "ceil", {} },
+    .{ "round", {} },
+    .{ "rint", {} },
+    // Sorting (returns arrays)
+    .{ "sort", {} },
+    .{ "argsort", {} },
+    .{ "unique", {} },
+    // Copying
+    .{ "copy", {} },
+    .{ "asarray", {} },
+    // Repeating/flipping
+    .{ "tile", {} },
+    .{ "repeat", {} },
+    .{ "flip", {} },
+    .{ "flipud", {} },
+    .{ "fliplr", {} },
+    // Cumulative
+    .{ "cumsum", {} },
+    .{ "cumprod", {} },
+    .{ "diff", {} },
+    // Matrix construction
+    .{ "diag", {} },
+    .{ "triu", {} },
+    .{ "tril", {} },
+    // Additional math
+    .{ "tan", {} },
+    .{ "arcsin", {} },
+    .{ "arccos", {} },
+    .{ "arctan", {} },
+    .{ "sinh", {} },
+    .{ "cosh", {} },
+    .{ "tanh", {} },
+    .{ "log10", {} },
+    .{ "log2", {} },
+    .{ "exp2", {} },
+    .{ "expm1", {} },
+    .{ "log1p", {} },
+    .{ "sign", {} },
+    .{ "negative", {} },
+    .{ "reciprocal", {} },
+    .{ "square", {} },
+    .{ "cbrt", {} },
+    .{ "maximum", {} },
+    .{ "minimum", {} },
+    .{ "mod", {} },
+    .{ "remainder", {} },
+    // Array manipulation (roll, rot90, pad, take, put, cross)
+    .{ "roll", {} },
+    .{ "rot90", {} },
+    .{ "pad", {} },
+    .{ "take", {} },
+    .{ "put", {} },
+    .{ "cross", {} },
+    // Logical array operations
+    .{ "logical_and", {} },
+    .{ "logical_or", {} },
+    .{ "logical_not", {} },
+    .{ "logical_xor", {} },
+    .{ "isin", {} },
+    .{ "isnan", {} },
+    .{ "isinf", {} },
+    .{ "isfinite", {} },
+    // Set functions
+    .{ "setdiff1d", {} },
+    .{ "union1d", {} },
+    .{ "intersect1d", {} },
+    // Numerical functions
+    .{ "gradient", {} },
+    .{ "interp", {} },
+    .{ "convolve", {} },
+    .{ "correlate", {} },
+    // Utility functions
+    .{ "nonzero", {} },
+    .{ "flatnonzero", {} },
+    .{ "meshgrid", {} },
+    .{ "histogram", {} },
+    .{ "bincount", {} },
+    .{ "digitize", {} },
+    .{ "nan_to_num", {} },
+    .{ "absolute", {} },
+    .{ "fabs", {} },
 });
 
 // NumPy functions that return scalars (float)
@@ -139,12 +231,23 @@ const NumpyScalarFuncs = std.StaticStringMap(void).initComptime(.{
     .{ "percentile", {} },
     .{ "norm", {} },
     .{ "det", {} },
+    .{ "trapz", {} },
 });
 
 // NumPy functions that return integers
 const NumpyIntFuncs = std.StaticStringMap(void).initComptime(.{
     .{ "argmin", {} },
     .{ "argmax", {} },
+    .{ "searchsorted", {} },
+    .{ "count_nonzero", {} },
+});
+
+// NumPy functions that return booleans
+const NumpyBoolFuncs = std.StaticStringMap(void).initComptime(.{
+    .{ "allclose", {} },
+    .{ "array_equal", {} },
+    .{ "any", {} },
+    .{ "all", {} },
 });
 
 // NumPy random functions that return arrays
@@ -281,8 +384,15 @@ pub fn inferCall(
             const PD_HASH = comptime fnv_hash.hash("pd");
             const NUMPY_HASH = comptime fnv_hash.hash("numpy");
             const NP_HASH = comptime fnv_hash.hash("np");
+            const IO_HASH = comptime fnv_hash.hash("io");
 
             switch (module_hash) {
+                IO_HASH => {
+                    const func_hash = fnv_hash.hash(func_name);
+                    if (func_hash == comptime fnv_hash.hash("StringIO")) return .stringio;
+                    if (func_hash == comptime fnv_hash.hash("BytesIO")) return .bytesio;
+                    if (func_hash == comptime fnv_hash.hash("open")) return .file;
+                },
                 JSON_HASH => if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("loads")) return .unknown,
                 MATH_HASH => {
                     if (MathIntFuncs.has(func_name)) return .int;
@@ -295,6 +405,7 @@ pub fn inferCall(
                     if (NumpyArrayFuncs.has(func_name)) return .numpy_array;
                     if (NumpyScalarFuncs.has(func_name)) return .float;
                     if (NumpyIntFuncs.has(func_name)) return .int;
+                    if (NumpyBoolFuncs.has(func_name)) return .bool;
                 },
                 else => {},
             }
