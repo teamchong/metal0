@@ -5,20 +5,14 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 /// Generate sqlite3.connect(database) -> Connection
+/// Uses the C interop sqlite3 module
 pub fn genConnect(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    try self.emit("sqlite3_connect_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _db = ");
+    // Call the C interop sqlite3.connect function
+    try self.emit("try sqlite3.connect(");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("break :sqlite3_connect_blk Connection{ .database = _db };\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit(")");
 }
 
 /// Generate Connection struct

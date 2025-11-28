@@ -462,8 +462,32 @@ pub fn inferCall(
             const TIME_HASH = comptime fnv_hash.hash("time");
             const UUID_HASH = comptime fnv_hash.hash("uuid");
             const THREADING_HASH = comptime fnv_hash.hash("threading");
+            const SQLITE3_HASH = comptime fnv_hash.hash("sqlite3");
+            const ZLIB_HASH = comptime fnv_hash.hash("zlib");
 
             switch (module_hash) {
+                SQLITE3_HASH => {
+                    // sqlite3 module type inference
+                    const func_hash = fnv_hash.hash(func_name);
+                    const CONNECT_HASH = comptime fnv_hash.hash("connect");
+                    if (func_hash == CONNECT_HASH) return .sqlite_connection;
+                    return .unknown;
+                },
+                ZLIB_HASH => {
+                    // zlib compress/decompress returns bytes (string)
+                    const func_hash = fnv_hash.hash(func_name);
+                    const COMPRESS_HASH = comptime fnv_hash.hash("compress");
+                    const DECOMPRESS_HASH = comptime fnv_hash.hash("decompress");
+                    const CRC32_HASH = comptime fnv_hash.hash("crc32");
+                    const ADLER32_HASH = comptime fnv_hash.hash("adler32");
+                    if (func_hash == COMPRESS_HASH or func_hash == DECOMPRESS_HASH) {
+                        return .{ .string = .runtime };
+                    }
+                    if (func_hash == CRC32_HASH or func_hash == ADLER32_HASH) {
+                        return .int;
+                    }
+                    return .unknown;
+                },
                 BASE64_HASH => {
                     // All base64 functions return bytes/string
                     return .{ .string = .runtime };
@@ -515,9 +539,12 @@ pub fn inferCall(
                     const GETCWD_HASH = comptime fnv_hash.hash("getcwd");
                     const LISTDIR_HASH = comptime fnv_hash.hash("listdir");
                     const CHDIR_HASH = comptime fnv_hash.hash("chdir");
-                    if (func_hash == GETCWD_HASH) return .{ .string = .runtime };
+                    const GETENV_HASH = comptime fnv_hash.hash("getenv");
+                    const MKDIR_HASH = comptime fnv_hash.hash("mkdir");
+                    const MAKEDIRS_HASH = comptime fnv_hash.hash("makedirs");
+                    if (func_hash == GETCWD_HASH or func_hash == GETENV_HASH) return .{ .string = .runtime };
                     if (func_hash == LISTDIR_HASH) return .unknown; // ArrayList([]const u8)
-                    if (func_hash == CHDIR_HASH) return .none;
+                    if (func_hash == CHDIR_HASH or func_hash == MKDIR_HASH or func_hash == MAKEDIRS_HASH) return .none;
                     return .unknown;
                 },
                 OS_PATH_HASH, PATH_HASH => {
@@ -563,8 +590,12 @@ pub fn inferCall(
                     if (func_hash == SEED_HASH or func_hash == SHUFFLE_HASH) {
                         return .none;
                     }
-                    // Unknown (choice returns element type, sample/choices return list)
-                    if (func_hash == CHOICE_HASH or func_hash == SAMPLE_HASH or func_hash == CHOICES_HASH) {
+                    // choice returns element type (assume int for common case)
+                    if (func_hash == CHOICE_HASH) {
+                        return .int;
+                    }
+                    // sample/choices return list (unknown for now)
+                    if (func_hash == SAMPLE_HASH or func_hash == CHOICES_HASH) {
                         return .unknown;
                     }
                     return .unknown;

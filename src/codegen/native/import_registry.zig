@@ -188,6 +188,27 @@ const ReFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
     .{ "findall", ReErrorFn },
 });
 
+/// sqlite3 module: C interop functions (no allocator needed, returns errors)
+const Sqlite3ErrorFn = FunctionMeta{ .no_alloc = true, .returns_error = true };
+const Sqlite3FuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
+    .{ "connect", Sqlite3ErrorFn },
+});
+
+/// numpy module: C interop functions (no allocator needed from Python side)
+const NumpyFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
+    .{ "array", FunctionMeta{ .no_alloc = true, .returns_error = true } },
+    .{ "zeros", FunctionMeta{ .no_alloc = true, .returns_error = true } },
+    .{ "ones", FunctionMeta{ .no_alloc = true, .returns_error = true } },
+    .{ "sum", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+    .{ "mean", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+});
+
+/// zlib module: compression functions (no allocator needed from Python side)
+const ZlibFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
+    .{ "compress", FunctionMeta{ .no_alloc = true, .returns_error = true } },
+    .{ "decompress", FunctionMeta{ .no_alloc = true, .returns_error = true } },
+});
+
 // ============================================================================
 // Registry initialization
 // ============================================================================
@@ -211,9 +232,9 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.registerWithMeta("requests", .zig_runtime, "runtime.requests", null, true, &RequestsFuncMeta);
 
     // Tier 2: C library wrappers
-    try registry.register("numpy", .c_library, "@import(\"./c_interop/c_interop.zig\").numpy", "blas");
-    try registry.register("sqlite3", .c_library, "@import(\"./c_interop/c_interop.zig\").sqlite3", "sqlite3");
-    try registry.register("zlib", .c_library, "@import(\"./c_interop/c_interop.zig\").zlib", "z");
+    try registry.registerWithMeta("numpy", .c_library, "@import(\"./c_interop/c_interop.zig\").numpy", "blas", false, &NumpyFuncMeta);
+    try registry.registerWithMeta("sqlite3", .c_library, "@import(\"./c_interop/c_interop.zig\").sqlite3", "sqlite3", false, &Sqlite3FuncMeta);
+    try registry.registerWithMeta("zlib", .c_library, "@import(\"./c_interop/c_interop.zig\").zlib", "z", false, &ZlibFuncMeta);
     try registry.register("ssl", .c_library, "@import(\"./c_interop/c_interop.zig\").ssl", "ssl");
     try registry.register("hashlib", .zig_runtime, "runtime.hashlib", null); // Uses Zig std.crypto
     try registry.register("struct", .zig_runtime, "std", null); // struct module is inline codegen

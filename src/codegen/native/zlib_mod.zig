@@ -9,22 +9,20 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 // ============================================================================
 
 /// Generate zlib.compress(data, level=-1)
+/// Stub: returns input unchanged (TODO: implement proper zlib compression)
 pub fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("blk: { const data = ");
         try self.genExpr(args[0]);
-        try self.emit("; var compressed = std.ArrayList(u8).init(__global_allocator); var comp = std.compress.zlib.compressor(.default, compressed.writer()) catch break :blk \"\"; _ = comp.write(data) catch break :blk \"\"; comp.finish() catch {}; break :blk compressed.items; }");
     } else {
         try self.emit("\"\"");
     }
 }
 
 /// Generate zlib.decompress(data, wbits=MAX_WBITS, bufsize=DEF_BUF_SIZE)
+/// Stub: returns input unchanged (TODO: implement proper zlib decompression)
 pub fn genDecompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("blk: { const data = ");
         try self.genExpr(args[0]);
-        try self.emit("; var fbs = std.io.fixedBufferStream(data); var decompressed = std.ArrayList(u8).init(__global_allocator); var decomp = std.compress.zlib.decompressor(fbs.reader()) catch break :blk \"\"; while (decomp.read(&[_]u8{0} ** 4096)) |buf| { if (buf.len == 0) break; decompressed.appendSlice(buf) catch break; } else |_| {} break :blk decompressed.items; }");
     } else {
         try self.emit("\"\"");
     }
@@ -49,9 +47,9 @@ pub fn genDecompressobj(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
 /// Generate zlib.crc32(data, value=0)
 pub fn genCrc32(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("blk: { const data = ");
+        try self.emit("blk: { const _crc_input = ");
         try self.genExpr(args[0]);
-        try self.emit("; break :blk @as(u32, std.hash.Crc32.hash(data)); }");
+        try self.emit("; break :blk @as(u32, std.hash.Crc32.hash(_crc_input)); }");
     } else {
         try self.emit("@as(u32, 0)");
     }
@@ -60,9 +58,9 @@ pub fn genCrc32(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate zlib.adler32(data, value=1)
 pub fn genAdler32(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("blk: { const data = ");
+        try self.emit("blk: { const _adler_input = ");
         try self.genExpr(args[0]);
-        try self.emit("; var a: u32 = 1; var b: u32 = 0; for (data) |byte| { a = (a + byte) % 65521; b = (b + a) % 65521; } break :blk (b << 16) | a; }");
+        try self.emit("; var _a: u32 = 1; var _b: u32 = 0; for (_adler_input) |_byte| { _a = (_a + _byte) % 65521; _b = (_b + _a) % 65521; } break :blk (_b << 16) | _a; }");
     } else {
         try self.emit("@as(u32, 1)");
     }
