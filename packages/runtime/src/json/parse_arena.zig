@@ -217,28 +217,19 @@ fn parseNumber(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
     return ParseResult(*runtime.PyObject).init(obj, i - pos);
 }
 
-/// Parse string
+/// Parse string (uses SIMD for fast quote/escape detection)
 fn parseString(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
     if (pos >= data.len or data[pos] != '"') return JsonError.UnexpectedToken;
 
-    var i = pos + 1;
-    var has_escape = false;
+    // Use SIMD to find closing quote AND detect escapes in single pass
+    const str_start = pos + 1;
+    const result = simd.findClosingQuoteAndEscapes(data[str_start..]) orelse
+        return JsonError.UnexpectedEndOfInput;
 
-    // Scan for end quote, check for escapes
-    while (i < data.len) {
-        const c = data[i];
-        if (c == '"') break;
-        if (c == '\\') {
-            has_escape = true;
-            i += 2; // Skip escape sequence
-        } else {
-            i += 1;
-        }
-    }
+    const i = str_start + result.quote_pos;
+    const has_escape = result.has_escapes;
 
-    if (i >= data.len) return JsonError.UnexpectedEndOfInput;
-
-    const str_content = data[pos + 1 .. i];
+    const str_content = data[str_start..i];
     const consumed = i + 1 - pos;
 
     // Allocate string content
@@ -482,27 +473,19 @@ fn parseObject(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
     }
 }
 
-/// Parse key string - returns raw string (with interning)
+/// Parse key string - returns raw string (with interning, uses SIMD)
 fn parseKeyString(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult([]const u8) {
     if (pos >= data.len or data[pos] != '"') return JsonError.UnexpectedToken;
 
-    var i = pos + 1;
-    var has_escape = false;
+    // Use SIMD to find closing quote AND detect escapes in single pass
+    const key_start = pos + 1;
+    const result = simd.findClosingQuoteAndEscapes(data[key_start..]) orelse
+        return JsonError.UnexpectedEndOfInput;
 
-    while (i < data.len) {
-        const c = data[i];
-        if (c == '"') break;
-        if (c == '\\') {
-            has_escape = true;
-            i += 2;
-        } else {
-            i += 1;
-        }
-    }
+    const i = key_start + result.quote_pos;
+    const has_escape = result.has_escapes;
 
-    if (i >= data.len) return JsonError.UnexpectedEndOfInput;
-
-    const key_content = data[pos + 1 .. i];
+    const key_content = data[key_start..i];
     const consumed = i + 1 - pos;
 
     var final_key: []const u8 = undefined;
