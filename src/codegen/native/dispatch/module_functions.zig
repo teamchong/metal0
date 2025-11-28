@@ -155,6 +155,15 @@ const html_parser_mod = @import("../html_parser_mod.zig");
 const html_entities_mod = @import("../html_entities_mod.zig");
 const xml_sax_mod = @import("../xml_sax_mod.zig");
 const xml_dom_mod = @import("../xml_dom_mod.zig");
+const builtins_mod = @import("../builtins_mod.zig");
+const typing_extensions_mod = @import("../typing_extensions_mod.zig");
+const importlib_mod = @import("../importlib_mod.zig");
+const pkgutil_mod = @import("../pkgutil_mod.zig");
+const runpy_mod = @import("../runpy_mod.zig");
+const venv_mod = @import("../venv_mod.zig");
+const zipimport_mod = @import("../zipimport_mod.zig");
+const compileall_mod = @import("../compileall_mod.zig");
+const py_compile_mod = @import("../py_compile_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -3056,6 +3065,310 @@ const XmlDomFuncs = FuncMap.initComptime(.{
     .{ "WrongDocumentErr", xml_dom_mod.genWrongDocumentErr },
 });
 
+/// builtins module functions
+const BuiltinsFuncs = FuncMap.initComptime(.{
+    .{ "open", builtins_mod.genOpen },
+    .{ "print", builtins_mod.genPrint },
+    .{ "len", builtins_mod.genLen },
+    .{ "range", builtins_mod.genRange },
+    .{ "enumerate", builtins_mod.genEnumerate },
+    .{ "zip", builtins_mod.genZip },
+    .{ "map", builtins_mod.genMap },
+    .{ "filter", builtins_mod.genFilter },
+    .{ "sorted", builtins_mod.genSorted },
+    .{ "reversed", builtins_mod.genReversed },
+    .{ "sum", builtins_mod.genSum },
+    .{ "min", builtins_mod.genMin },
+    .{ "max", builtins_mod.genMax },
+    .{ "abs", builtins_mod.genAbs },
+    .{ "all", builtins_mod.genAll },
+    .{ "any", builtins_mod.genAny },
+    .{ "isinstance", builtins_mod.genIsinstance },
+    .{ "issubclass", builtins_mod.genIssubclass },
+    .{ "hasattr", builtins_mod.genHasattr },
+    .{ "getattr", builtins_mod.genGetattr },
+    .{ "setattr", builtins_mod.genSetattr },
+    .{ "delattr", builtins_mod.genDelattr },
+    .{ "callable", builtins_mod.genCallable },
+    .{ "repr", builtins_mod.genRepr },
+    .{ "ascii", builtins_mod.genAscii },
+    .{ "chr", builtins_mod.genChr },
+    .{ "ord", builtins_mod.genOrd },
+    .{ "hex", builtins_mod.genHex },
+    .{ "oct", builtins_mod.genOct },
+    .{ "bin", builtins_mod.genBin },
+    .{ "pow", builtins_mod.genPow },
+    .{ "round", builtins_mod.genRound },
+    .{ "divmod", builtins_mod.genDivmod },
+    .{ "hash", builtins_mod.genHash },
+    .{ "id", builtins_mod.genId },
+    .{ "type", builtins_mod.genType },
+    .{ "dir", builtins_mod.genDir },
+    .{ "vars", builtins_mod.genVars },
+    .{ "globals", builtins_mod.genGlobals },
+    .{ "locals", builtins_mod.genLocals },
+    .{ "eval", builtins_mod.genEval },
+    .{ "exec", builtins_mod.genExec },
+    .{ "compile", builtins_mod.genCompile },
+    .{ "input", builtins_mod.genInput },
+    .{ "format", builtins_mod.genFormat },
+    .{ "iter", builtins_mod.genIter },
+    .{ "next", builtins_mod.genNext },
+    .{ "slice", builtins_mod.genSlice },
+    .{ "staticmethod", builtins_mod.genStaticmethod },
+    .{ "classmethod", builtins_mod.genClassmethod },
+    .{ "property", builtins_mod.genProperty },
+    .{ "super", builtins_mod.genSuper },
+    .{ "object", builtins_mod.genObject },
+    .{ "breakpoint", builtins_mod.genBreakpoint },
+    .{ "__import__", builtins_mod.genImport },
+    .{ "Exception", builtins_mod.genException },
+    .{ "BaseException", builtins_mod.genBaseException },
+    .{ "TypeError", builtins_mod.genTypeError },
+    .{ "ValueError", builtins_mod.genValueError },
+    .{ "KeyError", builtins_mod.genKeyError },
+    .{ "IndexError", builtins_mod.genIndexError },
+    .{ "AttributeError", builtins_mod.genAttributeError },
+    .{ "NameError", builtins_mod.genNameError },
+    .{ "RuntimeError", builtins_mod.genRuntimeError },
+    .{ "StopIteration", builtins_mod.genStopIteration },
+    .{ "GeneratorExit", builtins_mod.genGeneratorExit },
+    .{ "ArithmeticError", builtins_mod.genArithmeticError },
+    .{ "ZeroDivisionError", builtins_mod.genZeroDivisionError },
+    .{ "OverflowError", builtins_mod.genOverflowError },
+    .{ "FloatingPointError", builtins_mod.genFloatingPointError },
+    .{ "LookupError", builtins_mod.genLookupError },
+    .{ "AssertionError", builtins_mod.genAssertionError },
+    .{ "ImportError", builtins_mod.genImportError },
+    .{ "ModuleNotFoundError", builtins_mod.genModuleNotFoundError },
+    .{ "OSError", builtins_mod.genOSError },
+    .{ "FileNotFoundError", builtins_mod.genFileNotFoundError },
+    .{ "FileExistsError", builtins_mod.genFileExistsError },
+    .{ "PermissionError", builtins_mod.genPermissionError },
+    .{ "IsADirectoryError", builtins_mod.genIsADirectoryError },
+    .{ "NotADirectoryError", builtins_mod.genNotADirectoryError },
+    .{ "TimeoutError", builtins_mod.genTimeoutError },
+    .{ "ConnectionError", builtins_mod.genConnectionError },
+    .{ "BrokenPipeError", builtins_mod.genBrokenPipeError },
+    .{ "ConnectionAbortedError", builtins_mod.genConnectionAbortedError },
+    .{ "ConnectionRefusedError", builtins_mod.genConnectionRefusedError },
+    .{ "ConnectionResetError", builtins_mod.genConnectionResetError },
+    .{ "EOFError", builtins_mod.genEOFError },
+    .{ "MemoryError", builtins_mod.genMemoryError },
+    .{ "RecursionError", builtins_mod.genRecursionError },
+    .{ "SystemError", builtins_mod.genSystemError },
+    .{ "SystemExit", builtins_mod.genSystemExit },
+    .{ "KeyboardInterrupt", builtins_mod.genKeyboardInterrupt },
+    .{ "NotImplementedError", builtins_mod.genNotImplementedError },
+    .{ "IndentationError", builtins_mod.genIndentationError },
+    .{ "TabError", builtins_mod.genTabError },
+    .{ "SyntaxError", builtins_mod.genSyntaxError },
+    .{ "UnicodeError", builtins_mod.genUnicodeError },
+    .{ "UnicodeDecodeError", builtins_mod.genUnicodeDecodeError },
+    .{ "UnicodeEncodeError", builtins_mod.genUnicodeEncodeError },
+    .{ "UnicodeTranslateError", builtins_mod.genUnicodeTranslateError },
+    .{ "BufferError", builtins_mod.genBufferError },
+    .{ "Warning", builtins_mod.genWarning },
+    .{ "UserWarning", builtins_mod.genUserWarning },
+    .{ "DeprecationWarning", builtins_mod.genDeprecationWarning },
+    .{ "PendingDeprecationWarning", builtins_mod.genPendingDeprecationWarning },
+    .{ "SyntaxWarning", builtins_mod.genSyntaxWarning },
+    .{ "RuntimeWarning", builtins_mod.genRuntimeWarning },
+    .{ "FutureWarning", builtins_mod.genFutureWarning },
+    .{ "ImportWarning", builtins_mod.genImportWarning },
+    .{ "UnicodeWarning", builtins_mod.genUnicodeWarning },
+    .{ "BytesWarning", builtins_mod.genBytesWarning },
+    .{ "ResourceWarning", builtins_mod.genResourceWarning },
+    .{ "True", builtins_mod.genTrue },
+    .{ "False", builtins_mod.genFalse },
+    .{ "None", builtins_mod.genNone },
+    .{ "Ellipsis", builtins_mod.genEllipsis },
+    .{ "NotImplemented", builtins_mod.genNotImplemented },
+});
+
+/// typing_extensions module functions
+const TypingExtensionsFuncs = FuncMap.initComptime(.{
+    .{ "Annotated", typing_extensions_mod.genAnnotated },
+    .{ "ParamSpec", typing_extensions_mod.genParamSpec },
+    .{ "ParamSpecArgs", typing_extensions_mod.genParamSpecArgs },
+    .{ "ParamSpecKwargs", typing_extensions_mod.genParamSpecKwargs },
+    .{ "Concatenate", typing_extensions_mod.genConcatenate },
+    .{ "TypeAlias", typing_extensions_mod.genTypeAlias },
+    .{ "TypeGuard", typing_extensions_mod.genTypeGuard },
+    .{ "TypeIs", typing_extensions_mod.genTypeIs },
+    .{ "Self", typing_extensions_mod.genSelf },
+    .{ "Never", typing_extensions_mod.genNever },
+    .{ "Required", typing_extensions_mod.genRequired },
+    .{ "NotRequired", typing_extensions_mod.genNotRequired },
+    .{ "LiteralString", typing_extensions_mod.genLiteralString },
+    .{ "Unpack", typing_extensions_mod.genUnpack },
+    .{ "TypeVarTuple", typing_extensions_mod.genTypeVarTuple },
+    .{ "override", typing_extensions_mod.genOverride },
+    .{ "final", typing_extensions_mod.genFinal },
+    .{ "deprecated", typing_extensions_mod.genDeprecated },
+    .{ "dataclass_transform", typing_extensions_mod.genDataclass_transform },
+    .{ "runtime_checkable", typing_extensions_mod.genRuntime_checkable },
+    .{ "Protocol", typing_extensions_mod.genProtocol },
+    .{ "TypedDict", typing_extensions_mod.genTypedDict },
+    .{ "NamedTuple", typing_extensions_mod.genNamedTuple },
+    .{ "get_type_hints", typing_extensions_mod.genGet_type_hints },
+    .{ "get_origin", typing_extensions_mod.genGet_origin },
+    .{ "get_args", typing_extensions_mod.genGet_args },
+    .{ "is_typeddict", typing_extensions_mod.genIs_typeddict },
+    .{ "get_annotations", typing_extensions_mod.genGet_annotations },
+    .{ "assert_type", typing_extensions_mod.genAssert_type },
+    .{ "reveal_type", typing_extensions_mod.genReveal_type },
+    .{ "assert_never", typing_extensions_mod.genAssert_never },
+    .{ "clear_overloads", typing_extensions_mod.genClear_overloads },
+    .{ "get_overloads", typing_extensions_mod.genGet_overloads },
+    .{ "Doc", typing_extensions_mod.genDoc },
+    .{ "ReadOnly", typing_extensions_mod.genReadOnly },
+    .{ "Any", typing_extensions_mod.genAny },
+    .{ "Union", typing_extensions_mod.genUnion },
+    .{ "Optional", typing_extensions_mod.genOptional },
+    .{ "List", typing_extensions_mod.genList },
+    .{ "Dict", typing_extensions_mod.genDict },
+    .{ "Set", typing_extensions_mod.genSet },
+    .{ "Tuple", typing_extensions_mod.genTuple },
+    .{ "Callable", typing_extensions_mod.genCallable },
+    .{ "Type", typing_extensions_mod.genType },
+    .{ "Literal", typing_extensions_mod.genLiteral },
+    .{ "ClassVar", typing_extensions_mod.genClassVar },
+    .{ "TypeVar", typing_extensions_mod.genTypeVar },
+    .{ "Generic", typing_extensions_mod.genGeneric },
+    .{ "NoReturn", typing_extensions_mod.genNoReturn },
+    .{ "cast", typing_extensions_mod.genCast },
+    .{ "overload", typing_extensions_mod.genOverload },
+    .{ "no_type_check", typing_extensions_mod.genNo_type_check },
+    .{ "TYPE_CHECKING", typing_extensions_mod.genTYPE_CHECKING },
+});
+
+/// importlib module functions
+const ImportlibFuncs = FuncMap.initComptime(.{
+    .{ "import_module", importlib_mod.genImport_module },
+    .{ "reload", importlib_mod.genReload },
+    .{ "invalidate_caches", importlib_mod.genInvalidate_caches },
+});
+
+/// importlib.abc module functions
+const ImportlibAbcFuncs = FuncMap.initComptime(.{
+    .{ "Loader", importlib_mod.genLoader },
+    .{ "MetaPathFinder", importlib_mod.genMetaPathFinder },
+    .{ "PathEntryFinder", importlib_mod.genPathEntryFinder },
+    .{ "ResourceLoader", importlib_mod.genResourceLoader },
+    .{ "InspectLoader", importlib_mod.genInspectLoader },
+    .{ "ExecutionLoader", importlib_mod.genExecutionLoader },
+    .{ "FileLoader", importlib_mod.genFileLoader },
+    .{ "SourceLoader", importlib_mod.genSourceLoader },
+    .{ "Traversable", importlib_mod.genTraversable },
+    .{ "TraversableResources", importlib_mod.genTraversableResources },
+});
+
+/// importlib.resources module functions
+const ImportlibResourcesFuncs = FuncMap.initComptime(.{
+    .{ "files", importlib_mod.genFiles },
+    .{ "as_file", importlib_mod.genAs_file },
+    .{ "read_text", importlib_mod.genRead_text },
+    .{ "read_binary", importlib_mod.genRead_binary },
+    .{ "is_resource", importlib_mod.genIs_resource },
+    .{ "contents", importlib_mod.genContents },
+});
+
+/// importlib.metadata module functions
+const ImportlibMetadataFuncs = FuncMap.initComptime(.{
+    .{ "version", importlib_mod.genVersion },
+    .{ "metadata", importlib_mod.genMetadata },
+    .{ "entry_points", importlib_mod.genEntry_points },
+    .{ "files", importlib_mod.genMetadataFiles },
+    .{ "requires", importlib_mod.genRequires },
+    .{ "distributions", importlib_mod.genDistributions },
+    .{ "packages_distributions", importlib_mod.genPackages_distributions },
+    .{ "PackageNotFoundError", importlib_mod.genPackageNotFoundError },
+});
+
+/// importlib.util module functions
+const ImportlibUtilFuncs = FuncMap.initComptime(.{
+    .{ "find_spec", importlib_mod.genFind_spec },
+    .{ "module_from_spec", importlib_mod.genModule_from_spec },
+    .{ "spec_from_loader", importlib_mod.genSpec_from_loader },
+    .{ "spec_from_file_location", importlib_mod.genSpec_from_file_location },
+    .{ "source_hash", importlib_mod.genSource_hash },
+    .{ "resolve_name", importlib_mod.genResolve_name },
+    .{ "LazyLoader", importlib_mod.genLazyLoader },
+    .{ "MAGIC_NUMBER", importlib_mod.genMAGIC_NUMBER },
+    .{ "cache_from_source", importlib_mod.genCache_from_source },
+    .{ "source_from_cache", importlib_mod.genSource_from_cache },
+    .{ "decode_source", importlib_mod.genDecode_source },
+});
+
+/// importlib.machinery module functions
+const ImportlibMachineryFuncs = FuncMap.initComptime(.{
+    .{ "ModuleSpec", importlib_mod.genModuleSpec },
+    .{ "BuiltinImporter", importlib_mod.genBuiltinImporter },
+    .{ "FrozenImporter", importlib_mod.genFrozenImporter },
+    .{ "PathFinder", importlib_mod.genPathFinder },
+    .{ "FileFinder", importlib_mod.genFileFinder },
+    .{ "SourceFileLoader", importlib_mod.genSourceFileLoader },
+    .{ "SourcelessFileLoader", importlib_mod.genSourcelessFileLoader },
+    .{ "ExtensionFileLoader", importlib_mod.genExtensionFileLoader },
+    .{ "SOURCE_SUFFIXES", importlib_mod.genSOURCE_SUFFIXES },
+    .{ "BYTECODE_SUFFIXES", importlib_mod.genBYTECODE_SUFFIXES },
+    .{ "EXTENSION_SUFFIXES", importlib_mod.genEXTENSION_SUFFIXES },
+    .{ "all_suffixes", importlib_mod.genAll_suffixes },
+});
+
+/// pkgutil module functions
+const PkgutilFuncs = FuncMap.initComptime(.{
+    .{ "extend_path", pkgutil_mod.genExtend_path },
+    .{ "find_loader", pkgutil_mod.genFind_loader },
+    .{ "get_importer", pkgutil_mod.genGet_importer },
+    .{ "get_loader", pkgutil_mod.genGet_loader },
+    .{ "iter_importers", pkgutil_mod.genIter_importers },
+    .{ "iter_modules", pkgutil_mod.genIter_modules },
+    .{ "walk_packages", pkgutil_mod.genWalk_packages },
+    .{ "get_data", pkgutil_mod.genGet_data },
+    .{ "resolve_name", pkgutil_mod.genResolve_name },
+    .{ "ModuleInfo", pkgutil_mod.genModuleInfo },
+    .{ "ImpImporter", pkgutil_mod.genImpImporter },
+    .{ "ImpLoader", pkgutil_mod.genImpLoader },
+});
+
+/// runpy module functions
+const RunpyFuncs = FuncMap.initComptime(.{
+    .{ "run_module", runpy_mod.genRun_module },
+    .{ "run_path", runpy_mod.genRun_path },
+});
+
+/// venv module functions
+const VenvFuncs = FuncMap.initComptime(.{
+    .{ "EnvBuilder", venv_mod.genEnvBuilder },
+    .{ "create", venv_mod.genCreate },
+    .{ "ENV_CFG", venv_mod.genENV_CFG },
+    .{ "BIN_NAME", venv_mod.genBIN_NAME },
+});
+
+/// zipimport module functions
+const ZipimportFuncs = FuncMap.initComptime(.{
+    .{ "zipimporter", zipimport_mod.genZipimporter },
+    .{ "ZipImportError", zipimport_mod.genZipImportError },
+});
+
+/// compileall module functions
+const CompileallFuncs = FuncMap.initComptime(.{
+    .{ "compile_dir", compileall_mod.genCompile_dir },
+    .{ "compile_file", compileall_mod.genCompile_file },
+    .{ "compile_path", compileall_mod.genCompile_path },
+    .{ "PycInvalidationMode", compileall_mod.genPycInvalidationMode },
+});
+
+/// py_compile module functions
+const PyCompileFuncs = FuncMap.initComptime(.{
+    .{ "compile", py_compile_mod.genCompile },
+    .{ "main", py_compile_mod.genMain },
+    .{ "PyCompileError", py_compile_mod.genPyCompileError },
+    .{ "PycInvalidationMode", py_compile_mod.genPycInvalidationMode },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -3238,6 +3551,20 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "xml.sax.handler", XmlSaxFuncs },
     .{ "xml.sax.xmlreader", XmlSaxFuncs },
     .{ "xml.dom", XmlDomFuncs },
+    .{ "builtins", BuiltinsFuncs },
+    .{ "typing_extensions", TypingExtensionsFuncs },
+    .{ "importlib", ImportlibFuncs },
+    .{ "importlib.abc", ImportlibAbcFuncs },
+    .{ "importlib.resources", ImportlibResourcesFuncs },
+    .{ "importlib.metadata", ImportlibMetadataFuncs },
+    .{ "importlib.util", ImportlibUtilFuncs },
+    .{ "importlib.machinery", ImportlibMachineryFuncs },
+    .{ "pkgutil", PkgutilFuncs },
+    .{ "runpy", RunpyFuncs },
+    .{ "venv", VenvFuncs },
+    .{ "zipimport", ZipimportFuncs },
+    .{ "compileall", CompileallFuncs },
+    .{ "py_compile", PyCompileFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
