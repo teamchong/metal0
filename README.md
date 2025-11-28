@@ -149,7 +149,7 @@ $ pyaot flask_app.py --force
 
 **Syntax now supported:** numeric underscores (`500_000`), `raise X from Y`, `*args/**kwargs` annotations, `yield`, chained assignment, multiple context managers, and more.
 
-### Parallelism (Q2-Q3 2025)
+### Parallelism
 ```python
 from parallel import pool
 
@@ -160,7 +160,7 @@ def process(items):
 
 **Zig threads > OpenMP** - compile-time race detection
 
-### NumPy (Q3-Q4 2025)
+### NumPy
 ```python
 import numpy as np
 
