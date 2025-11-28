@@ -8,24 +8,23 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 /// Chain multiple iterables together
 pub fn genChain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("std.ArrayList(i64).init(allocator)");
+        try self.emit("std.ArrayList(i64){}");
         return;
     }
-    
+
     try self.emit("chain_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(@TypeOf(");
-    try self.genExpr(args[0]);
-    try self.emit(".items[0])).init(allocator);\n");
-    
+    // Zig 0.15: use {} for unmanaged ArrayList
+    try self.emit("var _result = std.ArrayList(i64){};\n");
+
     for (args) |arg| {
         try self.emitIndent();
         try self.emit("for (");
         try self.genExpr(arg);
         try self.emit(".items) |item| { _result.append(allocator, item) catch continue; }\n");
     }
-    
+
     try self.emitIndent();
     try self.emit("break :chain_blk _result;\n");
     self.dedent();
@@ -41,8 +40,8 @@ pub fn genRepeat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("repeat_blk: {\n");
     self.indent();
     try self.emitIndent();
-    // Use i64 for numeric values, avoids comptime_int issues
-    try self.emit("var _result = std.ArrayList(i64).init(allocator);\n");
+    // Zig 0.15: use {} initialization for unmanaged ArrayList
+    try self.emit("var _result = std.ArrayList(i64){};\n");
 
     try self.emitIndent();
     if (args.len > 1) {
@@ -101,7 +100,7 @@ pub fn genCount(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Cycle through iterable infinitely - for AOT, just return the iterable
 pub fn genCycle(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("std.ArrayList(i64).init(allocator)");
+        try self.emit("std.ArrayList(i64){}");
         return;
     }
     // For AOT, we can't do infinite cycling, so just return the iterable
@@ -111,24 +110,25 @@ pub fn genCycle(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate itertools.islice(iterable, stop) or islice(iterable, start, stop, step)
 pub fn genIslice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        try self.emit("std.ArrayList(i64).init(allocator)");
+        try self.emit("std.ArrayList(i64){}");
         return;
     }
-    
+
     try self.emit("islice_blk: {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const _iter = ");
     try self.genExpr(args[0]);
     try self.emit(";\n");
-    
+
     try self.emitIndent();
     try self.emit("const _stop = @as(usize, @intCast(");
     try self.genExpr(args[1]);
     try self.emit("));\n");
-    
+
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(@TypeOf(_iter.items[0])).init(allocator);\n");
+    // Zig 0.15: use {} for unmanaged ArrayList
+    try self.emit("var _result = std.ArrayList(i64){};\n");
     try self.emitIndent();
     try self.emit("for (_iter.items[0..@min(_stop, _iter.items.len)]) |item| {\n");
     self.indent();
@@ -137,7 +137,7 @@ pub fn genIslice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
-    
+
     try self.emitIndent();
     try self.emit("break :islice_blk _result;\n");
     self.dedent();
@@ -165,7 +165,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate itertools.zip_longest(*iterables, fillvalue=None)
 pub fn genZipLongest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("std.ArrayList(struct { @\"0\": void }).init(allocator)");
+        try self.emit("std.ArrayList(struct { @\"0\": i64 }){}");
         return;
     }
     // For simplicity, just zip the first two
@@ -183,14 +183,15 @@ pub fn genZipLongest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitIndent();
         try self.emit("const _len = @max(_a.items.len, _b.items.len);\n");
         try self.emitIndent();
-        try self.emit("var _result = std.ArrayList(struct { @\"0\": @TypeOf(_a.items[0]), @\"1\": @TypeOf(_b.items[0]) }).init(allocator);\n");
+        // Zig 0.15: use {} for unmanaged ArrayList
+        try self.emit("var _result = std.ArrayList(struct { @\"0\": i64, @\"1\": i64 }){};\n");
         try self.emitIndent();
         try self.emit("for (0.._len) |i| {\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("const _va = if (i < _a.items.len) _a.items[i] else undefined;\n");
+        try self.emit("const _va = if (i < _a.items.len) _a.items[i] else 0;\n");
         try self.emitIndent();
-        try self.emit("const _vb = if (i < _b.items.len) _b.items[i] else undefined;\n");
+        try self.emit("const _vb = if (i < _b.items.len) _b.items[i] else 0;\n");
         try self.emitIndent();
         try self.emit("_result.append(allocator, .{ .@\"0\" = _va, .@\"1\" = _vb }) catch continue;\n");
         self.dedent();
@@ -209,7 +210,7 @@ pub fn genZipLongest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate itertools.product(*iterables, repeat=1)
 pub fn genProduct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("std.ArrayList(struct {}).init(allocator)");
+        try self.emit("std.ArrayList(struct {}){}");
         return;
     }
     // For simplicity, product of single iterable with itself

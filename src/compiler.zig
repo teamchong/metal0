@@ -22,7 +22,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     };
 
     // Copy runtime files to .build for import
-    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig" };
+    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(aa, "packages/runtime/src/{s}", .{file});
         const dst_path = try std.fmt.allocPrint(aa, "{s}/{s}", .{ build_dir, file });
@@ -193,7 +193,7 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     };
 
     // Copy runtime files to .build for import
-    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig" };
+    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{file});
         defer allocator.free(src_path);
@@ -368,7 +368,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
     };
 
     // Copy runtime files to .build for import (same as compileZig)
-    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig" };
+    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(aa, "packages/runtime/src/{s}", .{file});
         const dst_path = try std.fmt.allocPrint(aa, "{s}/{s}", .{ build_dir, file });

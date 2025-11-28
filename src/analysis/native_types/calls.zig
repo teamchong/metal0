@@ -332,6 +332,21 @@ pub fn inferCall(
         if (func_hash == DEQUE_HASH) {
             return .deque; // Deque type for std.ArrayList
         }
+
+        // itertools module functions (from itertools import repeat, chain, etc.)
+        // These return lists (std.ArrayList(i64))
+        const REPEAT_HASH = comptime fnv_hash.hash("repeat");
+        const CHAIN_HASH = comptime fnv_hash.hash("chain");
+        const CYCLE_HASH = comptime fnv_hash.hash("cycle");
+        const ISLICE_HASH = comptime fnv_hash.hash("islice");
+        const COUNT_HASH_ITER = comptime fnv_hash.hash("count");
+        const ZIP_LONGEST_HASH = comptime fnv_hash.hash("zip_longest");
+        if (func_hash == REPEAT_HASH or func_hash == CHAIN_HASH or
+            func_hash == CYCLE_HASH or func_hash == ISLICE_HASH or
+            func_hash == COUNT_HASH_ITER or func_hash == ZIP_LONGEST_HASH)
+        {
+            return .deque; // Returns std.ArrayList(i64)
+        }
     }
 
     // Check if this is a method call (attribute access)
