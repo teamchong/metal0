@@ -611,6 +611,28 @@ pub fn inferCall(
                     }
                     return .unknown; // Thread, Lock, Event etc. are structs
                 },
+                fnv_hash.hash("statistics") => {
+                    // statistics module - most functions return float
+                    const func_hash = fnv_hash.hash(func_name);
+                    const MEAN_HASH = comptime fnv_hash.hash("mean");
+                    const FMEAN_HASH = comptime fnv_hash.hash("fmean");
+                    const MEDIAN_HASH = comptime fnv_hash.hash("median");
+                    const STDEV_HASH = comptime fnv_hash.hash("stdev");
+                    const PSTDEV_HASH = comptime fnv_hash.hash("pstdev");
+                    const VARIANCE_HASH = comptime fnv_hash.hash("variance");
+                    const PVARIANCE_HASH = comptime fnv_hash.hash("pvariance");
+                    const GEOMETRIC_MEAN_HASH = comptime fnv_hash.hash("geometric_mean");
+                    const HARMONIC_MEAN_HASH = comptime fnv_hash.hash("harmonic_mean");
+                    if (func_hash == MEAN_HASH or func_hash == FMEAN_HASH or
+                        func_hash == MEDIAN_HASH or func_hash == STDEV_HASH or
+                        func_hash == PSTDEV_HASH or func_hash == VARIANCE_HASH or
+                        func_hash == PVARIANCE_HASH or func_hash == GEOMETRIC_MEAN_HASH or
+                        func_hash == HARMONIC_MEAN_HASH)
+                    {
+                        return .float;
+                    }
+                    return .unknown;
+                },
                 PICKLE_HASH => {
                     // pickle.dumps() returns bytes, pickle.loads() returns dynamic value
                     const func_hash = fnv_hash.hash(func_name);

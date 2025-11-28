@@ -19,7 +19,7 @@ pub fn genQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn init(maxsize: i64) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return @This(){ .items = std.ArrayList([]const u8).init(allocator), .maxsize = maxsize };\n");
+    try self.emit("return @This(){ .items = std.ArrayList([]const u8){}, .maxsize = maxsize };\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -31,7 +31,7 @@ pub fn genQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("defer self.mutex.unlock();\n");
     try self.emitIndent();
-    try self.emit("self.items.append(allocator, item) catch {};\n");
+    try self.emit("self.items.append(__global_allocator, item) catch {};\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -83,7 +83,7 @@ pub fn genLifoQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn init(maxsize: i64) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return @This(){ .items = std.ArrayList([]const u8).init(allocator), .maxsize = maxsize };\n");
+    try self.emit("return @This(){ .items = std.ArrayList([]const u8){}, .maxsize = maxsize };\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -95,7 +95,7 @@ pub fn genLifoQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("defer self.mutex.unlock();\n");
     try self.emitIndent();
-    try self.emit("self.items.append(allocator, item) catch {};\n");
+    try self.emit("self.items.append(__global_allocator, item) catch {};\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

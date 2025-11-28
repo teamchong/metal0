@@ -228,6 +228,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("itertools", .zig_runtime, "std", null); // itertools module
     try registry.register("logging", .zig_runtime, "std", null); // logging module
     try registry.register("threading", .zig_runtime, "std", null); // threading module
+    try registry.register("queue", .zig_runtime, "std", null); // queue module
     try registry.register("copy", .zig_runtime, "std", null); // copy module
     try registry.register("typing", .zig_runtime, "std", null); // typing module (no-ops)
     try registry.register("contextlib", .zig_runtime, "std", null); // contextlib module
@@ -245,6 +246,39 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("uuid", .zig_runtime, "std", null); // uuid module
     try registry.register("tempfile", .zig_runtime, "std", null); // tempfile module
     try registry.register("subprocess", .zig_runtime, "std", null); // subprocess module
+    try registry.register("heapq", .zig_runtime, "std", null); // heapq module
+    try registry.register("bisect", .zig_runtime, "std", null); // bisect module
+    try registry.register("statistics", .zig_runtime, "std", null); // statistics module
+    try registry.register("decimal", .zig_runtime, "std", null); // decimal module
+    try registry.register("fractions", .zig_runtime, "std", null); // fractions module
+    try registry.register("cmath", .zig_runtime, "std", null); // cmath module
+    try registry.register("html", .zig_runtime, "std", null); // html module
+    try registry.register("xml", .zig_runtime, "std", null); // xml module
+    try registry.register("email", .zig_runtime, "std", null); // email module
+    try registry.register("signal", .zig_runtime, "std", null); // signal module
+    try registry.register("multiprocessing", .zig_runtime, "std", null); // multiprocessing module
+    try registry.register("operator", .zig_runtime, "std", null); // operator module
+    try registry.register("array", .zig_runtime, "std", null); // array module
+    try registry.register("weakref", .zig_runtime, "std", null); // weakref module
+    try registry.register("types", .zig_runtime, "std", null); // types module
+    try registry.register("abc", .zig_runtime, "std", null); // abc module
+    try registry.register("inspect", .zig_runtime, "std", null); // inspect module
+    try registry.register("dataclasses", .zig_runtime, "std", null); // dataclasses module
+    try registry.register("enum", .zig_runtime, "std", null); // enum module
+    try registry.register("atexit", .zig_runtime, "std", null); // atexit module
+    try registry.register("warnings", .zig_runtime, "std", null); // warnings module
+    try registry.register("traceback", .zig_runtime, "std", null); // traceback module
+    try registry.register("pprint", .zig_runtime, "std", null); // pprint module
+    try registry.register("platform", .zig_runtime, "std", null); // platform module
+    try registry.register("locale", .zig_runtime, "std", null); // locale module
+    try registry.register("codecs", .zig_runtime, "std", null); // codecs module
+    try registry.register("calendar", .zig_runtime, "std", null); // calendar module
+    try registry.register("binascii", .zig_runtime, "std", null); // binascii module
+    try registry.register("errno", .zig_runtime, "std", null); // errno module
+    try registry.register("gc", .zig_runtime, "std", null); // gc module
+    try registry.register("select", .zig_runtime, "std", null); // select module
+    try registry.register("mmap", .zig_runtime, "std", null); // mmap module
+    try registry.register("fcntl", .zig_runtime, "std", null); // fcntl module
 
     // Additional Tier 1: OS and filesystem modules
     try registry.register("pathlib", .zig_runtime, "runtime.pathlib", null);
