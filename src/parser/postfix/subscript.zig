@@ -22,6 +22,11 @@ pub fn parseSubscript(self: *Parser, value: ast.Node) ParseError!ast.Node {
         return parseSliceFromStart(self, node_ptr);
     }
 
+    // Check for ellipsis at start: [...]
+    if (self.check(.Ellipsis)) {
+        return parseMultiDimFromStart(self, node_ptr);
+    }
+
     var lower = try self.parseExpression();
     errdefer lower.deinit(self.allocator);
 
@@ -34,37 +39,49 @@ pub fn parseSubscript(self: *Parser, value: ast.Node) ParseError!ast.Node {
     }
 }
 
-/// Parse slice starting with colon: [:end] or [:end:step] or [::step] or [:, idx] (numpy 2D)
+/// Parse multi-dim starting with ellipsis: [..., idx]
+fn parseMultiDimFromStart(self: *Parser, node_ptr: *ast.Node) ParseError!ast.Node {
+    var indices = std.ArrayList(ast.Node){};
+    defer indices.deinit(self.allocator);
+
+    // First element is ellipsis
+    _ = self.advance();
+    try indices.append(self.allocator, ast.Node{ .ellipsis_literal = {} });
+
+    while (self.match(.Comma)) {
+        if (self.check(.RBracket)) break;
+        try indices.append(self.allocator, try parseMultiDimElement(self));
+    }
+
+    _ = try self.expect(.RBracket);
+
+    return ast.Node{
+        .subscript = .{
+            .value = node_ptr,
+            .slice = .{ .index = try self.allocNode(ast.Node{
+                .tuple = .{ .elts = try indices.toOwnedSlice(self.allocator) },
+            }) },
+        },
+    };
+}
+
+/// Parse slice starting with colon: [:end] or [:end:step] or [::step] or [:, idx, ...] (numpy 2D)
 fn parseSliceFromStart(self: *Parser, node_ptr: *ast.Node) ParseError!ast.Node {
     _ = self.advance(); // consume first colon
 
-    // Check for comma: [:, idx] - numpy column indexing
-    if (self.check(.Comma)) {
-        _ = self.advance(); // consume comma
-        const col_idx = try self.parseExpression();
-        _ = try self.expect(.RBracket);
-
-        // Create tuple (:, idx) where : is represented as None slice
-        const tuple_elts = try self.allocator.alloc(ast.Node, 2);
-        tuple_elts[0] = ast.Node{ .constant = .{ .value = .none } }; // : becomes None
-        tuple_elts[1] = col_idx;
-
-        return ast.Node{
-            .subscript = .{
-                .value = node_ptr,
-                .slice = .{ .index = try self.allocNode(ast.Node{
-                    .tuple = .{ .elts = tuple_elts },
-                }) },
-            },
-        };
-    }
-
-    // Check for second colon: [::step]
+    // Check for second colon: [::step] or [::step, ...]
     if (self.check(.Colon)) {
         _ = self.advance();
-        const step = if (!self.check(.RBracket)) try self.parseExpression() else null;
-        _ = try self.expect(.RBracket);
+        const step = if (!self.check(.RBracket) and !self.check(.Comma)) try self.parseExpression() else null;
 
+        // Check for multi-dim: [::step, ...]
+        if (self.check(.Comma)) {
+            return parseMultiDimFromSlice(self, node_ptr, ast.Node{
+                .slice_expr = .{ .lower = null, .upper = null, .step = try self.allocNodeOpt(step) },
+            });
+        }
+
+        _ = try self.expect(.RBracket);
         return ast.Node{
             .subscript = .{
                 .value = node_ptr,
@@ -73,13 +90,20 @@ fn parseSliceFromStart(self: *Parser, node_ptr: *ast.Node) ParseError!ast.Node {
         };
     }
 
-    // [:upper] or [:upper:step]
-    const upper = if (!self.check(.RBracket) and !self.check(.Colon)) try self.parseExpression() else null;
+    // [:upper] or [:upper:step] or [:]
+    const upper = if (!self.check(.RBracket) and !self.check(.Colon) and !self.check(.Comma)) try self.parseExpression() else null;
 
     // Check for step: [:upper:step]
     const step = if (self.match(.Colon)) blk: {
-        if (!self.check(.RBracket)) break :blk try self.parseExpression() else break :blk null;
+        if (!self.check(.RBracket) and !self.check(.Comma)) break :blk try self.parseExpression() else break :blk null;
     } else null;
+
+    // Check for multi-dim: [:upper, ...] or [:upper:step, ...]
+    if (self.check(.Comma)) {
+        return parseMultiDimFromSlice(self, node_ptr, ast.Node{
+            .slice_expr = .{ .lower = null, .upper = try self.allocNodeOpt(upper), .step = try self.allocNodeOpt(step) },
+        });
+    }
 
     _ = try self.expect(.RBracket);
 
@@ -95,14 +119,44 @@ fn parseSliceFromStart(self: *Parser, node_ptr: *ast.Node) ParseError!ast.Node {
     };
 }
 
-/// Parse slice with lower bound: [start:] or [start:end] or [start:end:step]
+/// Parse multi-dim subscript when first element is already a slice
+fn parseMultiDimFromSlice(self: *Parser, node_ptr: *ast.Node, first_slice: ast.Node) ParseError!ast.Node {
+    var indices = std.ArrayList(ast.Node){};
+    defer indices.deinit(self.allocator);
+    try indices.append(self.allocator, first_slice);
+
+    while (self.match(.Comma)) {
+        if (self.check(.RBracket)) break;
+        try indices.append(self.allocator, try parseMultiDimElement(self));
+    }
+
+    _ = try self.expect(.RBracket);
+
+    return ast.Node{
+        .subscript = .{
+            .value = node_ptr,
+            .slice = .{ .index = try self.allocNode(ast.Node{
+                .tuple = .{ .elts = try indices.toOwnedSlice(self.allocator) },
+            }) },
+        },
+    };
+}
+
+/// Parse slice with lower bound: [start:] or [start:end] or [start:end:step] or [start:, ...]
 fn parseSliceWithLower(self: *Parser, node_ptr: *ast.Node, lower: ast.Node) ParseError!ast.Node {
-    const upper = if (!self.check(.RBracket) and !self.check(.Colon)) try self.parseExpression() else null;
+    const upper = if (!self.check(.RBracket) and !self.check(.Colon) and !self.check(.Comma)) try self.parseExpression() else null;
 
     // Check for step: [start:end:step]
     const step = if (self.match(.Colon)) blk: {
-        if (!self.check(.RBracket)) break :blk try self.parseExpression() else break :blk null;
+        if (!self.check(.RBracket) and !self.check(.Comma)) break :blk try self.parseExpression() else break :blk null;
     } else null;
+
+    // Check for multi-dim: [start:, ...] or [start:end, ...] or [start:end:step, ...]
+    if (self.check(.Comma)) {
+        return parseMultiDimFromSlice(self, node_ptr, ast.Node{
+            .slice_expr = .{ .lower = try self.allocNode(lower), .upper = try self.allocNodeOpt(upper), .step = try self.allocNodeOpt(step) },
+        });
+    }
 
     _ = try self.expect(.RBracket);
 
@@ -118,7 +172,7 @@ fn parseSliceWithLower(self: *Parser, node_ptr: *ast.Node, lower: ast.Node) Pars
     };
 }
 
-/// Parse multi-element subscript: arr[0, 1, 2] or arr[0, :] (numpy-style)
+/// Parse multi-element subscript: arr[0, 1, 2] or arr[0, :] or arr[:42, ..., :24:, 24, 100] (numpy-style)
 fn parseMultiSubscript(self: *Parser, node_ptr: *ast.Node, first: ast.Node) ParseError!ast.Node {
     var indices = std.ArrayList(ast.Node){};
     defer indices.deinit(self.allocator);
@@ -127,14 +181,7 @@ fn parseMultiSubscript(self: *Parser, node_ptr: *ast.Node, first: ast.Node) Pars
     while (self.match(.Comma)) {
         // Allow trailing comma: [0,]
         if (self.check(.RBracket)) break;
-        // Check for colon: [idx, :] - numpy row slicing
-        if (self.check(.Colon)) {
-            _ = self.advance(); // consume colon
-            // : becomes None to represent "all"
-            try indices.append(self.allocator, ast.Node{ .constant = .{ .value = .none } });
-        } else {
-            try indices.append(self.allocator, try self.parseExpression());
-        }
+        try indices.append(self.allocator, try parseMultiDimElement(self));
     }
 
     _ = try self.expect(.RBracket);
@@ -147,6 +194,59 @@ fn parseMultiSubscript(self: *Parser, node_ptr: *ast.Node, first: ast.Node) Pars
             }) },
         },
     };
+}
+
+/// Parse a single element in multi-dimensional subscript: can be slice, ellipsis, or expression
+fn parseMultiDimElement(self: *Parser) ParseError!ast.Node {
+    // Check for ellipsis: [idx, ...]
+    if (self.check(.Ellipsis)) {
+        _ = self.advance();
+        return ast.Node{ .ellipsis_literal = {} };
+    }
+
+    // Check for colon-starting slice: [:end] or [:end:step] or [::step] or [:]
+    if (self.check(.Colon)) {
+        _ = self.advance(); // consume first colon
+
+        // Check for second colon: [::step]
+        if (self.check(.Colon)) {
+            _ = self.advance();
+            const step = if (!self.check(.RBracket) and !self.check(.Comma)) try self.parseExpression() else null;
+            return ast.Node{
+                .slice_expr = .{ .lower = null, .upper = null, .step = try self.allocNodeOpt(step) },
+            };
+        }
+
+        // [:upper] or [:upper:step] or [:]
+        const upper = if (!self.check(.RBracket) and !self.check(.Colon) and !self.check(.Comma)) try self.parseExpression() else null;
+
+        // Check for step: [:upper:step]
+        const step = if (self.match(.Colon)) blk: {
+            if (!self.check(.RBracket) and !self.check(.Comma)) break :blk try self.parseExpression() else break :blk null;
+        } else null;
+
+        return ast.Node{
+            .slice_expr = .{ .lower = null, .upper = try self.allocNodeOpt(upper), .step = try self.allocNodeOpt(step) },
+        };
+    }
+
+    // Expression, which may be followed by colon to make a slice
+    const expr = try self.parseExpression();
+
+    // Check if this becomes a slice: [start:] or [start:end] or [start:end:step]
+    if (self.match(.Colon)) {
+        const upper = if (!self.check(.RBracket) and !self.check(.Colon) and !self.check(.Comma)) try self.parseExpression() else null;
+
+        const step = if (self.match(.Colon)) blk: {
+            if (!self.check(.RBracket) and !self.check(.Comma)) break :blk try self.parseExpression() else break :blk null;
+        } else null;
+
+        return ast.Node{
+            .slice_expr = .{ .lower = try self.allocNode(expr), .upper = try self.allocNodeOpt(upper), .step = try self.allocNodeOpt(step) },
+        };
+    }
+
+    return expr;
 }
 
 /// Parse simple index: [0]

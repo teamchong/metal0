@@ -88,7 +88,7 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
             try value_list.append(self.allocator, first_value);
 
             while (self.match(.Comma)) {
-                if (self.check(.Eq)) break;
+                if (self.check(.Eq) or self.check(.Newline)) break;
                 var val = try parseAssignTarget(self);
                 errdefer val.deinit(self.allocator);
                 try value_list.append(self.allocator, val);
@@ -174,8 +174,8 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
             try value_list.append(self.allocator, first_value);
 
             while (self.match(.Comma)) {
-                // Check if next is '=' (chained assignment) - if so, stop tuple building
-                if (self.check(.Eq)) break;
+                // Check if next is '=' (chained assignment) or Newline (trailing comma) - if so, stop tuple building
+                if (self.check(.Eq) or self.check(.Newline)) break;
                 // Use parseAssignTarget to handle starred expressions like *args
                 var val = try parseAssignTarget(self);
                 errdefer val.deinit(self.allocator);

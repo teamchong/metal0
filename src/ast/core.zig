@@ -52,6 +52,7 @@ pub const Node = union(enum) {
     if_expr: IfExpr,
     yield_stmt: Yield,
     yield_from_stmt: YieldFrom,
+    slice_expr: SliceRange,
 
     // Type aliases for backward compatibility with nested access (ast.Node.FString)
     pub const FString = fstring.FString;
