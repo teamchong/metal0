@@ -81,8 +81,8 @@ pub fn ones(shape_spec: []const usize, allocator: std.mem.Allocator) !*PyObject 
 
 /// Vector dot product using BLAS Level 1 (Python: np.dot(a, b))
 /// Computes: a · b = sum(a[i] * b[i])
-/// Returns: PyObject wrapping float result
-pub fn dot(a_obj: *PyObject, b_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn dot(a_obj: *PyObject, b_obj: *PyObject, _: std.mem.Allocator) !f64 {
     // Extract NumPy arrays from PyObjects
     const a_arr = try numpy_array_mod.extractArray(a_obj);
     const b_arr = try numpy_array_mod.extractArray(b_obj);
@@ -90,47 +90,27 @@ pub fn dot(a_obj: *PyObject, b_obj: *PyObject, allocator: std.mem.Allocator) !*P
     std.debug.assert(a_arr.size == b_arr.size);
 
     // Use BLAS ddot: double precision dot product
-    const ddot_result = cblas_ddot(
+    return cblas_ddot(
         @intCast(a_arr.size),  // N: number of elements
         a_arr.data.ptr,        // X: pointer to first vector
         1,                     // incX: stride for X
         b_arr.data.ptr,        // Y: pointer to second vector
         1                      // incY: stride for Y
     );
-
-    // Wrap result in PyFloat
-    return try PyFloat.create(allocator, ddot_result);
 }
 
 /// Sum all elements in array (Python: np.sum(arr))
-/// Returns: PyObject wrapping float result
-pub fn sum(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result (no PyObject wrapper for performance)
+pub fn sum(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
-
-    var total: f64 = 0.0;
-    for (arr.data) |val| {
-        total += val;
-    }
-
-    return try PyFloat.create(allocator, total);
+    return arr.sum();
 }
 
 /// Calculate mean (average) of array elements (Python: np.mean(arr))
-/// Returns: PyObject wrapping float result
-pub fn mean(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn mean(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
-
-    if (arr.size == 0) {
-        return try PyFloat.create(allocator, 0.0);
-    }
-
-    var total: f64 = 0.0;
-    for (arr.data) |val| {
-        total += val;
-    }
-
-    const avg = total / @as(f64, @floatFromInt(arr.size));
-    return try PyFloat.create(allocator, avg);
+    return arr.mean();
 }
 
 /// Transpose matrix (in-place for square matrices, allocates for non-square)
@@ -358,59 +338,52 @@ pub fn npAbs(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
 // ============================================================================
 
 /// Standard deviation - np.std(arr)
-pub fn npStd(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn npStd(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
-    return try PyFloat.create(allocator, arr.stddev());
+    return arr.stddev();
 }
 
 /// Variance - np.var(arr)
-pub fn npVar(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn npVar(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
-    return try PyFloat.create(allocator, arr.variance());
+    return arr.variance();
 }
 
 /// Minimum - np.min(arr)
-pub fn npMin(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn npMin(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
-    return try PyFloat.create(allocator, arr.min());
+    return arr.min();
 }
 
 /// Maximum - np.max(arr)
-pub fn npMax(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn npMax(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
-    return try PyFloat.create(allocator, arr.max());
+    return arr.max();
 }
 
 /// Index of minimum - np.argmin(arr)
-pub fn argmin(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: i64 index
+pub fn argmin(arr_obj: *PyObject, _: std.mem.Allocator) !i64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
-    const result = arr.argmin();
-    const obj = try allocator.create(PyObject);
-    obj.* = .{
-        .ref_count = 1,
-        .type_id = .int,
-        .data = @ptrFromInt(result),
-    };
-    return obj;
+    return @intCast(arr.argmin());
 }
 
 /// Index of maximum - np.argmax(arr)
-pub fn argmax(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: i64 index
+pub fn argmax(arr_obj: *PyObject, _: std.mem.Allocator) !i64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
-    const result = arr.argmax();
-    const obj = try allocator.create(PyObject);
-    obj.* = .{
-        .ref_count = 1,
-        .type_id = .int,
-        .data = @ptrFromInt(result),
-    };
-    return obj;
+    return @intCast(arr.argmax());
 }
 
 /// Product - np.prod(arr)
-pub fn prod(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn prod(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
-    return try PyFloat.create(allocator, arr.prod());
+    return arr.prod();
 }
 
 // ============================================================================
@@ -443,17 +416,19 @@ pub fn outer(a_obj: *PyObject, b_obj: *PyObject, allocator: std.mem.Allocator) !
 pub const vdot = dot;
 
 /// Norm - np.linalg.norm(arr)
-pub fn norm(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn norm(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
     var sum_sq: f64 = 0.0;
     for (arr.data) |val| {
         sum_sq += val * val;
     }
-    return try PyFloat.create(allocator, @sqrt(sum_sq));
+    return @sqrt(sum_sq);
 }
 
 /// Determinant - np.linalg.det(arr)
-pub fn det(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn det(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
     if (arr.shape.len != 2 or arr.shape[0] != arr.shape[1]) {
         return error.InvalidDimension;
@@ -474,11 +449,12 @@ pub fn det(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
     } else {
         return error.NotImplemented;
     }
-    return try PyFloat.create(allocator, result);
+    return result;
 }
 
 /// Trace - np.trace(arr)
-pub fn trace(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn trace(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
     if (arr.shape.len != 2) return error.InvalidDimension;
     const n = @min(arr.shape[0], arr.shape[1]);
@@ -486,7 +462,7 @@ pub fn trace(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
     for (0..n) |i| {
         result += arr.data[i * arr.shape[1] + i];
     }
-    return try PyFloat.create(allocator, result);
+    return result;
 }
 
 // ============================================================================
@@ -494,22 +470,23 @@ pub fn trace(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
 // ============================================================================
 
 /// Median - np.median(arr)
-pub fn median(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn median(arr_obj: *PyObject, allocator: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
     const sorted = try allocator.alloc(f64, arr.size);
     defer allocator.free(sorted);
     @memcpy(sorted, arr.data);
     std.mem.sort(f64, sorted, {}, std.sort.asc(f64));
     const mid = arr.size / 2;
-    const result = if (arr.size % 2 == 0)
+    return if (arr.size % 2 == 0)
         (sorted[mid - 1] + sorted[mid]) / 2.0
     else
         sorted[mid];
-    return try PyFloat.create(allocator, result);
 }
 
 /// Percentile - np.percentile(arr, q)
-pub fn percentile(arr_obj: *PyObject, q: f64, allocator: std.mem.Allocator) !*PyObject {
+/// Returns: f64 scalar result
+pub fn percentile(arr_obj: *PyObject, q: f64, allocator: std.mem.Allocator) !f64 {
     const arr = try numpy_array_mod.extractArray(arr_obj);
     const sorted = try allocator.alloc(f64, arr.size);
     defer allocator.free(sorted);
@@ -519,8 +496,7 @@ pub fn percentile(arr_obj: *PyObject, q: f64, allocator: std.mem.Allocator) !*Py
     const lo: usize = @intFromFloat(@floor(idx));
     const hi: usize = @intFromFloat(@ceil(idx));
     const frac = idx - @as(f64, @floatFromInt(lo));
-    const result = sorted[lo] * (1.0 - frac) + sorted[@min(hi, arr.size - 1)] * frac;
-    return try PyFloat.create(allocator, result);
+    return sorted[lo] * (1.0 - frac) + sorted[@min(hi, arr.size - 1)] * frac;
 }
 
 // ============================================================================

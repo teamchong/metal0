@@ -85,6 +85,78 @@ const MathBoolFuncs = std.StaticStringMap(void).initComptime(.{
     .{ "isfinite", {} },
 });
 
+// NumPy functions that return numpy arrays
+const NumpyArrayFuncs = std.StaticStringMap(void).initComptime(.{
+    // Array creation
+    .{ "array", {} },
+    .{ "zeros", {} },
+    .{ "ones", {} },
+    .{ "empty", {} },
+    .{ "full", {} },
+    .{ "eye", {} },
+    .{ "identity", {} },
+    .{ "arange", {} },
+    .{ "linspace", {} },
+    .{ "logspace", {} },
+    // Array manipulation
+    .{ "reshape", {} },
+    .{ "ravel", {} },
+    .{ "flatten", {} },
+    .{ "transpose", {} },
+    .{ "squeeze", {} },
+    .{ "expand_dims", {} },
+    // Element-wise math
+    .{ "add", {} },
+    .{ "subtract", {} },
+    .{ "multiply", {} },
+    .{ "divide", {} },
+    .{ "power", {} },
+    .{ "sqrt", {} },
+    .{ "exp", {} },
+    .{ "log", {} },
+    .{ "sin", {} },
+    .{ "cos", {} },
+    .{ "abs", {} },
+    // Linear algebra that returns arrays
+    .{ "matmul", {} },
+    .{ "outer", {} },
+});
+
+// NumPy functions that return scalars (float)
+const NumpyScalarFuncs = std.StaticStringMap(void).initComptime(.{
+    .{ "sum", {} },
+    .{ "mean", {} },
+    .{ "std", {} },
+    .{ "var", {} },
+    .{ "min", {} },
+    .{ "max", {} },
+    .{ "prod", {} },
+    .{ "dot", {} },
+    .{ "inner", {} },
+    .{ "vdot", {} },
+    .{ "trace", {} },
+    .{ "median", {} },
+    .{ "percentile", {} },
+    .{ "norm", {} },
+    .{ "det", {} },
+});
+
+// NumPy functions that return integers
+const NumpyIntFuncs = std.StaticStringMap(void).initComptime(.{
+    .{ "argmin", {} },
+    .{ "argmax", {} },
+});
+
+// NumPy random functions that return arrays
+const NumpyRandomArrayFuncs = std.StaticStringMap(void).initComptime(.{
+    .{ "rand", {} },
+    .{ "randn", {} },
+    .{ "randint", {} },
+    .{ "uniform", {} },
+    .{ "choice", {} },
+    .{ "permutation", {} },
+});
+
 const hashmap_helper = @import("hashmap_helper");
 const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
@@ -176,6 +248,23 @@ pub fn inferCall(
                 if (func_return_types.get(qualified_name)) |return_type| {
                     return return_type;
                 }
+
+                // Check for nested numpy modules: np.random.*, np.linalg.*
+                // prefix is "np.random" or "numpy.random", etc.
+                if (std.mem.startsWith(u8, prefix, "np.random") or
+                    std.mem.startsWith(u8, prefix, "numpy.random"))
+                {
+                    if (NumpyRandomArrayFuncs.has(attr.attr)) return .numpy_array;
+                    // seed() and shuffle() return void (handled in codegen)
+                }
+                if (std.mem.startsWith(u8, prefix, "np.linalg") or
+                    std.mem.startsWith(u8, prefix, "numpy.linalg"))
+                {
+                    // Most linalg functions return scalars (norm, det)
+                    if (NumpyScalarFuncs.has(attr.attr)) return .float;
+                    // inv, solve, eig, svd return arrays
+                    return .numpy_array;
+                }
             }
         }
 
@@ -190,6 +279,8 @@ pub fn inferCall(
             const MATH_HASH = comptime fnv_hash.hash("math");
             const PANDAS_HASH = comptime fnv_hash.hash("pandas");
             const PD_HASH = comptime fnv_hash.hash("pd");
+            const NUMPY_HASH = comptime fnv_hash.hash("numpy");
+            const NP_HASH = comptime fnv_hash.hash("np");
 
             switch (module_hash) {
                 JSON_HASH => if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("loads")) return .unknown,
@@ -199,6 +290,12 @@ pub fn inferCall(
                     return .float; // All other math functions return float
                 },
                 PANDAS_HASH, PD_HASH => if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("DataFrame")) return .dataframe,
+                NUMPY_HASH, NP_HASH => {
+                    // NumPy function type inference
+                    if (NumpyArrayFuncs.has(func_name)) return .numpy_array;
+                    if (NumpyScalarFuncs.has(func_name)) return .float;
+                    if (NumpyIntFuncs.has(func_name)) return .int;
+                },
                 else => {},
             }
 

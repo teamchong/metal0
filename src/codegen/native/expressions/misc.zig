@@ -68,8 +68,41 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     const parent_module = @import("../expressions.zig");
     const genExpr = parent_module.genExpr;
 
-    // Check if this is a Path property access using type inference
+    // Check if this is a numpy array property access
     const value_type = try self.type_inferrer.inferExpr(attr.value.*);
+    if (value_type == .numpy_array) {
+        // NumPy array properties: .shape, .size, .T, .ndim, .dtype
+        if (std.mem.eql(u8, attr.attr, "shape")) {
+            // arr.shape -> extract array and get shape
+            try self.emit("(try runtime.numpy_array.extractArray(");
+            try genExpr(self, attr.value.*);
+            try self.emit(")).shape");
+            return;
+        } else if (std.mem.eql(u8, attr.attr, "size")) {
+            try self.emit("(try runtime.numpy_array.extractArray(");
+            try genExpr(self, attr.value.*);
+            try self.emit(")).size");
+            return;
+        } else if (std.mem.eql(u8, attr.attr, "ndim")) {
+            try self.emit("(try runtime.numpy_array.extractArray(");
+            try genExpr(self, attr.value.*);
+            try self.emit(")).shape.len");
+            return;
+        } else if (std.mem.eql(u8, attr.attr, "T")) {
+            // Transpose: arr.T
+            try self.emit("try numpy.transpose(");
+            try genExpr(self, attr.value.*);
+            try self.emit(", allocator)");
+            return;
+        } else if (std.mem.eql(u8, attr.attr, "data")) {
+            try self.emit("(try runtime.numpy_array.extractArray(");
+            try genExpr(self, attr.value.*);
+            try self.emit(")).data");
+            return;
+        }
+    }
+
+    // Check if this is a Path property access using type inference
     if (value_type == .path) {
         // Path properties that need to be called as methods in Zig
         const path_properties = [_][]const u8{ "parent", "stem", "suffix", "name" };

@@ -195,6 +195,29 @@ pub fn inferExpr(
                 }
             }
 
+            // NumPy array properties
+            if (obj_type == .numpy_array) {
+                if (std.mem.eql(u8, a.attr, "shape") or
+                    std.mem.eql(u8, a.attr, "strides"))
+                {
+                    // shape/strides return []const usize in Zig
+                    break :blk .usize_slice;
+                }
+                if (std.mem.eql(u8, a.attr, "size") or
+                    std.mem.eql(u8, a.attr, "ndim"))
+                {
+                    break :blk .usize;
+                }
+                if (std.mem.eql(u8, a.attr, "T")) {
+                    // Transpose returns numpy_array
+                    break :blk .numpy_array;
+                }
+                if (std.mem.eql(u8, a.attr, "data")) {
+                    // data returns slice, treat as unknown
+                    break :blk .unknown;
+                }
+            }
+
             break :blk .unknown;
         },
         .list => |l| blk: {
