@@ -49,6 +49,28 @@ pub const NumpyArray = struct {
         return arr;
     }
 
+    /// Create 1D array from owned slice (takes ownership, no copy)
+    pub fn fromOwnedSlice(allocator: std.mem.Allocator, data: []f64) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+
+        // Allocate shape and strides
+        const shape = try allocator.alloc(usize, 1);
+        shape[0] = data.len;
+
+        const strides = try allocator.alloc(usize, 1);
+        strides[0] = 1;
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = data.len,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
     /// Create 2D array from shape
     pub fn create2D(allocator: std.mem.Allocator, rows: usize, cols: usize) !*NumpyArray {
         const arr = try allocator.create(NumpyArray);
