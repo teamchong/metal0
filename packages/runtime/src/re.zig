@@ -226,3 +226,72 @@ test "re.findall no matches" {
     try std.testing.expect(result.type_id == .list);
     try std.testing.expectEqual(@as(usize, 0), runtime.PyList.len(result));
 }
+
+/// Python-compatible split() function
+/// Usage: parts = re.split(r"\s+", "hello world  foo  bar")
+/// Returns a PyList of strings split by the pattern
+pub fn split(allocator: std.mem.Allocator, pattern: []const u8, text: []const u8) !*runtime.PyObject {
+    var regex = try Regex.compile(allocator, pattern);
+    defer regex.deinit();
+
+    // Create a PyList to hold the results
+    const list = try runtime.PyList.create(allocator);
+    errdefer runtime.decref(list, allocator);
+
+    var pos: usize = 0;
+    while (pos <= text.len) {
+        // Find next match starting from current position
+        const match_opt = try regex.find(text[pos..]);
+
+        if (match_opt) |m| {
+            defer {
+                var match_copy = m;
+                match_copy.deinit(allocator);
+            }
+
+            // Add text before match as a segment
+            const segment = text[pos .. pos + m.span.start];
+            const str_obj = try runtime.PyString.create(allocator, segment);
+            try runtime.PyList.append(list, str_obj);
+
+            // Move past the match
+            const match_end = pos + m.span.end;
+            if (match_end == pos) {
+                // Zero-length match - advance by 1 to avoid infinite loop
+                pos += 1;
+            } else {
+                pos = match_end;
+            }
+        } else {
+            // No more matches - add rest of text as final segment
+            const segment = text[pos..];
+            const str_obj = try runtime.PyString.create(allocator, segment);
+            try runtime.PyList.append(list, str_obj);
+            break;
+        }
+    }
+
+    return list;
+}
+
+test "re.split basic" {
+    const allocator = std.testing.allocator;
+
+    const result = try split(allocator, "\\s+", "hello world foo bar");
+    defer runtime.decref(result, allocator);
+
+    // Verify it's a list with 4 items
+    try std.testing.expect(result.type_id == .list);
+    try std.testing.expectEqual(@as(usize, 4), runtime.PyList.len(result));
+}
+
+test "re.split no matches" {
+    const allocator = std.testing.allocator;
+
+    const result = try split(allocator, "\\d+", "hello world");
+    defer runtime.decref(result, allocator);
+
+    // Should return original string as single element
+    try std.testing.expect(result.type_id == .list);
+    try std.testing.expectEqual(@as(usize, 1), runtime.PyList.len(result));
+}

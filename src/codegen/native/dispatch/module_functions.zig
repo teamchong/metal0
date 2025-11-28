@@ -262,6 +262,18 @@ const _zoneinfo_mod = @import("../_zoneinfo_mod.zig");
 const _tracemalloc_mod = @import("../_tracemalloc_mod.zig");
 const _lzma_mod = @import("../_lzma_mod.zig");
 const _bz2_mod = @import("../_bz2_mod.zig");
+const _ast_mod = @import("../_ast_mod.zig");
+const _contextvars_mod = @import("../_contextvars_mod.zig");
+const _queue_mod = @import("../_queue_mod.zig");
+const _imp_mod = @import("../_imp_mod.zig");
+const _opcode_mod = @import("../_opcode_mod.zig");
+const _lsprof_mod = @import("../_lsprof_mod.zig");
+const _statistics_mod = @import("../_statistics_mod.zig");
+const _symtable_mod = @import("../_symtable_mod.zig");
+const _markupbase_mod = @import("../_markupbase_mod.zig");
+const _sitebuiltins_mod = @import("../_sitebuiltins_mod.zig");
+const _curses_panel_mod = @import("../_curses_panel_mod.zig");
+const _dbm_mod = @import("../_dbm_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -483,6 +495,7 @@ const ReFuncs = FuncMap.initComptime(.{
     .{ "sub", re_mod.genReSub },
     .{ "findall", re_mod.genReFindall },
     .{ "compile", re_mod.genReCompile },
+    .{ "split", re_mod.genReSplit },
 });
 
 /// OS module functions
@@ -5409,6 +5422,146 @@ const Bz2InternalFuncs = FuncMap.initComptime(.{
     .{ "decompress", _bz2_mod.genDecompress },
 });
 
+/// _ast internal module functions
+const AstInternalFuncs = FuncMap.initComptime(.{
+    .{ "PyCF_ONLY_AST", _ast_mod.genPyCF_ONLY_AST },
+    .{ "PyCF_TYPE_COMMENTS", _ast_mod.genPyCF_TYPE_COMMENTS },
+    .{ "PyCF_ALLOW_TOP_LEVEL_AWAIT", _ast_mod.genPyCF_ALLOW_TOP_LEVEL_AWAIT },
+});
+
+/// _contextvars internal module functions
+const ContextvarsInternalFuncs = FuncMap.initComptime(.{
+    .{ "ContextVar", _contextvars_mod.genContextVar },
+    .{ "Context", _contextvars_mod.genContext },
+    .{ "Token", _contextvars_mod.genToken },
+    .{ "copy_context", _contextvars_mod.genCopyContext },
+    .{ "get", _contextvars_mod.genGet },
+    .{ "set", _contextvars_mod.genSet },
+    .{ "reset", _contextvars_mod.genReset },
+    .{ "run", _contextvars_mod.genRun },
+    .{ "copy", _contextvars_mod.genCopy },
+});
+
+/// _queue internal module functions
+const QueueInternalFuncs = FuncMap.initComptime(.{
+    .{ "SimpleQueue", _queue_mod.genSimpleQueue },
+    .{ "put", _queue_mod.genPut },
+    .{ "put_nowait", _queue_mod.genPutNowait },
+    .{ "get", _queue_mod.genGet },
+    .{ "get_nowait", _queue_mod.genGetNowait },
+    .{ "empty", _queue_mod.genEmpty },
+    .{ "qsize", _queue_mod.genQsize },
+});
+
+/// _imp internal module functions
+const ImpInternalFuncs = FuncMap.initComptime(.{
+    .{ "lock_held", _imp_mod.genLockHeld },
+    .{ "acquire_lock", _imp_mod.genAcquireLock },
+    .{ "release_lock", _imp_mod.genReleaseLock },
+    .{ "get_frozen_object", _imp_mod.genGetFrozenObject },
+    .{ "is_frozen", _imp_mod.genIsFrozen },
+    .{ "is_builtin", _imp_mod.genIsBuiltin },
+    .{ "is_frozen_package", _imp_mod.genIsFrozenPackage },
+    .{ "create_builtin", _imp_mod.genCreateBuiltin },
+    .{ "create_dynamic", _imp_mod.genCreateDynamic },
+    .{ "exec_builtin", _imp_mod.genExecBuiltin },
+    .{ "exec_dynamic", _imp_mod.genExecDynamic },
+    .{ "extension_suffixes", _imp_mod.genExtensionSuffixes },
+    .{ "source_hash", _imp_mod.genSourceHash },
+    .{ "check_hash_based_pycs", _imp_mod.genCheckHashBasedPycs },
+});
+
+/// _opcode internal module functions
+const OpcodeInternalFuncs = FuncMap.initComptime(.{
+    .{ "stack_effect", _opcode_mod.genStackEffect },
+    .{ "is_valid", _opcode_mod.genIsValid },
+    .{ "has_arg", _opcode_mod.genHasArg },
+    .{ "has_const", _opcode_mod.genHasConst },
+    .{ "has_name", _opcode_mod.genHasName },
+    .{ "has_jump", _opcode_mod.genHasJump },
+    .{ "has_free", _opcode_mod.genHasFree },
+    .{ "has_local", _opcode_mod.genHasLocal },
+    .{ "has_exc", _opcode_mod.genHasExc },
+});
+
+/// _lsprof internal module functions
+const LsprofInternalFuncs = FuncMap.initComptime(.{
+    .{ "Profiler", _lsprof_mod.genProfiler },
+    .{ "enable", _lsprof_mod.genEnable },
+    .{ "disable", _lsprof_mod.genDisable },
+    .{ "clear", _lsprof_mod.genClear },
+    .{ "getstats", _lsprof_mod.genGetstats },
+    .{ "profiler_entry", _lsprof_mod.genProfilerEntry },
+    .{ "profiler_subentry", _lsprof_mod.genProfilerSubentry },
+});
+
+/// _statistics internal module functions
+const StatisticsInternalFuncs = FuncMap.initComptime(.{
+    .{ "_normal_dist_inv_cdf", _statistics_mod.genNormalDistInvCdf },
+});
+
+/// _symtable internal module functions
+const SymtableInternalFuncs = FuncMap.initComptime(.{
+    .{ "symtable", _symtable_mod.genSymtable },
+    .{ "SCOPE_OFF", _symtable_mod.genSCOPE_OFF },
+    .{ "SCOPE_MASK", _symtable_mod.genSCOPE_MASK },
+    .{ "LOCAL", _symtable_mod.genLOCAL },
+    .{ "GLOBAL_EXPLICIT", _symtable_mod.genGLOBAL_EXPLICIT },
+    .{ "GLOBAL_IMPLICIT", _symtable_mod.genGLOBAL_IMPLICIT },
+    .{ "FREE", _symtable_mod.genFREE },
+    .{ "CELL", _symtable_mod.genCELL },
+    .{ "TYPE_FUNCTION", _symtable_mod.genTYPE_FUNCTION },
+    .{ "TYPE_CLASS", _symtable_mod.genTYPE_CLASS },
+    .{ "TYPE_MODULE", _symtable_mod.genTYPE_MODULE },
+});
+
+/// _markupbase internal module functions
+const MarkupbaseInternalFuncs = FuncMap.initComptime(.{
+    .{ "ParserBase", _markupbase_mod.genParserBase },
+    .{ "reset", _markupbase_mod.genReset },
+    .{ "getpos", _markupbase_mod.genGetpos },
+    .{ "updatepos", _markupbase_mod.genUpdatepos },
+    .{ "error", _markupbase_mod.genError },
+});
+
+/// _sitebuiltins internal module functions
+const SitebuiltinsInternalFuncs = FuncMap.initComptime(.{
+    .{ "Quitter", _sitebuiltins_mod.genQuitter },
+    .{ "_Printer", _sitebuiltins_mod.genPrinter },
+    .{ "_Helper", _sitebuiltins_mod.genHelper },
+});
+
+/// _curses_panel internal module functions
+const CursesPanelInternalFuncs = FuncMap.initComptime(.{
+    .{ "new_panel", _curses_panel_mod.genNewPanel },
+    .{ "bottom_panel", _curses_panel_mod.genBottomPanel },
+    .{ "top_panel", _curses_panel_mod.genTopPanel },
+    .{ "update_panels", _curses_panel_mod.genUpdatePanels },
+    .{ "above", _curses_panel_mod.genAbove },
+    .{ "below", _curses_panel_mod.genBelow },
+    .{ "bottom", _curses_panel_mod.genBottom },
+    .{ "hidden", _curses_panel_mod.genHidden },
+    .{ "hide", _curses_panel_mod.genHide },
+    .{ "move", _curses_panel_mod.genMove },
+    .{ "replace", _curses_panel_mod.genReplace },
+    .{ "set_userptr", _curses_panel_mod.genSetUserptr },
+    .{ "show", _curses_panel_mod.genShow },
+    .{ "top", _curses_panel_mod.genTop },
+    .{ "userptr", _curses_panel_mod.genUserptr },
+    .{ "window", _curses_panel_mod.genWindow },
+    .{ "error", _curses_panel_mod.genError },
+});
+
+/// _dbm internal module functions
+const DbmInternalFuncs = FuncMap.initComptime(.{
+    .{ "open", _dbm_mod.genOpen },
+    .{ "error", _dbm_mod.genError },
+    .{ "close", _dbm_mod.genClose },
+    .{ "keys", _dbm_mod.genKeys },
+    .{ "get", _dbm_mod.genGet },
+    .{ "setdefault", _dbm_mod.genSetdefault },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -5708,6 +5861,18 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "_tracemalloc", TracemallocInternalFuncs },
     .{ "_lzma", LzmaInternalFuncs },
     .{ "_bz2", Bz2InternalFuncs },
+    .{ "_ast", AstInternalFuncs },
+    .{ "_contextvars", ContextvarsInternalFuncs },
+    .{ "_queue", QueueInternalFuncs },
+    .{ "_imp", ImpInternalFuncs },
+    .{ "_opcode", OpcodeInternalFuncs },
+    .{ "_lsprof", LsprofInternalFuncs },
+    .{ "_statistics", StatisticsInternalFuncs },
+    .{ "_symtable", SymtableInternalFuncs },
+    .{ "_markupbase", MarkupbaseInternalFuncs },
+    .{ "_sitebuiltins", SitebuiltinsInternalFuncs },
+    .{ "_curses_panel", CursesPanelInternalFuncs },
+    .{ "_dbm", DbmInternalFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

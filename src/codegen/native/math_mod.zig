@@ -33,9 +33,21 @@ pub fn genNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 // Number-theoretic functions
 pub fn genCeil(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("@as(i64, @intFromFloat(@ceil(@as(f64, @floatFromInt(");
-        try self.genExpr(args[0]);
-        try self.emit(")))))");
+        // Check argument type - if float, no conversion needed
+        const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+        if (arg_type == .float) {
+            try self.emit("@as(i64, @intFromFloat(@ceil(");
+            try self.genExpr(args[0]);
+            try self.emit(")))");
+        } else if (arg_type == .int) {
+            // Integer input - return as-is since ceil of int is the int itself
+            try self.genExpr(args[0]);
+        } else {
+            // Unknown - assume float
+            try self.emit("@as(i64, @intFromFloat(@ceil(@as(f64, ");
+            try self.genExpr(args[0]);
+            try self.emit("))))");
+        }
     } else {
         try self.emit("@as(i64, 0)");
     }
@@ -43,9 +55,21 @@ pub fn genCeil(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 pub fn genFloor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("@as(i64, @intFromFloat(@floor(@as(f64, @floatFromInt(");
-        try self.genExpr(args[0]);
-        try self.emit(")))))");
+        // Check argument type - if float, no conversion needed
+        const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+        if (arg_type == .float) {
+            try self.emit("@as(i64, @intFromFloat(@floor(");
+            try self.genExpr(args[0]);
+            try self.emit(")))");
+        } else if (arg_type == .int) {
+            // Integer input - return as-is since floor of int is the int itself
+            try self.genExpr(args[0]);
+        } else {
+            // Unknown - assume float
+            try self.emit("@as(i64, @intFromFloat(@floor(@as(f64, ");
+            try self.genExpr(args[0]);
+            try self.emit("))))");
+        }
     } else {
         try self.emit("@as(i64, 0)");
     }
@@ -53,9 +77,21 @@ pub fn genFloor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 pub fn genTrunc(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("@as(i64, @intFromFloat(@trunc(@as(f64, @floatFromInt(");
-        try self.genExpr(args[0]);
-        try self.emit(")))))");
+        // Check argument type - if float, no conversion needed
+        const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+        if (arg_type == .float) {
+            try self.emit("@as(i64, @intFromFloat(@trunc(");
+            try self.genExpr(args[0]);
+            try self.emit(")))");
+        } else if (arg_type == .int) {
+            // Integer input - return as-is since trunc of int is the int itself
+            try self.genExpr(args[0]);
+        } else {
+            // Unknown - assume float
+            try self.emit("@as(i64, @intFromFloat(@trunc(@as(f64, ");
+            try self.genExpr(args[0]);
+            try self.emit("))))");
+        }
     } else {
         try self.emit("@as(i64, 0)");
     }
