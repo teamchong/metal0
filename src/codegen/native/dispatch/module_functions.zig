@@ -243,6 +243,25 @@ const _typing_mod = @import("../_typing_mod.zig");
 const _warnings_mod = @import("../_warnings_mod.zig");
 const _weakrefset_mod = @import("../_weakrefset_mod.zig");
 const pyexpat_mod = @import("../pyexpat_mod.zig");
+const _ctypes_mod = @import("../_ctypes_mod.zig");
+const _curses_mod = @import("../_curses_mod.zig");
+const _decimal_mod = @import("../_decimal_mod.zig");
+const _elementtree_mod = @import("../_elementtree_mod.zig");
+const _md5_mod = @import("../_md5_mod.zig");
+const _multiprocessing_mod = @import("../_multiprocessing_mod.zig");
+const _sha1_mod = @import("../_sha1_mod.zig");
+const _sha2_mod = @import("../_sha2_mod.zig");
+const _sha3_mod = @import("../_sha3_mod.zig");
+const _sre_mod = @import("../_sre_mod.zig");
+const _ssl_mod = @import("../_ssl_mod.zig");
+const _sqlite3_mod = @import("../_sqlite3_mod.zig");
+const _tokenize_mod = @import("../_tokenize_mod.zig");
+const _uuid_mod = @import("../_uuid_mod.zig");
+const _posixsubprocess_mod = @import("../_posixsubprocess_mod.zig");
+const _zoneinfo_mod = @import("../_zoneinfo_mod.zig");
+const _tracemalloc_mod = @import("../_tracemalloc_mod.zig");
+const _lzma_mod = @import("../_lzma_mod.zig");
+const _bz2_mod = @import("../_bz2_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -4988,6 +5007,408 @@ const PyexpatFuncs = FuncMap.initComptime(.{
     .{ "errors", pyexpat_mod.genErrors },
 });
 
+/// _ctypes internal module functions
+const CtypesInternalFuncs = FuncMap.initComptime(.{
+    .{ "CDLL", _ctypes_mod.genCDLL },
+    .{ "PyDLL", _ctypes_mod.genPyDLL },
+    .{ "WinDLL", _ctypes_mod.genWinDLL },
+    .{ "OleDLL", _ctypes_mod.genOleDLL },
+    .{ "dlopen", _ctypes_mod.genDlopen },
+    .{ "dlclose", _ctypes_mod.genDlclose },
+    .{ "dlsym", _ctypes_mod.genDlsym },
+    .{ "FUNCFLAG_CDECL", _ctypes_mod.genFuncflagCdecl },
+    .{ "FUNCFLAG_USE_ERRNO", _ctypes_mod.genFuncflagUseErrno },
+    .{ "FUNCFLAG_USE_LASTERROR", _ctypes_mod.genFuncflagUseLastError },
+    .{ "FUNCFLAG_PYTHONAPI", _ctypes_mod.genFuncflagPythonapi },
+    .{ "sizeof", _ctypes_mod.genSizeof },
+    .{ "alignment", _ctypes_mod.genAlignment },
+    .{ "byref", _ctypes_mod.genByref },
+    .{ "addressof", _ctypes_mod.genAddressof },
+    .{ "POINTER", _ctypes_mod.genPOINTER },
+    .{ "pointer", _ctypes_mod.genPointer },
+    .{ "cast", _ctypes_mod.genCast },
+    .{ "set_errno", _ctypes_mod.genSetErrno },
+    .{ "get_errno", _ctypes_mod.genGetErrno },
+    .{ "resize", _ctypes_mod.genResize },
+    .{ "c_void_p", _ctypes_mod.genCVoidP },
+    .{ "c_char_p", _ctypes_mod.genCCharP },
+    .{ "c_wchar_p", _ctypes_mod.genCWcharP },
+    .{ "c_bool", _ctypes_mod.genCBool },
+    .{ "c_char", _ctypes_mod.genCChar },
+    .{ "c_wchar", _ctypes_mod.genCWchar },
+    .{ "c_byte", _ctypes_mod.genCByte },
+    .{ "c_ubyte", _ctypes_mod.genCUbyte },
+    .{ "c_short", _ctypes_mod.genCShort },
+    .{ "c_ushort", _ctypes_mod.genCUshort },
+    .{ "c_int", _ctypes_mod.genCInt },
+    .{ "c_uint", _ctypes_mod.genCUint },
+    .{ "c_long", _ctypes_mod.genCLong },
+    .{ "c_ulong", _ctypes_mod.genCUlong },
+    .{ "c_longlong", _ctypes_mod.genCLonglong },
+    .{ "c_ulonglong", _ctypes_mod.genCUlonglong },
+    .{ "c_size_t", _ctypes_mod.genCSizeT },
+    .{ "c_ssize_t", _ctypes_mod.genCSSizeT },
+    .{ "c_float", _ctypes_mod.genCFloat },
+    .{ "c_double", _ctypes_mod.genCDouble },
+    .{ "c_longdouble", _ctypes_mod.genCLongdouble },
+    .{ "Structure", _ctypes_mod.genStructure },
+    .{ "Union", _ctypes_mod.genUnion },
+    .{ "Array", _ctypes_mod.genArray },
+    .{ "ArgumentError", _ctypes_mod.genArgumentError },
+});
+
+/// _curses internal module functions
+const CursesInternalFuncs = FuncMap.initComptime(.{
+    .{ "initscr", _curses_mod.genInitscr },
+    .{ "endwin", _curses_mod.genEndwin },
+    .{ "newwin", _curses_mod.genNewwin },
+    .{ "newpad", _curses_mod.genNewpad },
+    .{ "start_color", _curses_mod.genStartColor },
+    .{ "init_pair", _curses_mod.genInitPair },
+    .{ "color_pair", _curses_mod.genColorPair },
+    .{ "cbreak", _curses_mod.genCbreak },
+    .{ "nocbreak", _curses_mod.genNocbreak },
+    .{ "echo", _curses_mod.genEcho },
+    .{ "noecho", _curses_mod.genNoecho },
+    .{ "raw", _curses_mod.genRaw },
+    .{ "noraw", _curses_mod.genNoraw },
+    .{ "curs_set", _curses_mod.genCursSet },
+    .{ "has_colors", _curses_mod.genHasColors },
+    .{ "can_change_color", _curses_mod.genCanChangeColor },
+    .{ "COLORS", _curses_mod.genCOLORS },
+    .{ "COLOR_PAIRS", _curses_mod.genCOLOR_PAIRS },
+    .{ "LINES", _curses_mod.genLINES },
+    .{ "COLS", _curses_mod.genCOLS },
+    .{ "error", _curses_mod.genError },
+});
+
+/// _decimal internal module functions
+const DecimalInternalFuncs = FuncMap.initComptime(.{
+    .{ "Decimal", _decimal_mod.genDecimal },
+    .{ "Context", _decimal_mod.genContext },
+    .{ "localcontext", _decimal_mod.genLocalcontext },
+    .{ "getcontext", _decimal_mod.genGetcontext },
+    .{ "setcontext", _decimal_mod.genSetcontext },
+    .{ "BasicContext", _decimal_mod.genBasicContext },
+    .{ "ExtendedContext", _decimal_mod.genExtendedContext },
+    .{ "DefaultContext", _decimal_mod.genDefaultContext },
+    .{ "MAX_PREC", _decimal_mod.genMaxPrec },
+    .{ "MAX_EMAX", _decimal_mod.genMaxEmax },
+    .{ "MIN_EMIN", _decimal_mod.genMinEmin },
+    .{ "MIN_ETINY", _decimal_mod.genMinEtiny },
+    .{ "ROUND_CEILING", _decimal_mod.genRoundCeiling },
+    .{ "ROUND_DOWN", _decimal_mod.genRoundDown },
+    .{ "ROUND_FLOOR", _decimal_mod.genRoundFloor },
+    .{ "ROUND_HALF_DOWN", _decimal_mod.genRoundHalfDown },
+    .{ "ROUND_HALF_EVEN", _decimal_mod.genRoundHalfEven },
+    .{ "ROUND_HALF_UP", _decimal_mod.genRoundHalfUp },
+    .{ "ROUND_UP", _decimal_mod.genRoundUp },
+    .{ "ROUND_05UP", _decimal_mod.genRound05Up },
+    .{ "DecimalException", _decimal_mod.genDecimalException },
+    .{ "InvalidOperation", _decimal_mod.genInvalidOperation },
+    .{ "DivisionByZero", _decimal_mod.genDivisionByZero },
+    .{ "Overflow", _decimal_mod.genOverflow },
+    .{ "Underflow", _decimal_mod.genUnderflow },
+    .{ "Inexact", _decimal_mod.genInexact },
+    .{ "Rounded", _decimal_mod.genRounded },
+    .{ "Subnormal", _decimal_mod.genSubnormal },
+    .{ "Clamped", _decimal_mod.genClamped },
+});
+
+/// _elementtree internal module functions
+const ElementtreeInternalFuncs = FuncMap.initComptime(.{
+    .{ "Element", _elementtree_mod.genElement },
+    .{ "SubElement", _elementtree_mod.genSubElement },
+    .{ "TreeBuilder", _elementtree_mod.genTreeBuilder },
+    .{ "XMLParser", _elementtree_mod.genXMLParser },
+    .{ "ParseError", _elementtree_mod.genParseError },
+    .{ "append", _elementtree_mod.genAppend },
+    .{ "extend", _elementtree_mod.genExtend },
+    .{ "insert", _elementtree_mod.genInsert },
+    .{ "remove", _elementtree_mod.genRemove },
+    .{ "clear", _elementtree_mod.genClear },
+    .{ "get", _elementtree_mod.genGet },
+    .{ "set", _elementtree_mod.genSet },
+    .{ "keys", _elementtree_mod.genKeys },
+    .{ "items", _elementtree_mod.genItems },
+    .{ "iter", _elementtree_mod.genIter },
+    .{ "itertext", _elementtree_mod.genItertext },
+    .{ "find", _elementtree_mod.genFind },
+    .{ "findall", _elementtree_mod.genFindall },
+    .{ "findtext", _elementtree_mod.genFindtext },
+    .{ "makeelement", _elementtree_mod.genMakeelement },
+});
+
+/// _md5 internal module functions
+const Md5InternalFuncs = FuncMap.initComptime(.{
+    .{ "md5", _md5_mod.genMd5 },
+    .{ "update", _md5_mod.genUpdate },
+    .{ "digest", _md5_mod.genDigest },
+    .{ "hexdigest", _md5_mod.genHexdigest },
+    .{ "copy", _md5_mod.genCopy },
+});
+
+/// _multiprocessing internal module functions
+const MultiprocessingInternalFuncs = FuncMap.initComptime(.{
+    .{ "SemLock", _multiprocessing_mod.genSemLock },
+    .{ "sem_unlink", _multiprocessing_mod.genSemUnlink },
+    .{ "address_of_buffer", _multiprocessing_mod.genAddressOfBuffer },
+    .{ "flags", _multiprocessing_mod.genFlags },
+    .{ "Connection", _multiprocessing_mod.genConnection },
+    .{ "send", _multiprocessing_mod.genSend },
+    .{ "recv", _multiprocessing_mod.genRecv },
+    .{ "poll", _multiprocessing_mod.genPoll },
+    .{ "send_bytes", _multiprocessing_mod.genSendBytes },
+    .{ "recv_bytes", _multiprocessing_mod.genRecvBytes },
+    .{ "recv_bytes_into", _multiprocessing_mod.genRecvBytesInto },
+    .{ "close", _multiprocessing_mod.genClose },
+    .{ "fileno", _multiprocessing_mod.genFileno },
+    .{ "acquire", _multiprocessing_mod.genAcquire },
+    .{ "release", _multiprocessing_mod.genRelease },
+    .{ "_count", _multiprocessing_mod.genCount },
+    .{ "_is_mine", _multiprocessing_mod.genIsMine },
+    .{ "_get_value", _multiprocessing_mod.genGetValue },
+    .{ "_is_zero", _multiprocessing_mod.genIsZero },
+    .{ "_rebuild", _multiprocessing_mod.genRebuild },
+});
+
+/// _sha1 internal module functions
+const Sha1InternalFuncs = FuncMap.initComptime(.{
+    .{ "sha1", _sha1_mod.genSha1 },
+    .{ "update", _sha1_mod.genUpdate },
+    .{ "digest", _sha1_mod.genDigest },
+    .{ "hexdigest", _sha1_mod.genHexdigest },
+    .{ "copy", _sha1_mod.genCopy },
+});
+
+/// _sha2 internal module functions
+const Sha2InternalFuncs = FuncMap.initComptime(.{
+    .{ "sha224", _sha2_mod.genSha224 },
+    .{ "sha256", _sha2_mod.genSha256 },
+    .{ "sha384", _sha2_mod.genSha384 },
+    .{ "sha512", _sha2_mod.genSha512 },
+    .{ "update", _sha2_mod.genUpdate },
+    .{ "digest", _sha2_mod.genDigest },
+    .{ "hexdigest", _sha2_mod.genHexdigest },
+    .{ "copy", _sha2_mod.genCopy },
+});
+
+/// _sha3 internal module functions
+const Sha3InternalFuncs = FuncMap.initComptime(.{
+    .{ "sha3_224", _sha3_mod.genSha3_224 },
+    .{ "sha3_256", _sha3_mod.genSha3_256 },
+    .{ "sha3_384", _sha3_mod.genSha3_384 },
+    .{ "sha3_512", _sha3_mod.genSha3_512 },
+    .{ "shake_128", _sha3_mod.genShake128 },
+    .{ "shake_256", _sha3_mod.genShake256 },
+    .{ "update", _sha3_mod.genUpdate },
+    .{ "digest", _sha3_mod.genDigest },
+    .{ "hexdigest", _sha3_mod.genHexdigest },
+    .{ "copy", _sha3_mod.genCopy },
+});
+
+/// _sre internal module functions
+const SreInternalFuncs = FuncMap.initComptime(.{
+    .{ "compile", _sre_mod.genCompile },
+    .{ "CODESIZE", _sre_mod.genCODESIZE },
+    .{ "MAGIC", _sre_mod.genMAGIC },
+    .{ "getlower", _sre_mod.genGetlower },
+    .{ "getcodesize", _sre_mod.genGetcodesize },
+    .{ "match", _sre_mod.genMatch },
+    .{ "fullmatch", _sre_mod.genFullmatch },
+    .{ "search", _sre_mod.genSearch },
+    .{ "findall", _sre_mod.genFindall },
+    .{ "finditer", _sre_mod.genFinditer },
+    .{ "sub", _sre_mod.genSub },
+    .{ "subn", _sre_mod.genSubn },
+    .{ "split", _sre_mod.genSplit },
+    .{ "group", _sre_mod.genGroup },
+    .{ "groups", _sre_mod.genGroups },
+    .{ "groupdict", _sre_mod.genGroupdict },
+    .{ "start", _sre_mod.genStart },
+    .{ "end", _sre_mod.genEnd },
+    .{ "span", _sre_mod.genSpan },
+    .{ "expand", _sre_mod.genExpand },
+});
+
+/// _ssl internal module functions
+const SslInternalFuncs = FuncMap.initComptime(.{
+    .{ "_SSLContext", _ssl_mod.genSSLContext },
+    .{ "_SSLSocket", _ssl_mod.genSSLSocket },
+    .{ "MemoryBIO", _ssl_mod.genMemoryBIO },
+    .{ "RAND_status", _ssl_mod.genRAND_status },
+    .{ "RAND_add", _ssl_mod.genRAND_add },
+    .{ "RAND_bytes", _ssl_mod.genRAND_bytes },
+    .{ "RAND_pseudo_bytes", _ssl_mod.genRAND_pseudo_bytes },
+    .{ "txt2obj", _ssl_mod.genTxt2obj },
+    .{ "nid2obj", _ssl_mod.genNid2obj },
+    .{ "OPENSSL_VERSION", _ssl_mod.genOPENSSL_VERSION },
+    .{ "OPENSSL_VERSION_NUMBER", _ssl_mod.genOPENSSL_VERSION_NUMBER },
+    .{ "OPENSSL_VERSION_INFO", _ssl_mod.genOPENSSL_VERSION_INFO },
+    .{ "PROTOCOL_SSLv23", _ssl_mod.genPROTOCOL_SSLv23 },
+    .{ "PROTOCOL_TLS", _ssl_mod.genPROTOCOL_TLS },
+    .{ "PROTOCOL_TLS_CLIENT", _ssl_mod.genPROTOCOL_TLS_CLIENT },
+    .{ "PROTOCOL_TLS_SERVER", _ssl_mod.genPROTOCOL_TLS_SERVER },
+    .{ "CERT_NONE", _ssl_mod.genCERT_NONE },
+    .{ "CERT_OPTIONAL", _ssl_mod.genCERT_OPTIONAL },
+    .{ "CERT_REQUIRED", _ssl_mod.genCERT_REQUIRED },
+    .{ "HAS_SNI", _ssl_mod.genHAS_SNI },
+    .{ "HAS_ECDH", _ssl_mod.genHAS_ECDH },
+    .{ "HAS_NPN", _ssl_mod.genHAS_NPN },
+    .{ "HAS_ALPN", _ssl_mod.genHAS_ALPN },
+    .{ "HAS_TLSv1", _ssl_mod.genHAS_TLSv1 },
+    .{ "HAS_TLSv1_1", _ssl_mod.genHAS_TLSv1_1 },
+    .{ "HAS_TLSv1_2", _ssl_mod.genHAS_TLSv1_2 },
+    .{ "HAS_TLSv1_3", _ssl_mod.genHAS_TLSv1_3 },
+    .{ "SSLError", _ssl_mod.genSSLError },
+    .{ "SSLZeroReturnError", _ssl_mod.genSSLZeroReturnError },
+    .{ "SSLWantReadError", _ssl_mod.genSSLWantReadError },
+    .{ "SSLWantWriteError", _ssl_mod.genSSLWantWriteError },
+    .{ "SSLSyscallError", _ssl_mod.genSSLSyscallError },
+    .{ "SSLEOFError", _ssl_mod.genSSLEOFError },
+    .{ "SSLCertVerificationError", _ssl_mod.genSSLCertVerificationError },
+});
+
+/// _sqlite3 internal module functions
+const Sqlite3InternalFuncs = FuncMap.initComptime(.{
+    .{ "connect", _sqlite3_mod.genConnect },
+    .{ "Connection", _sqlite3_mod.genConnection },
+    .{ "Cursor", _sqlite3_mod.genCursor },
+    .{ "Row", _sqlite3_mod.genRow },
+    .{ "cursor", _sqlite3_mod.genCursorMethod },
+    .{ "commit", _sqlite3_mod.genCommit },
+    .{ "rollback", _sqlite3_mod.genRollback },
+    .{ "close", _sqlite3_mod.genClose },
+    .{ "execute", _sqlite3_mod.genExecute },
+    .{ "executemany", _sqlite3_mod.genExecutemany },
+    .{ "executescript", _sqlite3_mod.genExecutescript },
+    .{ "create_function", _sqlite3_mod.genCreateFunction },
+    .{ "create_aggregate", _sqlite3_mod.genCreateAggregate },
+    .{ "create_collation", _sqlite3_mod.genCreateCollation },
+    .{ "set_authorizer", _sqlite3_mod.genSetAuthorizer },
+    .{ "set_progress_handler", _sqlite3_mod.genSetProgressHandler },
+    .{ "set_trace_callback", _sqlite3_mod.genSetTraceCallback },
+    .{ "enable_load_extension", _sqlite3_mod.genEnableLoadExtension },
+    .{ "load_extension", _sqlite3_mod.genLoadExtension },
+    .{ "interrupt", _sqlite3_mod.genInterrupt },
+    .{ "iterdump", _sqlite3_mod.genIterdump },
+    .{ "backup", _sqlite3_mod.genBackup },
+    .{ "fetchone", _sqlite3_mod.genFetchone },
+    .{ "fetchmany", _sqlite3_mod.genFetchmany },
+    .{ "fetchall", _sqlite3_mod.genFetchall },
+    .{ "setinputsizes", _sqlite3_mod.genSetinputsizes },
+    .{ "setoutputsize", _sqlite3_mod.genSetoutputsize },
+    .{ "version", _sqlite3_mod.genVersion },
+    .{ "version_info", _sqlite3_mod.genVersionInfo },
+    .{ "sqlite_version", _sqlite3_mod.genSqliteVersion },
+    .{ "sqlite_version_info", _sqlite3_mod.genSqliteVersionInfo },
+    .{ "PARSE_DECLTYPES", _sqlite3_mod.genPARSE_DECLTYPES },
+    .{ "PARSE_COLNAMES", _sqlite3_mod.genPARSE_COLNAMES },
+    .{ "Error", _sqlite3_mod.genError },
+    .{ "DatabaseError", _sqlite3_mod.genDatabaseError },
+    .{ "IntegrityError", _sqlite3_mod.genIntegrityError },
+    .{ "ProgrammingError", _sqlite3_mod.genProgrammingError },
+    .{ "OperationalError", _sqlite3_mod.genOperationalError },
+    .{ "NotSupportedError", _sqlite3_mod.genNotSupportedError },
+});
+
+/// _tokenize internal module functions
+const TokenizeInternalFuncs = FuncMap.initComptime(.{
+    .{ "TokenInfo", _tokenize_mod.genTokenInfo },
+    .{ "tokenize", _tokenize_mod.genTokenize },
+    .{ "generate_tokens", _tokenize_mod.genGenerateTokens },
+    .{ "detect_encoding", _tokenize_mod.genDetectEncoding },
+    .{ "untokenize", _tokenize_mod.genUntokenize },
+    .{ "open", _tokenize_mod.genOpen },
+    .{ "TokenError", _tokenize_mod.genTokenError },
+    .{ "StopTokenizing", _tokenize_mod.genStopTokenizing },
+    .{ "ENCODING", _tokenize_mod.genENCODING },
+    .{ "COMMENT", _tokenize_mod.genCOMMENT },
+    .{ "NL", _tokenize_mod.genNL },
+});
+
+/// _uuid internal module functions
+const UuidInternalFuncs = FuncMap.initComptime(.{
+    .{ "getnode", _uuid_mod.genGetnode },
+    .{ "generate_time_safe", _uuid_mod.genGenerateTimeSafe },
+    .{ "UuidCreate", _uuid_mod.genUuidCreate },
+    .{ "has_uuid_generate_time_safe", _uuid_mod.genHasUuidGenerateTimeSafe },
+});
+
+/// _posixsubprocess internal module functions
+const PosixsubprocessInternalFuncs = FuncMap.initComptime(.{
+    .{ "fork_exec", _posixsubprocess_mod.genForkExec },
+    .{ "cloexec_pipe", _posixsubprocess_mod.genCloexecPipe },
+});
+
+/// _zoneinfo internal module functions
+const ZoneinfoInternalFuncs = FuncMap.initComptime(.{
+    .{ "ZoneInfo", _zoneinfo_mod.genZoneInfo },
+    .{ "from_file", _zoneinfo_mod.genFromFile },
+    .{ "no_cache", _zoneinfo_mod.genNoCache },
+    .{ "clear_cache", _zoneinfo_mod.genClearCache },
+    .{ "key", _zoneinfo_mod.genKey },
+    .{ "utcoffset", _zoneinfo_mod.genUtcoffset },
+    .{ "tzname", _zoneinfo_mod.genTzname },
+    .{ "dst", _zoneinfo_mod.genDst },
+    .{ "TZPATH", _zoneinfo_mod.genTZPATH },
+    .{ "reset_tzpath", _zoneinfo_mod.genResetTzpath },
+    .{ "available_timezones", _zoneinfo_mod.genAvailableTimezones },
+    .{ "ZoneInfoNotFoundError", _zoneinfo_mod.genZoneInfoNotFoundError },
+    .{ "InvalidTZPathWarning", _zoneinfo_mod.genInvalidTZPathWarning },
+});
+
+/// _tracemalloc internal module functions
+const TracemallocInternalFuncs = FuncMap.initComptime(.{
+    .{ "start", _tracemalloc_mod.genStart },
+    .{ "stop", _tracemalloc_mod.genStop },
+    .{ "is_tracing", _tracemalloc_mod.genIsTracing },
+    .{ "clear_traces", _tracemalloc_mod.genClearTraces },
+    .{ "get_traceback_limit", _tracemalloc_mod.genGetTracebackLimit },
+    .{ "get_traced_memory", _tracemalloc_mod.genGetTracedMemory },
+    .{ "reset_peak", _tracemalloc_mod.genResetPeak },
+    .{ "get_tracemalloc_memory", _tracemalloc_mod.genGetTracemallocMemory },
+    .{ "get_object_traceback", _tracemalloc_mod.genGetObjectTraceback },
+    .{ "_get_traces", _tracemalloc_mod.genGetTraces },
+    .{ "_get_object_traceback", _tracemalloc_mod.genGetObjectTracebackInternal },
+});
+
+/// _lzma internal module functions
+const LzmaInternalFuncs = FuncMap.initComptime(.{
+    .{ "LZMACompressor", _lzma_mod.genLZMACompressor },
+    .{ "LZMADecompressor", _lzma_mod.genLZMADecompressor },
+    .{ "compress", _lzma_mod.genCompress },
+    .{ "flush", _lzma_mod.genFlush },
+    .{ "decompress", _lzma_mod.genDecompress },
+    .{ "is_check_supported", _lzma_mod.genIsCheckSupported },
+    .{ "_encode_filter_properties", _lzma_mod.genEncodeFilterProperties },
+    .{ "_decode_filter_properties", _lzma_mod.genDecodeFilterProperties },
+    .{ "FORMAT_AUTO", _lzma_mod.genFORMAT_AUTO },
+    .{ "FORMAT_XZ", _lzma_mod.genFORMAT_XZ },
+    .{ "FORMAT_ALONE", _lzma_mod.genFORMAT_ALONE },
+    .{ "FORMAT_RAW", _lzma_mod.genFORMAT_RAW },
+    .{ "CHECK_NONE", _lzma_mod.genCHECK_NONE },
+    .{ "CHECK_CRC32", _lzma_mod.genCHECK_CRC32 },
+    .{ "CHECK_CRC64", _lzma_mod.genCHECK_CRC64 },
+    .{ "CHECK_SHA256", _lzma_mod.genCHECK_SHA256 },
+    .{ "PRESET_DEFAULT", _lzma_mod.genPRESET_DEFAULT },
+    .{ "PRESET_EXTREME", _lzma_mod.genPRESET_EXTREME },
+    .{ "FILTER_LZMA1", _lzma_mod.genFILTER_LZMA1 },
+    .{ "FILTER_LZMA2", _lzma_mod.genFILTER_LZMA2 },
+    .{ "FILTER_DELTA", _lzma_mod.genFILTER_DELTA },
+    .{ "FILTER_X86", _lzma_mod.genFILTER_X86 },
+    .{ "LZMAError", _lzma_mod.genLZMAError },
+});
+
+/// _bz2 internal module functions
+const Bz2InternalFuncs = FuncMap.initComptime(.{
+    .{ "BZ2Compressor", _bz2_mod.genBZ2Compressor },
+    .{ "BZ2Decompressor", _bz2_mod.genBZ2Decompressor },
+    .{ "compress", _bz2_mod.genCompress },
+    .{ "flush", _bz2_mod.genFlush },
+    .{ "decompress", _bz2_mod.genDecompress },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -5268,6 +5689,25 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "_weakrefset", WeakrefsetInternalFuncs },
     .{ "pyexpat", PyexpatFuncs },
     .{ "xml.parsers.expat", PyexpatFuncs },
+    .{ "_ctypes", CtypesInternalFuncs },
+    .{ "_curses", CursesInternalFuncs },
+    .{ "_decimal", DecimalInternalFuncs },
+    .{ "_elementtree", ElementtreeInternalFuncs },
+    .{ "_md5", Md5InternalFuncs },
+    .{ "_multiprocessing", MultiprocessingInternalFuncs },
+    .{ "_sha1", Sha1InternalFuncs },
+    .{ "_sha2", Sha2InternalFuncs },
+    .{ "_sha3", Sha3InternalFuncs },
+    .{ "_sre", SreInternalFuncs },
+    .{ "_ssl", SslInternalFuncs },
+    .{ "_sqlite3", Sqlite3InternalFuncs },
+    .{ "_tokenize", TokenizeInternalFuncs },
+    .{ "_uuid", UuidInternalFuncs },
+    .{ "_posixsubprocess", PosixsubprocessInternalFuncs },
+    .{ "_zoneinfo", ZoneinfoInternalFuncs },
+    .{ "_tracemalloc", TracemallocInternalFuncs },
+    .{ "_lzma", LzmaInternalFuncs },
+    .{ "_bz2", Bz2InternalFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

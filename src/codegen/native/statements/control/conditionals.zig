@@ -72,7 +72,22 @@ pub fn genIf(self: *NativeCodegen, if_stmt: ast.Node.If) CodegenError!void {
 
     try self.emitIndent();
     _ = try builder.write("if (");
-    try self.genExpr(if_stmt.condition.*);
+
+    // Check condition type - need to handle PyObject truthiness
+    const cond_type = self.type_inferrer.inferExpr(if_stmt.condition.*) catch .unknown;
+    if (cond_type == .unknown) {
+        // Unknown type (PyObject) - use runtime truthiness check
+        _ = try builder.write("runtime.pyTruthy(");
+        try self.genExpr(if_stmt.condition.*);
+        _ = try builder.write(")");
+    } else if (cond_type == .optional) {
+        // Optional type - check for non-null
+        try self.genExpr(if_stmt.condition.*);
+        _ = try builder.write(" != null");
+    } else {
+        // Boolean or other type - use directly
+        try self.genExpr(if_stmt.condition.*);
+    }
     _ = try builder.write(")");
     _ = try builder.beginBlock();
 

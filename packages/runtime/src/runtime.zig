@@ -1,6 +1,7 @@
 /// PyAOT Runtime Library
 /// Core runtime support for compiled Python code
 const std = @import("std");
+const hashmap_helper = @import("hashmap_helper");
 const pyint = @import("pyint.zig");
 const pyfloat = @import("pyfloat.zig");
 const pybool = @import("pybool.zig");
@@ -166,6 +167,45 @@ pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
             else => {},
         }
         allocator.destroy(obj);
+    }
+}
+
+/// Check if a PyObject is truthy (Python truthiness semantics)
+/// Returns false for: None, False, 0, empty string, empty list/dict
+/// Returns true for everything else
+pub fn pyTruthy(obj: *PyObject) bool {
+    switch (obj.type_id) {
+        .none => return false,
+        .bool => {
+            const val = @as(*bool, @ptrCast(@alignCast(obj.data)));
+            return val.*;
+        },
+        .int => {
+            const val = @as(*i64, @ptrCast(@alignCast(obj.data)));
+            return val.* != 0;
+        },
+        .float => {
+            const val = @as(*f64, @ptrCast(@alignCast(obj.data)));
+            return val.* != 0.0;
+        },
+        .string => {
+            const str = @as(*[]const u8, @ptrCast(@alignCast(obj.data)));
+            return str.len > 0;
+        },
+        .list => {
+            const items = @as(*[]const *PyObject, @ptrCast(@alignCast(obj.data)));
+            return items.len > 0;
+        },
+        .dict => {
+            // Dict truthiness - check if any entries
+            const data: *PyDict = @ptrCast(@alignCast(obj.data));
+            return data.map.count() > 0;
+        },
+        .tuple => {
+            const items = @as(*[]const *PyObject, @ptrCast(@alignCast(obj.data)));
+            return items.len > 0;
+        },
+        else => return true, // All other types (file, numpy_array, etc.) are truthy
     }
 }
 

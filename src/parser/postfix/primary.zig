@@ -517,8 +517,8 @@ fn parseGroupedOrTuple(self: *Parser) ParseError!ast.Node {
     var first = try parseTupleElement(self);
     errdefer first.deinit(self.allocator);
 
-    // Check for generator expression: (expr for x in items)
-    if (self.check(.For)) {
+    // Check for generator expression: (expr for x in items) or (expr async for x in items)
+    if (self.check(.For) or self.check(.Async)) {
         const genexp = try parseParenthesizedGenExpr(self, first);
         first = ast.Node{ .pass = {} }; // Ownership transferred
         _ = try self.expect(.RParen);

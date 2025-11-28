@@ -53,8 +53,8 @@ pub fn parseList(self: *Parser) ParseError!ast.Node {
     var first_elt = try parseListElement(self);
     errdefer first_elt.deinit(self.allocator);
 
-    // Check if this is a list comprehension: [x for x in items]
-    if (self.check(.For)) {
+    // Check if this is a list comprehension: [x for x in items] or [x async for x in items]
+    if (self.check(.For) or self.check(.Async)) {
         return try parseListComp(self, first_elt);
     }
 
@@ -202,8 +202,8 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
         var first_value = try self.parseExpression();
         errdefer first_value.deinit(self.allocator);
 
-        // Check if this is a dict comprehension: {k: v for k in items}
-        if (self.check(.For)) {
+        // Check if this is a dict comprehension: {k: v for k in items} or {k: v async for k in items}
+        if (self.check(.For) or self.check(.Async)) {
             return try parseDictComp(self, first_elem, first_value);
         }
 
@@ -264,8 +264,8 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
             },
         };
     } else {
-        // Check for set comprehension: {x for x in items}
-        if (self.check(.For)) {
+        // Check for set comprehension: {x for x in items} or {x async for x in items}
+        if (self.check(.For) or self.check(.Async)) {
             return try parseSetComp(self, first_elem);
         }
 
