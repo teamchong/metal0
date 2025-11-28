@@ -3,7 +3,7 @@
 const std = @import("std");
 const runtime = @import("runtime.zig");
 
-// Import the regex engine
+// Import the regex engine via build.zig module
 const regex_impl = @import("regex");
 
 pub const Regex = regex_impl.Regex;

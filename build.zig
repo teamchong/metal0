@@ -61,9 +61,15 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("packages/shared/json/simd/dispatch.zig"),
     });
 
+    // Regex module for re stdlib
+    const regex_mod = b.addModule("regex", .{
+        .root_source_file = b.path("packages/regex/src/pyregex/regex.zig"),
+    });
+
     // Module dependencies
     runtime.addImport("hashmap_helper", hashmap_helper);
     runtime.addImport("json_simd", json_simd);
+    runtime.addImport("regex", regex_mod);
     collections.addImport("runtime", runtime);
 
     // C interop module
