@@ -48,8 +48,8 @@ pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Native list (ArrayList) needs conversion to PyList
         try genJsonDumpsList(self, args[0], arg_type.list.*);
     } else {
-        // Already a PyObject or primitive - use directly
-        try self.emit("try runtime.json.dumps(");
+        // Already a PyObject or primitive - use directly (dumpsDirect returns []const u8)
+        try self.emit("try runtime.json.dumpsDirect(");
         try self.genExpr(args[0]);
         try self.emit(", allocator)");
     }
@@ -92,7 +92,7 @@ fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: Nativ
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit("const _result = try runtime.json.dumps(_py_dict, allocator);\n");
+    try self.emit("const _result = try runtime.json.dumpsDirect(_py_dict, allocator);\n");
 
     try self.emitIndent();
     try self.emit("runtime.decref(_py_dict, allocator);\n");
@@ -139,7 +139,7 @@ fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: Native
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit("const _result = try runtime.json.dumps(_py_list, allocator);\n");
+    try self.emit("const _result = try runtime.json.dumpsDirect(_py_list, allocator);\n");
 
     try self.emitIndent();
     try self.emit("runtime.decref(_py_list, allocator);\n");

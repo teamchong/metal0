@@ -819,7 +819,13 @@ pub fn inferCall(
                     if (func_hash == comptime fnv_hash.hash("BytesIO")) return .bytesio;
                     if (func_hash == comptime fnv_hash.hash("open")) return .file;
                 },
-                JSON_HASH => if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("loads")) return .unknown,
+                JSON_HASH => {
+                    // json.dumps() returns string, json.loads() returns dynamic
+                    const func_hash = fnv_hash.hash(func_name);
+                    if (func_hash == comptime fnv_hash.hash("dumps")) return .{ .string = .runtime };
+                    if (func_hash == comptime fnv_hash.hash("loads")) return .unknown;
+                    return .unknown;
+                },
                 MATH_HASH => {
                     if (MathIntFuncs.has(func_name)) return .int;
                     if (MathBoolFuncs.has(func_name)) return .bool;
