@@ -58,12 +58,12 @@ pub const JsonArena = struct {
     }
 
     /// Allocate from the arena (bump pointer)
-    pub fn alloc(self: *JsonArena, comptime T: type) !*T {
+    pub inline fn alloc(self: *JsonArena, comptime T: type) !*T {
         return self.allocAligned(T, @alignOf(T));
     }
 
     /// Allocate with specific alignment
-    pub fn allocAligned(self: *JsonArena, comptime T: type, comptime alignment: u29) !*T {
+    pub inline fn allocAligned(self: *JsonArena, comptime T: type, comptime alignment: u29) !*T {
         const size = @sizeOf(T);
 
         // Align position
@@ -80,7 +80,7 @@ pub const JsonArena = struct {
     }
 
     /// Allocate a slice from the arena
-    pub fn allocSlice(self: *JsonArena, comptime T: type, len: usize) ![]T {
+    pub inline fn allocSlice(self: *JsonArena, comptime T: type, len: usize) ![]T {
         const size = @sizeOf(T) * len;
         const alignment = @alignOf(T);
 
