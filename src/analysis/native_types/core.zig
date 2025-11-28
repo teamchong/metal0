@@ -70,6 +70,7 @@ pub const NativeType = union(enum) {
     unknown: void, // Fallback to PyObject* (should be rare)
     path: void, // pathlib.Path
     flask_app: void, // flask.Flask application instance
+    numpy_array: void, // NumPy ndarray - wraps *runtime.PyObject with numpy_array type_id
 
     /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
@@ -144,9 +145,21 @@ pub const NativeType = union(enum) {
                 try buf.appendSlice(allocator, ")");
             },
             .dict => |kv| {
-                try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(");
-                try kv.value.toZigType(allocator, buf);
-                try buf.appendSlice(allocator, ")");
+                // Use StringHashMap for string keys, AutoHashMap for int keys
+                if (kv.key.* == .string) {
+                    try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(");
+                    try kv.value.toZigType(allocator, buf);
+                    try buf.appendSlice(allocator, ")");
+                } else if (kv.key.* == .int) {
+                    try buf.appendSlice(allocator, "std.AutoHashMap(i64, ");
+                    try kv.value.toZigType(allocator, buf);
+                    try buf.appendSlice(allocator, ")");
+                } else {
+                    // Default to StringHashMap for unknown key types
+                    try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(");
+                    try kv.value.toZigType(allocator, buf);
+                    try buf.appendSlice(allocator, ")");
+                }
             },
             .set => |elem_type| {
                 // For string sets use StringHashMap, for others use AutoHashMap
@@ -192,6 +205,7 @@ pub const NativeType = union(enum) {
             .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .path => try buf.appendSlice(allocator, "*pathlib.Path"),
             .flask_app => try buf.appendSlice(allocator, "*runtime.flask.Flask"),
+            .numpy_array => try buf.appendSlice(allocator, "*runtime.PyObject"),
         }
     }
 

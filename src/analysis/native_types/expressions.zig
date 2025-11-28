@@ -285,6 +285,19 @@ pub fn inferExpr(
             break :blk .{ .list = elem_ptr };
         },
         .dictcomp => |dc| blk: {
+            // First, type the loop variables from generators so they're available for key/value inference
+            for (dc.generators) |gen| {
+                if (gen.target.* == .name) {
+                    // Check if iterator is range() - gives i64 loop variable
+                    if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
+                        const func_name = gen.iter.call.func.name.id;
+                        if (std.mem.eql(u8, func_name, "range")) {
+                            try var_types.put(gen.target.name.id, .int);
+                        }
+                    }
+                }
+            }
+
             // Infer types from key and value expressions
             const key_type = try inferExpr(allocator, var_types, class_fields, func_return_types, dc.key.*);
             const val_type = try inferExpr(allocator, var_types, class_fields, func_return_types, dc.value.*);

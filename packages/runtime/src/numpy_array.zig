@@ -828,6 +828,101 @@ pub const NumpyArray = struct {
         self.data[index] = value;
     }
 
+    /// Slice array with start:end (1D) - returns new array
+    pub fn sliceRange(allocator: std.mem.Allocator, self: *NumpyArray, start: usize, end: usize) !*NumpyArray {
+        const actual_start = @min(start, self.size);
+        const actual_end = @min(end, self.size);
+
+        if (actual_start >= actual_end) {
+            // Return empty array
+            return zeros(allocator, &[_]usize{0});
+        }
+
+        const new_size = actual_end - actual_start;
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, new_size);
+        @memcpy(data, self.data[actual_start..actual_end]);
+
+        const shape = try allocator.alloc(usize, 1);
+        shape[0] = new_size;
+
+        const strides = try allocator.alloc(usize, 1);
+        strides[0] = 1;
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = new_size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Slice array with step (1D) - returns new array
+    /// Handles both positive and negative steps
+    pub fn sliceWithStep(allocator: std.mem.Allocator, self: *NumpyArray, start: usize, end_i64: i64, step: i64) !*NumpyArray {
+        if (step == 0) {
+            return error.ValueError;
+        }
+
+        // Calculate result size
+        var count: usize = 0;
+        if (step > 0) {
+            var i: usize = start;
+            const step_u: usize = @intCast(step);
+            while (@as(i64, @intCast(i)) < end_i64 and i < self.size) : (i += step_u) {
+                count += 1;
+            }
+        } else {
+            var i: i64 = @intCast(start);
+            while (i > end_i64 and i >= 0) : (i += step) {
+                count += 1;
+            }
+        }
+
+        if (count == 0) {
+            return zeros(allocator, &[_]usize{0});
+        }
+
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, count);
+
+        // Fill data
+        var idx: usize = 0;
+        if (step > 0) {
+            var i: usize = start;
+            const step_u: usize = @intCast(step);
+            while (@as(i64, @intCast(i)) < end_i64 and i < self.size) : (i += step_u) {
+                data[idx] = self.data[i];
+                idx += 1;
+            }
+        } else {
+            var i: i64 = @intCast(start);
+            while (i > end_i64 and i >= 0) : (i += step) {
+                data[idx] = self.data[@intCast(i)];
+                idx += 1;
+            }
+        }
+
+        const shape = try allocator.alloc(usize, 1);
+        shape[0] = count;
+
+        const strides = try allocator.alloc(usize, 1);
+        strides[0] = 1;
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = count,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
     /// Clean up resources
     pub fn deinit(self: *NumpyArray) void {
         self.allocator.free(self.data);
