@@ -22,6 +22,9 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
         "codecs",      "binascii",
         "platform",    "stat",
         "posixpath",   "genericpath",
+        // Collections ABCs (handled by inline codegen)
+        "collections", "collections.abc",
+        "_collections_abc",
         // Python directive modules
         "__future__",
     };

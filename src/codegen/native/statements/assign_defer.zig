@@ -28,11 +28,11 @@ pub fn emitArrayListDefer(self: *NativeCodegen, var_name: []const u8) CodegenErr
     try self.output.writer(self.allocator).print("defer {s}.deinit({s});\n", .{ var_name, alloc_name });
 }
 
-/// Add defer cleanup for list comprehensions (return slices, not ArrayLists)
+/// Add defer cleanup for list comprehensions (return ArrayLists)
 pub fn emitListCompDefer(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
     const alloc_name = getAllocName(self);
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("defer {s}.free({s});\n", .{ alloc_name, var_name });
+    try self.output.writer(self.allocator).print("defer {s}.deinit({s});\n", .{ var_name, alloc_name });
 }
 
 /// Check if dict needs complex cleanup (string values that were allocated)

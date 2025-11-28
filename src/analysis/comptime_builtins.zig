@@ -77,7 +77,15 @@ pub const BuiltinOps = struct {
         _ = self;
         return switch (value) {
             .int => value,
-            .float => |f| ComptimeValue{ .int = @intFromFloat(f) },
+            .float => |f| blk: {
+                // Check if float is within i64 range before converting
+                const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
+                const max_i64: f64 = @floatFromInt(std.math.maxInt(i64));
+                if (f < min_i64 or f > max_i64 or std.math.isNan(f) or std.math.isInf(f)) {
+                    break :blk null; // Out of range, cannot convert at comptime
+                }
+                break :blk ComptimeValue{ .int = @intFromFloat(f) };
+            },
             .bool => |b| ComptimeValue{ .int = if (b) 1 else 0 },
             .string => |s| blk: {
                 const result = std.fmt.parseInt(i64, s, 10) catch break :blk null;

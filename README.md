@@ -1058,3 +1058,25 @@ This project includes patent grants for all compression algorithms and optimizat
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) (coming soon)
+
+
+
+The "Shadow Import"
+Use standard Python import syntax, but let your compiler be smarter than the standard Python interpreter.
+Do this instead:
+code
+Python
+# In train.py
+import metal0
+
+# OPTION A: The Implicit Way (Best for DX)
+# If 'kernels.zig' exists in the folder, metal0 prefers it over kernels.py
+import kernels 
+
+# OPTION B: The Explicit Way (Best for Clarity)
+# Valid Python syntax, but the compiler statically replaces this 
+# with the linked Zig binary at compile time.
+kernels = metal0.load("kernels.zig")
+
+
+to allow manual memory control

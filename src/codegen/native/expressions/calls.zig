@@ -16,6 +16,7 @@ fn producesBlockExpression(expr: ast.Node) bool {
         .subscript => true, // lines[idx] generates blk: {...}
         .list => true, // [1,2,3] generates block expression
         .dict => true, // {k:v} generates block expression
+        .set => true, // {1,2,3} generates block expression
         .listcomp => true, // [x for x in y] generates block
         .dictcomp => true, // {k:v for...} generates block
         .genexp => true, // (x for x in y) generates block

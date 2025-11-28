@@ -13,6 +13,22 @@ fn sanitizeVarName(name: []const u8) []const u8 {
     return name;
 }
 
+/// Check if an expression produces a Zig block expression that can't have field access directly
+fn producesBlockExpression(expr: ast.Node) bool {
+    return switch (expr) {
+        .subscript => true,
+        .list => true,
+        .dict => true,
+        .set => true,
+        .listcomp => true,
+        .dictcomp => true,
+        .genexp => true,
+        .if_expr => true,
+        .call => true,
+        else => false,
+    };
+}
+
 /// Generate tuple unpacking for loop (e.g., for k, v in items)
 fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, body: []ast.Node) CodegenError!void {
     // Get target elements from either list or tuple
@@ -267,10 +283,20 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.genExpr(for_stmt.iter.*);
         try self.emit(").items");
     } else {
-        try self.genExpr(for_stmt.iter.*);
         // ArrayList (list or deque types) need .items for iteration
+        // Block expressions (listcomp, etc.) need to be wrapped in a temp variable
         if (iter_type == .list or iter_type == .deque) {
-            try self.emit(".items");
+            if (producesBlockExpression(for_stmt.iter.*)) {
+                // Wrap block expression: blk: { const __iter = <expr>; break :blk __iter.items; }
+                try self.emit("blk: { const __iter = ");
+                try self.genExpr(for_stmt.iter.*);
+                try self.emit("; break :blk __iter.items; }");
+            } else {
+                try self.genExpr(for_stmt.iter.*);
+                try self.emit(".items");
+            }
+        } else {
+            try self.genExpr(for_stmt.iter.*);
         }
     }
 

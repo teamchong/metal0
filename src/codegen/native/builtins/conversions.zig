@@ -10,6 +10,7 @@ fn producesBlockExpression(expr: ast.Node) bool {
         .subscript => true,
         .list => true,
         .dict => true,
+        .set => true,
         .listcomp => true,
         .dictcomp => true,
         .genexp => true,
@@ -101,6 +102,9 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         else => false,
     };
 
+    // Check if the argument is a block expression that needs wrapping
+    const needs_wrap = producesBlockExpression(args[0]);
+
     // Generate:
     // - runtime.pyLen(obj) for unknown/PyObject* types
     // - runtime.PyDict.len(obj) for **kwargs parameters
@@ -110,30 +114,66 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // - obj.len for slices/arrays/strings
     // All results are cast to i64 since Python len() returns int
     try self.emit("@as(i64, @intCast(");
+
+    // Wrap block expressions in temp variable
+    if (needs_wrap) {
+        try self.emit("blk: { const __obj = ");
+        try self.genExpr(args[0]);
+        try self.emit("; break :blk ");
+    }
+
     if (is_pyobject) {
         // Unknown type (PyObject*) - use runtime.pyLen for dynamic dispatch
-        try self.emit("runtime.pyLen(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        if (needs_wrap) {
+            try self.emit("runtime.pyLen(__obj)");
+        } else {
+            try self.emit("runtime.pyLen(");
+            try self.genExpr(args[0]);
+            try self.emit(")");
+        }
     } else if (is_kwarg_param) {
         // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()
-        try self.emit("runtime.PyDict.len(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        if (needs_wrap) {
+            try self.emit("runtime.PyDict.len(__obj)");
+        } else {
+            try self.emit("runtime.PyDict.len(");
+            try self.genExpr(args[0]);
+            try self.emit(")");
+        }
     } else if (is_arraylist) {
-        try self.genExpr(args[0]);
-        try self.emit(".items.len");
+        if (needs_wrap) {
+            try self.emit("__obj.items.len");
+        } else {
+            try self.genExpr(args[0]);
+            try self.emit(".items.len");
+        }
     } else if (is_tuple) {
-        try self.emit("@typeInfo(@TypeOf(");
-        try self.genExpr(args[0]);
-        try self.emit(")).@\"struct\".fields.len");
+        if (needs_wrap) {
+            try self.emit("@typeInfo(@TypeOf(__obj)).@\"struct\".fields.len");
+        } else {
+            try self.emit("@typeInfo(@TypeOf(");
+            try self.genExpr(args[0]);
+            try self.emit(")).@\"struct\".fields.len");
+        }
     } else if (is_dict or is_set) {
-        try self.genExpr(args[0]);
-        try self.emit(".count()");
+        if (needs_wrap) {
+            try self.emit("__obj.count()");
+        } else {
+            try self.genExpr(args[0]);
+            try self.emit(".count()");
+        }
     } else {
         // For arrays, slices, strings - just use .len
-        try self.genExpr(args[0]);
-        try self.emit(".len");
+        if (needs_wrap) {
+            try self.emit("__obj.len");
+        } else {
+            try self.genExpr(args[0]);
+            try self.emit(".len");
+        }
+    }
+
+    if (needs_wrap) {
+        try self.emit("; }");
     }
     try self.emit("))");
 }
@@ -182,10 +222,28 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("}");
 }
 
-/// Generate code for int(obj)
+/// Generate code for int(obj) or int(string, base)
 /// Converts to i64
 pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        // int() with no args returns 0
+        try self.emit("@as(i64, 0)");
+        return;
+    }
+
+    // Handle int(string, base) - two argument form
+    if (args.len == 2) {
+        try self.emit("try std.fmt.parseInt(i64, ");
+        try self.genExpr(args[0]);
+        try self.emit(", @intCast(");
+        try self.genExpr(args[1]);
+        try self.emit("))");
+        return;
+    }
+
     if (args.len != 1) {
+        // More than 2 args - not valid, emit error
+        try self.emit("@compileError(\"int() takes at most 2 arguments\")");
         return;
     }
 

@@ -246,6 +246,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("os", .zig_runtime, "std", null); // os uses std.fs and std.process
     try registry.register("random", .zig_runtime, "std", null); // random uses std.Random
     try registry.register("collections", .zig_runtime, null, null); // collections module (inline codegen only)
+    try registry.register("collections.abc", .zig_runtime, null, null); // collections.abc module (inline codegen only)
     try registry.register("functools", .zig_runtime, "std", null); // functools module
     try registry.register("itertools", .zig_runtime, null, null); // itertools module (inline codegen only)
     try registry.register("logging", .zig_runtime, "std", null); // logging module

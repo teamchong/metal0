@@ -271,6 +271,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     is_arraylist,
                     is_dict,
                     is_mutable_class_instance,
+                    is_listcomp,
                 );
 
                 // Mark as declared
@@ -573,10 +574,14 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         }
     }
 
+    // Track if we added "_ = " prefix - if so, we ALWAYS need a semicolon
+    var added_discard_prefix = false;
+
     // Discard string constants (docstrings) by assigning to _
     // Zig requires all non-void values to be used
     if (expr == .constant and expr.constant.value == .string) {
         try self.emit("_ = ");
+        added_discard_prefix = true;
     }
 
     // Discard return values from function calls (Zig requires all non-void values to be used)
@@ -607,11 +612,13 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
         if (is_value_returning_builtin) {
             try self.emit("_ = ");
+            added_discard_prefix = true;
         } else if (self.type_inferrer.func_return_types.get(func_name)) |return_type| {
             // Check if function returns non-void type
             // Skip void returns
             if (return_type != .unknown) {
                 try self.emit("_ = ");
+                added_discard_prefix = true;
             }
         }
     }
@@ -623,11 +630,14 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const generated = self.output.items[before_len..];
 
     // Determine if we need a semicolon:
+    // - If we added "_ = " prefix, we ALWAYS need a semicolon (it's an assignment)
     // - Struct initializers like "Type{}" need semicolons
     // - Statement blocks like "{ ... }" do NOT need semicolons
     // - Labeled blocks like "blk: { ... }" do NOT need semicolons
     var needs_semicolon = true;
-    if (generated.len > 0 and generated[generated.len - 1] == '}') {
+
+    // If we added "_ = " prefix, it's an assignment that always needs semicolon
+    if (!added_discard_prefix and generated.len > 0 and generated[generated.len - 1] == '}') {
         // Check for labeled blocks (blk: { ... } or contains :blk)
         if (std.mem.indexOf(u8, generated, "blk: {") != null or
             std.mem.indexOf(u8, generated, ":blk ") != null)

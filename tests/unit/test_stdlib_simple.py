@@ -13,8 +13,8 @@ print("Testing json module...")
 
 # json.dumps with dict
 d = {"key": "value", "num": 42}
-s = json.dumps(d)
-print(s)
+json_str = json.dumps(d)
+print(json_str)
 
 # json.loads
 parsed = json.loads('{"a": 1, "b": 2}')
@@ -52,8 +52,8 @@ m = re.match("hello", "hello world")
 print("re.match: found" if m else "re.match: not found")
 
 # re.search
-s = re.search("world", "hello world")
-print("re.search: found" if s else "re.search: not found")
+search_result = re.search("world", "hello world")
+print("re.search: found" if search_result else "re.search: not found")
 
 # ===== OS Module =====
 print("Testing os module...")

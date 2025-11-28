@@ -69,6 +69,7 @@ fn producesBlockExpression(expr: ast.Node) bool {
         .subscript => true,
         .list => true,
         .dict => true,
+        .set => true,
         .listcomp => true,
         .dictcomp => true,
         .genexp => true,

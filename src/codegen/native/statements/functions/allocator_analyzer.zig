@@ -356,8 +356,8 @@ fn exprUsesAllocatorParamWithClasses(expr: ast.Node, func_name: []const u8, nest
         .listcomp => true,
         .dictcomp => true,
         .list => |l| {
-            // List literals with elements use allocator param for ArrayList.append
-            if (l.elts.len > 0) return true;
+            // List literals use __global_allocator, not the passed allocator param
+            // (same as dict and fstring)
             for (l.elts) |elt| {
                 if (exprUsesAllocatorParamWithClasses(elt, func_name, nested_classes)) return true;
             }

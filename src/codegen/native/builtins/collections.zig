@@ -4,6 +4,22 @@ const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 
+/// Check if an expression produces a Zig block expression that can't have field access directly
+fn producesBlockExpression(expr: ast.Node) bool {
+    return switch (expr) {
+        .subscript => true,
+        .list => true,
+        .dict => true,
+        .set => true,
+        .listcomp => true,
+        .dictcomp => true,
+        .genexp => true,
+        .if_expr => true,
+        .call => true,
+        else => false,
+    };
+}
+
 /// Note: range() is handled specially in for-loops by genRangeLoop() in main.zig
 /// It's not a standalone function but a loop optimization that generates:
 /// - range(n) → while (i < n)
@@ -50,13 +66,25 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     };
 
+    const needs_wrap = producesBlockExpression(args[0]);
+
     try self.emit("blk: {\n");
+    // If block expression, create temp variable first
+    if (needs_wrap) {
+        try self.emit("const __iterable = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+    }
     try self.emit("var total: i64 = 0;\n");
     try self.emit("for (");
-    try self.genExpr(args[0]);
-    // ArrayList needs .items for iteration, arrays don't
-    if (!is_array_var) {
-        try self.emit(".items");
+    if (needs_wrap) {
+        try self.emit("__iterable.items");
+    } else {
+        try self.genExpr(args[0]);
+        // ArrayList needs .items for iteration, arrays don't
+        if (!is_array_var) {
+            try self.emit(".items");
+        }
     }
     try self.emit(") |item| { total += item; }\n");
     try self.emit("break :blk total;\n");
@@ -75,10 +103,22 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk true;
     // }
 
+    const needs_wrap = producesBlockExpression(args[0]);
+
     try self.emit("blk: {\n");
+    // If block expression, create temp variable first
+    if (needs_wrap) {
+        try self.emit("const __iterable = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+    }
     try self.emit("for (");
-    try self.genExpr(args[0]);
-    try self.emit(".items");
+    if (needs_wrap) {
+        try self.emit("__iterable.items");
+    } else {
+        try self.genExpr(args[0]);
+        try self.emit(".items");
+    }
     try self.emit(") |item| {\n");
     try self.emit("if (item == 0) break :blk false;\n");
     try self.emit("}\n");
@@ -98,10 +138,22 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk false;
     // }
 
+    const needs_wrap = producesBlockExpression(args[0]);
+
     try self.emit("blk: {\n");
+    // If block expression, create temp variable first
+    if (needs_wrap) {
+        try self.emit("const __iterable = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+    }
     try self.emit("for (");
-    try self.genExpr(args[0]);
-    try self.emit(".items");
+    if (needs_wrap) {
+        try self.emit("__iterable.items");
+    } else {
+        try self.genExpr(args[0]);
+        try self.emit(".items");
+    }
     try self.emit(") |item| {\n");
     try self.emit("if (item != 0) break :blk true;\n");
     try self.emit("}\n");

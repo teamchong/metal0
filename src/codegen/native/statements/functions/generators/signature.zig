@@ -118,6 +118,13 @@ pub fn genFunctionSignature(
     // Generate parameters
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
+
+        // Check if parameter is used in function body - prefix unused with "_"
+        const is_used = param_analyzer.isNameUsedInBody(func.body, arg.name);
+        if (!is_used) {
+            try self.emit("_");
+        }
+
         // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
 

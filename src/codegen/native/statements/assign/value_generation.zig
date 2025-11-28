@@ -51,6 +51,7 @@ pub fn emitVarDeclaration(
     is_arraylist: bool,
     is_dict: bool,
     is_mutable_class_instance: bool,
+    is_listcomp: bool,
 ) CodegenError!void {
     // Check if variable is mutated (reassigned later)
     // This checks both module-level analysis AND function-local mutations
@@ -59,7 +60,8 @@ pub fn emitVarDeclaration(
     // hash_object types need var because they have mutating methods like update()
     const is_hash_object = (value_type == .hash_object);
 
-    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or is_mutated or is_hash_object;
+    // List comprehensions return ArrayLists which need var for deinit()
+    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or is_mutated or is_hash_object or is_listcomp;
 
     if (needs_var) {
         try self.emit("var ");
