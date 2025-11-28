@@ -211,15 +211,15 @@ pub fn parseForInternal(self: *Parser, is_async: bool) ParseError!ast.Node {
     _ = is_async; // TODO: Store in AST node if needed
     _ = try self.expect(.For);
 
-    // Parse target (can be single var or tuple like: i, x)
+    // Parse target (can be single var, subscript like values[i], or tuple like: i, x)
     var targets = std.ArrayList(ast.Node){};
     defer targets.deinit(self.allocator);
 
-    try targets.append(self.allocator, try self.parsePrimary());
+    try targets.append(self.allocator, try self.parsePostfix());
 
     // Check for comma-separated targets (tuple unpacking)
     while (self.match(.Comma)) {
-        try targets.append(self.allocator, try self.parsePrimary());
+        try targets.append(self.allocator, try self.parsePostfix());
     }
 
     _ = try self.expect(.In);
