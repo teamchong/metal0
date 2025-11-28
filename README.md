@@ -476,6 +476,25 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 
 *PyAOT string operations are computed at comptime where possible, resulting in near-zero runtime.*
 
+### HTTP Client Benchmark (50 HTTPS requests)
+
+Tests SSL/TLS, sockets, and HTTP networking using the `requests` library.
+**Same Python code** runs on PyAOT, Python, and PyPy.
+
+| Language | Time | vs Rust | CPU Time |
+|----------|------|---------|----------|
+| **Rust** (ureq) | **10.4s** | **1.00x** 🏆 | 0.08s |
+| Go (net/http) | 12.5s | 1.19x | 0.04s |
+| Python (requests) | 15.7s | 1.50x | 1.44s |
+| PyPy (requests) | 17.5s | 1.68x | 0.81s |
+| PyAOT (requests) | 17.8s | 1.71x | 0.30s |
+
+*Network latency dominates (~200-300ms per request). PyAOT uses **4.7x less CPU** than Python.*
+
+```bash
+make benchmark-http  # Run HTTP benchmark
+```
+
 ### Tokenizer Benchmark (Native Binary)
 
 All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on Apple M2 using realistic, industry-standard benchmark data (583 diverse texts, 200K chars). Python/Node startup overhead <2% (1000 iterations for encoding, 30 runs for training).

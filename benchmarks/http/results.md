@@ -2,34 +2,30 @@
 
 **Test:** 50 HTTPS requests to httpbin.org/get  
 **Date:** 2025-11-27  
-**System:** macOS ARM64
+**System:** macOS ARM64  
+**Library:** `requests` (same Python code for PyAOT/Python/PyPy)
 
 ## Results
 
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `Go` | 8.936 ± 2.053 | 6.567 | 10.170 | 1.00 |
-| `Rust` | 11.544 ± 2.024 | 9.211 | 12.817 | 1.29 ± 0.37 |
-| `PyAOT` | 13.838 ± 1.270 | 12.458 | 14.959 | 1.55 ± 0.38 |
-| `Python` | 15.115 ± 1.770 | 13.134 | 16.541 | 1.69 ± 0.44 |
+| `Rust` | 10.444 ± 2.250 | 8.970 | 13.035 | 1.00 |
+| `Go` | 12.464 ± 5.178 | 6.762 | 16.872 | 1.19 ± 0.56 |
+| `Python` | 15.661 ± 2.094 | 13.551 | 17.738 | 1.50 ± 0.38 |
+| `PyPy` | 17.538 ± 3.442 | 13.575 | 19.790 | 1.68 ± 0.49 |
+| `PyAOT` | 17.810 ± 3.504 | 14.070 | 21.016 | 1.71 ± 0.50 |
 
 ## CPU Efficiency
 
 | Runtime | User Time | System Time | Total CPU |
 |---------|-----------|-------------|-----------|
-| Go | 0.015s | 0.015s | 0.030s |
-| Rust | 0.021s | 0.028s | 0.049s |
-| PyAOT | 0.126s | 0.039s | 0.165s |
-| Python | 0.964s | 0.092s | 1.056s |
+| Go | 0.016s | 0.019s | 0.035s |
+| Rust | 0.033s | 0.048s | 0.081s |
+| PyAOT | 0.225s | 0.079s | 0.304s |
+| PyPy | 0.696s | 0.110s | 0.806s |
+| Python | 1.318s | 0.120s | 1.438s |
 
-**Key Finding:** PyAOT uses **6.4x less CPU** than Python (0.165s vs 1.056s)
-
-## Analysis
-
-- **Network-bound:** All within 2x of each other (network latency ~200-300ms/request)
-- **PyAOT vs Python:** 8% faster wall-clock, 84% less CPU usage
-- **Go wins:** Mature HTTP client with connection pooling and HTTP/2
-- **Rust (ureq):** Simple blocking client, between Go and PyAOT
+**Key Finding:** PyAOT uses **4.7x less CPU** than Python (0.304s vs 1.438s)
 
 ## Libraries Used
 
@@ -39,9 +35,16 @@
 | Go | `net/http` (stdlib) |
 | Rust | `ureq` (popular simple client) |
 
+## Analysis
+
+- **Network-bound:** All within 2x of each other (network latency ~200-300ms/request)
+- **PyAOT uses 4.7x less CPU** than Python while handling same workload
+- **Go/Rust win** due to mature HTTP clients with connection pooling
+- **Same Python code** works on PyAOT, Python, and PyPy
+
 ## What This Proves
 
-- SSL/TLS handshake works in pure Zig
-- TCP sockets work in pure Zig  
-- HTTP client works in pure Zig
-- Same Python code runs on PyAOT, Python, PyPy
+✅ SSL/TLS handshake works in pure Zig  
+✅ TCP sockets work in pure Zig  
+✅ HTTP client works in pure Zig  
+✅ `requests` library compatibility verified
