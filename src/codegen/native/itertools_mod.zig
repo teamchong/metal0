@@ -19,10 +19,17 @@ pub fn genChain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("var _result = std.ArrayList(i64){};\n");
 
     for (args) |arg| {
+        // Detect type to determine if we need .items access
+        const arg_type = try self.type_inferrer.inferExpr(arg);
+        const needs_items = (arg_type == .list or arg_type == .deque);
+
         try self.emitIndent();
         try self.emit("for (");
         try self.genExpr(arg);
-        try self.emit(".items) |item| { _result.append(allocator, item) catch continue; }\n");
+        if (needs_items) {
+            try self.emit(".items");
+        }
+        try self.emit(") |item| { _result.append(allocator, item) catch continue; }\n");
     }
 
     try self.emitIndent();

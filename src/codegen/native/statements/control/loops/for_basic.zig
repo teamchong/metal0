@@ -238,6 +238,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.emit("(");
         try self.genExpr(for_stmt.iter.*);
         try self.emit(").items");
+    } else if ((iter_type == .list or iter_type == .deque) and for_stmt.iter.* == .call) {
+        // Function call that returns ArrayList (like chain(a, b)) - wrap in parens for .items access
+        try self.emit("(");
+        try self.genExpr(for_stmt.iter.*);
+        try self.emit(").items");
     } else {
         try self.genExpr(for_stmt.iter.*);
         // ArrayList (list or deque types) need .items for iteration

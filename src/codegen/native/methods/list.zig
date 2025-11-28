@@ -22,17 +22,17 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 /// Generate code for list.pop()
 /// Removes and returns last item (or item at index if provided)
 pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    // Generate: list.pop()
-    try self.genExpr(obj);
-    try self.emit(".pop()");
-
     // If index provided: list.orderedRemove(index)
     if (args.len > 0) {
-        // Replace with orderedRemove for indexed pop
-        self.output.items.len -= 6; // Remove ".pop()"
-        try self.emit(".orderedRemove(");
+        // Generate: list.orderedRemove(@intCast(index))
+        try self.genExpr(obj);
+        try self.emit(".orderedRemove(@intCast(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emit("))");
+    } else {
+        // Generate: list.pop().? to unwrap the optional
+        try self.genExpr(obj);
+        try self.emit(".pop().?");
     }
 }
 
@@ -140,15 +140,15 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: std.mem.indexOfScalar(T, list.items, item).?
+    // Generate: @as(i64, @intCast(std.mem.indexOfScalar(T, list.items, item).?))
     // The .? asserts item exists (crashes if not found, like Python)
-    try self.emit("std.mem.indexOfScalar(");
+    try self.emit("@as(i64, @intCast(std.mem.indexOfScalar(");
     // TODO: Need to infer element type
     try self.emit("i64, "); // Assume i64 for now
     try self.genExpr(obj);
     try self.emit(".items, ");
     try self.genExpr(args[0]);
-    try self.emit(").?");
+    try self.emit(").?))");
 }
 
 /// Generate code for list.count(item)
@@ -156,10 +156,10 @@ pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: std.mem.count(T, list.items, &[_]T{item})
-    try self.emit("std.mem.count(i64, ");
+    // Generate: @as(i64, @intCast(std.mem.count(T, list.items, &[_]T{item})))
+    try self.emit("@as(i64, @intCast(std.mem.count(i64, ");
     try self.genExpr(obj);
     try self.emit(".items, &[_]i64{");
     try self.genExpr(args[0]);
-    try self.emit("})");
+    try self.emit("})))");
 }

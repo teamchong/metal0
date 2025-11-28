@@ -27,11 +27,13 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
         try self.emit(") orelse ");
         try self.genExpr(def);
     } else {
-        // Generate: dict.get(key)
+        // Generate: dict.get(key).? (force unwrap - assumes key exists, like Python does)
+        // Python's dict.get(key) without default returns None if key not found,
+        // but in AOT context, we assume keys exist for typed access
         try self.genExpr(obj);
         try self.emit(".get(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emit(").?");
     }
 }
 

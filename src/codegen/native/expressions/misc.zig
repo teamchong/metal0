@@ -68,6 +68,25 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     const parent_module = @import("../expressions.zig");
     const genExpr = parent_module.genExpr;
 
+    // Check if this is a module attribute access (e.g., string.ascii_lowercase, math.pi)
+    if (attr.value.* == .name) {
+        const module_name = attr.value.name.id;
+        const attr_name = attr.attr;
+
+        // Try module attribute dispatch (handles string.*, math.*, sys.*, etc.)
+        const module_functions = @import("../dispatch/module_functions.zig");
+        // Create a fake call with no args to use the module dispatcher
+        const empty_args: []ast.Node = &[_]ast.Node{};
+        const fake_call = ast.Node.Call{
+            .func = attr.value,
+            .args = empty_args,
+            .keyword_args = &[_]ast.Node.KeywordArg{},
+        };
+        if (module_functions.tryDispatch(self, module_name, attr_name, fake_call) catch false) {
+            return;
+        }
+    }
+
     // Check if this is a numpy array property access
     const value_type = try self.type_inferrer.inferExpr(attr.value.*);
     if (value_type == .numpy_array) {

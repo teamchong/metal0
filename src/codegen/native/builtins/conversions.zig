@@ -290,6 +290,142 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("true");
 }
 
+/// Generate code for list(iterable)
+/// Converts an iterable to a list (ArrayList)
+pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
+    // list() with no args returns empty list
+    if (args.len == 0) {
+        try self.emit("std.ArrayList(@TypeOf(undefined)){}");
+        return;
+    }
+
+    if (args.len != 1) return;
+
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // Already an ArrayList - just return it
+    switch (arg_type) {
+        .list => {
+            try self.genExpr(args[0]);
+            return;
+        },
+        else => {},
+    }
+
+    // Convert iterable to ArrayList
+    try self.emit("list_blk: {\n");
+    try self.emitFmt("var _list = std.ArrayList(@TypeOf(", .{});
+    try self.genExpr(args[0]);
+    try self.emit("[0])){};\n");
+    try self.emit("for (");
+    try self.genExpr(args[0]);
+    try self.emit(") |_item| {\n");
+    try self.emitFmt("try _list.append({s}, _item);\n", .{alloc_name});
+    try self.emit("}\n");
+    try self.emit("break :list_blk _list;\n");
+    try self.emit("}");
+}
+
+/// Generate code for tuple(iterable)
+/// Converts an iterable to a tuple (fixed-size)
+pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    // tuple() with no args returns empty tuple
+    if (args.len == 0) {
+        try self.emit(".{}");
+        return;
+    }
+
+    if (args.len != 1) return;
+
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // Already a tuple - just return it
+    switch (arg_type) {
+        .tuple => {
+            try self.genExpr(args[0]);
+            return;
+        },
+        else => {},
+    }
+
+    // For other iterables, generate inline tuple
+    // This is limited since Zig tuples need comptime-known size
+    try self.genExpr(args[0]);
+}
+
+/// Generate code for dict(iterable)
+/// Converts key-value pairs to a dict (StringHashMap)
+pub fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    // dict() with no args returns empty dict
+    if (args.len == 0) {
+        try self.emit("std.StringHashMap(@TypeOf(undefined)){}");
+        return;
+    }
+
+    if (args.len != 1) return;
+
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // Already a dict - just return it
+    switch (arg_type) {
+        .dict => {
+            try self.genExpr(args[0]);
+            return;
+        },
+        else => {},
+    }
+
+    // For other cases, just pass through
+    try self.genExpr(args[0]);
+}
+
+/// Generate code for set(iterable)
+/// Converts an iterable to a set (AutoHashMap with void values)
+pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
+    // set() with no args returns empty set
+    if (args.len == 0) {
+        try self.emit("std.AutoHashMap(@TypeOf(undefined), void){}");
+        return;
+    }
+
+    if (args.len != 1) return;
+
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // Already a set - just return it
+    switch (arg_type) {
+        .set => {
+            try self.genExpr(args[0]);
+            return;
+        },
+        else => {},
+    }
+
+    // Convert iterable to set
+    try self.emit("set_blk: {\n");
+    try self.emitFmt("var _set = std.AutoHashMap(@TypeOf(", .{});
+    try self.genExpr(args[0]);
+    try self.emit("[0]), void){};\n");
+    try self.emit("for (");
+    try self.genExpr(args[0]);
+    try self.emit(") |_item| {\n");
+    try self.emitFmt("try _set.put({s}, _item, {{}});\n", .{alloc_name});
+    try self.emit("}\n");
+    try self.emit("break :set_blk _set;\n");
+    try self.emit("}");
+}
+
+/// Generate code for frozenset(iterable)
+/// Same as set() but conceptually immutable
+pub fn genFrozenset(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    // frozenset is the same implementation as set in AOT context
+    try genSet(self, args);
+}
+
 /// Generate code for repr(obj)
 /// Returns string representation with quotes for strings
 /// repr(True) -> "True", repr("hello") -> "'hello'"

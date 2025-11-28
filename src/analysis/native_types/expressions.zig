@@ -12,11 +12,12 @@ const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 
 // ComptimeStringMaps for module attribute lookups (DCE-friendly)
-const SysAttrType = enum { platform, version_info, argv };
+const SysAttrType = enum { platform, version_info, argv, version };
 const SysAttrMap = std.StaticStringMap(SysAttrType).initComptime(.{
     .{ "platform", .platform },
     .{ "version_info", .version_info },
     .{ "argv", .argv },
+    .{ "version", .version },
 });
 
 const VersionInfoAttrMap = std.StaticStringMap(void).initComptime(.{
@@ -33,10 +34,33 @@ const MathConstMap = std.StaticStringMap(void).initComptime(.{
     .{ "nan", {} },
 });
 
-const ModuleType = enum { sys, math };
+// String module constants (all return strings)
+const StringConstMap = std.StaticStringMap(void).initComptime(.{
+    .{ "ascii_lowercase", {} },
+    .{ "ascii_uppercase", {} },
+    .{ "ascii_letters", {} },
+    .{ "digits", {} },
+    .{ "hexdigits", {} },
+    .{ "octdigits", {} },
+    .{ "punctuation", {} },
+    .{ "whitespace", {} },
+    .{ "printable", {} },
+});
+
+// OS module constants
+const OsConstMap = std.StaticStringMap(void).initComptime(.{
+    .{ "name", {} },
+    .{ "sep", {} },
+    .{ "linesep", {} },
+    .{ "pathsep", {} },
+});
+
+const ModuleType = enum { sys, math, string, os };
 const ModuleMap = std.StaticStringMap(ModuleType).initComptime(.{
     .{ "sys", .sys },
     .{ "math", .math },
+    .{ "string", .string },
+    .{ "os", .os },
 });
 
 /// Infer the native type of an expression node
@@ -76,6 +100,9 @@ pub fn inferExpr(
                         // Return the dict's value type
                         // Note: Codegen converts mixed-type dicts to string dicts
                         break :blk obj_type.dict.value.*;
+                    } else if (obj_type == .counter) {
+                        // Counter subscript returns int (the count)
+                        break :blk .int;
                     } else if (obj_type == .tuple) {
                         // Try to get constant index
                         if (idx.* == .constant and idx.constant.value == .int) {
@@ -144,16 +171,33 @@ pub fn inferExpr(
                     switch (mod) {
                         .sys => {
                             if (SysAttrMap.get(a.attr)) |attr| {
-                                break :blk switch (attr) {
-                                    .platform => .{ .string = .literal },
-                                    .version_info => .unknown, // struct type
-                                    .argv => .unknown, // [][]const u8
-                                };
+                                switch (attr) {
+                                    .platform, .version => break :blk .{ .string = .literal },
+                                    .version_info => break :blk .int, // Access like int
+                                    .argv => {
+                                        // sys.argv is [][]const u8 - return as string array
+                                        const str_type = try allocator.create(NativeType);
+                                        str_type.* = .{ .string = .slice };
+                                        break :blk .{ .array = .{ .element_type = str_type, .length = 0 } };
+                                    },
+                                }
                             }
                         },
                         .math => {
                             if (MathConstMap.has(a.attr)) {
                                 break :blk .float;
+                            }
+                        },
+                        .string => {
+                            // string module constants return string literals
+                            if (StringConstMap.has(a.attr)) {
+                                break :blk .{ .string = .literal };
+                            }
+                        },
+                        .os => {
+                            // os module constants return string literals
+                            if (OsConstMap.has(a.attr)) {
+                                break :blk .{ .string = .literal };
                             }
                         },
                     }

@@ -143,6 +143,7 @@ pub fn genFunctionBody(
     // Analyze function body for mutated variables BEFORE generating code
     // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
     self.func_local_mutations.clearRetainingCapacity();
+    self.hoisted_vars.clearRetainingCapacity();
     try analyzeFunctionLocalMutations(self, func);
 
     self.indent();

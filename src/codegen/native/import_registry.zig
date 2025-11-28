@@ -237,6 +237,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.registerWithMeta("zlib", .c_library, "@import(\"./c_interop/c_interop.zig\").zlib", "z", false, &ZlibFuncMeta);
     try registry.register("ssl", .c_library, "@import(\"./c_interop/c_interop.zig\").ssl", "ssl");
     try registry.register("hashlib", .zig_runtime, "runtime.hashlib", null); // Uses Zig std.crypto
+    try registry.register("io", .zig_runtime, "runtime.io", null); // io.StringIO, io.BytesIO
     try registry.register("struct", .zig_runtime, "std", null); // struct module is inline codegen
     try registry.register("base64", .zig_runtime, "std", null); // base64 uses std.base64
     try registry.register("pickle", .zig_runtime, "std", null); // pickle uses JSON serialization
@@ -244,13 +245,14 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("socket", .zig_runtime, "std", null); // socket uses std.posix
     try registry.register("os", .zig_runtime, "std", null); // os uses std.fs and std.process
     try registry.register("random", .zig_runtime, "std", null); // random uses std.Random
-    try registry.register("collections", .zig_runtime, "std", null); // collections module
+    try registry.register("collections", .zig_runtime, null, null); // collections module (inline codegen only)
     try registry.register("functools", .zig_runtime, "std", null); // functools module
-    try registry.register("itertools", .zig_runtime, "std", null); // itertools module
+    try registry.register("itertools", .zig_runtime, null, null); // itertools module (inline codegen only)
     try registry.register("logging", .zig_runtime, "std", null); // logging module
     try registry.register("threading", .zig_runtime, "std", null); // threading module
     try registry.register("queue", .zig_runtime, "std", null); // queue module
     try registry.register("copy", .zig_runtime, "std", null); // copy module
+    try registry.register("operator", .zig_runtime, null, null); // operator module (inline codegen only)
     try registry.register("typing", .zig_runtime, "std", null); // typing module (no-ops)
     try registry.register("contextlib", .zig_runtime, "std", null); // contextlib module
     try registry.register("string", .zig_runtime, "std", null); // string module

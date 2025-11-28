@@ -203,8 +203,8 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else if (arg_type == .dict) {
             try genPrintDict(self, arg);
         } else if (arg_type == .unknown) {
-            // Unknown types are typically *PyObject from eval() or dynamic calls
-            // Use runtime.printPyObject for proper formatting
+            // Unknown types (PyObject) - use runtime printer
+            // This handles both PyObject pointers and other dynamic types
             try self.emit("runtime.printPyObject(");
             try self.genExpr(arg);
             try self.emit(");\n");

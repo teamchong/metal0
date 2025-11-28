@@ -147,8 +147,23 @@ fn genNamedExpr(self: *NativeCodegen, ne: ast.Node.NamedExpr) CodegenError!void 
 /// Generate conditional expression (ternary): body if condition else orelse_value
 fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
     // In Zig: if (condition) body else orelse_value
+    // Check condition type - need to handle PyObject truthiness
+    const cond_type = self.type_inferrer.inferExpr(ie.condition.*) catch .unknown;
+
     try self.emit("(if (");
-    try genExpr(self, ie.condition.*);
+    if (cond_type == .unknown) {
+        // Unknown type (PyObject) - use runtime truthiness check
+        try self.emit("runtime.pyTruthy(");
+        try genExpr(self, ie.condition.*);
+        try self.emit(")");
+    } else if (cond_type == .optional) {
+        // Optional type - check for non-null
+        try genExpr(self, ie.condition.*);
+        try self.emit(" != null");
+    } else {
+        // Boolean or other type - use directly
+        try genExpr(self, ie.condition.*);
+    }
     try self.emit(") ");
     try genExpr(self, ie.body.*);
     try self.emit(" else ");

@@ -353,3 +353,29 @@ pub fn genRmdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}");
 }
+
+/// Generate code for os.name
+/// Returns 'posix', 'nt', or 'java' based on the operating system
+pub fn genName(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args; // os.name is a constant, no arguments
+
+    // Emit comptime code to detect OS and return appropriate name
+    try self.emit("os_name_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _builtin = @import(\"builtin\");\n");
+    try self.emitIndent();
+    try self.emit("break :os_name_blk switch (_builtin.os.tag) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit(".windows => \"nt\",\n");
+    try self.emitIndent();
+    try self.emit("else => \"posix\",\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}"
+    );
+}

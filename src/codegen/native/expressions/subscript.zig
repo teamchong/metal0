@@ -145,6 +145,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             }
 
             const is_dict = (value_type == .dict);
+            const is_counter = (value_type == .counter);
             const is_dataframe = (value_type == .dataframe);
             const is_unknown_pyobject = (value_type == .unknown);
 
@@ -176,12 +177,18 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try self.emit(", ");
                 try genExpr(self, subscript.slice.index.*);
                 try self.emit(").?");
-            } else if (is_dict) {
-                // Native dict access: dict.get(key).? for raw StringHashMap
+            } else if (is_dict or is_counter) {
+                // Native dict/Counter access: dict.get(key).? for raw StringHashMap
+                // Counter returns 0 for missing keys in Python
                 try genExpr(self, subscript.value.*);
                 try self.emit(".get(");
                 try genExpr(self, subscript.slice.index.*);
-                try self.emit(").?");
+                if (is_counter) {
+                    // Counter returns 0 for missing keys, not None
+                    try self.emit(") orelse 0");
+                } else {
+                    try self.emit(").?");
+                }
             } else if (is_list) {
                 // Check if this is an array slice variable (not ArrayList)
                 const is_array_slice = blk: {

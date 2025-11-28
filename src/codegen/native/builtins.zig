@@ -16,6 +16,11 @@ pub const genFloat = conversions.genFloat;
 pub const genBool = conversions.genBool;
 pub const genType = conversions.genType;
 pub const genIsinstance = conversions.genIsinstance;
+pub const genList = conversions.genList;
+pub const genTuple = conversions.genTuple;
+pub const genDict = conversions.genDict;
+pub const genSet = conversions.genSet;
+pub const genFrozenset = conversions.genFrozenset;
 
 // Dynamic execution
 pub const genEval = eval_exec.genEval;

@@ -308,7 +308,22 @@ fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: 
         },
         .index => {
             // index - string version (genStrIndex) vs list version
-            try methods.genStrIndex(self, obj, call.args);
+            const is_list = blk: {
+                if (obj == .name) {
+                    const var_name = obj.name.id;
+                    if (self.getSymbolType(var_name)) |var_type| {
+                        break :blk var_type == .list;
+                    }
+                }
+                break :blk false;
+            };
+
+            if (is_list) {
+                const genListIndex = @import("../methods/list.zig").genIndex;
+                try genListIndex(self, obj, call.args);
+            } else {
+                try methods.genStrIndex(self, obj, call.args);
+            }
         },
         .get => {
             // get - only dict.get(key) with args, NOT module.get() like requests.get()

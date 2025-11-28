@@ -372,6 +372,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 7: Generate statements (skip class/function defs and imports - already handled)
     // This will populate self.lambda_functions
+    // Clear hoisted_vars before generating main body (for proper try/except variable tracking)
+    self.hoisted_vars.clearRetainingCapacity();
     for (module.body) |stmt| {
         if (stmt != .function_def and stmt != .class_def and stmt != .import_stmt and stmt != .import_from) {
             try self.generateStmt(stmt);

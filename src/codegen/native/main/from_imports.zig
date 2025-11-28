@@ -24,6 +24,16 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
+        // Skip inline-only modules (no zig_import, functions are generated inline)
+        // These modules don't have a struct to reference - their functions are
+        // directly available as builtins (e.g., from itertools import chain → chain is builtin)
+        if (self.import_registry.lookup(from_imp.module)) |info| {
+            if (info.zig_import == null) {
+                // Module is inline-only - symbols are available as builtins
+                continue;
+            }
+        }
+
         // Check if this is a Tier 1 runtime module (functions need allocator)
         const is_runtime_module = self.import_registry.lookup(from_imp.module) != null and
             (std.mem.eql(u8, from_imp.module, "json") or

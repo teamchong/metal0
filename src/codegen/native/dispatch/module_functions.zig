@@ -550,6 +550,7 @@ const OsFuncs = FuncMap.initComptime(.{
     .{ "getenv", os_mod.genGetenv },
     .{ "mkdir", os_mod.genMkdir },
     .{ "makedirs", os_mod.genMakedirs },
+    .{ "name", os_mod.genName },
 });
 
 /// OS.path module functions

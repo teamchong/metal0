@@ -163,8 +163,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 const target = stmt.assign.targets[0];
                 if (target == .name) {
                     const var_name = target.name.id;
-                    // Only hoist if not already declared
-                    if (!self.isDeclared(var_name)) {
+                    // Only hoist if not already declared in scope or previously hoisted
+                    if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
                         try declared_vars.append(self.allocator, var_name);
                     }
                 }
@@ -498,10 +498,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
 
-    // Clear hoisted variables from tracking after try block completes
-    for (declared_vars.items) |var_name| {
-        _ = self.hoisted_vars.swapRemove(var_name);
-    }
+    // NOTE: Do NOT clear hoisted_vars here - keep tracking them for the entire function
+    // so subsequent try blocks with the same variable name don't re-hoist them.
+    // hoisted_vars will be cleared when the function ends or via function reset.
 }
 
 fn pythonExceptionToZigError(exc_type: []const u8) []const u8 {
