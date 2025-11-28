@@ -251,7 +251,18 @@ fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
 fn stmtNeedsAllocator(stmt: ast.Node) bool {
     return switch (stmt) {
         .expr_stmt => |e| exprNeedsAllocator(e.value.*),
-        .assign => |a| exprNeedsAllocator(a.value.*),
+        .assign => |a| {
+            // Check if target is self.attr (becomes __dict__.put which can fail)
+            for (a.targets) |target| {
+                if (target == .attribute) {
+                    const attr = target.attribute;
+                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        return true; // self.attr = value uses __dict__.put() which can fail
+                    }
+                }
+            }
+            return exprNeedsAllocator(a.value.*);
+        },
         .aug_assign => |a| exprNeedsAllocator(a.value.*),
         .return_stmt => |r| if (r.value) |v| exprNeedsAllocator(v.*) else false,
         .if_stmt => |i| {

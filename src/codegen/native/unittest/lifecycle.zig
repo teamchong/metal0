@@ -53,9 +53,11 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             }
 
             // Call setUp before each test if it exists
+            // Use try since setUp may assign to self.attr which uses __dict__.put()
+            // Pass allocator since setUp may need it for __dict__ operations
             if (class_info.has_setUp) {
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("_test_instance_{s}.setUp();\n", .{class_info.class_name});
+                try self.output.writer(self.allocator).print("try _test_instance_{s}.setUp(allocator);\n", .{class_info.class_name});
             }
 
             try self.emitIndent();
@@ -66,9 +68,11 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             try self.emit("std.debug.print(\"ok\\n\", .{});\n");
 
             // Call tearDown after each test if it exists
+            // Use try since tearDown may assign to self.attr which uses __dict__.put()
+            // Pass allocator since tearDown may need it for __dict__ operations
             if (class_info.has_tearDown) {
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("_test_instance_{s}.tearDown();\n", .{class_info.class_name});
+                try self.output.writer(self.allocator).print("try _test_instance_{s}.tearDown(allocator);\n", .{class_info.class_name});
             }
         }
 
