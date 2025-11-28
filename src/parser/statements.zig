@@ -35,3 +35,4 @@ pub const parseWith = misc.parseWith;
 pub const parseDel = misc.parseDel;
 pub const parseEllipsis = misc.parseEllipsis;
 pub const parseYield = misc.parseYield;
+pub const parseAsync = misc.parseAsync;

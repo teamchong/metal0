@@ -949,6 +949,36 @@ pub fn inferCall(
             if (method_hash == COPY_HASH) return .hash_object;
             // update returns void (we'll handle as None)
         }
+
+        // SQLite Connection methods
+        if (obj_type == .sqlite_connection) {
+            const method_hash = fnv_hash.hash(attr.attr);
+            const CURSOR_HASH = comptime fnv_hash.hash("cursor");
+            const EXECUTE_HASH = comptime fnv_hash.hash("execute");
+            const COMMIT_HASH = comptime fnv_hash.hash("commit");
+            const ROLLBACK_HASH = comptime fnv_hash.hash("rollback");
+            const CLOSE_HASH = comptime fnv_hash.hash("close");
+            if (method_hash == CURSOR_HASH or method_hash == EXECUTE_HASH) return .sqlite_cursor;
+            if (method_hash == COMMIT_HASH or method_hash == ROLLBACK_HASH or method_hash == CLOSE_HASH) return .none;
+        }
+
+        // SQLite Cursor methods
+        if (obj_type == .sqlite_cursor) {
+            const method_hash = fnv_hash.hash(attr.attr);
+            const EXECUTE_HASH = comptime fnv_hash.hash("execute");
+            const EXECUTEMANY_HASH = comptime fnv_hash.hash("executemany");
+            const FETCHONE_HASH = comptime fnv_hash.hash("fetchone");
+            const FETCHALL_HASH = comptime fnv_hash.hash("fetchall");
+            const FETCHMANY_HASH = comptime fnv_hash.hash("fetchmany");
+            const CLOSE_HASH = comptime fnv_hash.hash("close");
+            // execute/executemany return none (cursor is modified in place)
+            if (method_hash == EXECUTE_HASH or method_hash == EXECUTEMANY_HASH) return .none;
+            // fetchone returns a single row
+            if (method_hash == FETCHONE_HASH) return .sqlite_row;
+            // fetchall/fetchmany return list of rows
+            if (method_hash == FETCHALL_HASH or method_hash == FETCHMANY_HASH) return .sqlite_rows;
+            if (method_hash == CLOSE_HASH) return .none;
+        }
     }
 
     return .unknown;

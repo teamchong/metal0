@@ -207,3 +207,149 @@ pub fn genPathBasename(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}");
 }
+
+/// Generate code for os.getenv(key, default=None)
+/// Returns environment variable value or default
+pub fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1 or args.len > 2) {
+        std.debug.print("os.getenv() requires 1 or 2 arguments\n", .{});
+        return;
+    }
+
+    try self.emit("os_getenv_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _key = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("break :os_getenv_blk std.posix.getenv(_key) orelse ");
+    if (args.len == 2) {
+        try self.genExpr(args[1]);
+    } else {
+        try self.emit("\"\"");
+    }
+    try self.emit(";\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.mkdir(path, mode=0o777)
+/// Creates a single directory
+pub fn genMkdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1 or args.len > 2) {
+        std.debug.print("os.mkdir() requires 1 or 2 arguments\n", .{});
+        return;
+    }
+
+    try self.emit("os_mkdir_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("std.fs.cwd().makeDir(_path) catch {};\n");
+    try self.emitIndent();
+    try self.emit("break :os_mkdir_blk {};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.makedirs(path, mode=0o777, exist_ok=False)
+/// Creates directories recursively
+pub fn genMakedirs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1 or args.len > 3) {
+        std.debug.print("os.makedirs() requires 1 to 3 arguments\n", .{});
+        return;
+    }
+
+    try self.emit("os_makedirs_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("std.fs.cwd().makePath(_path) catch {};\n");
+    try self.emitIndent();
+    try self.emit("break :os_makedirs_blk {};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.remove(path)
+/// Removes a file
+pub fn genRemove(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        std.debug.print("os.remove() requires exactly 1 argument\n", .{});
+        return;
+    }
+
+    try self.emit("os_remove_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("std.fs.cwd().deleteFile(_path) catch {};\n");
+    try self.emitIndent();
+    try self.emit("break :os_remove_blk {};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.rename(src, dst)
+/// Renames a file or directory
+pub fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 2) {
+        std.debug.print("os.rename() requires exactly 2 arguments\n", .{});
+        return;
+    }
+
+    try self.emit("os_rename_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _old = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("const _new = ");
+    try self.genExpr(args[1]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("std.fs.cwd().rename(_old, _new) catch {};\n");
+    try self.emitIndent();
+    try self.emit("break :os_rename_blk {};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.rmdir(path)
+/// Removes an empty directory
+pub fn genRmdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        std.debug.print("os.rmdir() requires exactly 1 argument\n", .{});
+        return;
+    }
+
+    try self.emit("os_rmdir_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("std.fs.cwd().deleteDir(_path) catch {};\n");
+    try self.emitIndent();
+    try self.emit("break :os_rmdir_blk {};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}

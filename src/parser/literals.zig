@@ -160,7 +160,7 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
 }
 
 /// Parse dictionary or set literal: {key: value, ...} or {item, ...}
-/// Also handles dict comprehensions
+/// Also handles dict comprehensions and dict unpacking {**other_dict, ...}
 pub fn parseDict(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.LBrace);
 
@@ -172,6 +172,16 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
                 .values = &[_]ast.Node{},
             },
         };
+    }
+
+    // Check for dict unpacking: {**other_dict, ...}
+    if (self.check(.DoubleStar)) {
+        return try parseDictWithUnpacking(self);
+    }
+
+    // Check for set unpacking: {*iterable, ...}
+    if (self.check(.Star)) {
+        return try parseSetWithUnpacking(self);
     }
 
     // Parse first element
@@ -213,6 +223,17 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
             if (self.check(.RBrace)) {
                 break;
             }
+
+            // Check for dict unpacking: {a: 1, **other}
+            if (self.match(.DoubleStar)) {
+                var value = try self.parseExpression();
+                errdefer value.deinit(self.allocator);
+                // None key signals dict unpacking
+                try keys.append(self.allocator, ast.Node{ .constant = .{ .value = .{ .none = {} } } });
+                try values.append(self.allocator, value);
+                continue;
+            }
+
             var key = try self.parseExpression();
             errdefer key.deinit(self.allocator);
             _ = try self.expect(.Colon);
@@ -257,7 +278,12 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
             if (self.check(.RBrace)) {
                 break;
             }
-            var elem = try self.parseExpression();
+            // Handle starred unpacking in set: {a, *b, c}
+            var elem = if (self.match(.Star)) blk: {
+                var value = try self.parseExpression();
+                errdefer value.deinit(self.allocator);
+                break :blk ast.Node{ .starred = .{ .value = try self.allocNode(value) } };
+            } else try self.parseExpression();
             errdefer elem.deinit(self.allocator);
             try elts.append(self.allocator, elem);
         }
@@ -414,6 +440,114 @@ pub fn parseSetComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
         .genexp = .{
             .elt = try self.allocNode(elt_node),
             .generators = gens,
+        },
+    };
+}
+
+/// Parse dict literal starting with dict unpacking: {**other_dict, key: value, ...}
+fn parseDictWithUnpacking(self: *Parser) ParseError!ast.Node {
+    var keys = std.ArrayList(ast.Node){};
+    errdefer {
+        for (keys.items) |*k| k.deinit(self.allocator);
+        keys.deinit(self.allocator);
+    }
+
+    var values = std.ArrayList(ast.Node){};
+    errdefer {
+        for (values.items) |*v| v.deinit(self.allocator);
+        values.deinit(self.allocator);
+    }
+
+    // Parse first **expr
+    _ = try self.expect(.DoubleStar);
+    var first_value = try self.parseExpression();
+    errdefer first_value.deinit(self.allocator);
+
+    // None key signals dict unpacking
+    try keys.append(self.allocator, ast.Node{ .constant = .{ .value = .{ .none = {} } } });
+    try values.append(self.allocator, first_value);
+
+    while (self.match(.Comma)) {
+        // Allow trailing comma
+        if (self.check(.RBrace)) {
+            break;
+        }
+
+        // Check for more dict unpacking
+        if (self.match(.DoubleStar)) {
+            var value = try self.parseExpression();
+            errdefer value.deinit(self.allocator);
+            try keys.append(self.allocator, ast.Node{ .constant = .{ .value = .{ .none = {} } } });
+            try values.append(self.allocator, value);
+            continue;
+        }
+
+        // Regular key: value pair
+        var key = try self.parseExpression();
+        errdefer key.deinit(self.allocator);
+        _ = try self.expect(.Colon);
+        var value = try self.parseExpression();
+        errdefer value.deinit(self.allocator);
+
+        try keys.append(self.allocator, key);
+        try values.append(self.allocator, value);
+    }
+
+    _ = try self.expect(.RBrace);
+
+    // Success - transfer ownership
+    const keys_result = try keys.toOwnedSlice(self.allocator);
+    keys = std.ArrayList(ast.Node){};
+    const values_result = try values.toOwnedSlice(self.allocator);
+    values = std.ArrayList(ast.Node){};
+
+    return ast.Node{
+        .dict = .{
+            .keys = keys_result,
+            .values = values_result,
+        },
+    };
+}
+
+/// Parse set literal starting with starred unpacking: {*iterable, ...}
+fn parseSetWithUnpacking(self: *Parser) ParseError!ast.Node {
+    var elts = std.ArrayList(ast.Node){};
+    errdefer {
+        for (elts.items) |*e| e.deinit(self.allocator);
+        elts.deinit(self.allocator);
+    }
+
+    // Parse first *expr
+    _ = try self.expect(.Star);
+    var first_value = try self.parseExpression();
+    errdefer first_value.deinit(self.allocator);
+    try elts.append(self.allocator, ast.Node{ .starred = .{ .value = try self.allocNode(first_value) } });
+
+    while (self.match(.Comma)) {
+        // Allow trailing comma
+        if (self.check(.RBrace)) {
+            break;
+        }
+
+        // Handle more starred expressions
+        var elem = if (self.match(.Star)) blk: {
+            var value = try self.parseExpression();
+            errdefer value.deinit(self.allocator);
+            break :blk ast.Node{ .starred = .{ .value = try self.allocNode(value) } };
+        } else try self.parseExpression();
+        errdefer elem.deinit(self.allocator);
+        try elts.append(self.allocator, elem);
+    }
+
+    _ = try self.expect(.RBrace);
+
+    // Success - transfer ownership
+    const result = try elts.toOwnedSlice(self.allocator);
+    elts = std.ArrayList(ast.Node){};
+
+    return ast.Node{
+        .set = .{
+            .elts = result,
         },
     };
 }

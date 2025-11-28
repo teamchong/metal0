@@ -75,7 +75,7 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         }
         try all_targets.append(self.allocator, tuple_target);
 
-        var first_value = try self.parseExpression();
+        var first_value = try parseAssignTarget(self);
         errdefer first_value.deinit(self.allocator);
 
         // Check if value side is also a tuple (only if no chained assignment)
@@ -89,7 +89,7 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
 
             while (self.match(.Comma)) {
                 if (self.check(.Eq)) break;
-                var val = try self.parseExpression();
+                var val = try parseAssignTarget(self);
                 errdefer val.deinit(self.allocator);
                 try value_list.append(self.allocator, val);
             }
@@ -160,11 +160,11 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         }
         try all_targets.append(self.allocator, expr);
 
-        // Parse value (or next target in chain)
-        var first_value = try self.parseExpression();
+        // Parse value (or next target in chain) - use parseAssignTarget to handle *expr
+        var first_value = try parseAssignTarget(self);
         errdefer first_value.deinit(self.allocator);
 
-        // Check if value is a tuple (comma-separated): x = a, b, c
+        // Check if value is a tuple (comma-separated): x = a, b, c or x = *a, *b
         var value = if (self.check(.Comma) and !self.check(.Eq)) blk: {
             var value_list = std.ArrayList(ast.Node){};
             errdefer {
@@ -176,7 +176,8 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
             while (self.match(.Comma)) {
                 // Check if next is '=' (chained assignment) - if so, stop tuple building
                 if (self.check(.Eq)) break;
-                var val = try self.parseExpression();
+                // Use parseAssignTarget to handle starred expressions like *args
+                var val = try parseAssignTarget(self);
                 errdefer val.deinit(self.allocator);
                 try value_list.append(self.allocator, val);
             }

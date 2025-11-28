@@ -165,8 +165,18 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
 
-    // If we have lists, arrays, tuples, dicts, bools, none, or unknowns (PyObject), handle them specially with custom formatting
-    if (has_list or has_array or has_tuple or has_dict or has_bool or has_none or has_unknown) {
+    // Check for sqlite types that need special handling
+    var has_sqlite = false;
+    for (args) |arg| {
+        const arg_type = try self.type_inferrer.inferExpr(arg);
+        if (arg_type == .sqlite_row or arg_type == .sqlite_rows) {
+            has_sqlite = true;
+            break;
+        }
+    }
+
+    // If we have lists, arrays, tuples, dicts, bools, none, unknowns (PyObject), or sqlite types, handle specially
+    if (has_list or has_array or has_tuple or has_dict or has_bool or has_none or has_unknown or has_sqlite) {
         try genPrintComplex(self, args);
         return;
     }
@@ -198,6 +208,16 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("runtime.printPyObject(");
             try self.genExpr(arg);
             try self.emit(");\n");
+        } else if (arg_type == .sqlite_row) {
+            // SQLite Row - use its print method
+            try self.genExpr(arg);
+            try self.emit(".print();\n");
+        } else if (arg_type == .sqlite_rows) {
+            // SQLite Rows slice - print each row on its own line (handled in for loop)
+            // This case shouldn't normally be hit directly, but handle it anyway
+            try self.emit("for (");
+            try self.genExpr(arg);
+            try self.emit(") |__row| { __row.print(); std.debug.print(\"\\n\", .{}); }\n");
         } else if (arg_type == .bool) {
             // Print booleans as Python-style True/False
             try self.emit("std.debug.print(\"{s}\", .{if (");

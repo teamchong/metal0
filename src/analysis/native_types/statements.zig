@@ -290,6 +290,7 @@ pub fn visitStmt(
                         const elem_type = switch (iter_type) {
                             .list => |l| l.*,
                             .array => |a| a.element_type.*,
+                            .sqlite_rows => .sqlite_row, // []sqlite3.Row -> sqlite3.Row
                             else => .unknown,
                         };
                         try var_types.put(target_name, elem_type);
@@ -299,6 +300,7 @@ pub fn visitStmt(
                     const elem_type = switch (iter_type) {
                         .list => |l| l.*,
                         .array => |a| a.element_type.*,
+                        .sqlite_rows => .sqlite_row, // []sqlite3.Row -> sqlite3.Row
                         else => .unknown,
                     };
                     try var_types.put(target_name, elem_type);

@@ -233,6 +233,16 @@ const sre_parse_mod = @import("../sre_parse_mod.zig");
 const encodings_mod = @import("../encodings_mod.zig");
 const marshal_mod = @import("../marshal_mod.zig");
 const opcode_mod = @import("../opcode_mod.zig");
+const _abc_mod = @import("../_abc_mod.zig");
+const _asyncio_mod = @import("../_asyncio_mod.zig");
+const _compression_mod = @import("../_compression_mod.zig");
+const _blake2_mod = @import("../_blake2_mod.zig");
+const _strptime_mod = @import("../_strptime_mod.zig");
+const _threading_local_mod = @import("../_threading_local_mod.zig");
+const _typing_mod = @import("../_typing_mod.zig");
+const _warnings_mod = @import("../_warnings_mod.zig");
+const _weakrefset_mod = @import("../_weakrefset_mod.zig");
+const pyexpat_mod = @import("../pyexpat_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -4822,6 +4832,162 @@ const OpcodeFuncs = FuncMap.initComptime(.{
     .{ "_intrinsic_2_descs", opcode_mod.genIntrinsic2Descs },
 });
 
+/// _abc module functions
+const AbcInternalFuncs = FuncMap.initComptime(.{
+    .{ "get_cache_token", _abc_mod.genGetCacheToken },
+    .{ "_abc_init", _abc_mod.genAbcInit },
+    .{ "_abc_register", _abc_mod.genAbcRegister },
+    .{ "_abc_instancecheck", _abc_mod.genAbcInstancecheck },
+    .{ "_abc_subclasscheck", _abc_mod.genAbcSubclasscheck },
+    .{ "_get_dump", _abc_mod.genGetDump },
+    .{ "_reset_registry", _abc_mod.genResetRegistry },
+    .{ "_reset_caches", _abc_mod.genResetCaches },
+});
+
+/// _asyncio module functions
+const AsyncioInternalFuncs = FuncMap.initComptime(.{
+    .{ "Task", _asyncio_mod.genTask },
+    .{ "Future", _asyncio_mod.genFuture },
+    .{ "get_event_loop", _asyncio_mod.genGetEventLoop },
+    .{ "get_running_loop", _asyncio_mod.genGetRunningLoop },
+    .{ "_get_running_loop", _asyncio_mod.genInternalGetRunningLoop },
+    .{ "_set_running_loop", _asyncio_mod.genSetRunningLoop },
+    .{ "_register_task", _asyncio_mod.genRegisterTask },
+    .{ "_unregister_task", _asyncio_mod.genUnregisterTask },
+    .{ "_enter_task", _asyncio_mod.genEnterTask },
+    .{ "_leave_task", _asyncio_mod.genLeaveTask },
+    .{ "current_task", _asyncio_mod.genCurrentTask },
+    .{ "all_tasks", _asyncio_mod.genAllTasks },
+});
+
+/// _compression module functions
+const CompressionInternalFuncs = FuncMap.initComptime(.{
+    .{ "DecompressReader", _compression_mod.genDecompressReader },
+    .{ "readable", _compression_mod.genReadable },
+    .{ "writable", _compression_mod.genWritable },
+    .{ "seekable", _compression_mod.genSeekable },
+    .{ "read", _compression_mod.genRead },
+    .{ "read1", _compression_mod.genRead1 },
+    .{ "readinto", _compression_mod.genReadinto },
+    .{ "readline", _compression_mod.genReadline },
+    .{ "readlines", _compression_mod.genReadlines },
+    .{ "seek", _compression_mod.genSeek },
+    .{ "tell", _compression_mod.genTell },
+    .{ "close", _compression_mod.genClose },
+    .{ "BaseStream", _compression_mod.genBaseStream },
+});
+
+/// _blake2 module functions
+const Blake2InternalFuncs = FuncMap.initComptime(.{
+    .{ "blake2b", _blake2_mod.genBlake2b },
+    .{ "blake2s", _blake2_mod.genBlake2s },
+    .{ "update", _blake2_mod.genUpdate },
+    .{ "digest", _blake2_mod.genDigest },
+    .{ "hexdigest", _blake2_mod.genHexdigest },
+    .{ "copy", _blake2_mod.genCopy },
+    .{ "BLAKE2B_SALT_SIZE", _blake2_mod.genBlake2bSaltSize },
+    .{ "BLAKE2B_PERSON_SIZE", _blake2_mod.genBlake2bPersonSize },
+    .{ "BLAKE2B_MAX_KEY_SIZE", _blake2_mod.genBlake2bMaxKeySize },
+    .{ "BLAKE2B_MAX_DIGEST_SIZE", _blake2_mod.genBlake2bMaxDigestSize },
+    .{ "BLAKE2S_SALT_SIZE", _blake2_mod.genBlake2sSaltSize },
+    .{ "BLAKE2S_PERSON_SIZE", _blake2_mod.genBlake2sPersonSize },
+    .{ "BLAKE2S_MAX_KEY_SIZE", _blake2_mod.genBlake2sMaxKeySize },
+    .{ "BLAKE2S_MAX_DIGEST_SIZE", _blake2_mod.genBlake2sMaxDigestSize },
+});
+
+/// _strptime module functions
+const StrptimeInternalFuncs = FuncMap.initComptime(.{
+    .{ "_strptime_time", _strptime_mod.genStrptimeTime },
+    .{ "_strptime_datetime", _strptime_mod.genStrptimeDatetime },
+    .{ "TimeRE", _strptime_mod.genTimeRE },
+    .{ "LocaleTime", _strptime_mod.genLocaleTime },
+    .{ "_cache_lock", _strptime_mod.genCacheLock },
+    .{ "_TimeRE_cache", _strptime_mod.genTimeRECache },
+    .{ "_CACHE_MAX_SIZE", _strptime_mod.genCacheMaxSize },
+    .{ "_regex_cache", _strptime_mod.genRegexCache },
+    .{ "_getlang", _strptime_mod.genGetlang },
+    .{ "_calc_julian_from_U_or_W", _strptime_mod.genCalcJulianFromUOrW },
+    .{ "_calc_julian_from_V", _strptime_mod.genCalcJulianFromV },
+});
+
+/// _threading_local module functions
+const ThreadingLocalInternalFuncs = FuncMap.initComptime(.{
+    .{ "local", _threading_local_mod.genLocal },
+    .{ "_localimpl", _threading_local_mod.genLocalimpl },
+    .{ "_localimpl_create_dict", _threading_local_mod.genLocalimplCreateDict },
+    .{ "__init__", _threading_local_mod.genInit },
+    .{ "__getattribute__", _threading_local_mod.genGetattribute },
+    .{ "__setattr__", _threading_local_mod.genSetattr },
+    .{ "__delattr__", _threading_local_mod.genDelattr },
+});
+
+/// _typing module functions
+const TypingInternalFuncs = FuncMap.initComptime(.{
+    .{ "_idfunc", _typing_mod.genIdfunc },
+    .{ "TypeVar", _typing_mod.genTypeVar },
+    .{ "ParamSpec", _typing_mod.genParamSpec },
+    .{ "TypeVarTuple", _typing_mod.genTypeVarTuple },
+    .{ "ParamSpecArgs", _typing_mod.genParamSpecArgs },
+    .{ "ParamSpecKwargs", _typing_mod.genParamSpecKwargs },
+    .{ "Generic", _typing_mod.genGeneric },
+});
+
+/// _warnings module functions
+const WarningsInternalFuncs = FuncMap.initComptime(.{
+    .{ "warn", _warnings_mod.genWarn },
+    .{ "warn_explicit", _warnings_mod.genWarnExplicit },
+    .{ "_filters_mutated", _warnings_mod.genFiltersMutated },
+    .{ "filters", _warnings_mod.genFilters },
+    .{ "_defaultaction", _warnings_mod.genDefaultaction },
+    .{ "_onceregistry", _warnings_mod.genOnceregistry },
+});
+
+/// _weakrefset module functions
+const WeakrefsetInternalFuncs = FuncMap.initComptime(.{
+    .{ "WeakSet", _weakrefset_mod.genWeakSet },
+    .{ "add", _weakrefset_mod.genAdd },
+    .{ "discard", _weakrefset_mod.genDiscard },
+    .{ "remove", _weakrefset_mod.genRemove },
+    .{ "pop", _weakrefset_mod.genPop },
+    .{ "clear", _weakrefset_mod.genClear },
+    .{ "copy", _weakrefset_mod.genCopy },
+    .{ "update", _weakrefset_mod.genUpdate },
+    .{ "__len__", _weakrefset_mod.genLen },
+    .{ "__contains__", _weakrefset_mod.genContains },
+    .{ "issubset", _weakrefset_mod.genIssubset },
+    .{ "issuperset", _weakrefset_mod.genIssuperset },
+    .{ "union", _weakrefset_mod.genUnion },
+    .{ "intersection", _weakrefset_mod.genIntersection },
+    .{ "difference", _weakrefset_mod.genDifference },
+    .{ "symmetric_difference", _weakrefset_mod.genSymmetricDifference },
+});
+
+/// pyexpat module functions
+const PyexpatFuncs = FuncMap.initComptime(.{
+    .{ "ParserCreate", pyexpat_mod.genParserCreate },
+    .{ "Parse", pyexpat_mod.genParse },
+    .{ "ParseFile", pyexpat_mod.genParseFile },
+    .{ "SetBase", pyexpat_mod.genSetBase },
+    .{ "GetBase", pyexpat_mod.genGetBase },
+    .{ "GetInputContext", pyexpat_mod.genGetInputContext },
+    .{ "ExternalEntityParserCreate", pyexpat_mod.genExternalEntityParserCreate },
+    .{ "SetParamEntityParsing", pyexpat_mod.genSetParamEntityParsing },
+    .{ "UseForeignDTD", pyexpat_mod.genUseForeignDTD },
+    .{ "ErrorString", pyexpat_mod.genErrorString },
+    .{ "XMLParserType", pyexpat_mod.genXMLParserType },
+    .{ "ExpatError", pyexpat_mod.genExpatError },
+    .{ "error", pyexpat_mod.genError },
+    .{ "XML_PARAM_ENTITY_PARSING_NEVER", pyexpat_mod.genXmlParamEntityParsingNever },
+    .{ "XML_PARAM_ENTITY_PARSING_UNLESS_STANDALONE", pyexpat_mod.genXmlParamEntityParsingUnlessStandalone },
+    .{ "XML_PARAM_ENTITY_PARSING_ALWAYS", pyexpat_mod.genXmlParamEntityParsingAlways },
+    .{ "version_info", pyexpat_mod.genVersionInfo },
+    .{ "EXPAT_VERSION", pyexpat_mod.genExpatVersion },
+    .{ "native_encoding", pyexpat_mod.genNativeEncoding },
+    .{ "features", pyexpat_mod.genFeatures },
+    .{ "model", pyexpat_mod.genModel },
+    .{ "errors", pyexpat_mod.genErrors },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -5108,19 +5274,12 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
         return error.OutOfMemory;
     }
 
-    std.debug.print("[DEBUG] module_functions.tryDispatch: module={s}, func={s}\n", .{ module_name, func_name });
-
     // O(1) module lookup, then O(1) function lookup
     if (ModuleMap.get(module_name)) |func_map| {
-        std.debug.print("[DEBUG]   Module found in ModuleMap\n", .{});
         if (func_map.get(func_name)) |handler| {
-            std.debug.print("[DEBUG]   Function found, calling handler\n", .{});
             try handler(self, call.args);
             return true;
         }
-        std.debug.print("[DEBUG]   Function NOT found in module\n", .{});
-    } else {
-        std.debug.print("[DEBUG]   Module NOT found in ModuleMap\n", .{});
     }
 
     return false;

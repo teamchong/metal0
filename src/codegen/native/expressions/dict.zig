@@ -33,8 +33,14 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
     }
 
     // Check if all keys and values are compile-time constants
+    // Dict unpacking (**other) is never comptime
     var all_comptime = true;
     for (dict.keys) |key| {
+        // None key signals dict unpacking - not comptime
+        if (key == .constant and key.constant.value == .none) {
+            all_comptime = false;
+            break;
+        }
         if (!isComptimeConstant(key)) {
             all_comptime = false;
             break;
@@ -185,17 +191,30 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("}");
 }
 
+/// Helper to get value type from an entry (accounting for dict unpacking)
+fn getEntryValueType(self: *NativeCodegen, key: ast.Node, value: ast.Node) CodegenError!@import("../../../analysis/native_types.zig").NativeType {
+    // Dict unpacking: None key signals **other_dict
+    if (key == .constant and key.constant.value == .none) {
+        const dict_type = try self.type_inferrer.inferExpr(value);
+        if (dict_type == .dict) {
+            return dict_type.dict.value.*;
+        }
+        return .unknown;
+    }
+    return try self.type_inferrer.inferExpr(value);
+}
+
 /// Generate runtime dict literal (fallback path)
 fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const u8) CodegenError!void {
     // Infer value type - check if all values have same type
     var val_type: @import("../../../analysis/native_types.zig").NativeType = .unknown;
     if (dict.values.len > 0) {
-        val_type = try self.type_inferrer.inferExpr(dict.values[0]);
+        val_type = try getEntryValueType(self, dict.keys[0], dict.values[0]);
 
         // Check if all values have consistent type
         var all_same = true;
-        for (dict.values[1..]) |value| {
-            const this_type = try self.type_inferrer.inferExpr(value);
+        for (dict.keys[1..], dict.values[1..]) |key, value| {
+            const this_type = try getEntryValueType(self, key, value);
             // Simple type equality check
             if (@as(std.meta.Tag(@TypeOf(val_type)), val_type) != @as(std.meta.Tag(@TypeOf(this_type)), this_type)) {
                 all_same = false;
@@ -224,9 +243,9 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     // Check if we have mixed types (need memory management)
     var has_mixed_types = false;
     if (need_str_conversion and dict.values.len > 0) {
-        const first_type = try self.type_inferrer.inferExpr(dict.values[0]);
-        for (dict.values[1..]) |value| {
-            const this_type = try self.type_inferrer.inferExpr(value);
+        const first_type = try getEntryValueType(self, dict.keys[0], dict.values[0]);
+        for (dict.keys[1..], dict.values[1..]) |key, value| {
+            const this_type = try getEntryValueType(self, key, value);
             if (@as(std.meta.Tag(@TypeOf(first_type)), first_type) != @as(std.meta.Tag(@TypeOf(this_type)), this_type)) {
                 has_mixed_types = true;
                 break;
@@ -236,6 +255,30 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
 
     // Add all key-value pairs
     for (dict.keys, dict.values) |key, value| {
+        // Check for dict unpacking: {**other_dict} represented as None key
+        if (key == .constant and key.constant.value == .none) {
+            // Dict unpacking: merge entries from another dict
+            try self.emitIndent();
+            try self.emit("{\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("var iter = (");
+            try genExpr(self, value);
+            try self.emit(").iterator();\n");
+            try self.emitIndent();
+            try self.emit("while (iter.next()) |entry| {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("try map.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            continue;
+        }
+
         try self.emitIndent();
         try self.emit("try map.put(");
         try genExpr(self, key);

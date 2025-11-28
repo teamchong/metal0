@@ -272,11 +272,33 @@ pub fn inferExpr(
             var has_mixed_types = false;
 
             if (d.values.len > 0) {
-                val_type = try inferExpr(allocator, var_types, class_fields, func_return_types, d.values[0]);
+                // Check first entry - may be dict unpacking (**d) signaled by None key
+                if (d.keys[0] == .constant and d.keys[0].constant.value == .none) {
+                    // Dict unpacking - get type from the unpacked dict
+                    const unpacked_type = try inferExpr(allocator, var_types, class_fields, func_return_types, d.values[0]);
+                    if (unpacked_type == .dict) {
+                        val_type = unpacked_type.dict.value.*;
+                    } else {
+                        val_type = .unknown;
+                    }
+                } else {
+                    val_type = try inferExpr(allocator, var_types, class_fields, func_return_types, d.values[0]);
+                }
 
                 // Check if all values have same type
-                for (d.values[1..]) |value| {
-                    const this_type = try inferExpr(allocator, var_types, class_fields, func_return_types, value);
+                for (d.keys[1..], d.values[1..]) |key, value| {
+                    var this_type: NativeType = undefined;
+                    if (key == .constant and key.constant.value == .none) {
+                        // Dict unpacking
+                        const unpacked_type = try inferExpr(allocator, var_types, class_fields, func_return_types, value);
+                        if (unpacked_type == .dict) {
+                            this_type = unpacked_type.dict.value.*;
+                        } else {
+                            this_type = .unknown;
+                        }
+                    } else {
+                        this_type = try inferExpr(allocator, var_types, class_fields, func_return_types, value);
+                    }
                     // Compare type tags
                     const tag1 = @as(std.meta.Tag(NativeType), val_type);
                     const tag2 = @as(std.meta.Tag(NativeType), this_type);

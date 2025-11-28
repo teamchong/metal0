@@ -248,12 +248,15 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
 
     // Note: Decorators should be parsed by the caller before calling this function
     // This function only handles the actual function definition
-
-    // Track if this is a nested function
-    const is_nested = self.function_depth > 0;
-
     // Check for 'async' keyword
     const is_async = self.match(.Async);
+    return parseFunctionDefInternal(self, is_async);
+}
+
+/// Internal function def parser - called with is_async already determined
+pub fn parseFunctionDefInternal(self: *Parser, is_async: bool) ParseError!ast.Node {
+    // Track if this is a nested function
+    const is_nested = self.function_depth > 0;
 
     _ = try self.expect(.Def);
     const name_tok = try self.expect(.Ident);

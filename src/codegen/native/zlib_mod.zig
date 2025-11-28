@@ -9,20 +9,24 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 // ============================================================================
 
 /// Generate zlib.compress(data, level=-1)
-/// Stub: returns input unchanged (TODO: implement proper zlib compression)
+/// Calls C interop zlib.compress function
 pub fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
+        try self.emit("try zlib.compress(");
         try self.genExpr(args[0]);
+        try self.emit(", __global_allocator)");
     } else {
         try self.emit("\"\"");
     }
 }
 
 /// Generate zlib.decompress(data, wbits=MAX_WBITS, bufsize=DEF_BUF_SIZE)
-/// Stub: returns input unchanged (TODO: implement proper zlib decompression)
+/// Calls C interop zlib.decompressAuto function
 pub fn genDecompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
+        try self.emit("try zlib.decompressAuto(");
         try self.genExpr(args[0]);
+        try self.emit(", __global_allocator)");
     } else {
         try self.emit("\"\"");
     }
@@ -47,9 +51,16 @@ pub fn genDecompressobj(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
 /// Generate zlib.crc32(data, value=0)
 pub fn genCrc32(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("blk: { const _crc_input = ");
+        try self.emit("zlib.crc32(");
         try self.genExpr(args[0]);
-        try self.emit("; break :blk @as(u32, std.hash.Crc32.hash(_crc_input)); }");
+        if (args.len > 1) {
+            try self.emit(", @intCast(");
+            try self.genExpr(args[1]);
+            try self.emit(")");
+        } else {
+            try self.emit(", 0");
+        }
+        try self.emit(")");
     } else {
         try self.emit("@as(u32, 0)");
     }
@@ -58,9 +69,16 @@ pub fn genCrc32(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate zlib.adler32(data, value=1)
 pub fn genAdler32(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("blk: { const _adler_input = ");
+        try self.emit("zlib.adler32(");
         try self.genExpr(args[0]);
-        try self.emit("; var _a: u32 = 1; var _b: u32 = 0; for (_adler_input) |_byte| { _a = (_a + _byte) % 65521; _b = (_b + _a) % 65521; } break :blk (_b << 16) | _a; }");
+        if (args.len > 1) {
+            try self.emit(", @intCast(");
+            try self.genExpr(args[1]);
+            try self.emit(")");
+        } else {
+            try self.emit(", 1");
+        }
+        try self.emit(")");
     } else {
         try self.emit("@as(u32, 1)");
     }

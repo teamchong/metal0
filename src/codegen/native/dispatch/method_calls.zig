@@ -131,6 +131,31 @@ const QueueMethods = std.StaticStringMap(QueueMethodOutput).initComptime(.{
     .{ "qsize", QueueMethodOutput{ .prefix = "", .suffix = ".qsize()", .has_arg = false } },
 });
 
+// SQLite3 Cursor methods - O(1) lookup
+const SqliteCursorMethodOutput = struct {
+    prefix: []const u8,
+    suffix: []const u8,
+    has_arg: bool,
+};
+
+const SqliteCursorMethods = std.StaticStringMap(SqliteCursorMethodOutput).initComptime(.{
+    .{ "execute", SqliteCursorMethodOutput{ .prefix = "try ", .suffix = ".execute(", .has_arg = true } },
+    .{ "executemany", SqliteCursorMethodOutput{ .prefix = "try ", .suffix = ".executemany(", .has_arg = true } },
+    .{ "fetchone", SqliteCursorMethodOutput{ .prefix = "try ", .suffix = ".fetchone()", .has_arg = false } },
+    .{ "fetchall", SqliteCursorMethodOutput{ .prefix = "try ", .suffix = ".fetchall()", .has_arg = false } },
+    .{ "fetchmany", SqliteCursorMethodOutput{ .prefix = "try ", .suffix = ".fetchmany(", .has_arg = true } },
+    .{ "close", SqliteCursorMethodOutput{ .prefix = "", .suffix = ".close()", .has_arg = false } },
+});
+
+// SQLite3 Connection methods - O(1) lookup
+const SqliteConnectionMethods = std.StaticStringMap(SqliteCursorMethodOutput).initComptime(.{
+    .{ "cursor", SqliteCursorMethodOutput{ .prefix = "", .suffix = ".cursor()", .has_arg = false } },
+    .{ "execute", SqliteCursorMethodOutput{ .prefix = "try ", .suffix = ".execute(", .has_arg = true } },
+    .{ "commit", SqliteCursorMethodOutput{ .prefix = "try ", .suffix = ".commit()", .has_arg = false } },
+    .{ "rollback", SqliteCursorMethodOutput{ .prefix = "try ", .suffix = ".rollback()", .has_arg = false } },
+    .{ "close", SqliteCursorMethodOutput{ .prefix = "", .suffix = ".close()", .has_arg = false } },
+});
+
 // unittest assertion methods - O(1) lookup
 const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "assertEqual", unittest_mod.genAssertEqual },
@@ -197,8 +222,9 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             if (try handleStreamMethod(self, method_name, obj, call.args)) {
                 return true;
             }
-        } else {
-            // File methods (PyFile)
+        } else if (obj_type == .file or obj_type == .unknown) {
+            // File methods (PyFile) - only for actual file objects or unknown types
+            // Skip if it's a known non-file type like sqlite_connection
             if (FileMethods.get(method_name)) |handler| {
                 try handler(self, obj, call.args);
                 return true;
@@ -223,6 +249,11 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
     // Queue methods (asyncio.Queue)
     if (try handleQueueMethods(self, call, method_name, obj)) {
+        return true;
+    }
+
+    // SQLite3 methods (Connection and Cursor)
+    if (try handleSqliteMethods(self, call, method_name, obj)) {
         return true;
     }
 
@@ -457,4 +488,52 @@ fn handleHashMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.Node
         return false;
     }
     return true;
+}
+
+/// Handle SQLite3 Connection and Cursor methods
+fn handleSqliteMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: []const u8, obj: ast.Node) CodegenError!bool {
+    // Check object type to determine if this is a sqlite3 object
+    const obj_type = self.type_inferrer.inferExpr(obj) catch .unknown;
+
+    const parent = @import("../expressions.zig");
+
+    // Handle sqlite3.Cursor methods
+    if (obj_type == .sqlite_cursor) {
+        if (SqliteCursorMethods.get(method_name)) |sqlite_method| {
+            if (sqlite_method.prefix.len > 0) {
+                try self.emit(sqlite_method.prefix);
+            }
+            try parent.genExpr(self, obj);
+            try self.emit(sqlite_method.suffix);
+
+            if (sqlite_method.has_arg) {
+                if (call.args.len > 0) {
+                    try parent.genExpr(self, call.args[0]);
+                }
+                try self.emit(")");
+            }
+            return true;
+        }
+    }
+
+    // Handle sqlite3.Connection methods
+    if (obj_type == .sqlite_connection) {
+        if (SqliteConnectionMethods.get(method_name)) |sqlite_method| {
+            if (sqlite_method.prefix.len > 0) {
+                try self.emit(sqlite_method.prefix);
+            }
+            try parent.genExpr(self, obj);
+            try self.emit(sqlite_method.suffix);
+
+            if (sqlite_method.has_arg) {
+                if (call.args.len > 0) {
+                    try parent.genExpr(self, call.args[0]);
+                }
+                try self.emit(")");
+            }
+            return true;
+        }
+    }
+
+    return false;
 }

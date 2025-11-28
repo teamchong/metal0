@@ -81,6 +81,8 @@ pub const NativeType = union(enum) {
     deque: void, // collections.deque - std.ArrayList
     sqlite_connection: void, // sqlite3.Connection - database connection
     sqlite_cursor: void, // sqlite3.Cursor - database cursor
+    sqlite_rows: void, // []sqlite3.Row - result from fetchall/fetchmany
+    sqlite_row: void, // ?sqlite3.Row - result from fetchone
 
     /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
@@ -226,6 +228,8 @@ pub const NativeType = union(enum) {
             .deque => try buf.appendSlice(allocator, "std.ArrayList(i64)"),
             .sqlite_connection => try buf.appendSlice(allocator, "sqlite3.Connection"),
             .sqlite_cursor => try buf.appendSlice(allocator, "sqlite3.Cursor"),
+            .sqlite_rows => try buf.appendSlice(allocator, "[]sqlite3.Row"),
+            .sqlite_row => try buf.appendSlice(allocator, "?sqlite3.Row"),
         }
     }
 

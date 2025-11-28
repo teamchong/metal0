@@ -203,6 +203,12 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
 }
 
 pub fn parseFor(self: *Parser) ParseError!ast.Node {
+    return parseForInternal(self, false);
+}
+
+/// Internal for loop parser - supports async for
+pub fn parseForInternal(self: *Parser, is_async: bool) ParseError!ast.Node {
+    _ = is_async; // TODO: Store in AST node if needed
     _ = try self.expect(.For);
 
     // Parse target (can be single var or tuple like: i, x)

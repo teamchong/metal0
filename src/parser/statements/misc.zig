@@ -528,8 +528,12 @@ pub fn parseDel(self: *Parser) ParseError!ast.Node {
 
 /// Parse with statement: with expr as var: body
 /// Also supports multiple context managers: with ctx1, ctx2 as var: body
+/// Python 3.10+: with (ctx1 as var1, ctx2 as var2):
 pub fn parseWith(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.With);
+
+    // Check for parenthesized context managers (Python 3.10+)
+    const has_parens = self.match(.LParen);
 
     // Parse context expression
     var context_expr = try self.parseExpression();
@@ -538,18 +542,43 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
     // Check for optional "as variable"
     var optional_vars: ?[]const u8 = null;
     if (self.match(.As)) {
-        const var_tok = try self.expect(.Ident);
-        optional_vars = var_tok.lexeme;
+        if (self.peek()) |tok| {
+            if (tok.type == .Ident) {
+                const var_tok = self.advance().?;
+                optional_vars = var_tok.lexeme;
+            } else if (tok.type == .LParen) {
+                // Tuple target: as (a, b)
+                _ = self.advance(); // consume (
+                _ = try self.parseExpression(); // skip tuple
+                _ = try self.expect(.RParen);
+            }
+        }
     }
 
     // Handle multiple context managers: with ctx1, ctx2, ctx3:
     // For now, just parse and skip additional context managers (use first one)
     while (self.match(.Comma)) {
+        // Allow trailing comma in parenthesized form
+        if (has_parens and self.check(.RParen)) break;
+
         var extra_ctx = try self.parseExpression();
         extra_ctx.deinit(self.allocator); // Discard additional context managers
         if (self.match(.As)) {
-            _ = try self.expect(.Ident); // Skip the variable name
+            if (self.peek()) |tok| {
+                if (tok.type == .Ident) {
+                    _ = self.advance(); // Skip the variable name
+                } else if (tok.type == .LParen) {
+                    _ = self.advance();
+                    _ = try self.parseExpression();
+                    _ = try self.expect(.RParen);
+                }
+            }
         }
+    }
+
+    // Close parenthesis for Python 3.10+ syntax
+    if (has_parens) {
+        _ = try self.expect(.RParen);
     }
 
     _ = try self.expect(.Colon);
@@ -585,4 +614,51 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
             .body = body,
         },
     };
+}
+
+/// Parse async statement: async def, async for, async with
+pub fn parseAsync(self: *Parser) ParseError!ast.Node {
+    _ = try self.expect(.Async);
+
+    // Check what follows async
+    if (self.peek()) |tok| {
+        switch (tok.type) {
+            .Def => {
+                // async def - delegate to parseFunctionDef which handles async
+                // But we already consumed 'async', so we need a different approach
+                return try parseAsyncFunctionDef(self);
+            },
+            .For => {
+                // async for - parse as regular for with is_async=true
+                return try parseAsyncFor(self);
+            },
+            .With => {
+                // async with - parse as regular with with is_async=true
+                return try parseAsyncWith(self);
+            },
+            else => {
+                std.debug.print("Expected def, for, or with after async, got {s}\n", .{@tagName(tok.type)});
+                return error.UnexpectedToken;
+            },
+        }
+    }
+    return error.UnexpectedEof;
+}
+
+/// Parse async function definition (async already consumed)
+fn parseAsyncFunctionDef(self: *Parser) ParseError!ast.Node {
+    const definitions = @import("definitions.zig");
+    return definitions.parseFunctionDefInternal(self, true);
+}
+
+/// Parse async for loop
+fn parseAsyncFor(self: *Parser) ParseError!ast.Node {
+    const control = @import("control.zig");
+    return control.parseForInternal(self, true);
+}
+
+/// Parse async with statement
+fn parseAsyncWith(self: *Parser) ParseError!ast.Node {
+    // Same as parseWith but for async context (we just parse it the same way)
+    return try parseWith(self);
 }

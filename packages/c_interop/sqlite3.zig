@@ -38,6 +38,26 @@ pub const Row = struct {
         }
         return null;
     }
+
+    /// Format row as tuple string for Python compatibility
+    pub fn format(self: *const Row, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.writeByte('(');
+        for (self.values, 0..) |v, i| {
+            if (i > 0) try writer.writeAll(", ");
+            try writer.print("'{s}'", .{v});
+        }
+        try writer.writeByte(')');
+    }
+
+    /// Print row in Python tuple format
+    pub fn print(self: *const Row) void {
+        std.debug.print("(", .{});
+        for (self.values, 0..) |v, i| {
+            if (i > 0) std.debug.print(", ", .{});
+            std.debug.print("'{s}'", .{v});
+        }
+        std.debug.print(")", .{});
+    }
 };
 
 /// Cursor - executes queries and fetches results
@@ -212,38 +232,38 @@ pub const Cursor = struct {
 
     /// Fetch all remaining rows
     pub fn fetchall(self: *Cursor) ![]Row {
-        var rows = std.ArrayList(Row).init(self.allocator);
+        var rows = std.ArrayList(Row){};
         errdefer {
             for (rows.items) |*row| {
                 row.deinit();
             }
-            rows.deinit();
+            rows.deinit(self.allocator);
         }
 
         while (try self.fetchone()) |row| {
-            try rows.append(row);
+            try rows.append(self.allocator, row);
         }
 
-        return rows.toOwnedSlice();
+        return try rows.toOwnedSlice(self.allocator);
     }
 
     /// Fetch n rows
     pub fn fetchmany(self: *Cursor, size: usize) ![]Row {
-        var rows = std.ArrayList(Row).init(self.allocator);
+        var rows = std.ArrayList(Row){};
         errdefer {
             for (rows.items) |*row| {
                 row.deinit();
             }
-            rows.deinit();
+            rows.deinit(self.allocator);
         }
 
         var count: usize = 0;
         while (count < size) : (count += 1) {
             const row = try self.fetchone() orelse break;
-            try rows.append(row);
+            try rows.append(self.allocator, row);
         }
 
-        return rows.toOwnedSlice();
+        return try rows.toOwnedSlice(self.allocator);
     }
 
     /// Close the cursor
