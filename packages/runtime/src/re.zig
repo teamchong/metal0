@@ -4,18 +4,11 @@ const std = @import("std");
 const runtime = @import("runtime.zig");
 
 // Import the regex engine
-// When copied to .build/, the path is ./regex/src/pyregex/regex.zig
-// TODO: Implement regex package
-// const regex_impl = @import("regex/src/pyregex/regex.zig");
+const regex_impl = @import("regex");
 
-// pub const Regex = regex_impl.Regex;
-// pub const Match = regex_impl.Match;
-// pub const Span = regex_impl.Span;
-
-// Stub types until regex is implemented
-pub const Regex = struct {};
-pub const Match = struct {};
-pub const Span = struct {};
+pub const Regex = regex_impl.Regex;
+pub const Match = regex_impl.Match;
+pub const Span = regex_impl.Span;
 
 /// Python-compatible compile() function
 /// Usage: pattern = re.compile(r"hello")
