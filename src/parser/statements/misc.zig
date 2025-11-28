@@ -662,3 +662,139 @@ fn parseAsyncWith(self: *Parser) ParseError!ast.Node {
     // Same as parseWith but for async context (we just parse it the same way)
     return try parseWith(self);
 }
+
+/// Parse PEP 695 type alias: type X = SomeType
+/// or with type params: type X[T] = list[T]
+pub fn parseTypeAlias(self: *Parser) ParseError!ast.Node {
+    // Consume "type" soft keyword (it's an Ident)
+    _ = try self.expect(.Ident);
+    // Get the alias name
+    const name_tok = try self.expect(.Ident);
+
+    // Parse optional type parameters: type X[T, U] = ...
+    if (self.match(.LBracket)) {
+        var bracket_depth: usize = 1;
+        while (bracket_depth > 0) {
+            if (self.match(.LBracket)) {
+                bracket_depth += 1;
+            } else if (self.match(.RBracket)) {
+                bracket_depth -= 1;
+            } else {
+                _ = self.advance();
+            }
+        }
+    }
+
+    _ = try self.expect(.Eq);
+
+    // Parse the type expression (we just skip it for now)
+    var value = try self.parseExpression();
+    errdefer value.deinit(self.allocator);
+
+    _ = self.match(.Newline);
+
+    // Return as a pass statement for now (type aliases are erased at runtime in our codegen)
+    _ = name_tok;
+    value.deinit(self.allocator);
+    return ast.Node{ .pass = {} };
+}
+
+/// Parse match statement (PEP 634): match subject:
+pub fn parseMatch(self: *Parser) ParseError!ast.Node {
+    // Consume "match" soft keyword (it's an Ident)
+    _ = try self.expect(.Ident);
+
+    // Parse the subject expression
+    var subject = try self.parseExpression();
+    errdefer subject.deinit(self.allocator);
+
+    _ = try self.expect(.Colon);
+    _ = try self.expect(.Newline);
+    _ = try self.expect(.Indent);
+
+    // Parse case clauses
+    var cases = std.ArrayList(ast.Node){};
+    errdefer {
+        for (cases.items) |*c| c.deinit(self.allocator);
+        cases.deinit(self.allocator);
+    }
+
+    while (!self.check(.Dedent)) {
+        // Each case starts with "case" keyword (which is an Ident)
+        if (self.peek()) |tok| {
+            if (tok.type == .Ident and std.mem.eql(u8, tok.lexeme, "case")) {
+                _ = self.advance(); // consume "case"
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+
+        // Parse pattern - we simplify by just skipping tokens until we hit ':'
+        // This handles: case x:, case [a, b]:, case {"key": v}:, case Class(x=1):, case _ if cond:
+        var paren_depth: usize = 0;
+        var bracket_depth: usize = 0;
+        var brace_depth: usize = 0;
+        while (true) {
+            if (self.check(.Colon) and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) {
+                break;
+            }
+            if (self.match(.LParen)) {
+                paren_depth += 1;
+            } else if (self.match(.RParen)) {
+                if (paren_depth > 0) paren_depth -= 1;
+            } else if (self.match(.LBracket)) {
+                bracket_depth += 1;
+            } else if (self.match(.RBracket)) {
+                if (bracket_depth > 0) bracket_depth -= 1;
+            } else if (self.match(.LBrace)) {
+                brace_depth += 1;
+            } else if (self.match(.RBrace)) {
+                if (brace_depth > 0) brace_depth -= 1;
+            } else {
+                _ = self.advance();
+            }
+            if (self.current >= self.tokens.len) break;
+        }
+
+        _ = try self.expect(.Colon);
+
+        // Parse case body
+        var body: []ast.Node = undefined;
+        if (self.peek()) |next_tok| {
+            const is_oneliner = next_tok.type == .Pass or
+                next_tok.type == .Ellipsis or
+                next_tok.type == .Return or
+                next_tok.type == .Break or
+                next_tok.type == .Continue or
+                next_tok.type == .Raise or
+                next_tok.type == .Ident;
+
+            if (is_oneliner) {
+                const stmt = try self.parseStatement();
+                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                body_slice[0] = stmt;
+                body = body_slice;
+            } else {
+                _ = try self.expect(.Newline);
+                _ = try self.expect(.Indent);
+                body = try parseBlock(self);
+                _ = try self.expect(.Dedent);
+            }
+        } else {
+            return ParseError.UnexpectedEof;
+        }
+
+        // Store case as a simple if-branch for now (pattern matching is complex to implement fully)
+        // We create a pass statement as a placeholder
+        for (body) |*stmt| stmt.deinit(self.allocator);
+        self.allocator.free(body);
+    }
+
+    _ = try self.expect(.Dedent);
+
+    // For now, return the subject as an expression statement (match is complex to fully support)
+    subject.deinit(self.allocator);
+    return ast.Node{ .pass = {} };
+}

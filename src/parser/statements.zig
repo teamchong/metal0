@@ -36,3 +36,5 @@ pub const parseDel = misc.parseDel;
 pub const parseEllipsis = misc.parseEllipsis;
 pub const parseYield = misc.parseYield;
 pub const parseAsync = misc.parseAsync;
+pub const parseTypeAlias = misc.parseTypeAlias;
+pub const parseMatch = misc.parseMatch;

@@ -315,6 +315,22 @@ pub fn parseFunctionDefInternal(self: *Parser, is_async: bool) ParseError!ast.No
 
     _ = try self.expect(.Def);
     const name_tok = try self.expect(.Ident);
+
+    // Parse optional PEP 695 type parameters: def func[T, U](...):
+    if (self.match(.LBracket)) {
+        // Skip type parameters - we don't use them in codegen yet
+        var bracket_depth: usize = 1;
+        while (bracket_depth > 0) {
+            if (self.match(.LBracket)) {
+                bracket_depth += 1;
+            } else if (self.match(.RBracket)) {
+                bracket_depth -= 1;
+            } else {
+                _ = self.advance();
+            }
+        }
+    }
+
     _ = try self.expect(.LParen);
 
     var args = std.ArrayList(ast.Arg){};
@@ -502,6 +518,21 @@ pub fn parseFunctionDefInternal(self: *Parser, is_async: bool) ParseError!ast.No
 pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Class);
     const name_tok = try self.expect(.Ident);
+
+    // Parse optional PEP 695 type parameters: class Name[T, U, V]:
+    if (self.match(.LBracket)) {
+        // Skip type parameters - we don't use them in codegen yet
+        var bracket_depth: usize = 1;
+        while (bracket_depth > 0) {
+            if (self.match(.LBracket)) {
+                bracket_depth += 1;
+            } else if (self.match(.RBracket)) {
+                bracket_depth -= 1;
+            } else {
+                _ = self.advance();
+            }
+        }
+    }
 
     // Parse optional base classes: class Dog(Animal):
     // Supports: simple names (Animal), dotted names (abc.ABC), keyword args (metaclass=ABCMeta),

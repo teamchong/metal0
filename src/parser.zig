@@ -227,6 +227,20 @@ pub const Parser = struct {
                 .Del => return try statements.parseDel(self),
                 .Ellipsis => return try statements.parseEllipsis(self),
                 .Yield => return try statements.parseYield(self),
+                .Ident => {
+                    // Check for soft keywords (type, match)
+                    if (std.mem.eql(u8, tok.lexeme, "type")) {
+                        // Check if this is a type alias: type X = ...
+                        if (self.current + 1 < self.tokens.len and self.tokens[self.current + 1].type == .Ident) {
+                            return try statements.parseTypeAlias(self);
+                        }
+                    } else if (std.mem.eql(u8, tok.lexeme, "match")) {
+                        // Check if this is a match statement: match subject:
+                        return try statements.parseMatch(self);
+                    }
+                    // Could be assignment or expression statement
+                    return try statements.parseExprOrAssign(self);
+                },
                 else => {
                     // Could be assignment or expression statement
                     return try statements.parseExprOrAssign(self);
