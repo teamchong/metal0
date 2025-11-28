@@ -49,7 +49,11 @@ pub fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("@compileError(\"functools.reduce requires at least 2 arguments\")");
         return;
     }
-    
+
+    // Infer iterable type to determine if we need .items accessor
+    const iter_type = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+    const needs_items = (iter_type == .list or iter_type == .deque);
+
     try self.emit("reduce_blk: {\n");
     self.indent();
     try self.emitIndent();
@@ -59,8 +63,11 @@ pub fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _iterable = ");
     try self.genExpr(args[1]);
+    if (needs_items) {
+        try self.emit(".items");
+    }
     try self.emit(";\n");
-    
+
     // Initial value
     try self.emitIndent();
     if (args.len > 2) {
@@ -68,13 +75,13 @@ pub fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[2]);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.emit("for (_iterable.items) |item| { _acc = _func(_acc, item); }\n");
+        try self.emit("for (_iterable) |item| { _acc = _func(_acc, item); }\n");
     } else {
         try self.emit("var _first = true;\n");
         try self.emitIndent();
-        try self.emit("var _acc: @TypeOf(_iterable.items[0]) = undefined;\n");
+        try self.emit("var _acc: @TypeOf(_iterable[0]) = undefined;\n");
         try self.emitIndent();
-        try self.emit("for (_iterable.items) |item| {\n");
+        try self.emit("for (_iterable) |item| {\n");
         self.indent();
         try self.emitIndent();
         try self.emit("if (_first) { _acc = item; _first = false; } else { _acc = _func(_acc, item); }\n");
@@ -82,7 +89,7 @@ pub fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitIndent();
         try self.emit("}\n");
     }
-    
+
     try self.emitIndent();
     try self.emit("break :reduce_blk _acc;\n");
     self.dedent();

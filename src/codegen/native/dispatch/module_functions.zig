@@ -122,6 +122,9 @@ const imaplib_mod = @import("../imaplib_mod.zig");
 const ftplib_mod = @import("../ftplib_mod.zig");
 const poplib_mod = @import("../poplib_mod.zig");
 const nntplib_mod = @import("../nntplib_mod.zig");
+const ssl_mod = @import("../ssl_mod.zig");
+const selectors_mod = @import("../selectors_mod.zig");
+const ipaddress_mod = @import("../ipaddress_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
