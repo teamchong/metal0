@@ -172,6 +172,16 @@ const _thread_mod = @import("../_thread_mod.zig");
 const posixpath_mod = @import("../posixpath_mod.zig");
 const reprlib_mod = @import("../reprlib_mod.zig");
 const _collections_abc_mod = @import("../_collections_abc_mod.zig");
+const keyword_mod = @import("../keyword_mod.zig");
+const token_mod = @import("../token_mod.zig");
+const tokenize_mod = @import("../tokenize_mod.zig");
+const dbm_mod = @import("../dbm_mod.zig");
+const symtable_mod = @import("../symtable_mod.zig");
+const crypt_mod = @import("../crypt_mod.zig");
+const posix_mod = @import("../posix_mod.zig");
+const _io_mod = @import("../_io_mod.zig");
+const genericpath_mod = @import("../genericpath_mod.zig");
+const ntpath_mod = @import("../ntpath_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -3523,6 +3533,214 @@ const CollectionsAbcFuncs = FuncMap.initComptime(.{
     .{ "Buffer", _collections_abc_mod.genBuffer },
 });
 
+/// keyword module functions
+const KeywordFuncs = FuncMap.initComptime(.{
+    .{ "iskeyword", keyword_mod.genIskeyword },
+    .{ "kwlist", keyword_mod.genKwlist },
+    .{ "softkwlist", keyword_mod.genSoftkwlist },
+    .{ "issoftkeyword", keyword_mod.genIssoftkeyword },
+});
+
+/// token module functions
+const TokenFuncs = FuncMap.initComptime(.{
+    .{ "ENDMARKER", token_mod.genENDMARKER },
+    .{ "NAME", token_mod.genNAME },
+    .{ "NUMBER", token_mod.genNUMBER },
+    .{ "STRING", token_mod.genSTRING },
+    .{ "NEWLINE", token_mod.genNEWLINE },
+    .{ "INDENT", token_mod.genINDENT },
+    .{ "DEDENT", token_mod.genDEDENT },
+    .{ "OP", token_mod.genOP },
+    .{ "ERRORTOKEN", token_mod.genERRORTOKEN },
+    .{ "COMMENT", token_mod.genCOMMENT },
+    .{ "NL", token_mod.genNL },
+    .{ "ENCODING", token_mod.genENCODING },
+    .{ "N_TOKENS", token_mod.genN_TOKENS },
+    .{ "NT_OFFSET", token_mod.genNT_OFFSET },
+    .{ "tok_name", token_mod.genTok_name },
+    .{ "EXACT_TOKEN_TYPES", token_mod.genEXACT_TOKEN_TYPES },
+    .{ "ISTERMINAL", token_mod.genISTERMINAL },
+    .{ "ISNONTERMINAL", token_mod.genISNONTERMINAL },
+    .{ "ISEOF", token_mod.genISEOF },
+});
+
+/// tokenize module functions
+const TokenizeFuncs = FuncMap.initComptime(.{
+    .{ "tokenize", tokenize_mod.genTokenize },
+    .{ "generate_tokens", tokenize_mod.genGenerate_tokens },
+    .{ "detect_encoding", tokenize_mod.genDetect_encoding },
+    .{ "open", tokenize_mod.genOpen },
+    .{ "untokenize", tokenize_mod.genUntokenize },
+    .{ "TokenInfo", tokenize_mod.genTokenInfo },
+    .{ "TokenError", tokenize_mod.genTokenError },
+    .{ "StopTokenizing", tokenize_mod.genStopTokenizing },
+});
+
+/// dbm module functions
+const DbmFuncs = FuncMap.initComptime(.{
+    .{ "open", dbm_mod.genOpen },
+    .{ "whichdb", dbm_mod.genWhichdb },
+    .{ "error", dbm_mod.genError },
+});
+
+/// dbm.dumb module functions
+const DbmDumbFuncs = FuncMap.initComptime(.{
+    .{ "open", dbm_mod.genDumb_open },
+    .{ "error", dbm_mod.genDumb_error },
+});
+
+/// dbm.gnu module functions
+const DbmGnuFuncs = FuncMap.initComptime(.{
+    .{ "open", dbm_mod.genGnu_open },
+    .{ "error", dbm_mod.genGnu_error },
+});
+
+/// dbm.ndbm module functions
+const DbmNdbmFuncs = FuncMap.initComptime(.{
+    .{ "open", dbm_mod.genNdbm_open },
+    .{ "error", dbm_mod.genNdbm_error },
+});
+
+/// symtable module functions
+const SymtableFuncs = FuncMap.initComptime(.{
+    .{ "symtable", symtable_mod.genSymtable },
+    .{ "SymbolTable", symtable_mod.genSymbolTable },
+    .{ "Symbol", symtable_mod.genSymbol },
+    .{ "Function", symtable_mod.genFunction },
+    .{ "Class", symtable_mod.genClass },
+});
+
+/// crypt module functions
+const CryptFuncs = FuncMap.initComptime(.{
+    .{ "crypt", crypt_mod.genCrypt },
+    .{ "mksalt", crypt_mod.genMksalt },
+    .{ "METHOD_SHA512", crypt_mod.genMETHOD_SHA512 },
+    .{ "METHOD_SHA256", crypt_mod.genMETHOD_SHA256 },
+    .{ "METHOD_BLOWFISH", crypt_mod.genMETHOD_BLOWFISH },
+    .{ "METHOD_MD5", crypt_mod.genMETHOD_MD5 },
+    .{ "METHOD_CRYPT", crypt_mod.genMETHOD_CRYPT },
+    .{ "methods", crypt_mod.genMethods },
+});
+
+/// posix module functions
+const PosixFuncs = FuncMap.initComptime(.{
+    .{ "getcwd", posix_mod.genGetcwd },
+    .{ "chdir", posix_mod.genChdir },
+    .{ "listdir", posix_mod.genListdir },
+    .{ "mkdir", posix_mod.genMkdir },
+    .{ "rmdir", posix_mod.genRmdir },
+    .{ "unlink", posix_mod.genUnlink },
+    .{ "rename", posix_mod.genRename },
+    .{ "stat", posix_mod.genStat },
+    .{ "lstat", posix_mod.genLstat },
+    .{ "fstat", posix_mod.genFstat },
+    .{ "getenv", posix_mod.genGetenv },
+    .{ "getpid", posix_mod.genGetpid },
+    .{ "getppid", posix_mod.genGetppid },
+    .{ "getuid", posix_mod.genGetuid },
+    .{ "getgid", posix_mod.genGetgid },
+    .{ "geteuid", posix_mod.genGeteuid },
+    .{ "getegid", posix_mod.genGetegid },
+    .{ "fork", posix_mod.genFork },
+    .{ "kill", posix_mod.genKill },
+    .{ "open", posix_mod.genOpen },
+    .{ "close", posix_mod.genClose },
+    .{ "read", posix_mod.genRead },
+    .{ "write", posix_mod.genWrite },
+    .{ "pipe", posix_mod.genPipe },
+    .{ "dup", posix_mod.genDup },
+    .{ "dup2", posix_mod.genDup2 },
+    .{ "access", posix_mod.genAccess },
+    .{ "chmod", posix_mod.genChmod },
+    .{ "chown", posix_mod.genChown },
+    .{ "umask", posix_mod.genUmask },
+    .{ "symlink", posix_mod.genSymlink },
+    .{ "readlink", posix_mod.genReadlink },
+    .{ "uname", posix_mod.genUname },
+    .{ "urandom", posix_mod.genUrandom },
+    .{ "error", posix_mod.genError },
+});
+
+/// _io module functions
+const IoInternalFuncs = FuncMap.initComptime(.{
+    .{ "FileIO", _io_mod.genFileIO },
+    .{ "BytesIO", _io_mod.genBytesIO },
+    .{ "StringIO", _io_mod.genStringIO },
+    .{ "BufferedReader", _io_mod.genBufferedReader },
+    .{ "BufferedWriter", _io_mod.genBufferedWriter },
+    .{ "BufferedRandom", _io_mod.genBufferedRandom },
+    .{ "BufferedRWPair", _io_mod.genBufferedRWPair },
+    .{ "TextIOWrapper", _io_mod.genTextIOWrapper },
+    .{ "IncrementalNewlineDecoder", _io_mod.genIncrementalNewlineDecoder },
+    .{ "open", _io_mod.genOpen },
+    .{ "open_code", _io_mod.genOpen_code },
+    .{ "text_encoding", _io_mod.genText_encoding },
+    .{ "IOBase", _io_mod.genIOBase },
+    .{ "RawIOBase", _io_mod.genRawIOBase },
+    .{ "BufferedIOBase", _io_mod.genBufferedIOBase },
+    .{ "TextIOBase", _io_mod.genTextIOBase },
+    .{ "DEFAULT_BUFFER_SIZE", _io_mod.genDEFAULT_BUFFER_SIZE },
+    .{ "UnsupportedOperation", _io_mod.genUnsupportedOperation },
+    .{ "BlockingIOError", _io_mod.genBlockingIOError },
+});
+
+/// genericpath module functions
+const GenericpathFuncs = FuncMap.initComptime(.{
+    .{ "exists", genericpath_mod.genExists },
+    .{ "isfile", genericpath_mod.genIsfile },
+    .{ "isdir", genericpath_mod.genIsdir },
+    .{ "getsize", genericpath_mod.genGetsize },
+    .{ "getatime", genericpath_mod.genGetatime },
+    .{ "getmtime", genericpath_mod.genGetmtime },
+    .{ "getctime", genericpath_mod.genGetctime },
+    .{ "commonprefix", genericpath_mod.genCommonprefix },
+    .{ "samestat", genericpath_mod.genSamestat },
+    .{ "samefile", genericpath_mod.genSamefile },
+    .{ "sameopenfile", genericpath_mod.genSameopenfile },
+    .{ "islink", genericpath_mod.genIslink },
+});
+
+/// ntpath module functions
+const NtpathFuncs = FuncMap.initComptime(.{
+    .{ "abspath", ntpath_mod.genAbspath },
+    .{ "basename", ntpath_mod.genBasename },
+    .{ "commonpath", ntpath_mod.genCommonpath },
+    .{ "commonprefix", ntpath_mod.genCommonprefix },
+    .{ "dirname", ntpath_mod.genDirname },
+    .{ "exists", ntpath_mod.genExists },
+    .{ "expanduser", ntpath_mod.genExpanduser },
+    .{ "expandvars", ntpath_mod.genExpandvars },
+    .{ "getatime", ntpath_mod.genGetatime },
+    .{ "getctime", ntpath_mod.genGetctime },
+    .{ "getmtime", ntpath_mod.genGetmtime },
+    .{ "getsize", ntpath_mod.genGetsize },
+    .{ "isabs", ntpath_mod.genIsabs },
+    .{ "isdir", ntpath_mod.genIsdir },
+    .{ "isfile", ntpath_mod.genIsfile },
+    .{ "islink", ntpath_mod.genIslink },
+    .{ "ismount", ntpath_mod.genIsmount },
+    .{ "join", ntpath_mod.genJoin },
+    .{ "lexists", ntpath_mod.genLexists },
+    .{ "normcase", ntpath_mod.genNormcase },
+    .{ "normpath", ntpath_mod.genNormpath },
+    .{ "realpath", ntpath_mod.genRealpath },
+    .{ "relpath", ntpath_mod.genRelpath },
+    .{ "samefile", ntpath_mod.genSamefile },
+    .{ "sameopenfile", ntpath_mod.genSameopenfile },
+    .{ "samestat", ntpath_mod.genSamestat },
+    .{ "split", ntpath_mod.genSplit },
+    .{ "splitdrive", ntpath_mod.genSplitdrive },
+    .{ "splitext", ntpath_mod.genSplitext },
+    .{ "sep", ntpath_mod.genSep },
+    .{ "altsep", ntpath_mod.genAltsep },
+    .{ "extsep", ntpath_mod.genExtsep },
+    .{ "pathsep", ntpath_mod.genPathsep },
+    .{ "defpath", ntpath_mod.genDefpath },
+    .{ "devnull", ntpath_mod.genDevnull },
+    .{ "curdir", ntpath_mod.genCurdir },
+    .{ "pardir", ntpath_mod.genPardir },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -3728,6 +3946,19 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "reprlib", ReprlibFuncs },
     .{ "collections.abc", CollectionsAbcFuncs },
     .{ "_collections_abc", CollectionsAbcFuncs },
+    .{ "keyword", KeywordFuncs },
+    .{ "token", TokenFuncs },
+    .{ "tokenize", TokenizeFuncs },
+    .{ "dbm", DbmFuncs },
+    .{ "dbm.dumb", DbmDumbFuncs },
+    .{ "dbm.gnu", DbmGnuFuncs },
+    .{ "dbm.ndbm", DbmNdbmFuncs },
+    .{ "symtable", SymtableFuncs },
+    .{ "crypt", CryptFuncs },
+    .{ "posix", PosixFuncs },
+    .{ "_io", IoInternalFuncs },
+    .{ "genericpath", GenericpathFuncs },
+    .{ "ntpath", NtpathFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
