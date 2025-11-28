@@ -145,6 +145,16 @@ const xdrlib_mod = @import("../xdrlib_mod.zig");
 const plistlib_mod = @import("../plistlib_mod.zig");
 const rlcompleter_mod = @import("../rlcompleter_mod.zig");
 const readline_mod = @import("../readline_mod.zig");
+const sched_mod = @import("../sched_mod.zig");
+const mailbox_mod = @import("../mailbox_mod.zig");
+const mailcap_mod = @import("../mailcap_mod.zig");
+const mimetypes_mod = @import("../mimetypes_mod.zig");
+const quopri_mod = @import("../quopri_mod.zig");
+const uu_mod = @import("../uu_mod.zig");
+const html_parser_mod = @import("../html_parser_mod.zig");
+const html_entities_mod = @import("../html_entities_mod.zig");
+const xml_sax_mod = @import("../xml_sax_mod.zig");
+const xml_dom_mod = @import("../xml_dom_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -2911,6 +2921,141 @@ const ReadlineFuncs = FuncMap.initComptime(.{
     .{ "set_completion_display_matches_hook", readline_mod.genSet_completion_display_matches_hook },
 });
 
+/// sched module functions
+const SchedFuncs = FuncMap.initComptime(.{
+    .{ "scheduler", sched_mod.genScheduler },
+    .{ "Event", sched_mod.genEvent },
+});
+
+/// mailbox module functions
+const MailboxFuncs = FuncMap.initComptime(.{
+    .{ "Mailbox", mailbox_mod.genMailbox },
+    .{ "Maildir", mailbox_mod.genMaildir },
+    .{ "mbox", mailbox_mod.genMbox },
+    .{ "MH", mailbox_mod.genMH },
+    .{ "Babyl", mailbox_mod.genBabyl },
+    .{ "MMDF", mailbox_mod.genMMDF },
+    .{ "Message", mailbox_mod.genMessage },
+    .{ "MaildirMessage", mailbox_mod.genMaildirMessage },
+    .{ "mboxMessage", mailbox_mod.genMboxMessage },
+    .{ "MHMessage", mailbox_mod.genMHMessage },
+    .{ "BabylMessage", mailbox_mod.genBabylMessage },
+    .{ "MMDFMessage", mailbox_mod.genMMDFMessage },
+    .{ "Error", mailbox_mod.genError },
+    .{ "NoSuchMailboxError", mailbox_mod.genNoSuchMailboxError },
+    .{ "NotEmptyError", mailbox_mod.genNotEmptyError },
+    .{ "ExternalClashError", mailbox_mod.genExternalClashError },
+    .{ "FormatError", mailbox_mod.genFormatError },
+});
+
+/// mailcap module functions
+const MailcapFuncs = FuncMap.initComptime(.{
+    .{ "findmatch", mailcap_mod.genFindmatch },
+    .{ "getcaps", mailcap_mod.genGetcaps },
+    .{ "listmailcapfiles", mailcap_mod.genListmailcapfiles },
+    .{ "readmailcapfile", mailcap_mod.genReadmailcapfile },
+    .{ "lookup", mailcap_mod.genLookup },
+    .{ "subst", mailcap_mod.genSubst },
+});
+
+/// mimetypes module functions
+const MimetypesFuncs = FuncMap.initComptime(.{
+    .{ "guess_type", mimetypes_mod.genGuess_type },
+    .{ "guess_all_extensions", mimetypes_mod.genGuess_all_extensions },
+    .{ "guess_extension", mimetypes_mod.genGuess_extension },
+    .{ "init", mimetypes_mod.genInit },
+    .{ "read_mime_types", mimetypes_mod.genRead_mime_types },
+    .{ "add_type", mimetypes_mod.genAdd_type },
+    .{ "MimeTypes", mimetypes_mod.genMimeTypes },
+    .{ "knownfiles", mimetypes_mod.genKnownfiles },
+    .{ "inited", mimetypes_mod.genInited },
+    .{ "suffix_map", mimetypes_mod.genSuffix_map },
+    .{ "encodings_map", mimetypes_mod.genEncodings_map },
+    .{ "types_map", mimetypes_mod.genTypes_map },
+    .{ "common_types", mimetypes_mod.genCommon_types },
+});
+
+/// quopri module functions
+const QuopriFuncs = FuncMap.initComptime(.{
+    .{ "encode", quopri_mod.genEncode },
+    .{ "decode", quopri_mod.genDecode },
+    .{ "encodestring", quopri_mod.genEncodestring },
+    .{ "decodestring", quopri_mod.genDecodestring },
+});
+
+/// uu module functions
+const UuFuncs = FuncMap.initComptime(.{
+    .{ "encode", uu_mod.genEncode },
+    .{ "decode", uu_mod.genDecode },
+    .{ "Error", uu_mod.genError },
+});
+
+/// html.parser module functions
+const HtmlParserFuncs = FuncMap.initComptime(.{
+    .{ "HTMLParser", html_parser_mod.genHTMLParser },
+    .{ "HTMLParseError", html_parser_mod.genHTMLParseError },
+});
+
+/// html.entities module functions
+const HtmlEntitiesFuncs = FuncMap.initComptime(.{
+    .{ "html5", html_entities_mod.genHtml5 },
+    .{ "name2codepoint", html_entities_mod.genName2codepoint },
+    .{ "codepoint2name", html_entities_mod.genCodepoint2name },
+    .{ "entitydefs", html_entities_mod.genEntitydefs },
+});
+
+/// xml.sax module functions
+const XmlSaxFuncs = FuncMap.initComptime(.{
+    .{ "make_parser", xml_sax_mod.genMake_parser },
+    .{ "parse", xml_sax_mod.genParse },
+    .{ "parseString", xml_sax_mod.genParseString },
+    .{ "ContentHandler", xml_sax_mod.genContentHandler },
+    .{ "DTDHandler", xml_sax_mod.genDTDHandler },
+    .{ "EntityResolver", xml_sax_mod.genEntityResolver },
+    .{ "ErrorHandler", xml_sax_mod.genErrorHandler },
+    .{ "InputSource", xml_sax_mod.genInputSource },
+    .{ "AttributesImpl", xml_sax_mod.genAttributesImpl },
+    .{ "AttributesNSImpl", xml_sax_mod.genAttributesNSImpl },
+    .{ "SAXException", xml_sax_mod.genSAXException },
+    .{ "SAXNotRecognizedException", xml_sax_mod.genSAXNotRecognizedException },
+    .{ "SAXNotSupportedException", xml_sax_mod.genSAXNotSupportedException },
+    .{ "SAXParseException", xml_sax_mod.genSAXParseException },
+});
+
+/// xml.dom module functions
+const XmlDomFuncs = FuncMap.initComptime(.{
+    .{ "registerDOMImplementation", xml_dom_mod.genRegisterDOMImplementation },
+    .{ "getDOMImplementation", xml_dom_mod.genGetDOMImplementation },
+    .{ "ELEMENT_NODE", xml_dom_mod.genELEMENT_NODE },
+    .{ "ATTRIBUTE_NODE", xml_dom_mod.genATTRIBUTE_NODE },
+    .{ "TEXT_NODE", xml_dom_mod.genTEXT_NODE },
+    .{ "CDATA_SECTION_NODE", xml_dom_mod.genCDATA_SECTION_NODE },
+    .{ "ENTITY_REFERENCE_NODE", xml_dom_mod.genENTITY_REFERENCE_NODE },
+    .{ "ENTITY_NODE", xml_dom_mod.genENTITY_NODE },
+    .{ "PROCESSING_INSTRUCTION_NODE", xml_dom_mod.genPROCESSING_INSTRUCTION_NODE },
+    .{ "COMMENT_NODE", xml_dom_mod.genCOMMENT_NODE },
+    .{ "DOCUMENT_NODE", xml_dom_mod.genDOCUMENT_NODE },
+    .{ "DOCUMENT_TYPE_NODE", xml_dom_mod.genDOCUMENT_TYPE_NODE },
+    .{ "DOCUMENT_FRAGMENT_NODE", xml_dom_mod.genDOCUMENT_FRAGMENT_NODE },
+    .{ "NOTATION_NODE", xml_dom_mod.genNOTATION_NODE },
+    .{ "DomstringSizeErr", xml_dom_mod.genDomstringSizeErr },
+    .{ "HierarchyRequestErr", xml_dom_mod.genHierarchyRequestErr },
+    .{ "IndexSizeErr", xml_dom_mod.genIndexSizeErr },
+    .{ "InuseAttributeErr", xml_dom_mod.genInuseAttributeErr },
+    .{ "InvalidAccessErr", xml_dom_mod.genInvalidAccessErr },
+    .{ "InvalidCharacterErr", xml_dom_mod.genInvalidCharacterErr },
+    .{ "InvalidModificationErr", xml_dom_mod.genInvalidModificationErr },
+    .{ "InvalidStateErr", xml_dom_mod.genInvalidStateErr },
+    .{ "NamespaceErr", xml_dom_mod.genNamespaceErr },
+    .{ "NoDataAllowedErr", xml_dom_mod.genNoDataAllowedErr },
+    .{ "NoModificationAllowedErr", xml_dom_mod.genNoModificationAllowedErr },
+    .{ "NotFoundErr", xml_dom_mod.genNotFoundErr },
+    .{ "NotSupportedErr", xml_dom_mod.genNotSupportedErr },
+    .{ "SyntaxErr", xml_dom_mod.genSyntaxErr },
+    .{ "ValidationErr", xml_dom_mod.genValidationErr },
+    .{ "WrongDocumentErr", xml_dom_mod.genWrongDocumentErr },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -3081,6 +3226,18 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "plistlib", PlistlibFuncs },
     .{ "rlcompleter", RlcompleterFuncs },
     .{ "readline", ReadlineFuncs },
+    .{ "sched", SchedFuncs },
+    .{ "mailbox", MailboxFuncs },
+    .{ "mailcap", MailcapFuncs },
+    .{ "mimetypes", MimetypesFuncs },
+    .{ "quopri", QuopriFuncs },
+    .{ "uu", UuFuncs },
+    .{ "html.parser", HtmlParserFuncs },
+    .{ "html.entities", HtmlEntitiesFuncs },
+    .{ "xml.sax", XmlSaxFuncs },
+    .{ "xml.sax.handler", XmlSaxFuncs },
+    .{ "xml.sax.xmlreader", XmlSaxFuncs },
+    .{ "xml.dom", XmlDomFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
