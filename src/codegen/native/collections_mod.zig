@@ -23,7 +23,8 @@ pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("for (_iterable) |item| {\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("const entry = _counter.getOrPut(allocator, item) catch continue;\n");
+        // getOrPut for managed ArrayHashMap takes only key (uses internal allocator)
+        try self.emit("const entry = _counter.getOrPut(item) catch continue;\n");
         try self.emitIndent();
         try self.emit("if (entry.found_existing) { entry.value_ptr.* += 1; } else { entry.value_ptr.* = 1; }\n");
         self.dedent();

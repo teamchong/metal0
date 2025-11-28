@@ -81,6 +81,7 @@ const difflib_mod = @import("../difflib_mod.zig");
 const filecmp_mod = @import("../filecmp_mod.zig");
 const graphlib_mod = @import("../graphlib_mod.zig");
 const numbers_mod = @import("../numbers_mod.zig");
+const http_mod = @import("../http_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -1396,6 +1397,33 @@ const NumbersFuncs = FuncMap.initComptime(.{
     .{ "Integral", numbers_mod.genIntegral },
 });
 
+/// http.client module functions
+const HttpClientFuncs = FuncMap.initComptime(.{
+    .{ "HTTPConnection", http_mod.genHTTPConnection },
+    .{ "HTTPSConnection", http_mod.genHTTPSConnection },
+    .{ "HTTPResponse", http_mod.genHTTPResponse },
+});
+
+/// http.server module functions
+const HttpServerFuncs = FuncMap.initComptime(.{
+    .{ "HTTPServer", http_mod.genHTTPServer },
+    .{ "ThreadingHTTPServer", http_mod.genThreadingHTTPServer },
+    .{ "BaseHTTPRequestHandler", http_mod.genBaseHTTPRequestHandler },
+    .{ "SimpleHTTPRequestHandler", http_mod.genSimpleHTTPRequestHandler },
+    .{ "CGIHTTPRequestHandler", http_mod.genCGIHTTPRequestHandler },
+});
+
+/// http.cookies module functions
+const HttpCookiesFuncs = FuncMap.initComptime(.{
+    .{ "SimpleCookie", http_mod.genSimpleCookie },
+    .{ "BaseCookie", http_mod.genBaseCookie },
+});
+
+/// http module functions (HTTPStatus)
+const HttpModuleFuncs = FuncMap.initComptime(.{
+    .{ "HTTPStatus", http_mod.genHTTPStatus },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -1493,6 +1521,9 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "filecmp", FilecmpFuncs },
     .{ "graphlib", GraphlibFuncs },
     .{ "numbers", NumbersFuncs },
+    .{ "http.client", HttpClientFuncs },
+    .{ "http.server", HttpServerFuncs },
+    .{ "http.cookies", HttpCookiesFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

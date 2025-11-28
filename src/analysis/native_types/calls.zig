@@ -316,6 +316,22 @@ pub fn inferCall(
         if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("Flask")) {
             return .flask_app;
         }
+
+        // collections module constructors
+        const func_hash = fnv_hash.hash(func_name);
+        const COUNTER_HASH = comptime fnv_hash.hash("Counter");
+        const DEFAULTDICT_HASH = comptime fnv_hash.hash("defaultdict");
+        const ORDEREDDICT_HASH = comptime fnv_hash.hash("OrderedDict");
+        const DEQUE_HASH = comptime fnv_hash.hash("deque");
+        if (func_hash == COUNTER_HASH or
+            func_hash == DEFAULTDICT_HASH or
+            func_hash == ORDEREDDICT_HASH)
+        {
+            return .counter; // Counter type for hashmap_helper.StringHashMap
+        }
+        if (func_hash == DEQUE_HASH) {
+            return .deque; // Deque type for std.ArrayList
+        }
     }
 
     // Check if this is a method call (attribute access)
