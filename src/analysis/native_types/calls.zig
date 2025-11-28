@@ -396,6 +396,7 @@ pub fn inferCall(
             const BASE64_HASH = comptime fnv_hash.hash("base64");
             const PICKLE_HASH = comptime fnv_hash.hash("pickle");
             const HMAC_HASH = comptime fnv_hash.hash("hmac");
+            const SOCKET_HASH = comptime fnv_hash.hash("socket");
 
             switch (module_hash) {
                 BASE64_HASH => {
@@ -408,6 +409,40 @@ pub fn inferCall(
                     const COMPARE_DIGEST_HASH = comptime fnv_hash.hash("compare_digest");
                     if (func_hash == COMPARE_DIGEST_HASH) return .bool;
                     return .{ .string = .runtime }; // new/digest return hex strings
+                },
+                SOCKET_HASH => {
+                    // socket module type inference
+                    const func_hash = fnv_hash.hash(func_name);
+                    // String-returning functions
+                    const GETHOSTNAME_HASH = comptime fnv_hash.hash("gethostname");
+                    const GETFQDN_HASH = comptime fnv_hash.hash("getfqdn");
+                    const INET_NTOA_HASH = comptime fnv_hash.hash("inet_ntoa");
+                    const INET_ATON_HASH = comptime fnv_hash.hash("inet_aton");
+                    // Int-returning functions
+                    const SOCKET_HASH_FN = comptime fnv_hash.hash("socket");
+                    const CREATE_CONNECTION_HASH = comptime fnv_hash.hash("create_connection");
+                    const HTONS_HASH = comptime fnv_hash.hash("htons");
+                    const HTONL_HASH = comptime fnv_hash.hash("htonl");
+                    const NTOHS_HASH = comptime fnv_hash.hash("ntohs");
+                    const NTOHL_HASH = comptime fnv_hash.hash("ntohl");
+
+                    if (func_hash == GETHOSTNAME_HASH or
+                        func_hash == GETFQDN_HASH or
+                        func_hash == INET_NTOA_HASH or
+                        func_hash == INET_ATON_HASH)
+                    {
+                        return .{ .string = .runtime };
+                    }
+                    if (func_hash == SOCKET_HASH_FN or
+                        func_hash == CREATE_CONNECTION_HASH or
+                        func_hash == HTONS_HASH or
+                        func_hash == HTONL_HASH or
+                        func_hash == NTOHS_HASH or
+                        func_hash == NTOHL_HASH)
+                    {
+                        return .int;
+                    }
+                    return .none; // setdefaulttimeout, etc.
                 },
                 PICKLE_HASH => {
                     // pickle.dumps() returns bytes, pickle.loads() returns dynamic value
