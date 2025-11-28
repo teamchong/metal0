@@ -223,13 +223,33 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("socket", .zig_runtime, "std", null); // socket uses std.posix
     try registry.register("os", .zig_runtime, "std", null); // os uses std.fs and std.process
     try registry.register("random", .zig_runtime, "std", null); // random uses std.Random
+    try registry.register("collections", .zig_runtime, "std", null); // collections module
+    try registry.register("functools", .zig_runtime, "std", null); // functools module
+    try registry.register("itertools", .zig_runtime, "std", null); // itertools module
+    try registry.register("copy", .zig_runtime, "std", null); // copy module
+    try registry.register("typing", .zig_runtime, "std", null); // typing module (no-ops)
+    try registry.register("contextlib", .zig_runtime, "std", null); // contextlib module
+    try registry.register("string", .zig_runtime, "std", null); // string module
+    try registry.register("shutil", .zig_runtime, "std", null); // shutil module
+    try registry.register("glob", .zig_runtime, "std", null); // glob module
+    try registry.register("fnmatch", .zig_runtime, "std", null); // fnmatch module
+    try registry.register("secrets", .zig_runtime, "std", null); // secrets module
+    try registry.register("csv", .zig_runtime, "std", null); // csv module
+    try registry.register("configparser", .zig_runtime, "std", null); // configparser module
+    try registry.register("argparse", .zig_runtime, "std", null); // argparse module
+    try registry.register("zipfile", .zig_runtime, "std", null); // zipfile module
+    try registry.register("gzip", .zig_runtime, "std", null); // gzip module
+    try registry.register("textwrap", .zig_runtime, "std", null); // textwrap module
+    try registry.register("uuid", .zig_runtime, "std", null); // uuid module
+    try registry.register("tempfile", .zig_runtime, "std", null); // tempfile module
+    try registry.register("subprocess", .zig_runtime, "std", null); // subprocess module
 
     // Additional Tier 1: OS and filesystem modules
     try registry.register("pathlib", .zig_runtime, "runtime.pathlib", null);
 
     // Tier 3: Mark as compile_python (will be handled later)
     try registry.register("urllib", .compile_python, null, null);
-    try registry.register("datetime", .compile_python, null, null);
+    try registry.register("datetime", .zig_runtime, "runtime.datetime", null); // datetime uses runtime.datetime
 
     // Dynamic features (unsupported - require runtime)
     try registry.register("importlib", .unsupported, null, null);

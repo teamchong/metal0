@@ -420,6 +420,8 @@ pub fn inferCall(
             const OS_PATH_HASH = comptime fnv_hash.hash("os.path");
             const PATH_HASH = comptime fnv_hash.hash("path");
             const RANDOM_HASH = comptime fnv_hash.hash("random");
+            const TIME_HASH = comptime fnv_hash.hash("time");
+            const UUID_HASH = comptime fnv_hash.hash("uuid");
 
             switch (module_hash) {
                 BASE64_HASH => {
@@ -524,6 +526,39 @@ pub fn inferCall(
                     // Unknown (choice returns element type, sample/choices return list)
                     if (func_hash == CHOICE_HASH or func_hash == SAMPLE_HASH or func_hash == CHOICES_HASH) {
                         return .unknown;
+                    }
+                    return .unknown;
+                },
+                TIME_HASH => {
+                    // time module type inference
+                    const func_hash = fnv_hash.hash(func_name);
+                    const TIME_FN_HASH = comptime fnv_hash.hash("time");
+                    const SLEEP_HASH = comptime fnv_hash.hash("sleep");
+                    const CTIME_HASH = comptime fnv_hash.hash("ctime");
+                    const STRFTIME_HASH = comptime fnv_hash.hash("strftime");
+                    const LOCALTIME_HASH = comptime fnv_hash.hash("localtime");
+                    const GMTIME_HASH = comptime fnv_hash.hash("gmtime");
+                    const PERF_COUNTER_HASH = comptime fnv_hash.hash("perf_counter");
+                    const MONOTONIC_HASH = comptime fnv_hash.hash("monotonic");
+                    if (func_hash == TIME_FN_HASH or func_hash == PERF_COUNTER_HASH or func_hash == MONOTONIC_HASH) {
+                        return .float;
+                    }
+                    if (func_hash == SLEEP_HASH) return .none;
+                    if (func_hash == CTIME_HASH or func_hash == STRFTIME_HASH) return .{ .string = .runtime };
+                    if (func_hash == LOCALTIME_HASH or func_hash == GMTIME_HASH) return .unknown; // struct_time
+                    return .unknown;
+                },
+                UUID_HASH => {
+                    // uuid module type inference
+                    const func_hash = fnv_hash.hash(func_name);
+                    const UUID1_HASH = comptime fnv_hash.hash("uuid1");
+                    const UUID3_HASH = comptime fnv_hash.hash("uuid3");
+                    const UUID4_HASH = comptime fnv_hash.hash("uuid4");
+                    const UUID5_HASH = comptime fnv_hash.hash("uuid5");
+                    if (func_hash == UUID1_HASH or func_hash == UUID3_HASH or
+                        func_hash == UUID4_HASH or func_hash == UUID5_HASH)
+                    {
+                        return .{ .string = .runtime }; // UUID as string
                     }
                     return .unknown;
                 },
