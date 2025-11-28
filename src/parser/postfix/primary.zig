@@ -186,11 +186,53 @@ fn parseString(self: *Parser) ParseError!ast.Node {
 
 fn parseByteString(self: *Parser) ParseError!ast.Node {
     const str_tok = self.advance().?;
-    const stripped = if (str_tok.lexeme.len > 0 and str_tok.lexeme[0] == 'b')
+    var result_str = if (str_tok.lexeme.len > 0 and str_tok.lexeme[0] == 'b')
         str_tok.lexeme[1..]
     else
         str_tok.lexeme;
-    return ast.Node{ .constant = .{ .value = .{ .string = stripped } } };
+    var prev_allocated: ?[]const u8 = null;
+
+    // Handle implicit byte string concatenation: b"a" b"b" -> b"ab"
+    while (true) {
+        var lookahead: usize = 0;
+        while (self.current + lookahead < self.tokens.len and
+            self.tokens[self.current + lookahead].type == .Newline)
+        {
+            lookahead += 1;
+        }
+
+        if (self.current + lookahead >= self.tokens.len) break;
+
+        const next_type = self.tokens[self.current + lookahead].type;
+
+        if (next_type == .ByteString or next_type == .String) {
+            self.skipNewlines();
+            const next_str = self.advance().?;
+            // Strip 'b' prefix if it's a byte string
+            const next_content_raw = if (next_type == .ByteString and next_str.lexeme.len > 0 and next_str.lexeme[0] == 'b')
+                next_str.lexeme[1..]
+            else
+                next_str.lexeme;
+
+            // Strip quotes: first_content is everything except trailing quote
+            // second_content is everything except leading quote
+            const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
+            const second_content = if (next_content_raw.len >= 2) next_content_raw[1..] else next_content_raw;
+
+            const new_len = first_content.len + second_content.len;
+            const new_str = try self.allocator.alloc(u8, new_len);
+            @memcpy(new_str[0..first_content.len], first_content);
+            @memcpy(new_str[first_content.len..], second_content);
+
+            if (prev_allocated) |prev| self.allocator.free(prev);
+            result_str = new_str;
+            prev_allocated = new_str;
+        } else {
+            break;
+        }
+    }
+
+    return ast.Node{ .constant = .{ .value = .{ .string = result_str } } };
 }
 
 fn parseRawString(self: *Parser) ParseError!ast.Node {

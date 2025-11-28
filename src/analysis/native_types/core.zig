@@ -77,6 +77,8 @@ pub const NativeType = union(enum) {
     bytesio: void, // io.BytesIO in-memory binary stream
     file: void, // File object from open()
     hash_object: void, // hashlib hash object (md5, sha256, etc.)
+    counter: void, // collections.Counter - hashmap_helper.StringHashMap(i64)
+    deque: void, // collections.deque - std.ArrayList
 
     /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
@@ -218,6 +220,8 @@ pub const NativeType = union(enum) {
             .bytesio => try buf.appendSlice(allocator, "*runtime.io.BytesIO"),
             .file => try buf.appendSlice(allocator, "*runtime.PyFile"),
             .hash_object => try buf.appendSlice(allocator, "hashlib.HashObject"),
+            .counter => try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(i64)"),
+            .deque => try buf.appendSlice(allocator, "std.ArrayList(i64)"),
         }
     }
 
@@ -252,9 +256,9 @@ pub const NativeType = union(enum) {
         if ((self_tag == .usize and other_tag == .float) or
             (self_tag == .float and other_tag == .usize)) return .float;
 
-        // IO types stay as their own types (no widening)
-        if (self_tag == .stringio or self_tag == .bytesio or self_tag == .file or self_tag == .hash_object) return self;
-        if (other_tag == .stringio or other_tag == .bytesio or other_tag == .file or other_tag == .hash_object) return other;
+        // IO and collection types stay as their own types (no widening)
+        if (self_tag == .stringio or self_tag == .bytesio or self_tag == .file or self_tag == .hash_object or self_tag == .counter or self_tag == .deque) return self;
+        if (other_tag == .stringio or other_tag == .bytesio or other_tag == .file or other_tag == .hash_object or other_tag == .counter or other_tag == .deque) return other;
 
         // Different incompatible types → fallback to unknown
         return .unknown;
