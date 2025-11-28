@@ -20,6 +20,8 @@ const collections_mod = @import("../collections_mod.zig");
 const functools_mod = @import("../functools_mod.zig");
 const itertools_mod = @import("../itertools_mod.zig");
 const copy_mod = @import("../copy_mod.zig");
+const typing_mod = @import("../typing_mod.zig");
+const contextlib_mod = @import("../contextlib_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -325,6 +327,33 @@ const CopyFuncs = FuncMap.initComptime(.{
     .{ "deepcopy", copy_mod.genDeepcopy },
 });
 
+/// typing module functions (type hints - mostly no-ops)
+const TypingFuncs = FuncMap.initComptime(.{
+    .{ "Optional", typing_mod.genOptional },
+    .{ "List", typing_mod.genList },
+    .{ "Dict", typing_mod.genDict },
+    .{ "Set", typing_mod.genSet },
+    .{ "Tuple", typing_mod.genTuple },
+    .{ "Union", typing_mod.genUnion },
+    .{ "Any", typing_mod.genAny },
+    .{ "Callable", typing_mod.genCallable },
+    .{ "TypeVar", typing_mod.genTypeVar },
+    .{ "Generic", typing_mod.genGeneric },
+    .{ "cast", typing_mod.genCast },
+    .{ "get_type_hints", typing_mod.genGetTypeHints },
+});
+
+/// contextlib module functions
+const ContextlibFuncs = FuncMap.initComptime(.{
+    .{ "contextmanager", contextlib_mod.genContextmanager },
+    .{ "suppress", contextlib_mod.genSuppress },
+    .{ "redirect_stdout", contextlib_mod.genRedirectStdout },
+    .{ "redirect_stderr", contextlib_mod.genRedirectStderr },
+    .{ "closing", contextlib_mod.genClosing },
+    .{ "nullcontext", contextlib_mod.genNullcontext },
+    .{ "ExitStack", contextlib_mod.genExitStack },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -353,6 +382,8 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "functools", FunctoolsFuncs },
     .{ "itertools", ItertoolsFuncs },
     .{ "copy", CopyFuncs },
+    .{ "typing", TypingFuncs },
+    .{ "contextlib", ContextlibFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
