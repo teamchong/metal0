@@ -43,14 +43,74 @@ const AsyncioFuncs = FuncMap.initComptime(.{
 
 /// NumPy module functions
 const NumpyFuncs = FuncMap.initComptime(.{
+    // Array creation
     .{ "array", numpy_mod.genArray },
-    .{ "dot", numpy_mod.genDot },
-    .{ "sum", numpy_mod.genSum },
-    .{ "mean", numpy_mod.genMean },
-    .{ "transpose", numpy_mod.genTranspose },
-    .{ "matmul", numpy_mod.genMatmul },
     .{ "zeros", numpy_mod.genZeros },
     .{ "ones", numpy_mod.genOnes },
+    .{ "empty", numpy_mod.genEmpty },
+    .{ "full", numpy_mod.genFull },
+    .{ "eye", numpy_mod.genEye },
+    .{ "identity", numpy_mod.genEye },
+    .{ "arange", numpy_mod.genArange },
+    .{ "linspace", numpy_mod.genLinspace },
+    .{ "logspace", numpy_mod.genLogspace },
+    // Array manipulation
+    .{ "reshape", numpy_mod.genReshape },
+    .{ "ravel", numpy_mod.genRavel },
+    .{ "flatten", numpy_mod.genRavel },
+    .{ "transpose", numpy_mod.genTranspose },
+    .{ "squeeze", numpy_mod.genSqueeze },
+    .{ "expand_dims", numpy_mod.genExpandDims },
+    // Element-wise math
+    .{ "add", numpy_mod.genAdd },
+    .{ "subtract", numpy_mod.genSubtract },
+    .{ "multiply", numpy_mod.genMultiply },
+    .{ "divide", numpy_mod.genDivide },
+    .{ "power", numpy_mod.genPower },
+    .{ "sqrt", numpy_mod.genSqrt },
+    .{ "exp", numpy_mod.genExp },
+    .{ "log", numpy_mod.genLog },
+    .{ "sin", numpy_mod.genSin },
+    .{ "cos", numpy_mod.genCos },
+    .{ "abs", numpy_mod.genAbs },
+    // Reductions
+    .{ "sum", numpy_mod.genSum },
+    .{ "mean", numpy_mod.genMean },
+    .{ "std", numpy_mod.genStd },
+    .{ "var", numpy_mod.genVar },
+    .{ "min", numpy_mod.genMin },
+    .{ "max", numpy_mod.genMax },
+    .{ "argmin", numpy_mod.genArgmin },
+    .{ "argmax", numpy_mod.genArgmax },
+    .{ "prod", numpy_mod.genProd },
+    // Linear algebra
+    .{ "dot", numpy_mod.genDot },
+    .{ "matmul", numpy_mod.genMatmul },
+    .{ "inner", numpy_mod.genInner },
+    .{ "outer", numpy_mod.genOuter },
+    .{ "vdot", numpy_mod.genVdot },
+    .{ "trace", numpy_mod.genTrace },
+    // Statistics
+    .{ "median", numpy_mod.genMedian },
+    .{ "percentile", numpy_mod.genPercentile },
+});
+
+/// NumPy linalg module functions
+const NumpyLinalgFuncs = FuncMap.initComptime(.{
+    .{ "norm", numpy_mod.genNorm },
+    .{ "det", numpy_mod.genDet },
+});
+
+/// NumPy random module functions
+const NumpyRandomFuncs = FuncMap.initComptime(.{
+    .{ "seed", numpy_mod.genRandomSeed },
+    .{ "rand", numpy_mod.genRandomRand },
+    .{ "randn", numpy_mod.genRandomRandn },
+    .{ "randint", numpy_mod.genRandomRandint },
+    .{ "uniform", numpy_mod.genRandomUniform },
+    .{ "choice", numpy_mod.genRandomChoice },
+    .{ "shuffle", numpy_mod.genRandomShuffle },
+    .{ "permutation", numpy_mod.genRandomPermutation },
 });
 
 /// Pandas module functions
@@ -114,6 +174,11 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "asyncio", AsyncioFuncs },
     .{ "numpy", NumpyFuncs },
     .{ "np", NumpyFuncs },
+    .{ "numpy.linalg", NumpyLinalgFuncs },
+    .{ "np.linalg", NumpyLinalgFuncs },
+    .{ "linalg", NumpyLinalgFuncs },
+    .{ "numpy.random", NumpyRandomFuncs },
+    .{ "np.random", NumpyRandomFuncs },
     .{ "pandas", PandasFuncs },
     .{ "pd", PandasFuncs },
     .{ "unittest", UnittestFuncs },
