@@ -19,7 +19,7 @@ pub fn genTokenBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _buf = allocator.alloc(u8, _nbytes) catch break :secrets_token_bytes_blk \"\";\n");
+    try self.emit("var _buf = __global_allocator.alloc(u8, _nbytes) catch break :secrets_token_bytes_blk \"\";\n");
     try self.emitIndent();
     try self.emit("std.crypto.random.bytes(_buf);\n");
     try self.emitIndent();
@@ -44,11 +44,11 @@ pub fn genTokenHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _buf = allocator.alloc(u8, _nbytes) catch break :secrets_token_hex_blk \"\";\n");
+    try self.emit("var _buf = __global_allocator.alloc(u8, _nbytes) catch break :secrets_token_hex_blk \"\";\n");
     try self.emitIndent();
     try self.emit("std.crypto.random.bytes(_buf);\n");
     try self.emitIndent();
-    try self.emit("var _hex = allocator.alloc(u8, _nbytes * 2) catch break :secrets_token_hex_blk \"\";\n");
+    try self.emit("var _hex = __global_allocator.alloc(u8, _nbytes * 2) catch break :secrets_token_hex_blk \"\";\n");
     try self.emitIndent();
     try self.emit("const _hex_chars = \"0123456789abcdef\";\n");
     try self.emitIndent();
@@ -83,7 +83,7 @@ pub fn genTokenUrlsafe(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     }
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _buf = allocator.alloc(u8, _nbytes) catch break :secrets_token_urlsafe_blk \"\";\n");
+    try self.emit("var _buf = __global_allocator.alloc(u8, _nbytes) catch break :secrets_token_urlsafe_blk \"\";\n");
     try self.emitIndent();
     try self.emit("std.crypto.random.bytes(_buf);\n");
     try self.emitIndent();
@@ -92,7 +92,7 @@ pub fn genTokenUrlsafe(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("const _out_len = ((_nbytes * 4) + 2) / 3;\n");
     try self.emitIndent();
-    try self.emit("var _result = allocator.alloc(u8, _out_len) catch break :secrets_token_urlsafe_blk \"\";\n");
+    try self.emit("var _result = __global_allocator.alloc(u8, _out_len) catch break :secrets_token_urlsafe_blk \"\";\n");
     try self.emitIndent();
     try self.emit("var _i: usize = 0;\n");
     try self.emitIndent();
