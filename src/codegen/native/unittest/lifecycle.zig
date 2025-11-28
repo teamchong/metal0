@@ -63,7 +63,12 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             try self.emitIndent();
             try self.output.writer(self.allocator).print("std.debug.print(\"test_{s}_{s} ... \", .{{}});\n", .{ class_info.class_name, method_name });
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("_test_instance_{s}.{s}();\n", .{ class_info.class_name, method_name });
+            // Generate method call with try and allocator if needed
+            if (method_info.needs_allocator) {
+                try self.output.writer(self.allocator).print("try _test_instance_{s}.{s}(allocator);\n", .{ class_info.class_name, method_name });
+            } else {
+                try self.output.writer(self.allocator).print("_test_instance_{s}.{s}();\n", .{ class_info.class_name, method_name });
+            }
             try self.emitIndent();
             try self.emit("std.debug.print(\"ok\\n\", .{});\n");
 

@@ -30,6 +30,7 @@ const FnvFuncSigMap = hashmap_helper.StringHashMap(FuncSignature);
 pub const TestMethodInfo = struct {
     name: []const u8,
     skip_reason: ?[]const u8 = null, // null = not skipped, otherwise the reason
+    needs_allocator: bool = false, // true if method needs allocator param (has fallible ops)
 };
 
 /// Unittest TestCase class info

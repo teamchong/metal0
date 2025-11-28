@@ -140,9 +140,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
                     // Check for skip docstring: first statement is string starting with "skip:"
                     const skip_reason = getSkipReason(method);
+                    // Check if method body has fallible operations (needs allocator param)
+                    const method_needs_allocator = allocator_analyzer.functionNeedsAllocator(method);
                     try test_methods.append(self.allocator, core.TestMethodInfo{
                         .name = method_name,
                         .skip_reason = skip_reason,
+                        .needs_allocator = method_needs_allocator,
                     });
                 } else if (std.mem.eql(u8, method_name, "setUp")) {
                     has_setUp = true;

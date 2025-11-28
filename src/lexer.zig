@@ -282,8 +282,8 @@ pub const Lexer = struct {
                 continue;
             }
 
-            // Numbers
-            if (self.isDigit(c)) {
+            // Numbers (including floats starting with .)
+            if (self.isDigit(c) or (c == '.' and self.peekAhead(1) != null and self.isDigit(self.peekAhead(1).?))) {
                 const token = try self.tokenizeNumber(start, start_column);
                 try tokens.append(self.allocator, token);
                 continue;

@@ -394,18 +394,13 @@ fn callNeedsAllocator(call: ast.Node.Call) bool {
         const method_name = call.func.attribute.attr;
         if (AllocatorMethods.has(method_name)) return true;
 
-        // unittest assertion methods don't need allocator (self.assertEqual, etc.)
-        if (UnittestAssertions.has(method_name)) return false;
-
         // Module function call (e.g., test_utils.double(x))
         // Codegen passes allocator to imported module functions
         // But NOT self.method() calls - those are instance method calls
         if (call.func.attribute.value.* == .name) {
             const obj_name = call.func.attribute.value.name.id;
-            // Skip 'self' - instance methods don't automatically need allocator
-            if (std.mem.eql(u8, obj_name, "self")) return false;
-            // Any module.function() call will receive allocator param in codegen
-            return true;
+            // Any module.function() call (except self.) will receive allocator param in codegen
+            if (!std.mem.eql(u8, obj_name, "self")) return true;
         }
     }
 
@@ -415,7 +410,7 @@ fn callNeedsAllocator(call: ast.Node.Call) bool {
         if (AllocatorBuiltins.has(fn_name)) return true;
     }
 
-    // Check arguments recursively
+    // Check arguments recursively - even unittest assertions may have fallible args (e.g., division)
     for (call.args) |arg| {
         if (exprNeedsAllocator(arg)) return true;
     }

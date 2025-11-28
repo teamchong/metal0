@@ -207,19 +207,30 @@ pub fn parseFor(self: *Parser) ParseError!ast.Node {
 }
 
 /// Internal for loop parser - supports async for
+/// Parse a for-loop target element (handles starred expressions like *rest)
+fn parseForTarget(self: *Parser) ParseError!ast.Node {
+    // Handle starred expression: *rest
+    if (self.match(.Star)) {
+        var value = try self.parsePostfix();
+        errdefer value.deinit(self.allocator);
+        return ast.Node{ .starred = .{ .value = try self.allocNode(value) } };
+    }
+    return self.parsePostfix();
+}
+
 pub fn parseForInternal(self: *Parser, is_async: bool) ParseError!ast.Node {
     _ = is_async; // TODO: Store in AST node if needed
     _ = try self.expect(.For);
 
-    // Parse target (can be single var, subscript like values[i], or tuple like: i, x)
+    // Parse target (can be single var, subscript like values[i], starred like *rest, or tuple like: i, x)
     var targets = std.ArrayList(ast.Node){};
     defer targets.deinit(self.allocator);
 
-    try targets.append(self.allocator, try self.parsePostfix());
+    try targets.append(self.allocator, try parseForTarget(self));
 
     // Check for comma-separated targets (tuple unpacking)
     while (self.match(.Comma)) {
-        try targets.append(self.allocator, try self.parsePostfix());
+        try targets.append(self.allocator, try parseForTarget(self));
     }
 
     _ = try self.expect(.In);
