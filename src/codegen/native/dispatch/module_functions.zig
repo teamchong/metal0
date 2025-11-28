@@ -82,6 +82,10 @@ const filecmp_mod = @import("../filecmp_mod.zig");
 const graphlib_mod = @import("../graphlib_mod.zig");
 const numbers_mod = @import("../numbers_mod.zig");
 const http_mod = @import("../http_mod.zig");
+const multiprocessing_mod = @import("../multiprocessing_mod.zig");
+const concurrent_futures_mod = @import("../concurrent_futures_mod.zig");
+const ctypes_mod = @import("../ctypes_mod.zig");
+const select_mod = @import("../select_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -1424,6 +1428,146 @@ const HttpModuleFuncs = FuncMap.initComptime(.{
     .{ "HTTPStatus", http_mod.genHTTPStatus },
 });
 
+/// multiprocessing module functions
+const MultiprocessingFuncs = FuncMap.initComptime(.{
+    .{ "Process", multiprocessing_mod.genProcess },
+    .{ "Pool", multiprocessing_mod.genPool },
+    .{ "Queue", multiprocessing_mod.genQueue },
+    .{ "Pipe", multiprocessing_mod.genPipe },
+    .{ "Value", multiprocessing_mod.genValue },
+    .{ "Array", multiprocessing_mod.genArray },
+    .{ "Manager", multiprocessing_mod.genManager },
+    .{ "Lock", multiprocessing_mod.genLock },
+    .{ "RLock", multiprocessing_mod.genRLock },
+    .{ "Semaphore", multiprocessing_mod.genSemaphore },
+    .{ "Event", multiprocessing_mod.genEvent },
+    .{ "Condition", multiprocessing_mod.genCondition },
+    .{ "Barrier", multiprocessing_mod.genBarrier },
+    .{ "cpu_count", multiprocessing_mod.genCpuCount },
+    .{ "current_process", multiprocessing_mod.genCurrentProcess },
+    .{ "parent_process", multiprocessing_mod.genParentProcess },
+    .{ "active_children", multiprocessing_mod.genActiveChildren },
+    .{ "set_start_method", multiprocessing_mod.genSetStartMethod },
+    .{ "get_start_method", multiprocessing_mod.genGetStartMethod },
+    .{ "get_all_start_methods", multiprocessing_mod.genGetAllStartMethods },
+    .{ "get_context", multiprocessing_mod.genGetContext },
+});
+
+/// concurrent.futures module functions
+const ConcurrentFuturesFuncs = FuncMap.initComptime(.{
+    .{ "ThreadPoolExecutor", concurrent_futures_mod.genThreadPoolExecutor },
+    .{ "ProcessPoolExecutor", concurrent_futures_mod.genProcessPoolExecutor },
+    .{ "Future", concurrent_futures_mod.genFuture },
+    .{ "wait", concurrent_futures_mod.genWait },
+    .{ "as_completed", concurrent_futures_mod.genAsCompleted },
+    .{ "ALL_COMPLETED", concurrent_futures_mod.genAllCompleted },
+    .{ "FIRST_COMPLETED", concurrent_futures_mod.genFirstCompleted },
+    .{ "FIRST_EXCEPTION", concurrent_futures_mod.genFirstException },
+    .{ "CancelledError", concurrent_futures_mod.genCancelledError },
+    .{ "TimeoutError", concurrent_futures_mod.genTimeoutError },
+    .{ "BrokenExecutor", concurrent_futures_mod.genBrokenExecutor },
+    .{ "InvalidStateError", concurrent_futures_mod.genInvalidStateError },
+});
+
+/// ctypes module functions
+const CtypesFuncs = FuncMap.initComptime(.{
+    .{ "CDLL", ctypes_mod.genCDLL },
+    .{ "WinDLL", ctypes_mod.genWinDLL },
+    .{ "OleDLL", ctypes_mod.genOleDLL },
+    .{ "PyDLL", ctypes_mod.genPyDLL },
+    .{ "c_bool", ctypes_mod.genCBool },
+    .{ "c_char", ctypes_mod.genCChar },
+    .{ "c_wchar", ctypes_mod.genCWchar },
+    .{ "c_byte", ctypes_mod.genCByte },
+    .{ "c_ubyte", ctypes_mod.genCUbyte },
+    .{ "c_short", ctypes_mod.genCShort },
+    .{ "c_ushort", ctypes_mod.genCUshort },
+    .{ "c_int", ctypes_mod.genCInt },
+    .{ "c_uint", ctypes_mod.genCUint },
+    .{ "c_long", ctypes_mod.genCLong },
+    .{ "c_ulong", ctypes_mod.genCUlong },
+    .{ "c_longlong", ctypes_mod.genCLonglong },
+    .{ "c_ulonglong", ctypes_mod.genCUlonglong },
+    .{ "c_size_t", ctypes_mod.genCSizeT },
+    .{ "c_ssize_t", ctypes_mod.genCSSizeT },
+    .{ "c_float", ctypes_mod.genCFloat },
+    .{ "c_double", ctypes_mod.genCDouble },
+    .{ "c_longdouble", ctypes_mod.genCLongdouble },
+    .{ "c_char_p", ctypes_mod.genCCharP },
+    .{ "c_wchar_p", ctypes_mod.genCWcharP },
+    .{ "c_void_p", ctypes_mod.genCVoidP },
+    .{ "Structure", ctypes_mod.genStructure },
+    .{ "Union", ctypes_mod.genUnion },
+    .{ "BigEndianStructure", ctypes_mod.genBigEndianStructure },
+    .{ "LittleEndianStructure", ctypes_mod.genLittleEndianStructure },
+    .{ "Array", ctypes_mod.genArrayType },
+    .{ "POINTER", ctypes_mod.genPOINTER },
+    .{ "pointer", ctypes_mod.genPointer },
+    .{ "sizeof", ctypes_mod.genSizeof },
+    .{ "alignment", ctypes_mod.genAlignment },
+    .{ "addressof", ctypes_mod.genAddressof },
+    .{ "byref", ctypes_mod.genByref },
+    .{ "cast", ctypes_mod.genCast },
+    .{ "create_string_buffer", ctypes_mod.genCreateStringBuffer },
+    .{ "create_unicode_buffer", ctypes_mod.genCreateUnicodeBuffer },
+    .{ "get_errno", ctypes_mod.genGetErrno },
+    .{ "set_errno", ctypes_mod.genSetErrno },
+    .{ "get_last_error", ctypes_mod.genGetLastError },
+    .{ "set_last_error", ctypes_mod.genSetLastError },
+    .{ "memmove", ctypes_mod.genMemmove },
+    .{ "memset", ctypes_mod.genMemset },
+    .{ "string_at", ctypes_mod.genStringAt },
+    .{ "wstring_at", ctypes_mod.genWstringAt },
+    .{ "CFUNCTYPE", ctypes_mod.genCFUNCTYPE },
+    .{ "WINFUNCTYPE", ctypes_mod.genWINFUNCTYPE },
+    .{ "PYFUNCTYPE", ctypes_mod.genPYFUNCTYPE },
+});
+
+/// select module functions
+const SelectFuncs = FuncMap.initComptime(.{
+    .{ "select", select_mod.genSelect },
+    .{ "poll", select_mod.genPoll },
+    .{ "epoll", select_mod.genEpoll },
+    .{ "devpoll", select_mod.genDevpoll },
+    .{ "kqueue", select_mod.genKqueue },
+    .{ "kevent", select_mod.genKevent },
+    .{ "POLLIN", select_mod.genPOLLIN },
+    .{ "POLLPRI", select_mod.genPOLLPRI },
+    .{ "POLLOUT", select_mod.genPOLLOUT },
+    .{ "POLLERR", select_mod.genPOLLERR },
+    .{ "POLLHUP", select_mod.genPOLLHUP },
+    .{ "POLLNVAL", select_mod.genPOLLNVAL },
+    .{ "EPOLLIN", select_mod.genEPOLLIN },
+    .{ "EPOLLOUT", select_mod.genEPOLLOUT },
+    .{ "EPOLLPRI", select_mod.genEPOLLPRI },
+    .{ "EPOLLERR", select_mod.genEPOLLERR },
+    .{ "EPOLLHUP", select_mod.genEPOLLHUP },
+    .{ "EPOLLET", select_mod.genEPOLLET },
+    .{ "EPOLLONESHOT", select_mod.genEPOLLONESHOT },
+    .{ "EPOLLEXCLUSIVE", select_mod.genEPOLLEXCLUSIVE },
+    .{ "EPOLLRDHUP", select_mod.genEPOLLRDHUP },
+    .{ "EPOLLRDNORM", select_mod.genEPOLLRDNORM },
+    .{ "EPOLLRDBAND", select_mod.genEPOLLRDBAND },
+    .{ "EPOLLWRNORM", select_mod.genEPOLLWRNORM },
+    .{ "EPOLLWRBAND", select_mod.genEPOLLWRBAND },
+    .{ "EPOLLMSG", select_mod.genEPOLLMSG },
+    .{ "KQ_FILTER_READ", select_mod.genKQ_FILTER_READ },
+    .{ "KQ_FILTER_WRITE", select_mod.genKQ_FILTER_WRITE },
+    .{ "KQ_FILTER_AIO", select_mod.genKQ_FILTER_AIO },
+    .{ "KQ_FILTER_VNODE", select_mod.genKQ_FILTER_VNODE },
+    .{ "KQ_FILTER_PROC", select_mod.genKQ_FILTER_PROC },
+    .{ "KQ_FILTER_SIGNAL", select_mod.genKQ_FILTER_SIGNAL },
+    .{ "KQ_FILTER_TIMER", select_mod.genKQ_FILTER_TIMER },
+    .{ "KQ_EV_ADD", select_mod.genKQ_EV_ADD },
+    .{ "KQ_EV_DELETE", select_mod.genKQ_EV_DELETE },
+    .{ "KQ_EV_ENABLE", select_mod.genKQ_EV_ENABLE },
+    .{ "KQ_EV_DISABLE", select_mod.genKQ_EV_DISABLE },
+    .{ "KQ_EV_ONESHOT", select_mod.genKQ_EV_ONESHOT },
+    .{ "KQ_EV_CLEAR", select_mod.genKQ_EV_CLEAR },
+    .{ "KQ_EV_EOF", select_mod.genKQ_EV_EOF },
+    .{ "KQ_EV_ERROR", select_mod.genKQ_EV_ERROR },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -1524,6 +1668,10 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "http.client", HttpClientFuncs },
     .{ "http.server", HttpServerFuncs },
     .{ "http.cookies", HttpCookiesFuncs },
+    .{ "multiprocessing", MultiprocessingFuncs },
+    .{ "concurrent.futures", ConcurrentFuturesFuncs },
+    .{ "ctypes", CtypesFuncs },
+    .{ "select", SelectFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
