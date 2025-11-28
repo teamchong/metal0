@@ -274,6 +274,9 @@ const _markupbase_mod = @import("../_markupbase_mod.zig");
 const _sitebuiltins_mod = @import("../_sitebuiltins_mod.zig");
 const _curses_panel_mod = @import("../_curses_panel_mod.zig");
 const _dbm_mod = @import("../_dbm_mod.zig");
+const pydoc_mod = @import("../pydoc_mod.zig");
+const antigravity_mod = @import("../antigravity_mod.zig");
+const this_mod = @import("../this_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -5562,6 +5565,41 @@ const DbmInternalFuncs = FuncMap.initComptime(.{
     .{ "setdefault", _dbm_mod.genSetdefault },
 });
 
+/// pydoc module functions
+const PydocFuncs = FuncMap.initComptime(.{
+    .{ "help", pydoc_mod.genHelp },
+    .{ "doc", pydoc_mod.genDoc },
+    .{ "writedoc", pydoc_mod.genWritedoc },
+    .{ "writedocs", pydoc_mod.genWritedocs },
+    .{ "render_doc", pydoc_mod.genRenderDoc },
+    .{ "plain", pydoc_mod.genPlain },
+    .{ "describe", pydoc_mod.genDescribe },
+    .{ "locate", pydoc_mod.genLocate },
+    .{ "resolve", pydoc_mod.genResolve },
+    .{ "getdoc", pydoc_mod.genGetdoc },
+    .{ "splitdoc", pydoc_mod.genSplitdoc },
+    .{ "classname", pydoc_mod.genClassname },
+    .{ "isdata", pydoc_mod.genIsdata },
+    .{ "ispackage", pydoc_mod.genIspackage },
+    .{ "source_synopsis", pydoc_mod.genSourceSynopsis },
+    .{ "synopsis", pydoc_mod.genSynopsis },
+    .{ "allmethods", pydoc_mod.genAllmethods },
+    .{ "apropos", pydoc_mod.genApropos },
+    .{ "serve", pydoc_mod.genServe },
+    .{ "browse", pydoc_mod.genBrowse },
+});
+
+/// antigravity module functions
+const AntigravityFuncs = FuncMap.initComptime(.{
+    .{ "geohash", antigravity_mod.genGeohash },
+});
+
+/// this module functions
+const ThisFuncs = FuncMap.initComptime(.{
+    .{ "s", this_mod.genS },
+    .{ "d", this_mod.genD },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -5873,6 +5911,9 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "_sitebuiltins", SitebuiltinsInternalFuncs },
     .{ "_curses_panel", CursesPanelInternalFuncs },
     .{ "_dbm", DbmInternalFuncs },
+    .{ "pydoc", PydocFuncs },
+    .{ "antigravity", AntigravityFuncs },
+    .{ "this", ThisFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
