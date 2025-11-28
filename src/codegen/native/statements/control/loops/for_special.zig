@@ -15,9 +15,11 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         @panic("enumerate() requires exactly 2 variables: for i, item in enumerate(...)");
     }
 
-    // Extract variable names
-    const idx_var = target_elts[0].name.id;
-    const item_var = target_elts[1].name.id;
+    // Extract variable names - handle simple names and nested tuples
+    const idx_var = if (target_elts[0] == .name) target_elts[0].name.id else "__enum_idx";
+    // For nested unpacking like (a, b), generate a temp var and unpack later
+    const item_is_tuple = target_elts[1] == .tuple or target_elts[1] == .list;
+    const item_var = if (target_elts[1] == .name) target_elts[1].name.id else "__enum_item";
 
     // Extract iterable (first argument to enumerate)
     if (args.len == 0) {
@@ -88,6 +90,17 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     // Generate: __enum_idx_N += 1;
     try self.emitIndent();
     try self.emitFmt("__enum_idx_{d} += 1;\n", .{unique_id});
+
+    // If item was a nested tuple, unpack it
+    if (item_is_tuple) {
+        const nested_elts = if (target_elts[1] == .tuple) target_elts[1].tuple.elts else target_elts[1].list.elts;
+        for (nested_elts, 0..) |elt, i| {
+            if (elt == .name) {
+                try self.emitIndent();
+                try self.emitFmt("const {s} = {s}.@\"{d}\";\n", .{ elt.name.id, item_var, i });
+            }
+        }
+    }
 
     // Generate body statements
     for (body) |stmt| {

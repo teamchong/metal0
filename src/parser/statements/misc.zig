@@ -161,6 +161,10 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
     }
 
     while (self.match(.Except)) {
+        // Check for except* (PEP 654 ExceptionGroup handling)
+        const is_star_except = self.match(.Star);
+        _ = is_star_except; // We parse it the same way, just note it's except*
+
         // Check for exception type: except ValueError: or except (Exception) as e:
         // Also handles dotted types: except click.BadParameter:
         var exc_type: ?[]const u8 = null;

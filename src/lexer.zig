@@ -247,6 +247,14 @@ pub const Lexer = struct {
                 continue;
             }
 
+            // T-strings (Python 3.14 template strings - parse like f-strings for now)
+            if (c == 't' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
+                _ = self.advance(); // consume 't'
+                const token = try self.tokenizeFString(start, start_column);
+                try tokens.append(self.allocator, token);
+                continue;
+            }
+
             // Raw byte strings: br"" or rb"" (check before b"" and r"")
             if ((c == 'b' and self.peekAhead(1) == 'r') or (c == 'r' and self.peekAhead(1) == 'b')) {
                 const quote = self.peekAhead(2);
