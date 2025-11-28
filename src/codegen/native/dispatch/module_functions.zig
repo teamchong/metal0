@@ -5257,6 +5257,17 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "encodings", EncodingsFuncs },
     .{ "marshal", MarshalFuncs },
     .{ "opcode", OpcodeFuncs },
+    .{ "_abc", AbcInternalFuncs },
+    .{ "_asyncio", AsyncioInternalFuncs },
+    .{ "_compression", CompressionInternalFuncs },
+    .{ "_blake2", Blake2InternalFuncs },
+    .{ "_strptime", StrptimeInternalFuncs },
+    .{ "_threading_local", ThreadingLocalInternalFuncs },
+    .{ "_typing", TypingInternalFuncs },
+    .{ "_warnings", WarningsInternalFuncs },
+    .{ "_weakrefset", WeakrefsetInternalFuncs },
+    .{ "pyexpat", PyexpatFuncs },
+    .{ "xml.parsers.expat", PyexpatFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
