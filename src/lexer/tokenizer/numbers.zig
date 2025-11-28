@@ -73,6 +73,52 @@ pub fn tokenizeNumber(self: *Lexer, start: usize, start_column: usize) !Token {
         }
     }
 
+    // Handle float starting with . (e.g., .5, .123)
+    if (self.peek() == '.') {
+        _ = self.advance(); // consume '.'
+        // Consume fractional digits
+        while (self.peek()) |c| {
+            if (self.isDigit(c) or c == '_') {
+                _ = self.advance();
+            } else {
+                break;
+            }
+        }
+        // Handle scientific notation for .5e10 style
+        if (self.peek()) |c| {
+            if (c == 'e' or c == 'E') {
+                const after_e = self.peekAhead(1);
+                if (after_e) |next| {
+                    if (self.isDigit(next) or next == '+' or next == '-') {
+                        _ = self.advance(); // consume 'e' or 'E'
+                        if (self.peek() == '+' or self.peek() == '-') {
+                            _ = self.advance();
+                        }
+                        while (self.peek()) |d| {
+                            if (self.isDigit(d) or d == '_') {
+                                _ = self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Handle complex suffix
+        const is_complex = if (self.peek()) |c| (c == 'j' or c == 'J') else false;
+        if (is_complex) {
+            _ = self.advance();
+        }
+        const lexeme = self.source[start..self.current];
+        return Token{
+            .type = if (is_complex) .ComplexNumber else .Number,
+            .lexeme = lexeme,
+            .line = self.line,
+            .column = start_column,
+        };
+    }
+
     // Decimal number (allows underscores like 1_000_000)
     while (self.peek()) |c| {
         if (self.isDigit(c) or c == '_') {
@@ -82,8 +128,8 @@ pub fn tokenizeNumber(self: *Lexer, start: usize, start_column: usize) !Token {
         }
     }
 
-    // Handle decimal point
-    // Python allows: 1.5, 1., .5 - we handle 1.5 and 1. here
+    // Handle decimal point after integer part
+    // Python allows: 1.5, 1., .5 - we handle 1.5 and 1. here (.5 handled above)
     if (self.peek() == '.') {
         const next = self.peekAhead(1);
         // Check it's not an attribute access like 1.bit_length() or ellipsis 1...
