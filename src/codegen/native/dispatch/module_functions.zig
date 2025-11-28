@@ -277,6 +277,23 @@ const _dbm_mod = @import("../_dbm_mod.zig");
 const pydoc_mod = @import("../pydoc_mod.zig");
 const antigravity_mod = @import("../antigravity_mod.zig");
 const this_mod = @import("../this_mod.zig");
+const _py_abc_mod = @import("../_py_abc_mod.zig");
+const _pydatetime_mod = @import("../_pydatetime_mod.zig");
+const _pydecimal_mod = @import("../_pydecimal_mod.zig");
+const _pyio_mod = @import("../_pyio_mod.zig");
+const _pylong_mod = @import("../_pylong_mod.zig");
+const _compat_pickle_mod = @import("../_compat_pickle_mod.zig");
+const _multibytecodec_mod = @import("../_multibytecodec_mod.zig");
+const _codecs_cn_mod = @import("../_codecs_cn_mod.zig");
+const _codecs_hk_mod = @import("../_codecs_hk_mod.zig");
+const _codecs_iso2022_mod = @import("../_codecs_iso2022_mod.zig");
+const _codecs_jp_mod = @import("../_codecs_jp_mod.zig");
+const _codecs_kr_mod = @import("../_codecs_kr_mod.zig");
+const _codecs_tw_mod = @import("../_codecs_tw_mod.zig");
+const _crypt_mod = @import("../_crypt_mod.zig");
+const _gdbm_mod = @import("../_gdbm_mod.zig");
+const _frozen_importlib_mod = @import("../_frozen_importlib_mod.zig");
+const _frozen_importlib_external_mod = @import("../_frozen_importlib_external_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -5600,6 +5617,150 @@ const ThisFuncs = FuncMap.initComptime(.{
     .{ "d", this_mod.genD },
 });
 
+/// _py_abc internal module functions
+const PyAbcInternalFuncs = FuncMap.initComptime(.{
+    .{ "ABCMeta", _py_abc_mod.genABCMeta },
+    .{ "get_cache_token", _py_abc_mod.genGetCacheToken },
+});
+
+/// _pydatetime internal module functions
+const PydatetimeInternalFuncs = FuncMap.initComptime(.{
+    .{ "date", _pydatetime_mod.genDate },
+    .{ "time", _pydatetime_mod.genTime },
+    .{ "datetime", _pydatetime_mod.genDatetime },
+    .{ "timedelta", _pydatetime_mod.genTimedelta },
+    .{ "timezone", _pydatetime_mod.genTimezone },
+});
+
+/// _pydecimal internal module functions
+const PydecimalInternalFuncs = FuncMap.initComptime(.{
+    .{ "Decimal", _pydecimal_mod.genDecimal },
+    .{ "Context", _pydecimal_mod.genContext },
+    .{ "localcontext", _pydecimal_mod.genLocalcontext },
+    .{ "getcontext", _pydecimal_mod.genGetcontext },
+    .{ "setcontext", _pydecimal_mod.genSetcontext },
+});
+
+/// _pyio internal module functions
+const PyioInternalFuncs = FuncMap.initComptime(.{
+    .{ "open", _pyio_mod.genOpen },
+    .{ "FileIO", _pyio_mod.genFileIO },
+    .{ "BytesIO", _pyio_mod.genBytesIO },
+    .{ "StringIO", _pyio_mod.genStringIO },
+    .{ "BufferedReader", _pyio_mod.genBufferedReader },
+    .{ "BufferedWriter", _pyio_mod.genBufferedWriter },
+    .{ "BufferedRandom", _pyio_mod.genBufferedRandom },
+    .{ "BufferedRWPair", _pyio_mod.genBufferedRWPair },
+    .{ "TextIOWrapper", _pyio_mod.genTextIOWrapper },
+    .{ "IncrementalNewlineDecoder", _pyio_mod.genIncrementalNewlineDecoder },
+    .{ "DEFAULT_BUFFER_SIZE", _pyio_mod.genDEFAULT_BUFFER_SIZE },
+    .{ "BlockingIOError", _pyio_mod.genBlockingIOError },
+    .{ "UnsupportedOperation", _pyio_mod.genUnsupportedOperation },
+});
+
+/// _pylong internal module functions
+const PylongInternalFuncs = FuncMap.initComptime(.{
+    .{ "int_to_decimal_string", _pylong_mod.genIntToDecimalString },
+    .{ "int_from_string", _pylong_mod.genIntFromString },
+});
+
+/// _compat_pickle internal module functions
+const CompatPickleInternalFuncs = FuncMap.initComptime(.{
+    .{ "NAME_MAPPING", _compat_pickle_mod.genNAME_MAPPING },
+    .{ "IMPORT_MAPPING", _compat_pickle_mod.genIMPORT_MAPPING },
+    .{ "REVERSE_NAME_MAPPING", _compat_pickle_mod.genREVERSE_NAME_MAPPING },
+    .{ "REVERSE_IMPORT_MAPPING", _compat_pickle_mod.genREVERSE_IMPORT_MAPPING },
+});
+
+/// _multibytecodec internal module functions
+const MultibytecodecInternalFuncs = FuncMap.initComptime(.{
+    .{ "MultibyteCodec", _multibytecodec_mod.genMultibyteCodec },
+    .{ "MultibyteIncrementalEncoder", _multibytecodec_mod.genMultibyteIncrementalEncoder },
+    .{ "MultibyteIncrementalDecoder", _multibytecodec_mod.genMultibyteIncrementalDecoder },
+    .{ "MultibyteStreamReader", _multibytecodec_mod.genMultibyteStreamReader },
+    .{ "MultibyteStreamWriter", _multibytecodec_mod.genMultibyteStreamWriter },
+    .{ "__create_codec", _multibytecodec_mod.genCreateCodec },
+});
+
+/// _codecs_cn internal module functions
+const CodecsCnInternalFuncs = FuncMap.initComptime(.{
+    .{ "getcodec", _codecs_cn_mod.genGetcodec },
+});
+
+/// _codecs_hk internal module functions
+const CodecsHkInternalFuncs = FuncMap.initComptime(.{
+    .{ "getcodec", _codecs_hk_mod.genGetcodec },
+});
+
+/// _codecs_iso2022 internal module functions
+const CodecsIso2022InternalFuncs = FuncMap.initComptime(.{
+    .{ "getcodec", _codecs_iso2022_mod.genGetcodec },
+});
+
+/// _codecs_jp internal module functions
+const CodecsJpInternalFuncs = FuncMap.initComptime(.{
+    .{ "getcodec", _codecs_jp_mod.genGetcodec },
+});
+
+/// _codecs_kr internal module functions
+const CodecsKrInternalFuncs = FuncMap.initComptime(.{
+    .{ "getcodec", _codecs_kr_mod.genGetcodec },
+});
+
+/// _codecs_tw internal module functions
+const CodecsTwInternalFuncs = FuncMap.initComptime(.{
+    .{ "getcodec", _codecs_tw_mod.genGetcodec },
+});
+
+/// _crypt internal module functions
+const CryptInternalFuncs = FuncMap.initComptime(.{
+    .{ "crypt", _crypt_mod.genCrypt },
+});
+
+/// _gdbm internal module functions
+const GdbmInternalFuncs = FuncMap.initComptime(.{
+    .{ "open", _gdbm_mod.genOpen },
+    .{ "close", _gdbm_mod.genClose },
+    .{ "keys", _gdbm_mod.genKeys },
+    .{ "firstkey", _gdbm_mod.genFirstkey },
+    .{ "nextkey", _gdbm_mod.genNextkey },
+    .{ "reorganize", _gdbm_mod.genReorganize },
+    .{ "sync", _gdbm_mod.genSync },
+    .{ "error", _gdbm_mod.genError },
+});
+
+/// _frozen_importlib internal module functions
+const FrozenImportlibInternalFuncs = FuncMap.initComptime(.{
+    .{ "ModuleSpec", _frozen_importlib_mod.genModuleSpec },
+    .{ "BuiltinImporter", _frozen_importlib_mod.genBuiltinImporter },
+    .{ "FrozenImporter", _frozen_importlib_mod.genFrozenImporter },
+    .{ "_init_module_attrs", _frozen_importlib_mod.genInitModuleAttrs },
+    .{ "_call_with_frames_removed", _frozen_importlib_mod.genCallWithFramesRemoved },
+    .{ "_find_and_load", _frozen_importlib_mod.genFindAndLoad },
+    .{ "_find_and_load_unlocked", _frozen_importlib_mod.genFindAndLoadUnlocked },
+    .{ "_gcd_import", _frozen_importlib_mod.genGcdImport },
+    .{ "_handle_fromlist", _frozen_importlib_mod.genHandleFromlist },
+    .{ "_lock_unlock_module", _frozen_importlib_mod.genLockUnlockModule },
+    .{ "__import__", _frozen_importlib_mod.genImport },
+});
+
+/// _frozen_importlib_external internal module functions
+const FrozenImportlibExternalInternalFuncs = FuncMap.initComptime(.{
+    .{ "SourceFileLoader", _frozen_importlib_external_mod.genSourceFileLoader },
+    .{ "SourcelessFileLoader", _frozen_importlib_external_mod.genSourcelessFileLoader },
+    .{ "ExtensionFileLoader", _frozen_importlib_external_mod.genExtensionFileLoader },
+    .{ "FileFinder", _frozen_importlib_external_mod.genFileFinder },
+    .{ "PathFinder", _frozen_importlib_external_mod.genPathFinder },
+    .{ "_get_supported_file_loaders", _frozen_importlib_external_mod.genGetSupportedFileLoaders },
+    .{ "_install", _frozen_importlib_external_mod.genInstall },
+    .{ "cache_from_source", _frozen_importlib_external_mod.genCacheFromSource },
+    .{ "source_from_cache", _frozen_importlib_external_mod.genSourceFromCache },
+    .{ "spec_from_file_location", _frozen_importlib_external_mod.genSpecFromFileLocation },
+    .{ "BYTECODE_SUFFIXES", _frozen_importlib_external_mod.genBYTECODE_SUFFIXES },
+    .{ "SOURCE_SUFFIXES", _frozen_importlib_external_mod.genSOURCE_SUFFIXES },
+    .{ "EXTENSION_SUFFIXES", _frozen_importlib_external_mod.genEXTENSION_SUFFIXES },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -5914,6 +6075,23 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "pydoc", PydocFuncs },
     .{ "antigravity", AntigravityFuncs },
     .{ "this", ThisFuncs },
+    .{ "_py_abc", PyAbcInternalFuncs },
+    .{ "_pydatetime", PydatetimeInternalFuncs },
+    .{ "_pydecimal", PydecimalInternalFuncs },
+    .{ "_pyio", PyioInternalFuncs },
+    .{ "_pylong", PylongInternalFuncs },
+    .{ "_compat_pickle", CompatPickleInternalFuncs },
+    .{ "_multibytecodec", MultibytecodecInternalFuncs },
+    .{ "_codecs_cn", CodecsCnInternalFuncs },
+    .{ "_codecs_hk", CodecsHkInternalFuncs },
+    .{ "_codecs_iso2022", CodecsIso2022InternalFuncs },
+    .{ "_codecs_jp", CodecsJpInternalFuncs },
+    .{ "_codecs_kr", CodecsKrInternalFuncs },
+    .{ "_codecs_tw", CodecsTwInternalFuncs },
+    .{ "_crypt", CryptInternalFuncs },
+    .{ "_gdbm", GdbmInternalFuncs },
+    .{ "_frozen_importlib", FrozenImportlibInternalFuncs },
+    .{ "_frozen_importlib_external", FrozenImportlibExternalInternalFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
