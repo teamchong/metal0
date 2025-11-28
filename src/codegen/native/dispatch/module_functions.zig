@@ -133,6 +133,18 @@ const urllib_error_mod = @import("../urllib_error_mod.zig");
 const urllib_robotparser_mod = @import("../urllib_robotparser_mod.zig");
 const cgi_mod = @import("../cgi_mod.zig");
 const wsgiref_mod = @import("../wsgiref_mod.zig");
+const audioop_mod = @import("../audioop_mod.zig");
+const wave_mod = @import("../wave_mod.zig");
+const aifc_mod = @import("../aifc_mod.zig");
+const sunau_mod = @import("../sunau_mod.zig");
+const sndhdr_mod = @import("../sndhdr_mod.zig");
+const imghdr_mod = @import("../imghdr_mod.zig");
+const colorsys_mod = @import("../colorsys_mod.zig");
+const netrc_mod = @import("../netrc_mod.zig");
+const xdrlib_mod = @import("../xdrlib_mod.zig");
+const plistlib_mod = @import("../plistlib_mod.zig");
+const rlcompleter_mod = @import("../rlcompleter_mod.zig");
+const readline_mod = @import("../readline_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -2743,6 +2755,162 @@ const WsgirefValidateFuncs = FuncMap.initComptime(.{
     .{ "WSGIWarning", wsgiref_mod.genWSGIWarning },
 });
 
+/// audioop module functions
+const AudioopFuncs = FuncMap.initComptime(.{
+    .{ "add", audioop_mod.genAdd },
+    .{ "adpcm2lin", audioop_mod.genAdpcm2lin },
+    .{ "alaw2lin", audioop_mod.genAlaw2lin },
+    .{ "avg", audioop_mod.genAvg },
+    .{ "avgpp", audioop_mod.genAvgpp },
+    .{ "bias", audioop_mod.genBias },
+    .{ "byteswap", audioop_mod.genByteswap },
+    .{ "cross", audioop_mod.genCross },
+    .{ "findfactor", audioop_mod.genFindfactor },
+    .{ "findfit", audioop_mod.genFindfit },
+    .{ "findmax", audioop_mod.genFindmax },
+    .{ "getsample", audioop_mod.genGetsample },
+    .{ "lin2adpcm", audioop_mod.genLin2adpcm },
+    .{ "lin2alaw", audioop_mod.genLin2alaw },
+    .{ "lin2lin", audioop_mod.genLin2lin },
+    .{ "lin2ulaw", audioop_mod.genLin2ulaw },
+    .{ "max", audioop_mod.genMax },
+    .{ "maxpp", audioop_mod.genMaxpp },
+    .{ "minmax", audioop_mod.genMinmax },
+    .{ "mul", audioop_mod.genMul },
+    .{ "ratecv", audioop_mod.genRatecv },
+    .{ "reverse", audioop_mod.genReverse },
+    .{ "rms", audioop_mod.genRms },
+    .{ "tomono", audioop_mod.genTomono },
+    .{ "tostereo", audioop_mod.genTostereo },
+    .{ "ulaw2lin", audioop_mod.genUlaw2lin },
+    .{ "error", audioop_mod.genError },
+});
+
+/// wave module functions
+const WaveFuncs = FuncMap.initComptime(.{
+    .{ "open", wave_mod.genOpen },
+    .{ "Wave_read", wave_mod.genWave_read },
+    .{ "Wave_write", wave_mod.genWave_write },
+    .{ "Error", wave_mod.genError },
+});
+
+/// aifc module functions
+const AifcFuncs = FuncMap.initComptime(.{
+    .{ "open", aifc_mod.genOpen },
+    .{ "Aifc_read", aifc_mod.genAifc_read },
+    .{ "Aifc_write", aifc_mod.genAifc_write },
+    .{ "Error", aifc_mod.genError },
+});
+
+/// sunau module functions
+const SunauFuncs = FuncMap.initComptime(.{
+    .{ "open", sunau_mod.genOpen },
+    .{ "Au_read", sunau_mod.genAu_read },
+    .{ "Au_write", sunau_mod.genAu_write },
+    .{ "AUDIO_FILE_MAGIC", sunau_mod.genAUDIO_FILE_MAGIC },
+    .{ "AUDIO_FILE_ENCODING_MULAW_8", sunau_mod.genAUDIO_FILE_ENCODING_MULAW_8 },
+    .{ "AUDIO_FILE_ENCODING_LINEAR_8", sunau_mod.genAUDIO_FILE_ENCODING_LINEAR_8 },
+    .{ "AUDIO_FILE_ENCODING_LINEAR_16", sunau_mod.genAUDIO_FILE_ENCODING_LINEAR_16 },
+    .{ "AUDIO_FILE_ENCODING_LINEAR_24", sunau_mod.genAUDIO_FILE_ENCODING_LINEAR_24 },
+    .{ "AUDIO_FILE_ENCODING_LINEAR_32", sunau_mod.genAUDIO_FILE_ENCODING_LINEAR_32 },
+    .{ "AUDIO_FILE_ENCODING_FLOAT", sunau_mod.genAUDIO_FILE_ENCODING_FLOAT },
+    .{ "AUDIO_FILE_ENCODING_DOUBLE", sunau_mod.genAUDIO_FILE_ENCODING_DOUBLE },
+    .{ "AUDIO_FILE_ENCODING_ALAW_8", sunau_mod.genAUDIO_FILE_ENCODING_ALAW_8 },
+    .{ "Error", sunau_mod.genError },
+});
+
+/// sndhdr module functions
+const SndhdrFuncs = FuncMap.initComptime(.{
+    .{ "what", sndhdr_mod.genWhat },
+    .{ "whathdr", sndhdr_mod.genWhathdr },
+    .{ "SndHeaders", sndhdr_mod.genSndHeaders },
+    .{ "tests", sndhdr_mod.genTests },
+});
+
+/// imghdr module functions
+const ImghdrFuncs = FuncMap.initComptime(.{
+    .{ "what", imghdr_mod.genWhat },
+    .{ "tests", imghdr_mod.genTests },
+});
+
+/// colorsys module functions
+const ColorsysFuncs = FuncMap.initComptime(.{
+    .{ "rgb_to_yiq", colorsys_mod.genRgb_to_yiq },
+    .{ "yiq_to_rgb", colorsys_mod.genYiq_to_rgb },
+    .{ "rgb_to_hls", colorsys_mod.genRgb_to_hls },
+    .{ "hls_to_rgb", colorsys_mod.genHls_to_rgb },
+    .{ "rgb_to_hsv", colorsys_mod.genRgb_to_hsv },
+    .{ "hsv_to_rgb", colorsys_mod.genHsv_to_rgb },
+});
+
+/// netrc module functions
+const NetrcFuncs = FuncMap.initComptime(.{
+    .{ "netrc", netrc_mod.genNetrc },
+    .{ "NetrcParseError", netrc_mod.genNetrcParseError },
+});
+
+/// xdrlib module functions
+const XdrlibFuncs = FuncMap.initComptime(.{
+    .{ "Packer", xdrlib_mod.genPacker },
+    .{ "Unpacker", xdrlib_mod.genUnpacker },
+    .{ "Error", xdrlib_mod.genError },
+    .{ "ConversionError", xdrlib_mod.genConversionError },
+});
+
+/// plistlib module functions
+const PlistlibFuncs = FuncMap.initComptime(.{
+    .{ "load", plistlib_mod.genLoad },
+    .{ "loads", plistlib_mod.genLoads },
+    .{ "dump", plistlib_mod.genDump },
+    .{ "dumps", plistlib_mod.genDumps },
+    .{ "UID", plistlib_mod.genUID },
+    .{ "FMT_XML", plistlib_mod.genFMT_XML },
+    .{ "FMT_BINARY", plistlib_mod.genFMT_BINARY },
+    .{ "Dict", plistlib_mod.genDict },
+    .{ "Data", plistlib_mod.genData },
+    .{ "InvalidFileException", plistlib_mod.genInvalidFileException },
+    .{ "readPlist", plistlib_mod.genReadPlist },
+    .{ "writePlist", plistlib_mod.genWritePlist },
+    .{ "readPlistFromBytes", plistlib_mod.genReadPlistFromBytes },
+    .{ "writePlistToBytes", plistlib_mod.genWritePlistToBytes },
+});
+
+/// rlcompleter module functions
+const RlcompleterFuncs = FuncMap.initComptime(.{
+    .{ "Completer", rlcompleter_mod.genCompleter },
+});
+
+/// readline module functions
+const ReadlineFuncs = FuncMap.initComptime(.{
+    .{ "parse_and_bind", readline_mod.genParse_and_bind },
+    .{ "read_init_file", readline_mod.genRead_init_file },
+    .{ "get_line_buffer", readline_mod.genGet_line_buffer },
+    .{ "insert_text", readline_mod.genInsert_text },
+    .{ "redisplay", readline_mod.genRedisplay },
+    .{ "read_history_file", readline_mod.genRead_history_file },
+    .{ "write_history_file", readline_mod.genWrite_history_file },
+    .{ "append_history_file", readline_mod.genAppend_history_file },
+    .{ "get_history_length", readline_mod.genGet_history_length },
+    .{ "set_history_length", readline_mod.genSet_history_length },
+    .{ "clear_history", readline_mod.genClear_history },
+    .{ "get_current_history_length", readline_mod.genGet_current_history_length },
+    .{ "get_history_item", readline_mod.genGet_history_item },
+    .{ "remove_history_item", readline_mod.genRemove_history_item },
+    .{ "replace_history_item", readline_mod.genReplace_history_item },
+    .{ "add_history", readline_mod.genAdd_history },
+    .{ "set_auto_history", readline_mod.genSet_auto_history },
+    .{ "set_startup_hook", readline_mod.genSet_startup_hook },
+    .{ "set_pre_input_hook", readline_mod.genSet_pre_input_hook },
+    .{ "set_completer", readline_mod.genSet_completer },
+    .{ "get_completer", readline_mod.genGet_completer },
+    .{ "get_completion_type", readline_mod.genGet_completion_type },
+    .{ "get_begidx", readline_mod.genGet_begidx },
+    .{ "get_endidx", readline_mod.genGet_endidx },
+    .{ "set_completer_delims", readline_mod.genSet_completer_delims },
+    .{ "get_completer_delims", readline_mod.genGet_completer_delims },
+    .{ "set_completion_display_matches_hook", readline_mod.genSet_completion_display_matches_hook },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -2901,6 +3069,18 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "wsgiref.headers", WsgirefHeadersFuncs },
     .{ "wsgiref.handlers", WsgirefHandlersFuncs },
     .{ "wsgiref.validate", WsgirefValidateFuncs },
+    .{ "audioop", AudioopFuncs },
+    .{ "wave", WaveFuncs },
+    .{ "aifc", AifcFuncs },
+    .{ "sunau", SunauFuncs },
+    .{ "sndhdr", SndhdrFuncs },
+    .{ "imghdr", ImghdrFuncs },
+    .{ "colorsys", ColorsysFuncs },
+    .{ "netrc", NetrcFuncs },
+    .{ "xdrlib", XdrlibFuncs },
+    .{ "plistlib", PlistlibFuncs },
+    .{ "rlcompleter", RlcompleterFuncs },
+    .{ "readline", ReadlineFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
