@@ -30,6 +30,14 @@ pub const ImportStrategy = enum {
     unsupported,
 };
 
+/// Function signature metadata for codegen
+pub const FunctionMeta = struct {
+    /// Function does NOT need allocator as first parameter
+    no_alloc: bool = false,
+    /// Function returns error union (needs try)
+    returns_error: bool = false,
+};
+
 /// Information about how to import a Python module
 pub const ImportInfo = struct {
     /// Python module name (e.g. "json", "numpy")
@@ -49,6 +57,13 @@ pub const ImportInfo = struct {
     /// Python source path for compilation
     /// Only used for compile_python strategy
     python_source: ?[]const u8,
+
+    /// Whether module needs initialization (e.g., requests.init(allocator))
+    needs_init: bool = false,
+
+    /// Function metadata (keyed by function name)
+    /// Used to determine allocator/try requirements at codegen time
+    func_meta: ?*const std.StaticStringMap(FunctionMeta) = null,
 };
 
 pub const ImportRegistry = struct {
@@ -74,14 +89,36 @@ pub const ImportRegistry = struct {
         zig_import: ?[]const u8,
         c_library: ?[]const u8,
     ) !void {
+        try self.registerWithMeta(python_module, strategy, zig_import, c_library, false, null);
+    }
+
+    /// Register a Python module mapping with full metadata
+    pub fn registerWithMeta(
+        self: *ImportRegistry,
+        python_module: []const u8,
+        strategy: ImportStrategy,
+        zig_import: ?[]const u8,
+        c_library: ?[]const u8,
+        needs_init: bool,
+        func_meta: ?*const std.StaticStringMap(FunctionMeta),
+    ) !void {
         const info = ImportInfo{
             .python_module = python_module,
             .strategy = strategy,
             .zig_import = zig_import,
             .c_library = c_library,
             .python_source = null,
+            .needs_init = needs_init,
+            .func_meta = func_meta,
         };
         try self.registry.put(python_module, info);
+    }
+
+    /// Get function metadata for a module.function call
+    pub fn getFunctionMeta(self: *ImportRegistry, module: []const u8, func_name: []const u8) ?FunctionMeta {
+        const info = self.lookup(module) orelse return null;
+        const meta_map = info.func_meta orelse return null;
+        return meta_map.get(func_name);
     }
 
     /// Look up how to import a Python module
@@ -96,23 +133,72 @@ pub const ImportRegistry = struct {
     }
 };
 
+// ============================================================================
+// Function metadata for modules (comptime maps)
+// ============================================================================
+
+/// requests module: functions use internal allocator, return errors
+const RequestsFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
+    .{ "get", FunctionMeta{ .no_alloc = true, .returns_error = true } },
+    .{ "post", FunctionMeta{ .no_alloc = true, .returns_error = true } },
+    .{ "put", FunctionMeta{ .no_alloc = true, .returns_error = true } },
+    .{ "delete", FunctionMeta{ .no_alloc = true, .returns_error = true } },
+});
+
+/// time module: pure functions, no allocator needed
+const TimeFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
+    .{ "time", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+    .{ "monotonic", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+    .{ "perf_counter", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+    .{ "sleep", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+});
+
+/// sys module: pure functions
+const SysFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
+    .{ "exit", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+});
+
+/// math module: all pure functions, no allocator needed
+const PureFn = FunctionMeta{ .no_alloc = true, .returns_error = false };
+const MathFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
+    .{ "sqrt", PureFn },   .{ "sin", PureFn },        .{ "cos", PureFn },
+    .{ "tan", PureFn },    .{ "asin", PureFn },       .{ "acos", PureFn },
+    .{ "atan", PureFn },   .{ "atan2", PureFn },      .{ "sinh", PureFn },
+    .{ "cosh", PureFn },   .{ "tanh", PureFn },       .{ "asinh", PureFn },
+    .{ "acosh", PureFn },  .{ "atanh", PureFn },      .{ "log", PureFn },
+    .{ "log10", PureFn },  .{ "log2", PureFn },       .{ "log1p", PureFn },
+    .{ "exp", PureFn },    .{ "expm1", PureFn },      .{ "pow", PureFn },
+    .{ "floor", PureFn },  .{ "ceil", PureFn },       .{ "trunc", PureFn },
+    .{ "round", PureFn },  .{ "fabs", PureFn },       .{ "abs", PureFn },
+    .{ "fmod", PureFn },   .{ "remainder", PureFn },  .{ "modf", PureFn },
+    .{ "hypot", PureFn },  .{ "cbrt", PureFn },       .{ "copysign", PureFn },
+    .{ "degrees", PureFn },.{ "radians", PureFn },    .{ "factorial", PureFn },
+    .{ "gcd", PureFn },    .{ "lcm", PureFn },        .{ "isnan", PureFn },
+    .{ "isinf", PureFn },  .{ "isfinite", PureFn },   .{ "erf", PureFn },
+    .{ "erfc", PureFn },   .{ "gamma", PureFn },      .{ "lgamma", PureFn },
+});
+
+// ============================================================================
+// Registry initialization
+// ============================================================================
+
 /// Initialize registry with built-in Python→Zig mappings
 pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     var registry = ImportRegistry.init(allocator);
 
     // Tier 1: Zig implementations (performance-critical)
     // Note: runtime is imported as @import("./runtime.zig") at module level
-    // So we reference the already-imported runtime module, not @import("runtime")
     try registry.register("json", .zig_runtime, "runtime.json", null);
     try registry.register("http", .zig_runtime, "runtime.http", null);
     try registry.register("asyncio", .zig_runtime, "runtime.async", null);
     try registry.register("re", .zig_runtime, "runtime.re", null);
-    try registry.register("sys", .zig_runtime, "runtime.sys", null);
-    try registry.register("time", .zig_runtime, "runtime.time", null);
-    try registry.register("math", .zig_runtime, "runtime.math", null);
+    try registry.registerWithMeta("sys", .zig_runtime, "runtime.sys", null, false, &SysFuncMeta);
+    try registry.registerWithMeta("time", .zig_runtime, "runtime.time", null, false, &TimeFuncMeta);
+    try registry.registerWithMeta("math", .zig_runtime, "runtime.math", null, false, &MathFuncMeta);
     try registry.register("unittest", .zig_runtime, "runtime.unittest", null);
     try registry.register("flask", .zig_runtime, "runtime.flask", null);
-    try registry.register("requests", .zig_runtime, "runtime.requests", null);
+    // requests: needs_init=true, has function metadata
+    try registry.registerWithMeta("requests", .zig_runtime, "runtime.requests", null, true, &RequestsFuncMeta);
 
     // Tier 2: C library wrappers
     try registry.register("numpy", .c_library, "@import(\"./c_interop/c_interop.zig\").numpy", "blas");

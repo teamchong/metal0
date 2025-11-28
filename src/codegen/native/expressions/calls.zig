@@ -7,90 +7,7 @@ const dispatch = @import("../dispatch.zig");
 const lambda_mod = @import("lambda.zig");
 const zig_keywords = @import("zig_keywords");
 const allocator_analyzer = @import("../statements/functions/allocator_analyzer.zig");
-
-/// Functions that don't require allocator parameter
-const NO_ALLOC_FUNCS = [_][]const u8{
-    "time.time",
-    "time.monotonic",
-    "time.perf_counter",
-    // sys module - exit is pure and doesn't allocate
-    "sys.exit",
-    // requests module - uses internal allocator (initialized via requests.init)
-    "requests.get",
-    "requests.post",
-    "requests.put",
-    "requests.delete",
-    // math module - all functions are pure and don't allocate
-    "math.sqrt",
-    "math.sin",
-    "math.cos",
-    "math.tan",
-    "math.asin",
-    "math.acos",
-    "math.atan",
-    "math.atan2",
-    "math.sinh",
-    "math.cosh",
-    "math.tanh",
-    "math.asinh",
-    "math.acosh",
-    "math.atanh",
-    "math.log",
-    "math.log10",
-    "math.log2",
-    "math.log1p",
-    "math.exp",
-    "math.expm1",
-    "math.pow",
-    "math.floor",
-    "math.ceil",
-    "math.trunc",
-    "math.round",
-    "math.fabs",
-    "math.abs",
-    "math.fmod",
-    "math.remainder",
-    "math.modf",
-    "math.hypot",
-    "math.cbrt",
-    "math.copysign",
-    "math.degrees",
-    "math.radians",
-    "math.factorial",
-    "math.gcd",
-    "math.lcm",
-    "math.isnan",
-    "math.isinf",
-    "math.isfinite",
-    "math.erf",
-    "math.erfc",
-    "math.gamma",
-    "math.lgamma",
-};
-
-/// Functions that return errors (need try) but don't take allocator param
-const NEEDS_TRY_NO_ALLOC = [_][]const u8{
-    "requests.get",
-    "requests.post",
-    "requests.put",
-    "requests.delete",
-};
-
-/// Check if qualified function name needs allocator
-fn needsAllocator(qualified_name: []const u8) bool {
-    for (NO_ALLOC_FUNCS) |func| {
-        if (std.mem.eql(u8, qualified_name, func)) return false;
-    }
-    return true; // Default: assume needs allocator
-}
-
-/// Check if qualified function name returns error (needs try)
-fn needsTry(qualified_name: []const u8) bool {
-    for (NEEDS_TRY_NO_ALLOC) |func| {
-        if (std.mem.eql(u8, qualified_name, func)) return true;
-    }
-    return false;
-}
+const import_registry = @import("../import_registry.zig");
 
 /// Generate function call - dispatches to specialized handlers or fallback
 pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
@@ -179,22 +96,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         const attr = call.func.attribute;
 
         // Helper to check if attribute chain starts with imported module
-        // Also build qualified name for allocator check
+        // Track module name and function name for registry lookup
         var is_module_call = false;
-        var qualified_name: ?[]const u8 = null;
+        var module_name: ?[]const u8 = null;
+        const func_name = attr.attr;
         {
             var current = attr.value;
             while (true) {
                 if (current.* == .name) {
                     // Found base name - check if it's an imported module
-                    is_module_call = self.imported_modules.contains(current.*.name.id);
+                    const base_name = current.*.name.id;
+                    is_module_call = self.imported_modules.contains(base_name);
                     if (is_module_call) {
-                        // Build qualified name: module.function
-                        qualified_name = std.fmt.allocPrint(
-                            self.allocator,
-                            "{s}.{s}",
-                            .{ current.*.name.id, attr.attr },
-                        ) catch null;
+                        module_name = base_name;
                     }
                     break;
                 } else if (current.* == .attribute) {
@@ -206,7 +120,6 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             }
         }
-        defer if (qualified_name) |qn| self.allocator.free(qn);
 
         // Check if this is a user-defined class method call (f.run() where f is a Foo instance)
         var is_class_method_call = false;
@@ -231,18 +144,26 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
         }
 
-        const needs_alloc = if (qualified_name) |qn|
-            needsAllocator(qn)
-        else if (is_class_method_call)
-            class_method_needs_alloc
-        else
-            false; // Default to false for other method calls (string methods, etc. handle allocator internally)
+        // Determine allocator/try requirements from registry or class method analysis
+        var needs_alloc = false;
+        var needs_try = false;
 
-        // Check if function returns error (needs try) even without allocator param
-        const needs_try_no_alloc = if (qualified_name) |qn| needsTry(qn) else false;
+        if (module_name) |mod| {
+            // Look up function metadata in registry
+            if (self.import_registry.getFunctionMeta(mod, func_name)) |meta| {
+                needs_alloc = !meta.no_alloc; // no_alloc=true means DON'T need allocator
+                needs_try = meta.returns_error;
+            } else {
+                // No metadata - assume needs allocator (conservative)
+                needs_alloc = true;
+            }
+        } else if (is_class_method_call) {
+            needs_alloc = class_method_needs_alloc;
+        }
+        // else: other method calls (string, list, etc.) don't need allocator
 
-        // Add 'try' for calls that need allocator (they can error) OR explicitly need try
-        if ((is_module_call or is_class_method_call) and (needs_alloc or needs_try_no_alloc)) {
+        // Add 'try' for calls that need allocator (they can error) OR explicitly return errors
+        if ((is_module_call or is_class_method_call) and (needs_alloc or needs_try)) {
             try self.emit("try ");
         }
 

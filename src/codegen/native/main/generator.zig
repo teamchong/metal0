@@ -357,10 +357,15 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("__allocator_initialized = true;\n");
         try self.emit("\n");
 
-        // Initialize runtime modules that need allocator (e.g., requests)
-        if (self.imported_modules.contains("requests")) {
-            try self.emitIndent();
-            try self.emit("requests.init(allocator);\n");
+        // Initialize runtime modules that need allocator (from registry needs_init flag)
+        for (self.imported_modules.keys()) |mod_name| {
+            if (self.import_registry.lookup(mod_name)) |info| {
+                if (info.needs_init) {
+                    try self.emitIndent();
+                    try self.emit(mod_name);
+                    try self.emit(".init(allocator);\n");
+                }
+            }
         }
     }
 
