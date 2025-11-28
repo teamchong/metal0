@@ -79,6 +79,8 @@ pub const NativeType = union(enum) {
     hash_object: void, // hashlib hash object (md5, sha256, etc.)
     counter: void, // collections.Counter - hashmap_helper.StringHashMap(i64)
     deque: void, // collections.deque - std.ArrayList
+    sqlite_connection: void, // sqlite3.Connection - database connection
+    sqlite_cursor: void, // sqlite3.Cursor - database cursor
 
     /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
@@ -222,6 +224,8 @@ pub const NativeType = union(enum) {
             .hash_object => try buf.appendSlice(allocator, "hashlib.HashObject"),
             .counter => try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(i64)"),
             .deque => try buf.appendSlice(allocator, "std.ArrayList(i64)"),
+            .sqlite_connection => try buf.appendSlice(allocator, "sqlite3.Connection"),
+            .sqlite_cursor => try buf.appendSlice(allocator, "sqlite3.Cursor"),
         }
     }
 
