@@ -126,7 +126,7 @@ Python's distribution and deployment challenges solved.
 - Early alpha - API may change
 - C extensions via 512 C API functions (pure Zig, no CPython wrapper)
 
-## Roadmap: Matching Codon
+## Roadmap
 
 ### Flask Import ✅
 ```python
