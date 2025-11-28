@@ -392,8 +392,34 @@ pub fn inferCall(
             const NP_HASH = comptime fnv_hash.hash("np");
             const IO_HASH = comptime fnv_hash.hash("io");
             const HASHLIB_HASH = comptime fnv_hash.hash("hashlib");
+            const STRUCT_HASH = comptime fnv_hash.hash("struct");
+            const BASE64_HASH = comptime fnv_hash.hash("base64");
+            const PICKLE_HASH = comptime fnv_hash.hash("pickle");
 
             switch (module_hash) {
+                BASE64_HASH => {
+                    // All base64 functions return bytes/string
+                    return .{ .string = .runtime };
+                },
+                PICKLE_HASH => {
+                    // pickle.dumps() returns bytes, pickle.loads() returns dynamic value
+                    const func_hash = fnv_hash.hash(func_name);
+                    const DUMPS_HASH = comptime fnv_hash.hash("dumps");
+                    const DUMP_HASH = comptime fnv_hash.hash("dump");
+                    if (func_hash == DUMPS_HASH) return .{ .string = .runtime };
+                    if (func_hash == DUMP_HASH) return .none; // writes to file
+                    return .unknown; // loads/load return dynamic values
+                },
+                STRUCT_HASH => {
+                    // struct.calcsize() returns int, struct.pack() returns bytes (string)
+                    const func_hash = fnv_hash.hash(func_name);
+                    const CALCSIZE_HASH = comptime fnv_hash.hash("calcsize");
+                    const PACK_HASH = comptime fnv_hash.hash("pack");
+                    const UNPACK_HASH = comptime fnv_hash.hash("unpack");
+                    if (func_hash == CALCSIZE_HASH) return .int;
+                    if (func_hash == PACK_HASH) return .{ .string = .runtime }; // bytes
+                    if (func_hash == UNPACK_HASH) return .unknown; // tuple of values (dynamic)
+                },
                 HASHLIB_HASH => {
                     // hashlib.md5(), sha1(), sha256(), etc. all return HashObject
                     const func_hash = fnv_hash.hash(func_name);
@@ -535,6 +561,21 @@ pub fn inferCall(
             if (method_hash == READ_TEXT_HASH) {
                 return .{ .string = .runtime };
             }
+        }
+
+        // HashObject methods (hashlib)
+        if (obj_type == .hash_object) {
+            const method_hash = fnv_hash.hash(attr.attr);
+            const HEXDIGEST_HASH = comptime fnv_hash.hash("hexdigest");
+            const DIGEST_HASH = comptime fnv_hash.hash("digest");
+            const COPY_HASH = comptime fnv_hash.hash("copy");
+            // hexdigest returns string
+            if (method_hash == HEXDIGEST_HASH) return .{ .string = .runtime };
+            // digest returns bytes (we represent as string)
+            if (method_hash == DIGEST_HASH) return .{ .string = .runtime };
+            // copy returns hash_object
+            if (method_hash == COPY_HASH) return .hash_object;
+            // update returns void (we'll handle as None)
         }
     }
 

@@ -215,6 +215,10 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("sqlite3", .c_library, "@import(\"./c_interop/c_interop.zig\").sqlite3", "sqlite3");
     try registry.register("zlib", .c_library, "@import(\"./c_interop/c_interop.zig\").zlib", "z");
     try registry.register("ssl", .c_library, "@import(\"./c_interop/c_interop.zig\").ssl", "ssl");
+    try registry.register("hashlib", .zig_runtime, "runtime.hashlib", null); // Uses Zig std.crypto
+    try registry.register("struct", .zig_runtime, "std", null); // struct module is inline codegen
+    try registry.register("base64", .zig_runtime, "std", null); // base64 uses std.base64
+    try registry.register("pickle", .zig_runtime, "std", null); // pickle uses JSON serialization
 
     // Additional Tier 1: OS and filesystem modules
     try registry.register("pathlib", .zig_runtime, "runtime.pathlib", null);

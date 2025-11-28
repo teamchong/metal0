@@ -18,8 +18,8 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
         "abc",        "operator",    "itertools", "enum",
         "dataclasses", "warnings",   "logging",  "traceback",
         "copy",       "weakref",     "types",    "codecs",
-        "secrets",    "hashlib",     "hmac",     "pickle",
-        "struct",     "base64",      "binascii", "textwrap",
+        "secrets",                   "hmac",
+                                     "binascii", "textwrap",
         "string",     "platform",    "shutil",   "glob",
         "fnmatch",    "stat",        "posixpath", "genericpath",
         // Python directive modules
