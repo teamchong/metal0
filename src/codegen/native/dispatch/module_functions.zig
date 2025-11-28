@@ -98,6 +98,12 @@ const grp_mod = @import("../grp_mod.zig");
 const pwd_mod = @import("../pwd_mod.zig");
 const syslog_mod = @import("../syslog_mod.zig");
 const curses_mod = @import("../curses_mod.zig");
+const bz2_mod = @import("../bz2_mod.zig");
+const lzma_mod = @import("../lzma_mod.zig");
+const tarfile_mod = @import("../tarfile_mod.zig");
+const shlex_mod = @import("../shlex_mod.zig");
+const gettext_mod = @import("../gettext_mod.zig");
+const calendar_mod = @import("../calendar_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -2029,6 +2035,132 @@ const CursesFuncs = FuncMap.initComptime(.{
     .{ "timeout", curses_mod.genTimeout },
 });
 
+/// bz2 module functions
+const Bz2Funcs = FuncMap.initComptime(.{
+    .{ "compress", bz2_mod.genCompress },
+    .{ "decompress", bz2_mod.genDecompress },
+    .{ "open", bz2_mod.genOpen },
+    .{ "BZ2File", bz2_mod.genBZ2File },
+    .{ "BZ2Compressor", bz2_mod.genBZ2Compressor },
+    .{ "BZ2Decompressor", bz2_mod.genBZ2Decompressor },
+});
+
+/// lzma module functions
+const LzmaFuncs = FuncMap.initComptime(.{
+    .{ "compress", lzma_mod.genCompress },
+    .{ "decompress", lzma_mod.genDecompress },
+    .{ "open", lzma_mod.genOpen },
+    .{ "LZMAFile", lzma_mod.genLZMAFile },
+    .{ "LZMACompressor", lzma_mod.genLZMACompressor },
+    .{ "LZMADecompressor", lzma_mod.genLZMADecompressor },
+    .{ "is_check_supported", lzma_mod.genIs_check_supported },
+    .{ "FORMAT_AUTO", lzma_mod.genFORMAT_AUTO },
+    .{ "FORMAT_XZ", lzma_mod.genFORMAT_XZ },
+    .{ "FORMAT_ALONE", lzma_mod.genFORMAT_ALONE },
+    .{ "FORMAT_RAW", lzma_mod.genFORMAT_RAW },
+    .{ "CHECK_NONE", lzma_mod.genCHECK_NONE },
+    .{ "CHECK_CRC32", lzma_mod.genCHECK_CRC32 },
+    .{ "CHECK_CRC64", lzma_mod.genCHECK_CRC64 },
+    .{ "CHECK_SHA256", lzma_mod.genCHECK_SHA256 },
+    .{ "CHECK_ID_MAX", lzma_mod.genCHECK_ID_MAX },
+    .{ "CHECK_UNKNOWN", lzma_mod.genCHECK_UNKNOWN },
+    .{ "PRESET_DEFAULT", lzma_mod.genPRESET_DEFAULT },
+    .{ "PRESET_EXTREME", lzma_mod.genPRESET_EXTREME },
+    .{ "FILTER_LZMA1", lzma_mod.genFILTER_LZMA1 },
+    .{ "FILTER_LZMA2", lzma_mod.genFILTER_LZMA2 },
+    .{ "FILTER_DELTA", lzma_mod.genFILTER_DELTA },
+    .{ "FILTER_X86", lzma_mod.genFILTER_X86 },
+    .{ "FILTER_ARM", lzma_mod.genFILTER_ARM },
+    .{ "FILTER_ARMTHUMB", lzma_mod.genFILTER_ARMTHUMB },
+    .{ "FILTER_SPARC", lzma_mod.genFILTER_SPARC },
+});
+
+/// tarfile module functions
+const TarfileFuncs = FuncMap.initComptime(.{
+    .{ "open", tarfile_mod.genOpen },
+    .{ "is_tarfile", tarfile_mod.genIs_tarfile },
+    .{ "TarFile", tarfile_mod.genTarFile },
+    .{ "TarInfo", tarfile_mod.genTarInfo },
+    .{ "REGTYPE", tarfile_mod.genREGTYPE },
+    .{ "AREGTYPE", tarfile_mod.genAREGTYPE },
+    .{ "LNKTYPE", tarfile_mod.genLNKTYPE },
+    .{ "SYMTYPE", tarfile_mod.genSYMTYPE },
+    .{ "CHRTYPE", tarfile_mod.genCHRTYPE },
+    .{ "BLKTYPE", tarfile_mod.genBLKTYPE },
+    .{ "DIRTYPE", tarfile_mod.genDIRTYPE },
+    .{ "FIFOTYPE", tarfile_mod.genFIFOTYPE },
+    .{ "CONTTYPE", tarfile_mod.genCONTTYPE },
+    .{ "GNUTYPE_LONGNAME", tarfile_mod.genGNUTYPE_LONGNAME },
+    .{ "GNUTYPE_LONGLINK", tarfile_mod.genGNUTYPE_LONGLINK },
+    .{ "GNUTYPE_SPARSE", tarfile_mod.genGNUTYPE_SPARSE },
+    .{ "USTAR_FORMAT", tarfile_mod.genUSTAR_FORMAT },
+    .{ "GNU_FORMAT", tarfile_mod.genGNU_FORMAT },
+    .{ "PAX_FORMAT", tarfile_mod.genPAX_FORMAT },
+    .{ "DEFAULT_FORMAT", tarfile_mod.genDEFAULT_FORMAT },
+    .{ "BLOCKSIZE", tarfile_mod.genBLOCKSIZE },
+    .{ "RECORDSIZE", tarfile_mod.genRECORDSIZE },
+    .{ "ENCODING", tarfile_mod.genENCODING },
+});
+
+/// shlex module functions
+const ShlexFuncs = FuncMap.initComptime(.{
+    .{ "split", shlex_mod.genSplit },
+    .{ "join", shlex_mod.genJoin },
+    .{ "quote", shlex_mod.genQuote },
+    .{ "shlex", shlex_mod.genShlex },
+});
+
+/// gettext module functions
+const GettextFuncs = FuncMap.initComptime(.{
+    .{ "gettext", gettext_mod.genGettext },
+    .{ "ngettext", gettext_mod.genNgettext },
+    .{ "pgettext", gettext_mod.genPgettext },
+    .{ "npgettext", gettext_mod.genNpgettext },
+    .{ "dgettext", gettext_mod.genDgettext },
+    .{ "dngettext", gettext_mod.genDngettext },
+    .{ "bindtextdomain", gettext_mod.genBindtextdomain },
+    .{ "textdomain", gettext_mod.genTextdomain },
+    .{ "install", gettext_mod.genInstall },
+    .{ "translation", gettext_mod.genTranslation },
+    .{ "find", gettext_mod.genFind },
+    .{ "GNUTranslations", gettext_mod.genGNUTranslations },
+    .{ "NullTranslations", gettext_mod.genNullTranslations },
+});
+
+/// calendar module functions
+const CalendarFuncs = FuncMap.initComptime(.{
+    .{ "isleap", calendar_mod.genIsleap },
+    .{ "leapdays", calendar_mod.genLeapdays },
+    .{ "weekday", calendar_mod.genWeekday },
+    .{ "monthrange", calendar_mod.genMonthrange },
+    .{ "month", calendar_mod.genMonth },
+    .{ "monthcalendar", calendar_mod.genMonthcalendar },
+    .{ "prmonth", calendar_mod.genPrmonth },
+    .{ "calendar", calendar_mod.genCalendar },
+    .{ "prcal", calendar_mod.genPrcal },
+    .{ "setfirstweekday", calendar_mod.genSetfirstweekday },
+    .{ "firstweekday", calendar_mod.genFirstweekday },
+    .{ "timegm", calendar_mod.genTimegm },
+    .{ "Calendar", calendar_mod.genCalendarClass },
+    .{ "TextCalendar", calendar_mod.genTextCalendar },
+    .{ "HTMLCalendar", calendar_mod.genHTMLCalendar },
+    .{ "LocaleTextCalendar", calendar_mod.genLocaleTextCalendar },
+    .{ "LocaleHTMLCalendar", calendar_mod.genLocaleHTMLCalendar },
+    .{ "MONDAY", calendar_mod.genMONDAY },
+    .{ "TUESDAY", calendar_mod.genTUESDAY },
+    .{ "WEDNESDAY", calendar_mod.genWEDNESDAY },
+    .{ "THURSDAY", calendar_mod.genTHURSDAY },
+    .{ "FRIDAY", calendar_mod.genFRIDAY },
+    .{ "SATURDAY", calendar_mod.genSATURDAY },
+    .{ "SUNDAY", calendar_mod.genSUNDAY },
+    .{ "day_name", calendar_mod.genDay_name },
+    .{ "day_abbr", calendar_mod.genDay_abbr },
+    .{ "month_name", calendar_mod.genMonth_name },
+    .{ "month_abbr", calendar_mod.genMonth_abbr },
+    .{ "IllegalMonthError", calendar_mod.genIllegalMonthError },
+    .{ "IllegalWeekdayError", calendar_mod.genIllegalWeekdayError },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -2145,6 +2277,12 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "pwd", PwdFuncs },
     .{ "syslog", SyslogFuncs },
     .{ "curses", CursesFuncs },
+    .{ "bz2", Bz2Funcs },
+    .{ "lzma", LzmaFuncs },
+    .{ "tarfile", TarfileFuncs },
+    .{ "shlex", ShlexFuncs },
+    .{ "gettext", GettextFuncs },
+    .{ "calendar", CalendarFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
