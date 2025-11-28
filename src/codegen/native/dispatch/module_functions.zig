@@ -17,6 +17,7 @@ const pathlib_mod = @import("../pathlib.zig");
 const datetime_mod = @import("../datetime.zig");
 const io_mod = @import("../io.zig");
 const collections_mod = @import("../collections_mod.zig");
+const functools_mod = @import("../functools_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -291,6 +292,17 @@ const CollectionsFuncs = FuncMap.initComptime(.{
     .{ "namedtuple", collections_mod.genNamedtuple },
 });
 
+/// functools module functions
+const FunctoolsFuncs = FuncMap.initComptime(.{
+    .{ "partial", functools_mod.genPartial },
+    .{ "reduce", functools_mod.genReduce },
+    .{ "lru_cache", functools_mod.genLruCache },
+    .{ "cache", functools_mod.genCache },
+    .{ "wraps", functools_mod.genWraps },
+    .{ "cmp_to_key", functools_mod.genCmpToKey },
+    .{ "total_ordering", functools_mod.genTotalOrdering },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -316,6 +328,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "datetime.date", DatetimeDateFuncs },
     .{ "io", IoFuncs },
     .{ "collections", CollectionsFuncs },
+    .{ "functools", FunctoolsFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

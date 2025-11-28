@@ -233,6 +233,18 @@ pub const Lexer = struct {
                 continue;
             }
 
+            // Raw byte strings: br"" or rb"" (check before b"" and r"")
+            if ((c == 'b' and self.peekAhead(1) == 'r') or (c == 'r' and self.peekAhead(1) == 'b')) {
+                const quote = self.peekAhead(2);
+                if (quote == '"' or quote == '\'') {
+                    _ = self.advance(); // consume first prefix
+                    _ = self.advance(); // consume second prefix
+                    const token = try self.tokenizeRawByteString(start, start_column);
+                    try tokens.append(self.allocator, token);
+                    continue;
+                }
+            }
+
             // Byte strings (check before identifiers)
             if (c == 'b' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
                 _ = self.advance(); // consume 'b'
@@ -321,6 +333,7 @@ pub const Lexer = struct {
     const tokenizeString = tokenizer.tokenizeString;
     const tokenizeRawString = tokenizer.tokenizeRawString;
     const tokenizeByteString = tokenizer.tokenizeByteString;
+    const tokenizeRawByteString = tokenizer.tokenizeRawByteString;
     const tokenizeFString = tokenizer.tokenizeFString;
     const tokenizeOperatorOrDelimiter = tokenizer.tokenizeOperatorOrDelimiter;
 
