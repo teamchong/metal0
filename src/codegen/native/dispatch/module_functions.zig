@@ -206,6 +206,22 @@ const _hashlib_mod = @import("../_hashlib_mod.zig");
 const _locale_mod = @import("../_locale_mod.zig");
 const _signal_mod = @import("../_signal_mod.zig");
 const math_mod = @import("../math_mod.zig");
+const faulthandler_mod = @import("../faulthandler_mod.zig");
+const tracemalloc_mod = @import("../tracemalloc_mod.zig");
+const sysconfig_mod = @import("../sysconfig_mod.zig");
+const fileinput_mod = @import("../fileinput_mod.zig");
+const getopt_mod = @import("../getopt_mod.zig");
+const chunk_mod = @import("../chunk_mod.zig");
+const bdb_mod = @import("../bdb_mod.zig");
+const pstats_mod = @import("../pstats_mod.zig");
+const unicodedata_mod = @import("../unicodedata_mod.zig");
+const zoneinfo_mod = @import("../zoneinfo_mod.zig");
+const tomllib_mod = @import("../tomllib_mod.zig");
+const webbrowser_mod = @import("../webbrowser_mod.zig");
+const modulefinder_mod = @import("../modulefinder_mod.zig");
+const pyclbr_mod = @import("../pyclbr_mod.zig");
+const tabnanny_mod = @import("../tabnanny_mod.zig");
+const stringprep_mod = @import("../stringprep_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -4273,6 +4289,290 @@ const MathFuncs = FuncMap.initComptime(.{
     .{ "ulp", math_mod.genUlp },
 });
 
+/// faulthandler module functions
+const FaulthandlerFuncs = FuncMap.initComptime(.{
+    .{ "enable", faulthandler_mod.genEnable },
+    .{ "disable", faulthandler_mod.genDisable },
+    .{ "is_enabled", faulthandler_mod.genIsEnabled },
+    .{ "dump_traceback", faulthandler_mod.genDumpTraceback },
+    .{ "dump_traceback_later", faulthandler_mod.genDumpTracebackLater },
+    .{ "cancel_dump_traceback_later", faulthandler_mod.genCancelDumpTracebackLater },
+    .{ "register", faulthandler_mod.genRegister },
+    .{ "unregister", faulthandler_mod.genUnregister },
+});
+
+/// tracemalloc module functions
+const TracemallocFuncs = FuncMap.initComptime(.{
+    .{ "start", tracemalloc_mod.genStart },
+    .{ "stop", tracemalloc_mod.genStop },
+    .{ "is_tracing", tracemalloc_mod.genIsTracing },
+    .{ "clear_traces", tracemalloc_mod.genClearTraces },
+    .{ "get_object_traceback", tracemalloc_mod.genGetObjectTraceback },
+    .{ "get_traceback_limit", tracemalloc_mod.genGetTracebackLimit },
+    .{ "get_traced_memory", tracemalloc_mod.genGetTracedMemory },
+    .{ "reset_peak", tracemalloc_mod.genResetPeak },
+    .{ "get_tracemalloc_memory", tracemalloc_mod.genGetTracemallocMemory },
+    .{ "take_snapshot", tracemalloc_mod.genTakeSnapshot },
+    .{ "Snapshot", tracemalloc_mod.genSnapshot },
+    .{ "Statistic", tracemalloc_mod.genStatistic },
+    .{ "StatisticDiff", tracemalloc_mod.genStatisticDiff },
+    .{ "Trace", tracemalloc_mod.genTrace },
+    .{ "Traceback", tracemalloc_mod.genTraceback },
+    .{ "Frame", tracemalloc_mod.genFrame },
+    .{ "Filter", tracemalloc_mod.genFilter },
+    .{ "DomainFilter", tracemalloc_mod.genDomainFilter },
+});
+
+/// sysconfig module functions
+const SysconfigFuncs = FuncMap.initComptime(.{
+    .{ "get_config_vars", sysconfig_mod.genGetConfigVars },
+    .{ "get_config_var", sysconfig_mod.genGetConfigVar },
+    .{ "get_scheme_names", sysconfig_mod.genGetSchemeNames },
+    .{ "get_default_scheme", sysconfig_mod.genGetDefaultScheme },
+    .{ "get_preferred_scheme", sysconfig_mod.genGetPreferredScheme },
+    .{ "get_path_names", sysconfig_mod.genGetPathNames },
+    .{ "get_paths", sysconfig_mod.genGetPaths },
+    .{ "get_path", sysconfig_mod.genGetPath },
+    .{ "get_python_lib", sysconfig_mod.genGetPythonLib },
+    .{ "get_platform", sysconfig_mod.genGetPlatform },
+    .{ "get_makefile_filename", sysconfig_mod.genGetMakefileFilename },
+    .{ "parse_config_h", sysconfig_mod.genParseConfigH },
+    .{ "is_python_build", sysconfig_mod.genIsPythonBuild },
+});
+
+/// fileinput module functions
+const FileinputFuncs = FuncMap.initComptime(.{
+    .{ "input", fileinput_mod.genInput },
+    .{ "filename", fileinput_mod.genFilename },
+    .{ "fileno", fileinput_mod.genFileno },
+    .{ "lineno", fileinput_mod.genLineno },
+    .{ "filelineno", fileinput_mod.genFilelineno },
+    .{ "isfirstline", fileinput_mod.genIsfirstline },
+    .{ "isstdin", fileinput_mod.genIsstdin },
+    .{ "nextfile", fileinput_mod.genNextfile },
+    .{ "close", fileinput_mod.genClose },
+    .{ "FileInput", fileinput_mod.genFileInput },
+    .{ "hook_compressed", fileinput_mod.genHookCompressed },
+    .{ "hook_encoded", fileinput_mod.genHookEncoded },
+});
+
+/// getopt module functions
+const GetoptFuncs = FuncMap.initComptime(.{
+    .{ "getopt", getopt_mod.genGetopt },
+    .{ "gnu_getopt", getopt_mod.genGnuGetopt },
+    .{ "GetoptError", getopt_mod.genGetoptError },
+    .{ "error", getopt_mod.genError },
+});
+
+/// chunk module functions
+const ChunkFuncs = FuncMap.initComptime(.{
+    .{ "Chunk", chunk_mod.genChunk },
+    .{ "getname", chunk_mod.genGetname },
+    .{ "getsize", chunk_mod.genGetsize },
+    .{ "close", chunk_mod.genClose },
+    .{ "isatty", chunk_mod.genIsatty },
+    .{ "seek", chunk_mod.genSeek },
+    .{ "tell", chunk_mod.genTell },
+    .{ "read", chunk_mod.genRead },
+    .{ "skip", chunk_mod.genSkip },
+});
+
+/// bdb module functions
+const BdbFuncs = FuncMap.initComptime(.{
+    .{ "Bdb", bdb_mod.genBdb },
+    .{ "Breakpoint", bdb_mod.genBreakpoint },
+    .{ "effective", bdb_mod.genEffective },
+    .{ "checkfuncname", bdb_mod.genCheckfuncname },
+    .{ "set_trace", bdb_mod.genSetTrace },
+    .{ "BdbQuit", bdb_mod.genBdbQuit },
+    .{ "reset", bdb_mod.genReset },
+    .{ "trace_dispatch", bdb_mod.genTraceDispatch },
+    .{ "dispatch_line", bdb_mod.genDispatchLine },
+    .{ "dispatch_call", bdb_mod.genDispatchCall },
+    .{ "dispatch_return", bdb_mod.genDispatchReturn },
+    .{ "dispatch_exception", bdb_mod.genDispatchException },
+    .{ "is_skipped_module", bdb_mod.genIsSkippedModule },
+    .{ "stop_here", bdb_mod.genStopHere },
+    .{ "break_here", bdb_mod.genBreakHere },
+    .{ "break_anywhere", bdb_mod.genBreakAnywhere },
+    .{ "set_step", bdb_mod.genSetStep },
+    .{ "set_next", bdb_mod.genSetNext },
+    .{ "set_return", bdb_mod.genSetReturn },
+    .{ "set_until", bdb_mod.genSetUntil },
+    .{ "set_continue", bdb_mod.genSetContinue },
+    .{ "set_quit", bdb_mod.genSetQuit },
+    .{ "set_break", bdb_mod.genSetBreak },
+    .{ "clear_break", bdb_mod.genClearBreak },
+    .{ "clear_bpbynumber", bdb_mod.genClearBpbynumber },
+    .{ "clear_all_file_breaks", bdb_mod.genClearAllFileBreaks },
+    .{ "clear_all_breaks", bdb_mod.genClearAllBreaks },
+    .{ "get_bpbynumber", bdb_mod.genGetBpbynumber },
+    .{ "get_break", bdb_mod.genGetBreak },
+    .{ "get_breaks", bdb_mod.genGetBreaks },
+    .{ "get_file_breaks", bdb_mod.genGetFileBreaks },
+    .{ "get_all_breaks", bdb_mod.genGetAllBreaks },
+    .{ "get_stack", bdb_mod.genGetStack },
+    .{ "format_stack_entry", bdb_mod.genFormatStackEntry },
+    .{ "run", bdb_mod.genRun },
+    .{ "runeval", bdb_mod.genRuneval },
+    .{ "runctx", bdb_mod.genRunctx },
+    .{ "runcall", bdb_mod.genRuncall },
+    .{ "canonic", bdb_mod.genCanonic },
+});
+
+/// pstats module functions
+const PstatsFuncs = FuncMap.initComptime(.{
+    .{ "Stats", pstats_mod.genStats },
+    .{ "SortKey", pstats_mod.genSortKey },
+    .{ "strip_dirs", pstats_mod.genStripDirs },
+    .{ "add", pstats_mod.genAdd },
+    .{ "dump_stats", pstats_mod.genDumpStats },
+    .{ "sort_stats", pstats_mod.genSortStats },
+    .{ "reverse_order", pstats_mod.genReverseOrder },
+    .{ "print_stats", pstats_mod.genPrintStats },
+    .{ "print_callers", pstats_mod.genPrintCallers },
+    .{ "print_callees", pstats_mod.genPrintCallees },
+    .{ "get_stats_profile", pstats_mod.genGetStatsProfile },
+    .{ "FunctionProfile", pstats_mod.genFunctionProfile },
+    .{ "StatsProfile", pstats_mod.genStatsProfile },
+});
+
+/// unicodedata module functions
+const UnicodedataFuncs = FuncMap.initComptime(.{
+    .{ "lookup", unicodedata_mod.genLookup },
+    .{ "name", unicodedata_mod.genName },
+    .{ "decimal", unicodedata_mod.genDecimal },
+    .{ "digit", unicodedata_mod.genDigit },
+    .{ "numeric", unicodedata_mod.genNumeric },
+    .{ "category", unicodedata_mod.genCategory },
+    .{ "bidirectional", unicodedata_mod.genBidirectional },
+    .{ "combining", unicodedata_mod.genCombining },
+    .{ "east_asian_width", unicodedata_mod.genEastAsianWidth },
+    .{ "mirrored", unicodedata_mod.genMirrored },
+    .{ "decomposition", unicodedata_mod.genDecomposition },
+    .{ "normalize", unicodedata_mod.genNormalize },
+    .{ "is_normalized", unicodedata_mod.genIsNormalized },
+    .{ "unidata_version", unicodedata_mod.genUnidataVersion },
+    .{ "ucd_3_2_0", unicodedata_mod.genUcd320 },
+});
+
+/// zoneinfo module functions
+const ZoneinfoFuncs = FuncMap.initComptime(.{
+    .{ "ZoneInfo", zoneinfo_mod.genZoneInfo },
+    .{ "available_timezones", zoneinfo_mod.genAvailableTimezones },
+    .{ "reset_tzpath", zoneinfo_mod.genResetTzpath },
+    .{ "TZPATH", zoneinfo_mod.genTZPATH },
+    .{ "key", zoneinfo_mod.genKey },
+    .{ "utcoffset", zoneinfo_mod.genUtcoffset },
+    .{ "tzname", zoneinfo_mod.genTzname },
+    .{ "dst", zoneinfo_mod.genDst },
+    .{ "fromutc", zoneinfo_mod.genFromutc },
+    .{ "no_cache", zoneinfo_mod.genNoCache },
+    .{ "clear_cache", zoneinfo_mod.genClearCache },
+    .{ "ZoneInfoNotFoundError", zoneinfo_mod.genZoneInfoNotFoundError },
+    .{ "InvalidTZPathWarning", zoneinfo_mod.genInvalidTZPathWarning },
+});
+
+/// tomllib module functions
+const TomllibFuncs = FuncMap.initComptime(.{
+    .{ "load", tomllib_mod.genLoad },
+    .{ "loads", tomllib_mod.genLoads },
+    .{ "TOMLDecodeError", tomllib_mod.genTOMLDecodeError },
+});
+
+/// webbrowser module functions
+const WebbrowserFuncs = FuncMap.initComptime(.{
+    .{ "open", webbrowser_mod.genOpen },
+    .{ "open_new", webbrowser_mod.genOpenNew },
+    .{ "open_new_tab", webbrowser_mod.genOpenNewTab },
+    .{ "get", webbrowser_mod.genGet },
+    .{ "register", webbrowser_mod.genRegister },
+    .{ "Error", webbrowser_mod.genError },
+    .{ "BaseBrowser", webbrowser_mod.genBaseBrowser },
+    .{ "GenericBrowser", webbrowser_mod.genGenericBrowser },
+    .{ "BackgroundBrowser", webbrowser_mod.genBackgroundBrowser },
+    .{ "UnixBrowser", webbrowser_mod.genUnixBrowser },
+    .{ "Mozilla", webbrowser_mod.genMozilla },
+    .{ "Netscape", webbrowser_mod.genNetscape },
+    .{ "Galeon", webbrowser_mod.genGaleon },
+    .{ "Chrome", webbrowser_mod.genChrome },
+    .{ "Chromium", webbrowser_mod.genChromium },
+    .{ "Opera", webbrowser_mod.genOpera },
+    .{ "Elinks", webbrowser_mod.genElinks },
+    .{ "Konqueror", webbrowser_mod.genKonqueror },
+    .{ "Grail", webbrowser_mod.genGrail },
+    .{ "MacOSX", webbrowser_mod.genMacOSX },
+    .{ "MacOSXOSAScript", webbrowser_mod.genMacOSXOSAScript },
+    .{ "WindowsDefault", webbrowser_mod.genWindowsDefault },
+});
+
+/// modulefinder module functions
+const ModulefinderFuncs = FuncMap.initComptime(.{
+    .{ "ModuleFinder", modulefinder_mod.genModuleFinder },
+    .{ "msg", modulefinder_mod.genMsg },
+    .{ "msgin", modulefinder_mod.genMsgin },
+    .{ "msgout", modulefinder_mod.genMsgout },
+    .{ "run_script", modulefinder_mod.genRunScript },
+    .{ "load_file", modulefinder_mod.genLoadFile },
+    .{ "import_hook", modulefinder_mod.genImportHook },
+    .{ "determine_parent", modulefinder_mod.genDetermineParent },
+    .{ "find_head_package", modulefinder_mod.genFindHeadPackage },
+    .{ "load_tail", modulefinder_mod.genLoadTail },
+    .{ "ensure_fromlist", modulefinder_mod.genEnsureFromlist },
+    .{ "find_all_submodules", modulefinder_mod.genFindAllSubmodules },
+    .{ "import_module", modulefinder_mod.genImportModule },
+    .{ "load_module", modulefinder_mod.genLoadModule },
+    .{ "scan_code", modulefinder_mod.genScanCode },
+    .{ "scan_opcodes", modulefinder_mod.genScanOpcodes },
+    .{ "any_missing", modulefinder_mod.genAnyMissing },
+    .{ "any_missing_maybe", modulefinder_mod.genAnyMissingMaybe },
+    .{ "replace_paths_in_code", modulefinder_mod.genReplacePathsInCode },
+    .{ "report", modulefinder_mod.genReport },
+    .{ "Module", modulefinder_mod.genModule },
+    .{ "ReplacePackage", modulefinder_mod.genReplacePackage },
+    .{ "AddPackagePath", modulefinder_mod.genAddPackagePath },
+});
+
+/// pyclbr module functions
+const PyclbrFuncs = FuncMap.initComptime(.{
+    .{ "readmodule", pyclbr_mod.genReadmodule },
+    .{ "readmodule_ex", pyclbr_mod.genReadmoduleEx },
+    .{ "Class", pyclbr_mod.genClass },
+    .{ "Function", pyclbr_mod.genFunction },
+});
+
+/// tabnanny module functions
+const TabnannyFuncs = FuncMap.initComptime(.{
+    .{ "check", tabnanny_mod.genCheck },
+    .{ "process_tokens", tabnanny_mod.genProcessTokens },
+    .{ "NannyNag", tabnanny_mod.genNannyNag },
+    .{ "verbose", tabnanny_mod.genVerbose },
+    .{ "filename_only", tabnanny_mod.genFilenameOnly },
+});
+
+/// stringprep module functions
+const StringprepFuncs = FuncMap.initComptime(.{
+    .{ "in_table_a1", stringprep_mod.genInTableA1 },
+    .{ "in_table_b1", stringprep_mod.genInTableB1 },
+    .{ "map_table_b2", stringprep_mod.genMapTableB2 },
+    .{ "map_table_b3", stringprep_mod.genMapTableB3 },
+    .{ "in_table_c11", stringprep_mod.genInTableC11 },
+    .{ "in_table_c12", stringprep_mod.genInTableC12 },
+    .{ "in_table_c11_c12", stringprep_mod.genInTableC11C12 },
+    .{ "in_table_c21", stringprep_mod.genInTableC21 },
+    .{ "in_table_c22", stringprep_mod.genInTableC22 },
+    .{ "in_table_c21_c22", stringprep_mod.genInTableC21C22 },
+    .{ "in_table_c3", stringprep_mod.genInTableC3 },
+    .{ "in_table_c4", stringprep_mod.genInTableC4 },
+    .{ "in_table_c5", stringprep_mod.genInTableC5 },
+    .{ "in_table_c6", stringprep_mod.genInTableC6 },
+    .{ "in_table_c7", stringprep_mod.genInTableC7 },
+    .{ "in_table_c8", stringprep_mod.genInTableC8 },
+    .{ "in_table_c9", stringprep_mod.genInTableC9 },
+    .{ "in_table_d1", stringprep_mod.genInTableD1 },
+    .{ "in_table_d2", stringprep_mod.genInTableD2 },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -4515,6 +4815,22 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "_locale", LocaleInternalFuncs },
     .{ "_signal", SignalInternalFuncs },
     .{ "math", MathFuncs },
+    .{ "faulthandler", FaulthandlerFuncs },
+    .{ "tracemalloc", TracemallocFuncs },
+    .{ "sysconfig", SysconfigFuncs },
+    .{ "fileinput", FileinputFuncs },
+    .{ "getopt", GetoptFuncs },
+    .{ "chunk", ChunkFuncs },
+    .{ "bdb", BdbFuncs },
+    .{ "pstats", PstatsFuncs },
+    .{ "unicodedata", UnicodedataFuncs },
+    .{ "zoneinfo", ZoneinfoFuncs },
+    .{ "tomllib", TomllibFuncs },
+    .{ "webbrowser", WebbrowserFuncs },
+    .{ "modulefinder", ModulefinderFuncs },
+    .{ "pyclbr", PyclbrFuncs },
+    .{ "tabnanny", TabnannyFuncs },
+    .{ "stringprep", StringprepFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
@@ -4532,12 +4848,19 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
         return error.OutOfMemory;
     }
 
+    std.debug.print("[DEBUG] module_functions.tryDispatch: module={s}, func={s}\n", .{ module_name, func_name });
+
     // O(1) module lookup, then O(1) function lookup
     if (ModuleMap.get(module_name)) |func_map| {
+        std.debug.print("[DEBUG]   Module found in ModuleMap\n", .{});
         if (func_map.get(func_name)) |handler| {
+            std.debug.print("[DEBUG]   Function found, calling handler\n", .{});
             try handler(self, call.args);
             return true;
         }
+        std.debug.print("[DEBUG]   Function NOT found in module\n", .{});
+    } else {
+        std.debug.print("[DEBUG]   Module NOT found in ModuleMap\n", .{});
     }
 
     return false;
