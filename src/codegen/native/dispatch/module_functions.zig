@@ -166,6 +166,12 @@ const compileall_mod = @import("../compileall_mod.zig");
 const py_compile_mod = @import("../py_compile_mod.zig");
 const contextvars_mod = @import("../contextvars_mod.zig");
 const site_mod = @import("../site_mod.zig");
+const __future___mod = @import("../__future___mod.zig");
+const copyreg_mod = @import("../copyreg_mod.zig");
+const _thread_mod = @import("../_thread_mod.zig");
+const posixpath_mod = @import("../posixpath_mod.zig");
+const reprlib_mod = @import("../reprlib_mod.zig");
+const _collections_abc_mod = @import("../_collections_abc_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -3396,6 +3402,127 @@ const SiteFuncs = FuncMap.initComptime(.{
     .{ "removeduppaths", site_mod.genRemoveduppaths },
 });
 
+/// __future__ module functions
+const FutureFuncs = FuncMap.initComptime(.{
+    .{ "annotations", __future___mod.genAnnotations },
+    .{ "division", __future___mod.genDivision },
+    .{ "absolute_import", __future___mod.genAbsolute_import },
+    .{ "with_statement", __future___mod.genWith_statement },
+    .{ "print_function", __future___mod.genPrint_function },
+    .{ "unicode_literals", __future___mod.genUnicode_literals },
+    .{ "generator_stop", __future___mod.genGenerator_stop },
+    .{ "nested_scopes", __future___mod.genNested_scopes },
+    .{ "generators", __future___mod.genGenerators },
+});
+
+/// copyreg module functions
+const CopyregFuncs = FuncMap.initComptime(.{
+    .{ "pickle", copyreg_mod.genPickle },
+    .{ "constructor", copyreg_mod.genConstructor },
+    .{ "dispatch_table", copyreg_mod.genDispatch_table },
+    .{ "_extension_registry", copyreg_mod.gen_extension_registry },
+    .{ "_inverted_registry", copyreg_mod.gen_inverted_registry },
+    .{ "_extension_cache", copyreg_mod.gen_extension_cache },
+    .{ "add_extension", copyreg_mod.genAdd_extension },
+    .{ "remove_extension", copyreg_mod.genRemove_extension },
+    .{ "clear_extension_cache", copyreg_mod.genClear_extension_cache },
+    .{ "__newobj__", copyreg_mod.gen__newobj__ },
+    .{ "__newobj_ex__", copyreg_mod.gen__newobj_ex__ },
+});
+
+/// _thread module functions
+const ThreadFuncs = FuncMap.initComptime(.{
+    .{ "start_new_thread", _thread_mod.genStart_new_thread },
+    .{ "interrupt_main", _thread_mod.genInterrupt_main },
+    .{ "exit", _thread_mod.genExit },
+    .{ "allocate_lock", _thread_mod.genAllocate_lock },
+    .{ "get_ident", _thread_mod.genGet_ident },
+    .{ "get_native_id", _thread_mod.genGet_native_id },
+    .{ "stack_size", _thread_mod.genStack_size },
+    .{ "TIMEOUT_MAX", _thread_mod.genTIMEOUT_MAX },
+    .{ "LockType", _thread_mod.genLockType },
+    .{ "RLock", _thread_mod.genRLock },
+    .{ "error", _thread_mod.genError },
+});
+
+/// posixpath module functions
+const PosixpathFuncs = FuncMap.initComptime(.{
+    .{ "abspath", posixpath_mod.genAbspath },
+    .{ "basename", posixpath_mod.genBasename },
+    .{ "commonpath", posixpath_mod.genCommonpath },
+    .{ "commonprefix", posixpath_mod.genCommonprefix },
+    .{ "dirname", posixpath_mod.genDirname },
+    .{ "exists", posixpath_mod.genExists },
+    .{ "expanduser", posixpath_mod.genExpanduser },
+    .{ "expandvars", posixpath_mod.genExpandvars },
+    .{ "getatime", posixpath_mod.genGetatime },
+    .{ "getctime", posixpath_mod.genGetctime },
+    .{ "getmtime", posixpath_mod.genGetmtime },
+    .{ "getsize", posixpath_mod.genGetsize },
+    .{ "isabs", posixpath_mod.genIsabs },
+    .{ "isdir", posixpath_mod.genIsdir },
+    .{ "isfile", posixpath_mod.genIsfile },
+    .{ "islink", posixpath_mod.genIslink },
+    .{ "ismount", posixpath_mod.genIsmount },
+    .{ "join", posixpath_mod.genJoin },
+    .{ "lexists", posixpath_mod.genLexists },
+    .{ "normcase", posixpath_mod.genNormcase },
+    .{ "normpath", posixpath_mod.genNormpath },
+    .{ "realpath", posixpath_mod.genRealpath },
+    .{ "relpath", posixpath_mod.genRelpath },
+    .{ "samefile", posixpath_mod.genSamefile },
+    .{ "sameopenfile", posixpath_mod.genSameopenfile },
+    .{ "samestat", posixpath_mod.genSamestat },
+    .{ "split", posixpath_mod.genSplit },
+    .{ "splitdrive", posixpath_mod.genSplitdrive },
+    .{ "splitext", posixpath_mod.genSplitext },
+    .{ "sep", posixpath_mod.genSep },
+    .{ "altsep", posixpath_mod.genAltsep },
+    .{ "extsep", posixpath_mod.genExtsep },
+    .{ "pathsep", posixpath_mod.genPathsep },
+    .{ "defpath", posixpath_mod.genDefpath },
+    .{ "devnull", posixpath_mod.genDevnull },
+    .{ "curdir", posixpath_mod.genCurdir },
+    .{ "pardir", posixpath_mod.genPardir },
+});
+
+/// reprlib module functions
+const ReprlibFuncs = FuncMap.initComptime(.{
+    .{ "Repr", reprlib_mod.genRepr },
+    .{ "repr", reprlib_mod.genReprFunc },
+    .{ "recursive_repr", reprlib_mod.genRecursive_repr },
+});
+
+/// _collections_abc module functions
+const CollectionsAbcFuncs = FuncMap.initComptime(.{
+    .{ "Awaitable", _collections_abc_mod.genAwaitable },
+    .{ "Coroutine", _collections_abc_mod.genCoroutine },
+    .{ "AsyncIterable", _collections_abc_mod.genAsyncIterable },
+    .{ "AsyncIterator", _collections_abc_mod.genAsyncIterator },
+    .{ "AsyncGenerator", _collections_abc_mod.genAsyncGenerator },
+    .{ "Hashable", _collections_abc_mod.genHashable },
+    .{ "Iterable", _collections_abc_mod.genIterable },
+    .{ "Iterator", _collections_abc_mod.genIterator },
+    .{ "Generator", _collections_abc_mod.genGenerator },
+    .{ "Reversible", _collections_abc_mod.genReversible },
+    .{ "Container", _collections_abc_mod.genContainer },
+    .{ "Collection", _collections_abc_mod.genCollection },
+    .{ "Callable", _collections_abc_mod.genCallable },
+    .{ "Set", _collections_abc_mod.genSet },
+    .{ "MutableSet", _collections_abc_mod.genMutableSet },
+    .{ "Mapping", _collections_abc_mod.genMapping },
+    .{ "MutableMapping", _collections_abc_mod.genMutableMapping },
+    .{ "Sequence", _collections_abc_mod.genSequence },
+    .{ "MutableSequence", _collections_abc_mod.genMutableSequence },
+    .{ "ByteString", _collections_abc_mod.genByteString },
+    .{ "MappingView", _collections_abc_mod.genMappingView },
+    .{ "KeysView", _collections_abc_mod.genKeysView },
+    .{ "ItemsView", _collections_abc_mod.genItemsView },
+    .{ "ValuesView", _collections_abc_mod.genValuesView },
+    .{ "Sized", _collections_abc_mod.genSized },
+    .{ "Buffer", _collections_abc_mod.genBuffer },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -3594,6 +3721,13 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "py_compile", PyCompileFuncs },
     .{ "contextvars", ContextvarsFuncs },
     .{ "site", SiteFuncs },
+    .{ "__future__", FutureFuncs },
+    .{ "copyreg", CopyregFuncs },
+    .{ "_thread", ThreadFuncs },
+    .{ "posixpath", PosixpathFuncs },
+    .{ "reprlib", ReprlibFuncs },
+    .{ "collections.abc", CollectionsAbcFuncs },
+    .{ "_collections_abc", CollectionsAbcFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
