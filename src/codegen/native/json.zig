@@ -48,8 +48,8 @@ pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Native list (ArrayList) needs conversion to PyList
         try genJsonDumpsList(self, args[0], arg_type.list.*);
     } else {
-        // Already a PyObject or primitive - use directly (dumpsDirect returns []const u8)
-        try self.emit("try runtime.json.dumpsDirect(");
+        // Native Zig value (string, int, bool, null) - use dumpsValue
+        try self.emit("try runtime.json.dumpsValue(");
         try self.genExpr(args[0]);
         try self.emit(", allocator)");
     }
