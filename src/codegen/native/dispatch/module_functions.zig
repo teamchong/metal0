@@ -86,6 +86,12 @@ const multiprocessing_mod = @import("../multiprocessing_mod.zig");
 const concurrent_futures_mod = @import("../concurrent_futures_mod.zig");
 const ctypes_mod = @import("../ctypes_mod.zig");
 const select_mod = @import("../select_mod.zig");
+const signal_mod = @import("../signal_mod.zig");
+const mmap_mod = @import("../mmap_mod.zig");
+const fcntl_mod = @import("../fcntl_mod.zig");
+const termios_mod = @import("../termios_mod.zig");
+const pty_mod = @import("../pty_mod.zig");
+const tty_mod = @import("../tty_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -1568,6 +1574,184 @@ const SelectFuncs = FuncMap.initComptime(.{
     .{ "KQ_EV_ERROR", select_mod.genKQ_EV_ERROR },
 });
 
+/// signal module functions
+const SignalFuncs = FuncMap.initComptime(.{
+    .{ "signal", signal_mod.genSignal },
+    .{ "getsignal", signal_mod.genGetsignal },
+    .{ "strsignal", signal_mod.genStrsignal },
+    .{ "valid_signals", signal_mod.genValidSignals },
+    .{ "raise_signal", signal_mod.genRaiseSignal },
+    .{ "alarm", signal_mod.genAlarm },
+    .{ "pause", signal_mod.genPause },
+    .{ "setitimer", signal_mod.genSetitimer },
+    .{ "getitimer", signal_mod.genGetitimer },
+    .{ "set_wakeup_fd", signal_mod.genSetWakeupFd },
+    .{ "sigwait", signal_mod.genSigwait },
+    .{ "sigwaitinfo", signal_mod.genSigwaitinfo },
+    .{ "sigtimedwait", signal_mod.genSigtimedwait },
+    .{ "pthread_sigmask", signal_mod.genPthreadSigmask },
+    .{ "pthread_kill", signal_mod.genPthreadKill },
+    .{ "sigpending", signal_mod.genSigpending },
+    .{ "siginterrupt", signal_mod.genSiginterrupt },
+    .{ "SIGHUP", signal_mod.genSIGHUP },
+    .{ "SIGINT", signal_mod.genSIGINT },
+    .{ "SIGQUIT", signal_mod.genSIGQUIT },
+    .{ "SIGILL", signal_mod.genSIGILL },
+    .{ "SIGTRAP", signal_mod.genSIGTRAP },
+    .{ "SIGABRT", signal_mod.genSIGABRT },
+    .{ "SIGBUS", signal_mod.genSIGBUS },
+    .{ "SIGFPE", signal_mod.genSIGFPE },
+    .{ "SIGKILL", signal_mod.genSIGKILL },
+    .{ "SIGUSR1", signal_mod.genSIGUSR1 },
+    .{ "SIGSEGV", signal_mod.genSIGSEGV },
+    .{ "SIGUSR2", signal_mod.genSIGUSR2 },
+    .{ "SIGPIPE", signal_mod.genSIGPIPE },
+    .{ "SIGALRM", signal_mod.genSIGALRM },
+    .{ "SIGTERM", signal_mod.genSIGTERM },
+    .{ "SIGCHLD", signal_mod.genSIGCHLD },
+    .{ "SIGCONT", signal_mod.genSIGCONT },
+    .{ "SIGSTOP", signal_mod.genSIGSTOP },
+    .{ "SIGTSTP", signal_mod.genSIGTSTP },
+    .{ "SIGTTIN", signal_mod.genSIGTTIN },
+    .{ "SIGTTOU", signal_mod.genSIGTTOU },
+    .{ "SIGURG", signal_mod.genSIGURG },
+    .{ "SIGXCPU", signal_mod.genSIGXCPU },
+    .{ "SIGXFSZ", signal_mod.genSIGXFSZ },
+    .{ "SIGVTALRM", signal_mod.genSIGVTALRM },
+    .{ "SIGPROF", signal_mod.genSIGPROF },
+    .{ "SIGWINCH", signal_mod.genSIGWINCH },
+    .{ "SIGIO", signal_mod.genSIGIO },
+    .{ "SIGSYS", signal_mod.genSIGSYS },
+    .{ "SIG_DFL", signal_mod.genSIG_DFL },
+    .{ "SIG_IGN", signal_mod.genSIG_IGN },
+    .{ "SIG_BLOCK", signal_mod.genSIG_BLOCK },
+    .{ "SIG_UNBLOCK", signal_mod.genSIG_UNBLOCK },
+    .{ "SIG_SETMASK", signal_mod.genSIG_SETMASK },
+    .{ "ITIMER_REAL", signal_mod.genITIMER_REAL },
+    .{ "ITIMER_VIRTUAL", signal_mod.genITIMER_VIRTUAL },
+    .{ "ITIMER_PROF", signal_mod.genITIMER_PROF },
+    .{ "NSIG", signal_mod.genNSIG },
+    .{ "Signals", signal_mod.genSignals },
+    .{ "Handlers", signal_mod.genHandlers },
+});
+
+/// mmap module functions
+const MmapFuncs = FuncMap.initComptime(.{
+    .{ "mmap", mmap_mod.genMmap },
+    .{ "ACCESS_READ", mmap_mod.genACCESS_READ },
+    .{ "ACCESS_WRITE", mmap_mod.genACCESS_WRITE },
+    .{ "ACCESS_COPY", mmap_mod.genACCESS_COPY },
+    .{ "ACCESS_DEFAULT", mmap_mod.genACCESS_DEFAULT },
+    .{ "MAP_SHARED", mmap_mod.genMAP_SHARED },
+    .{ "MAP_PRIVATE", mmap_mod.genMAP_PRIVATE },
+    .{ "MAP_ANONYMOUS", mmap_mod.genMAP_ANONYMOUS },
+    .{ "PROT_READ", mmap_mod.genPROT_READ },
+    .{ "PROT_WRITE", mmap_mod.genPROT_WRITE },
+    .{ "PROT_EXEC", mmap_mod.genPROT_EXEC },
+    .{ "PAGESIZE", mmap_mod.genPAGESIZE },
+    .{ "ALLOCATIONGRANULARITY", mmap_mod.genALLOCATIONGRANULARITY },
+    .{ "MADV_NORMAL", mmap_mod.genMADV_NORMAL },
+    .{ "MADV_RANDOM", mmap_mod.genMADV_RANDOM },
+    .{ "MADV_SEQUENTIAL", mmap_mod.genMADV_SEQUENTIAL },
+    .{ "MADV_WILLNEED", mmap_mod.genMADV_WILLNEED },
+    .{ "MADV_DONTNEED", mmap_mod.genMADV_DONTNEED },
+});
+
+/// fcntl module functions
+const FcntlFuncs = FuncMap.initComptime(.{
+    .{ "fcntl", fcntl_mod.genFcntl },
+    .{ "ioctl", fcntl_mod.genIoctl },
+    .{ "flock", fcntl_mod.genFlock },
+    .{ "lockf", fcntl_mod.genLockf },
+    .{ "F_DUPFD", fcntl_mod.genF_DUPFD },
+    .{ "F_GETFD", fcntl_mod.genF_GETFD },
+    .{ "F_SETFD", fcntl_mod.genF_SETFD },
+    .{ "F_GETFL", fcntl_mod.genF_GETFL },
+    .{ "F_SETFL", fcntl_mod.genF_SETFL },
+    .{ "F_GETLK", fcntl_mod.genF_GETLK },
+    .{ "F_SETLK", fcntl_mod.genF_SETLK },
+    .{ "F_SETLKW", fcntl_mod.genF_SETLKW },
+    .{ "F_RDLCK", fcntl_mod.genF_RDLCK },
+    .{ "F_WRLCK", fcntl_mod.genF_WRLCK },
+    .{ "F_UNLCK", fcntl_mod.genF_UNLCK },
+    .{ "FD_CLOEXEC", fcntl_mod.genFD_CLOEXEC },
+    .{ "F_GETOWN", fcntl_mod.genF_GETOWN },
+    .{ "F_SETOWN", fcntl_mod.genF_SETOWN },
+    .{ "F_GETSIG", fcntl_mod.genF_GETSIG },
+    .{ "F_SETSIG", fcntl_mod.genF_SETSIG },
+    .{ "LOCK_SH", fcntl_mod.genLOCK_SH },
+    .{ "LOCK_EX", fcntl_mod.genLOCK_EX },
+    .{ "LOCK_NB", fcntl_mod.genLOCK_NB },
+    .{ "LOCK_UN", fcntl_mod.genLOCK_UN },
+    .{ "F_LOCK", fcntl_mod.genF_LOCK },
+    .{ "F_TLOCK", fcntl_mod.genF_TLOCK },
+    .{ "F_ULOCK", fcntl_mod.genF_ULOCK },
+    .{ "F_TEST", fcntl_mod.genF_TEST },
+});
+
+/// termios module functions
+const TermiosFuncs = FuncMap.initComptime(.{
+    .{ "tcgetattr", termios_mod.genTcgetattr },
+    .{ "tcsetattr", termios_mod.genTcsetattr },
+    .{ "tcsendbreak", termios_mod.genTcsendbreak },
+    .{ "tcdrain", termios_mod.genTcdrain },
+    .{ "tcflush", termios_mod.genTcflush },
+    .{ "tcflow", termios_mod.genTcflow },
+    .{ "tcgetwinsize", termios_mod.genTcgetwinsize },
+    .{ "tcsetwinsize", termios_mod.genTcsetwinsize },
+    .{ "TCSANOW", termios_mod.genTCSANOW },
+    .{ "TCSADRAIN", termios_mod.genTCSADRAIN },
+    .{ "TCSAFLUSH", termios_mod.genTCSAFLUSH },
+    .{ "TCIFLUSH", termios_mod.genTCIFLUSH },
+    .{ "TCOFLUSH", termios_mod.genTCOFLUSH },
+    .{ "TCIOFLUSH", termios_mod.genTCIOFLUSH },
+    .{ "TCOOFF", termios_mod.genTCOOFF },
+    .{ "TCOON", termios_mod.genTCOON },
+    .{ "TCIOFF", termios_mod.genTCIOFF },
+    .{ "TCION", termios_mod.genTCION },
+    .{ "ECHO", termios_mod.genECHO },
+    .{ "ECHOE", termios_mod.genECHOE },
+    .{ "ECHOK", termios_mod.genECHOK },
+    .{ "ECHONL", termios_mod.genECHONL },
+    .{ "ICANON", termios_mod.genICANON },
+    .{ "ISIG", termios_mod.genISIG },
+    .{ "IEXTEN", termios_mod.genIEXTEN },
+    .{ "ICRNL", termios_mod.genICRNL },
+    .{ "IXON", termios_mod.genIXON },
+    .{ "IXOFF", termios_mod.genIXOFF },
+    .{ "OPOST", termios_mod.genOPOST },
+    .{ "ONLCR", termios_mod.genONLCR },
+    .{ "CS8", termios_mod.genCS8 },
+    .{ "CREAD", termios_mod.genCREAD },
+    .{ "CLOCAL", termios_mod.genCLOCAL },
+    .{ "B9600", termios_mod.genB9600 },
+    .{ "B19200", termios_mod.genB19200 },
+    .{ "B38400", termios_mod.genB38400 },
+    .{ "B57600", termios_mod.genB57600 },
+    .{ "B115200", termios_mod.genB115200 },
+    .{ "VMIN", termios_mod.genVMIN },
+    .{ "VTIME", termios_mod.genVTIME },
+    .{ "NCCS", termios_mod.genNCCS },
+});
+
+/// pty module functions
+const PtyFuncs = FuncMap.initComptime(.{
+    .{ "fork", pty_mod.genFork },
+    .{ "openpty", pty_mod.genOpenpty },
+    .{ "spawn", pty_mod.genSpawn },
+    .{ "STDIN_FILENO", pty_mod.genSTDIN_FILENO },
+    .{ "STDOUT_FILENO", pty_mod.genSTDOUT_FILENO },
+    .{ "STDERR_FILENO", pty_mod.genSTDERR_FILENO },
+    .{ "CHILD", pty_mod.genCHILD },
+});
+
+/// tty module functions
+const TtyFuncs = FuncMap.initComptime(.{
+    .{ "setraw", tty_mod.genSetraw },
+    .{ "setcbreak", tty_mod.genSetcbreak },
+    .{ "isatty", tty_mod.genIsatty },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -1672,6 +1856,12 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "concurrent.futures", ConcurrentFuturesFuncs },
     .{ "ctypes", CtypesFuncs },
     .{ "select", SelectFuncs },
+    .{ "signal", SignalFuncs },
+    .{ "mmap", MmapFuncs },
+    .{ "fcntl", FcntlFuncs },
+    .{ "termios", TermiosFuncs },
+    .{ "pty", PtyFuncs },
+    .{ "tty", TtyFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

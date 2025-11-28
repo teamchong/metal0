@@ -238,6 +238,11 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
             },
         };
     } else {
+        // Check for set comprehension: {x for x in items}
+        if (self.check(.For)) {
+            return try parseSetComp(self, first_elem);
+        }
+
         // Set literal: {item} or {item1, item2, ...}
         var elts = std.ArrayList(ast.Node){};
         errdefer {
@@ -338,6 +343,76 @@ pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!a
         .dictcomp = .{
             .key = try self.allocNode(key_node),
             .value = try self.allocNode(value_node),
+            .generators = gens,
+        },
+    };
+}
+
+/// Parse set comprehension: {x for x in items if cond}
+/// We use genexp AST node since set comp is equivalent structurally
+pub fn parseSetComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
+    // We've already parsed the element expression
+    // Now parse one or more: for <target> in <iter> [if <condition>]
+    var elt_node = elt;
+    errdefer elt_node.deinit(self.allocator);
+
+    var generators = std.ArrayList(ast.Node.Comprehension){};
+    errdefer {
+        for (generators.items) |*gen| {
+            gen.target.deinit(self.allocator);
+            self.allocator.destroy(gen.target);
+            gen.iter.deinit(self.allocator);
+            self.allocator.destroy(gen.iter);
+            for (gen.ifs) |*cond| cond.deinit(self.allocator);
+            self.allocator.free(gen.ifs);
+        }
+        generators.deinit(self.allocator);
+    }
+
+    // Parse all "for ... in ..." clauses
+    while (self.match(.For)) {
+        // Parse target (name or tuple of names for unpacking)
+        var target = try parseComprehensionTarget(self);
+        errdefer target.deinit(self.allocator);
+
+        _ = try self.expect(.In);
+
+        var iter = try self.parseExpression();
+        errdefer iter.deinit(self.allocator);
+
+        // Parse any "if" conditions attached to this generator
+        var ifs = std.ArrayList(ast.Node){};
+        errdefer {
+            for (ifs.items) |*cond| cond.deinit(self.allocator);
+            ifs.deinit(self.allocator);
+        }
+
+        while (self.match(.If)) {
+            var cond = try self.parseExpression();
+            errdefer cond.deinit(self.allocator);
+            try ifs.append(self.allocator, cond);
+        }
+
+        const ifs_slice = try ifs.toOwnedSlice(self.allocator);
+        ifs = std.ArrayList(ast.Node){}; // Reset
+
+        try generators.append(self.allocator, .{
+            .target = try self.allocNode(target),
+            .iter = try self.allocNode(iter),
+            .ifs = ifs_slice,
+        });
+    }
+
+    _ = try self.expect(.RBrace);
+
+    // Success - transfer ownership
+    const gens = try generators.toOwnedSlice(self.allocator);
+    generators = std.ArrayList(ast.Node.Comprehension){}; // Reset
+
+    // Use genexp for set comprehension (same structure)
+    return ast.Node{
+        .genexp = .{
+            .elt = try self.allocNode(elt_node),
             .generators = gens,
         },
     };
