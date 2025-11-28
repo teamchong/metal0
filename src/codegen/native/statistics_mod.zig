@@ -103,7 +103,7 @@ pub fn genMedian(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_median_blk @as(f64, 0.0);\n");
     try self.emitIndent();
-    try self.emit("var _sorted = allocator.alloc(@TypeOf(_data[0]), _data.len) catch break :stats_median_blk @as(f64, 0.0);\n");
+    try self.emit("var _sorted = __global_allocator.alloc(@TypeOf(_data[0]), _data.len) catch break :stats_median_blk @as(f64, 0.0);\n");
     try self.emitIndent();
     try self.emit("@memcpy(_sorted, _data);\n");
     try self.emitIndent();
@@ -133,7 +133,7 @@ pub fn genMedianLow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_median_low_blk @as(i64, 0);\n");
     try self.emitIndent();
-    try self.emit("var _sorted = allocator.alloc(@TypeOf(_data[0]), _data.len) catch break :stats_median_low_blk @as(i64, 0);\n");
+    try self.emit("var _sorted = __global_allocator.alloc(@TypeOf(_data[0]), _data.len) catch break :stats_median_low_blk @as(i64, 0);\n");
     try self.emitIndent();
     try self.emit("@memcpy(_sorted, _data);\n");
     try self.emitIndent();
@@ -161,7 +161,7 @@ pub fn genMedianHigh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_median_high_blk @as(i64, 0);\n");
     try self.emitIndent();
-    try self.emit("var _sorted = allocator.alloc(@TypeOf(_data[0]), _data.len) catch break :stats_median_high_blk @as(i64, 0);\n");
+    try self.emit("var _sorted = __global_allocator.alloc(@TypeOf(_data[0]), _data.len) catch break :stats_median_high_blk @as(i64, 0);\n");
     try self.emitIndent();
     try self.emit("@memcpy(_sorted, _data);\n");
     try self.emitIndent();

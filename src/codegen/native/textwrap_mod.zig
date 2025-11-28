@@ -208,7 +208,7 @@ pub fn genShorten(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("if (_width <= 3) break :textwrap_shorten_blk \"...\";\n");
     try self.emitIndent();
-    try self.emit("var _result = allocator.alloc(u8, _width) catch break :textwrap_shorten_blk _text;\n");
+    try self.emit("var _result = __global_allocator.alloc(u8, _width) catch break :textwrap_shorten_blk _text;\n");
     try self.emitIndent();
     try self.emit("@memcpy(_result[0.._width-3], _text[0.._width-3]);\n");
     try self.emitIndent();

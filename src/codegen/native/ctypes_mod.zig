@@ -431,13 +431,13 @@ pub fn genCast(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate ctypes.create_string_buffer(init_or_size, size=None)
 pub fn genCreateStringBuffer(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("@as([]u8, allocator.alloc(u8, 256) catch &[_]u8{})");
+    try self.emit("@as([]u8, __global_allocator.alloc(u8, 256) catch &[_]u8{})");
 }
 
 /// Generate ctypes.create_unicode_buffer(init_or_size, size=None)
 pub fn genCreateUnicodeBuffer(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("@as([]u32, allocator.alloc(u32, 256) catch &[_]u32{})");
+    try self.emit("@as([]u32, __global_allocator.alloc(u32, 256) catch &[_]u32{})");
 }
 
 /// Generate ctypes.get_errno()

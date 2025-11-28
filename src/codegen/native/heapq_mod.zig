@@ -19,7 +19,7 @@ pub fn genHeappush(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[1]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("_heap.append(allocator, _item) catch {};\n");
+    try self.emit("_heap.append(__global_allocator, _item) catch {};\n");
     try self.emitIndent();
     try self.emit("var _i = _heap.items.len - 1;\n");
     try self.emitIndent();
@@ -226,7 +226,7 @@ pub fn genNlargest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[1]);
     try self.emit(".items;\n");
     try self.emitIndent();
-    try self.emit("var _sorted = allocator.alloc(@TypeOf(_items[0]), _items.len) catch break :heapq_nlargest_blk &[_]@TypeOf(_items[0]){};\n");
+    try self.emit("var _sorted = __global_allocator.alloc(@TypeOf(_items[0]), _items.len) catch break :heapq_nlargest_blk &[_]@TypeOf(_items[0]){};\n");
     try self.emitIndent();
     try self.emit("@memcpy(_sorted, _items);\n");
     try self.emitIndent();
@@ -253,7 +253,7 @@ pub fn genNsmallest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[1]);
     try self.emit(".items;\n");
     try self.emitIndent();
-    try self.emit("var _sorted = allocator.alloc(@TypeOf(_items[0]), _items.len) catch break :heapq_nsmallest_blk &[_]@TypeOf(_items[0]){};\n");
+    try self.emit("var _sorted = __global_allocator.alloc(@TypeOf(_items[0]), _items.len) catch break :heapq_nsmallest_blk &[_]@TypeOf(_items[0]){};\n");
     try self.emitIndent();
     try self.emit("@memcpy(_sorted, _items);\n");
     try self.emitIndent();

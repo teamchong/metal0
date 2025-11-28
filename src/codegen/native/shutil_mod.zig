@@ -123,11 +123,11 @@ pub fn genCopytree(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _src_path = std.fmt.allocPrint(allocator, \"{s}/{s}\", .{_src, entry.name}) catch continue;\n");
     try self.emitIndent();
-    try self.emit("defer allocator.free(_src_path);\n");
+    try self.emit("defer __global_allocator.free(_src_path);\n");
     try self.emitIndent();
     try self.emit("const _dst_path = std.fmt.allocPrint(allocator, \"{s}/{s}\", .{_dst, entry.name}) catch continue;\n");
     try self.emitIndent();
-    try self.emit("defer allocator.free(_dst_path);\n");
+    try self.emit("defer __global_allocator.free(_dst_path);\n");
     try self.emitIndent();
     try self.emit("if (entry.kind == .file) std.fs.copyFileAbsolute(_src_path, _dst_path, .{}) catch continue;\n");
     self.dedent();

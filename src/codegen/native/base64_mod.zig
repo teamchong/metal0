@@ -17,7 +17,7 @@ pub fn genB64encode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _len = std.base64.standard.Encoder.calcSize(_data.len);\n");
     try self.emitIndent();
-    try self.emit("const _buf = allocator.alloc(u8, _len) catch break :base64_encode_blk \"\";\n");
+    try self.emit("const _buf = __global_allocator.alloc(u8, _len) catch break :base64_encode_blk \"\";\n");
     try self.emitIndent();
     try self.emit("const _result = std.base64.standard.Encoder.encode(_buf, _data);\n");
     try self.emitIndent();
@@ -40,7 +40,7 @@ pub fn genB64decode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _len = std.base64.standard.Decoder.calcSizeForSlice(_data) catch break :base64_decode_blk \"\";\n");
     try self.emitIndent();
-    try self.emit("const _buf = allocator.alloc(u8, _len) catch break :base64_decode_blk \"\";\n");
+    try self.emit("const _buf = __global_allocator.alloc(u8, _len) catch break :base64_decode_blk \"\";\n");
     try self.emitIndent();
     try self.emit("std.base64.standard.Decoder.decode(_buf, _data) catch break :base64_decode_blk \"\";\n");
     try self.emitIndent();
@@ -63,7 +63,7 @@ pub fn genUrlsafeB64encode(self: *NativeCodegen, args: []ast.Node) CodegenError!
     try self.emitIndent();
     try self.emit("const _len = std.base64.url_safe.Encoder.calcSize(_data.len);\n");
     try self.emitIndent();
-    try self.emit("const _buf = allocator.alloc(u8, _len) catch break :base64_url_encode_blk \"\";\n");
+    try self.emit("const _buf = __global_allocator.alloc(u8, _len) catch break :base64_url_encode_blk \"\";\n");
     try self.emitIndent();
     try self.emit("const _result = std.base64.url_safe.Encoder.encode(_buf, _data);\n");
     try self.emitIndent();
@@ -86,7 +86,7 @@ pub fn genUrlsafeB64decode(self: *NativeCodegen, args: []ast.Node) CodegenError!
     try self.emitIndent();
     try self.emit("const _len = std.base64.url_safe.Decoder.calcSizeForSlice(_data) catch break :base64_url_decode_blk \"\";\n");
     try self.emitIndent();
-    try self.emit("const _buf = allocator.alloc(u8, _len) catch break :base64_url_decode_blk \"\";\n");
+    try self.emit("const _buf = __global_allocator.alloc(u8, _len) catch break :base64_url_decode_blk \"\";\n");
     try self.emitIndent();
     try self.emit("std.base64.url_safe.Decoder.decode(_buf, _data) catch break :base64_url_decode_blk \"\";\n");
     try self.emitIndent();
@@ -171,7 +171,7 @@ pub fn genB16encode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("const _buf = allocator.alloc(u8, _data.len * 2) catch break :hex_encode_blk \"\";\n");
+    try self.emit("const _buf = __global_allocator.alloc(u8, _data.len * 2) catch break :hex_encode_blk \"\";\n");
     try self.emitIndent();
     try self.emit("_ = std.fmt.bufPrint(_buf, \"{s}\", .{std.fmt.fmtSliceHexUpper(_data)}) catch break :hex_encode_blk \"\";\n");
     try self.emitIndent();
@@ -192,7 +192,7 @@ pub fn genB16decode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("const _buf = allocator.alloc(u8, _data.len / 2) catch break :hex_decode_blk \"\";\n");
+    try self.emit("const _buf = __global_allocator.alloc(u8, _data.len / 2) catch break :hex_decode_blk \"\";\n");
     try self.emitIndent();
     try self.emit("_ = std.fmt.hexToBytes(_buf, _data) catch break :hex_decode_blk \"\";\n");
     try self.emitIndent();

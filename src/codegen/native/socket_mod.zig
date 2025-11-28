@@ -93,7 +93,7 @@ pub fn genGethostname(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.emit("if (_result) |_name| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("break :hostname_blk allocator.dupe(u8, _name) catch \"\";\n");
+    try self.emit("break :hostname_blk __global_allocator.dupe(u8, _name) catch \"\";\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("} else |_| break :hostname_blk \"\";\n");
@@ -134,7 +134,7 @@ pub fn genInetAton(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("break :inet_aton_blk allocator.dupe(u8, &_parts) catch \"\";\n");
+    try self.emit("break :inet_aton_blk __global_allocator.dupe(u8, &_parts) catch \"\";\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
@@ -157,7 +157,7 @@ pub fn genInetNtoa(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _len = std.fmt.bufPrint(&_buf, \"{d}.{d}.{d}.{d}\", .{ _packed[0], _packed[1], _packed[2], _packed[3] }) catch break :inet_ntoa_blk \"0.0.0.0\";\n");
     try self.emitIndent();
-    try self.emit("break :inet_ntoa_blk allocator.dupe(u8, _len) catch \"0.0.0.0\";\n");
+    try self.emit("break :inet_ntoa_blk __global_allocator.dupe(u8, _len) catch \"0.0.0.0\";\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

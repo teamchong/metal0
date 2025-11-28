@@ -30,7 +30,7 @@ pub fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("_hmac.final(&_out);\n");
     try self.emitIndent();
     // Convert to hex string
-    try self.emit("const _hex = allocator.alloc(u8, 64) catch break :hmac_new_blk \"\";\n");
+    try self.emit("const _hex = __global_allocator.alloc(u8, 64) catch break :hmac_new_blk \"\";\n");
     try self.emitIndent();
     try self.emit("const _hex_chars = \"0123456789abcdef\";\n");
     try self.emitIndent();
@@ -70,7 +70,7 @@ pub fn genDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_hmac.update(_msg);\n");
     try self.emitIndent();
-    try self.emit("const _result = allocator.alloc(u8, 32) catch break :hmac_digest_blk \"\";\n");
+    try self.emit("const _result = __global_allocator.alloc(u8, 32) catch break :hmac_digest_blk \"\";\n");
     try self.emitIndent();
     try self.emit("_hmac.final(_result[0..32]);\n");
     try self.emitIndent();
