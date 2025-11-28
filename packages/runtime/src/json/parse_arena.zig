@@ -370,6 +370,55 @@ fn parseArray(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseRe
     }
 }
 
+/// Quick count of object keys (for pre-sizing dict)
+/// Returns 0 if can't determine (falls back to dynamic sizing)
+fn countObjectKeys(data: []const u8, pos: usize) usize {
+    if (pos >= data.len or data[pos] != '{') return 0;
+
+    var count: usize = 0;
+    var i = pos + 1;
+    var depth: usize = 1;
+
+    while (i < data.len and depth > 0) {
+        const c = data[i];
+        switch (c) {
+            '"' => {
+                // Skip string
+                i += 1;
+                while (i < data.len) {
+                    if (data[i] == '\\') {
+                        i += 2;
+                    } else if (data[i] == '"') {
+                        i += 1;
+                        break;
+                    } else {
+                        i += 1;
+                    }
+                }
+                // Count as a key if we're at depth 1 and next non-ws is ':'
+                if (depth == 1) {
+                    var j = i;
+                    while (j < data.len and (data[j] == ' ' or data[j] == '\t' or data[j] == '\n' or data[j] == '\r')) : (j += 1) {}
+                    if (j < data.len and data[j] == ':') {
+                        count += 1;
+                    }
+                }
+            },
+            '{', '[' => {
+                depth += 1;
+                i += 1;
+            },
+            '}', ']' => {
+                depth -= 1;
+                i += 1;
+            },
+            else => i += 1,
+        }
+    }
+
+    return count;
+}
+
 /// Parse object (dict)
 fn parseObject(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
     if (pos >= data.len or data[pos] != '{') return JsonError.UnexpectedToken;
@@ -396,6 +445,16 @@ fn parseObject(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
         return ParseResult(*runtime.PyObject).init(obj, i + 1 - pos);
     }
 
+    // Pre-size dict for large objects to avoid resizing during parse
+    // Only pre-count if object looks large (worth the double-scan cost)
+    // Heuristic: if remaining data is > 200 bytes, it's likely a large object
+    if (data.len - pos > 200) {
+        const key_count = countObjectKeys(data, pos);
+        if (key_count > 8) {
+            dict_data.map.ensureTotalCapacity(@intCast(key_count)) catch {};
+        }
+    }
+
     // Parse key-value pairs
     while (true) {
         // Parse key (must be string)
@@ -414,7 +473,7 @@ fn parseObject(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
         const value_result = try parseValue(data, i, arena);
         i += value_result.consumed;
 
-        // Add to dict
+        // Add to dict (no resize needed - we pre-sized!)
         dict_data.map.put(key_result.value, value_result.value) catch return JsonError.OutOfMemory;
 
         i = skipWhitespace(data, i);

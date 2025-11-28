@@ -1,7 +1,7 @@
 #!/bin/bash
 # HTTP Client Benchmark
 # Compares PyAOT vs Rust vs Go vs Python vs PyPy
-# Tests HTTPS request performance (ssl, socket, networking)
+# All Python-based runners use the SAME source code
 
 source "$(dirname "$0")/../common.sh"
 cd "$SCRIPT_DIR"
@@ -9,15 +9,13 @@ cd "$SCRIPT_DIR"
 init_benchmark_compiled "HTTP Client Benchmark - 50 HTTPS requests"
 echo ""
 echo "Fetching https://httpbin.org/get 50 times"
-echo "Tests: SSL/TLS, socket, HTTP client, JSON parsing"
+echo "Tests: SSL/TLS, socket, HTTP client"
 echo ""
 
 # Python source (SAME code for PyAOT, Python, PyPy)
-# Note: Using single variable to avoid type inference issues in PyAOT
-cat > http_client.py <<'EOF'
+cat > http_bench.py <<'EOF'
 import requests
 
-# Benchmark: 50 HTTPS requests
 i = 0
 success = 0
 while i < 50:
@@ -29,9 +27,42 @@ while i < 50:
 print(success)
 EOF
 
-# Go source (with HTTPS support)
-mkdir -p go
-cat > go/http_client.go <<'EOF'
+# Rust source (using ureq - popular simple HTTP client)
+mkdir -p rust/src
+cat > rust/Cargo.toml <<'EOF'
+[package]
+name = "http_bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ureq = { version = "2", features = ["tls"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+EOF
+
+cat > rust/src/main.rs <<'EOF'
+fn main() {
+    let mut success = 0;
+    for _ in 0..50 {
+        match ureq::get("https://httpbin.org/get").call() {
+            Ok(resp) => {
+                if resp.status() == 200 {
+                    let _ = resp.into_string();
+                    success += 1;
+                }
+            }
+            Err(_) => {}
+        }
+    }
+    println!("{}", success);
+}
+EOF
+
+# Go source (using net/http - standard but very popular)
+cat > http_bench.go <<'EOF'
 package main
 
 import (
@@ -62,47 +93,47 @@ EOF
 print_header "Building"
 
 build_pyaot_compiler
-compile_pyaot http_client.py http_client_pyaot || true
+compile_pyaot http_bench.py http_bench_pyaot
+compile_go http_bench.go http_bench_go
 
-# Compile Go (with HTTPS)
-compile_go go/http_client.go http_client_go
-
-print_header "Running Benchmark"
-echo "Note: Network latency dominates this benchmark"
-echo "      Measures: TLS handshake + HTTP round-trip + response parsing"
-echo ""
-
-# Build command array
-BENCH_CMDS=()
-
-# PyAOT (native Zig HTTP client with HTTPS)
-add_pyaot BENCH_CMDS http_client_pyaot
-
-# Go (native HTTPS)
-add_go BENCH_CMDS http_client_go
-
-# Python with requests (HTTPS)
-add_python BENCH_CMDS http_client.py
-
-# PyPy with requests (HTTPS) - skip if requests not installed
-if [ "$PYPY_AVAILABLE" = true ]; then
-    if pypy3 -c "import requests" 2>/dev/null; then
-        add_pypy BENCH_CMDS http_client.py
+# Rust with cargo (needs network for deps)
+if [ "$RUST_AVAILABLE" = true ]; then
+    echo "  Building Rust (may take a moment for deps)..."
+    cd rust && cargo build --release --quiet 2>/dev/null && cd ..
+    if [ -f rust/target/release/http_bench ]; then
+        cp rust/target/release/http_bench http_bench_rust
+        echo -e "  ${GREEN}✓${NC} Rust: http_bench"
     else
-        echo -e "  ${YELLOW}⚠${NC} PyPy skipped (requests not installed)"
+        echo -e "  ${YELLOW}⚠${NC} Rust build failed"
     fi
 fi
 
-# Run benchmark (fewer runs since network-bound)
-hyperfine \
-    --warmup 1 \
-    --runs 3 \
-    --export-markdown results.md \
-    "${BENCH_CMDS[@]}"
+print_header "Running Benchmark"
+echo "Note: Network latency dominates (~200-300ms per request)"
+echo ""
+
+BENCH_CMD=(hyperfine --warmup 1 --runs 3 --export-markdown results.md)
+
+add_pyaot BENCH_CMD http_bench_pyaot
+add_rust BENCH_CMD http_bench_rust
+add_go BENCH_CMD http_bench_go
+
+# Check if PyPy has requests installed
+if [ "$PYPY_AVAILABLE" = true ]; then
+    if pypy3 -c "import requests" 2>/dev/null; then
+        add_pypy BENCH_CMD http_bench.py
+    else
+        echo -e "  ${YELLOW}⚠${NC} PyPy skipped (requests not installed: pypy3 -m pip install requests)"
+    fi
+fi
+
+add_python BENCH_CMD http_bench.py
+
+"${BENCH_CMD[@]}"
 
 print_header "Results"
 cat results.md
 
 # Cleanup
-rm -f http_client.py http_client_pyaot http_client_go
-rm -rf go
+rm -f http_bench.py http_bench.go http_bench_pyaot http_bench_rust http_bench_go
+rm -rf rust

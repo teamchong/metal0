@@ -1,43 +1,47 @@
 # HTTP Client Benchmark Results
 
-**Test:** 50 HTTPS requests to httpbin.org/get
-**Date:** 2025-11-27
+**Test:** 50 HTTPS requests to httpbin.org/get  
+**Date:** 2025-11-27  
 **System:** macOS ARM64
 
 ## Results
 
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `PyAOT` | 13.998 ± 0.932 | 13.440 | 15.074 | 1.33 ± 0.39 |
-| `Go` | 10.495 ± 3.014 | 8.288 | 13.928 | 1.00 |
-| `Python` | 14.577 ± 3.341 | 11.174 | 17.854 | 1.39 ± 0.51 |
+| `Go` | 8.936 ± 2.053 | 6.567 | 10.170 | 1.00 |
+| `Rust` | 11.544 ± 2.024 | 9.211 | 12.817 | 1.29 ± 0.37 |
+| `PyAOT` | 13.838 ± 1.270 | 12.458 | 14.959 | 1.55 ± 0.38 |
+| `Python` | 15.115 ± 1.770 | 13.134 | 16.541 | 1.69 ± 0.44 |
+
+## CPU Efficiency
+
+| Runtime | User Time | System Time | Total CPU |
+|---------|-----------|-------------|-----------|
+| Go | 0.015s | 0.015s | 0.030s |
+| Rust | 0.021s | 0.028s | 0.049s |
+| PyAOT | 0.126s | 0.039s | 0.165s |
+| Python | 0.964s | 0.092s | 1.056s |
+
+**Key Finding:** PyAOT uses **6.4x less CPU** than Python (0.165s vs 1.056s)
 
 ## Analysis
 
-### Network-Bound Performance
-- Network latency dominates this benchmark (~200-300ms per request)
-- All implementations are within 40% of each other
-- Go has advantage due to mature HTTP client with connection pooling
+- **Network-bound:** All within 2x of each other (network latency ~200-300ms/request)
+- **PyAOT vs Python:** 8% faster wall-clock, 84% less CPU usage
+- **Go wins:** Mature HTTP client with connection pooling and HTTP/2
+- **Rust (ureq):** Simple blocking client, between Go and PyAOT
 
-### CPU Efficiency (User Time)
-| Runtime | User Time | System Time |
-|---------|-----------|-------------|
-| PyAOT | 0.188s | 0.065s |
-| Go | 0.013s | 0.013s |
-| Python | 1.028s | 0.091s |
+## Libraries Used
 
-**Key Finding:** PyAOT uses **5.5x less CPU** than Python (0.188s vs 1.028s)
-
-### Summary
-- PyAOT is ~4% faster than CPython for HTTP requests
-- PyAOT uses 82% less CPU time than Python
-- Go is fastest overall due to optimized stdlib HTTP client
-- PyAOT proves: SSL/TLS, sockets, and HTTP work in pure Zig
+| Language | HTTP Library |
+|----------|--------------|
+| Python/PyPy/PyAOT | `requests` (same code) |
+| Go | `net/http` (stdlib) |
+| Rust | `ureq` (popular simple client) |
 
 ## What This Proves
 
-Milestone 1 Complete:
-- HTTPS requests work (SSL/TLS handshake)
-- Network sockets work (TCP connections)
-- HTTP client works (request/response parsing)
-- All in pure Zig - no Python runtime
+- SSL/TLS handshake works in pure Zig
+- TCP sockets work in pure Zig  
+- HTTP client works in pure Zig
+- Same Python code runs on PyAOT, Python, PyPy
