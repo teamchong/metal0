@@ -116,6 +116,12 @@ const profile_mod = @import("../profile_mod.zig");
 const pdb_mod = @import("../pdb_mod.zig");
 const timeit_mod = @import("../timeit_mod.zig");
 const trace_mod = @import("../trace_mod.zig");
+const binascii_mod = @import("../binascii_mod.zig");
+const smtplib_mod = @import("../smtplib_mod.zig");
+const imaplib_mod = @import("../imaplib_mod.zig");
+const ftplib_mod = @import("../ftplib_mod.zig");
+const poplib_mod = @import("../poplib_mod.zig");
+const nntplib_mod = @import("../nntplib_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -2362,6 +2368,99 @@ const TraceFuncs = FuncMap.initComptime(.{
     .{ "CoverageResults", trace_mod.genCoverageResults },
 });
 
+/// binascii module functions
+const BinasciiFuncs = FuncMap.initComptime(.{
+    .{ "hexlify", binascii_mod.genHexlify },
+    .{ "unhexlify", binascii_mod.genUnhexlify },
+    .{ "b2a_hex", binascii_mod.genB2a_hex },
+    .{ "a2b_hex", binascii_mod.genA2b_hex },
+    .{ "b2a_base64", binascii_mod.genB2a_base64 },
+    .{ "a2b_base64", binascii_mod.genA2b_base64 },
+    .{ "b2a_uu", binascii_mod.genB2a_uu },
+    .{ "a2b_uu", binascii_mod.genA2b_uu },
+    .{ "b2a_qp", binascii_mod.genB2a_qp },
+    .{ "a2b_qp", binascii_mod.genA2b_qp },
+    .{ "crc32", binascii_mod.genCrc32 },
+    .{ "crc_hqx", binascii_mod.genCrc_hqx },
+    .{ "Error", binascii_mod.genError },
+    .{ "Incomplete", binascii_mod.genIncomplete },
+});
+
+/// smtplib module functions
+const SmtplibFuncs = FuncMap.initComptime(.{
+    .{ "SMTP", smtplib_mod.genSMTP },
+    .{ "SMTP_SSL", smtplib_mod.genSMTP_SSL },
+    .{ "LMTP", smtplib_mod.genLMTP },
+    .{ "SMTP_PORT", smtplib_mod.genSMTP_PORT },
+    .{ "SMTP_SSL_PORT", smtplib_mod.genSMTP_SSL_PORT },
+    .{ "SMTPException", smtplib_mod.genSMTPException },
+    .{ "SMTPServerDisconnected", smtplib_mod.genSMTPServerDisconnected },
+    .{ "SMTPResponseException", smtplib_mod.genSMTPResponseException },
+    .{ "SMTPSenderRefused", smtplib_mod.genSMTPSenderRefused },
+    .{ "SMTPRecipientsRefused", smtplib_mod.genSMTPRecipientsRefused },
+    .{ "SMTPDataError", smtplib_mod.genSMTPDataError },
+    .{ "SMTPConnectError", smtplib_mod.genSMTPConnectError },
+    .{ "SMTPHeloError", smtplib_mod.genSMTPHeloError },
+    .{ "SMTPAuthenticationError", smtplib_mod.genSMTPAuthenticationError },
+    .{ "SMTPNotSupportedError", smtplib_mod.genSMTPNotSupportedError },
+});
+
+/// imaplib module functions
+const ImaplibFuncs = FuncMap.initComptime(.{
+    .{ "IMAP4", imaplib_mod.genIMAP4 },
+    .{ "IMAP4_SSL", imaplib_mod.genIMAP4_SSL },
+    .{ "IMAP4_stream", imaplib_mod.genIMAP4_stream },
+    .{ "IMAP4_PORT", imaplib_mod.genIMAP4_PORT },
+    .{ "IMAP4_SSL_PORT", imaplib_mod.genIMAP4_SSL_PORT },
+    .{ "Commands", imaplib_mod.genCommands },
+    .{ "IMAP4.error", imaplib_mod.genIMAP4_error },
+    .{ "IMAP4.abort", imaplib_mod.genIMAP4_abort },
+    .{ "IMAP4.readonly", imaplib_mod.genIMAP4_readonly },
+    .{ "Internaldate2tuple", imaplib_mod.genInternaldate2tuple },
+    .{ "Int2AP", imaplib_mod.genInt2AP },
+    .{ "ParseFlags", imaplib_mod.genParseFlags },
+    .{ "Time2Internaldate", imaplib_mod.genTime2Internaldate },
+});
+
+/// ftplib module functions
+const FtplibFuncs = FuncMap.initComptime(.{
+    .{ "FTP", ftplib_mod.genFTP },
+    .{ "FTP_TLS", ftplib_mod.genFTP_TLS },
+    .{ "FTP_PORT", ftplib_mod.genFTP_PORT },
+    .{ "error", ftplib_mod.genError },
+    .{ "error_reply", ftplib_mod.genError_reply },
+    .{ "error_temp", ftplib_mod.genError_temp },
+    .{ "error_perm", ftplib_mod.genError_perm },
+    .{ "error_proto", ftplib_mod.genError_proto },
+    .{ "all_errors", ftplib_mod.genAll_errors },
+});
+
+/// poplib module functions
+const PoplibFuncs = FuncMap.initComptime(.{
+    .{ "POP3", poplib_mod.genPOP3 },
+    .{ "POP3_SSL", poplib_mod.genPOP3_SSL },
+    .{ "POP3_PORT", poplib_mod.genPOP3_PORT },
+    .{ "POP3_SSL_PORT", poplib_mod.genPOP3_SSL_PORT },
+    .{ "error_proto", poplib_mod.genError_proto },
+});
+
+/// nntplib module functions
+const NntplibFuncs = FuncMap.initComptime(.{
+    .{ "NNTP", nntplib_mod.genNNTP },
+    .{ "NNTP_SSL", nntplib_mod.genNNTP_SSL },
+    .{ "NNTP_PORT", nntplib_mod.genNNTP_PORT },
+    .{ "NNTP_SSL_PORT", nntplib_mod.genNNTP_SSL_PORT },
+    .{ "NNTPError", nntplib_mod.genNNTPError },
+    .{ "NNTPReplyError", nntplib_mod.genNNTPReplyError },
+    .{ "NNTPTemporaryError", nntplib_mod.genNNTPTemporaryError },
+    .{ "NNTPPermanentError", nntplib_mod.genNNTPPermanentError },
+    .{ "NNTPProtocolError", nntplib_mod.genNNTPProtocolError },
+    .{ "NNTPDataError", nntplib_mod.genNNTPDataError },
+    .{ "GroupInfo", nntplib_mod.genGroupInfo },
+    .{ "ArticleInfo", nntplib_mod.genArticleInfo },
+    .{ "decode_header", nntplib_mod.genDecode_header },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -2498,6 +2597,12 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "pdb", PdbFuncs },
     .{ "timeit", TimeitFuncs },
     .{ "trace", TraceFuncs },
+    .{ "binascii", BinasciiFuncs },
+    .{ "smtplib", SmtplibFuncs },
+    .{ "imaplib", ImaplibFuncs },
+    .{ "ftplib", FtplibFuncs },
+    .{ "poplib", PoplibFuncs },
+    .{ "nntplib", NntplibFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
