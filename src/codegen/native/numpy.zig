@@ -52,11 +52,11 @@ pub fn genArray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genDot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return; // Silently ignore invalid calls
 
-    try self.emit("numpy.dot(");
+    try self.emit("try numpy.dot(");
     try self.genExpr(args[0]);
     try self.emit(", ");
     try self.genExpr(args[1]);
-    try self.emit(")");
+    try self.emit(", allocator)");
 }
 
 /// Generate numpy.sum() call
@@ -64,9 +64,9 @@ pub fn genDot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    try self.emit("numpy.sum(");
+    try self.emit("try numpy.sum(");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit(", allocator)");
 }
 
 /// Generate numpy.mean() call
@@ -74,9 +74,9 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genMean(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    try self.emit("numpy.mean(");
+    try self.emit("try numpy.mean(");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit(", allocator)");
 }
 
 /// Generate numpy.transpose() call
@@ -107,13 +107,13 @@ pub fn genMatmul(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(", ");
     try self.genExpr(args[1]);
-    try self.emit(", ");
+    try self.emit(", @intCast(");
     try self.genExpr(args[2]);
-    try self.emit(", ");
+    try self.emit("), @intCast(");
     try self.genExpr(args[3]);
-    try self.emit(", ");
+    try self.emit("), @intCast(");
     try self.genExpr(args[4]);
-    try self.emit(", allocator)");
+    try self.emit("), allocator)");
 }
 
 /// Generate numpy.zeros() call
@@ -121,14 +121,10 @@ pub fn genMatmul(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genZeros(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    try self.emit("blk: {\n");
-    try self.emit("    const size = ");
+    // numpy.zeros(n) -> create 1D array of n zeros
+    try self.emit("try numpy.zeros(&[_]usize{@intCast(");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emit("    const arr = try allocator.alloc(f64, size);\n");
-    try self.emit("    @memset(arr, 0.0);\n");
-    try self.emit("    break :blk arr;\n");
-    try self.emit("}");
+    try self.emit(")}, allocator)");
 }
 
 /// Generate numpy.ones() call
@@ -136,12 +132,8 @@ pub fn genZeros(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genOnes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    try self.emit("blk: {\n");
-    try self.emit("    const size = ");
+    // numpy.ones(n) -> create 1D array of n ones
+    try self.emit("try numpy.ones(&[_]usize{@intCast(");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emit("    const arr = try allocator.alloc(f64, size);\n");
-    try self.emit("    @memset(arr, 1.0);\n");
-    try self.emit("    break :blk arr;\n");
-    try self.emit("}");
+    try self.emit(")}, allocator)");
 }
