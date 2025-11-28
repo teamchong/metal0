@@ -355,7 +355,14 @@ pub fn inferExpr(
             }
             break :blk .{ .tuple = elem_types };
         },
-        .compare => .bool, // Comparison expressions always return bool
+        .compare => |c| blk: {
+            // NumPy array comparisons return bool_array (element-wise)
+            const cmp_left_type = try inferExpr(allocator, var_types, class_fields, func_return_types, c.left.*);
+            if (cmp_left_type == .numpy_array) {
+                break :blk .bool_array;
+            }
+            break :blk .bool; // Regular comparison returns bool
+        },
         .named_expr => |ne| blk: {
             // Named expression (walrus operator): (x := value)
             // The type of the named expression is the type of the value

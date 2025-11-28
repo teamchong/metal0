@@ -101,7 +101,14 @@ pub fn dot(a_obj: *PyObject, b_obj: *PyObject, _: std.mem.Allocator) !f64 {
 
 /// Sum all elements in array (Python: np.sum(arr))
 /// Returns: f64 scalar result (no PyObject wrapper for performance)
+/// Works for both numeric arrays and boolean arrays (counts true values)
 pub fn sum(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
+    // Check if this is a boolean array
+    if (arr_obj.type_id == .bool_array) {
+        const bool_arr = try numpy_array_mod.extractBoolArray(arr_obj);
+        return @floatFromInt(bool_arr.countTrue());
+    }
+    // Numeric array
     const arr = try numpy_array_mod.extractArray(arr_obj);
     return arr.sum();
 }
@@ -632,6 +639,77 @@ pub fn randomPermutation(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyO
     return try numpy_array_mod.createPyObject(allocator, np_array);
 }
 
+// ============================================================================
+// Comparison Operations (return boolean arrays)
+// ============================================================================
+
+/// Re-export comparison types from runtime
+pub const BoolArray = numpy_array_mod.BoolArray;
+pub const CompareOp = numpy_array_mod.CompareOp;
+
+/// Compare array to scalar: arr > scalar, arr == scalar, etc.
+pub fn compareScalar(arr_obj: *PyObject, scalar: f64, op: CompareOp, allocator: std.mem.Allocator) !*PyObject {
+    const arr = try numpy_array_mod.extractArray(arr_obj);
+    const result = try numpy_array_mod.compareScalar(arr, scalar, op, allocator);
+    return try numpy_array_mod.createBoolPyObject(allocator, result);
+}
+
+/// Compare two arrays element-wise
+pub fn compareArrays(arr1_obj: *PyObject, arr2_obj: *PyObject, op: CompareOp, allocator: std.mem.Allocator) !*PyObject {
+    const arr1 = try numpy_array_mod.extractArray(arr1_obj);
+    const arr2 = try numpy_array_mod.extractArray(arr2_obj);
+    const result = try numpy_array_mod.compareArrays(arr1, arr2, op, allocator);
+    return try numpy_array_mod.createBoolPyObject(allocator, result);
+}
+
+/// Greater than: arr > scalar
+pub fn greater(arr_obj: *PyObject, scalar: f64, allocator: std.mem.Allocator) !*PyObject {
+    return compareScalar(arr_obj, scalar, .gt, allocator);
+}
+
+/// Greater than or equal: arr >= scalar
+pub fn greaterEqual(arr_obj: *PyObject, scalar: f64, allocator: std.mem.Allocator) !*PyObject {
+    return compareScalar(arr_obj, scalar, .ge, allocator);
+}
+
+/// Less than: arr < scalar
+pub fn less(arr_obj: *PyObject, scalar: f64, allocator: std.mem.Allocator) !*PyObject {
+    return compareScalar(arr_obj, scalar, .lt, allocator);
+}
+
+/// Less than or equal: arr <= scalar
+pub fn lessEqual(arr_obj: *PyObject, scalar: f64, allocator: std.mem.Allocator) !*PyObject {
+    return compareScalar(arr_obj, scalar, .le, allocator);
+}
+
+/// Equal: arr == scalar
+pub fn equal(arr_obj: *PyObject, scalar: f64, allocator: std.mem.Allocator) !*PyObject {
+    return compareScalar(arr_obj, scalar, .eq, allocator);
+}
+
+/// Not equal: arr != scalar
+pub fn notEqual(arr_obj: *PyObject, scalar: f64, allocator: std.mem.Allocator) !*PyObject {
+    return compareScalar(arr_obj, scalar, .ne, allocator);
+}
+
+/// Sum of boolean array (count true values)
+pub fn boolSum(arr_obj: *PyObject, _: std.mem.Allocator) !i64 {
+    const arr = try numpy_array_mod.extractBoolArray(arr_obj);
+    return @intCast(arr.countTrue());
+}
+
+/// Any - returns true if any element is true
+pub fn boolAny(arr_obj: *PyObject, _: std.mem.Allocator) !bool {
+    const arr = try numpy_array_mod.extractBoolArray(arr_obj);
+    return arr.any();
+}
+
+/// All - returns true if all elements are true
+pub fn boolAll(arr_obj: *PyObject, _: std.mem.Allocator) !bool {
+    const arr = try numpy_array_mod.extractBoolArray(arr_obj);
+    return arr.all();
+}
+
 test "array creation from integers" {
     const allocator = std.testing.allocator;
 
@@ -666,12 +744,10 @@ test "dot product with PyObject" {
         allocator.destroy(b_obj);
     }
 
-    const result_obj = try dot(a_obj, b_obj, allocator);
-    defer allocator.destroy(result_obj);
-
-    const result_float = @as(*PyFloat, @ptrCast(@alignCast(result_obj.data)));
+    // dot now returns f64 directly (not PyObject)
+    const result = try dot(a_obj, b_obj, allocator);
     // Expected: 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
-    try std.testing.expectEqual(@as(f64, 32.0), result_float.value);
+    try std.testing.expectEqual(@as(f64, 32.0), result);
 }
 
 test "sum with PyObject" {
@@ -685,12 +761,10 @@ test "sum with PyObject" {
         allocator.destroy(arr_obj);
     }
 
-    const result_obj = try sum(arr_obj, allocator);
-    defer allocator.destroy(result_obj);
-
-    const result_float = @as(*PyFloat, @ptrCast(@alignCast(result_obj.data)));
+    // sum now returns f64 directly (not PyObject)
+    const result = try sum(arr_obj, allocator);
     // Expected: 1 + 2 + 3 + 4 + 5 = 15
-    try std.testing.expectEqual(@as(f64, 15.0), result_float.value);
+    try std.testing.expectEqual(@as(f64, 15.0), result);
 }
 
 test "mean with PyObject" {
@@ -704,10 +778,8 @@ test "mean with PyObject" {
         allocator.destroy(arr_obj);
     }
 
-    const result_obj = try mean(arr_obj, allocator);
-    defer allocator.destroy(result_obj);
-
-    const result_float = @as(*PyFloat, @ptrCast(@alignCast(result_obj.data)));
+    // mean now returns f64 directly (not PyObject)
+    const result = try mean(arr_obj, allocator);
     // Expected: 15 / 5 = 3.0
-    try std.testing.expectEqual(@as(f64, 3.0), result_float.value);
+    try std.testing.expectEqual(@as(f64, 3.0), result);
 }

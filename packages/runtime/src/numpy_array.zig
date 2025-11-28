@@ -932,6 +932,122 @@ pub const NumpyArray = struct {
     }
 };
 
+// ============================================================================
+// Boolean Array for comparison operations
+// ============================================================================
+
+/// Boolean array data structure (result of comparison operations)
+pub const BoolArray = struct {
+    /// Raw boolean data buffer
+    data: []bool,
+
+    /// Shape of the array (dimensions)
+    shape: []const usize,
+
+    /// Number of elements
+    size: usize,
+
+    /// Allocator for memory management
+    allocator: std.mem.Allocator,
+
+    /// Create BoolArray from comparison operation
+    pub fn create(allocator: std.mem.Allocator, source: *NumpyArray) !*BoolArray {
+        const arr = try allocator.create(BoolArray);
+        const data = try allocator.alloc(bool, source.size);
+
+        const shape = try allocator.dupe(usize, source.shape);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .size = source.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Count true values
+    pub fn countTrue(self: *BoolArray) usize {
+        var count: usize = 0;
+        for (self.data) |val| {
+            if (val) count += 1;
+        }
+        return count;
+    }
+
+    /// Any - returns true if any element is true
+    pub fn any(self: *BoolArray) bool {
+        for (self.data) |val| {
+            if (val) return true;
+        }
+        return false;
+    }
+
+    /// All - returns true if all elements are true
+    pub fn all(self: *BoolArray) bool {
+        for (self.data) |val| {
+            if (!val) return false;
+        }
+        return true;
+    }
+
+    /// Clean up resources
+    pub fn deinit(self: *BoolArray) void {
+        self.allocator.free(self.data);
+        self.allocator.free(self.shape);
+        self.allocator.destroy(self);
+    }
+};
+
+/// Comparison operators for arrays
+pub const CompareOp = enum {
+    eq, // ==
+    ne, // !=
+    lt, // <
+    le, // <=
+    gt, // >
+    ge, // >=
+};
+
+/// Element-wise comparison: arr op scalar
+pub fn compareScalar(arr: *NumpyArray, scalar: f64, op: CompareOp, allocator: std.mem.Allocator) !*BoolArray {
+    const result = try BoolArray.create(allocator, arr);
+
+    for (arr.data, 0..) |val, i| {
+        result.data[i] = switch (op) {
+            .eq => val == scalar,
+            .ne => val != scalar,
+            .lt => val < scalar,
+            .le => val <= scalar,
+            .gt => val > scalar,
+            .ge => val >= scalar,
+        };
+    }
+
+    return result;
+}
+
+/// Element-wise comparison: arr1 op arr2
+pub fn compareArrays(arr1: *NumpyArray, arr2: *NumpyArray, op: CompareOp, allocator: std.mem.Allocator) !*BoolArray {
+    if (arr1.size != arr2.size) return error.ShapeMismatch;
+
+    const result = try BoolArray.create(allocator, arr1);
+
+    for (arr1.data, arr2.data, 0..) |a, b, i| {
+        result.data[i] = switch (op) {
+            .eq => a == b,
+            .ne => a != b,
+            .lt => a < b,
+            .le => a <= b,
+            .gt => a > b,
+            .ge => a >= b,
+        };
+    }
+
+    return result;
+}
+
 /// Wrap NumpyArray in PyObject
 pub fn createPyObject(allocator: std.mem.Allocator, array: *NumpyArray) !*runtime.PyObject {
     const obj = try allocator.create(runtime.PyObject);
@@ -946,6 +1062,25 @@ pub fn createPyObject(allocator: std.mem.Allocator, array: *NumpyArray) !*runtim
 /// Extract NumpyArray from PyObject
 pub fn extractArray(obj: *runtime.PyObject) !*NumpyArray {
     if (obj.type_id != .numpy_array) {
+        return error.TypeError;
+    }
+    return @ptrCast(@alignCast(obj.data));
+}
+
+/// Wrap BoolArray in PyObject
+pub fn createBoolPyObject(allocator: std.mem.Allocator, array: *BoolArray) !*runtime.PyObject {
+    const obj = try allocator.create(runtime.PyObject);
+    obj.* = .{
+        .ref_count = 1,
+        .type_id = .bool_array,
+        .data = @ptrCast(array),
+    };
+    return obj;
+}
+
+/// Extract BoolArray from PyObject
+pub fn extractBoolArray(obj: *runtime.PyObject) !*BoolArray {
+    if (obj.type_id != .bool_array) {
         return error.TypeError;
     }
     return @ptrCast(@alignCast(obj.data));

@@ -73,6 +73,7 @@ pub const PyObject = struct {
         none,
         file, // File handle (open())
         numpy_array, // NumPy array support for C interop
+        bool_array, // Boolean array (numpy comparison result)
         regex, // Compiled regex pattern
     };
 

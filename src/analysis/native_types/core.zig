@@ -71,6 +71,7 @@ pub const NativeType = union(enum) {
     path: void, // pathlib.Path
     flask_app: void, // flask.Flask application instance
     numpy_array: void, // NumPy ndarray - wraps *runtime.PyObject with numpy_array type_id
+    bool_array: void, // Boolean array - result of numpy comparison operations
     usize_slice: void, // []const usize - used for numpy shape/strides
 
     /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
@@ -207,6 +208,7 @@ pub const NativeType = union(enum) {
             .path => try buf.appendSlice(allocator, "*pathlib.Path"),
             .flask_app => try buf.appendSlice(allocator, "*runtime.flask.Flask"),
             .numpy_array => try buf.appendSlice(allocator, "*runtime.PyObject"),
+            .bool_array => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .usize_slice => try buf.appendSlice(allocator, "[]const usize"),
         }
     }

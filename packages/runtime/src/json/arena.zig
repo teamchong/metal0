@@ -8,6 +8,10 @@
 const std = @import("std");
 const allocator_helper = @import("allocator_helper");
 
+/// Thread-local arena pool for reuse (avoids mmap/munmap syscalls)
+const POOL_SIZE = 8;
+threadlocal var arena_pool: [POOL_SIZE]?*JsonArena = [_]?*JsonArena{null} ** POOL_SIZE;
+
 /// JSON Arena - single contiguous allocation for entire parse
 pub const JsonArena = struct {
     /// The memory slab
@@ -22,12 +26,26 @@ pub const JsonArena = struct {
     /// Default slab size: 1MB - enough for most JSON documents
     pub const DEFAULT_SIZE: usize = 1024 * 1024;
 
-    /// Create a new arena with specified size
+    /// Create a new arena with specified size (tries pool first)
     pub fn init(backing: std.mem.Allocator, size: usize) !*JsonArena {
+        // Try to get from pool (only if size fits)
+        if (size <= DEFAULT_SIZE) {
+            for (&arena_pool) |*slot| {
+                if (slot.*) |pooled| {
+                    slot.* = null;
+                    pooled.pos = 0; // Reset for reuse
+                    pooled.ref_count = 1;
+                    return pooled;
+                }
+            }
+        }
+
+        // Pool empty or size too large - allocate new
         const arena = try backing.create(JsonArena);
         errdefer backing.destroy(arena);
 
-        const buffer = try backing.alloc(u8, size);
+        const actual_size = @max(size, DEFAULT_SIZE);
+        const buffer = try backing.alloc(u8, actual_size);
         arena.* = .{
             .buffer = buffer,
             .pos = 0,
@@ -47,11 +65,21 @@ pub const JsonArena = struct {
         self.ref_count += 1;
     }
 
-    /// Decrement reference count, free if zero
+    /// Decrement reference count, return to pool or free if zero
     pub fn decref(self: *JsonArena) void {
         if (self.ref_count == 0) return;
         self.ref_count -= 1;
         if (self.ref_count == 0) {
+            // Try to return to pool (only standard-sized arenas)
+            if (self.buffer.len == DEFAULT_SIZE) {
+                for (&arena_pool) |*slot| {
+                    if (slot.* == null) {
+                        slot.* = self;
+                        return; // Pooled for reuse!
+                    }
+                }
+            }
+            // Pool full or non-standard size - actually free
             self.backing.free(self.buffer);
             self.backing.destroy(self);
         }
