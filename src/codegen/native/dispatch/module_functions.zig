@@ -182,6 +182,18 @@ const posix_mod = @import("../posix_mod.zig");
 const _io_mod = @import("../_io_mod.zig");
 const genericpath_mod = @import("../genericpath_mod.zig");
 const ntpath_mod = @import("../ntpath_mod.zig");
+const zlib_mod = @import("../zlib_mod.zig");
+const zipapp_mod = @import("../zipapp_mod.zig");
+const ensurepip_mod = @import("../ensurepip_mod.zig");
+const _string_mod = @import("../_string_mod.zig");
+const _weakref_mod = @import("../_weakref_mod.zig");
+const _functools_mod = @import("../_functools_mod.zig");
+const _operator_mod = @import("../_operator_mod.zig");
+const _json_mod = @import("../_json_mod.zig");
+const _codecs_mod = @import("../_codecs_mod.zig");
+const _collections_mod = @import("../_collections_mod.zig");
+const _stat_mod = @import("../_stat_mod.zig");
+const stat_mod = @import("../stat_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -3741,6 +3753,214 @@ const NtpathFuncs = FuncMap.initComptime(.{
     .{ "pardir", ntpath_mod.genPardir },
 });
 
+/// zlib module functions
+const ZlibFuncs = FuncMap.initComptime(.{
+    .{ "compress", zlib_mod.genCompress },
+    .{ "decompress", zlib_mod.genDecompress },
+    .{ "compressobj", zlib_mod.genCompressobj },
+    .{ "decompressobj", zlib_mod.genDecompressobj },
+    .{ "crc32", zlib_mod.genCrc32 },
+    .{ "adler32", zlib_mod.genAdler32 },
+    .{ "MAX_WBITS", zlib_mod.genMAX_WBITS },
+    .{ "DEFLATED", zlib_mod.genDEFLATED },
+    .{ "DEF_BUF_SIZE", zlib_mod.genDEF_BUF_SIZE },
+    .{ "DEF_MEM_LEVEL", zlib_mod.genDEF_MEM_LEVEL },
+    .{ "Z_DEFAULT_STRATEGY", zlib_mod.genZ_DEFAULT_STRATEGY },
+    .{ "Z_FILTERED", zlib_mod.genZ_FILTERED },
+    .{ "Z_HUFFMAN_ONLY", zlib_mod.genZ_HUFFMAN_ONLY },
+    .{ "Z_RLE", zlib_mod.genZ_RLE },
+    .{ "Z_FIXED", zlib_mod.genZ_FIXED },
+    .{ "Z_NO_COMPRESSION", zlib_mod.genZ_NO_COMPRESSION },
+    .{ "Z_BEST_SPEED", zlib_mod.genZ_BEST_SPEED },
+    .{ "Z_BEST_COMPRESSION", zlib_mod.genZ_BEST_COMPRESSION },
+    .{ "Z_DEFAULT_COMPRESSION", zlib_mod.genZ_DEFAULT_COMPRESSION },
+    .{ "error", zlib_mod.genError },
+});
+
+/// zipapp module functions
+const ZipappFuncs = FuncMap.initComptime(.{
+    .{ "create_archive", zipapp_mod.genCreateArchive },
+    .{ "get_interpreter", zipapp_mod.genGetInterpreter },
+});
+
+/// ensurepip module functions
+const EnsurepipFuncs = FuncMap.initComptime(.{
+    .{ "version", ensurepip_mod.genVersion },
+    .{ "bootstrap", ensurepip_mod.genBootstrap },
+    .{ "_main", ensurepip_mod.genMain },
+});
+
+/// _string module functions
+const StringInternalFuncs = FuncMap.initComptime(.{
+    .{ "formatter_field_name_split", _string_mod.genFormatterFieldNameSplit },
+    .{ "formatter_parser", _string_mod.genFormatterParser },
+});
+
+/// _weakref module functions
+const WeakrefInternalFuncs = FuncMap.initComptime(.{
+    .{ "ref", _weakref_mod.genRef },
+    .{ "proxy", _weakref_mod.genProxy },
+    .{ "getweakrefcount", _weakref_mod.genGetweakrefcount },
+    .{ "getweakrefs", _weakref_mod.genGetweakrefs },
+    .{ "CallableProxyType", _weakref_mod.genCallableProxyType },
+    .{ "ProxyType", _weakref_mod.genProxyType },
+    .{ "ReferenceType", _weakref_mod.genReferenceType },
+});
+
+/// _functools module functions
+const FunctoolsInternalFuncs = FuncMap.initComptime(.{
+    .{ "reduce", _functools_mod.genReduce },
+    .{ "cmp_to_key", _functools_mod.genCmpToKey },
+});
+
+/// _operator module functions
+const OperatorInternalFuncs = FuncMap.initComptime(.{
+    .{ "itemgetter", _operator_mod.genItemgetter },
+    .{ "attrgetter", _operator_mod.genAttrgetter },
+    .{ "methodcaller", _operator_mod.genMethodcaller },
+    .{ "lt", _operator_mod.genLt },
+    .{ "le", _operator_mod.genLe },
+    .{ "eq", _operator_mod.genEq },
+    .{ "ne", _operator_mod.genNe },
+    .{ "ge", _operator_mod.genGe },
+    .{ "gt", _operator_mod.genGt },
+    .{ "add", _operator_mod.genAdd },
+    .{ "sub", _operator_mod.genSub },
+    .{ "mul", _operator_mod.genMul },
+    .{ "truediv", _operator_mod.genTruediv },
+    .{ "floordiv", _operator_mod.genFloordiv },
+    .{ "mod", _operator_mod.genMod },
+    .{ "neg", _operator_mod.genNeg },
+    .{ "pos", _operator_mod.genPos },
+    .{ "abs", _operator_mod.genAbs },
+    .{ "and_", _operator_mod.genAnd_ },
+    .{ "or_", _operator_mod.genOr_ },
+    .{ "xor", _operator_mod.genXor },
+    .{ "invert", _operator_mod.genInvert },
+    .{ "lshift", _operator_mod.genLshift },
+    .{ "rshift", _operator_mod.genRshift },
+    .{ "not_", _operator_mod.genNot_ },
+    .{ "truth", _operator_mod.genTruth },
+    .{ "concat", _operator_mod.genConcat },
+    .{ "contains", _operator_mod.genContains },
+    .{ "countOf", _operator_mod.genCountOf },
+    .{ "indexOf", _operator_mod.genIndexOf },
+    .{ "getitem", _operator_mod.genGetitem },
+    .{ "length_hint", _operator_mod.genLength_hint },
+    .{ "is_", _operator_mod.genIs_ },
+    .{ "is_not", _operator_mod.genIs_not },
+    .{ "index", _operator_mod.genIndex },
+});
+
+/// _json module functions
+const JsonInternalFuncs = FuncMap.initComptime(.{
+    .{ "encode_basestring", _json_mod.genEncodeBasestring },
+    .{ "encode_basestring_ascii", _json_mod.genEncodeBasestringAscii },
+    .{ "scanstring", _json_mod.genScanstring },
+    .{ "make_encoder", _json_mod.genMakeEncoder },
+    .{ "make_scanner", _json_mod.genMakeScanner },
+});
+
+/// _codecs module functions
+const CodecsInternalFuncs = FuncMap.initComptime(.{
+    .{ "encode", _codecs_mod.genEncode },
+    .{ "decode", _codecs_mod.genDecode },
+    .{ "register", _codecs_mod.genRegister },
+    .{ "lookup", _codecs_mod.genLookup },
+    .{ "register_error", _codecs_mod.genRegisterError },
+    .{ "lookup_error", _codecs_mod.genLookupError },
+    .{ "utf_8_encode", _codecs_mod.genUtf8Encode },
+    .{ "utf_8_decode", _codecs_mod.genUtf8Decode },
+    .{ "ascii_encode", _codecs_mod.genAsciiEncode },
+    .{ "ascii_decode", _codecs_mod.genAsciiDecode },
+    .{ "latin_1_encode", _codecs_mod.genLatin1Encode },
+    .{ "latin_1_decode", _codecs_mod.genLatin1Decode },
+    .{ "escape_encode", _codecs_mod.genEscapeEncode },
+    .{ "escape_decode", _codecs_mod.genEscapeDecode },
+    .{ "raw_unicode_escape_encode", _codecs_mod.genRawUnicodeEscapeEncode },
+    .{ "raw_unicode_escape_decode", _codecs_mod.genRawUnicodeEscapeDecode },
+    .{ "unicode_escape_encode", _codecs_mod.genUnicodeEscapeEncode },
+    .{ "unicode_escape_decode", _codecs_mod.genUnicodeEscapeDecode },
+    .{ "charmap_encode", _codecs_mod.genCharmapEncode },
+    .{ "charmap_decode", _codecs_mod.genCharmapDecode },
+    .{ "charmap_build", _codecs_mod.genCharmapBuild },
+    .{ "mbcs_encode", _codecs_mod.genMbcsEncode },
+    .{ "mbcs_decode", _codecs_mod.genMbcsDecode },
+    .{ "readbuffer_encode", _codecs_mod.genReadbufferEncode },
+});
+
+/// _collections module functions
+const CollectionsInternalFuncs = FuncMap.initComptime(.{
+    .{ "deque", _collections_mod.genDeque },
+    .{ "_deque_iterator", _collections_mod.genDequeIterator },
+    .{ "_deque_reverse_iterator", _collections_mod.genDequeReverseIterator },
+    .{ "_count_elements", _collections_mod.genCountElements },
+});
+
+/// _stat module functions
+const StatInternalFuncs = FuncMap.initComptime(.{
+    .{ "S_IFMT", _stat_mod.genS_IFMT },
+    .{ "S_IFDIR", _stat_mod.genS_IFDIR },
+    .{ "S_IFCHR", _stat_mod.genS_IFCHR },
+    .{ "S_IFBLK", _stat_mod.genS_IFBLK },
+    .{ "S_IFREG", _stat_mod.genS_IFREG },
+    .{ "S_IFIFO", _stat_mod.genS_IFIFO },
+    .{ "S_IFLNK", _stat_mod.genS_IFLNK },
+    .{ "S_IFSOCK", _stat_mod.genS_IFSOCK },
+    .{ "S_ISUID", _stat_mod.genS_ISUID },
+    .{ "S_ISGID", _stat_mod.genS_ISGID },
+    .{ "S_ISVTX", _stat_mod.genS_ISVTX },
+    .{ "S_IRWXU", _stat_mod.genS_IRWXU },
+    .{ "S_IRUSR", _stat_mod.genS_IRUSR },
+    .{ "S_IWUSR", _stat_mod.genS_IWUSR },
+    .{ "S_IXUSR", _stat_mod.genS_IXUSR },
+    .{ "S_IRWXG", _stat_mod.genS_IRWXG },
+    .{ "S_IRGRP", _stat_mod.genS_IRGRP },
+    .{ "S_IWGRP", _stat_mod.genS_IWGRP },
+    .{ "S_IXGRP", _stat_mod.genS_IXGRP },
+    .{ "S_IRWXO", _stat_mod.genS_IRWXO },
+    .{ "S_IROTH", _stat_mod.genS_IROTH },
+    .{ "S_IWOTH", _stat_mod.genS_IWOTH },
+    .{ "S_IXOTH", _stat_mod.genS_IXOTH },
+    .{ "S_ISDIR", _stat_mod.genS_ISDIR },
+    .{ "S_ISCHR", _stat_mod.genS_ISCHR },
+    .{ "S_ISBLK", _stat_mod.genS_ISBLK },
+    .{ "S_ISREG", _stat_mod.genS_ISREG },
+    .{ "S_ISFIFO", _stat_mod.genS_ISFIFO },
+    .{ "S_ISLNK", _stat_mod.genS_ISLNK },
+    .{ "S_ISSOCK", _stat_mod.genS_ISSOCK },
+    .{ "S_IMODE", _stat_mod.genS_IMODE },
+    .{ "filemode", _stat_mod.genFilemode },
+    .{ "ST_MODE", _stat_mod.genST_MODE },
+    .{ "ST_INO", _stat_mod.genST_INO },
+    .{ "ST_DEV", _stat_mod.genST_DEV },
+    .{ "ST_NLINK", _stat_mod.genST_NLINK },
+    .{ "ST_UID", _stat_mod.genST_UID },
+    .{ "ST_GID", _stat_mod.genST_GID },
+    .{ "ST_SIZE", _stat_mod.genST_SIZE },
+    .{ "ST_ATIME", _stat_mod.genST_ATIME },
+    .{ "ST_MTIME", _stat_mod.genST_MTIME },
+    .{ "ST_CTIME", _stat_mod.genST_CTIME },
+    .{ "FILE_ATTRIBUTE_ARCHIVE", _stat_mod.genFILE_ATTRIBUTE_ARCHIVE },
+    .{ "FILE_ATTRIBUTE_COMPRESSED", _stat_mod.genFILE_ATTRIBUTE_COMPRESSED },
+    .{ "FILE_ATTRIBUTE_DEVICE", _stat_mod.genFILE_ATTRIBUTE_DEVICE },
+    .{ "FILE_ATTRIBUTE_DIRECTORY", _stat_mod.genFILE_ATTRIBUTE_DIRECTORY },
+    .{ "FILE_ATTRIBUTE_ENCRYPTED", _stat_mod.genFILE_ATTRIBUTE_ENCRYPTED },
+    .{ "FILE_ATTRIBUTE_HIDDEN", _stat_mod.genFILE_ATTRIBUTE_HIDDEN },
+    .{ "FILE_ATTRIBUTE_NORMAL", _stat_mod.genFILE_ATTRIBUTE_NORMAL },
+    .{ "FILE_ATTRIBUTE_NOT_CONTENT_INDEXED", _stat_mod.genFILE_ATTRIBUTE_NOT_CONTENT_INDEXED },
+    .{ "FILE_ATTRIBUTE_OFFLINE", _stat_mod.genFILE_ATTRIBUTE_OFFLINE },
+    .{ "FILE_ATTRIBUTE_READONLY", _stat_mod.genFILE_ATTRIBUTE_READONLY },
+    .{ "FILE_ATTRIBUTE_REPARSE_POINT", _stat_mod.genFILE_ATTRIBUTE_REPARSE_POINT },
+    .{ "FILE_ATTRIBUTE_SPARSE_FILE", _stat_mod.genFILE_ATTRIBUTE_SPARSE_FILE },
+    .{ "FILE_ATTRIBUTE_SYSTEM", _stat_mod.genFILE_ATTRIBUTE_SYSTEM },
+    .{ "FILE_ATTRIBUTE_TEMPORARY", _stat_mod.genFILE_ATTRIBUTE_TEMPORARY },
+    .{ "FILE_ATTRIBUTE_VIRTUAL", _stat_mod.genFILE_ATTRIBUTE_VIRTUAL },
+});
+
+/// stat module functions (same as _stat)
+const StatFuncs = StatInternalFuncs;
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -3959,6 +4179,18 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "_io", IoInternalFuncs },
     .{ "genericpath", GenericpathFuncs },
     .{ "ntpath", NtpathFuncs },
+    .{ "zlib", ZlibFuncs },
+    .{ "zipapp", ZipappFuncs },
+    .{ "ensurepip", EnsurepipFuncs },
+    .{ "_string", StringInternalFuncs },
+    .{ "_weakref", WeakrefInternalFuncs },
+    .{ "_functools", FunctoolsInternalFuncs },
+    .{ "_operator", OperatorInternalFuncs },
+    .{ "_json", JsonInternalFuncs },
+    .{ "_codecs", CodecsInternalFuncs },
+    .{ "_collections", CollectionsInternalFuncs },
+    .{ "_stat", StatInternalFuncs },
+    .{ "stat", StatFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
