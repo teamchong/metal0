@@ -513,8 +513,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Handle matrix multiplication separately
     if (aug.op == .MatMul) {
         // MatMul: target @= value => target = numpy.matmulAuto(target, value)
-        try self.genExpr(aug.target.*);
-        try self.emit(" = try numpy.matmulAuto(");
+        // Note: we already emitted "target = " above, so just emit the matmul call
+        try self.emit("try numpy.matmulAuto(");
         try self.genExpr(aug.target.*);
         try self.emit(", ");
         try self.genExpr(aug.value.*);
@@ -559,6 +559,20 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         }
     }
 
+    // Special handling for unittest.main() - generates complete block with its own structure
+    if (expr == .call and expr.call.func.* == .attribute) {
+        const attr = expr.call.func.attribute;
+        if (attr.value.* == .name) {
+            const obj_name = attr.value.name.id;
+            const method_name = attr.attr;
+            if (std.mem.eql(u8, obj_name, "unittest") and std.mem.eql(u8, method_name, "main")) {
+                // unittest.main() generates its own complete output
+                try self.genExpr(expr);
+                return;
+            }
+        }
+    }
+
     // Discard string constants (docstrings) by assigning to _
     // Zig requires all non-void values to be used
     if (expr == .constant and expr.constant.value == .string) {
@@ -568,8 +582,33 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Discard return values from function calls (Zig requires all non-void values to be used)
     if (expr == .call and expr.call.func.* == .name) {
         const func_name = expr.call.func.name.id;
-        // Check if function returns non-void type
-        if (self.type_inferrer.func_return_types.get(func_name)) |return_type| {
+
+        // Builtin functions that return non-void values need _ = prefix
+        const value_returning_builtins = [_][]const u8{
+            "list", "dict", "set", "tuple", "frozenset",
+            "str", "int", "float", "bool", "bytes", "bytearray",
+            "range", "enumerate", "zip", "map", "filter", "sorted", "reversed",
+            "len", "abs", "min", "max", "sum", "round", "pow",
+            "ord", "chr", "hex", "oct", "bin",
+            "type", "id", "hash", "repr", "ascii",
+            "iter", "next", "slice", "object",
+            "vars", "dir", "locals", "globals",
+            "callable", "isinstance", "issubclass", "hasattr", "getattr",
+            "format", "input",
+        };
+
+        var is_value_returning_builtin = false;
+        for (value_returning_builtins) |builtin| {
+            if (std.mem.eql(u8, func_name, builtin)) {
+                is_value_returning_builtin = true;
+                break;
+            }
+        }
+
+        if (is_value_returning_builtin) {
+            try self.emit("_ = ");
+        } else if (self.type_inferrer.func_return_types.get(func_name)) |return_type| {
+            // Check if function returns non-void type
             // Skip void returns
             if (return_type != .unknown) {
                 try self.emit("_ = ");
@@ -580,15 +619,39 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const before_len = self.output.items.len;
     try self.genExpr(expr);
 
-    // Check if generated code ends with '}' (block statement)
-    // Blocks in statement position don't need semicolons
+    // Check if generated code ends with a block statement (not struct initializers)
     const generated = self.output.items[before_len..];
-    const ends_with_block = generated.len > 0 and generated[generated.len - 1] == '}';
 
-    if (ends_with_block) {
-        try self.emit("\n");
-    } else {
+    // Determine if we need a semicolon:
+    // - Struct initializers like "Type{}" need semicolons
+    // - Statement blocks like "{ ... }" do NOT need semicolons
+    // - Labeled blocks like "blk: { ... }" do NOT need semicolons
+    var needs_semicolon = true;
+    if (generated.len > 0 and generated[generated.len - 1] == '}') {
+        // Check for labeled blocks (blk: { ... } or contains :blk)
+        if (std.mem.indexOf(u8, generated, "blk: {") != null or
+            std.mem.indexOf(u8, generated, ":blk ") != null)
+        {
+            needs_semicolon = false;
+        }
+        // Check for anonymous statement blocks - starts with "{ " (not "Type{")
+        // Statement blocks: "{ const x = ...; }"
+        // Struct initializers: "Type{}" or "Type{ .field = value }"
+        else if (generated.len >= 2) {
+            // Find the first '{' and check what's before it
+            if (std.mem.indexOf(u8, generated, "{ ")) |brace_pos| {
+                if (brace_pos == 0) {
+                    // Starts with "{ " - it's a statement block
+                    needs_semicolon = false;
+                }
+            }
+        }
+    }
+
+    if (needs_semicolon) {
         try self.emit(";\n");
+    } else {
+        try self.emit("\n");
     }
 }
 

@@ -1,7 +1,6 @@
 /// CPython Initialization Interface
 ///
 /// Implements Python runtime initialization and finalization.
-
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
 
@@ -126,7 +125,7 @@ export fn Py_GetPlatform() callconv(.c) [*:0]const u8 {
 /// Get copyright string
 /// Returns borrowed reference to copyright string
 export fn Py_GetCopyright() callconv(.c) [*:0]const u8 {
-    return "PyAOT - Python AOT Compiler";
+    return "metal0 - Python AOT Compiler";
 }
 
 /// Get compiler identification string
@@ -138,7 +137,7 @@ export fn Py_GetCompiler() callconv(.c) [*:0]const u8 {
 /// Get build info string
 /// Returns borrowed reference to build info
 export fn Py_GetBuildInfo() callconv(.c) [*:0]const u8 {
-    return "PyAOT compiled with Zig";
+    return "metal0 compiled with Zig";
 }
 
 /// Get prefix for installed platform-independent files

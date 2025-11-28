@@ -1,4 +1,4 @@
-"""Simple unittest test for PyAOT"""
+"""Simple unittest test for metal0"""
 import unittest
 
 class TestMath(unittest.TestCase):

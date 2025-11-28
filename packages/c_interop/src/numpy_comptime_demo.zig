@@ -236,7 +236,7 @@ fn numpy_std_impl(arr: []const f64) f64 {
 /// ============================================================================
 
 /// This demonstration proves that Zig's comptime metaprogramming enables
-/// PyAOT to implement comprehensive C library support in HOURS instead of WEEKS.
+/// metal0 to implement comprehensive C library support in HOURS instead of WEEKS.
 ///
 /// The specifications in this file took ~25 minutes to write.
 /// Manual implementation would have taken ~10 hours.

@@ -1,5 +1,5 @@
 x: int = 42
-name: str = "PyAOT"
+name: str = "metal0"
 pi: float = 3.14
 flag: bool = True
 nums = [1, 2, 3]

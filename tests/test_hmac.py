@@ -1,4 +1,4 @@
-# pyaot: hmac.new returns hex string directly (simplified API)
+# metal0: hmac.new returns hex string directly (simplified API)
 import hmac
 
 # Test hmac.new() - compute HMAC-SHA256 (returns hex digest directly)

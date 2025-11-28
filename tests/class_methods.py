@@ -1,5 +1,5 @@
 # Test suite for class method edge cases
-# Run: pyaot tests/class_methods.py --force
+# Run: metal0 tests/class_methods.py --force
 
 # 1. String methods in class methods (allocator scope test)
 class StringProcessor:

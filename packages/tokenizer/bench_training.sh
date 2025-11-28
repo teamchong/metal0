@@ -1,12 +1,12 @@
 #!/bin/bash
-# Hyperfine benchmark: BPE Training (PyAOT vs HuggingFace vs SentencePiece)
+# Hyperfine benchmark: BPE Training (metal0 vs HuggingFace vs SentencePiece)
 
 set -e
 
 echo "⚡ BPE Training Benchmark (hyperfine)"
 echo "============================================================"
 echo "Training: 583 texts × 300 iterations"
-echo "PyAOT/HF: vocab 32000 | SentencePiece: vocab 2066 (BPE max)"
+echo "metal0/HF: vocab 32000 | SentencePiece: vocab 2066 (BPE max)"
 echo "Python startup overhead ~0.2% with 300 training runs"
 echo ""
 
@@ -87,7 +87,7 @@ hyperfine \
     --warmup 1 \
     --runs 5 \
     --export-markdown bench_training_results.md \
-    --command-name "PyAOT (Zig)" './zig-out/bin/bench_train' \
+    --command-name "metal0 (Zig)" './zig-out/bin/bench_train' \
     --command-name "HuggingFace (Rust)" 'python3 /tmp/bench_hf_train.py' \
     --command-name "SentencePiece (C++)" 'python3 /tmp/bench_spm_train.py'
 

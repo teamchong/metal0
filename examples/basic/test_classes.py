@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test class features in PyAOT"""
+"""Test class features in metal0"""
 
 # Basic class definition
 class Person:

@@ -14,17 +14,17 @@ BIN_DIR := zig-out/bin
 # Default target - show help
 help:
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-	@echo "$(GREEN)PyAOT Tokenizer Benchmarks$(RESET)"
+	@echo "$(GREEN)metal0 Tokenizer Benchmarks$(RESET)"
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo ""
 	@echo "$(GREEN)Available targets:$(RESET)"
 	@echo "  make benchmark-quick    - ⚡ Quick (3 libs, 100 iter, ~5s) - for rapid iteration"
 	@echo "  make benchmark          - Run ALL benchmarks (train + encoding + web + json)"
 	@echo "  make benchmark-train    - BPE training (3 libraries)"
-	@echo "  make benchmark-encoding - Encoding (5 libraries w/ PyAOT, TokenDagger)"
+	@echo "  make benchmark-encoding - Encoding (5 libraries w/ metal0, TokenDagger)"
 	@echo "  make benchmark-web      - Web/WASM benchmark (4 libraries)"
 	@echo "  make benchmark-json     - JSON parse+stringify (Zig vs Rust vs Python vs Go)"
-	@echo "  make test-correctness   - Verify PyAOT matches tiktoken (583+ tests)"
+	@echo "  make test-correctness   - Verify metal0 matches tiktoken (583+ tests)"
 	@echo ""
 	@echo "$(GREEN)Build targets:$(RESET)"
 	@echo "  make build              - Build all native binaries"
@@ -35,7 +35,7 @@ help:
 # Run all benchmarks (train + encoding + web + json)
 benchmark: benchmark-train benchmark-encoding benchmark-web benchmark-json
 
-# Training benchmarks (PyAOT vs HuggingFace vs SentencePiece)
+# Training benchmarks (metal0 vs HuggingFace vs SentencePiece)
 benchmark-train:
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo "$(GREEN)📊 BPE Training Benchmark (hyperfine)$(RESET)"
@@ -44,16 +44,16 @@ benchmark-train:
 	@./bench_training.sh
 	@echo ""
 
-# Quick benchmark (PyAOT vs Rust JSON stringify - for fast iteration)
+# Quick benchmark (metal0 vs Rust JSON stringify - for fast iteration)
 benchmark-quick:
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-	@echo "$(GREEN)⚡ Quick Benchmark: PyAOT vs Rust JSON Stringify$(RESET)"
+	@echo "$(GREEN)⚡ Quick Benchmark: metal0 vs Rust JSON Stringify$(RESET)"
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo ""
 	@./bench_hyperfine.sh
 	@echo ""
 
-# Native encoding benchmarks (5 libraries: PyAOT, rs-bpe, tiktoken, TokenDagger, HuggingFace)
+# Native encoding benchmarks (5 libraries: metal0, rs-bpe, tiktoken, TokenDagger, HuggingFace)
 benchmark-encoding:
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo "$(GREEN)🚀 Encoding Benchmark: 5 libraries$(RESET)"
@@ -115,7 +115,7 @@ build-wasm:
 		-fno-entry \
 		-O ReleaseSmall \
 		-rdynamic \
-		-femit-bin=dist/pyaot_tokenizer.wasm
+		-femit-bin=dist/metal0_tokenizer.wasm
 	@if [ ! -f dist/cl100k_simple.json ]; then \
 		echo "$(YELLOW)⚠️  cl100k_simple.json not found in dist/$(RESET)"; \
 		echo "$(YELLOW)   Copy vocab file: cp vocab/cl100k_simple.json dist/$(RESET)"; \

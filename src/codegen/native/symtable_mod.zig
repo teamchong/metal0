@@ -75,7 +75,7 @@ pub fn genHas_exec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate SymbolTable.get_identifiers()
 pub fn genGet_identifiers(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).init()");
+    try self.emit("metal0_runtime.PyList([]const u8).init()");
 }
 
 /// Generate SymbolTable.lookup(name)
@@ -92,13 +92,13 @@ pub fn genLookup(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate SymbolTable.get_symbols()
 pub fn genGet_symbols(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList(@TypeOf(.{ .name = \"\", .is_referenced = false })).init()");
+    try self.emit("metal0_runtime.PyList(@TypeOf(.{ .name = \"\", .is_referenced = false })).init()");
 }
 
 /// Generate SymbolTable.get_children()
 pub fn genGet_children(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList(@TypeOf(.{ .name = \"\", .type = \"\" })).init()");
+    try self.emit("metal0_runtime.PyList(@TypeOf(.{ .name = \"\", .type = \"\" })).init()");
 }
 
 // ============================================================================
@@ -186,7 +186,7 @@ pub fn genIs_namespace(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 /// Generate Symbol.get_namespaces()
 pub fn genGet_namespaces(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList(@TypeOf(.{ .name = \"\" })).init()");
+    try self.emit("metal0_runtime.PyList(@TypeOf(.{ .name = \"\" })).init()");
 }
 
 // ============================================================================
@@ -202,31 +202,31 @@ pub fn genFunction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate Function.get_parameters()
 pub fn genGet_parameters(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).init()");
+    try self.emit("metal0_runtime.PyList([]const u8).init()");
 }
 
 /// Generate Function.get_locals()
 pub fn genGet_locals(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).init()");
+    try self.emit("metal0_runtime.PyList([]const u8).init()");
 }
 
 /// Generate Function.get_globals()
 pub fn genGet_globals(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).init()");
+    try self.emit("metal0_runtime.PyList([]const u8).init()");
 }
 
 /// Generate Function.get_nonlocals()
 pub fn genGet_nonlocals(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).init()");
+    try self.emit("metal0_runtime.PyList([]const u8).init()");
 }
 
 /// Generate Function.get_frees()
 pub fn genGet_frees(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).init()");
+    try self.emit("metal0_runtime.PyList([]const u8).init()");
 }
 
 // ============================================================================
@@ -242,5 +242,5 @@ pub fn genClass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate Class.get_methods()
 pub fn genGet_methods(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).init()");
+    try self.emit("metal0_runtime.PyList([]const u8).init()");
 }

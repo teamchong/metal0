@@ -2,7 +2,7 @@
   "metadata": {
     "version": "2.0.0",
     "timestamp": "2025-01-23T12:00:00Z",
-    "source": "PyAOT Benchmark",
+    "source": "metal0 Benchmark",
     "description": "Realistic JSON benchmark data with various structures and data types for fair performance comparison across libraries"
   },
   "users": [

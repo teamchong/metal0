@@ -51,7 +51,7 @@ jobs:
         run: uv sync
 
       - name: Test compilation
-        run: uv run pyaot examples/fibonacci.py -o test_output
+        run: uv run metal0 examples/fibonacci.py -o test_output
 
       - name: Run compiled binary
         run: ./test_output

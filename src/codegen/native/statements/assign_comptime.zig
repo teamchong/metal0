@@ -3,6 +3,7 @@ const std = @import("std");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const ComptimeValue = @import("../../../analysis/comptime_eval.zig").ComptimeValue;
+const zig_keywords = @import("zig_keywords");
 
 /// Emit assignment with compile-time constant value
 /// Generates optimized code like: const x: i64 = 5;
@@ -27,7 +28,8 @@ pub fn emitComptimeAssignment(
         }
     }
 
-    try self.emit(actual_name);
+    // Escape Zig reserved keywords (e.g., "false" -> @"false")
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
 
     if (is_first_assignment) {
         // Emit type annotation

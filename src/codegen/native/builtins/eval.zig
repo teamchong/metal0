@@ -26,7 +26,7 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     const program = bytecode_compiler.compileSource(self.allocator, eval_source) catch |err| {
         // If bytecode compilation fails, fall back to runtime eval
         std.debug.print("comptime eval fallback for '{s}': {}\n", .{ eval_source, err });
-        try self.emit("try runtime.eval(allocator, \"");
+        try self.emit("try runtime.eval(__global_allocator, \"");
         try escapeZigString(self, eval_source);
         try self.emit("\")");
         return;
@@ -75,7 +75,7 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     // Deserialize and execute via VM
     try self.emit("    var _program_");
     try emitInt(self, blob_id);
-    try self.emit(" = runtime.BytecodeProgram.deserialize(allocator, &_bytecode_");
+    try self.emit(" = runtime.BytecodeProgram.deserialize(__global_allocator, &_bytecode_");
     try emitInt(self, blob_id);
     try self.emit(") catch unreachable;\n");
 
@@ -85,17 +85,20 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
 
     try self.emit("    var _vm_");
     try emitInt(self, blob_id);
-    try self.emit(" = runtime.BytecodeVM.init(allocator);\n");
+    try self.emit(" = runtime.BytecodeVM.init(__global_allocator);\n");
 
     try self.emit("    defer _vm_");
     try emitInt(self, blob_id);
     try self.emit(".deinit();\n");
 
-    try self.emit("    break :blk try _vm_");
+    try self.emit("    break :blk _vm_");
     try emitInt(self, blob_id);
     try self.emit(".execute(&_program_");
     try emitInt(self, blob_id);
-    try self.emit(");\n}");
+    try self.emit(") catch |err| {\n");
+    try self.emit("        std.debug.print(\"eval error: {}\\n\", .{err});\n");
+    try self.emit("        unreachable;\n");
+    try self.emit("    };\n}");
 }
 
 /// Helper to emit integer as decimal string
@@ -119,28 +122,30 @@ fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
     }
 }
 
-/// Generate code for eval(source)
-/// Calls runtime.eval() which uses AST executor
+/// Generate code for eval(source, [globals, [locals]])
+/// Calls runtime.eval() which uses bytecode VM
 pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        return error.OutOfMemory; // eval() requires exactly 1 argument
+    if (args.len < 1) {
+        return error.OutOfMemory; // eval() requires at least 1 argument
     }
 
-    // Generate: try runtime.eval(allocator, source_code)
-    try self.emit("try runtime.eval(allocator, ");
+    // For now, ignore globals and locals arguments (args[1] and args[2])
+    // Generate: try runtime.eval(__global_allocator, source_code)
+    try self.emit("try runtime.eval(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(")");
 }
 
-/// Generate code for exec(source)
-/// Calls runtime.exec() which uses AST executor (no return value)
+/// Generate code for exec(source, [globals, [locals]])
+/// Calls runtime.exec() which uses bytecode VM (no return value)
 pub fn genExec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        return error.OutOfMemory; // exec() requires exactly 1 argument
+    if (args.len < 1) {
+        return error.OutOfMemory; // exec() requires at least 1 argument
     }
 
-    // Generate: try runtime.exec(allocator, source_code)
-    try self.emit("try runtime.exec(allocator, ");
+    // For now, ignore globals and locals arguments (args[1] and args[2])
+    // Generate: try runtime.exec(__global_allocator, source_code)
+    try self.emit("try runtime.exec(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(")");
 }

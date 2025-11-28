@@ -1,6 +1,6 @@
 #!/bin/bash
 # JSON Parse and Stringify Benchmark
-# Compares PyAOT vs Rust vs Go vs Python vs PyPy
+# Compares metal0 vs Rust vs Go vs Python vs PyPy
 # All Python-based runners use the SAME source code
 
 source "$(dirname "$0")/../common.sh"
@@ -21,7 +21,7 @@ data = {
     "metadata": {
         "version": "2.0.0",
         "timestamp": "2025-01-23T12:00:00Z",
-        "source": "PyAOT Benchmark"
+        "source": "metal0 Benchmark"
     },
     "users": [
         {
@@ -62,7 +62,7 @@ print(f"Created sample.json ({os.path.getsize('sample.json') / 1024:.1f} KB)")
 PYGEN
 fi
 
-# Python source for PARSE (SAME code for PyAOT, Python, PyPy)
+# Python source for PARSE (SAME code for metal0, Python, PyPy)
 cat > json_parse.py <<'EOF'
 import json
 
@@ -76,7 +76,7 @@ while i < 50000:
     i = i + 1
 EOF
 
-# Python source for STRINGIFY (SAME code for PyAOT, Python, PyPy)
+# Python source for STRINGIFY (SAME code for metal0, Python, PyPy)
 cat > json_stringify.py <<'EOF'
 import json
 
@@ -150,9 +150,9 @@ func main() {
 EOF
 
 echo "Building..."
-build_pyaot_compiler
-compile_pyaot json_parse.py json_parse_pyaot
-compile_pyaot json_stringify.py json_stringify_pyaot
+build_metal0_compiler
+compile_metal0 json_parse.py json_parse_metal0
+compile_metal0 json_stringify.py json_stringify_metal0
 
 # Build Rust
 if [ "$RUST_AVAILABLE" = true ]; then
@@ -173,7 +173,7 @@ fi
 print_header "PARSE Benchmarks"
 PARSE_CMD=(hyperfine --warmup 2 --runs 3 --export-markdown results_parse.md)
 
-add_pyaot PARSE_CMD json_parse_pyaot
+add_metal0 PARSE_CMD json_parse_metal0
 [ "$RUST_AVAILABLE" = true ] && [ -f rust/target/release/parse ] && PARSE_CMD+=(--command-name "Rust" "./rust/target/release/parse")
 [ "$GO_AVAILABLE" = true ] && [ -f go/parse ] && PARSE_CMD+=(--command-name "Go" "./go/parse")
 add_pypy PARSE_CMD json_parse.py
@@ -185,7 +185,7 @@ add_python PARSE_CMD json_parse.py
 print_header "STRINGIFY Benchmarks"
 STRINGIFY_CMD=(hyperfine --warmup 2 --runs 3 --export-markdown results_stringify.md)
 
-add_pyaot STRINGIFY_CMD json_stringify_pyaot
+add_metal0 STRINGIFY_CMD json_stringify_metal0
 [ "$RUST_AVAILABLE" = true ] && [ -f rust/target/release/stringify ] && STRINGIFY_CMD+=(--command-name "Rust" "./rust/target/release/stringify")
 [ "$GO_AVAILABLE" = true ] && [ -f go/stringify ] && STRINGIFY_CMD+=(--command-name "Go" "./go/stringify")
 add_pypy STRINGIFY_CMD json_stringify.py
@@ -194,7 +194,7 @@ add_python STRINGIFY_CMD json_stringify.py
 "${STRINGIFY_CMD[@]}"
 
 # Cleanup binaries
-rm -f json_parse_pyaot json_stringify_pyaot
+rm -f json_parse_metal0 json_stringify_metal0
 
 echo ""
 echo "Results saved to: results_parse.md, results_stringify.md"

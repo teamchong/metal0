@@ -1,10 +1,8 @@
-# PyAOT
+# metal0
 
 **v0.1.0-alpha** - Early development, not production-ready
 
-Move Ahead of Time. A zero-overhead Python compiler.
-
-**28x faster** than CPython | **Beats Rust/Go** | Native binaries
+Python Syntax. Bare Metal Speed. The Infrastructure for the Post-Cloud Era.
 
 ## Key Features
 
@@ -66,33 +64,33 @@ println!("{}", yourname_app::greet("World"));
 
 **Planned targets:** WASM, npm (Node.js), NuGet (.NET), crates.io (Rust), Swift, Go modules
 
-## Why PyAOT?
+## Why metal0?
 
 Python's distribution and deployment challenges solved.
 
 **1. Distribution Nightmare**
 - Python: pip dependencies, virtualenvs, version conflicts, requirements.txt hell
-- PyAOT: Single 50-70KB binary - no dependencies, just run
+- metal0: Single 50-70KB binary - no dependencies, just run
 
 **2. Cross-Platform Pain**
 - Python: Different wheels per OS, C extensions break, platform-specific bugs
-- PyAOT: Compile once per platform, native binaries work everywhere
+- metal0: Compile once per platform, native binaries work everywhere
 
 **3. WASM Support**
 - Python: Limited/experimental WASM, large bundles (>10MB)
-- PyAOT: Native WASM target, tiny output (~5KB)
+- metal0: Native WASM target, tiny output (~5KB)
 
 **4. Performance**
 - Python: Slow interpreter, GIL limits parallelism
-- PyAOT: 31x faster, no GIL, native machine code
+- metal0: 31x faster, no GIL, native machine code
 
 **5. Docker Bloat**
 - Python: 900MB+ images (python:3.12 + deps)
-- PyAOT: FROM scratch, ~200KB total - 4500x smaller
+- metal0: FROM scratch, ~200KB total - 4500x smaller
 
 ### Comparison
 
-| Issue | Python | PyAOT |
+| Issue | Python | metal0 |
 |-------|--------|-------|
 | Binary size | N/A | 50-400KB |
 | Dependencies | pip + virtualenv | Zero |
@@ -102,7 +100,7 @@ Python's distribution and deployment challenges solved.
 
 **See [Distribution Guide](examples/DISTRIBUTION.md) for detailed deployment examples and Docker size comparisons.**
 
-## Where PyAOT Excels
+## Where metal0 Excels
 
 **✅ Perfect For:**
 - **CLI tools** - <1ms startup vs Python's 50ms, single binary
@@ -115,7 +113,7 @@ Python's distribution and deployment challenges solved.
 
 **🎯 vs Existing Solutions:**
 
-| Tool | PyAOT Advantage |
+| Tool | metal0 Advantage |
 |------|----------------|
 | **PyInstaller/Nuitka** | True AOT, not bundling. 2000x smaller (no Python runtime) |
 | **Codon** | Pure Python syntax, no new language. Simpler toolchain |
@@ -136,14 +134,14 @@ app = Flask(__name__)
 
 @app.route("/")
 def hello():
-    return "Hello from PyAOT!"
+    return "Hello from metal0!"
 
 # Compiles Flask and 17 dependencies to native code
 # 0 memory leaks on parse errors (arena allocators)
 ```
 
 ```bash
-$ pyaot flask_app.py --force
+$ metal0 flask_app.py --force
 ✓ Compiled successfully to: flask_app.cpython-312-darwin.so
 ```
 
@@ -194,12 +192,12 @@ See [examples/comprehensive_demo.py](examples/comprehensive_demo.py) for current
 
 ```bash
 # Clone and install
-git clone https://github.com/teamchong/pyaot pyaot
-cd pyaot
+git clone https://github.com/teamchong/metal0 metal0
+cd metal0
 make install
 
 # Compile and run
-pyaot examples/fibonacci.py
+metal0 examples/fibonacci.py
 ```
 
 ## Installation
@@ -212,7 +210,7 @@ pyaot examples/fibonacci.py
 make install
 ```
 
-This builds the PyAOT compiler and installs it to `~/.local/bin/pyaot`.
+This builds the metal0 compiler and installs it to `~/.local/bin/metal0`.
 
 Make sure `~/.local/bin` is in your PATH:
 ```bash
@@ -223,19 +221,19 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```bash
 # Compile and run (default: shared library .so)
-pyaot your_file.py
+metal0 your_file.py
 
 # Build standalone binary
-pyaot --binary your_file.py
+metal0 --binary your_file.py
 
 # Force recompilation (ignore cache)
-pyaot --force your_file.py
+metal0 --force your_file.py
 
 # Build only, don't run
-pyaot build your_file.py
+metal0 build your_file.py
 
 # Build standalone binary without running
-pyaot build --binary your_file.py
+metal0 build --binary your_file.py
 ```
 
 ### Compilation Modes
@@ -337,7 +335,7 @@ print("Version:", mymodule.VERSION)  # Version: 1.0.0
 
 **Compile:**
 ```bash
-pyaot main.py --binary
+metal0 main.py --binary
 # Scans imports recursively
 # Compiles mymodule.py → .build/mymodule.zig
 # Compiles main.py → .build/main.zig
@@ -346,7 +344,7 @@ pyaot main.py --binary
 
 ### 5. Flask Import (External Library)
 
-PyAOT can parse and compile Flask and its dependencies.
+metal0 can parse and compile Flask and its dependencies.
 
 ```python
 from flask import Flask
@@ -355,14 +353,14 @@ app = Flask(__name__)
 
 @app.route("/")
 def hello():
-    return "Hello from PyAOT-compiled Flask!"
+    return "Hello from metal0-compiled Flask!"
 
 if __name__ == "__main__":
     print("Flask routes ready!")
 ```
 
 ```bash
-$ pyaot flask_app.py --force
+$ metal0 flask_app.py --force
 Scanning imports recursively...
   Found import: flask -> .../site-packages/flask/__init__.py
 Compiling 17 imported modules...
@@ -386,7 +384,7 @@ Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM6
 
 | Language | Time | vs Python |
 |----------|------|-----------|
-| **PyAOT** | **3.22s** | **30.1x faster** 🏆 |
+| **metal0** | **3.22s** | **30.1x faster** 🏆 |
 | Rust | 3.23s | 30.0x faster |
 | Go | 3.60s | 26.9x faster |
 | PyPy | 11.75s | 8.3x faster |
@@ -396,14 +394,14 @@ Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM6
 
 **Tail-Recursive Fibonacci (10K × fib(10000)) - TCO Test:**
 
-| Language | Time | vs PyAOT |
+| Language | Time | vs metal0 |
 |----------|------|----------|
-| **PyAOT** | **31.9ms** | **1.00x** 🏆 |
+| **metal0** | **31.9ms** | **1.00x** 🏆 |
 | Rust | 32.2ms | 1.01x |
 | Go | 286.7ms | 8.99x slower |
 | Python/PyPy | ❌ | RecursionError |
 
-*PyAOT uses `@call(.always_tail)` for guaranteed TCO. Python/PyPy crash at depth ~1000.*
+*metal0 uses `@call(.always_tail)` for guaranteed TCO. Python/PyPy crash at depth ~1000.*
 
 ```bash
 make benchmark-fib       # fib(35) with PyPy
@@ -412,9 +410,9 @@ make benchmark-fib-tail  # Tail-recursive TCO test
 
 **Startup Time - Hello World (100 runs):**
 
-| Language | Time | vs PyAOT | vs CPython |
+| Language | Time | vs metal0 | vs CPython |
 |:---------|-----:|---------:|-----------:|
-| **PyAOT (Zig)** | **1.6ms ± 0.1ms** | **1.00x** 🏆 | **14.0x faster** |
+| **metal0 (Zig)** | **1.6ms ± 0.1ms** | **1.00x** 🏆 | **14.0x faster** |
 | **Rust 1.91** | **1.8ms ± 0.1ms** | 1.14x slower | 12.4x faster |
 | **Go 1.25** | **2.4ms ± 0.2ms** | 1.50x slower | 9.3x faster |
 | CPython 3.13 | 22.4ms ± 1.2ms | 14.0x slower | 1.00x |
@@ -425,27 +423,27 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 
 **JSON Parse (50K × 38KB = 1.9GB processed):**
 
-| Implementation | Time | vs PyAOT |
+| Implementation | Time | vs metal0 |
 |---------------|------|----------|
-| **PyAOT** | **2.68s ± 0.0s** | **1.00x** 🏆 |
+| **metal0** | **2.68s ± 0.0s** | **1.00x** 🏆 |
 | PyPy | 3.16s ± 0.0s | 1.18x slower |
 | Rust (serde_json) | 4.70s ± 0.2s | 1.76x slower |
 | Python | 8.40s ± 0.1s | 3.14x slower |
 | Go | 14.0s ± 0.6s | 5.23x slower |
 
-*PyAOT beats ALL including PyPy, Rust, Python, and Go!*
+*metal0 beats ALL including PyPy, Rust, Python, and Go!*
 
 **JSON Stringify (50K × 38KB = 1.9GB processed):**
 
-| Implementation | Time | vs PyAOT |
+| Implementation | Time | vs metal0 |
 |---------------|------|----------|
-| **PyAOT** | **2.68s ± 0.0s** | **1.00x** 🏆 |
+| **metal0** | **2.68s ± 0.0s** | **1.00x** 🏆 |
 | Rust (serde_json) | 3.01s ± 0.0s | 1.12x slower |
 | Python | 12.3s ± 0.0s | 4.60x slower |
 | PyPy | 12.4s ± 0.1s | 4.61x slower |
 | Go | 15.6s ± 0.2s | 5.81x slower |
 
-*PyAOT stringify beats ALL including Rust, PyPy, and Python thanks to SIMD escaping and comptime lookup tables.*
+*metal0 stringify beats ALL including Rust, PyPy, and Python thanks to SIMD escaping and comptime lookup tables.*
 
 **Key optimizations (PyPy-inspired):**
 - **Arena allocator** - Single 1MB allocation for entire parse, bump-pointer (~2 CPU cycles per alloc vs ~100+ for malloc), bulk free when done
@@ -462,7 +460,7 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 
 | Language | Time | vs Python |
 |----------|------|-----------|
-| **PyAOT** | **329ms** | **4.3x faster** 🏆 |
+| **metal0** | **329ms** | **4.3x faster** 🏆 |
 | PyPy | 570ms | 2.5x faster |
 | Python | 1.42s | baseline |
 
@@ -470,16 +468,16 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) (3 run
 
 | Language | Time | vs Python |
 |----------|------|-----------|
-| **PyAOT** | **1.6ms** | **5000x faster** 🏆 |
+| **metal0** | **1.6ms** | **5000x faster** 🏆 |
 | PyPy | 154ms | 53x faster |
 | Python | 8.1s | baseline |
 
-*PyAOT string operations are computed at comptime where possible, resulting in near-zero runtime.*
+*metal0 string operations are computed at comptime where possible, resulting in near-zero runtime.*
 
 ### HTTP Client Benchmark (50 HTTPS requests)
 
 Tests SSL/TLS, sockets, and HTTP networking using the `requests` library.
-**Same Python code** runs on PyAOT, Python, and PyPy.
+**Same Python code** runs on metal0, Python, and PyPy.
 
 | Language | Time | vs Rust | CPU Time |
 |----------|------|---------|----------|
@@ -487,9 +485,9 @@ Tests SSL/TLS, sockets, and HTTP networking using the `requests` library.
 | Go (net/http) | 12.5s | 1.19x | 0.04s |
 | Python (requests) | 15.7s | 1.50x | 1.44s |
 | PyPy (requests) | 17.5s | 1.68x | 0.81s |
-| PyAOT (requests) | 17.8s | 1.71x | 0.30s |
+| metal0 (requests) | 17.8s | 1.71x | 0.30s |
 
-*Network latency dominates (~200-300ms per request). PyAOT uses **4.7x less CPU** than Python.*
+*Network latency dominates (~200-300ms per request). metal0 uses **4.7x less CPU** than Python.*
 
 ```bash
 make benchmark-http  # Run HTTP benchmark
@@ -498,17 +496,17 @@ make benchmark-http  # Run HTTP benchmark
 ### Flask + Requests Benchmark (10 HTTPS requests)
 
 Tests full web stack: Flask app instantiation + requests HTTP client.
-**Same Python code** runs on PyAOT, Python, and PyPy.
+**Same Python code** runs on metal0, Python, and PyPy.
 
 | Language | Time | vs Rust | CPU Time |
 |----------|------|---------|----------|
 | **Rust** (ureq) | **2.3s** | **1.00x** 🏆 | 0.02s |
 | Go (net/http) | 2.6s | 1.12x | 0.01s |
 | PyPy (flask+requests) | 3.6s | 1.54x | 0.45s |
-| PyAOT (flask+requests) | 3.8s | 1.62x | 0.07s |
+| metal0 (flask+requests) | 3.8s | 1.62x | 0.07s |
 | Python (flask+requests) | 4.1s | 1.75x | 0.44s |
 
-*Network latency dominates. PyAOT uses **6x less CPU** than Python with Flask overhead.*
+*Network latency dominates. metal0 uses **6x less CPU** than Python with Flask overhead.*
 
 ```bash
 make benchmark-flask  # Run Flask benchmark
@@ -516,15 +514,15 @@ make benchmark-flask  # Run Flask benchmark
 
 ### NumPy Matrix Multiplication (BLAS)
 
-500×500 matrix multiplication using BLAS `cblas_dgemm`. PyAOT calls BLAS directly without Python interpreter overhead.
+500×500 matrix multiplication using BLAS `cblas_dgemm`. metal0 calls BLAS directly without Python interpreter overhead.
 
-| Runtime | Time | vs PyAOT |
+| Runtime | Time | vs metal0 |
 |---------|------|----------|
-| **PyAOT** (BLAS) | **3.2ms** | **1.00x** 🏆 |
+| **metal0** (BLAS) | **3.2ms** | **1.00x** 🏆 |
 | Python (NumPy) | 66ms | 21x slower |
 | PyPy (NumPy) | 129ms | 40x slower |
 
-*All use the same BLAS library - PyAOT eliminates interpreter overhead.*
+*All use the same BLAS library - metal0 eliminates interpreter overhead.*
 
 ```bash
 make benchmark-numpy  # Run NumPy benchmark
@@ -536,9 +534,9 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on App
 
 **BPE Encoding (583 texts × 1000 iterations):**
 
-| Implementation | Time | vs PyAOT |
+| Implementation | Time | vs metal0 |
 |---------------|------|----------|
-| **PyAOT (Zig)** | **2.489s** | **1.00x** 🏆 |
+| **metal0 (Zig)** | **2.489s** | **1.00x** 🏆 |
 | rs-bpe (Rust) | 3.866s | 1.55x slower |
 | TokenDagger (C++) | 4.195s | 1.69x slower |
 | tiktoken (Rust) | 9.311s | 3.74x slower |
@@ -546,9 +544,9 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on App
 
 **Web/WASM Encoding (583 texts × 200 iterations):**
 
-| Library | Time | vs PyAOT | Size |
+| Library | Time | vs metal0 | Size |
 |---------|------|----------|------|
-| **PyAOT (WASM)** | **47.8ms ± 1.2ms** | **1.00x** 🏆 | **46KB** |
+| **metal0 (WASM)** | **47.8ms ± 1.2ms** | **1.00x** 🏆 | **46KB** |
 | gpt-tokenizer (JS) | 847.2ms ± 15.6ms | 17.7x slower | 1.1MB |
 | @anthropic-ai/tokenizer (JS) | 8.515s ± 0.201s | 178.1x slower | 8.6MB |
 | tiktoken (WASM) v1.0.22 | 11.884s ± 0.172s | 248.5x slower | 1.0MB |
@@ -557,9 +555,9 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on App
 
 **BPE Training (vocab_size=32000, 300 runs):**
 
-| Library | Time | vs PyAOT |
+| Library | Time | vs metal0 |
 |---------|------|----------|
-| **PyAOT (Zig)** | **1.095s ± 0.009s** | **1.00x** 🏆 |
+| **metal0 (Zig)** | **1.095s ± 0.009s** | **1.00x** 🏆 |
 | SentencePiece (C++) | 8.514s ± 0.112s* | 7.78x slower |
 | HuggingFace (Rust) | 26.690s ± 0.145s | 24.37x slower |
 
@@ -569,10 +567,10 @@ All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on App
 
 | Library | Time | vs HuggingFace | Correctness |
 |---------|------|----------------|-------------|
-| **PyAOT (Zig)** | **108ms** | **2.4x faster** 🏆 | 751/751 ✅ |
+| **metal0 (Zig)** | **108ms** | **2.4x faster** 🏆 | 751/751 ✅ |
 | HuggingFace (Rust) | 263ms | 1.00x | 751/751 ✅ |
 
-*PyAOT uses pure Zig SA-IS + optimized trie + ReleaseFast build
+*metal0 uses pure Zig SA-IS + optimized trie + ReleaseFast build
 
 **Tokenization Algorithms:**
 
@@ -597,7 +595,7 @@ const Trainer = TrainerFor(.Unigram);
 
 **Additional Features:**
 
-| Feature | PyAOT | HuggingFace | Status |
+| Feature | metal0 | HuggingFace | Status |
 |---------|-------|-------------|--------|
 | Pre-tokenizers | ✅ Comptime | ✅ Runtime | Available |
 | Regex | ✅ GPT-2 | ✅ Multiple | Available |
@@ -605,16 +603,16 @@ const Trainer = TrainerFor(.Unigram);
 | Post-processors | ✅ Comptime | ✅ Runtime | Available |
 | Decoders | ✅ Comptime | ✅ Runtime | Available |
 
-*PyAOT: Unused features → 0 bytes | HuggingFace: All features always compiled
+*metal0: Unused features → 0 bytes | HuggingFace: All features always compiled
 
 **Benchmark notes:**
 - All algorithms built with `zig build -Doptimize=ReleaseFast`
 - BPE: 25x faster than HuggingFace (4ms vs ~100ms)
 - WordPiece: 3x faster than HuggingFace (167ms vs ~500ms)
 - Unigram: 2.4x faster than HuggingFace (108ms vs 263ms)
-- **PyAOT beats Rust across ALL algorithms!** 🏆
+- **metal0 beats Rust across ALL algorithms!** 🏆
 
-**Why PyAOT is faster at BOTH encoding AND training:**
+**Why metal0 is faster at BOTH encoding AND training:**
 - No FFI overhead (Python ↔ Rust boundary in HuggingFace)
 - Comptime specialization (vs runtime generics)
 - C allocator (29x faster than GPA)
@@ -624,7 +622,7 @@ const Trainer = TrainerFor(.Unigram);
 - Direct memory operations
 - SIMD vectorization for hot paths
 
-**Use PyAOT if:**
+**Use metal0 if:**
 - Fast encoding critical (1.55x faster than rs-bpe, 248x faster WASM)
 - Fast training critical (7.78x faster than SentencePiece)
 - Need zero Python dependency or tiny binaries (51-139KB vs 500KB+)
@@ -638,16 +636,16 @@ const Trainer = TrainerFor(.Unigram);
 
 **Regex Pattern Matching (5 common patterns, hyperfine verified):**
 
-| Implementation | Total Time | vs PyAOT |
+| Implementation | Total Time | vs metal0 |
 |----------------|------------|----------|
-| **PyAOT (Lazy DFA)** | **1.324s ± 0.025s** | **1.00x** 🏆 |
+| **metal0 (Lazy DFA)** | **1.324s ± 0.025s** | **1.00x** 🏆 |
 | Rust (regex) | 4.639s ± 0.136s | 3.50x slower |
 | Python (re) | ~43s (est) | ~32x slower |
 | Go (regexp) | ~58s (est) | ~44x slower |
 
 **Pattern breakdown (1M iterations each, except Word Boundary 100k):**
 
-| Pattern | PyAOT | Rust | Speedup |
+| Pattern | metal0 | Rust | Speedup |
 |---------|-------|------|---------|
 | Email | 93ms | 95ms | 1.02x |
 | URL | 81ms | 252ms | 3.12x |
@@ -666,7 +664,7 @@ const Trainer = TrainerFor(.Unigram);
 # Run regex benchmarks
 cd packages/regex
 
-make benchmark-hyperfine  # PyAOT vs Rust comparison (hyperfine)
+make benchmark-hyperfine  # metal0 vs Rust comparison (hyperfine)
 make benchmark-sizes      # Multi-size scaling test (1KB/32KB/500KB)
 make benchmark            # All languages
 ```
@@ -675,14 +673,14 @@ make benchmark            # All languages
 
 ```bash
 # Fibonacci (CPU-bound recursive)
-make benchmark-fib        # PyAOT vs Rust vs Go vs Python vs PyPy
+make benchmark-fib        # metal0 vs Rust vs Go vs Python vs PyPy
 
 # Dict/String operations
 make benchmark-dict       # 1M dict lookups
 make benchmark-string     # 10M string operations
 
 # JSON (parse + stringify)
-make benchmark-json-full  # PyAOT vs Rust vs Go vs Python vs PyPy
+make benchmark-json-full  # metal0 vs Rust vs Go vs Python vs PyPy
 
 # Regex
 make benchmark-regex      # All languages, 100K iterations
@@ -693,26 +691,26 @@ make benchmark            # Train + encoding + web + JSON benchmarks
 ```
 
 **Key insights:**
-- PyAOT excels at CPU-bound tasks with heavy function call overhead
+- metal0 excels at CPU-bound tasks with heavy function call overhead
 - Best suited for recursive algorithms, computational loops, and integer arithmetic
 - Zero runtime overhead - binaries are pre-compiled
 - Faster than PyPy's JIT on most computational workloads
 - All benchmarks measure runtime only (no compilation time included)
 
-**How PyAOT Works:**
+**How metal0 Works:**
 ```python
 # Your Python code:
-from tokenizers.models import BPE  # ← PyAOT detects: BPE only
+from tokenizers.models import BPE  # ← metal0 detects: BPE only
 
 tokenizer = Tokenizer(BPE())
 ```
 ```bash
-$ pyaot build train.py
-# PyAOT automatically includes only BPE → 139KB binary
+$ metal0 build train.py
+# metal0 automatically includes only BPE → 139KB binary
 # No flags, no config - automatic optimization!
 ```
 
-**PyAOT tokenization status:**
+**metal0 tokenization status:**
 - ✅ **BPE**: 100% complete (**25x faster than HuggingFace**) 🏆
 - ✅ **WordPiece**: 100% complete (**3x faster than HuggingFace**) 🏆
 - ✅ **Unigram**: 100% complete (**2.4x faster than HuggingFace**) 🏆
@@ -723,7 +721,7 @@ $ pyaot build train.py
 
 ### Zero-Config Feature System (Comptime Dead Code Elimination)
 
-PyAOT implements missing features using Zig's `comptime` - **unused features compile to 0 bytes**:
+metal0 implements missing features using Zig's `comptime` - **unused features compile to 0 bytes**:
 
 **Available features:**
 - **Pre-tokenizers**: `whitespace()`, `byteLevel()`, `punctuation()`, `digits()`, `bert()`, `metaspace()`, `split()`, **`gpt2Pattern()`**
@@ -757,20 +755,20 @@ tok.encode(segments[0]);  // Binary: 54KB (BPE + regex engine)
 
 Zig's compiler analyzes which functions you **actually call** and only includes those. No runtime checks, no feature flags, no config files - just import and use what you need.
 
-**This is how PyAOT stays fast:** "Swiss Army knife" features with "racing bicycle" size when you only need basic BPE.
+**This is how metal0 stays fast:** "Swiss Army knife" features with "racing bicycle" size when you only need basic BPE.
 
 **Regex Pattern Matching (5 common patterns, hyperfine verified):**
 
-| Implementation | Total Time | vs PyAOT |
+| Implementation | Total Time | vs metal0 |
 |---------------|------------|----------|
-| **PyAOT (Lazy DFA)** | **1.324s ± 0.025s** | **1.00x** 🏆 |
+| **metal0 (Lazy DFA)** | **1.324s ± 0.025s** | **1.00x** 🏆 |
 | Rust (regex) | 4.639s ± 0.136s | 3.50x slower |
 | Python (re) | ~43s (est) | ~32x slower |
 | Go (regexp) | ~58s (est) | ~44x slower |
 
 **Pattern breakdown (1M iterations each, except Word Boundary 100k):**
 
-| Pattern | PyAOT | Rust | Speedup |
+| Pattern | metal0 | Rust | Speedup |
 |---------|-------|------|---------|
 | Email | 93ms | 95ms | 1.02x |
 | URL | 81ms | 252ms | 3.12x |
@@ -789,14 +787,14 @@ Zig's compiler analyzes which functions you **actually call** and only includes 
 ```bash
 cd packages/regex
 
-# 🏆 OFFICIAL: PyAOT vs Rust comparison (hyperfine)
+# 🏆 OFFICIAL: metal0 vs Rust comparison (hyperfine)
 make benchmark-hyperfine
 
 # 📊 RECOMMENDED: Multi-size scaling test (Rust standard: 1KB/32KB/500KB)
 make benchmark-sizes
 
 # Individual benchmarks (all use hyperfine for accuracy)
-make benchmark-zig      # PyAOT only
+make benchmark-zig      # metal0 only
 make benchmark-rust     # Rust only
 make benchmark-python   # Python only
 make benchmark-go       # Go only
@@ -830,11 +828,11 @@ make benchmark-json     # JSON parse+stringify (Zig, Rust, Python, Go)
 
 **Quick start:**
 ```bash
-./benchmarks/run_benchmarks.sh  # Compares CPython vs PyPy vs PyAOT
+./benchmarks/run_benchmarks.sh  # Compares CPython vs PyPy vs metal0
 ```
 
 **Key insights:**
-- PyAOT excels at CPU-bound tasks with heavy function call overhead
+- metal0 excels at CPU-bound tasks with heavy function call overhead
 - Best suited for recursive algorithms, computational loops, and integer arithmetic
 - Zero runtime overhead - binaries are pre-compiled
 - Faster than PyPy's JIT on most computational workloads
@@ -950,7 +948,7 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 
 ### Three-Tier Import System
 
-**How PyAOT handles `import X`:**
+**How metal0 handles `import X`:**
 
 **TIER 1: Pure Zig stdlib (fastest - 8-40x speedup)**
 - Implemented: json, http, asyncio, math, re (regex)
@@ -964,7 +962,7 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 - Zero Python wrapper overhead
 
 **TIER 3: Compile pure Python (depends on code complexity)**
-- Pure Python packages compiled with PyAOT
+- Pure Python packages compiled with metal0
 - Same optimizations as your code
 - Examples: requests, flask, click
 

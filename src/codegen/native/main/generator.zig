@@ -11,6 +11,7 @@ const statements = @import("../statements.zig");
 const expressions = @import("../expressions.zig");
 const import_resolver = @import("../../../import_resolver.zig");
 const zig_keywords = @import("zig_keywords");
+const hashmap_helper = @import("hashmap_helper");
 
 // Comptime constants for code generation (zero runtime cost)
 const BUILD_DIR = ".build";
@@ -43,21 +44,36 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     }
 
     // Generate @import() statements for compiled modules
+    // Track which root modules have been imported to avoid duplicates
+    var imported_roots = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer imported_roots.deinit();
+
     for (imported_modules.items) |mod_name| {
+        // Extract root module name from dotted path (e.g., "test.support" -> "test")
+        const root_mod_name = if (std.mem.indexOfScalar(u8, mod_name, '.')) |dot_idx|
+            mod_name[0..dot_idx]
+        else
+            mod_name;
+
+        // Skip if we already imported this root module
+        if (imported_roots.contains(root_mod_name)) {
+            continue;
+        }
+
         // Skip modules that use registry imports (zig_runtime or c_library)
         // These get their import from the registry, not from @import("./mod.zig")
-        if (self.import_registry.lookup(mod_name)) |info| {
+        if (self.import_registry.lookup(root_mod_name)) |info| {
             if (info.strategy == .zig_runtime or info.strategy == .c_library) {
                 continue;
             }
         }
 
         // Skip if external module (no .build/ file)
-        const import_path = try std.fmt.allocPrint(self.allocator, IMPORT_PREFIX ++ "{s}" ++ MODULE_EXT, .{mod_name});
+        const import_path = try std.fmt.allocPrint(self.allocator, IMPORT_PREFIX ++ "{s}" ++ MODULE_EXT, .{root_mod_name});
         defer self.allocator.free(import_path);
 
         // Check if module was compiled to .build/ (uses comptime constants)
-        const build_path = try std.fmt.allocPrint(self.allocator, BUILD_DIR ++ "/{s}" ++ MODULE_EXT, .{mod_name});
+        const build_path = try std.fmt.allocPrint(self.allocator, BUILD_DIR ++ "/{s}" ++ MODULE_EXT, .{root_mod_name});
         defer self.allocator.free(build_path);
 
         std.fs.cwd().access(build_path, .{}) catch {
@@ -66,9 +82,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         };
 
         // Generate import statement (escape module name if it's a Zig keyword)
-        const escaped_name = try zig_keywords.escapeIfKeyword(self.allocator, mod_name);
+        const escaped_name = try zig_keywords.escapeIfKeyword(self.allocator, root_mod_name);
         const import_stmt = try std.fmt.allocPrint(self.allocator, "const {s} = @import(\"{s}\");\n", .{ escaped_name, import_path });
         try inlined_modules.append(self.allocator, import_stmt);
+
+        // Track that we've imported this root module
+        try imported_roots.put(root_mod_name, {});
     }
 
     // PHASE 2: Register all classes for inheritance support
@@ -124,6 +143,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // Always import allocator_helper - needs_allocator defaults to true and most code uses it
     try self.emit("const allocator_helper = @import(\"./utils/allocator_helper.zig\");\n");
 
+    // Emit @import statements for compiled user/stdlib modules (collected in PHASE 1.6)
+    for (inlined_modules.items) |import_stmt| {
+        try self.emit(import_stmt);
+    }
+
     // PHASE 3.5: Generate C library imports (if any detected)
     if (self.import_ctx) |ctx| {
         const c_import_block = try ctx.generateCImportBlock(self.allocator);
@@ -133,21 +157,21 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
     }
 
-    // PHASE 3.7: Emit inlined module structs
-    // For user modules and third-party packages, inline as structs
-    // For PyAOT runtime modules, use registry imports
-    for (imported_modules.items, 0..) |mod_name, i| {
+    // PHASE 3.7: Emit module assignments for registry modules
+    // Note: Compiled user/stdlib modules already emitted via @import above
+    for (imported_modules.items) |mod_name| {
         // Track this module name for call site handling
         const mod_copy = try self.allocator.dupe(u8, mod_name);
         try self.imported_modules.put(mod_copy, {});
 
-        // Look up module in registry
+        // Look up module in registry - only emit registry modules here
         if (self.import_registry.lookup(mod_name)) |info| {
             switch (info.strategy) {
                 .zig_runtime, .c_library => {
-                    // Use Zig import from registry (not inlined)
+                    // Use Zig import from registry
                     try self.emit("const ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
+                    // Use writeEscapedDottedIdent for consistency with lambda path
+                    try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                     try self.emit(" = ");
                     if (info.zig_import) |zig_import| {
                         try self.emit(zig_import);
@@ -159,18 +183,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     try self.emit(";\n");
                 },
                 .compile_python, .unsupported => {
-                    // Emit inlined struct code
-                    if (i < inlined_modules.items.len) {
-                        try self.emit(inlined_modules.items[i]);
-                    }
+                    // These modules are handled via @import above (if compiled)
+                    // or skipped (if unsupported)
                 },
             }
-        } else {
-            // User module - emit inlined struct
-            if (i < inlined_modules.items.len) {
-                try self.emit(inlined_modules.items[i]);
-            }
         }
+        // User/stdlib modules without registry entry are handled via @import above
     }
 
     try self.emit("\n");
@@ -200,10 +218,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     try self.emit("\";\n\n");
 
     // PHASE 4.1: Emit source directory for runtime eval subprocess
-    // This allows eval() to spawn pyaot subprocess with correct import paths
+    // This allows eval() to spawn metal0 subprocess with correct import paths
     if (source_file_dir) |dir| {
-        try self.emit("// PyAOT metadata for runtime eval subprocess\n");
-        try self.emit("pub const __pyaot_source_dir: []const u8 = \"");
+        try self.emit("// metal0 metadata for runtime eval subprocess\n");
+        try self.emit("pub const __metal0_source_dir: []const u8 = \"");
         // Escape any special characters in the path
         for (dir) |c| {
             if (c == '\\') {
@@ -363,7 +381,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (self.import_registry.lookup(mod_name)) |info| {
                 if (info.needs_init) {
                     try self.emitIndent();
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
+                    // Use writeEscapedDottedIdent for dotted module names like "test.support"
+                    try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                     try self.emit(".init(allocator);\n");
                 }
             }
@@ -434,7 +453,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 switch (info.strategy) {
                     .zig_runtime, .c_library => {
                         try self.emit("const ");
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
+                        // Use writeEscapedDottedIdent for dotted module names like "test.support"
+                        try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                         try self.emit(" = ");
                         if (info.zig_import) |zig_import| {
                             try self.emit(zig_import);
@@ -448,6 +468,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             }
         }
         try self.emit("\n");
+
+        // Add from-import symbol re-exports (Phase 3.6 copy for lambda path)
+        try from_imports_gen.generateFromImports(self);
 
         // Add __name__ constant
         try self.emit("const __name__ = \"__main__\";\n");
@@ -533,6 +556,7 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .continue_stmt => try statements.genContinue(self),
         .global_stmt => |global| try statements.genGlobal(self, global),
         .del_stmt => |del| try statements.genDel(self, del),
+        .with_stmt => |with| try statements.genWith(self, with),
         .yield_stmt => {
             // Yield is parsed but not compiled - generators use CPython at runtime
             try statements.genPass(self);

@@ -9,6 +9,22 @@ const zig_keywords = @import("zig_keywords");
 const allocator_analyzer = @import("../statements/functions/allocator_analyzer.zig");
 const import_registry = @import("../import_registry.zig");
 
+/// Check if an expression will generate a Zig block expression (blk: {...})
+/// Block expressions cannot have methods called on them directly in Zig
+fn producesBlockExpression(expr: ast.Node) bool {
+    return switch (expr) {
+        .subscript => true, // lines[idx] generates blk: {...}
+        .list => true, // [1,2,3] generates block expression
+        .dict => true, // {k:v} generates block expression
+        .listcomp => true, // [x for x in y] generates block
+        .dictcomp => true, // {k:v for...} generates block
+        .genexp => true, // (x for x in y) generates block
+        .if_expr => true, // a if cond else b generates block
+        .call => true, // function calls may produce block expressions
+        else => false,
+    };
+}
+
 /// Generate function call - dispatches to specialized handlers or fallback
 pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     // Forward declare genExpr - it's in parent module
@@ -163,38 +179,81 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // else: other method calls (string, list, etc.) don't need allocator
 
         // Add 'try' for calls that need allocator (they can error) OR explicitly return errors
-        if ((is_module_call or is_class_method_call) and (needs_alloc or needs_try)) {
-            try self.emit("try ");
-        }
+        const emit_try = (is_module_call or is_class_method_call) and (needs_alloc or needs_try);
 
-        // Generic method call: obj.method(args)
-        // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
-        try genExpr(self, attr.value.*);
-        try self.emit(".");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-        try self.emit("(");
+        // Check if the object expression produces a block expression (e.g., subscript, list literal)
+        // Block expressions cannot have methods called on them directly in Zig
+        const needs_temp_var = producesBlockExpression(attr.value.*);
 
-        // For module calls or class method calls, add allocator as first argument only if needed
-        if ((is_module_call or is_class_method_call) and needs_alloc) {
-            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-            try self.emit(alloc_name);
-            if (call.args.len > 0 or call.keyword_args.len > 0) {
-                try self.emit(", ");
+        if (needs_temp_var) {
+            // Wrap in block with intermediate variable:
+            // blk: { const __obj = <expr>; break :blk __obj.method(args); }
+            try self.emit("blk: { const __obj = ");
+            try genExpr(self, attr.value.*);
+            try self.emit("; break :blk ");
+            if (emit_try) {
+                try self.emit("try ");
             }
-        }
+            try self.emit("__obj.");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+            try self.emit("(");
 
-        for (call.args, 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
-            try genExpr(self, arg);
-        }
+            // For module calls or class method calls, add allocator as first argument only if needed
+            if ((is_module_call or is_class_method_call) and needs_alloc) {
+                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                try self.emit(alloc_name);
+                if (call.args.len > 0 or call.keyword_args.len > 0) {
+                    try self.emit(", ");
+                }
+            }
 
-        // Add keyword arguments as positional arguments
-        for (call.keyword_args, 0..) |kwarg, i| {
-            if (i > 0 or call.args.len > 0) try self.emit(", ");
-            try genExpr(self, kwarg.value);
-        }
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try genExpr(self, arg);
+            }
 
-        try self.emit(")");
+            // Add keyword arguments as positional arguments
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try self.emit(", ");
+                try genExpr(self, kwarg.value);
+            }
+
+            try self.emit("); }");
+        } else {
+            // Normal path - no wrapping needed
+            if (emit_try) {
+                try self.emit("try ");
+            }
+
+            // Generic method call: obj.method(args)
+            // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
+            try genExpr(self, attr.value.*);
+            try self.emit(".");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+            try self.emit("(");
+
+            // For module calls or class method calls, add allocator as first argument only if needed
+            if ((is_module_call or is_class_method_call) and needs_alloc) {
+                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                try self.emit(alloc_name);
+                if (call.args.len > 0 or call.keyword_args.len > 0) {
+                    try self.emit(", ");
+                }
+            }
+
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try genExpr(self, arg);
+            }
+
+            // Add keyword arguments as positional arguments
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try self.emit(", ");
+                try genExpr(self, kwarg.value);
+            }
+
+            try self.emit(")");
+        }
         return;
     }
 
@@ -226,7 +285,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Check if this is a closure variable
         if (self.closure_vars.contains(func_name)) {
             // Closure call: add_five(3) -> add_five.call(3)
-            try self.emit(func_name);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
             try self.emit(".call(");
 
             for (call.args, 0..) |arg, i| {

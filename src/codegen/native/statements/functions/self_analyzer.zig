@@ -49,6 +49,11 @@ fn stmtUsesSelf(node: ast.Node) bool {
             // Check if value uses self
             return exprUsesSelf(assign.value.*);
         },
+        .aug_assign => |aug| {
+            // Check if target is self.attr (e.g., self.count += 1)
+            if (exprUsesSelf(aug.target.*)) return true;
+            return exprUsesSelf(aug.value.*);
+        },
         .expr_stmt => |expr| exprUsesSelf(expr.value.*),
         .return_stmt => |ret| if (ret.value) |val| exprUsesSelf(val.*) else false,
         .if_stmt => |if_stmt| {

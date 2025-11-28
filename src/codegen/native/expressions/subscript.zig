@@ -7,6 +7,22 @@ const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
 
+/// Check if an expression will generate a Zig block expression (blk: {...})
+/// Block expressions cannot have methods called on them or be subscripted directly in Zig
+fn producesBlockExpression(expr: ast.Node) bool {
+    return switch (expr) {
+        .subscript => true, // nested subscript generates blk: {...}
+        .list => true, // [1,2,3] generates block expression
+        .dict => true, // {k:v} generates block expression
+        .listcomp => true, // [x for x in y] generates block
+        .dictcomp => true, // {k:v for...} generates block
+        .genexp => true, // (x for x in y) generates block
+        .if_expr => true, // a if cond else b generates block
+        .call => true, // function calls may produce block expressions
+        else => false,
+    };
+}
+
 /// Check if a node is a negative constant
 pub fn isNegativeConstant(node: ast.Node) bool {
     if (node == .constant and node.constant.value == .int) {
@@ -49,6 +65,66 @@ pub fn genSliceIndex(self: *NativeCodegen, node: ast.Node, in_slice_context: boo
 
 /// Generate array/dict subscript (a[b])
 pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) CodegenError!void {
+    // Check if the base expression produces a block expression (e.g., nested subscript)
+    // Block expressions cannot be subscripted directly in Zig: blk: {...}[idx] is invalid
+    // Need to wrap in another block with temp variable: blk: { const __base = blk: {...}; break :blk __base[idx]; }
+    const base_is_block = producesBlockExpression(subscript.value.*);
+
+    if (base_is_block) {
+        // Wrap the entire subscript in a block
+        try self.emit("blk: { const __base = ");
+        try genExpr(self, subscript.value.*);
+        try self.emit("; break :blk ");
+
+        switch (subscript.slice) {
+            .index => {
+                // Simple index access on the temp variable
+                const index_type = self.type_inferrer.inferExpr(subscript.slice.index.*) catch .unknown;
+                const needs_cast = (index_type == .int);
+
+                try self.emit("__base[");
+                if (needs_cast) {
+                    try self.emit("@as(usize, @intCast(");
+                }
+                try genExpr(self, subscript.slice.index.*);
+                if (needs_cast) {
+                    try self.emit("))");
+                }
+                try self.emit("]");
+            },
+            .slice => |slice| {
+                // Slice access on temp variable
+                try self.emit("__base[");
+                if (slice.lower) |lower| {
+                    const needs_cast = blk: {
+                        const lt = self.type_inferrer.inferExpr(lower.*) catch .unknown;
+                        break :blk (lt == .int);
+                    };
+                    if (needs_cast) try self.emit("@as(usize, @intCast(");
+                    try genExpr(self, lower.*);
+                    if (needs_cast) try self.emit("))");
+                } else {
+                    try self.emit("0");
+                }
+                try self.emit("..");
+                if (slice.upper) |upper| {
+                    const needs_cast = blk: {
+                        const ut = self.type_inferrer.inferExpr(upper.*) catch .unknown;
+                        break :blk (ut == .int);
+                    };
+                    if (needs_cast) try self.emit("@as(usize, @intCast(");
+                    try genExpr(self, upper.*);
+                    if (needs_cast) try self.emit("))");
+                } else {
+                    try self.emit("__base.len");
+                }
+                try self.emit("]");
+            },
+        }
+        try self.emit("; }");
+        return;
+    }
+
     switch (subscript.slice) {
         .index => {
             // Check if the object has __getitem__ magic method (custom class support)

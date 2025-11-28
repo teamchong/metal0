@@ -20,6 +20,7 @@ pub fn genSimpleCall(comptime spec: SimpleCallSpec) fn (*NativeCodegen, []ast.No
         pub fn handler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len != spec.arg_count) {
                 std.debug.print("{s} expects {d} args, got {d}\n", .{ spec.runtime_path, spec.arg_count, args.len });
+                try self.emit("@compileError(\"" ++ spec.runtime_path ++ " called with wrong number of arguments\")");
                 return;
             }
 
@@ -53,6 +54,7 @@ pub fn genNoArgCall(comptime spec: NoArgCallSpec) fn (*NativeCodegen, []ast.Node
         pub fn handler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len != 0) {
                 std.debug.print("{s} takes no arguments\n", .{spec.runtime_path});
+                try self.emit("@compileError(\"" ++ spec.runtime_path ++ " takes no arguments\")");
                 return;
             }
 
@@ -79,6 +81,8 @@ pub fn genVarArgCall(comptime spec: VarArgCallSpec) fn (*NativeCodegen, []ast.No
         pub fn handler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len < spec.min_args or args.len > spec.max_args) {
                 std.debug.print("{s} expects {d}-{d} args, got {d}\n", .{ spec.runtime_path, spec.min_args, spec.max_args, args.len });
+                // Emit error placeholder instead of nothing to avoid syntax errors
+                try self.emit("@compileError(\"" ++ spec.runtime_path ++ " called with wrong number of arguments\")");
                 return;
             }
 

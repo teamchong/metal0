@@ -1,8 +1,7 @@
-/// PyAOT Event Loop for Python asyncio
-/// 
+/// metal0 Event Loop for Python asyncio
+///
 /// Inspired by Bun's event_loop.zig but simplified for Python asyncio needs
 /// Architecture based on Bun, implementation focused on asyncio API
-
 const std = @import("std");
 const builtin = @import("builtin");
 

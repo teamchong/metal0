@@ -32,6 +32,8 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 // Module is inline-only - symbols are available as builtins
                 continue;
             }
+        } else {
+            continue; // Module not in registry - skip from-import generation
         }
 
         // Check if this is a Tier 1 runtime module (functions need allocator)
@@ -49,7 +51,6 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
             // Skip import * for now (complex to implement)
             if (std.mem.eql(u8, name, "*")) {
-                std.debug.print("Warning: 'from {s} import *' not supported yet\n", .{from_imp.module});
                 continue;
             }
 
@@ -80,7 +81,8 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             try self.emit("const ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
             try self.emit(" = ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), from_imp.module);
+            // Use writeEscapedDottedIdent for dotted paths like "test.support" -> @"test_support"
+            try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
             try self.emit(".");
             try self.emit(name);
             try self.emit(";\n");

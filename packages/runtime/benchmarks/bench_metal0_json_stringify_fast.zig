@@ -1,4 +1,4 @@
-// Benchmark PyAOT's JSON stringify with optimal allocator (WASM-compatible)
+// Benchmark metal0's JSON stringify with optimal allocator (WASM-compatible)
 const std = @import("std");
 const runtime = @import("runtime");
 const allocator_helper = @import("allocator_helper");

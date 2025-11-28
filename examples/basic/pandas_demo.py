@@ -1,5 +1,5 @@
 # Pandas → NumPy/BLAS Integration Demo
-# Demonstrates PyAOT compiling pandas code to native BLAS calls
+# Demonstrates metal0 compiling pandas code to native BLAS calls
 
 import pandas as pd
 

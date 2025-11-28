@@ -45,7 +45,7 @@ for i, text in enumerate(all_tests):
     # Get expected from tiktoken
     expected = enc.encode(text)
 
-    # Get PyAOT result (write text to stdin)
+    # Get metal0 result (write text to stdin)
     try:
         result = subprocess.run(
             ['./zig-out/bin/test_correctness'],

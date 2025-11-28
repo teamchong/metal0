@@ -154,6 +154,20 @@ pub fn genZ_DEFAULT_COMPRESSION(self: *NativeCodegen, args: []ast.Node) CodegenE
 }
 
 // ============================================================================
+// Version Info
+// ============================================================================
+
+pub fn genZLIB_VERSION(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"1.2.13\"");
+}
+
+pub fn genZLIB_RUNTIME_VERSION(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("zlib.zlibVersion()");
+}
+
+// ============================================================================
 // Exceptions
 // ============================================================================
 

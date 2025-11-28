@@ -8,30 +8,37 @@ const signature = @import("../signature.zig");
 const class_fields = @import("class_fields.zig");
 const allocator_analyzer = @import("../../allocator_analyzer.zig");
 const zig_keywords = @import("zig_keywords");
+const generators = @import("../../generators.zig");
 
 // Import from parent for methodMutatesSelf and genMethodBody
 const body = @import("../body.zig");
 
 /// Generate default init() method for classes without __init__
-pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) CodegenError!void {
+pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!void {
     // Default __dict__ field for dynamic attributes
     try self.emitIndent();
     try self.emit("// Dynamic attributes dictionary\n");
     try self.emitIndent();
     try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 
+    // Use __alloc for nested classes to avoid shadowing outer allocator
+    // Nested classes have indent_level > 2 (module + outer class/method)
+    const alloc_name = if (self.indent_level > 2) "__alloc" else "allocator";
+
     try self.emit("\n");
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("pub fn init(allocator: std.mem.Allocator) {s} {{\n", .{class_name});
+    // Use @This() for self-referential return type instead of class name
+    try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator) @This() {{\n", .{alloc_name});
     self.indent();
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("return {s}{{\n", .{class_name});
+    // Use @This(){} for struct literal initialization
+    try self.emit("return @This(){\n");
     self.indent();
 
     // Initialize __dict__ for dynamic attributes
     try self.emitIndent();
-    try self.emit(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(allocator),\n");
+    try self.output.writer(self.allocator).print(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init({s}),\n", .{alloc_name});
 
     self.dedent();
     try self.emitIndent();
@@ -48,9 +55,13 @@ pub fn genInitMethod(
     class_name: []const u8,
     init: ast.Node.FunctionDef,
 ) CodegenError!void {
+    // Use __alloc for nested classes to avoid shadowing outer allocator
+    // Nested classes have indent_level > 2 (module + outer class/method)
+    const alloc_name = if (self.indent_level > 2) "__alloc" else "allocator";
+
     try self.emit("\n");
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("pub fn init(allocator: std.mem.Allocator", .{});
+    try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
 
     // Parameters (skip 'self')
     for (init.args) |arg| {
@@ -70,14 +81,16 @@ pub fn genInitMethod(
         }
     }
 
-    try self.output.writer(self.allocator).print(") {s} {{\n", .{class_name});
+    // Use @This() for self-referential return type
+    try self.emit(") @This() {\n");
     self.indent();
 
     // Note: allocator is always used for __dict__ initialization, so no discard needed
 
     // Generate return statement with field initializers
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("return {s}{{\n", .{class_name});
+    // Use @This(){} for struct literal initialization
+    try self.emit("return @This(){\n");
     self.indent();
 
     // Extract field assignments from __init__ body
@@ -103,7 +116,7 @@ pub fn genInitMethod(
 
     // Initialize __dict__ for dynamic attributes
     try self.emitIndent();
-    try self.emit(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(allocator),\n");
+    try self.output.writer(self.allocator).print(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init({s}),\n", .{alloc_name});
 
     self.dedent();
     try self.emitIndent();
@@ -128,13 +141,30 @@ pub fn genClassMethods(
             const method = stmt.function_def;
             if (std.mem.eql(u8, method.name, "__init__")) continue;
 
+            // Check if this is a skipped test method (has "skip:" docstring)
+            // Use the same getSkipReason function used by the test runner to ensure consistency
+            const is_skipped = generators.getSkipReason(method) != null;
+
             const mutates_self = body.methodMutatesSelf(method);
-            const needs_allocator = allocator_analyzer.functionNeedsAllocator(method);
+            // Skipped methods don't need allocator since their body is empty
+            const needs_allocator = if (is_skipped) false else allocator_analyzer.functionNeedsAllocator(method);
             try signature.genMethodSignature(self, class.name, method, mutates_self, needs_allocator);
-            try body.genMethodBody(self, method);
+
+            if (is_skipped) {
+                // Generate empty body for skipped test methods
+                self.indent();
+                try self.emitIndent();
+                try self.emit("// skipped test\n");
+                self.dedent();
+                try self.emitIndent();
+                try self.emit("}\n");
+            } else {
+                try body.genMethodBody(self, method);
+            }
         }
     }
 }
+
 
 /// Generate inherited methods from parent class
 pub fn genInheritedMethods(

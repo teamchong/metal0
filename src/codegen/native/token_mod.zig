@@ -320,13 +320,13 @@ pub fn genNT_OFFSET(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate token.tok_name - dict mapping token codes to names
 pub fn genTok_name(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyDict(i32, []const u8).init()");
+    try self.emit("metal0_runtime.PyDict(i32, []const u8).init()");
 }
 
 /// Generate token.EXACT_TOKEN_TYPES
 pub fn genEXACT_TOKEN_TYPES(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyDict([]const u8, i32).init()");
+    try self.emit("metal0_runtime.PyDict([]const u8, i32).init()");
 }
 
 /// Generate token.ISTERMINAL(x)

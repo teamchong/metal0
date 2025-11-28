@@ -56,29 +56,29 @@ check_go() {
     fi
 }
 
-# Build PyAOT compiler (ReleaseFast)
-build_pyaot_compiler() {
-    echo "Building PyAOT compiler..."
+# Build metal0 compiler (ReleaseFast)
+build_metal0_compiler() {
+    echo "Building metal0 compiler..."
     cd "$PROJECT_ROOT" && zig build -Doptimize=ReleaseFast >/dev/null 2>&1
     cd "$SCRIPT_DIR"
-    echo -e "  ${GREEN}✓${NC} PyAOT compiler"
+    echo -e "  ${GREEN}✓${NC} metal0 compiler"
 }
 
-# Compile Python file with PyAOT
-# Usage: compile_pyaot <source.py> <output_binary>
-compile_pyaot() {
+# Compile Python file with metal0
+# Usage: compile_metal0 <source.py> <output_binary>
+compile_metal0() {
     local src="$1"
     local out="$2"
-    # Must run from PROJECT_ROOT for pyaot to find dependencies
+    # Must run from PROJECT_ROOT for metal0 to find dependencies
     cd "$PROJECT_ROOT"
-    ./zig-out/bin/pyaot build "$SCRIPT_DIR/$src" "$SCRIPT_DIR/$out" --binary --force >/dev/null 2>&1
+    ./zig-out/bin/metal0 build "$SCRIPT_DIR/$src" "$SCRIPT_DIR/$out" --binary --force >/dev/null 2>&1
     local result=$?
     cd "$SCRIPT_DIR"
     if [ $result -eq 0 ] && [ -f "$SCRIPT_DIR/$out" ]; then
-        echo -e "  ${GREEN}✓${NC} PyAOT: $src"
+        echo -e "  ${GREEN}✓${NC} metal0: $src"
         return 0
     else
-        echo -e "  ${RED}✗${NC} PyAOT: $src failed"
+        echo -e "  ${RED}✗${NC} metal0: $src failed"
         return 1
     fi
 }
@@ -116,13 +116,13 @@ compile_go() {
 # Helper functions to add benchmark commands
 # These use eval to work around bash version differences with nameref
 
-# Add benchmark command for PyAOT binary
-# Usage: add_pyaot <cmd_array_name> <binary_name>
-add_pyaot() {
+# Add benchmark command for metal0 binary
+# Usage: add_metal0 <cmd_array_name> <binary_name>
+add_metal0() {
     local arr_name=$1
     local bin="$2"
     if [ -f "$SCRIPT_DIR/$bin" ]; then
-        eval "$arr_name+=(--command-name \"PyAOT\" \"./$bin\")"
+        eval "$arr_name+=(--command-name \"metal0\" \"./$bin\")"
     fi
 }
 

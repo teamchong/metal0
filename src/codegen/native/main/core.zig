@@ -89,6 +89,9 @@ pub const NativeCodegen = struct {
     // Counter for unique tuple unpacking temporary variables
     unpack_counter: usize,
 
+    // Counter for unique __TryHelper struct names (avoids shadowing in nested try blocks)
+    try_helper_counter: usize,
+
     // Lambda support - counter for unique names, storage for lambda function definitions
     lambda_counter: usize,
     lambda_functions: std.ArrayList([]const u8),
@@ -251,6 +254,7 @@ pub const NativeCodegen = struct {
             .symbol_table = sym_table,
             .class_registry = cls_registry,
             .unpack_counter = 0,
+            .try_helper_counter = 0,
             .lambda_counter = 0,
             .lambda_functions = std.ArrayList([]const u8){},
             .closure_vars = FnvVoidMap.init(allocator),

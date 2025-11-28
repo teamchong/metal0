@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test BPE training accuracy by comparing PyAOT vs HuggingFace vs SentencePiece
+Test BPE training accuracy by comparing metal0 vs HuggingFace vs SentencePiece
 
 Verifies:
 1. Training completes successfully
@@ -74,9 +74,9 @@ os.unlink('test_spm.model')
 os.unlink('test_spm.vocab')
 print()
 
-# 3. PyAOT training (TODO - need to expose trained tokenizer)
-print("3️⃣  PyAOT BPE...")
-print("   ⚠️  PyAOT training doesn't currently save/expose trained tokenizer")
+# 3. metal0 training (TODO - need to expose trained tokenizer)
+print("3️⃣  metal0 BPE...")
+print("   ⚠️  metal0 training doesn't currently save/expose trained tokenizer")
 print("   ⚠️  Can train but can't test encoding (needs implementation)")
 print()
 
@@ -85,7 +85,7 @@ print("=" * 60)
 print("📊 Summary:")
 print(f"   HuggingFace: {len(hf_tokens.ids)} tokens ({'✅ PASS' if hf_decoded == TEST_TEXT else '❌ FAIL'})")
 print(f"   SentencePiece: {len(sp_tokens)} tokens ({'✅ PASS' if sp_decoded == TEST_TEXT else '❌ FAIL'})")
-print(f"   PyAOT: ⏳ TODO (need to save trained model)")
+print(f"   metal0: ⏳ TODO (need to save trained model)")
 print()
 print("💡 Note: Token counts differ because algorithms use different tie-breaking")
 print("   What matters: encode/decode roundtrip works correctly")

@@ -1,4 +1,4 @@
-# PyAOT Docker Image - FROM SCRATCH
+# metal0 Docker Image - FROM SCRATCH
 FROM scratch
 
 # Copy pre-compiled binary (no runtime needed)

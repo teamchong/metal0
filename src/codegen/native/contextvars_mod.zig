@@ -36,13 +36,13 @@ pub fn genToken(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate contextvars.Context()
 pub fn genContext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit(".{ .data = pyaot_runtime.PyDict([]const u8, ?anyopaque).init() }");
+    try self.emit(".{ .data = metal0_runtime.PyDict([]const u8, ?anyopaque).init() }");
 }
 
 /// Generate contextvars.copy_context()
 pub fn genCopy_context(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit(".{ .data = pyaot_runtime.PyDict([]const u8, ?anyopaque).init() }");
+    try self.emit(".{ .data = metal0_runtime.PyDict([]const u8, ?anyopaque).init() }");
 }
 
 // ============================================================================

@@ -60,7 +60,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pyaot"
+name = "metal0"
 version = "0.1.0"
 source = { virtual = "." }
 

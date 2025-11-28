@@ -1,5 +1,5 @@
 #!/bin/bash
-# Quick JSON Stringify Benchmark - PyAOT vs Rust (10K iterations for fast feedback)
+# Quick JSON Stringify Benchmark - metal0 vs Rust (10K iterations for fast feedback)
 set -e
 cd "$(dirname "$0")"
 
@@ -16,7 +16,7 @@ data = {
     "metadata": {
         "version": "2.0.0",
         "timestamp": "2025-01-23T12:00:00Z",
-        "source": "PyAOT Benchmark"
+        "source": "metal0 Benchmark"
     },
     "users": [
         {
@@ -49,9 +49,9 @@ print(f"✅ Created sample.json ({size_kb:.1f} KB)")
 PYGEN
 fi
 
-# Build PyAOT stringify benchmark (10K iterations)
-echo "🔨 Building PyAOT stringify benchmark..."
-cat > bench_pyaot_json_stringify_quick.zig <<'ZIGEOF'
+# Build metal0 stringify benchmark (10K iterations)
+echo "🔨 Building metal0 stringify benchmark..."
+cat > bench_metal0_json_stringify_quick.zig <<'ZIGEOF'
 const std = @import("std");
 const runtime = @import("src/runtime.zig");
 const json_module = @import("src/json.zig");
@@ -86,13 +86,13 @@ pub fn main() !void {
 }
 ZIGEOF
 
-zig build-exe bench_pyaot_json_stringify_quick.zig -O ReleaseFast -lc -femit-bin=/tmp/bench_pyaot_json_stringify_quick 2>&1 | head -10
-if [ -f /tmp/bench_pyaot_json_stringify_quick ]; then
-    echo "✅ PyAOT stringify benchmark built"
-    PYAOT_AVAILABLE=true
+zig build-exe bench_metal0_json_stringify_quick.zig -O ReleaseFast -lc -femit-bin=/tmp/bench_metal0_json_stringify_quick 2>&1 | head -10
+if [ -f /tmp/bench_metal0_json_stringify_quick ]; then
+    echo "✅ metal0 stringify benchmark built"
+    metal0_AVAILABLE=true
 else
-    echo "❌ PyAOT build failed"
-    PYAOT_AVAILABLE=false
+    echo "❌ metal0 build failed"
+    metal0_AVAILABLE=false
 fi
 
 # Build Rust stringify benchmark (10K iterations)
@@ -152,8 +152,8 @@ STRINGIFY_CMD=(
     --export-markdown bench_quick_results.md
 )
 
-if [ "$PYAOT_AVAILABLE" = true ]; then
-    STRINGIFY_CMD+=(--command-name "PyAOT" "/tmp/bench_pyaot_json_stringify_quick")
+if [ "$metal0_AVAILABLE" = true ]; then
+    STRINGIFY_CMD+=(--command-name "metal0" "/tmp/bench_metal0_json_stringify_quick")
 fi
 
 if [ "$RUST_AVAILABLE" = true ]; then

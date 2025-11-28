@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run CPython tests against PyAOT
+# Run CPython tests against metal0
 # Reports which tests pass/fail
 
 cd "$(dirname "$0")/../.."
@@ -10,7 +10,7 @@ failed=0
 for f in tests/cpython/test_*.py; do
     [ -e "$f" ] || continue
     name=$(basename "$f")
-    if ./zig-out/bin/pyaot "$f" --force 2>&1 | grep -q "successfully"; then
+    if ./zig-out/bin/metal0 "$f" --force 2>&1 | grep -q "successfully"; then
         echo "✓ $name"
         ((passed++))
     else

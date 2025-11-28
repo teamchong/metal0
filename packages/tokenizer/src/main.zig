@@ -43,7 +43,7 @@ pub fn main() !void {
     // Use optimal allocator (C allocator on native, GPA on WASM)
     const allocator = allocator_helper.getAllocator(gpa);
 
-    std.debug.print("\n🚀 PyAOT Tokenizer Benchmark\n", .{});
+    std.debug.print("\n🚀 metal0 Tokenizer Benchmark\n", .{});
     std.debug.print("=" ** 60 ++ "\n\n", .{});
 
     // Demo: Comptime safety + unsafe speed
@@ -274,7 +274,7 @@ pub fn main() !void {
     // Comparison table
     std.debug.print("\n📊 Comparison vs Rust rustbpe (estimated)\n", .{});
     std.debug.print("=" ** 60 ++ "\n", .{});
-    std.debug.print("                    PyAOT (Zig)    Rust rustbpe    Speedup\n", .{});
+    std.debug.print("                    metal0 (Zig)    Rust rustbpe    Speedup\n", .{});
     std.debug.print("-" ** 60 ++ "\n", .{});
     const estimate_1m = @divFloor(encode_per_iter_us * 1_000_000, @as(u128, test_text.len));
     std.debug.print("Encoding (1M chars) {:>8}μs        {:>8}μs       {d:.2}x\n", .{

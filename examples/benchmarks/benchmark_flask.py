@@ -1,4 +1,4 @@
-# Simple function call benchmark for PyAOT
+# Simple function call benchmark for metal0
 def handler():
     return 1
 

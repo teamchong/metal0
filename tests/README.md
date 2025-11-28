@@ -1,10 +1,10 @@
-# PyAOT Test Suite
+# metal0 Test Suite
 
-Comprehensive tests ensuring Python/PyAOT output equivalence.
+Comprehensive tests ensuring Python/metal0 output equivalence.
 
 ## Structure
 
-- **`examples/`** - Demo files showing how to use PyAOT (keep these!)
+- **`examples/`** - Demo files showing how to use metal0 (keep these!)
 - **`tests/`** - Automated tests that verify demos work correctly
 
 ## Quick Start
@@ -23,10 +23,10 @@ pytest tests/test_regression.py::TestExamples::test_example[fibonacci-path3] -v
 ## Test Files
 
 ### `test_regression.py` - Regression Tests (28 tests)
-Runs all `examples/*.py` files and verifies Python/PyAOT output matches.
+Runs all `examples/*.py` files and verifies Python/metal0 output matches.
 - Auto-discovers all example files
-- Compiles each with PyAOT
-- Compares Python vs PyAOT output
+- Compiles each with metal0
+- Compares Python vs metal0 output
 - **Status: 28/28 PASSING**
 - **Purpose:** Ensure demos stay working (regression testing)
 
@@ -52,8 +52,8 @@ Slowness is due to Zig compilation. Each test compiles a fresh binary.
 
 1. Write Python code to temp file
 2. Run with CPython → capture stdout
-3. Compile with PyAOT compiler → Zig binary
-4. Run PyAOT binary → capture stderr (uses `std.debug.print`)
+3. Compile with metal0 compiler → Zig binary
+4. Run metal0 binary → capture stderr (uses `std.debug.print`)
 5. Assert outputs match exactly
 
 ## Test Coverage

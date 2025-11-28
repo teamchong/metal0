@@ -2,13 +2,13 @@
 
 **IMPORTANT:** These build options are for the **standalone tokenizer package** (benchmarks, testing, library builds).
 
-**For PyAOT compiler:** No flags needed! The compiler automatically analyzes your Python code and includes only what you import. See "PyAOT Compiler Auto-Detection" section below.
+**For metal0 compiler:** No flags needed! The compiler automatically analyzes your Python code and includes only what you import. See "metal0 Compiler Auto-Detection" section below.
 
 ---
 
 ## Standalone Package: Per-Algorithm Opt-In
 
-When building the standalone tokenizer package (not using PyAOT compiler), you can opt-in to each algorithm individually:
+When building the standalone tokenizer package (not using metal0 compiler), you can opt-in to each algorithm individually:
 
 ```bash
 # Default: Only BPE (smallest - 139KB)
@@ -134,7 +134,7 @@ tokenizer = Tokenizer(WordPiece())  # WordPiece
 # Same 500KB binary
 ```
 
-### **PyAOT (Opt-In Each):**
+### **metal0 (Opt-In Each):**
 ```bash
 # Choose exactly what you need
 zig build -Dinclude_bpe=true  # Only BPE: 139KB
@@ -190,13 +190,13 @@ cmake -DENABLE_BPE=ON -DENABLE_WORDPIECE=ON ..
 zig build -Dinclude_bpe=true -Dinclude_wordpiece=true
 ```
 
-**PyAOT follows industry best practices!** ✅
+**metal0 follows industry best practices!** ✅
 
 ---
 
 ## Summary
 
-**PyAOT gives you MAXIMUM flexibility:**
+**metal0 gives you MAXIMUM flexibility:**
 
 1. **Opt-in each algorithm individually** (`-Dinclude_*=true/false`)
 2. **Automatic mode selection:**
@@ -209,23 +209,23 @@ zig build -Dinclude_bpe=true -Dinclude_wordpiece=true
 
 ---
 
-## PyAOT Compiler Auto-Detection
+## metal0 Compiler Auto-Detection
 
-**PyAOT is a compiler** - it automatically analyzes your Python code and includes only what you import. **No build flags needed!**
+**metal0 is a compiler** - it automatically analyzes your Python code and includes only what you import. **No build flags needed!**
 
 ### **How It Works:**
 
 ```python
 # train_bpe.py
 from tokenizers import Tokenizer
-from tokenizers.models import BPE  # ← PyAOT detects: BPE only
+from tokenizers.models import BPE  # ← metal0 detects: BPE only
 
 tokenizer = Tokenizer(BPE(vocab_size=32000))
 tokenizer.train(corpus)
 ```
 
 ```bash
-$ pyaot build train_bpe.py
+$ metal0 build train_bpe.py
 Analyzing imports...
 Detected: BPE only
 Compiling with: BPE (139KB)
@@ -238,7 +238,7 @@ Output: train_bpe
 
 ```python
 # compare.py
-from tokenizers.models import BPE, WordPiece  # ← PyAOT detects: Both
+from tokenizers.models import BPE, WordPiece  # ← metal0 detects: Both
 
 import sys
 if sys.argv[1] == "bpe":
@@ -248,7 +248,7 @@ else:
 ```
 
 ```bash
-$ pyaot build compare.py
+$ metal0 build compare.py
 Analyzing imports...
 Detected: BPE, WordPiece
 Compiling with: Runtime selection (200KB)
@@ -268,7 +268,7 @@ tokenizer = Tokenizer(BPE())
 ```
 
 ```bash
-$ pyaot build smart.py
+$ metal0 build smart.py
 Analyzing imports: BPE, WordPiece
 Analyzing usage: BPE only
 Dead code elimination: Removing WordPiece
@@ -293,14 +293,14 @@ cd packages/tokenizer
 zig build -Dinclude_wordpiece=true  # Explicit choice
 ```
 
-### **Use PyAOT Compiler (No Flags):**
+### **Use metal0 Compiler (No Flags):**
 - ✅ Compiling Python code to native binary
 - ✅ Production deployments
 - ✅ User applications
 
 **Example:**
 ```bash
-pyaot build user_app.py  # Automatic detection
+metal0 build user_app.py  # Automatic detection
 ```
 
 ---
@@ -319,13 +319,13 @@ int main() {
 ```
 **No flags:** `gcc program.c` automatically links needed libraries.
 
-### **PyAOT (Python Compiler):**
+### **metal0 (Python Compiler):**
 ```python
-from tokenizers.models import BPE  # PyAOT detects: need BPE
+from tokenizers.models import BPE  # metal0 detects: need BPE
 
 tokenizer = Tokenizer(BPE())
 ```
-**No flags:** `pyaot build program.py` automatically includes BPE.
+**No flags:** `metal0 build program.py` automatically includes BPE.
 
 **Same principle!** Compilers analyze code, include only what's needed.
 
@@ -340,9 +340,9 @@ tokenizer = Tokenizer(BPE())
    - Manual selection
    - For: Benchmarks, testing, library builds
 
-2. **PyAOT Compiler** (automatic)
+2. **metal0 Compiler** (automatic)
    - No build flags
    - Automatic import analysis
    - For: Compiling Python code
 
-**PyAOT compiler = zero config, automatic optimization!** 🎉
+**metal0 compiler = zero config, automatic optimization!** 🎉

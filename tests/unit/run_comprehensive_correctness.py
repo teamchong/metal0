@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Comprehensive BPE correctness test framework
-Tests PyAOT tokenizer against rs-bpe and tiktoken for 100% correctness
+Tests metal0 tokenizer against rs-bpe and tiktoken for 100% correctness
 
-Simplified version for PyAOT compilation.
-Original version uses subprocess/tempfile/try-except which PyAOT doesn't support.
+Simplified version for metal0 compilation.
+Original version uses subprocess/tempfile/try-except which metal0 doesn't support.
 """
 
 # Test case data structures (using basic types instead of dataclass)

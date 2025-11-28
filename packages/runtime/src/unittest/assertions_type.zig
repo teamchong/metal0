@@ -1,4 +1,4 @@
-/// PyAOT unittest assertions - type-specific and container assertions
+/// metal0 unittest assertions - type-specific and container assertions
 const std = @import("std");
 const runner = @import("runner.zig");
 const basic = @import("assertions_basic.zig");
@@ -389,7 +389,7 @@ pub fn assertRaisesRegex(callable: anytype, args: anytype, pattern: []const u8) 
 }
 
 /// Assertion: assertWarns(callable, args) - callable must emit a warning
-/// Stub implementation - PyAOT doesn't have a warnings system yet
+/// Stub implementation - metal0 doesn't have a warnings system yet
 pub fn assertWarns(callable: anytype, args: anytype) void {
     const result = @call(.auto, callable, args);
     _ = result catch {};
@@ -400,7 +400,7 @@ pub fn assertWarns(callable: anytype, args: anytype) void {
 }
 
 /// Assertion: assertWarnsRegex(callable, args, pattern) - callable must emit warning matching pattern
-/// Stub implementation - PyAOT doesn't have a warnings system yet
+/// Stub implementation - metal0 doesn't have a warnings system yet
 pub fn assertWarnsRegex(callable: anytype, args: anytype, pattern: []const u8) void {
     _ = pattern;
 
@@ -413,7 +413,7 @@ pub fn assertWarnsRegex(callable: anytype, args: anytype, pattern: []const u8) v
 }
 
 /// Assertion: assertLogs(logger, level) - context manager that captures log messages
-/// Stub implementation - PyAOT doesn't have a logging system yet
+/// Stub implementation - metal0 doesn't have a logging system yet
 /// In Python: with self.assertLogs('foo', level='INFO') as cm: ...
 /// Always passes since we can't capture logs at AOT compile time
 pub fn assertLogs(logger: anytype, level: anytype) void {
@@ -427,7 +427,7 @@ pub fn assertLogs(logger: anytype, level: anytype) void {
 }
 
 /// Assertion: assertNoLogs(logger, level) - verify no logs are emitted
-/// Stub implementation - PyAOT doesn't have a logging system yet
+/// Stub implementation - metal0 doesn't have a logging system yet
 /// Always passes since we can't capture logs at AOT compile time
 pub fn assertNoLogs(logger: anytype, level: anytype) void {
     _ = logger;

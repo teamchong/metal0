@@ -1,4 +1,4 @@
-/// PyAOT Runtime Library
+/// metal0 Runtime Library
 /// Core runtime support for compiled Python code
 const std = @import("std");
 const hashmap_helper = @import("hashmap_helper");
@@ -53,6 +53,65 @@ pub const PythonError = error{
     TypeError,
     KeyError,
 };
+
+/// Generic bool conversion for Python truthiness semantics
+/// Returns false for: 0, 0.0, false, empty strings, empty slices
+/// Returns true for everything else
+pub fn toBool(value: anytype) bool {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Handle integers
+    if (info == .int or info == .comptime_int) {
+        return value != 0;
+    }
+
+    // Handle floats
+    if (info == .float or info == .comptime_float) {
+        return value != 0.0;
+    }
+
+    // Handle bool
+    if (T == bool) {
+        return value;
+    }
+
+    // Handle slices (including strings)
+    if (info == .pointer and info.pointer.size == .slice) {
+        return value.len > 0;
+    }
+
+    // Handle single-item pointers to arrays (string literals)
+    if (info == .pointer and info.pointer.size == .one) {
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info == .array) {
+            return child_info.array.len > 0;
+        }
+    }
+
+    // Handle PyString
+    if (T == PyString) {
+        return value.len() > 0;
+    }
+
+    // Handle PyInt
+    if (T == PyInt) {
+        return value.value != 0;
+    }
+
+    // Handle PyBool
+    if (T == PyBool) {
+        return value.value;
+    }
+
+    // Handle optional
+    if (info == .optional) {
+        return value != null;
+    }
+
+    // Default: truthy for everything else (non-empty types)
+    return true;
+}
 
 /// Python object representation
 pub const PyObject = struct {
@@ -370,6 +429,18 @@ pub fn stringSplitWhitespace(text: []const u8, allocator: std.mem.Allocator) !st
     return result;
 }
 
+/// Repeat string n times (Python str * n)
+pub fn strRepeat(allocator: std.mem.Allocator, s: []const u8, n: usize) []const u8 {
+    if (n == 0) return "";
+    if (n == 1) return s;
+
+    const result = allocator.alloc(u8, s.len * n) catch return "";
+    for (0..n) |i| {
+        @memcpy(result[i * s.len ..][0..s.len], s);
+    }
+    return result;
+}
+
 /// Convert primitive i64 to PyString
 pub fn intToString(allocator: std.mem.Allocator, value: i64) !*PyObject {
     const str = try std.fmt.allocPrint(allocator, "{}", .{value});
@@ -377,7 +448,7 @@ pub fn intToString(allocator: std.mem.Allocator, value: i64) !*PyObject {
 }
 
 // Import and re-export built-in functions
-const builtins = @import("runtime/builtins.zig");
+pub const builtins = @import("runtime/builtins.zig");
 pub const range = builtins.range;
 pub const enumerate = builtins.enumerate;
 pub const zip2 = builtins.zip2;
@@ -393,6 +464,10 @@ pub const sum = builtins.sum;
 pub const sorted = builtins.sorted;
 pub const reversed = builtins.reversed;
 pub const filterTruthy = builtins.filterTruthy;
+pub const callable = builtins.callable;
+pub const builtinLen = builtins.len;
+pub const builtinId = builtins.id;
+pub const builtinHash = builtins.hash;
 
 /// Generic 'in' operator - checks membership based on container type
 pub fn contains(needle: *PyObject, haystack: *PyObject) bool {
@@ -456,6 +531,8 @@ pub const eval_module = @import("eval.zig");
 pub const exec_module = @import("exec.zig");
 pub const gzip = @import("gzip/gzip.zig");
 pub const hashlib = @import("hashlib.zig");
+pub const pickle = @import("pickle.zig");
+pub const test_support = @import("test_support.zig");
 
 // Green thread runtime (real M:N scheduler)
 pub const GreenThread = @import("green_thread.zig").GreenThread;
@@ -492,6 +569,86 @@ pub const hasattr_builtin = dynamic_attrs.hasattr_builtin;
 pub const vars_builtin = dynamic_attrs.vars_builtin;
 pub const globals_builtin = dynamic_attrs.globals_builtin;
 pub const locals_builtin = dynamic_attrs.locals_builtin;
+
+// Type checking functions
+/// Check if a value is callable (has a __call__ method or is a function)
+pub fn isCallable(value: anytype) bool {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+    return switch (info) {
+        .@"fn", .pointer => |ptr| switch (@typeInfo(ptr.child)) {
+            .@"fn" => true,
+            .@"struct" => @hasDecl(ptr.child, "__call__"),
+            else => false,
+        },
+        .@"struct" => @hasDecl(T, "__call__"),
+        else => false,
+    };
+}
+
+/// Check if cls is a subclass of base (placeholder for runtime type checking)
+pub fn isSubclass(cls: anytype, base: anytype) bool {
+    _ = cls;
+    _ = base;
+    // At compile time, type relationships are static
+    // Return false as a safe default for runtime checks
+    return false;
+}
+
+/// Complex number type
+pub const PyComplex = struct {
+    real: f64,
+    imag: f64,
+
+    pub fn create(real: f64, imag: f64) PyComplex {
+        return .{ .real = real, .imag = imag };
+    }
+
+    pub fn fromValue(value: anytype) PyComplex {
+        const T = @TypeOf(value);
+        return switch (@typeInfo(T)) {
+            .int, .comptime_int => .{ .real = @floatFromInt(value), .imag = 0.0 },
+            .float, .comptime_float => .{ .real = value, .imag = 0.0 },
+            .bool => .{ .real = if (value) 1.0 else 0.0, .imag = 0.0 },
+            else => .{ .real = 0.0, .imag = 0.0 },
+        };
+    }
+
+    pub fn add(self: PyComplex, other: PyComplex) PyComplex {
+        return .{ .real = self.real + other.real, .imag = self.imag + other.imag };
+    }
+
+    pub fn sub(self: PyComplex, other: PyComplex) PyComplex {
+        return .{ .real = self.real - other.real, .imag = self.imag - other.imag };
+    }
+
+    pub fn mul(self: PyComplex, other: PyComplex) PyComplex {
+        return .{
+            .real = self.real * other.real - self.imag * other.imag,
+            .imag = self.real * other.imag + self.imag * other.real,
+        };
+    }
+
+    pub fn eql(self: PyComplex, other: anytype) bool {
+        const T = @TypeOf(other);
+        switch (@typeInfo(T)) {
+            .int, .comptime_int => {
+                const f: f64 = @floatFromInt(other);
+                return self.real == f and self.imag == 0.0;
+            },
+            .float, .comptime_float => {
+                return self.real == other and self.imag == 0.0;
+            },
+            .@"struct" => {
+                if (T == PyComplex) {
+                    return self.real == other.real and self.imag == other.imag;
+                }
+            },
+            else => {},
+        }
+        return false;
+    }
+};
 
 // Tests
 test "PyInt creation and retrieval" {

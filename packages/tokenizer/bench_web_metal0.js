@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PyAOT WASM benchmark (realistic corpus)
+// metal0 WASM benchmark (realistic corpus)
 import { readFileSync } from 'fs';
 
 // Load realistic benchmark data
@@ -7,7 +7,7 @@ const data = JSON.parse(readFileSync('benchmark_data.json', 'utf-8'));
 const texts = data.texts;
 
 // Load WASM
-const wasmBinary = readFileSync('dist/pyaot_tokenizer.wasm');
+const wasmBinary = readFileSync('dist/metal0_tokenizer.wasm');
 const wasmModule = await WebAssembly.compile(wasmBinary);
 
 // Create WASM memory

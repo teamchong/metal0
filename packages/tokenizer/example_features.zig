@@ -178,7 +178,7 @@ pub fn gpt2WithRegex(allocator: std.mem.Allocator) !void {
 /// | gpt2WithRegex | regex engine | 54KB | +8KB |
 ///
 /// **Comptime magic:** Regex only adds 8KB when used, 0KB when unused!
-/// This is why PyAOT stays fast and small even with "feature-rich" implementation!
+/// This is why metal0 stays fast and small even with "feature-rich" implementation!
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();

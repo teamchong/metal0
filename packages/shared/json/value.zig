@@ -1,5 +1,5 @@
 //! JSON Value type - generic, no PyObject dependencies
-//! This is the shared representation used by all JSON operations in PyAOT.
+//! This is the shared representation used by all JSON operations in metal0.
 
 const std = @import("std");
 

@@ -1,4 +1,4 @@
-# Simple stdlib tests for PyAOT
+# Simple stdlib tests for metal0
 # Tests real functionality of implemented modules
 
 import json

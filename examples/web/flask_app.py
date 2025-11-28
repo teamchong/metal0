@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def hello():
-    return "If you see this, PyAOT is fully compatible!"
+    return "If you see this, metal0 is fully compatible!"
 
 
 if __name__ == "__main__":

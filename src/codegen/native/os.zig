@@ -354,6 +354,107 @@ pub fn genRmdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("}");
 }
 
+/// Generate code for os.path.isdir(path)
+/// Returns True if path is a directory
+pub fn genPathIsdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        std.debug.print("os.path.isdir() requires exactly 1 argument\n", .{});
+        return;
+    }
+
+    try self.emit("os_path_isdir_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("var _dir = std.fs.cwd().openDir(_path, .{}) catch break :os_path_isdir_blk false;\n");
+    try self.emitIndent();
+    try self.emit("_dir.close();\n");
+    try self.emitIndent();
+    try self.emit("break :os_path_isdir_blk true;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.path.isfile(path)
+/// Returns True if path is a file
+pub fn genPathIsfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        std.debug.print("os.path.isfile() requires exactly 1 argument\n", .{});
+        return;
+    }
+
+    try self.emit("os_path_isfile_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("const _stat = std.fs.cwd().statFile(_path) catch break :os_path_isfile_blk false;\n");
+    try self.emitIndent();
+    try self.emit("_ = _stat;\n");
+    try self.emitIndent();
+    try self.emit("break :os_path_isfile_blk true;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.path.abspath(path)
+/// Returns absolute path
+pub fn genPathAbspath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        std.debug.print("os.path.abspath() requires exactly 1 argument\n", .{});
+        return;
+    }
+
+    try self.emit("os_path_abspath_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("const _cwd = std.process.getCwdAlloc(__global_allocator) catch break :os_path_abspath_blk _path;\n");
+    try self.emitIndent();
+    try self.emit("break :os_path_abspath_blk std.fs.path.join(__global_allocator, &[_][]const u8{_cwd, _path}) catch _path;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.path.split(path)
+/// Returns (head, tail) tuple where tail is final component
+/// Python: os.path.split('/usr/bin') -> ('/usr', 'bin')
+pub fn genPathSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        std.debug.print("os.path.split() requires exactly 1 argument\n", .{});
+        return;
+    }
+
+    // Generate: struct { @"0": []const u8, @"1": []const u8 } { .@"0" = dirname(path), .@"1" = basename(path) }
+    try self.emit("os_path_split_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("const _dirname = std.fs.path.dirname(_path) orelse \"\";\n");
+    try self.emitIndent();
+    try self.emit("const _basename = std.fs.path.basename(_path);\n");
+    try self.emitIndent();
+    // Return as a struct with numeric field names for tuple-like access
+    try self.emit("break :os_path_split_blk .{ .@\"0\" = _dirname, .@\"1\" = _basename };\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
 /// Generate code for os.name
 /// Returns 'posix', 'nt', or 'java' based on the operating system
 pub fn genName(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

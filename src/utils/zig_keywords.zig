@@ -101,6 +101,78 @@ pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
     }
 }
 
+/// Write escaped module path to writer
+/// Handles dotted paths like "test.support" by escaping only the first component if needed
+/// Result: @"test".support
+pub fn writeEscapedModulePath(writer: anytype, module_path: []const u8) !void {
+    // Find the first dot (if any)
+    const dot_pos = std.mem.indexOfScalar(u8, module_path, '.');
+    if (dot_pos) |pos| {
+        // Escape the first component and append the rest unchanged
+        const first_component = module_path[0..pos];
+        const rest = module_path[pos..]; // includes the dot
+        try writeEscapedIdent(writer, first_component);
+        try writer.writeAll(rest);
+    } else {
+        // No dot - just escape the whole thing if needed
+        try writeEscapedIdent(writer, module_path);
+    }
+}
+
+/// Convert a dotted module path to a valid Zig identifier
+/// e.g., "test.support" -> "test_support", "test.support.os_helper" -> "test_support_os_helper"
+pub fn dottedToIdent(module_path: []const u8) []const u8 {
+    // Return as-is if no dots
+    if (std.mem.indexOfScalar(u8, module_path, '.') == null) {
+        return module_path;
+    }
+    // Has dots - caller should use dottedToIdentAlloc
+    return module_path;
+}
+
+/// Convert a dotted module path to a valid Zig identifier with allocation
+/// e.g., "test.support" -> "test_support"
+pub fn dottedToIdentAlloc(allocator: std.mem.Allocator, module_path: []const u8) ![]const u8 {
+    // Count dots
+    var dot_count: usize = 0;
+    for (module_path) |c| {
+        if (c == '.') dot_count += 1;
+    }
+    if (dot_count == 0) {
+        return allocator.dupe(u8, module_path);
+    }
+
+    // Replace dots with underscores
+    const result = try allocator.alloc(u8, module_path.len);
+    for (module_path, 0..) |c, i| {
+        result[i] = if (c == '.') '_' else c;
+    }
+    return result;
+}
+
+/// Write a dotted module path as a Zig identifier (with dots replaced by underscores)
+/// Escapes if the result is a keyword
+pub fn writeEscapedDottedIdent(writer: anytype, module_path: []const u8) !void {
+    // Check if first component is a keyword
+    const first_end = std.mem.indexOfScalar(u8, module_path, '.') orelse module_path.len;
+    const first_component = module_path[0..first_end];
+
+    if (isZigKeyword(first_component) or std.mem.indexOfScalar(u8, module_path, '.') != null) {
+        // Escape the entire name with @"" syntax, replacing dots with underscores
+        try writer.writeAll("@\"");
+        for (module_path) |c| {
+            if (c == '.') {
+                try writer.writeByte('_');
+            } else {
+                try writer.writeByte(c);
+            }
+        }
+        try writer.writeAll("\"");
+    } else {
+        try writer.writeAll(module_path);
+    }
+}
+
 test "isZigKeyword" {
     try std.testing.expect(isZigKeyword("test"));
     try std.testing.expect(isZigKeyword("fn"));

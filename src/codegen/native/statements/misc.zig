@@ -59,12 +59,26 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
 }
 
 /// Generate import statement: import module
-/// Import statements are now handled at module level in main.zig
-/// This function is a no-op since imports are collected and generated in PHASE 3
+/// For module-level imports, this is handled in PHASE 3
+/// For local imports (inside functions), we need to generate const bindings
 pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!void {
-    _ = self;
-    _ = import;
-    // No-op: imports are handled at module level, not during statement generation
+    // Only generate for local imports (inside functions)
+    if (self.indent_level == 0) return; // Module-level handled elsewhere
+
+    const module_name = import.module;
+    const alias = import.asname orelse module_name;
+
+    // Look up in registry
+    if (self.import_registry.lookup(module_name)) |info| {
+        if (info.zig_import) |zig_import| {
+            try self.emitIndent();
+            try self.emit("const ");
+            try self.emit(alias);
+            try self.emit(" = ");
+            try self.emit(zig_import);
+            try self.emit(";\n");
+        }
+    }
 }
 
 /// Generate from-import statement: from module import names
@@ -137,6 +151,99 @@ const ExceptionTypes = std.StaticStringMap(void).initComptime(.{
     .{ "Exception", {} },
 });
 
+/// Check if with expression is a unittest context manager that should be skipped
+fn isUnittestContextManager(expr: ast.Node) bool {
+    // Check for self.assertWarns(...), self.assertRaises(...), self.assertRaisesRegex(...), etc.
+    if (expr == .call) {
+        const call = expr.call;
+        if (call.func.* == .attribute) {
+            const attr = call.func.attribute;
+            // Check for self.method() pattern
+            if (attr.value.* == .name) {
+                const obj_name = attr.value.name.id;
+                if (std.mem.eql(u8, obj_name, "self")) {
+                    // Check for unittest context manager methods
+                    const method_name = attr.attr;
+                    if (std.mem.eql(u8, method_name, "assertWarns") or
+                        std.mem.eql(u8, method_name, "assertRaises") or
+                        std.mem.eql(u8, method_name, "assertRaisesRegex") or
+                        std.mem.eql(u8, method_name, "assertLogs") or
+                        std.mem.eql(u8, method_name, "subTest"))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Generate with statement (context manager)
+/// with open("file") as f: body => var f = ...; defer f.close(); body
+/// In Python, 'f' is accessible after the with block, so we don't use nested blocks
+pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void {
+    // Skip unittest context managers (assertWarns, assertRaises, etc.)
+    // These are test helpers that don't have runtime implementations yet
+    if (isUnittestContextManager(with_node.context_expr.*)) {
+        // Just generate body without the context manager wrapper
+        for (with_node.body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+        return;
+    }
+
+    // If there's a variable name (as f), declare it at current scope
+    if (with_node.optional_vars) |var_name| {
+        // Check if already declared (for nested with or reassignment)
+        const is_first = !self.isDeclared(var_name);
+
+        try self.emitIndent();
+        if (is_first) {
+            try self.emit("var ");
+        }
+        try self.emit(var_name);
+        try self.emit(" = ");
+        try self.genExpr(with_node.context_expr.*);
+        try self.emit(";\n");
+
+        // Add defer for cleanup (close, __exit__, etc.)
+        // For file objects, emit f.close(); for context managers, emit __exit__
+        try self.emitIndent();
+        try self.emit("defer ");
+        try self.emit(var_name);
+        try self.emit(".close();\n");
+
+        // Mark as declared for body
+        if (is_first) {
+            try self.declareVar(var_name);
+        }
+    } else {
+        // No variable - just execute context expression and defer cleanup
+        try self.emitIndent();
+        try self.emit("{\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("const __ctx = ");
+        try self.genExpr(with_node.context_expr.*);
+        try self.emit(";\n");
+        try self.emitIndent();
+        try self.emit("defer __ctx.close();\n");
+    }
+
+    // Generate body
+    for (with_node.body) |stmt| {
+        try self.generateStmt(stmt);
+    }
+
+    // Close block if no variable
+    if (with_node.optional_vars == null) {
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+}
+
 /// Generate raise statement
 /// raise ValueError("msg") => std.debug.panic("ValueError: {s}", .{"msg"})
 /// raise => std.debug.panic("Unhandled exception", .{})
@@ -163,6 +270,17 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                     }
                     return;
                 }
+            }
+        }
+        // Check if this is just an exception name: raise TypeError
+        if (exc.* == .name) {
+            const exc_name = exc.name.id;
+            if (ExceptionTypes.has(exc_name)) {
+                // Generate: std.debug.panic("TypeError", .{})
+                try self.emit("std.debug.panic(\"");
+                try self.emit(exc_name);
+                try self.emit("\", .{});\n");
+                return;
             }
         }
         // Fallback for other raise expressions

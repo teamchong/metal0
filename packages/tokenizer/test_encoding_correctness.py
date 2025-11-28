@@ -2,7 +2,7 @@
 """
 Comprehensive encoding correctness test
 
-Tests PyAOT encoding against tiktoken (ground truth) on:
+Tests metal0 encoding against tiktoken (ground truth) on:
 1. All 583 benchmark texts
 2. Edge cases (unicode, special chars, empty, very long)
 3. Random samples
@@ -53,13 +53,13 @@ for i, text in enumerate(ALL_TESTS):
     # Get expected tokens from tiktoken
     expected = enc.encode(text)
 
-    # Get PyAOT tokens
-    # TODO: Need a way to call PyAOT encoder programmatically!
+    # Get metal0 tokens
+    # TODO: Need a way to call metal0 encoder programmatically!
     # Currently test_correctness only works for hardcoded TEXT
 
-    print(f"❌ CRITICAL: Cannot test PyAOT encoding programmatically!")
+    print(f"❌ CRITICAL: Cannot test metal0 encoding programmatically!")
     print(f"   test_correctness.py has hardcoded TEXT")
-    print(f"   Need PyAOT to expose encode(text) function")
+    print(f"   Need metal0 to expose encode(text) function")
     break
 
 print()
@@ -67,7 +67,7 @@ print("=" * 70)
 print("📋 What we need for 100% correctness verification:")
 print()
 print("1. **Encoding:**")
-print("   - Expose PyAOT encode() as callable function")
+print("   - Expose metal0 encode() as callable function")
 print("   - Test ALL 583 benchmark texts + edge cases")
 print("   - Every token ID must match tiktoken exactly")
 print()

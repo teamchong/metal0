@@ -86,6 +86,198 @@ fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
             self.current += 1;
         }
 
+        // After closing paren, check for attribute access: (1).__class__
+        while (self.current < self.tokens.len and self.tokens[self.current].type == .Dot) {
+            try type_buf.append(self.allocator, '.');
+            self.current += 1; // consume '.'
+            if (self.current < self.tokens.len and self.tokens[self.current].type == .Ident) {
+                try type_buf.appendSlice(self.allocator, self.tokens[self.current].lexeme);
+                self.current += 1;
+            }
+        }
+
+        return try self.allocator.dupe(u8, type_buf.items);
+    }
+
+    // Handle unary +, -, ~, *, **, not in type annotations: +some, -some, ~a, *a, **a, not a
+    const unary_tok = self.tokens[self.current].type;
+    if (unary_tok == .Plus or unary_tok == .Minus or unary_tok == .Tilde or
+        unary_tok == .Not or unary_tok == .Star or unary_tok == .DoubleStar)
+    {
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+
+        const prefix = switch (unary_tok) {
+            .Plus => "+",
+            .Minus => "-",
+            .Tilde => "~",
+            .Not => "not ",
+            .Star => "*",
+            .DoubleStar => "**",
+            else => unreachable,
+        };
+        try type_buf.appendSlice(self.allocator, prefix);
+        self.current += 1;
+
+        // Parse the rest of the annotation
+        const rest = try parseTypeAnnotation(self);
+        if (rest) |r| {
+            defer self.allocator.free(r);
+            try type_buf.appendSlice(self.allocator, r);
+        }
+        return try self.allocator.dupe(u8, type_buf.items);
+    }
+
+    // Handle dict/set literals in type annotations: {obj: module}, {obj, module}, {a + b}
+    if (self.tokens[self.current].type == .LBrace) {
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+
+        try type_buf.append(self.allocator, '{');
+        self.current += 1; // consume '{'
+
+        var brace_depth: usize = 1;
+        while (self.current < self.tokens.len and brace_depth > 0) {
+            const tok = self.tokens[self.current];
+            switch (tok.type) {
+                .LBrace => {
+                    try type_buf.append(self.allocator, '{');
+                    brace_depth += 1;
+                },
+                .RBrace => {
+                    try type_buf.append(self.allocator, '}');
+                    brace_depth -= 1;
+                },
+                .LBracket => try type_buf.append(self.allocator, '['),
+                .RBracket => try type_buf.append(self.allocator, ']'),
+                .LParen => try type_buf.append(self.allocator, '('),
+                .RParen => try type_buf.append(self.allocator, ')'),
+                .Comma => try type_buf.appendSlice(self.allocator, ", "),
+                .Colon => try type_buf.appendSlice(self.allocator, ": "),
+                .Pipe => try type_buf.appendSlice(self.allocator, " | "),
+                .Plus => try type_buf.appendSlice(self.allocator, " + "),
+                .Minus => try type_buf.appendSlice(self.allocator, " - "),
+                .Star => try type_buf.appendSlice(self.allocator, " * "),
+                .Slash => try type_buf.appendSlice(self.allocator, " / "),
+                .Ampersand => try type_buf.appendSlice(self.allocator, " & "),
+                .Caret => try type_buf.appendSlice(self.allocator, " ^ "),
+                .Tilde => try type_buf.append(self.allocator, '~'),
+                .Dot => try type_buf.append(self.allocator, '.'),
+                .Ident => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                .String => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                .Number => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                else => break,
+            }
+            self.current += 1;
+        }
+
+        return try self.allocator.dupe(u8, type_buf.items);
+    }
+
+    // Handle list literals in type annotations: [obj], [obj, module], [*a]
+    if (self.tokens[self.current].type == .LBracket) {
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+
+        try type_buf.append(self.allocator, '[');
+        self.current += 1; // consume '['
+
+        var bracket_depth: usize = 1;
+        while (self.current < self.tokens.len and bracket_depth > 0) {
+            const tok = self.tokens[self.current];
+            switch (tok.type) {
+                .LBracket => {
+                    try type_buf.append(self.allocator, '[');
+                    bracket_depth += 1;
+                },
+                .RBracket => {
+                    try type_buf.append(self.allocator, ']');
+                    bracket_depth -= 1;
+                },
+                .LBrace => try type_buf.append(self.allocator, '{'),
+                .RBrace => try type_buf.append(self.allocator, '}'),
+                .LParen => try type_buf.append(self.allocator, '('),
+                .RParen => try type_buf.append(self.allocator, ')'),
+                .Comma => try type_buf.appendSlice(self.allocator, ", "),
+                .Colon => try type_buf.appendSlice(self.allocator, ": "),
+                .Pipe => try type_buf.appendSlice(self.allocator, " | "),
+                .Plus => try type_buf.appendSlice(self.allocator, " + "),
+                .Minus => try type_buf.appendSlice(self.allocator, " - "),
+                .Star => try type_buf.append(self.allocator, '*'),
+                .DoubleStar => try type_buf.appendSlice(self.allocator, "**"),
+                .Dot => try type_buf.append(self.allocator, '.'),
+                .Ident => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                .String => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                .Number => try type_buf.appendSlice(self.allocator, tok.lexeme),
+                else => break,
+            }
+            self.current += 1;
+        }
+
+        return try self.allocator.dupe(u8, type_buf.items);
+    }
+
+    // Handle string literals (including f-strings, t-strings, byte strings) in type annotations
+    if (self.tokens[self.current].type == .String or self.tokens[self.current].type == .FString or
+        self.tokens[self.current].type == .ByteString)
+    {
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+
+        try type_buf.appendSlice(self.allocator, self.tokens[self.current].lexeme);
+        self.current += 1;
+
+        return try self.allocator.dupe(u8, type_buf.items);
+    }
+
+    // Handle ellipsis in type annotations: g: ...
+    if (self.tokens[self.current].type == .Ellipsis) {
+        self.current += 1;
+        return try self.allocator.dupe(u8, "...");
+    }
+
+    // Handle number and complex number literals in type annotations: 1 + a, 1j
+    if (self.tokens[self.current].type == .Number or self.tokens[self.current].type == .ComplexNumber) {
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+
+        try type_buf.appendSlice(self.allocator, self.tokens[self.current].lexeme);
+        self.current += 1;
+
+        // Check for binary operator after number
+        if (self.current < self.tokens.len) {
+            const op_str: ?[]const u8 = switch (self.tokens[self.current].type) {
+                .Plus => " + ",
+                .Minus => " - ",
+                .Star => " * ",
+                .Slash => " / ",
+                .Percent => " % ",
+                .DoubleStar => " ** ",
+                .DoubleSlash => " // ",
+                .Pipe => " | ",
+                .Ampersand => " & ",
+                .Caret => " ^ ",
+                .LtLt => " << ",
+                .GtGt => " >> ",
+                .Lt => " < ",
+                .Gt => " > ",
+                .LtEq => " <= ",
+                .GtEq => " >= ",
+                .EqEq => " == ",
+                .NotEq => " != ",
+                .At => " @ ",
+                else => null,
+            };
+            if (op_str) |op| {
+                try type_buf.appendSlice(self.allocator, op);
+                self.current += 1;
+                const rest = try parseTypeAnnotation(self);
+                if (rest) |r| {
+                    defer self.allocator.free(r);
+                    try type_buf.appendSlice(self.allocator, r);
+                }
+            }
+        }
         return try self.allocator.dupe(u8, type_buf.items);
     }
 
@@ -115,21 +307,52 @@ fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
         self.current += 1; // consume identifier
     }
 
-    // Check for union type: int | str (PEP 604)
+    // Check for union type: int | str (PEP 604) or comparison: some < obj, or math: a + b
     // Must check before bracket handling
-    if (self.current < self.tokens.len and self.tokens[self.current].type == .Pipe) {
-        // Build union type
-        try type_parts.appendSlice(self.allocator, " | ");
-        self.current += 1; // consume '|'
+    if (self.current < self.tokens.len) {
+        const next_tok = self.tokens[self.current].type;
+        // Support all binary operators that might appear in type annotations
+        const op_str: ?[]const u8 = switch (next_tok) {
+            .Pipe => " | ",
+            .Lt => " < ",
+            .Gt => " > ",
+            .LtEq => " <= ",
+            .GtEq => " >= ",
+            .Plus => " + ",
+            .Minus => " - ",
+            .Star => " * ",
+            .Slash => " / ",
+            .Percent => " % ",
+            .Ampersand => " & ",
+            .Caret => " ^ ",
+            .Tilde => " ~ ",
+            .LtLt => " << ",
+            .GtGt => " >> ",
+            .DoubleStar => " ** ",
+            .DoubleSlash => " // ",
+            .At => " @ ",
+            .EqEq => " == ",
+            .NotEq => " != ",
+            .And => " and ",
+            .Or => " or ",
+            .Not => " not ",
+            .In => " in ",
+            .Is => " is ",
+            else => null,
+        };
+        if (op_str) |op| {
+            try type_parts.appendSlice(self.allocator, op);
+            self.current += 1; // consume operator
 
-        // Parse the next type in the union
-        const next_type = try parseTypeAnnotation(self);
-        if (next_type) |nt| {
-            defer self.allocator.free(nt);
-            try type_parts.appendSlice(self.allocator, nt);
+            // Parse the next type
+            const next_type = try parseTypeAnnotation(self);
+            if (next_type) |nt| {
+                defer self.allocator.free(nt);
+                try type_parts.appendSlice(self.allocator, nt);
+            }
+
+            return try self.allocator.dupe(u8, type_parts.items);
         }
-
-        return try self.allocator.dupe(u8, type_parts.items);
     }
 
     const base_type = try self.allocator.dupe(u8, type_parts.items);
@@ -240,16 +463,36 @@ fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
                     try type_buf.appendSlice(self.allocator, "None");
                     need_separator = true;
                 },
-                .String => {
-                    // String literal in type annotation (e.g., Literal["hello"])
+                .String, .FString, .ByteString => {
+                    // String literal in type annotation (e.g., Literal["hello"], t"{x}", b"bytes")
                     if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
                     try type_buf.appendSlice(self.allocator, tok.lexeme);
                     need_separator = true;
                 },
-                .Number => {
-                    // Number literal in type annotation (e.g., Literal[1])
+                .Number, .ComplexNumber => {
+                    // Number literal in type annotation (e.g., Literal[1], 4j)
                     if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
                     try type_buf.appendSlice(self.allocator, tok.lexeme);
+                    need_separator = true;
+                },
+                .LBrace => {
+                    // Set/dict literal in type annotation: a[{int}, 3]
+                    if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
+                    try type_buf.append(self.allocator, '{');
+                    need_separator = false;
+                },
+                .RBrace => {
+                    try type_buf.append(self.allocator, '}');
+                    need_separator = true;
+                },
+                .LParen => {
+                    // Tuple in type annotation: a[(int, str), 5]
+                    if (need_separator) try type_buf.appendSlice(self.allocator, ", ");
+                    try type_buf.append(self.allocator, '(');
+                    need_separator = false;
+                },
+                .RParen => {
+                    try type_buf.append(self.allocator, ')');
                     need_separator = true;
                 },
                 .Dot => {

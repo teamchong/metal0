@@ -5,6 +5,7 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const helpers = @import("../assign_helpers.zig");
 const deferCleanup = @import("../assign_defer.zig");
+const zig_keywords = @import("zig_keywords");
 
 /// Generate tuple unpacking assignment: a, b = (1, 2)
 pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tuple: ast.Node.Tuple) CodegenError!void {
@@ -35,7 +36,8 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             }
             // Use renamed version if in var_renames map (for exception handling)
             const actual_name = self.var_renames.get(var_name) orelse var_name;
-            try self.emit(actual_name);
+            // Escape Zig reserved keywords (e.g., "false" -> @"false")
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
             try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
         }
     }
@@ -68,7 +70,8 @@ pub fn emitVarDeclaration(
     // Use renamed version if in var_renames map (for exception handling)
     const actual_name = self.var_renames.get(var_name) orelse var_name;
 
-    try self.emit(actual_name);
+    // Escape Zig reserved keywords (e.g., "false" -> @"false")
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
 
     // Only emit type annotation for known types that aren't dicts, dictcomps, lists, tuples, closures, counters, or ArrayLists
     // For lists/ArrayLists/dicts/dictcomps/tuples/closures/counters, let Zig infer the type from the initializer

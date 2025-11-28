@@ -102,15 +102,19 @@ pub fn parseLambda(self: *Parser) ParseError!ast.Node {
                     // **kwargs must be last, break out
                     break;
                 }
-                // Handle *args in lambda
+                // Handle *args or bare * (keyword-only marker) in lambda
                 if (tok.type == .Star) {
                     _ = self.advance(); // consume *
-                    const param_name = (try self.expect(.Ident)).lexeme;
-                    try args.append(self.allocator, .{
-                        .name = param_name,
-                        .type_annotation = null,
-                        .default = null,
-                    });
+                    // Check if this is *args or bare * (keyword-only marker)
+                    if (self.check(.Ident)) {
+                        const param_name = self.advance().?.lexeme;
+                        try args.append(self.allocator, .{
+                            .name = param_name,
+                            .type_annotation = null,
+                            .default = null,
+                        });
+                    }
+                    // else: bare * is keyword-only marker, just skip it
                     if (self.match(.Comma)) {
                         continue;
                     } else {

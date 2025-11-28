@@ -240,7 +240,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("io", .zig_runtime, "runtime.io", null); // io.StringIO, io.BytesIO
     try registry.register("struct", .zig_runtime, "std", null); // struct module is inline codegen
     try registry.register("base64", .zig_runtime, "std", null); // base64 uses std.base64
-    try registry.register("pickle", .zig_runtime, "std", null); // pickle uses JSON serialization
+    try registry.register("pickle", .zig_runtime, "runtime.pickle", null);
     try registry.register("hmac", .zig_runtime, "std", null); // hmac uses std.crypto.auth.hmac
     try registry.register("socket", .zig_runtime, "std", null); // socket uses std.posix
     try registry.register("os", .zig_runtime, "std", null); // os uses std.fs and std.process
@@ -312,6 +312,17 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
 
     // Dynamic features (unsupported - require runtime)
     try registry.register("importlib", .unsupported, null, null);
+
+    // Test support modules (for CPython unittest compatibility)
+    try registry.register("test", .zig_runtime, "runtime.test_support", null);
+    try registry.register("test.support", .zig_runtime, "runtime.test_support", null);
+    try registry.register("test.support.os_helper", .zig_runtime, "runtime.test_support.os_helper", null);
+    try registry.register("test.support.import_helper", .zig_runtime, "runtime.test_support.import_helper", null);
+    try registry.register("test.support.warnings_helper", .zig_runtime, "runtime.test_support.warnings_helper", null);
+    try registry.register("test.support.threading_helper", .zig_runtime, "runtime.test_support.threading_helper", null);
+    try registry.register("test.support.socket_helper", .zig_runtime, "runtime.test_support.socket_helper", null);
+    try registry.register("test.support.script_helper", .zig_runtime, "runtime.test_support.script_helper", null);
+    try registry.register("test.support.hashlib_helper", .zig_runtime, "runtime.test_support.hashlib_helper", null);
 
     return registry;
 }

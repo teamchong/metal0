@@ -13,9 +13,10 @@ pub fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate marshal.dumps(value, version=4)
 pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("blk: { const val = ");
+        const uid = self.output.items.len;
+        try self.emitFmt("marshal_dumps_{d}: {{ const val = ", .{uid});
         try self.genExpr(args[0]);
-        try self.emit("; _ = val; break :blk \"\"; }");
+        try self.emitFmt("; _ = val; break :marshal_dumps_{d} \"\"; }}", .{uid});
     } else {
         try self.emit("\"\"");
     }
@@ -24,9 +25,10 @@ pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate marshal.load(file)
 pub fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("blk: { const file = ");
+        const uid = self.output.items.len;
+        try self.emitFmt("marshal_load_{d}: {{ const file = ", .{uid});
         try self.genExpr(args[0]);
-        try self.emit("; _ = file; break :blk null; }");
+        try self.emitFmt("; _ = file; break :marshal_load_{d} null; }}", .{uid});
     } else {
         try self.emit("null");
     }
@@ -35,9 +37,10 @@ pub fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate marshal.loads(bytes)
 pub fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("blk: { const data = ");
+        const uid = self.output.items.len;
+        try self.emitFmt("marshal_loads_{d}: {{ const data = ", .{uid});
         try self.genExpr(args[0]);
-        try self.emit("; _ = data; break :blk null; }");
+        try self.emitFmt("; _ = data; break :marshal_loads_{d} null; }}", .{uid});
     } else {
         try self.emit("null");
     }

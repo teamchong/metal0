@@ -1,4 +1,4 @@
-//! Shared JSON library for PyAOT
+//! Shared JSON library for metal0
 //! SIMD-accelerated JSON parser/stringifier
 //! Parse: 2.7-3.1x faster than std.json
 //! Stringify: 1.2-1.3x faster than std.json

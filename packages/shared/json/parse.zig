@@ -557,14 +557,14 @@ test "parse empty object" {
 
 test "parse object with values" {
     const allocator = std.testing.allocator;
-    var value = try parse(allocator, "{\"name\": \"PyAOT\", \"count\": 3}");
+    var value = try parse(allocator, "{\"name\": \"metal0\", \"count\": 3}");
     defer value.deinit(allocator);
 
     try std.testing.expect(value == .object);
     try std.testing.expectEqual(@as(usize, 2), value.object.count());
 
     const name = value.object.get("name").?;
-    try std.testing.expectEqualStrings("PyAOT", name.string);
+    try std.testing.expectEqualStrings("metal0", name.string);
 
     const count = value.object.get("count").?;
     try std.testing.expectEqual(@as(i64, 3), count.number_int);

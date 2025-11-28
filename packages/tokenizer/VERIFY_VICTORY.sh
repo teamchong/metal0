@@ -15,8 +15,8 @@ zig build -Doptimize=ReleaseFast > /dev/null 2>&1
 # Test encoding produces same tokens
 TEST_TEXT="Hello, world! This is a test of the tokenizer."
 
-# Encode with PyAOT
-PYAOT_TOKENS=$(echo "$TEST_TEXT" | ./zig-out/bin/test_correctness 2>/dev/null || echo "ERROR")
+# Encode with metal0
+metal0_TOKENS=$(echo "$TEST_TEXT" | ./zig-out/bin/test_correctness 2>/dev/null || echo "ERROR")
 
 # Encode with rs-bpe (Python)
 cat > /tmp/test_rsbpe.py << 'PYTHON'
@@ -31,11 +31,11 @@ PYTHON
 
 RSBPE_TOKENS=$(python3 /tmp/test_rsbpe.py 2>/dev/null || echo "ERROR")
 
-if [ "$PYAOT_TOKENS" = "$RSBPE_TOKENS" ]; then
+if [ "$metal0_TOKENS" = "$RSBPE_TOKENS" ]; then
     echo "✅ PASS: Outputs match exactly"
 else
     echo "❌ FAIL: Outputs differ!"
-    echo "PyAOT:  $PYAOT_TOKENS"
+    echo "metal0:  $metal0_TOKENS"
     echo "rs-bpe: $RSBPE_TOKENS"
     exit 1
 fi
@@ -45,7 +45,7 @@ echo ""
 echo "2️⃣ STATISTICAL CONFIDENCE: 10 full benchmarks (1000 iter each)"
 echo "----------------------------------------------------------------"
 
-PYAOT_TIMES=()
+metal0_TIMES=()
 RSBPE_TIMES=()
 
 for i in {1..10}; do
@@ -54,47 +54,47 @@ for i in {1..10}; do
     # Run benchmark and extract times
     OUTPUT=$(make benchmark-encoding 2>&1)
 
-    PYAOT_TIME=$(echo "$OUTPUT" | grep "Benchmark 1: PyAOT" -A1 | grep "Time (mean" | awk '{print $5}')
+    metal0_TIME=$(echo "$OUTPUT" | grep "Benchmark 1: metal0" -A1 | grep "Time (mean" | awk '{print $5}')
     RSBPE_TIME=$(echo "$OUTPUT" | grep "Benchmark 2: rs-bpe" -A1 | grep "Time (mean" | awk '{print $5}')
 
-    PYAOT_TIMES+=("$PYAOT_TIME")
+    metal0_TIMES+=("$metal0_TIME")
     RSBPE_TIMES+=("$RSBPE_TIME")
 
-    echo "  PyAOT: ${PYAOT_TIME}s, rs-bpe: ${RSBPE_TIME}s"
+    echo "  metal0: ${metal0_TIME}s, rs-bpe: ${RSBPE_TIME}s"
 done
 
 echo ""
 echo "📊 RESULTS (10 runs):"
 echo "---------------------"
-echo "PyAOT times:  ${PYAOT_TIMES[@]}"
+echo "metal0 times:  ${metal0_TIMES[@]}"
 echo "rs-bpe times: ${RSBPE_TIMES[@]}"
 echo ""
 
 # Calculate averages
-PYAOT_AVG=$(echo "${PYAOT_TIMES[@]}" | tr ' ' '\n' | awk '{sum+=$1} END {print sum/NR}')
+metal0_AVG=$(echo "${metal0_TIMES[@]}" | tr ' ' '\n' | awk '{sum+=$1} END {print sum/NR}')
 RSBPE_AVG=$(echo "${RSBPE_TIMES[@]}" | tr ' ' '\n' | awk '{sum+=$1} END {print sum/NR}')
 
-SPEEDUP=$(echo "$RSBPE_AVG / $PYAOT_AVG" | bc -l)
+SPEEDUP=$(echo "$RSBPE_AVG / $metal0_AVG" | bc -l)
 
-echo "Average PyAOT:  ${PYAOT_AVG}s"
+echo "Average metal0:  ${metal0_AVG}s"
 echo "Average rs-bpe: ${RSBPE_AVG}s"
 echo "Speedup:        ${SPEEDUP}x"
 echo ""
 
 # 3. Check if consistently faster
-echo "3️⃣ CONSISTENCY: PyAOT faster in ALL runs?"
+echo "3️⃣ CONSISTENCY: metal0 faster in ALL runs?"
 echo "-------------------------------------------"
 
 WINS=0
 for i in {0..9}; do
-    PYAOT=${PYAOT_TIMES[$i]}
+    metal0=${metal0_TIMES[$i]}
     RSBPE=${RSBPE_TIMES[$i]}
 
-    if (( $(echo "$PYAOT < $RSBPE" | bc -l) )); then
+    if (( $(echo "$metal0 < $RSBPE" | bc -l) )); then
         WINS=$((WINS + 1))
-        echo "Run $((i+1)): ✅ WIN (${PYAOT}s < ${RSBPE}s)"
+        echo "Run $((i+1)): ✅ WIN (${metal0}s < ${RSBPE}s)"
     else
-        echo "Run $((i+1)): ❌ LOSS (${PYAOT}s >= ${RSBPE}s)"
+        echo "Run $((i+1)): ❌ LOSS (${metal0}s >= ${RSBPE}s)"
     fi
 done
 
@@ -112,7 +112,7 @@ if [ $WINS -eq 10 ]; then
     echo "   - Win rate: 10/10 (100%)"
     echo "   - Average speedup: ${SPEEDUP}x"
     echo ""
-    echo "PyAOT is definitively faster than rs-bpe! 🎉"
+    echo "metal0 is definitively faster than rs-bpe! 🎉"
 elif [ $WINS -ge 8 ]; then
     echo "⚠️  LIKELY VICTORY (${WINS}/10 wins)"
     echo "   Some variance detected - may need system optimization"

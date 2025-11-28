@@ -1,16 +1,16 @@
 ⚡ Web/Node.js Benchmark: All 4 Libraries (realistic corpus)
 ============================================================
 Encoding: 583 diverse texts (200K chars)
-  - PyAOT: 1000 iterations
+  - metal0: 1000 iterations
   - Others: 100 iterations (slower JS libs)
 
 📊 Benchmarking ALL 4 libraries:
-   1. PyAOT (WASM)
+   1. metal0 (WASM)
    2. @anthropic-ai/tokenizer (JS)
    3. gpt-tokenizer (JS)
    4. tiktoken (Node)
 
-Benchmark 1: PyAOT (WASM)
+Benchmark 1: metal0 (WASM)
   Time (mean ± σ):      51.8 ms ±   1.9 ms    [User: 52.2 ms, System: 8.6 ms]
   Range (min … max):    49.9 ms …  54.6 ms    5 runs
  

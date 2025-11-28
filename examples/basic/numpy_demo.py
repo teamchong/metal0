@@ -2,7 +2,7 @@
 
 import numpy
 
-print("PyAOT NumPy Demo - Direct BLAS Integration")
+print("metal0 NumPy Demo - Direct BLAS Integration")
 
 # Create arrays
 a = numpy.array([1.0, 2.0, 3.0])

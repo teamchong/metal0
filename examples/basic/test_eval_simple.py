@@ -1,4 +1,4 @@
-# Simple eval() test for PyAOT
+# Simple eval() test for metal0
 
 # Test 1: Simple constant evaluation
 result1 = eval("42")

@@ -26,10 +26,10 @@ make benchmark-go
 
 Example output:
 ```
-PyAOT:  1.303s ± 0.014s
+metal0:  1.303s ± 0.014s
 Rust:   4.793s ± 0.873s
 
-PyAOT 3.68x faster! 🏆
+metal0 3.68x faster! 🏆
 ```
 
 ### 2. Realistic Data (`make benchmark-realistic`)
@@ -48,7 +48,7 @@ Content:
 ### 3. Individual Benchmarks
 
 All use hyperfine for accurate statistical measurement:
-- `make benchmark-zig` - PyAOT only
+- `make benchmark-zig` - metal0 only
 - `make benchmark-rust` - Rust only
 - `make benchmark-python` - Python only
 - `make benchmark-go` - Go only
@@ -78,7 +78,7 @@ All use hyperfine for accurate statistical measurement:
 
 ## How Optimizations Work
 
-Both PyAOT and Rust use **automatic pattern analysis**:
+Both metal0 and Rust use **automatic pattern analysis**:
 
 ### Rust:
 1. Parse regex → HIR (High-level IR)
@@ -86,13 +86,13 @@ Both PyAOT and Rust use **automatic pattern analysis**:
 3. Build memchr/Teddy SIMD searchers
 4. Run optimized matcher
 
-### PyAOT:
+### metal0:
 1. Parse regex → AST
 2. `optimizer.analyze(ast)` → Detect strategy
 3. Enable fast paths (SIMD/prefix/word boundary)
 4. Run optimized matcher
 
-**Key difference:** Rust hides it (black box), PyAOT shows it (prints `[AUTO]`)
+**Key difference:** Rust hides it (black box), metal0 shows it (prints `[AUTO]`)
 
 ## Fairness
 

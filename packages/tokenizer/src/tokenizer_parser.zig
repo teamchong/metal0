@@ -11,7 +11,7 @@ const builder = @import("tokenizer_builder.zig");
 const AhoCorasick = @import("aho_corasick.zig").AhoCorasick;
 const FnvHashContext = @import("fnv_hash.zig").FnvHashContext;
 
-// Use PyAOT's optimized JSON parser (2.17x faster than std.json)
+// Use metal0's optimized JSON parser (2.17x faster than std.json)
 const json = @import("runtime/src/json/parse.zig");
 const JsonValue = @import("runtime/src/json/value.zig").JsonValue;
 

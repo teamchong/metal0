@@ -1,5 +1,5 @@
 [project]
-name = "pyaot"
+name = "metal0"
 version = "0.1.0"
 description = "Python-to-Zig AOT compiler"
 requires-python = ">=3.10"

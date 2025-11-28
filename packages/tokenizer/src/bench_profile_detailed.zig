@@ -91,7 +91,7 @@ pub fn main() !void {
 
     std.debug.print("\n📊 vs rs-bpe:\n", .{});
     std.debug.print("------------------------------------------------------------\n", .{});
-    std.debug.print("  PyAOT: {}ms\n", .{total_ms});
+    std.debug.print("  metal0: {}ms\n", .{total_ms});
     std.debug.print("  rs-bpe: {}ms\n", .{rs_bpe_ms});
     std.debug.print("  Gap: {}ms ({d:.2}% slower)\n", .{ gap_ms, (ratio - 1.0) * 100.0 });
     std.debug.print("  Ratio: {d:.3}x\n", .{ratio});

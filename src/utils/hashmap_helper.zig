@@ -1,4 +1,4 @@
-/// Optimized HashMap utilities for PyAOT
+/// Optimized HashMap utilities for metal0
 /// ALWAYS use these instead of std.StringHashMap for performance!
 ///
 /// Performance gains:

@@ -1,4 +1,4 @@
-# Tokenizer benchmark - PyAOT tokenizer wrapper
+# Tokenizer benchmark - metal0 tokenizer wrapper
 # This calls the Zig tokenizer through Python bindings
 
 def tokenize(text: str) -> int:

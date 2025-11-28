@@ -234,12 +234,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
+    // Note: No comptime discard needed - if the class is unused, Zig will report it properly.
+    // If the class IS used (instantiated), adding a discard causes "pointless discard" errors.
 }
 
 /// Check if a test method has a skip docstring
 /// Returns the skip reason if found, null otherwise
 /// Looks for: """skip: reason""" or "skip: reason" as first statement
-fn getSkipReason(method: ast.Node.FunctionDef) ?[]const u8 {
+pub fn getSkipReason(method: ast.Node.FunctionDef) ?[]const u8 {
     if (method.body.len == 0) return null;
 
     // Check if first statement is an expression statement with a string constant

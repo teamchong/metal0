@@ -7,6 +7,7 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
+const zig_keywords = @import("zig_keywords");
 
 const ClosureError = error{
     NotAClosure,
@@ -103,7 +104,9 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     // Call method (inner lambda)
     try closure_code.writer(self.allocator).writeAll("    pub fn call(self: @This()");
     for (inner_lambda.args) |arg| {
-        try closure_code.writer(self.allocator).print(", {s}: i64", .{arg.name});
+        try closure_code.writer(self.allocator).writeAll(", ");
+        try zig_keywords.writeEscapedIdent(closure_code.writer(self.allocator), arg.name);
+        try closure_code.writer(self.allocator).writeAll(": i64");
     }
 
     // Infer return type from inner lambda body
@@ -138,7 +141,8 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     try closure_code.writer(self.allocator).print("fn {s}(", .{factory_name});
     for (outer_lambda.args, 0..) |arg, i| {
         if (i > 0) try closure_code.writer(self.allocator).writeAll(", ");
-        try closure_code.writer(self.allocator).print("{s}: i64", .{arg.name});
+        try zig_keywords.writeEscapedIdent(closure_code.writer(self.allocator), arg.name);
+        try closure_code.writer(self.allocator).writeAll(": i64");
     }
     try closure_code.writer(self.allocator).print(") {s} {{\n", .{closure_name});
     try closure_code.writer(self.allocator).writeAll("    return .{\n");
@@ -209,7 +213,9 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     // Call method
     try closure_code.writer(self.allocator).writeAll("    pub fn call(self: @This()");
     for (lambda.args) |arg| {
-        try closure_code.writer(self.allocator).print(", {s}: i64", .{arg.name});
+        try closure_code.writer(self.allocator).writeAll(", ");
+        try zig_keywords.writeEscapedIdent(closure_code.writer(self.allocator), arg.name);
+        try closure_code.writer(self.allocator).writeAll(": i64");
     }
 
     // Infer return type

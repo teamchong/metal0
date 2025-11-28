@@ -1,6 +1,6 @@
 /// Python eval() - cached bytecode execution with comptime target selection
 ///
-/// This module provides dynamic code execution for PyAOT.
+/// This module provides dynamic code execution for metal0.
 ///
 /// Architecture:
 /// 1. Parse source → AST (cached per source string)

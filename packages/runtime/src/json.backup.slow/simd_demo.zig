@@ -5,7 +5,7 @@ const simd = @import("simd/dispatch.zig");
 pub fn main() !void {
     std.debug.print("\n", .{});
     std.debug.print("======================================================================\n", .{});
-    std.debug.print("PyAOT JSON Parser - SIMD Optimization Demo\n", .{});
+    std.debug.print("metal0 JSON Parser - SIMD Optimization Demo\n", .{});
     std.debug.print("======================================================================\n\n", .{});
 
     // Show SIMD implementation
@@ -15,7 +15,7 @@ pub fn main() !void {
     std.debug.print("Example 1: Finding Special Characters\n", .{});
     std.debug.print("----------------------------------------------------------------------\n", .{});
 
-    const json_data = "    {\"name\": \"PyAOT\", \"version\": 1.0}";
+    const json_data = "    {\"name\": \"metal0\", \"version\": 1.0}";
     std.debug.print("JSON: {s}\n\n", .{json_data});
 
     if (simd.findSpecialChar(json_data, 0)) |pos| {

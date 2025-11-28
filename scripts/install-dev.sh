@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# PyAOT Development Installation Script
+# metal0 Development Installation Script
 
-echo "🔧 Setting up PyAOT development environment..."
+echo "🔧 Setting up metal0 development environment..."
 
 # Check prerequisites
 command -v uv >/dev/null 2>&1 || { echo "❌ Error: uv not installed. Install from https://docs.astral.sh/uv/"; exit 1; }
@@ -23,7 +23,7 @@ VENV_BIN="$(pwd)/.venv/bin"
 echo ""
 echo "✅ Development environment ready!"
 echo ""
-echo "To use pyaot command, add to your shell:"
+echo "To use metal0 command, add to your shell:"
 echo ""
 echo "  export PATH=\"$VENV_BIN:\$PATH\""
 echo ""
@@ -32,5 +32,5 @@ echo ""
 echo "  source .venv/bin/activate"
 echo ""
 echo "Then run:"
-echo "  pyaot examples/fibonacci.py --run"
+echo "  metal0 examples/fibonacci.py --run"
 echo ""

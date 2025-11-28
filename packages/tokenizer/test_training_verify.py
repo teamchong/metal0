@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""100% Training Correctness Verification - PyAOT vs HuggingFace"""
+"""100% Training Correctness Verification - metal0 vs HuggingFace"""
 
 import json
 import subprocess
@@ -31,8 +31,8 @@ hf_tokenizer.save("hf_trained.json")
 print("   ✅ Saved to hf_trained.json")
 print()
 
-# 2. Train with PyAOT
-print("2️⃣  Training PyAOT BPE...")
+# 2. Train with metal0
+print("2️⃣  Training metal0 BPE...")
 result = subprocess.run(
     ["./zig-out/bin/bench_train"],
     capture_output=True,
@@ -40,12 +40,12 @@ result = subprocess.run(
 )
 
 if result.returncode != 0:
-    print(f"   ❌ PyAOT training failed!")
+    print(f"   ❌ metal0 training failed!")
     print(f"   Error: {result.stderr}")
     exit(1)
 
 print(f"   ✅ Training time: {result.stdout.strip()}")
-print(f"   ✅ Saved to pyaot_trained.json")
+print(f"   ✅ Saved to metal0_trained.json")
 print()
 
 # 3. Load both models
@@ -53,8 +53,8 @@ print("3️⃣  Loading trained models...")
 with open("hf_trained.json") as f:
     hf_model = json.load(f)
 
-with open("pyaot_trained.json") as f:
-    pyaot_model = json.load(f)
+with open("metal0_trained.json") as f:
+    metal0_model = json.load(f)
 
 print("   ✅ Both models loaded")
 print()
@@ -62,15 +62,15 @@ print()
 # 4. Compare vocab
 print("4️⃣  Comparing vocabularies...")
 hf_vocab = hf_model["model"]["vocab"]
-pyaot_vocab = pyaot_model["model"]["vocab"]
+metal0_vocab = metal0_model["model"]["vocab"]
 
 print(f"   HuggingFace vocab size: {len(hf_vocab)}")
-print(f"   PyAOT vocab size: {len(pyaot_vocab)}")
+print(f"   metal0 vocab size: {len(metal0_vocab)}")
 
-vocab_match = set(hf_vocab.keys()) == set(pyaot_vocab.keys())
+vocab_match = set(hf_vocab.keys()) == set(metal0_vocab.keys())
 if vocab_match:
     # Also check IDs match
-    id_match = all(hf_vocab.get(k) == pyaot_vocab.get(k) for k in hf_vocab.keys())
+    id_match = all(hf_vocab.get(k) == metal0_vocab.get(k) for k in hf_vocab.keys())
     if id_match:
         print("   ✅ Vocab 100% MATCH!")
     else:
@@ -78,34 +78,34 @@ if vocab_match:
         vocab_match = False
 else:
     print("   ❌ Vocab MISMATCH!")
-    hf_only = set(hf_vocab.keys()) - set(pyaot_vocab.keys())
-    pyaot_only = set(pyaot_vocab.keys()) - set(hf_vocab.keys())
+    hf_only = set(hf_vocab.keys()) - set(metal0_vocab.keys())
+    metal0_only = set(metal0_vocab.keys()) - set(hf_vocab.keys())
     if hf_only:
         print(f"      HF-only tokens: {len(hf_only)}")
-    if pyaot_only:
-        print(f"      PyAOT-only tokens: {len(pyaot_only)}")
+    if metal0_only:
+        print(f"      metal0-only tokens: {len(metal0_only)}")
 
 print()
 
 # 5. Compare merges
 print("5️⃣  Comparing merge rules...")
 hf_merges = hf_model["model"]["merges"]
-pyaot_merges = pyaot_model["model"]["merges"]
+metal0_merges = metal0_model["model"]["merges"]
 
 print(f"   HuggingFace merges: {len(hf_merges)}")
-print(f"   PyAOT merges: {len(pyaot_merges)}")
+print(f"   metal0 merges: {len(metal0_merges)}")
 
-if len(hf_merges) != len(pyaot_merges):
+if len(hf_merges) != len(metal0_merges):
     print("   ❌ Different number of merges!")
     merges_match = False
 else:
     # Check if merge order matches
-    merges_match = hf_merges == pyaot_merges
+    merges_match = hf_merges == metal0_merges
     if merges_match:
         print("   ✅ Merges 100% MATCH (order preserved)!")
     else:
         # Count how many match
-        matches = sum(1 for i in range(len(hf_merges)) if hf_merges[i] == pyaot_merges[i])
+        matches = sum(1 for i in range(len(hf_merges)) if hf_merges[i] == metal0_merges[i])
         print(f"   ⚠️  Merges differ: {matches}/{len(hf_merges)} match")
         merges_match = False
 
@@ -120,19 +120,19 @@ test_texts = [
 ]
 
 hf_enc = Tokenizer.from_file("hf_trained.json")
-pyaot_enc = Tokenizer.from_file("pyaot_trained.json")
+metal0_enc = Tokenizer.from_file("metal0_trained.json")
 
 encoding_match = True
 for text in test_texts:
     hf_tokens = hf_enc.encode(text).ids
-    pyaot_tokens = pyaot_enc.encode(text).ids
+    metal0_tokens = metal0_enc.encode(text).ids
 
-    if hf_tokens == pyaot_tokens:
+    if hf_tokens == metal0_tokens:
         print(f"   ✅ '{text[:30]}...' - tokens match")
     else:
         print(f"   ❌ '{text[:30]}...' - tokens DIFFER!")
         print(f"      HF: {hf_tokens}")
-        print(f"      PyAOT: {pyaot_tokens}")
+        print(f"      metal0: {metal0_tokens}")
         encoding_match = False
 
 print()
@@ -140,7 +140,7 @@ print()
 # Final verdict
 print("=" * 70)
 if vocab_match and merges_match and encoding_match:
-    print("🎉 100% CORRECT! PyAOT training matches HuggingFace perfectly!")
+    print("🎉 100% CORRECT! metal0 training matches HuggingFace perfectly!")
     print("=" * 70)
     exit(0)
 else:

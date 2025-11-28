@@ -1,4 +1,4 @@
-/// WASM bindings for PyAOT Tokenizer
+/// WASM bindings for metal0 Tokenizer
 /// Compile: zig build-lib src/wasm.zig -target wasm32-freestanding -O ReleaseFast -dynamic
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;

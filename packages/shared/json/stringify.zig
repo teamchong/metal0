@@ -311,12 +311,12 @@ test "stringify object with values" {
     const allocator = std.testing.allocator;
     var obj = std.StringHashMap(Value).init(allocator);
     defer obj.deinit();
-    try obj.put("name", .{ .string = "PyAOT" });
+    try obj.put("name", .{ .string = "metal0" });
     const result = try stringify(allocator, .{ .object = obj });
     defer allocator.free(result);
     // Object order may vary, check contains expected parts
     try std.testing.expect(std.mem.indexOf(u8, result, "\"name\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "\"PyAOT\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "\"metal0\"") != null);
 }
 
 test "stringify nested structure" {

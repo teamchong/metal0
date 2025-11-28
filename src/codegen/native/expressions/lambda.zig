@@ -6,6 +6,7 @@ const hashmap_helper = @import("hashmap_helper");
 const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
+const zig_keywords = @import("zig_keywords");
 
 const ClosureError = error{
     NotAClosure,
@@ -105,13 +106,19 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
         try self.type_inferrer.var_types.put(arg.name, native_type);
     }
 
-    // Generate parameter list
+    // Generate parameter list - check if parameter is used in body
     for (lambda.args, 0..) |arg, i| {
         if (i > 0) try lambda_func.writer(self.allocator).writeAll(", ");
-        try lambda_func.writer(self.allocator).print("{s}: {s}", .{
-            arg.name,
-            param_types[i],
-        });
+        // Check if param is used in body - if not, use _ to discard
+        const is_used = isParamUsedInBody(arg.name, lambda.body.*);
+        if (is_used) {
+            // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
+            try zig_keywords.writeEscapedIdent(lambda_func.writer(self.allocator), arg.name);
+            try lambda_func.writer(self.allocator).print(": {s}", .{param_types[i]});
+        } else {
+            // In Zig 0.15, unused params must be named exactly "_", not "_name"
+            try lambda_func.writer(self.allocator).print("_: {s}", .{param_types[i]});
+        }
     }
 
     // Infer return type from body expression (now that params are registered)
@@ -211,6 +218,67 @@ fn findCapturedVars(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!
 
     captured.deinit(self.allocator);
     return filtered.toOwnedSlice(self.allocator);
+}
+
+/// Check if a parameter name is used in the lambda body (for unused parameter detection)
+fn isParamUsedInBody(param_name: []const u8, body: ast.Node) bool {
+    return switch (body) {
+        .name => |n| std.mem.eql(u8, n.id, param_name),
+        .binop => |b| isParamUsedInBody(param_name, b.left.*) or isParamUsedInBody(param_name, b.right.*),
+        .unaryop => |u| isParamUsedInBody(param_name, u.operand.*),
+        .call => |c| blk: {
+            if (isParamUsedInBody(param_name, c.func.*)) break :blk true;
+            for (c.args) |arg| {
+                if (isParamUsedInBody(param_name, arg)) break :blk true;
+            }
+            for (c.keyword_args) |kw| {
+                if (isParamUsedInBody(param_name, kw.value)) break :blk true;
+            }
+            break :blk false;
+        },
+        .compare => |cmp| blk: {
+            if (isParamUsedInBody(param_name, cmp.left.*)) break :blk true;
+            for (cmp.comparators) |comp| {
+                if (isParamUsedInBody(param_name, comp)) break :blk true;
+            }
+            break :blk false;
+        },
+        .subscript => |sub| isParamUsedInBody(param_name, sub.value.*) or
+            (if (sub.slice == .index) isParamUsedInBody(param_name, sub.slice.index.*) else false),
+        .attribute => |attr| isParamUsedInBody(param_name, attr.value.*),
+        .if_expr => |ie| isParamUsedInBody(param_name, ie.condition.*) or
+            isParamUsedInBody(param_name, ie.body.*) or
+            isParamUsedInBody(param_name, ie.orelse_value.*),
+        .list => |l| blk: {
+            for (l.elts) |elt| {
+                if (isParamUsedInBody(param_name, elt)) break :blk true;
+            }
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |elt| {
+                if (isParamUsedInBody(param_name, elt)) break :blk true;
+            }
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys) |key| {
+                if (isParamUsedInBody(param_name, key)) break :blk true;
+            }
+            for (d.values) |val| {
+                if (isParamUsedInBody(param_name, val)) break :blk true;
+            }
+            break :blk false;
+        },
+        .lambda => |lam| isParamUsedInBody(param_name, lam.body.*),
+        .boolop => |bo| blk: {
+            for (bo.values) |v| {
+                if (isParamUsedInBody(param_name, v)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
 }
 
 /// Recursively find all variable references in AST

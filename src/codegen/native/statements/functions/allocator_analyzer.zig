@@ -94,18 +94,178 @@ const StringMethods = std.StaticStringMap(void).initComptime(.{
 
 /// Check if a function needs an allocator parameter (for error union return type)
 pub fn functionNeedsAllocator(func: ast.Node.FunctionDef) bool {
+    // First, collect names of nested classes defined in this function
+    var nested_classes: [32][]const u8 = undefined;
+    var nested_class_count: usize = 0;
+    collectNestedClassNames(func.body, &nested_classes, &nested_class_count);
+
+    // If there are nested classes, check if they're instantiated
+    if (nested_class_count > 0) {
+        if (hasNestedClassCalls(func.body, nested_classes[0..nested_class_count])) {
+            return true;
+        }
+    }
+
     for (func.body) |stmt| {
         if (stmtNeedsAllocator(stmt)) return true;
     }
     return false;
 }
 
+/// Check if statements contain calls to any nested class constructors
+fn hasNestedClassCalls(stmts: []ast.Node, nested_classes: []const []const u8) bool {
+    for (stmts) |stmt| {
+        if (stmtHasNestedClassCall(stmt, nested_classes)) return true;
+    }
+    return false;
+}
+
+fn stmtHasNestedClassCall(stmt: ast.Node, nested_classes: []const []const u8) bool {
+    return switch (stmt) {
+        .expr_stmt => |e| exprHasNestedClassCall(e.value.*, nested_classes),
+        .assign => |a| exprHasNestedClassCall(a.value.*, nested_classes),
+        .aug_assign => |a| exprHasNestedClassCall(a.value.*, nested_classes),
+        .return_stmt => |r| if (r.value) |v| exprHasNestedClassCall(v.*, nested_classes) else false,
+        .if_stmt => |i| {
+            if (exprHasNestedClassCall(i.condition.*, nested_classes)) return true;
+            if (hasNestedClassCalls(i.body, nested_classes)) return true;
+            if (hasNestedClassCalls(i.else_body, nested_classes)) return true;
+            return false;
+        },
+        .while_stmt => |w| {
+            if (exprHasNestedClassCall(w.condition.*, nested_classes)) return true;
+            return hasNestedClassCalls(w.body, nested_classes);
+        },
+        .for_stmt => |f| {
+            if (exprHasNestedClassCall(f.iter.*, nested_classes)) return true;
+            return hasNestedClassCalls(f.body, nested_classes);
+        },
+        .try_stmt => |t| {
+            if (hasNestedClassCalls(t.body, nested_classes)) return true;
+            for (t.handlers) |h| {
+                if (hasNestedClassCalls(h.body, nested_classes)) return true;
+            }
+            return false;
+        },
+        .with_stmt => |w| {
+            if (exprHasNestedClassCall(w.context_expr.*, nested_classes)) return true;
+            return hasNestedClassCalls(w.body, nested_classes);
+        },
+        else => false,
+    };
+}
+
+fn exprHasNestedClassCall(expr: ast.Node, nested_classes: []const []const u8) bool {
+    return switch (expr) {
+        .call => |c| {
+            // Check if this is a call to a nested class
+            if (c.func.* == .name) {
+                const called_name = c.func.name.id;
+                for (nested_classes) |class_name| {
+                    if (std.mem.eql(u8, called_name, class_name)) return true;
+                }
+            }
+            // Check call arguments recursively
+            for (c.args) |arg| {
+                if (exprHasNestedClassCall(arg, nested_classes)) return true;
+            }
+            // Check function expression
+            return exprHasNestedClassCall(c.func.*, nested_classes);
+        },
+        .binop => |b| exprHasNestedClassCall(b.left.*, nested_classes) or exprHasNestedClassCall(b.right.*, nested_classes),
+        .unaryop => |u| exprHasNestedClassCall(u.operand.*, nested_classes),
+        .attribute => |a| exprHasNestedClassCall(a.value.*, nested_classes),
+        .subscript => |s| {
+            if (exprHasNestedClassCall(s.value.*, nested_classes)) return true;
+            return switch (s.slice) {
+                .index => |idx| exprHasNestedClassCall(idx.*, nested_classes),
+                .slice => |rng| {
+                    if (rng.lower) |l| if (exprHasNestedClassCall(l.*, nested_classes)) return true;
+                    if (rng.upper) |u| if (exprHasNestedClassCall(u.*, nested_classes)) return true;
+                    if (rng.step) |st| if (exprHasNestedClassCall(st.*, nested_classes)) return true;
+                    return false;
+                },
+            };
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                if (exprHasNestedClassCall(elt, nested_classes)) return true;
+            }
+            return false;
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                if (exprHasNestedClassCall(elt, nested_classes)) return true;
+            }
+            return false;
+        },
+        .compare => |co| {
+            if (exprHasNestedClassCall(co.left.*, nested_classes)) return true;
+            for (co.comparators) |comp| {
+                if (exprHasNestedClassCall(comp, nested_classes)) return true;
+            }
+            return false;
+        },
+        else => false,
+    };
+}
+
 /// Check if function actually uses the 'allocator' param (not just __global_allocator)
 /// Dict literals use __global_allocator so they don't actually use the param
 /// Also returns true for recursive calls since they pass allocator to self
 pub fn functionActuallyUsesAllocatorParam(func: ast.Node.FunctionDef) bool {
+    // First, collect names of nested classes defined in this function
+    var nested_classes: [32][]const u8 = undefined;
+    var nested_class_count: usize = 0;
+    collectNestedClassNames(func.body, &nested_classes, &nested_class_count);
+
     for (func.body) |stmt| {
-        if (stmtUsesAllocatorParam(stmt, func.name)) return true;
+        if (stmtUsesAllocatorParamWithClasses(stmt, func.name, nested_classes[0..nested_class_count])) return true;
+    }
+    return false;
+}
+
+/// Collect names of nested class definitions in statements
+fn collectNestedClassNames(stmts: []ast.Node, names: *[32][]const u8, count: *usize) void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .class_def => |c| {
+                if (count.* < 32) {
+                    names[count.*] = c.name;
+                    count.* += 1;
+                }
+            },
+            .if_stmt => |i| {
+                collectNestedClassNames(i.body, names, count);
+                collectNestedClassNames(i.else_body, names, count);
+            },
+            .for_stmt => |f| {
+                collectNestedClassNames(f.body, names, count);
+            },
+            .while_stmt => |w| {
+                collectNestedClassNames(w.body, names, count);
+            },
+            .try_stmt => |t| {
+                collectNestedClassNames(t.body, names, count);
+                for (t.handlers) |h| {
+                    collectNestedClassNames(h.body, names, count);
+                }
+            },
+            .with_stmt => |w| {
+                collectNestedClassNames(w.body, names, count);
+            },
+            else => {},
+        }
+    }
+}
+
+/// Check if a call is to a nested class constructor
+fn isNestedClassCall(call: ast.Node.Call, nested_classes: []const []const u8) bool {
+    if (call.func.* == .name) {
+        const called_name = call.func.name.id;
+        for (nested_classes) |class_name| {
+            if (std.mem.eql(u8, called_name, class_name)) return true;
+        }
     }
     return false;
 }
@@ -113,43 +273,62 @@ pub fn functionActuallyUsesAllocatorParam(func: ast.Node.FunctionDef) bool {
 /// Check if a statement uses the allocator parameter
 /// func_name is passed to detect recursive calls
 fn stmtUsesAllocatorParam(stmt: ast.Node, func_name: []const u8) bool {
+    return stmtUsesAllocatorParamWithClasses(stmt, func_name, &[_][]const u8{});
+}
+
+/// Check if a statement uses the allocator parameter (with nested class tracking)
+fn stmtUsesAllocatorParamWithClasses(stmt: ast.Node, func_name: []const u8, nested_classes: []const []const u8) bool {
     return switch (stmt) {
-        .expr_stmt => |e| exprUsesAllocatorParam(e.value.*, func_name),
-        .assign => |a| exprUsesAllocatorParam(a.value.*, func_name),
-        .aug_assign => |a| exprUsesAllocatorParam(a.value.*, func_name),
-        .return_stmt => |r| if (r.value) |v| exprUsesAllocatorParam(v.*, func_name) else false,
+        .expr_stmt => |e| exprUsesAllocatorParamWithClasses(e.value.*, func_name, nested_classes),
+        .assign => |a| exprUsesAllocatorParamWithClasses(a.value.*, func_name, nested_classes),
+        .aug_assign => |a| exprUsesAllocatorParamWithClasses(a.value.*, func_name, nested_classes),
+        .return_stmt => |r| if (r.value) |v| exprUsesAllocatorParamWithClasses(v.*, func_name, nested_classes) else false,
         .if_stmt => |i| {
-            if (exprUsesAllocatorParam(i.condition.*, func_name)) return true;
+            if (exprUsesAllocatorParamWithClasses(i.condition.*, func_name, nested_classes)) return true;
             for (i.body) |s| {
-                if (stmtUsesAllocatorParam(s, func_name)) return true;
+                if (stmtUsesAllocatorParamWithClasses(s, func_name, nested_classes)) return true;
             }
             for (i.else_body) |s| {
-                if (stmtUsesAllocatorParam(s, func_name)) return true;
+                if (stmtUsesAllocatorParamWithClasses(s, func_name, nested_classes)) return true;
             }
             return false;
         },
         .while_stmt => |w| {
-            if (exprUsesAllocatorParam(w.condition.*, func_name)) return true;
+            if (exprUsesAllocatorParamWithClasses(w.condition.*, func_name, nested_classes)) return true;
             for (w.body) |s| {
-                if (stmtUsesAllocatorParam(s, func_name)) return true;
+                if (stmtUsesAllocatorParamWithClasses(s, func_name, nested_classes)) return true;
             }
             return false;
         },
         .for_stmt => |f| {
-            if (exprUsesAllocatorParam(f.iter.*, func_name)) return true;
+            if (exprUsesAllocatorParamWithClasses(f.iter.*, func_name, nested_classes)) return true;
             for (f.body) |s| {
-                if (stmtUsesAllocatorParam(s, func_name)) return true;
+                if (stmtUsesAllocatorParamWithClasses(s, func_name, nested_classes)) return true;
             }
             return false;
         },
         .try_stmt => |t| {
             for (t.body) |s| {
-                if (stmtUsesAllocatorParam(s, func_name)) return true;
+                if (stmtUsesAllocatorParamWithClasses(s, func_name, nested_classes)) return true;
             }
             for (t.handlers) |h| {
                 for (h.body) |s| {
-                    if (stmtUsesAllocatorParam(s, func_name)) return true;
+                    if (stmtUsesAllocatorParamWithClasses(s, func_name, nested_classes)) return true;
                 }
+            }
+            return false;
+        },
+        .class_def => |c| {
+            // Check if the class body itself uses allocator param
+            for (c.body) |s| {
+                if (stmtUsesAllocatorParamWithClasses(s, func_name, nested_classes)) return true;
+            }
+            return false;
+        },
+        .with_stmt => |w| {
+            if (exprUsesAllocatorParamWithClasses(w.context_expr.*, func_name, nested_classes)) return true;
+            for (w.body) |s| {
+                if (stmtUsesAllocatorParamWithClasses(s, func_name, nested_classes)) return true;
             }
             return false;
         },
@@ -160,20 +339,27 @@ fn stmtUsesAllocatorParam(stmt: ast.Node, func_name: []const u8) bool {
 /// Check if an expression actually uses the allocator param
 /// func_name is passed to detect recursive calls
 fn exprUsesAllocatorParam(expr: ast.Node, func_name: []const u8) bool {
+    return exprUsesAllocatorParamWithClasses(expr, func_name, &[_][]const u8{});
+}
+
+/// Check if an expression actually uses the allocator param (with nested class tracking)
+fn exprUsesAllocatorParamWithClasses(expr: ast.Node, func_name: []const u8, nested_classes: []const []const u8) bool {
     return switch (expr) {
         .binop => |b| {
             // String concatenation uses __global_allocator, not the function's allocator param
             // So we don't mark it as using allocator param
-            return exprUsesAllocatorParam(b.left.*, func_name) or exprUsesAllocatorParam(b.right.*, func_name);
+            return exprUsesAllocatorParamWithClasses(b.left.*, func_name, nested_classes) or exprUsesAllocatorParamWithClasses(b.right.*, func_name, nested_classes);
         },
-        .call => |c| callUsesAllocatorParam(c, func_name),
+        .call => |c| callUsesAllocatorParamWithClasses(c, func_name, nested_classes),
         // F-strings use __global_allocator, not the function's allocator param
         .fstring => false,
         .listcomp => true,
         .dictcomp => true,
         .list => |l| {
+            // List literals with elements use allocator param for ArrayList.append
+            if (l.elts.len > 0) return true;
             for (l.elts) |elt| {
-                if (exprUsesAllocatorParam(elt, func_name)) return true;
+                if (exprUsesAllocatorParamWithClasses(elt, func_name, nested_classes)) return true;
             }
             return false;
         },
@@ -181,37 +367,46 @@ fn exprUsesAllocatorParam(expr: ast.Node, func_name: []const u8) bool {
         .dict => false,
         .tuple => |t| {
             for (t.elts) |elt| {
-                if (exprUsesAllocatorParam(elt, func_name)) return true;
+                if (exprUsesAllocatorParamWithClasses(elt, func_name, nested_classes)) return true;
             }
             return false;
         },
         .subscript => |s| {
-            if (exprUsesAllocatorParam(s.value.*, func_name)) return true;
+            if (exprUsesAllocatorParamWithClasses(s.value.*, func_name, nested_classes)) return true;
             return switch (s.slice) {
-                .index => |idx| exprUsesAllocatorParam(idx.*, func_name),
+                .index => |idx| exprUsesAllocatorParamWithClasses(idx.*, func_name, nested_classes),
                 .slice => |rng| {
-                    if (rng.lower) |l| if (exprUsesAllocatorParam(l.*, func_name)) return true;
-                    if (rng.upper) |u| if (exprUsesAllocatorParam(u.*, func_name)) return true;
-                    if (rng.step) |st| if (exprUsesAllocatorParam(st.*, func_name)) return true;
+                    if (rng.lower) |l| if (exprUsesAllocatorParamWithClasses(l.*, func_name, nested_classes)) return true;
+                    if (rng.upper) |u| if (exprUsesAllocatorParamWithClasses(u.*, func_name, nested_classes)) return true;
+                    if (rng.step) |st| if (exprUsesAllocatorParamWithClasses(st.*, func_name, nested_classes)) return true;
                     return false;
                 },
             };
         },
-        .attribute => |a| exprUsesAllocatorParam(a.value.*, func_name),
+        .attribute => |a| exprUsesAllocatorParamWithClasses(a.value.*, func_name, nested_classes),
         .compare => |c| {
-            if (exprUsesAllocatorParam(c.left.*, func_name)) return true;
+            if (exprUsesAllocatorParamWithClasses(c.left.*, func_name, nested_classes)) return true;
             for (c.comparators) |comp| {
-                if (exprUsesAllocatorParam(comp, func_name)) return true;
+                if (exprUsesAllocatorParamWithClasses(comp, func_name, nested_classes)) return true;
             }
             return false;
         },
         .boolop => |b| {
             for (b.values) |val| {
-                if (exprUsesAllocatorParam(val, func_name)) return true;
+                if (exprUsesAllocatorParamWithClasses(val, func_name, nested_classes)) return true;
             }
             return false;
         },
-        .unaryop => |u| exprUsesAllocatorParam(u.operand.*, func_name),
+        .unaryop => |u| exprUsesAllocatorParamWithClasses(u.operand.*, func_name, nested_classes),
+        .name => |n| {
+            // Check if this is a reference to 'allocator' param
+            return std.mem.eql(u8, n.id, "allocator");
+        },
+        .if_expr => |ie| {
+            return exprUsesAllocatorParamWithClasses(ie.body.*, func_name, nested_classes) or
+                exprUsesAllocatorParamWithClasses(ie.orelse_value.*, func_name, nested_classes) or
+                exprUsesAllocatorParamWithClasses(ie.condition.*, func_name, nested_classes);
+        },
         else => false,
     };
 }
@@ -220,6 +415,9 @@ fn exprUsesAllocatorParam(expr: ast.Node, func_name: []const u8) bool {
 const GlobalAllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "str", {} }, // str() uses __global_allocator in codegen
     .{ "print", {} }, // print with string concat uses __global_allocator
+    .{ "eval", {} }, // runtime.eval() uses __global_allocator
+    .{ "exec", {} }, // exec() uses __global_allocator
+    .{ "compile", {} }, // compile() uses __global_allocator
 });
 
 /// Module functions that use the allocator param in generated code
@@ -252,11 +450,21 @@ const AllocatorConstructors = std.StaticStringMap(void).initComptime(.{
 /// Check if a call uses allocator param
 /// func_name is the current function name to detect recursive calls
 fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
+    return callUsesAllocatorParamWithClasses(call, func_name, &[_][]const u8{});
+}
+
+/// Check if a call uses allocator param (with nested class tracking)
+fn callUsesAllocatorParamWithClasses(call: ast.Node.Call, func_name: []const u8, nested_classes: []const []const u8) bool {
+    // ALWAYS check arguments first - even unittest assertions may have args that use allocator
+    for (call.args) |arg| {
+        if (exprUsesAllocatorParamWithClasses(arg, func_name, nested_classes)) return true;
+    }
+
     if (call.func.* == .attribute) {
         const method_name = call.func.attribute.attr;
         if (AllocatorMethods.has(method_name)) return true;
 
-        // unittest assertion methods don't use allocator (self.assertEqual, etc.)
+        // unittest assertion methods don't use allocator themselves
         if (UnittestAssertions.has(method_name)) return false;
 
         // Check if this is a module function that uses allocator param
@@ -281,9 +489,10 @@ fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
         if (AllocatorBuiltins.has(called_name)) return true;
         // Constructor calls that use allocator (Counter, deque, etc.)
         if (AllocatorConstructors.has(called_name)) return true;
-    }
-    for (call.args) |arg| {
-        if (exprUsesAllocatorParam(arg, func_name)) return true;
+        // Nested class constructor calls: Foo() where Foo is a class defined in this function
+        for (nested_classes) |class_name| {
+            if (std.mem.eql(u8, called_name, class_name)) return true;
+        }
     }
     return false;
 }
@@ -350,6 +559,23 @@ fn stmtNeedsAllocator(stmt: ast.Node) bool {
             }
             return false;
         },
+        .class_def => |c| {
+            // Check if the class body itself needs allocator
+            // Don't automatically mark as needing allocator just because there's a class
+            for (c.body) |s| {
+                if (stmtNeedsAllocator(s)) return true;
+            }
+            return false;
+        },
+        .with_stmt => |w| {
+            // Check context expression
+            if (exprNeedsAllocator(w.context_expr.*)) return true;
+            // Check body
+            for (w.body) |s| {
+                if (stmtNeedsAllocator(s)) return true;
+            }
+            return false;
+        },
         else => false,
     };
 }
@@ -377,6 +603,8 @@ fn exprNeedsAllocator(expr: ast.Node) bool {
         .listcomp => true, // List comprehensions need allocator
         .dictcomp => true, // Dict comprehensions need allocator
         .list => |l| {
+            // List literals with elements need allocator for ArrayList creation
+            if (l.elts.len > 0) return true;
             // Check if any elements need allocator
             for (l.elts) |elt| {
                 if (exprNeedsAllocator(elt)) return true;

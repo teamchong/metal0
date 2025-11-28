@@ -78,8 +78,8 @@ zig-out/
 # Project specific
 # =============================================================================
 
-# PyAOT internal
-.pyaot/
+# metal0 internal
+.metal0/
 .claude/
 _prototype/
 

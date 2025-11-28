@@ -80,16 +80,44 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                 try self.emit(";\n");
             } else {
                 // ArrayList - use .items
-                try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
+                // First emit the list to an intermediate variable, then access .items
+                try self.output.writer(self.allocator).print("const __list_{d} = ", .{gen_idx});
                 try genExpr(self, gen.iter.*);
-                try self.emit(".items;\n");
+                try self.emit(";\n");
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("const __iter_{d} = __list_{d}.items;\n", .{ gen_idx, gen_idx });
             }
 
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
-            try genExpr(self, gen.target.*);
-            try self.emit("| {\n");
-            self.indent();
+            // Check if target is a tuple (for tuple unpacking like `for a, b in zip(...)`)
+            const is_tuple_target = switch (gen.target.*) {
+                .tuple => true,
+                .list => true,
+                else => false,
+            };
+            if (is_tuple_target) {
+                // Capture as single variable, unpack inside loop
+                try self.output.writer(self.allocator).print("for (__iter_{d}) |__tuple_{d}__| {{\n", .{ gen_idx, gen_idx });
+                self.indent();
+
+                // Unpack tuple elements
+                const elements = switch (gen.target.*) {
+                    .tuple => |t| t.elts,
+                    .list => |l| l.elts,
+                    else => &[_]ast.Node{},
+                };
+                for (elements, 0..) |elt, idx| {
+                    try self.emitIndent();
+                    if (elt == .name) {
+                        try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ elt.name.id, gen_idx, idx });
+                    }
+                }
+            } else {
+                try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
+                try genExpr(self, gen.target.*);
+                try self.emit("| {\n");
+                self.indent();
+            }
         }
 
         // Generate if conditions for this generator
@@ -214,16 +242,44 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                 try self.emit(";\n");
             } else {
                 // ArrayList - use .items
-                try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
+                // First emit the list to an intermediate variable, then access .items
+                try self.output.writer(self.allocator).print("const __list_{d} = ", .{gen_idx});
                 try genExpr(self, gen.iter.*);
-                try self.emit(".items;\n");
+                try self.emit(";\n");
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("const __iter_{d} = __list_{d}.items;\n", .{ gen_idx, gen_idx });
             }
 
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
-            try genExpr(self, gen.target.*);
-            try self.emit("| {\n");
-            self.indent();
+            // Check if target is a tuple (for tuple unpacking like `for a, b in zip(...)`)
+            const is_tuple_target = switch (gen.target.*) {
+                .tuple => true,
+                .list => true,
+                else => false,
+            };
+            if (is_tuple_target) {
+                // Capture as single variable, unpack inside loop
+                try self.output.writer(self.allocator).print("for (__iter_{d}) |__tuple_{d}__| {{\n", .{ gen_idx, gen_idx });
+                self.indent();
+
+                // Unpack tuple elements
+                const elements = switch (gen.target.*) {
+                    .tuple => |t| t.elts,
+                    .list => |l| l.elts,
+                    else => &[_]ast.Node{},
+                };
+                for (elements, 0..) |elt, idx| {
+                    try self.emitIndent();
+                    if (elt == .name) {
+                        try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ elt.name.id, gen_idx, idx });
+                    }
+                }
+            } else {
+                try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
+                try genExpr(self, gen.target.*);
+                try self.emit("| {\n");
+                self.indent();
+            }
         }
 
         // Generate if conditions for this generator
@@ -330,15 +386,43 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
         } else {
             // Regular iteration
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
+            // First emit the list to an intermediate variable, then access .items
+            try self.output.writer(self.allocator).print("const __list_{d} = ", .{gen_idx});
             try genExpr(self, gen.iter.*);
-            try self.emit(".items;\n");
+            try self.emit(";\n");
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("const __iter_{d} = __list_{d}.items;\n", .{ gen_idx, gen_idx });
 
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
-            try genExpr(self, gen.target.*);
-            try self.emit("| {\n");
-            self.indent();
+            // Check if target is a tuple (for tuple unpacking like `for a, b in zip(...)`)
+            const is_tuple_target = switch (gen.target.*) {
+                .tuple => true,
+                .list => true,
+                else => false,
+            };
+            if (is_tuple_target) {
+                // Capture as single variable, unpack inside loop
+                try self.output.writer(self.allocator).print("for (__iter_{d}) |__tuple_{d}__| {{\n", .{ gen_idx, gen_idx });
+                self.indent();
+
+                // Unpack tuple elements
+                const elements = switch (gen.target.*) {
+                    .tuple => |t| t.elts,
+                    .list => |l| l.elts,
+                    else => &[_]ast.Node{},
+                };
+                for (elements, 0..) |elt, idx| {
+                    try self.emitIndent();
+                    if (elt == .name) {
+                        try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ elt.name.id, gen_idx, idx });
+                    }
+                }
+            } else {
+                try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
+                try genExpr(self, gen.target.*);
+                try self.emit("| {\n");
+                self.indent();
+            }
         }
 
         // Generate if conditions for this generator

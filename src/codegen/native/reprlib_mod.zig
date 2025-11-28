@@ -19,7 +19,7 @@ pub fn genReprFunc(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("blk: { const obj = ");
         try self.genExpr(args[0]);
-        try self.emit("; break :blk std.fmt.allocPrint(pyaot_allocator, \"{any}\", .{obj}) catch \"<repr error>\"; }");
+        try self.emit("; break :blk std.fmt.allocPrint(metal0_allocator, \"{any}\", .{obj}) catch \"<repr error>\"; }");
     } else {
         try self.emit("\"\"");
     }
@@ -48,7 +48,7 @@ pub fn genRepr_repr_str(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     if (args.len > 0) {
         try self.emit("blk: { const s = ");
         try self.genExpr(args[0]);
-        try self.emit("; if (s.len > 30) { break :blk std.fmt.allocPrint(pyaot_allocator, \"'{s}...'\", .{s[0..27]}) catch \"'...'\"; } break :blk std.fmt.allocPrint(pyaot_allocator, \"'{s}'\", .{s}) catch \"'...'\"; }");
+        try self.emit("; if (s.len > 30) { break :blk std.fmt.allocPrint(metal0_allocator, \"'{s}...'\", .{s[0..27]}) catch \"'...'\"; } break :blk std.fmt.allocPrint(metal0_allocator, \"'{s}'\", .{s}) catch \"'...'\"; }");
     } else {
         try self.emit("\"''\"");
     }
@@ -58,7 +58,7 @@ pub fn genRepr_repr_int(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     if (args.len > 0) {
         try self.emit("blk: { const n = ");
         try self.genExpr(args[0]);
-        try self.emit("; break :blk std.fmt.allocPrint(pyaot_allocator, \"{d}\", .{n}) catch \"...\"; }");
+        try self.emit("; break :blk std.fmt.allocPrint(metal0_allocator, \"{d}\", .{n}) catch \"...\"; }");
     } else {
         try self.emit("\"0\"");
     }

@@ -4,6 +4,7 @@ const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
+const zig_keywords = @import("zig_keywords");
 
 // Import submodules
 const constants = @import("expressions/constants.zig");
@@ -38,7 +39,31 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .name => |n| {
             // Check if variable has been renamed (for exception handling)
             const name_to_use = self.var_renames.get(n.id) orelse n.id;
-            try self.emit(name_to_use);
+
+            // Handle Python type names as type values
+            if (std.mem.eql(u8, name_to_use, "int")) {
+                try self.emit("i64");
+            } else if (std.mem.eql(u8, name_to_use, "float")) {
+                try self.emit("f64");
+            } else if (std.mem.eql(u8, name_to_use, "bool")) {
+                try self.emit("bool");
+            } else if (std.mem.eql(u8, name_to_use, "str")) {
+                try self.emit("[]const u8");
+            } else if (std.mem.eql(u8, name_to_use, "bytes")) {
+                try self.emit("[]const u8");
+            } else if (std.mem.eql(u8, name_to_use, "None") or std.mem.eql(u8, name_to_use, "NoneType")) {
+                try self.emit("null");
+            } else if (std.mem.eql(u8, name_to_use, "object")) {
+                try self.emit("*runtime.PyObject");
+            } else if (isBuiltinFunction(name_to_use)) {
+                // Builtin functions as first-class values: len, callable, etc.
+                // Emit a function reference that can be passed around
+                try self.emit("runtime.builtins.");
+                try self.emit(name_to_use);
+            } else {
+                // Escape Zig reserved keywords (e.g., "false" -> @"false")
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name_to_use);
+            }
         },
         .fstring => |f| try genFString(self, f),
         .binop => |b| try operators.genBinOp(self, b),
@@ -356,4 +381,78 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
         "(try std.fmt.allocPrint(__global_allocator, \"{s}\", .{{ {s} }}))",
         .{ format_buf.items, args_buf.items },
     );
+}
+
+/// Check if a name is a Python builtin function that can be passed as first-class value
+fn isBuiltinFunction(name: []const u8) bool {
+    const builtins = [_][]const u8{
+        "len",
+        "callable",
+        "print",
+        "repr",
+        "str",
+        "abs",
+        "max",
+        "min",
+        "sum",
+        "sorted",
+        "reversed",
+        "enumerate",
+        "zip",
+        "map",
+        "filter",
+        "range",
+        "list",
+        "dict",
+        "set",
+        "tuple",
+        "type",
+        "isinstance",
+        "issubclass",
+        "hasattr",
+        "getattr",
+        "setattr",
+        "delattr",
+        "id",
+        "hash",
+        "ord",
+        "chr",
+        "hex",
+        "oct",
+        "bin",
+        "round",
+        "pow",
+        "divmod",
+        "all",
+        "any",
+        "iter",
+        "next",
+        "open",
+        "input",
+        "format",
+        "vars",
+        "dir",
+        "globals",
+        "locals",
+        "eval",
+        "exec",
+        "compile",
+        "staticmethod",
+        "classmethod",
+        "property",
+        "super",
+        "object",
+        "slice",
+        "memoryview",
+        "bytearray",
+        "frozenset",
+        "complex",
+        "ascii",
+        "breakpoint",
+        "__import__",
+    };
+    for (builtins) |b| {
+        if (std.mem.eql(u8, name, b)) return true;
+    }
+    return false;
 }

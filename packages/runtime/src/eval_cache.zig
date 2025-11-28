@@ -7,12 +7,12 @@ const bytecode = @import("bytecode.zig");
 const PyObject = @import("runtime.zig").PyObject;
 const hashmap_helper = @import("hashmap_helper");
 
-/// Compile Python source via PyAOT subprocess (for dynamic eval)
-/// Spawns: pyaot --emit-bytecode <source>
+/// Compile Python source via metal0 subprocess (for dynamic eval)
+/// Spawns: metal0 --emit-bytecode <source>
 /// Returns parsed BytecodeProgram from subprocess stdout
 pub fn compileViaSubprocess(allocator: std.mem.Allocator, source: []const u8) !bytecode.BytecodeProgram {
-    // Build argv: ["pyaot", "--emit-bytecode", source]
-    const argv = [_][]const u8{ "pyaot", "--emit-bytecode", source };
+    // Build argv: ["metal0", "--emit-bytecode", source]
+    const argv = [_][]const u8{ "metal0", "--emit-bytecode", source };
 
     // Spawn subprocess
     var child = std.process.Child.init(&argv, allocator);
@@ -233,23 +233,16 @@ pub fn evalCached(allocator: std.mem.Allocator, source: []const u8) !*PyObject {
         return executeTarget(allocator, program);
     }
 
-    // Cache miss - try local parse first, fallback to subprocess
-    const program = blk: {
-        // Try local hardcoded patterns first (fast path for known expressions)
-        if (parseSource(source, allocator)) |ast| {
-            defer allocator.destroy(ast);
-
-            var compiler = bytecode.Compiler.init(allocator);
-            defer compiler.deinit();
-
-            break :blk try compiler.compile(ast);
-        } else |err| {
-            if (err == error.NotImplemented) {
-                // Fallback: compile via PyAOT subprocess for full Python support
-                break :blk try compileViaSubprocess(allocator, source);
-            }
-            return err;
+    // Cache miss - parse expression directly to bytecode
+    // Uses lightweight runtime parser (Zig DCE removes if eval() never called)
+    const program = parseSourceToBytecode(source, allocator) catch |err| {
+        // Fallback: compile via metal0 subprocess for complex statements
+        if (err == error.UnexpectedToken or err == error.OutOfMemory) {
+            const fallback_program = compileViaSubprocess(allocator, source) catch return err;
+            // Execute the fallback program
+            return executeTarget(allocator, &fallback_program);
         }
+        return err;
     };
 
     // Store in cache (thread-safe, LRU handles eviction)
@@ -296,69 +289,11 @@ fn executeNative(allocator: std.mem.Allocator, program: *const bytecode.Bytecode
     return vm.execute(program);
 }
 
-/// Parse source code to AST (MVP: hardcoded patterns)
-fn parseSource(source: []const u8, allocator: std.mem.Allocator) !*ast_executor.Node {
-    // For MVP: hardcoded pattern matching
-    // Full implementation would use actual lexer/parser
-
-    // Pattern: integer constant "42"
-    if (std.mem.eql(u8, source, "42")) {
-        const node = try allocator.create(ast_executor.Node);
-        node.* = .{ .constant = .{ .value = .{ .int = 42 } } };
-        return node;
-    }
-
-    // Pattern: "1 + 2"
-    if (std.mem.eql(u8, source, "1 + 2")) {
-        const left = try allocator.create(ast_executor.Node);
-        left.* = .{ .constant = .{ .value = .{ .int = 1 } } };
-
-        const right = try allocator.create(ast_executor.Node);
-        right.* = .{ .constant = .{ .value = .{ .int = 2 } } };
-
-        const node = try allocator.create(ast_executor.Node);
-        node.* = .{
-            .binop = .{
-                .left = left,
-                .op = .Add,
-                .right = right,
-            },
-        };
-        return node;
-    }
-
-    // Pattern: "1 + 2 * 3"
-    if (std.mem.eql(u8, source, "1 + 2 * 3")) {
-        const two = try allocator.create(ast_executor.Node);
-        two.* = .{ .constant = .{ .value = .{ .int = 2 } } };
-
-        const three = try allocator.create(ast_executor.Node);
-        three.* = .{ .constant = .{ .value = .{ .int = 3 } } };
-
-        const mult = try allocator.create(ast_executor.Node);
-        mult.* = .{
-            .binop = .{
-                .left = two,
-                .op = .Mult,
-                .right = three,
-            },
-        };
-
-        const one = try allocator.create(ast_executor.Node);
-        one.* = .{ .constant = .{ .value = .{ .int = 1 } } };
-
-        const node = try allocator.create(ast_executor.Node);
-        node.* = .{
-            .binop = .{
-                .left = one,
-                .op = .Add,
-                .right = mult,
-            },
-        };
-        return node;
-    }
-
-    return error.NotImplemented;
+/// Parse source code directly to bytecode using runtime expression parser
+/// Supports all Python expression syntax at runtime (truly dynamic eval)
+fn parseSourceToBytecode(source: []const u8, allocator: std.mem.Allocator) !bytecode.BytecodeProgram {
+    const expr_parser = @import("expr_parser.zig");
+    return expr_parser.parseExpression(allocator, source);
 }
 
 /// Clear eval cache (for testing)

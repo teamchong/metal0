@@ -118,7 +118,8 @@ pub fn genFunctionSignature(
     // Generate parameters
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
-        try self.emit(arg.name);
+        // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
 
         // Parameters with defaults become optional (suffix with '_param')
         if (arg.default != null) {
@@ -168,15 +169,15 @@ pub fn genFunctionSignature(
 
     // Add *args parameter as a slice if present
     if (func.vararg) |vararg_name| {
-        if (func.args.len > 0) try self.emit(", ");
-        try self.emit(vararg_name);
+        if (func.args.len > 0 or needs_allocator) try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
         try self.emit(": []const i64"); // For now, assume varargs are integers
     }
 
     // Add **kwargs parameter as a HashMap if present
     if (func.kwarg) |kwarg_name| {
-        if (func.args.len > 0 or func.vararg != null) try self.emit(", ");
-        try self.emit(kwarg_name);
+        if (func.args.len > 0 or func.vararg != null or needs_allocator) try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
         try self.emit(": *runtime.PyObject"); // PyDict wrapped in PyObject
     }
 
@@ -205,7 +206,7 @@ fn genAsyncFunctionSignature(
     // Generate parameters for wrapper
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
-        try self.emit(arg.name);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
         try self.emit(": ");
 
         if (arg.type_annotation) |_| {
@@ -247,7 +248,7 @@ fn genAsyncFunctionSignature(
     // Generate parameters for implementation
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
-        try self.emit(arg.name);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
         try self.emit(": ");
 
         if (arg.type_annotation) |_| {
@@ -388,17 +389,17 @@ pub fn genMethodSignature(
     // Use _ for self param if it's not actually used in the body
     const self_param_name = if (uses_self) "self" else "_";
 
-    // Generate "pub fn methodname(self_param: *[const] ClassName"
+    // Generate "pub fn methodname(self_param: *[const] @This()"
+    // Use @This() instead of class name to handle nested classes and forward references
     // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
     try self.emit("pub fn ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method.name);
     try self.output.writer(self.allocator).print("({s}: ", .{self_param_name});
     if (mutates_self) {
-        try self.emit("*");
+        try self.emit("*@This()");
     } else {
-        try self.emit("*const ");
+        try self.emit("*const @This()");
     }
-    try self.emit(class_name);
 
     // Add allocator parameter if method needs it
     // Use _ if allocator is needed for return type but not actually used in body
@@ -415,7 +416,9 @@ pub fn genMethodSignature(
     for (method.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
         try self.emit(", ");
-        try self.output.writer(self.allocator).print("{s}: ", .{arg.name});
+        // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+        try self.emit(": ");
         // Use anytype for method params without type annotation to support string literals
         // This lets Zig infer the type from the call site
         if (arg.type_annotation) |_| {
@@ -442,10 +445,15 @@ pub fn genMethodSignature(
     if (needs_allocator) {
         try self.emit("!");
     }
-    if (method.return_type) |_| {
+    if (method.return_type) |type_hint| {
         // Use explicit return type annotation if provided
-        const zig_return_type = pythonTypeToZig(method.return_type);
-        try self.emit(zig_return_type);
+        // If return type is class name, use @This() instead for self-reference
+        if (std.mem.eql(u8, type_hint, class_name)) {
+            try self.emit("@This()");
+        } else {
+            const zig_return_type = pythonTypeToZig(method.return_type);
+            try self.emit(zig_return_type);
+        }
     } else if (hasReturnStatement(method.body)) {
         // Check if method returns a parameter directly (for anytype params)
         var returned_param_name: ?[]const u8 = null;
@@ -483,7 +491,12 @@ pub fn genMethodSignature(
                 if (inf_type != .int and inf_type != .unknown) {
                     const return_type_str = try self.nativeTypeToZigType(inf_type);
                     defer self.allocator.free(return_type_str);
-                    try self.emit(return_type_str);
+                    // If return type matches class name, use @This() for self-reference
+                    if (std.mem.eql(u8, return_type_str, class_name)) {
+                        try self.emit("@This()");
+                    } else {
+                        try self.emit(return_type_str);
+                    }
                 } else {
                     try self.emit("i64");
                 }

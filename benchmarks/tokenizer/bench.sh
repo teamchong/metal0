@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tokenizer Benchmark - PyAOT BPE vs tiktoken vs rs-bpe vs HuggingFace
+# Tokenizer Benchmark - metal0 BPE vs tiktoken vs rs-bpe vs HuggingFace
 # Tests BPE encoding performance on realistic text data
 
 source "$(dirname "$0")/../common.sh"

@@ -35,7 +35,7 @@ pub fn main() !void {
 
     const elapsed = std.time.milliTimestamp() - start;
 
-    std.debug.print("PyAOT on CODE:\n", .{});
+    std.debug.print("metal0 on CODE:\n", .{});
     std.debug.print("  {} iterations: {}ms\n", .{ iterations, elapsed });
     std.debug.print("  Per iteration: {}μs\n", .{@divTrunc(elapsed * 1000, iterations)});
     std.debug.print("  Token count: {}\n", .{last_tokens.len});

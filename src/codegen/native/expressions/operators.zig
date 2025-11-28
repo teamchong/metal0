@@ -7,6 +7,33 @@ const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
 
+/// Check if an expression produces a Zig block expression that needs parentheses
+fn producesBlockExpression(expr: ast.Node) bool {
+    return switch (expr) {
+        .subscript => true,
+        .list => true,
+        .dict => true,
+        .listcomp => true,
+        .dictcomp => true,
+        .genexp => true,
+        .if_expr => true,
+        .call => true,
+        .attribute => true, // field access on block expr wraps in block
+        else => false,
+    };
+}
+
+/// Generate expression, wrapping in parentheses if it's a block expression
+fn genExprWrapped(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    if (producesBlockExpression(expr)) {
+        try self.emit("(");
+        try genExpr(self, expr);
+        try self.emit(")");
+    } else {
+        try genExpr(self, expr);
+    }
+}
+
 /// Recursively collect all parts of a string concatenation chain
 fn collectConcatParts(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayList(ast.Node)) CodegenError!void {
     if (node == .binop and node.binop.op == .Add) {
@@ -51,6 +78,37 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
                 try genExpr(self, part);
             }
             try self.emit(" })");
+            return;
+        }
+    }
+
+    // Check if this is string multiplication (str * n or n * str)
+    if (binop.op == .Mult) {
+        const left_type = try self.type_inferrer.inferExpr(binop.left.*);
+        const right_type = try self.type_inferrer.inferExpr(binop.right.*);
+
+        // str * n -> repeat string n times
+        if (left_type == .string and (right_type == .int or right_type == .unknown)) {
+            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+            try self.emit("runtime.strRepeat(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, binop.left.*);
+            try self.emit(", @as(usize, @intCast(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")))");
+            return;
+        }
+        // n * str -> repeat string n times
+        if (right_type == .string and (left_type == .int or left_type == .unknown)) {
+            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+            try self.emit("runtime.strRepeat(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(", @as(usize, @intCast(");
+            try genExpr(self, binop.left.*);
+            try self.emit(")))");
             return;
         }
     }
@@ -100,31 +158,59 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         }
 
         // True division (/) - always returns float
-        try self.emit("try runtime.divideFloat(");
-        try genExpr(self, binop.left.*);
-        try self.emit(", ");
-        try genExpr(self, binop.right.*);
-        try self.emit(")");
+        // At module level (indent_level == 0), we can't use 'try', so use direct division
+        if (self.indent_level == 0) {
+            // Direct division for module-level constants (assume no divide-by-zero)
+            try self.emit("(@as(f64, @floatFromInt(");
+            try genExpr(self, binop.left.*);
+            try self.emit(")) / @as(f64, @floatFromInt(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")))");
+        } else {
+            try self.emit("try runtime.divideFloat(");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+        }
         return;
     }
 
     // Special handling for floor division - returns int
     if (binop.op == .FloorDiv) {
-        try self.emit("try runtime.divideInt(");
-        try genExpr(self, binop.left.*);
-        try self.emit(", ");
-        try genExpr(self, binop.right.*);
-        try self.emit(")");
+        // At module level (indent_level == 0), we can't use 'try'
+        if (self.indent_level == 0) {
+            try self.emit("@divFloor(");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+        } else {
+            try self.emit("try runtime.divideInt(");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+        }
         return;
     }
 
     // Special handling for modulo - can throw ZeroDivisionError
     if (binop.op == .Mod) {
-        try self.emit("try runtime.moduloInt(");
-        try genExpr(self, binop.left.*);
-        try self.emit(", ");
-        try genExpr(self, binop.right.*);
-        try self.emit(")");
+        // At module level (indent_level == 0), we can't use 'try'
+        if (self.indent_level == 0) {
+            try self.emit("@mod(");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+        } else {
+            try self.emit("try runtime.moduloInt(");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+        }
         return;
     }
 
@@ -509,11 +595,18 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // If mixing usize and i64, cast to i64 for comparison
             const needs_cast = (left_is_usize and right_is_int) or (left_is_int and right_is_usize);
 
+            // Check if either side is a block expression that needs wrapping
+            const left_needs_wrap = producesBlockExpression(current_left);
+            const right_needs_wrap = producesBlockExpression(compare.comparators[i]);
+
             // Cast left operand if needed
             if (left_is_usize and needs_cast) {
                 try self.emit("@as(i64, @intCast(");
             }
+            // Wrap block expressions in parentheses
+            if (left_needs_wrap) try self.emit("(");
             try genExpr(self, current_left);
+            if (left_needs_wrap) try self.emit(")");
             if (left_is_usize and needs_cast) {
                 try self.emit("))");
             }
@@ -533,7 +626,10 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             if (right_is_usize and needs_cast) {
                 try self.emit("@as(i64, @intCast(");
             }
+            // Wrap block expressions in parentheses
+            if (right_needs_wrap) try self.emit("(");
             try genExpr(self, compare.comparators[i]);
+            if (right_needs_wrap) try self.emit(")");
             if (right_is_usize and needs_cast) {
                 try self.emit("))");
             }

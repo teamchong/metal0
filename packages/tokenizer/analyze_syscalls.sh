@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "=== PyAOT Tokenizer Syscall Analysis ==="
+echo "=== metal0 Tokenizer Syscall Analysis ==="
 echo ""
 echo "Running benchmark 3 times to get average..."
 echo ""

@@ -89,7 +89,7 @@ pub fn genPlatform(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate sys.version -> Python version string
 pub fn genVersion(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("\"3.12.0 (PyAOT compiled)\"");
+    try self.emit("\"3.12.0 (metal0 compiled)\"");
 }
 
 /// Generate sys.version_info -> version info tuple

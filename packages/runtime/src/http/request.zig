@@ -197,7 +197,7 @@ test "Request creation and serialization" {
     defer request.deinit();
 
     try request.setHeader("Host", "example.com");
-    try request.setHeader("User-Agent", "PyAOT/1.0");
+    try request.setHeader("User-Agent", "metal0/1.0");
 
     const serialized = try request.serialize(allocator);
     defer allocator.free(serialized);
@@ -212,7 +212,7 @@ test "Request parsing" {
     const raw_request =
         \\GET /api/users HTTP/1.1
         \\Host: example.com
-        \\User-Agent: PyAOT/1.0
+        \\User-Agent: metal0/1.0
         \\
         \\
     ;

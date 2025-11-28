@@ -536,10 +536,15 @@ const UnittestFuncs = FuncMap.initComptime(.{
 const ReFuncs = FuncMap.initComptime(.{
     .{ "search", re_mod.genReSearch },
     .{ "match", re_mod.genReMatch },
+    .{ "fullmatch", re_mod.genReFullmatch },
     .{ "sub", re_mod.genReSub },
+    .{ "subn", re_mod.genReSubn },
     .{ "findall", re_mod.genReFindall },
+    .{ "finditer", re_mod.genReFinditer },
     .{ "compile", re_mod.genReCompile },
     .{ "split", re_mod.genReSplit },
+    .{ "escape", re_mod.genReEscape },
+    .{ "purge", re_mod.genRePurge },
 });
 
 /// OS module functions
@@ -556,9 +561,13 @@ const OsFuncs = FuncMap.initComptime(.{
 /// OS.path module functions
 const OsPathFuncs = FuncMap.initComptime(.{
     .{ "exists", os_mod.genPathExists },
+    .{ "isdir", os_mod.genPathIsdir },
+    .{ "isfile", os_mod.genPathIsfile },
+    .{ "abspath", os_mod.genPathAbspath },
     .{ "join", os_mod.genPathJoin },
     .{ "dirname", os_mod.genPathDirname },
     .{ "basename", os_mod.genPathBasename },
+    .{ "split", os_mod.genPathSplit },
 });
 
 /// Pathlib module functions
@@ -3900,6 +3909,8 @@ const ZlibFuncs = FuncMap.initComptime(.{
     .{ "Z_BEST_SPEED", zlib_mod.genZ_BEST_SPEED },
     .{ "Z_BEST_COMPRESSION", zlib_mod.genZ_BEST_COMPRESSION },
     .{ "Z_DEFAULT_COMPRESSION", zlib_mod.genZ_DEFAULT_COMPRESSION },
+    .{ "ZLIB_VERSION", zlib_mod.genZLIB_VERSION },
+    .{ "ZLIB_RUNTIME_VERSION", zlib_mod.genZLIB_RUNTIME_VERSION },
     .{ "error", zlib_mod.genError },
 });
 
@@ -6804,7 +6815,7 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
     {
         std.debug.print("\nError: importlib.import_module() not supported in AOT compilation\n", .{});
         std.debug.print("   |\n", .{});
-        std.debug.print("   = PyAOT resolves all imports at compile time\n", .{});
+        std.debug.print("   = metal0 resolves all imports at compile time\n", .{});
         std.debug.print("   = Dynamic runtime module loading not supported\n", .{});
         std.debug.print("   = Suggestion: Use static imports (import json) instead\n", .{});
         return error.OutOfMemory;

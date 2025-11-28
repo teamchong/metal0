@@ -63,11 +63,37 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
     try subscript_mod.genSubscript(self, subscript);
 }
 
+/// Check if an expression produces a Zig block expression that can't have field access directly
+fn producesBlockExpression(expr: ast.Node) bool {
+    return switch (expr) {
+        .subscript => true,
+        .list => true,
+        .dict => true,
+        .listcomp => true,
+        .dictcomp => true,
+        .genexp => true,
+        .if_expr => true,
+        .call => true,
+        else => false,
+    };
+}
+
 /// Generate attribute access (obj.attr)
 pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError!void {
     // Forward declare genExpr - it's in parent module
     const parent_module = @import("../expressions.zig");
     const genExpr = parent_module.genExpr;
+
+    // Check if value produces a block expression - need to wrap in temp variable
+    // Because Zig doesn't allow field access on block expressions: blk:{}.field is invalid
+    if (producesBlockExpression(attr.value.*)) {
+        try self.emit("blk: { const __obj = ");
+        try genExpr(self, attr.value.*);
+        try self.emit("; break :blk __obj.");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+        try self.emit("; }");
+        return;
+    }
 
     // Check if this is a module attribute access (e.g., string.ascii_lowercase, math.pi)
     if (attr.value.* == .name) {

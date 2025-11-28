@@ -770,6 +770,101 @@ pub fn inferCall(
                     // copy module - returns same type as input (unknown)
                     return .unknown;
                 },
+                fnv_hash.hash("fnmatch") => {
+                    // fnmatch module - fnmatch/fnmatchcase return bool, filter returns list
+                    const func_hash = fnv_hash.hash(func_name);
+                    const FNMATCH_HASH = comptime fnv_hash.hash("fnmatch");
+                    const FNMATCHCASE_HASH = comptime fnv_hash.hash("fnmatchcase");
+                    const FILTER_HASH = comptime fnv_hash.hash("filter");
+                    const TRANSLATE_HASH = comptime fnv_hash.hash("translate");
+                    if (func_hash == FNMATCH_HASH or func_hash == FNMATCHCASE_HASH) {
+                        return .bool;
+                    }
+                    if (func_hash == FILTER_HASH) {
+                        return .{ .list = @constCast(&NativeType{ .string = .slice }) };
+                    }
+                    if (func_hash == TRANSLATE_HASH) {
+                        return .{ .string = .runtime };
+                    }
+                    return .unknown;
+                },
+                fnv_hash.hash("glob") => {
+                    // glob module - glob/iglob return list of strings
+                    const func_hash = fnv_hash.hash(func_name);
+                    const GLOB_HASH = comptime fnv_hash.hash("glob");
+                    const IGLOB_HASH = comptime fnv_hash.hash("iglob");
+                    const ESCAPE_HASH = comptime fnv_hash.hash("escape");
+                    const HAS_MAGIC_HASH = comptime fnv_hash.hash("has_magic");
+                    if (func_hash == GLOB_HASH or func_hash == IGLOB_HASH) {
+                        return .{ .list = @constCast(&NativeType{ .string = .slice }) };
+                    }
+                    if (func_hash == ESCAPE_HASH) {
+                        return .{ .string = .runtime };
+                    }
+                    if (func_hash == HAS_MAGIC_HASH) {
+                        return .bool;
+                    }
+                    return .unknown;
+                },
+                fnv_hash.hash("calendar") => {
+                    // calendar module
+                    const func_hash = fnv_hash.hash(func_name);
+                    const ISLEAP_HASH = comptime fnv_hash.hash("isleap");
+                    const LEAPDAYS_HASH = comptime fnv_hash.hash("leapdays");
+                    const WEEKDAY_HASH = comptime fnv_hash.hash("weekday");
+                    const MONTHRANGE_HASH = comptime fnv_hash.hash("monthrange");
+                    const MONTH_HASH = comptime fnv_hash.hash("month");
+                    const CALENDAR_HASH = comptime fnv_hash.hash("calendar");
+                    if (func_hash == ISLEAP_HASH) {
+                        return .bool;
+                    }
+                    if (func_hash == LEAPDAYS_HASH or func_hash == WEEKDAY_HASH) {
+                        return .int;
+                    }
+                    if (func_hash == MONTHRANGE_HASH) {
+                        // Returns (first_weekday, num_days) tuple
+                        return .{ .tuple = &[_]NativeType{ .int, .int } };
+                    }
+                    if (func_hash == MONTH_HASH or func_hash == CALENDAR_HASH) {
+                        return .{ .string = .runtime };
+                    }
+                    return .unknown;
+                },
+                fnv_hash.hash("tempfile") => {
+                    // tempfile module
+                    const func_hash = fnv_hash.hash(func_name);
+                    const GETTEMPDIR_HASH = comptime fnv_hash.hash("gettempdir");
+                    const GETTEMPPREFIX_HASH = comptime fnv_hash.hash("gettempprefix");
+                    const MKSTEMP_HASH = comptime fnv_hash.hash("mkstemp");
+                    const MKDTEMP_HASH = comptime fnv_hash.hash("mkdtemp");
+                    if (func_hash == GETTEMPDIR_HASH or func_hash == GETTEMPPREFIX_HASH or
+                        func_hash == MKDTEMP_HASH)
+                    {
+                        return .{ .string = .runtime };
+                    }
+                    if (func_hash == MKSTEMP_HASH) {
+                        return .{ .tuple = &[_]NativeType{ .int, .{ .string = .runtime } } }; // Returns (fd, name) tuple
+                    }
+                    return .unknown;
+                },
+                fnv_hash.hash("gc") => {
+                    // gc module
+                    const func_hash = fnv_hash.hash(func_name);
+                    const COLLECT_HASH = comptime fnv_hash.hash("collect");
+                    const ISENABLED_HASH = comptime fnv_hash.hash("isenabled");
+                    const ENABLE_HASH = comptime fnv_hash.hash("enable");
+                    const DISABLE_HASH = comptime fnv_hash.hash("disable");
+                    if (func_hash == COLLECT_HASH) {
+                        return .int;
+                    }
+                    if (func_hash == ISENABLED_HASH) {
+                        return .bool;
+                    }
+                    if (func_hash == ENABLE_HASH or func_hash == DISABLE_HASH) {
+                        return .none;
+                    }
+                    return .unknown;
+                },
                 fnv_hash.hash("collections") => {
                     // collections module
                     const func_hash = fnv_hash.hash(func_name);

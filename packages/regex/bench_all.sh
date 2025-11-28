@@ -31,8 +31,8 @@ echo "Running Python benchmark..."
 python3 bench_python.py
 echo
 
-# Run Zig/PyAOT
-echo "Running Zig/PyAOT benchmark..."
+# Run Zig/metal0
+echo "Running Zig/metal0 benchmark..."
 ./zig-out/bin/bench_zig
 echo
 

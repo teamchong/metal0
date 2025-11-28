@@ -27,4 +27,4 @@ ones = np.ones([3])
 print("Ones:", ones)
 
 print("\n✅ All NumPy operations completed successfully!")
-print("🚀 PyAOT C interop working with BLAS at native speed!")
+print("🚀 metal0 C interop working with BLAS at native speed!")

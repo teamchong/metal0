@@ -11,19 +11,19 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 /// Generate tokenize.tokenize(readline)
 pub fn genTokenize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()");
+    try self.emit("metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()");
 }
 
 /// Generate tokenize.generate_tokens(readline)
 pub fn genGenerate_tokens(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()");
+    try self.emit("metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()");
 }
 
 /// Generate tokenize.detect_encoding(readline)
 pub fn genDetect_encoding(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit(".{ \"utf-8\", pyaot_runtime.PyList([]const u8).init() }");
+    try self.emit(".{ \"utf-8\", metal0_runtime.PyList([]const u8).init() }");
 }
 
 /// Generate tokenize.open(filename)

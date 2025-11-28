@@ -1,4 +1,4 @@
-/// Metal GPU integration for PyAOT
+/// Metal GPU integration for metal0
 /// Provides unified memory management and GPU kernel execution on Apple Silicon
 const std = @import("std");
 

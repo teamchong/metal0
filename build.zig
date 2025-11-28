@@ -79,9 +79,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Main pyaot compiler executable
+    // Main metal0 compiler executable
     const exe = b.addExecutable(.{
-        .name = "pyaot",
+        .name = "metal0",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
@@ -108,7 +108,7 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    const run_step = b.step("run", "Run the pyaot compiler");
+    const run_step = b.step("run", "Run the metal0 compiler");
     run_step.dependOn(&run_cmd.step);
 
     // Zig runtime tests
@@ -227,9 +227,9 @@ pub fn build(b: *std.Build) void {
 
     // JSON parse benchmark
     const bench_json_parse = b.addExecutable(.{
-        .name = "bench_pyaot_json_parse",
+        .name = "bench_metal0_json_parse",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("packages/runtime/benchmarks/bench_pyaot_json_parse_fast.zig"),
+            .root_source_file = b.path("packages/runtime/benchmarks/bench_metal0_json_parse_fast.zig"),
             .target = target,
             .optimize = .ReleaseFast,
         }),
@@ -246,9 +246,9 @@ pub fn build(b: *std.Build) void {
 
     // JSON stringify benchmark
     const bench_json_stringify = b.addExecutable(.{
-        .name = "bench_pyaot_json_stringify",
+        .name = "bench_metal0_json_stringify",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("packages/runtime/benchmarks/bench_pyaot_json_stringify_fast.zig"),
+            .root_source_file = b.path("packages/runtime/benchmarks/bench_metal0_json_stringify_fast.zig"),
             .target = target,
             .optimize = .ReleaseFast,
         }),
@@ -299,5 +299,4 @@ pub fn build(b: *std.Build) void {
     const run_gzip_tests = b.addRunArtifact(gzip_tests);
     const gzip_test_step = b.step("test-gzip", "Run gzip compression tests");
     gzip_test_step.dependOn(&run_gzip_tests.step);
-
 }

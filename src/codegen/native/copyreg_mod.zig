@@ -22,25 +22,25 @@ pub fn genConstructor(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
 /// Generate copyreg.dispatch_table
 pub fn genDispatch_table(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyDict(usize, @TypeOf(.{ null, null })).init()");
+    try self.emit("metal0_runtime.PyDict(usize, @TypeOf(.{ null, null })).init()");
 }
 
 /// Generate copyreg._extension_registry
 pub fn gen_extension_registry(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyDict(@TypeOf(.{ \"\", \"\" }), i32).init()");
+    try self.emit("metal0_runtime.PyDict(@TypeOf(.{ \"\", \"\" }), i32).init()");
 }
 
 /// Generate copyreg._inverted_registry
 pub fn gen_inverted_registry(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyDict(i32, @TypeOf(.{ \"\", \"\" })).init()");
+    try self.emit("metal0_runtime.PyDict(i32, @TypeOf(.{ \"\", \"\" })).init()");
 }
 
 /// Generate copyreg._extension_cache
 pub fn gen_extension_cache(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyDict(i32, ?anyopaque).init()");
+    try self.emit("metal0_runtime.PyDict(i32, ?anyopaque).init()");
 }
 
 /// Generate copyreg.add_extension(module, name, code)

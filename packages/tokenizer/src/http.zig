@@ -1,4 +1,4 @@
-/// PyAOT HTTP Module - Zero-copy client/server with connection pooling
+/// metal0 HTTP Module - Zero-copy client/server with connection pooling
 const std = @import("std");
 const runtime = @import("runtime.zig");
 

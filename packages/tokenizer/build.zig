@@ -17,16 +17,13 @@ pub fn build(b: *std.Build) void {
 
     // Determine if multiple algorithms included (runtime selection needed)
     const included_count = @as(u8, if (include_bpe) 1 else 0) +
-                           @as(u8, if (include_wordpiece) 1 else 0) +
-                           @as(u8, if (include_unigram) 1 else 0);
+        @as(u8, if (include_wordpiece) 1 else 0) +
+        @as(u8, if (include_unigram) 1 else 0);
 
     const runtime_selection = included_count > 1;
 
     // Default algorithm (only matters if single algorithm)
-    const default_algorithm = if (include_bpe) "BPE"
-                             else if (include_wordpiece) "WordPiece"
-                             else if (include_unigram) "Unigram"
-                             else {
+    const default_algorithm = if (include_bpe) "BPE" else if (include_wordpiece) "WordPiece" else if (include_unigram) "Unigram" else {
         std.debug.print("ERROR: At least one algorithm must be included!\n", .{});
         std.process.exit(1);
     };
@@ -67,9 +64,9 @@ pub fn build(b: *std.Build) void {
     runtime.addImport("hashmap_helper", hashmap_helper);
 
     const bench_json_parse = b.addExecutable(.{
-        .name = "bench_pyaot_json_parse",
+        .name = "bench_metal0_json_parse",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("bench_pyaot_json_parse_fast.zig"),
+            .root_source_file = b.path("bench_metal0_json_parse_fast.zig"),
             .target = target,
             .optimize = .ReleaseFast,
         }),

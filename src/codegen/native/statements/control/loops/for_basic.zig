@@ -13,25 +13,37 @@ fn sanitizeVarName(name: []const u8) []const u8 {
     return name;
 }
 
-/// Generate while loop
+/// Generate tuple unpacking for loop (e.g., for k, v in items)
 fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, body: []ast.Node) CodegenError!void {
-    // Validate target is a list (parser uses list node for tuple unpacking)
-    if (target != .list) {
-        @panic("Tuple unpacking requires list target");
-    }
-    const target_elts = target.list.elts;
+    // Get target elements from either list or tuple
+    const target_elts = switch (target) {
+        .list => |l| l.elts,
+        .tuple => |t| t.elts,
+        else => @panic("Tuple unpacking requires list or tuple target"),
+    };
     if (target_elts.len == 0) {
         @panic("Tuple unpacking requires at least one variable");
     }
 
-    // Extract variable names
+    // Extract variable names - handle nested unpacking by using placeholder
     var var_names = try self.allocator.alloc([]const u8, target_elts.len);
     defer self.allocator.free(var_names);
+    var has_nested = false;
     for (target_elts, 0..) |elt, i| {
-        if (elt != .name) {
-            @panic("Tuple unpacking target must be names");
+        if (elt == .name) {
+            var_names[i] = elt.name.id;
+        } else {
+            // Nested tuple unpacking (e.g., for a, (b, c) in items) - not fully supported
+            // Use placeholder and emit warning comment
+            var_names[i] = "_nested";
+            has_nested = true;
         }
-        var_names[i] = elt.name.id;
+    }
+
+    // If there's nested unpacking, emit a comment and use simpler approach
+    if (has_nested) {
+        try self.emitIndent();
+        try self.emit("// TODO: Nested tuple unpacking not fully supported\n");
     }
 
     // Generate for loop over iterable
@@ -124,8 +136,19 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try genTupleUnpackLoop(self, for_stmt.target.*, for_stmt.iter.*, for_stmt.body);
         return;
     }
+    // Also handle tuple target (e.g., for (r, g, b) in colors:)
+    if (for_stmt.target.* == .tuple) {
+        try genTupleUnpackLoop(self, for_stmt.target.*, for_stmt.iter.*, for_stmt.body);
+        return;
+    }
 
     // Regular iteration over collection - requires single target variable
+    if (for_stmt.target.* != .name) {
+        // Unsupported target type - emit error comment
+        try self.emitIndent();
+        try self.emit("// TODO: Unsupported for loop target type\n");
+        return;
+    }
     const var_name = sanitizeVarName(for_stmt.target.name.id);
 
     // Check iter type first (needed for tuple special case)

@@ -2,7 +2,7 @@
 """
 Verify 100% correctness of BPE training
 
-Trains tokenizer with PyAOT, HuggingFace, and compares:
+Trains tokenizer with metal0, HuggingFace, and compares:
 1. Vocab size matches
 2. All merge rules are identical
 3. Encoding same text produces identical tokens
@@ -51,8 +51,8 @@ print(f"   ✅ Trained: vocab size = {hf_tokenizer.get_vocab_size()}")
 hf_tokenizer.save("hf_trained.json")
 print()
 
-# Train PyAOT tokenizer
-print("2️⃣  Training PyAOT BPE...")
+# Train metal0 tokenizer
+print("2️⃣  Training metal0 BPE...")
 result = subprocess.run(
     ['./zig-out/bin/bench_train'],
     capture_output=True,
@@ -64,8 +64,8 @@ if result.returncode != 0:
 print(f"   ✅ Trained: {result.stdout.strip()}")
 print()
 
-# TODO: PyAOT doesn't save trained model yet!
-print("⚠️  CRITICAL ISSUE: PyAOT training doesn't save the trained model!")
+# TODO: metal0 doesn't save trained model yet!
+print("⚠️  CRITICAL ISSUE: metal0 training doesn't save the trained model!")
 print("   Cannot verify correctness without saved vocab/merges")
 print()
 print("📋 What we need to verify 100% correctness:")
@@ -76,5 +76,5 @@ print("   4. Compare merge order")
 print("   5. Encode test texts and compare token IDs")
 print()
 print("=" * 70)
-print("❌ CANNOT VERIFY TRAINING CORRECTNESS - PyAOT doesn't expose trained model")
+print("❌ CANNOT VERIFY TRAINING CORRECTNESS - metal0 doesn't expose trained model")
 print("=" * 70)

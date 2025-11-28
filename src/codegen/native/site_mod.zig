@@ -11,7 +11,7 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 /// Generate site.PREFIXES
 pub fn genPREFIXES(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).init()");
+    try self.emit("metal0_runtime.PyList([]const u8).init()");
 }
 
 /// Generate site.ENABLE_USER_SITE
@@ -45,29 +45,29 @@ pub fn genMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate site.addsitedir(sitedir, known_paths=None)
 pub fn genAddsitedir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PySet([]const u8).init()");
+    try self.emit("metal0_runtime.PySet([]const u8).init()");
 }
 
 /// Generate site.getsitepackages(prefixes=None)
 pub fn genGetsitepackages(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).init()");
+    try self.emit("metal0_runtime.PyList([]const u8).init()");
 }
 
 /// Generate site.getuserbase()
 pub fn genGetuserbase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("blk: { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(pyaot_allocator, \"{s}/.local\", .{home}) catch \"\"; }");
+    try self.emit("blk: { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}/.local\", .{home}) catch \"\"; }");
 }
 
 /// Generate site.getusersitepackages()
 pub fn genGetusersitepackages(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("blk: { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(pyaot_allocator, \"{s}/.local/lib/python3/site-packages\", .{home}) catch \"\"; }");
+    try self.emit("blk: { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}/.local/lib/python3/site-packages\", .{home}) catch \"\"; }");
 }
 
 /// Generate site.removeduppaths()
 pub fn genRemoveduppaths(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PySet([]const u8).init()");
+    try self.emit("metal0_runtime.PySet([]const u8).init()");
 }

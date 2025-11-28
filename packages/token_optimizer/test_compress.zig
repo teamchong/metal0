@@ -62,7 +62,8 @@ test "cost calculation - compression threshold" {
     // Savings for medium: (5 - 85) / 5 * 100 = -1600% (terrible)
     const medium_savings = if (medium_tokens > 0)
         @divTrunc(100 * (medium_tokens - typical_image_tokens), medium_tokens)
-    else 0;
+    else
+        0;
     try std.testing.expect(medium_savings < 20);
 
     // Only worth compressing if text > ~106 tokens (424+ chars)
@@ -114,7 +115,7 @@ test "full compression pipeline - short text stays text" {
     const compressed = try compressor.compressRequest(request);
     defer allocator.free(compressed);
 
-    // Verify valid JSON using PyAOT JSON parser
+    // Verify valid JSON using metal0 JSON parser
     const api_types = @import("src/api_types.zig");
     const parser = api_types.MessageParser.init(allocator);
 

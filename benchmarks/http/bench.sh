@@ -1,6 +1,6 @@
 #!/bin/bash
 # HTTP Client Benchmark
-# Compares PyAOT vs Rust vs Go vs Python vs PyPy
+# Compares metal0 vs Rust vs Go vs Python vs PyPy
 # All Python-based runners use the SAME source code
 
 source "$(dirname "$0")/../common.sh"
@@ -12,7 +12,7 @@ echo "Fetching https://httpbin.org/get 50 times"
 echo "Tests: SSL/TLS, socket, HTTP client"
 echo ""
 
-# Python source (SAME code for PyAOT, Python, PyPy)
+# Python source (SAME code for metal0, Python, PyPy)
 cat > http_bench.py <<'EOF'
 import requests
 
@@ -92,8 +92,8 @@ EOF
 
 print_header "Building"
 
-build_pyaot_compiler
-compile_pyaot http_bench.py http_bench_pyaot
+build_metal0_compiler
+compile_metal0 http_bench.py http_bench_metal0
 compile_go http_bench.go http_bench_go
 
 # Rust with cargo (needs network for deps)
@@ -114,7 +114,7 @@ echo ""
 
 BENCH_CMD=(hyperfine --warmup 1 --runs 3 --export-markdown results.md)
 
-add_pyaot BENCH_CMD http_bench_pyaot
+add_metal0 BENCH_CMD http_bench_metal0
 add_rust BENCH_CMD http_bench_rust
 add_go BENCH_CMD http_bench_go
 
@@ -135,5 +135,5 @@ print_header "Results"
 cat results.md
 
 # Cleanup
-rm -f http_bench.py http_bench.go http_bench_pyaot http_bench_rust http_bench_go
+rm -f http_bench.py http_bench.go http_bench_metal0 http_bench_rust http_bench_go
 rm -rf rust

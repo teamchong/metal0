@@ -1,4 +1,4 @@
-/// Allocator selection for PyAOT generated code
+/// Allocator selection for metal0 generated code
 ///
 /// Strategy:
 /// - Release builds (native): c_allocator - fastest, OS reclaims at exit

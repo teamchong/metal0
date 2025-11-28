@@ -1,4 +1,4 @@
-// PyAOT gzip module implementation
+// metal0 gzip module implementation
 // Implements Python's gzip.compress() and gzip.decompress() functions
 //
 // Uses libdeflate for high-performance gzip compression/decompression

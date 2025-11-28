@@ -1,4 +1,4 @@
-// Benchmark PyAOT's JSON parse with arena allocator optimization
+// Benchmark metal0's JSON parse with arena allocator optimization
 const std = @import("std");
 const runtime = @import("runtime");
 const allocator_helper = @import("allocator_helper");

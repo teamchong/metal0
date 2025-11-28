@@ -63,5 +63,5 @@ pub fn genMETHOD_CRYPT(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 /// Generate crypt.methods (list of available methods)
 pub fn genMethods(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList(@TypeOf(.{ .name = \"\", .ident = \"\", .salt_chars = @as(i32, 0), .total_size = @as(i32, 0) })).init()");
+    try self.emit("metal0_runtime.PyList(@TypeOf(.{ .name = \"\", .ident = \"\", .salt_chars = @as(i32, 0), .total_size = @as(i32, 0) })).init()");
 }

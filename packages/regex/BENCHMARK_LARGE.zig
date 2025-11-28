@@ -140,7 +140,7 @@ pub fn main() !void {
 
     const file_size_kb = @as(f64, @floatFromInt(text.len)) / 1024.0;
     std.debug.print("\n╔═══════════════════════════════════════════════════════════════════════╗\n", .{});
-    std.debug.print("║   PyAOT Regex Benchmark ({s}: {d:.1}KB, {d} iterations)              \n", .{ size, file_size_kb, iterations });
+    std.debug.print("║   metal0 Regex Benchmark ({s}: {d:.1}KB, {d} iterations)              \n", .{ size, file_size_kb, iterations });
     std.debug.print("╚═══════════════════════════════════════════════════════════════════════╝\n\n", .{});
 
     std.debug.print("{s:<20} {s:<10} {s:<12} {s:<12} {s:<12}\n", .{ "Pattern", "Matches", "Avg (μs)", "Total (ms)", "Iterations" });

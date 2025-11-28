@@ -35,3 +35,4 @@ pub const genContinue = control.genContinue;
 pub const genGlobal = misc.genGlobal;
 pub const genDel = misc.genDel;
 pub const genRaise = misc.genRaise;
+pub const genWith = misc.genWith;

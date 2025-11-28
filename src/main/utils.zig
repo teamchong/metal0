@@ -117,19 +117,19 @@ pub fn runSharedLib(allocator: std.mem.Allocator, lib_path: []const u8) !void {
 pub fn printUsage() !void {
     std.debug.print(
         \\Usage:
-        \\  pyaot <file.py>                    # Compile .so and run
-        \\  pyaot <file.ipynb>                 # Compile notebook and run
-        \\  pyaot <file.py> --force            # Force recompile
-        \\  pyaot <file.py> --binary           # Compile to binary and run
-        \\  pyaot build                        # Build all .py in current directory
-        \\  pyaot build <dir/>                 # Build all .py in directory
-        \\  pyaot build <file.py>              # Build .so only
-        \\  pyaot build <file.ipynb>           # Build notebook only
-        \\  pyaot build <file.py> --binary     # Build standalone binary
-        \\  pyaot build <file.py> --wasm       # Build WebAssembly module
-        \\  pyaot build <file.py> <out>        # Custom output path
-        \\  pyaot build <file.py> -f           # Force rebuild
-        \\  pyaot test                         # Run test suite
+        \\  metal0 <file.py>                    # Compile .so and run
+        \\  metal0 <file.ipynb>                 # Compile notebook and run
+        \\  metal0 <file.py> --force            # Force recompile
+        \\  metal0 <file.py> --binary           # Compile to binary and run
+        \\  metal0 build                        # Build all .py in current directory
+        \\  metal0 build <dir/>                 # Build all .py in directory
+        \\  metal0 build <file.py>              # Build .so only
+        \\  metal0 build <file.ipynb>           # Build notebook only
+        \\  metal0 build <file.py> --binary     # Build standalone binary
+        \\  metal0 build <file.py> --wasm       # Build WebAssembly module
+        \\  metal0 build <file.py> <out>        # Custom output path
+        \\  metal0 build <file.py> -f           # Force rebuild
+        \\  metal0 test                         # Run test suite
         \\
         \\Flags:
         \\  --binary, -b  Build standalone binary (default: shared library)
@@ -137,12 +137,12 @@ pub fn printUsage() !void {
         \\  --force, -f   Force recompile (ignore cache)
         \\
         \\Examples:
-        \\  pyaot myapp.py                     # Fast: builds myapp_x86_64.so
-        \\  pyaot notebook.ipynb               # Compile Jupyter notebook
-        \\  pyaot build                        # Build all .py in current dir
-        \\  pyaot build examples/              # Build all .py in examples/
-        \\  pyaot build --binary myapp.py      # Deploy: builds myapp binary
-        \\  pyaot build --wasm myapp.py        # WASM: builds myapp.wasm
+        \\  metal0 myapp.py                     # Fast: builds myapp_x86_64.so
+        \\  metal0 notebook.ipynb               # Compile Jupyter notebook
+        \\  metal0 build                        # Build all .py in current dir
+        \\  metal0 build examples/              # Build all .py in examples/
+        \\  metal0 build --binary myapp.py      # Deploy: builds myapp binary
+        \\  metal0 build --wasm myapp.py        # WASM: builds myapp.wasm
         \\
     , .{});
 }

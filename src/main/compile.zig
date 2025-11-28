@@ -276,21 +276,24 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         return try compileNotebook(allocator, opts);
     }
 
+    // Use arena allocator for all intermediate allocations to avoid leaks on errors
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
     // Read source file
-    const source = try std.fs.cwd().readFileAlloc(allocator, opts.input_file, 10 * 1024 * 1024); // 10MB max
-    defer allocator.free(source);
+    const source = try std.fs.cwd().readFileAlloc(aa, opts.input_file, 10 * 1024 * 1024); // 10MB max
 
     // Handle --emit-bytecode: compile to bytecode and output to stdout
     if (opts.emit_bytecode) {
-        return try emitBytecode(allocator, source);
+        return try emitBytecode(aa, source);
     }
 
     // Determine output path
-    const bin_path = try output.getFileOutputPath(allocator, opts.input_file, opts.output_file, opts.binary);
-    defer allocator.free(bin_path);
+    const bin_path = try output.getFileOutputPath(aa, opts.input_file, opts.output_file, opts.binary);
 
     // Check if binary is up-to-date using content hash (unless --force)
-    const should_compile = opts.force or try cache.shouldRecompile(allocator, source, bin_path);
+    const should_compile = opts.force or try cache.shouldRecompile(aa, source, bin_path);
 
     if (!should_compile) {
         // Output is up-to-date, skip compilation
@@ -312,18 +315,16 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     // PHASE 1: Lexer - Tokenize source code
     std.debug.print("Lexing...\n", .{});
-    var lex = try lexer.Lexer.init(allocator, source);
+    var lex = try lexer.Lexer.init(aa, source);
     defer lex.deinit();
 
     const tokens = try lex.tokenize();
-    defer lexer.freeTokens(allocator, tokens);
 
     // PHASE 2: Parser - Build AST
     std.debug.print("Parsing...\n", .{});
-    var p = parser.Parser.init(allocator, tokens);
+    var p = parser.Parser.init(aa, tokens);
     defer p.deinit();
     const tree = try p.parse();
-    defer tree.deinit(allocator);
 
     // Ensure tree is a module
     if (tree != .module) {
@@ -335,20 +336,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     std.debug.print("Scanning imports recursively...\n", .{});
 
     // Create registry to skip zig_runtime/c_library modules during scanning
-    var scan_registry = try import_registry.createDefaultRegistry(allocator);
-    defer scan_registry.deinit();
+    var scan_registry = try import_registry.createDefaultRegistry(aa);
 
-    var import_graph = import_scanner.ImportGraph.initWithRegistry(allocator, &scan_registry);
-    defer import_graph.deinit();
+    var import_graph = import_scanner.ImportGraph.initWithRegistry(aa, &scan_registry);
 
-    var visited = hashmap_helper.StringHashMap(void).init(allocator);
-    defer {
-        // Free all allocated keys before deinit
-        for (visited.keys()) |key| {
-            allocator.free(key);
-        }
-        visited.deinit();
-    }
+    var visited = hashmap_helper.StringHashMap(void).init(aa);
 
     // Scan all imports recursively
     try import_graph.scanRecursive(opts.input_file, &visited);
@@ -369,26 +361,23 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
         // Compile module using the proper module name
         std.debug.print("  Compiling module: {s} (as {s})\n", .{ module_path, module_info.module_name });
-        compileModule(allocator, module_path, module_info.module_name) catch |err| {
+        compileModule(aa, module_path, module_info.module_name) catch |err| {
             std.debug.print("  Warning: Failed to compile module {s}: {}\n", .{ module_path, err });
             continue;
         };
     }
 
     // PHASE 2.5: C Library Import Detection
-    var import_ctx = c_interop.ImportContext.init(allocator);
-    defer import_ctx.deinit();
+    var import_ctx = c_interop.ImportContext.init(aa);
     try utils.detectImports(&import_ctx, tree);
 
     // PHASE 3: Semantic Analysis - Analyze variable lifetimes and mutations
-    var semantic_info = semantic_types.SemanticInfo.init(allocator);
-    defer semantic_info.deinit();
+    var semantic_info = semantic_types.SemanticInfo.init(aa);
     _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 1);
 
     // PHASE 4: Type Inference - Infer native Zig types
     std.debug.print("Inferring types...\n", .{});
-    var type_inferrer = try native_types.TypeInferrer.init(allocator);
-    defer type_inferrer.deinit();
+    var type_inferrer = try native_types.TypeInferrer.init(aa);
 
     // PHASE 4.5: Pre-compile imported modules to register function return types
     // Derive source file directory from input file path
@@ -400,17 +389,10 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     const imports_mod = @import("../codegen/native/main/imports.zig");
 
     // Create registry to check for runtime modules
-    var registry2 = try import_registry.createDefaultRegistry(allocator);
-    defer registry2.deinit();
+    var registry2 = try import_registry.createDefaultRegistry(aa);
 
     // Track modules that failed to compile so we can skip them in codegen
-    var failed_modules = hashmap_helper.StringHashMap(void).init(allocator);
-    defer {
-        for (failed_modules.keys()) |key| {
-            allocator.free(key);
-        }
-        failed_modules.deinit();
-    }
+    var failed_modules = hashmap_helper.StringHashMap(void).init(aa);
 
     for (tree.module.body) |stmt| {
         if (stmt == .import_stmt) {
@@ -428,14 +410,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                 }
             }
 
-            const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, allocator, &type_inferrer) catch |err| {
+            const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer) catch |err| {
                 std.debug.print("Warning: Could not pre-compile module {s}: {}\n", .{ module_name, err });
                 // Track this failed module so codegen can skip it
-                const name_copy = try allocator.dupe(u8, module_name);
-                try failed_modules.put(name_copy, {});
+                try failed_modules.put(module_name, {});
                 continue;
             };
-            allocator.free(compiled);
+            _ = compiled; // Arena will free
         }
     }
 
@@ -443,8 +424,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     // PHASE 5: Native Codegen - Generate native Zig code (no PyObject overhead)
     std.debug.print("Generating native Zig code...\n", .{});
-    var native_gen = try native_codegen.NativeCodegen.init(allocator, &type_inferrer, &semantic_info);
-    defer native_gen.deinit();
+    var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
 
     // Set mode: shared library (.so) = module mode, binary/run/wasm = script mode
     // WASM needs script mode (with main/_start entry point)
@@ -465,33 +445,30 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     }
 
     const zig_code = try native_gen.generate(tree.module);
-    defer allocator.free(zig_code);
 
     // Get C libraries collected during import processing
-    const c_libs = try native_gen.c_libraries.toOwnedSlice(allocator);
-    defer allocator.free(c_libs);
+    const c_libs = try native_gen.c_libraries.toOwnedSlice(aa);
 
     // Compile to WASM, shared library (.so), or binary
     if (opts.wasm) {
         std.debug.print("Compiling to WebAssembly...\n", .{});
-        const wasm_path = try output.getWasmOutputPath(allocator, opts.input_file, opts.output_file);
-        defer allocator.free(wasm_path);
-        try compiler.compileWasm(allocator, zig_code, wasm_path);
+        const wasm_path = try output.getWasmOutputPath(aa, opts.input_file, opts.output_file);
+        try compiler.compileWasm(aa, zig_code, wasm_path);
         std.debug.print("✓ Compiled successfully to: {s}\n", .{wasm_path});
         // WASM cannot be run directly, skip cache and run
         return;
     } else if (!opts.binary and std.mem.eql(u8, opts.mode, "build")) {
         std.debug.print("Compiling to shared library...\n", .{});
-        try compiler.compileZigSharedLib(allocator, zig_code, bin_path, c_libs);
+        try compiler.compileZigSharedLib(aa, zig_code, bin_path, c_libs);
     } else {
         std.debug.print("Compiling to native binary...\n", .{});
-        try compiler.compileZig(allocator, zig_code, bin_path, c_libs);
+        try compiler.compileZig(aa, zig_code, bin_path, c_libs);
     }
 
     std.debug.print("✓ Compiled successfully to: {s}\n", .{bin_path});
 
     // Update cache with new hash
-    try cache.updateCache(allocator, source, bin_path);
+    try cache.updateCache(aa, source, bin_path);
 
     // Run if mode is "run"
     if (std.mem.eql(u8, opts.mode, "run")) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Compare PyAOT Zig vs tiktoken vs TokenDagger vs HuggingFace
+Compare metal0 Zig vs tiktoken vs TokenDagger vs HuggingFace
 """
 import time
 import subprocess
@@ -101,8 +101,8 @@ except Exception as e:
 
 print()
 
-# 4. PyAOT Zig (run via subprocess)
-print("Testing PyAOT Zig...")
+# 4. metal0 Zig (run via subprocess)
+print("Testing metal0 Zig...")
 try:
     # Use our benchmark that does 60K iterations, divide by 2
     result = subprocess.run(
@@ -121,7 +121,7 @@ try:
             # Scale to 30K
             time_30k = time_60k // 2
             
-            results['pyaot_zig'] = {
+            results['metal0_zig'] = {
                 'time_ms': time_30k,
                 'tokens': 139,
                 'status': 'ok'
@@ -129,11 +129,11 @@ try:
             print(f"  ✅ {time_30k}ms (139 tokens)")
             break
     else:
-        results['pyaot_zig'] = {'status': 'error', 'error': 'Could not parse output'}
+        results['metal0_zig'] = {'status': 'error', 'error': 'Could not parse output'}
         print(f"  ❌ Could not parse benchmark output")
         
 except Exception as e:
-    results['pyaot_zig'] = {'status': 'error', 'error': str(e)}
+    results['metal0_zig'] = {'status': 'error', 'error': str(e)}
     print(f"  ❌ Error: {e}")
 
 print()
@@ -163,7 +163,7 @@ if successful:
     print("  tiktoken = Rust core (official)")
     print("  tokendagger = PCRE2 C + simplified BPE")
     print("  huggingface = Rust tokenizers library")
-    print("  pyaot_zig = Our pure Zig implementation")
+    print("  metal0_zig = Our pure Zig implementation")
 else:
     print("No successful benchmarks!")
     

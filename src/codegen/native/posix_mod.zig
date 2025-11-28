@@ -24,7 +24,7 @@ pub fn genChdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 pub fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).init()");
+    try self.emit("metal0_runtime.PyList([]const u8).init()");
 }
 
 pub fn genMkdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -256,7 +256,7 @@ pub fn genUrandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("blk: { const n = ");
         try self.genExpr(args[0]);
-        try self.emit("; var buf = pyaot_allocator.alloc(u8, @intCast(n)) catch break :blk \"\"; std.crypto.random.bytes(buf); break :blk buf; }");
+        try self.emit("; var buf = metal0_allocator.alloc(u8, @intCast(n)) catch break :blk \"\"; std.crypto.random.bytes(buf); break :blk buf; }");
     } else {
         try self.emit("\"\"");
     }

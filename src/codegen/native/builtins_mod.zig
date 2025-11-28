@@ -39,25 +39,25 @@ pub fn genRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate builtins.enumerate
 pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("&[_].{ i64, @TypeOf(undefined) }{}");
+    try self.emit("&[_]struct { @\"0\": i64, @\"1\": i64 }{}");
 }
 
 /// Generate builtins.zip
 pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("&[_].{ @TypeOf(undefined), @TypeOf(undefined) }{}");
+    try self.emit("&[_]struct { @\"0\": i64, @\"1\": i64 }{}");
 }
 
 /// Generate builtins.map
 pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("&[_]@TypeOf(undefined){}");
+    try self.emit("&[_]i64{}");
 }
 
 /// Generate builtins.filter
 pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("&[_]@TypeOf(undefined){}");
+    try self.emit("&[_]i64{}");
 }
 
 /// Generate builtins.sorted
@@ -65,7 +65,7 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try self.emit("&[_]@TypeOf(undefined){}");
+        try self.emit("&[_]i64{}");
     }
 }
 
@@ -74,7 +74,7 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try self.emit("&[_]@TypeOf(undefined){}");
+        try self.emit("&[_]i64{}");
     }
 }
 
@@ -241,7 +241,8 @@ pub fn genId(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate builtins.type
 pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("@TypeOf(undefined)");
+    // Return a type descriptor for runtime type introspection
+    try self.emit("type");
 }
 
 /// Generate builtins.dir

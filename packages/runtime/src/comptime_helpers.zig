@@ -1,4 +1,4 @@
-//! Comptime type inference helpers for PyAOT
+//! Comptime type inference helpers for metal0
 //! These functions run at Zig compile time to infer optimal types
 
 const std = @import("std");

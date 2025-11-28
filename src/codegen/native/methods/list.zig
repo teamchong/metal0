@@ -4,6 +4,21 @@ const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 
+/// Check if an expression produces a Zig block expression that can't have field access directly
+fn producesBlockExpression(expr: ast.Node) bool {
+    return switch (expr) {
+        .subscript => true,
+        .list => true,
+        .dict => true,
+        .listcomp => true,
+        .dictcomp => true,
+        .genexp => true,
+        .if_expr => true,
+        .call => true,
+        else => false,
+    };
+}
+
 /// Generate code for list.append(item)
 /// NOTE: Zig arrays are fixed size, need ArrayList for dynamic appending
 pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
@@ -51,6 +66,14 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.emit(".appendSlice(__global_allocator, &");
         try self.genExpr(arg);
         try self.emit(")");
+    } else if (producesBlockExpression(arg)) {
+        // Block expression (list comprehension, call, etc.) - wrap in temp variable
+        // Generate: blk: { const __temp = expr; try list.appendSlice(__global_allocator, __temp.items); break :blk {}; }
+        try self.emit("blk: { const __list_temp = ");
+        try self.genExpr(arg);
+        try self.emit("; try ");
+        try self.genExpr(obj);
+        try self.emit(".appendSlice(__global_allocator, __list_temp.items); }");
     } else {
         // Assume ArrayList variable - use .items
         // Generate: try list.appendSlice(__global_allocator, other.items)

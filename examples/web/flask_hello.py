@@ -1,4 +1,4 @@
-# Flask-like demonstration - shows what PyAOT can compile today
+# Flask-like demonstration - shows what metal0 can compile today
 # This demonstrates: classes, decorators, method calls, dict storage
 
 class Flask:
@@ -19,7 +19,7 @@ class Flask:
 
 # Route handlers
 def index():
-    return "Hello from PyAOT + Flask!"
+    return "Hello from metal0 + Flask!"
 
 def about():
     return "AOT-compiled Python web server"
@@ -28,7 +28,7 @@ def api():
     return "JSON response here"
 
 # Create app and register routes
-app = Flask("pyaot_demo")
+app = Flask("metal0_demo")
 app.add_route("/", index)
 app.add_route("/about", about)
 app.add_route("/api/status", api)
@@ -36,4 +36,4 @@ app.add_route("/api/status", api)
 # Show registered routes
 app.show_routes()
 
-print("\nSuccess! Flask-style routing works in PyAOT")
+print("\nSuccess! Flask-style routing works in metal0")

@@ -64,7 +64,8 @@ pub fn parseAssert(self: *Parser) ParseError!ast.Node {
     }
     errdefer if (msg) |*m| m.deinit(self.allocator);
 
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
     return ast.Node{
         .assert_stmt = .{
@@ -161,9 +162,15 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
 
         // Check for exception type: except ValueError: or except (Exception) as e:
         // Also handles dotted types: except click.BadParameter:
+        // Python allows any expression (e.g., except 42:) - it will raise TypeError at runtime
         var exc_type: ?[]const u8 = null;
         if (self.peek()) |tok| {
-            if (tok.type == .Ident) {
+            // Handle non-identifier expressions like numbers (except 42:)
+            // These are valid syntax even if they raise TypeError at runtime
+            if (tok.type == .Number) {
+                exc_type = tok.lexeme;
+                _ = self.advance();
+            } else if (tok.type == .Ident) {
                 // Check for dotted exception type: click.BadParameter
                 var type_name = tok.lexeme;
                 _ = self.advance();
@@ -199,6 +206,20 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
                                 _ = self.advance();
                             } else break;
                         }
+                    } else if (next_tok.type == .LBracket) {
+                        // Handle subscript: except Signals[self.decimal] as e:
+                        _ = self.advance(); // consume '['
+                        var bracket_depth: usize = 1;
+                        while (bracket_depth > 0) {
+                            if (self.peek()) |inner_tok| {
+                                if (inner_tok.type == .LBracket) {
+                                    bracket_depth += 1;
+                                } else if (inner_tok.type == .RBracket) {
+                                    bracket_depth -= 1;
+                                }
+                                _ = self.advance();
+                            } else break;
+                        }
                     }
                 }
             } else if (tok.type == .LParen) {
@@ -221,13 +242,32 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
                         }
                         // Skip any additional types in tuple (for now just use first)
                         while (self.match(.Comma)) {
-                            // Skip dotted exception type
+                            // Skip dotted exception type or number literal
                             while (self.peek()) |next_type| {
                                 if (next_type.type == .Ident) {
                                     _ = self.advance();
                                     // Skip dots in the name
                                     if (!self.match(.Dot)) break;
+                                } else if (next_type.type == .Number) {
+                                    // Allow number literals like (ValueError, 42)
+                                    _ = self.advance();
+                                    break;
                                 } else break;
+                            }
+                        }
+                    } else if (inner_tok.type == .Number) {
+                        // Handle tuple starting with number: except (42,):
+                        exc_type = inner_tok.lexeme;
+                        _ = self.advance();
+                        // Skip any additional elements
+                        while (self.match(.Comma)) {
+                            if (self.peek()) |next_type| {
+                                if (next_type.type == .Ident or next_type.type == .Number) {
+                                    _ = self.advance();
+                                    while (self.match(.Dot)) {
+                                        if (self.check(.Ident)) _ = self.advance();
+                                    }
+                                }
                             }
                         }
                     }
@@ -580,13 +620,20 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
     var context_expr = try self.parseExpression();
     errdefer context_expr.deinit(self.allocator);
 
-    // Check for optional "as variable"
+    // Check for optional "as variable" - can be simple name, tuple, or attribute (os.environ)
     var optional_vars: ?[]const u8 = null;
     if (self.match(.As)) {
         if (self.peek()) |tok| {
             if (tok.type == .Ident) {
-                const var_tok = self.advance().?;
-                optional_vars = var_tok.lexeme;
+                // Could be simple name or attribute access - parse as expression and extract name
+                const start_pos = self.current;
+                var target = try self.parsePostfix();
+                defer target.deinit(self.allocator);
+                // For simple names, use the name directly; for complex targets, ignore
+                if (target == .name) {
+                    optional_vars = self.tokens[start_pos].lexeme;
+                }
+                // For attribute access like os.environ, we parsed it but don't store the var name
             } else if (tok.type == .LParen) {
                 // Tuple target: as (a, b)
                 _ = self.advance(); // consume (
@@ -607,7 +654,9 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
         if (self.match(.As)) {
             if (self.peek()) |tok| {
                 if (tok.type == .Ident) {
-                    _ = self.advance(); // Skip the variable name
+                    // Could be simple name or attribute access - parse as expression
+                    var target = try self.parsePostfix();
+                    target.deinit(self.allocator); // Discard
                 } else if (tok.type == .LParen) {
                     _ = self.advance();
                     _ = try self.parseExpression();

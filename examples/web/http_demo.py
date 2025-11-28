@@ -1,4 +1,4 @@
-# HTTP Module Demo for PyAOT
+# HTTP Module Demo for metal0
 # Demonstrates HTTP Request/Response types
 
 print("=== HTTP Module Demo ===")

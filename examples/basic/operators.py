@@ -1,4 +1,4 @@
-# Comprehensive test of all operators in PyAOT
+# Comprehensive test of all operators in metal0
 
 print(10)
 print(3)

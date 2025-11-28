@@ -1,4 +1,4 @@
-# Test stdlib imports for PyAOT
+# Test stdlib imports for metal0
 # Tests working functions from json, math, sys, re modules
 
 import json

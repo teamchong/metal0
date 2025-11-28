@@ -14,8 +14,8 @@ print(numbers[0])  # 1
 print(numbers[2])  # 3
 
 # Parse object
-data = json.loads('{"name": "PyAOT", "version": 1}')
-print(data["name"])  # PyAOT
+data = json.loads('{"name": "metal0", "version": 1}')
+print(data["name"])  # metal0
 print(data["version"])  # 1
 
 # Stringify

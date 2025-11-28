@@ -94,19 +94,19 @@ echo "Running hyperfine benchmark (583 texts × 1000 iterations per run)..."
 echo "Note: Python startup overhead <2% with 1000 iterations"
 echo ""
 
-# Build PyAOT native binary
+# Build metal0 native binary
 if [ ! -f "zig-out/bin/bench_native" ]; then
-    echo "Building PyAOT native binary..."
+    echo "Building metal0 native binary..."
     make build > /dev/null 2>&1
 fi
 
-# Run hyperfine with explicit commands (including PyAOT native)
+# Run hyperfine with explicit commands (including metal0 native)
 hyperfine \
     --warmup 1 \
     --runs 5 \
     --export-markdown bench_encoding_results.md \
     --ignore-failure \
-    --command-name "PyAOT" "${BENCH_DIR}/zig-out/bin/bench_native" \
+    --command-name "metal0" "${BENCH_DIR}/zig-out/bin/bench_native" \
     --command-name "rs-bpe" "python3 /tmp/bench_enc_rsbpe.py" \
     --command-name "tiktoken" "python3 /tmp/bench_enc_tiktoken.py" \
     --command-name "TokenDagger" "python3 /tmp/bench_enc_tokendagger.py" \

@@ -13,7 +13,7 @@ async def greet(name):
     print(f"Hello, {name}!")
     return f"Greeted {name}"
 
-result = asyncio.run(greet("PyAOT"))
+result = asyncio.run(greet("metal0"))
 print(f"Result: {result}\n")
 
 

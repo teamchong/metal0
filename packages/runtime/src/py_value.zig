@@ -128,9 +128,9 @@ test "PyValue basic operations" {
 test "SIMD string comparison" {
     const testing = std.testing;
 
-    const str1 = "hello world from PyAOT compiler!";
-    const str2 = "hello world from PyAOT compiler!";
-    const str3 = "hello world from PyAOT compiler?";
+    const str1 = "hello world from metal0 compiler!";
+    const str2 = "hello world from metal0 compiler!";
+    const str3 = "hello world from metal0 compiler?";
 
     try testing.expect(eqlString(str1, str2));
     try testing.expect(!eqlString(str1, str3));

@@ -10,11 +10,11 @@
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
 | `HuggingFace (Rust)` | 6.479 ± 0.041 | 6.409 | 6.515 | 1.00 |
-| `PyAOT (Zig)` | 77.416 ± 0.731 | 76.871 | 78.653 | **11.95 ± 0.14** |
+| `metal0 (Zig)` | 77.416 ± 0.731 | 76.871 | 78.653 | **11.95 ± 0.14** |
 
 ## Analysis
 
-**PyAOT is 11.95x SLOWER than HuggingFace for Unigram training.**
+**metal0 is 11.95x SLOWER than HuggingFace for Unigram training.**
 
 ### Why the Performance Gap?
 
@@ -23,7 +23,7 @@ Unigram training uses the EM (Expectation-Maximization) algorithm with:
 2. **A* search / nbest()** for N-best tokenization paths
 3. **Loss-based pruning** to reduce vocabulary size
 
-This is significantly more complex than BPE's greedy merge algorithm (which PyAOT wins at 7.78x faster).
+This is significantly more complex than BPE's greedy merge algorithm (which metal0 wins at 7.78x faster).
 
 ### Optimization Opportunities
 
@@ -49,10 +49,10 @@ SentencePiece benchmark failed (error during execution). Investigating separatel
 
 ## Comparison Summary
 
-| Algorithm | PyAOT Performance | Status |
+| Algorithm | metal0 Performance | Status |
 |-----------|------------------|--------|
 | **BPE** | **7.78x faster** 🏆 | World-class |
 | **WordPiece** | **1.94x slower** ⚠️ | Needs optimization |
 | **Unigram** | **11.95x slower** ⚠️ | Needs optimization |
 
-**Takeaway:** PyAOT excels at simple greedy algorithms (BPE) but needs optimization for complex iterative algorithms (Unigram, WordPiece).
+**Takeaway:** metal0 excels at simple greedy algorithms (BPE) but needs optimization for complex iterative algorithms (Unigram, WordPiece).

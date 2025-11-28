@@ -1,4 +1,4 @@
-/* test_extension.c - Simple C Extension to Test PyAOT's CPython API
+/* test_extension.c - Simple C Extension to Test metal0's CPython API
  *
  * This is a minimal C extension that uses our CPython C API implementation.
  * If this compiles and runs, it proves our API is C-compatible!
@@ -174,7 +174,7 @@ static struct PyMethodDef test_methods[] = {
  * ============================================================================ */
 
 int main() {
-    printf("Testing PyAOT CPython C API Implementation\n");
+    printf("Testing metal0 CPython C API Implementation\n");
     printf("===========================================\n\n");
 
     /* Test 1: Create integers */
@@ -246,7 +246,7 @@ int main() {
     }
 
     printf("\n✅ All tests passed!\n");
-    printf("PyAOT CPython C API is working! 🎉\n");
+    printf("metal0 CPython C API is working! 🎉\n");
 
     return 0;
 }

@@ -10,15 +10,18 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
     // Third-party packages (flask, requests, werkzeug, etc.) are handled by import_registry
     const stdlib_modules = [_][]const u8{
         // Core Python stdlib (still need Python source)
-        "sys",        "pathlib",
-        "urllib",     "importlib",  "threading",
+        "sys",         "pathlib",
+        "urllib",      "importlib",
+        "threading",
         // Complex/unsupported syntax
-        "inspect",    "abc",
-        "enum",       "dataclasses", "warnings",
-        "logging",    "traceback",  "weakref",
-        "types",      "codecs",     "binascii",
-        "platform",   "stat",       "posixpath",
-        "genericpath",
+          "inspect",
+        "abc",         "enum",
+        "dataclasses", "warnings",
+        "logging",     "traceback",
+        "weakref",     "types",
+        "codecs",      "binascii",
+        "platform",    "stat",
+        "posixpath",   "genericpath",
         // Python directive modules
         "__future__",
     };
@@ -142,15 +145,15 @@ fn resolveImportInternal(
 ) !?[]const u8 {
     // Try different search paths in order of priority:
     // 0. Compiled modules in build/lib.{platform}/ (if check_compiled)
-    // 1. Same directory as source file (if provided, or from PYAOT_SOURCE_DIR env)
+    // 1. Same directory as source file (if provided, or from metal0_SOURCE_DIR env)
     // 2. Current working directory
     // 3. examples/ directory (for backward compatibility)
     // 4. Site-packages directories
 
-    // Check PYAOT_SOURCE_DIR env var for runtime eval subprocess
+    // Check metal0_SOURCE_DIR env var for runtime eval subprocess
     // This allows eval() subprocess to use same import paths as main compilation
     const effective_source_dir: ?[]const u8 = source_file_dir orelse
-        std.posix.getenv("PYAOT_SOURCE_DIR");
+        std.posix.getenv("metal0_SOURCE_DIR");
 
     // Check compiled modules first (if enabled)
     if (check_compiled) {

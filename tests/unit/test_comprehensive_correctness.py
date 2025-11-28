@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Comprehensive BPE correctness test framework
-Tests PyAOT tokenizer against rs-bpe and tiktoken for 100% correctness
+Tests metal0 tokenizer against rs-bpe and tiktoken for 100% correctness
 
-Simplified version for PyAOT compilation.
-Original version uses subprocess/tempfile/try-except which PyAOT doesn't support.
+Simplified version for metal0 compilation.
+Original version uses subprocess/tempfile/try-except which metal0 doesn't support.
 """
 
 print("Loading test suite...")
@@ -37,7 +37,7 @@ text3 = "a"
 if len(name3) > 0 and len(text3) == 1:
     passed = passed + 1
 
-# Test 4: newline (PyAOT counts escape as 2 chars, so using > 0)
+# Test 4: newline (metal0 counts escape as 2 chars, so using > 0)
 total = total + 1
 name4 = "single_newline"
 text4 = "\n"
@@ -116,7 +116,7 @@ text14 = "abc123def456"
 if len(name14) > 0 and len(text14) == 12:
     passed = passed + 1
 
-# Test 15: multiple newlines (PyAOT counts escapes as 2 chars each, so using > 0)
+# Test 15: multiple newlines (metal0 counts escapes as 2 chars each, so using > 0)
 total = total + 1
 name15 = "multiple_newlines"
 text15 = "\n\n\n"

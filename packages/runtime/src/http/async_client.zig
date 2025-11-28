@@ -426,5 +426,5 @@ test "AsyncClient creation and cleanup" {
     var client = AsyncClient.init(allocator, &poller);
     defer client.deinit();
 
-    try client.setDefaultHeader("User-Agent", "PyAOT/1.0");
+    try client.setDefaultHeader("User-Agent", "metal0/1.0");
 }

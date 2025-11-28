@@ -1,4 +1,4 @@
-/// Bytecode codegen - compiles PyAOT AST to runtime bytecode format
+/// Bytecode codegen - compiles metal0 AST to runtime bytecode format
 /// Used for --emit-bytecode flag to support runtime eval()
 const std = @import("std");
 const ast = @import("ast");
@@ -87,7 +87,7 @@ pub const BytecodeProgram = struct {
     }
 };
 
-/// Bytecode compiler - converts PyAOT AST to bytecode
+/// Bytecode compiler - converts metal0 AST to bytecode
 pub const Compiler = struct {
     instructions: std.ArrayList(Instruction),
     constants: std.ArrayList(Constant),

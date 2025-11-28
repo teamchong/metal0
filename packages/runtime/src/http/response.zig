@@ -245,7 +245,7 @@ test "Response creation and serialization" {
     defer response.deinit();
 
     try response.setTextBody("Hello, World!");
-    try response.setHeader("Server", "PyAOT/1.0");
+    try response.setHeader("Server", "metal0/1.0");
 
     const serialized = try response.serialize(allocator);
     defer allocator.free(serialized);

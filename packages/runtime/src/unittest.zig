@@ -1,4 +1,4 @@
-/// PyAOT unittest module - test framework
+/// metal0 unittest module - test framework
 /// Re-exports all unittest functionality from submodules
 pub const runner = @import("unittest/runner.zig");
 pub const assertions_basic = @import("unittest/assertions_basic.zig");
@@ -30,6 +30,10 @@ pub const assertIn = assertions_basic.assertIn;
 pub const assertNotIn = assertions_basic.assertNotIn;
 pub const assertAlmostEqual = assertions_basic.assertAlmostEqual;
 pub const assertNotAlmostEqual = assertions_basic.assertNotAlmostEqual;
+pub const assertHasAttr = assertions_basic.assertHasAttr;
+pub const assertNotHasAttr = assertions_basic.assertNotHasAttr;
+pub const assertStartsWith = assertions_basic.assertStartsWith;
+pub const assertEndsWith = assertions_basic.assertEndsWith;
 
 // Re-export type/container assertions
 pub const assertCountEqual = assertions_type.assertCountEqual;

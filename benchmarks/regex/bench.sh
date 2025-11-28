@@ -1,5 +1,5 @@
 #!/bin/bash
-# Regex Benchmark - PyAOT regex vs Python vs Rust vs Go
+# Regex Benchmark - metal0 regex vs Python vs Rust vs Go
 # Tests common regex patterns against realistic data
 
 source "$(dirname "$0")/../common.sh"
@@ -21,9 +21,9 @@ cd "$REGEX_PKG"
 
 echo "Building..."
 
-# Build Zig (PyAOT regex)
+# Build Zig (metal0 regex)
 zig build -Doptimize=ReleaseFast >/dev/null 2>&1
-[ -f "./zig-out/bin/bench_zig" ] && echo -e "  ${GREEN}✓${NC} Zig/PyAOT"
+[ -f "./zig-out/bin/bench_zig" ] && echo -e "  ${GREEN}✓${NC} Zig/metal0"
 
 # Build Rust
 if [ "$RUST_AVAILABLE" = true ]; then
@@ -52,9 +52,9 @@ if [ "$PYPY_AVAILABLE" = true ]; then
     echo ""
 fi
 
-# Run Zig/PyAOT
+# Run Zig/metal0
 if [ -f "./zig-out/bin/bench_zig" ]; then
-    echo "Zig/PyAOT:"
+    echo "Zig/metal0:"
     ./zig-out/bin/bench_zig
     echo ""
 fi

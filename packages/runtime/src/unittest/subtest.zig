@@ -1,4 +1,4 @@
-/// PyAOT unittest subtest support
+/// metal0 unittest subtest support
 const std = @import("std");
 
 /// SubTest context manager - prints label for grouped assertions

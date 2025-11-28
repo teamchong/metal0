@@ -1,4 +1,4 @@
-# Demo: eval(), exec(), and compile() in PyAOT
+# Demo: eval(), exec(), and compile() in metal0
 
 # Test 1: Simple constant evaluation
 result1 = eval("42")
@@ -29,4 +29,4 @@ code = compile("1 + 1", "<string>", "eval")
 print("compile('1 + 1', '<string>', 'eval') =", code)  # Should print code object
 
 print("\n✅ All eval/exec/compile operations completed!")
-print("🚀 PyAOT dynamic code execution working!")
+print("🚀 metal0 dynamic code execution working!")

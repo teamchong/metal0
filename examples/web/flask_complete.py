@@ -1,4 +1,4 @@
-# Complete Flask-like web framework for PyAOT
+# Complete Flask-like web framework for metal0
 # Demonstrates core Flask concepts
 
 class Flask:

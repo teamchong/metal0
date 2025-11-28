@@ -4,6 +4,7 @@ const ast = @import("ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const body = @import("generators/body.zig");
+const zig_keywords = @import("zig_keywords");
 
 /// Find variables captured from outer scope by nested function
 fn findCapturedVars(
@@ -58,6 +59,96 @@ fn collectReferencedVars(
     for (stmts) |stmt| {
         try collectReferencedVarsInNode(self, stmt, referenced);
     }
+}
+
+/// Check if a parameter name is used in a list of statements
+fn isParamUsedInStmts(param_name: []const u8, stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        if (isParamUsedInNode(param_name, stmt)) return true;
+    }
+    return false;
+}
+
+/// Check if a parameter name is used in a single node
+fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
+    return switch (node) {
+        .name => |n| std.mem.eql(u8, n.id, param_name),
+        .binop => |b| isParamUsedInNode(param_name, b.left.*) or isParamUsedInNode(param_name, b.right.*),
+        .unaryop => |u| isParamUsedInNode(param_name, u.operand.*),
+        .call => |c| blk: {
+            if (isParamUsedInNode(param_name, c.func.*)) break :blk true;
+            for (c.args) |arg| {
+                if (isParamUsedInNode(param_name, arg)) break :blk true;
+            }
+            for (c.keyword_args) |kw| {
+                if (isParamUsedInNode(param_name, kw.value)) break :blk true;
+            }
+            break :blk false;
+        },
+        .return_stmt => |ret| if (ret.value) |val| isParamUsedInNode(param_name, val.*) else false,
+        .assign => |assign| isParamUsedInNode(param_name, assign.value.*),
+        .compare => |cmp| blk: {
+            if (isParamUsedInNode(param_name, cmp.left.*)) break :blk true;
+            for (cmp.comparators) |comp| {
+                if (isParamUsedInNode(param_name, comp)) break :blk true;
+            }
+            break :blk false;
+        },
+        .subscript => |sub| isParamUsedInNode(param_name, sub.value.*) or
+            (if (sub.slice == .index) isParamUsedInNode(param_name, sub.slice.index.*) else false),
+        .attribute => |attr| isParamUsedInNode(param_name, attr.value.*),
+        .if_stmt => |i| blk: {
+            if (isParamUsedInNode(param_name, i.condition.*)) break :blk true;
+            if (isParamUsedInStmts(param_name, i.body)) break :blk true;
+            if (isParamUsedInStmts(param_name, i.else_body)) break :blk true;
+            break :blk false;
+        },
+        .if_expr => |ie| isParamUsedInNode(param_name, ie.condition.*) or
+            isParamUsedInNode(param_name, ie.body.*) or
+            isParamUsedInNode(param_name, ie.orelse_value.*),
+        .list => |l| blk: {
+            for (l.elts) |elt| {
+                if (isParamUsedInNode(param_name, elt)) break :blk true;
+            }
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |elt| {
+                if (isParamUsedInNode(param_name, elt)) break :blk true;
+            }
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys) |key| {
+                if (isParamUsedInNode(param_name, key)) break :blk true;
+            }
+            for (d.values) |val| {
+                if (isParamUsedInNode(param_name, val)) break :blk true;
+            }
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            if (isParamUsedInNode(param_name, f.iter.*)) break :blk true;
+            if (isParamUsedInStmts(param_name, f.body)) break :blk true;
+            if (f.orelse_body) |ob| {
+                if (isParamUsedInStmts(param_name, ob)) break :blk true;
+            }
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            if (isParamUsedInNode(param_name, w.condition.*)) break :blk true;
+            if (isParamUsedInStmts(param_name, w.body)) break :blk true;
+            break :blk false;
+        },
+        .expr_stmt => |e| isParamUsedInNode(param_name, e.value.*),
+        .boolop => |bo| blk: {
+            for (bo.values) |v| {
+                if (isParamUsedInNode(param_name, v)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
 }
 
 /// Collect variable names from a single node
@@ -167,7 +258,15 @@ pub fn genNestedFunctionDef(
     try self.output.writer(self.allocator).print("fn {s}({s}: {s}", .{ impl_fn_name, capture_param_name, capture_type_name });
 
     for (func.args) |arg| {
-        try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
+        // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
+        const is_used = isParamUsedInStmts(arg.name, func.body);
+        if (is_used) {
+            try self.output.writer(self.allocator).print(", ", .{});
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.output.writer(self.allocator).print(": i64", .{});
+        } else {
+            try self.output.writer(self.allocator).print(", _: i64", .{});
+        }
     }
     try self.emit(") i64 {\n");
 
@@ -269,7 +368,9 @@ pub fn genNestedFunctionDef(
     defer self.allocator.free(closure_alias_name);
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("const {s} = {s};\n", .{ func.name, closure_alias_name });
+    try self.emit("const ");
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
+    try self.output.writer(self.allocator).print(" = {s};\n", .{closure_alias_name});
 
     // Mark this variable as a closure so calls use .call() syntax
     const func_name_copy = try self.allocator.dupe(u8, func.name);
@@ -347,7 +448,15 @@ fn genNestedFunctionWithOuterCapture(
     try self.output.writer(self.allocator).print("fn {s}({s}: {s}", .{ impl_fn_name, capture_param_name, capture_type_name });
 
     for (func.args) |arg| {
-        try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
+        // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
+        const is_used = isParamUsedInStmts(arg.name, func.body);
+        if (is_used) {
+            try self.output.writer(self.allocator).print(", ", .{});
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.output.writer(self.allocator).print(": i64", .{});
+        } else {
+            try self.output.writer(self.allocator).print(", _: i64", .{});
+        }
     }
     try self.emit(") i64 {\n");
 
@@ -458,7 +567,9 @@ fn genNestedFunctionWithOuterCapture(
     defer self.allocator.free(closure_alias_name);
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("const {s} = {s};\n", .{ func.name, closure_alias_name });
+    try self.emit("const ");
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
+    try self.output.writer(self.allocator).print(" = {s};\n", .{closure_alias_name});
 
     // Mark this variable as a closure so calls use .call() syntax
     const func_name_copy = try self.allocator.dupe(u8, func.name);
@@ -494,7 +605,14 @@ fn genZeroCaptureClosure(
     try self.output.writer(self.allocator).print("fn {s}(", .{inner_fn_name});
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
-        try self.output.writer(self.allocator).print("{s}: i64", .{arg.name});
+        // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
+        const is_used = isParamUsedInStmts(arg.name, func.body);
+        if (is_used) {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.output.writer(self.allocator).print(": i64", .{});
+        } else {
+            try self.output.writer(self.allocator).print("_: i64", .{});
+        }
     }
     try self.emit(") i64 {\n");
 
@@ -521,13 +639,17 @@ fn genZeroCaptureClosure(
     // Use ZeroClosure for single arg, or struct wrapper for multiple
     try self.emitIndent();
     if (func.args.len == 1) {
+        try self.emit("const ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
         try self.output.writer(self.allocator).print(
-            "const {s} = runtime.ZeroClosure(i64, i64, {s}.{s}){{}};\n",
-            .{ func.name, impl_name, inner_fn_name },
+            " = runtime.ZeroClosure(i64, i64, {s}.{s}){{}};\n",
+            .{ impl_name, inner_fn_name },
         );
     } else {
         // Multiple args - create wrapper struct
-        try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{func.name});
+        try self.emit("const ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
+        try self.emit(" = struct {\n");
         self.indent();
         try self.emitIndent();
         try self.emit("pub fn call(_: @This()");

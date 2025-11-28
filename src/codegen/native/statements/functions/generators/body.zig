@@ -237,6 +237,12 @@ fn genAsyncFunctionBody(
 
 /// Generate method body with self-usage detection
 pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) CodegenError!void {
+    // Analyze method body for mutated variables BEFORE generating code
+    // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
+    self.func_local_mutations.clearRetainingCapacity();
+    self.hoisted_vars.clearRetainingCapacity();
+    try analyzeFunctionLocalMutations(self, method);
+
     self.indent();
 
     // Note: self-usage is now handled in signature generation by using `_` as param name
@@ -255,6 +261,9 @@ pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) Codegen
 
     // Pop scope when exiting method
     self.popScope();
+
+    // Clear function-local mutations after exiting method
+    self.func_local_mutations.clearRetainingCapacity();
 
     self.dedent();
     try self.emitIndent();

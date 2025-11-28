@@ -4,6 +4,21 @@ const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 
+/// Check if an expression produces a Zig block expression that can't be subscripted/accessed directly
+fn producesBlockExpression(expr: ast.Node) bool {
+    return switch (expr) {
+        .subscript => true,
+        .list => true,
+        .dict => true,
+        .listcomp => true,
+        .dictcomp => true,
+        .genexp => true,
+        .if_expr => true,
+        .call => true,
+        else => false,
+    };
+}
+
 /// Generate code for len(obj)
 /// Works with: strings, lists, dicts, tuples
 pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -206,10 +221,10 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Generic cast for unknown types
-    try self.emit("@intCast(");
+    // Generic cast for unknown types - need explicit result type
+    try self.emit("@as(i64, @intCast(");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit("))");
 }
 
 /// Generate code for float(obj)
@@ -271,16 +286,11 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // For now: simple cast for numbers
-    // TODO: Implement truthiness for strings/lists/dicts
-    // - Empty string "" -> false
-    // - Empty list [] -> false
-    // - Zero 0 -> false
-    // - Non-zero numbers -> true
-    // Wrap in parens to avoid chained comparison issues when used in expressions
-    try self.emit("(");
+    // Use runtime.toBool for proper Python truthiness semantics
+    // Handles: integers, floats, bools, strings, slices, etc.
+    try self.emit("runtime.toBool(");
     try self.genExpr(args[0]);
-    try self.emit(" != 0)");
+    try self.emit(")");
 }
 
 /// Generate code for type(obj)
@@ -316,8 +326,9 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
     // list() with no args returns empty list
+    // Default to i64 element type since it's the most common case
     if (args.len == 0) {
-        try self.emit("std.ArrayList(@TypeOf(undefined)){}");
+        try self.emit("std.ArrayList(i64){}");
         return;
     }
 
@@ -334,14 +345,29 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         else => {},
     }
 
+    // Handle generator expressions specially - they already generate ArrayList
+    // So list(gen_expr) is just the generator expression itself
+    if (args[0] == .genexp) {
+        // Generator expression already returns an ArrayList, just use it directly
+        try self.genExpr(args[0]);
+        return;
+    }
+
+    // Handle list comprehensions similarly - they also generate ArrayList
+    if (args[0] == .listcomp) {
+        try self.genExpr(args[0]);
+        return;
+    }
+
     // Convert iterable to ArrayList
+    // Assign iterable to intermediate variable first to avoid issues with block expressions
+    // (Zig doesn't allow subscripting block expressions directly)
     try self.emit("list_blk: {\n");
-    try self.emitFmt("var _list = std.ArrayList(@TypeOf(", .{});
+    try self.emit("const _iterable = ");
     try self.genExpr(args[0]);
-    try self.emit("[0])){};\n");
-    try self.emit("for (");
-    try self.genExpr(args[0]);
-    try self.emit(") |_item| {\n");
+    try self.emit(";\n");
+    try self.emit("var _list = std.ArrayList(@TypeOf(_iterable[0])){};\n");
+    try self.emit("for (_iterable) |_item| {\n");
     try self.emitFmt("try _list.append({s}, _item);\n", .{alloc_name});
     try self.emit("}\n");
     try self.emit("break :list_blk _list;\n");
@@ -379,8 +405,9 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Converts key-value pairs to a dict (StringHashMap)
 pub fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // dict() with no args returns empty dict
+    // Default to i64 value type since it's common (keys are strings)
     if (args.len == 0) {
-        try self.emit("std.StringHashMap(@TypeOf(undefined)){}");
+        try self.emit("std.StringHashMap(i64){}");
         return;
     }
 
@@ -407,8 +434,9 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
     // set() with no args returns empty set
+    // Default to i64 key type since it's the most common case
     if (args.len == 0) {
-        try self.emit("std.AutoHashMap(@TypeOf(undefined), void){}");
+        try self.emit("std.AutoHashMap(i64, void){}");
         return;
     }
 
@@ -426,13 +454,26 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Convert iterable to set
+    // Check if arg produces a block expression that needs to be stored in temp variable
+    const needs_temp = producesBlockExpression(args[0]);
+
     try self.emit("set_blk: {\n");
-    try self.emitFmt("var _set = std.AutoHashMap(@TypeOf(", .{});
-    try self.genExpr(args[0]);
-    try self.emit("[0]), void){};\n");
-    try self.emit("for (");
-    try self.genExpr(args[0]);
-    try self.emit(") |_item| {\n");
+
+    if (needs_temp) {
+        // Store block expression in temp variable first
+        try self.emit("const __iterable = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+        try self.emit("var _set = std.AutoHashMap(@TypeOf(__iterable[0]), void){};\n");
+        try self.emit("for (__iterable) |_item| {\n");
+    } else {
+        try self.emitFmt("var _set = std.AutoHashMap(@TypeOf(", .{});
+        try self.genExpr(args[0]);
+        try self.emit("[0]), void){};\n");
+        try self.emit("for (");
+        try self.genExpr(args[0]);
+        try self.emit(") |_item| {\n");
+    }
     try self.emitFmt("try _set.put({s}, _item, {{}});\n", .{alloc_name});
     try self.emit("}\n");
     try self.emit("break :set_blk _set;\n");
@@ -497,4 +538,100 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("});\n");
     try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
     try self.emit("}");
+}
+
+/// Generate code for callable(obj)
+/// Returns True if obj appears to be callable
+pub fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        try self.emit("false");
+        return;
+    }
+
+    // At compile time, we can check if something is a function type
+    // For now, emit a runtime check or true for known callable types
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    switch (arg_type) {
+        .function => {
+            try self.emit("true");
+        },
+        .unknown => {
+            // Runtime check - use @typeInfo
+            try self.emit("runtime.isCallable(");
+            try self.genExpr(args[0]);
+            try self.emit(")");
+        },
+        else => {
+            // Check if it's a class (has __call__)
+            if (args[0] == .name) {
+                if (self.classHasMethod(args[0].name.id, "__call__")) {
+                    try self.emit("true");
+                    return;
+                }
+            }
+            // Most types are not callable
+            try self.emit("false");
+        },
+    }
+}
+
+/// Generate code for issubclass(cls, classinfo)
+/// Returns True if cls is a subclass of classinfo
+pub fn genIssubclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) {
+        try self.emit("false");
+        return;
+    }
+
+    // For static types, we can sometimes determine at compile time
+    // For runtime, we need to check type hierarchy
+
+    // Handle common cases: issubclass(bool, int) -> true
+    if (args[0] == .name and args[1] == .name) {
+        const cls_name = args[0].name.id;
+        const base_name = args[1].name.id;
+
+        // Built-in type hierarchy
+        if (std.mem.eql(u8, cls_name, "bool") and std.mem.eql(u8, base_name, "int")) {
+            try self.emit("true");
+            return;
+        }
+        if (std.mem.eql(u8, cls_name, base_name)) {
+            try self.emit("true");
+            return;
+        }
+    }
+
+    // Runtime check
+    try self.emit("runtime.isSubclass(");
+    try self.genExpr(args[0]);
+    try self.emit(", ");
+    try self.genExpr(args[1]);
+    try self.emit(")");
+}
+
+/// Generate code for complex(real, imag)
+/// Creates a complex number
+pub fn genComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        // complex() with no args returns 0j
+        try self.emit("runtime.PyComplex.create(0.0, 0.0)");
+        return;
+    }
+
+    if (args.len == 1) {
+        // complex(x) - x can be a number or string
+        try self.emit("runtime.PyComplex.fromValue(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
+
+    // complex(real, imag)
+    try self.emit("runtime.PyComplex.create(");
+    try self.genExpr(args[0]);
+    try self.emit(", ");
+    try self.genExpr(args[1]);
+    try self.emit(")");
 }

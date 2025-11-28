@@ -1,4 +1,4 @@
-/// Public JSON API for PyAOT - json.loads() and json.dumps()
+/// Public JSON API for metal0 - json.loads() and json.dumps()
 const std = @import("std");
 const runtime = @import("runtime.zig");
 const parse_direct = @import("json/parse_direct.zig");
@@ -601,7 +601,7 @@ test "loads: parse array" {
 
 test "loads: parse object" {
     const allocator = std.testing.allocator;
-    const json_str = try runtime.PyString.create(allocator, "{\"name\": \"PyAOT\"}");
+    const json_str = try runtime.PyString.create(allocator, "{\"name\": \"metal0\"}");
     defer runtime.decref(json_str, allocator);
 
     const result = try loads(json_str, allocator);
@@ -611,7 +611,7 @@ test "loads: parse object" {
 
     if (runtime.PyDict.get(result, "name")) |value| {
         defer runtime.decref(value, allocator); // PyDict.get() increments ref count
-        try std.testing.expectEqualStrings("PyAOT", runtime.PyString.getValue(value));
+        try std.testing.expectEqualStrings("metal0", runtime.PyString.getValue(value));
     } else {
         return error.TestUnexpectedResult;
     }
@@ -666,7 +666,7 @@ test "dumps: stringify object" {
     const dict = try runtime.PyDict.create(allocator);
     defer runtime.decref(dict, allocator);
 
-    const value = try runtime.PyString.create(allocator, "PyAOT");
+    const value = try runtime.PyString.create(allocator, "metal0");
     try runtime.PyDict.set(dict, "name", value);
     // Note: Dict now owns this reference, don't decref here
 
@@ -675,7 +675,7 @@ test "dumps: stringify object" {
 
     const json_str = runtime.PyString.getValue(result);
     try std.testing.expect(std.mem.indexOf(u8, json_str, "\"name\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json_str, "\"PyAOT\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json_str, "\"metal0\"") != null);
 }
 
 test "round-trip: loads + dumps" {

@@ -87,8 +87,8 @@ elapsed = time.time() - start
 print(f"{int(elapsed * 1000)}ms")
 PYEOF
 
-# Run hyperfine (SKIP PyAOT - currently too slow)
-echo "⚠️  Skipping PyAOT native - currently too slow"
+# Run hyperfine (SKIP metal0 - currently too slow)
+echo "⚠️  Skipping metal0 native - currently too slow"
 echo ""
 
 hyperfine \

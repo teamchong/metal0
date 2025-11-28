@@ -107,7 +107,7 @@ pub fn main() !void {
     const text = try loadData(allocator);
     defer allocator.free(text);
 
-    std.debug.print("PyAOT Regex Benchmark (100K iterations per pattern)\n", .{});
+    std.debug.print("metal0 Regex Benchmark (100K iterations per pattern)\n", .{});
     std.debug.print("{s:<20} {s:<10} {s:<12} {s:<12}\n", .{ "Pattern", "Matches", "Avg (µs)", "Total (ms)" });
     std.debug.print("----------------------------------------------------------------------\n", .{});
 

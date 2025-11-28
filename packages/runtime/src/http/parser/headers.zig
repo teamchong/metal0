@@ -119,7 +119,7 @@ test "parseHeaders basic" {
     const raw =
         \\GET /api HTTP/1.1
         \\Host: example.com
-        \\User-Agent: PyAOT/1.0
+        \\User-Agent: metal0/1.0
         \\Content-Type: application/json
         \\
         \\
@@ -129,7 +129,7 @@ test "parseHeaders basic" {
     defer headers.deinit();
 
     try std.testing.expectEqualStrings("example.com", headers.get("Host").?);
-    try std.testing.expectEqualStrings("PyAOT/1.0", headers.get("User-Agent").?);
+    try std.testing.expectEqualStrings("metal0/1.0", headers.get("User-Agent").?);
     try std.testing.expectEqualStrings("application/json", headers.get("Content-Type").?);
 }
 

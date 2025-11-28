@@ -1,4 +1,4 @@
-/// PyAOT unittest runner - test result tracking and lifecycle
+/// metal0 unittest runner - test result tracking and lifecycle
 const std = @import("std");
 
 /// Test result tracking

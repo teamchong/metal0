@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Comprehensive test for ALL dynamic Python features in PyAOT"""
+"""Comprehensive test for ALL dynamic Python features in metal0"""
 
 print("=" * 60)
 print("TESTING ALL DYNAMIC FEATURES")
@@ -110,5 +110,5 @@ print("✅ getattr/setattr/hasattr - WORKING")
 print("✅ vars() - WORKING")
 print("✅ globals()/locals() - WORKING")
 print("=" * 60)
-print("🎉 PyAOT is a TRUE DROP-IN Python replacement!")
+print("🎉 metal0 is a TRUE DROP-IN Python replacement!")
 print("=" * 60)

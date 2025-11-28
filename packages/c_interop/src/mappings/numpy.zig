@@ -115,11 +115,11 @@ pub const numpy_mapping = mapper.CLibraryMapping{
         // numpy.array([...]) - no C call, just allocation
         .{
             .python_name = "numpy.array",
-            .c_name = "__pyaot_numpy_array_create",
+            .c_name = "__metal0_numpy_array_create",
             .allocates_memory = true,
             .setup_code = null,
             .cleanup_code = null,
-            .notes = "Array creation - handled by PyAOT runtime, not BLAS",
+            .notes = "Array creation - handled by metal0 runtime, not BLAS",
             .arg_mappings = &[_]mapper.ArgMapping{
                 .{
                     .python_index = 0,
@@ -143,7 +143,7 @@ pub const numpy_mapping = mapper.CLibraryMapping{
         // numpy.zeros(n)
         .{
             .python_name = "numpy.zeros",
-            .c_name = "__pyaot_numpy_zeros",
+            .c_name = "__metal0_numpy_zeros",
             .allocates_memory = true,
             .setup_code = null,
             .cleanup_code = null,
@@ -171,7 +171,7 @@ pub const numpy_mapping = mapper.CLibraryMapping{
         // numpy.ones(n)
         .{
             .python_name = "numpy.ones",
-            .c_name = "__pyaot_numpy_ones",
+            .c_name = "__metal0_numpy_ones",
             .allocates_memory = true,
             .setup_code = null,
             .cleanup_code = null,
@@ -199,7 +199,7 @@ pub const numpy_mapping = mapper.CLibraryMapping{
         // numpy.mean(a)
         .{
             .python_name = "numpy.mean",
-            .c_name = "__pyaot_numpy_mean",
+            .c_name = "__metal0_numpy_mean",
             .allocates_memory = false,
             .setup_code = null,
             .cleanup_code = null,

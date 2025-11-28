@@ -287,7 +287,7 @@ test "Client creation and cleanup" {
     var client = Client.init(allocator);
     defer client.deinit();
 
-    try client.setDefaultHeader("User-Agent", "PyAOT/1.0");
+    try client.setDefaultHeader("User-Agent", "metal0/1.0");
 }
 
 test "RequestBuilder fluent API" {

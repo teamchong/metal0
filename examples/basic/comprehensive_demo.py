@@ -1,9 +1,9 @@
 """
-PyAOT Comprehensive Feature Demo
+metal0 Comprehensive Feature Demo
 Showcases all currently supported Python features
 """
 
-print("=== PyAOT Feature Demonstration ===")
+print("=== metal0 Feature Demonstration ===")
 print("")
 
 # 1. Basic Types
@@ -136,5 +136,5 @@ print("")
 
 # Summary
 print("=== Summary ===")
-print("All core PyAOT features working!")
+print("All core metal0 features working!")
 print("Compiles to native binary with zero Python runtime")

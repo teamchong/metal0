@@ -1,4 +1,4 @@
-/// PyAOT Runtime Format Utilities
+/// metal0 Runtime Format Utilities
 /// Formatting functions for Python-style printing
 const std = @import("std");
 const pystring = @import("pystring.zig");

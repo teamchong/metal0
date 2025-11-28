@@ -94,7 +94,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try self.emit("}\n"); // unittest.main() handled specially, no semicolon needed
 }
 
 /// Generate code for unittest.finalize() - called at end of tests

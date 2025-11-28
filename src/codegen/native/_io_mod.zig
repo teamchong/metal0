@@ -24,9 +24,9 @@ pub fn genBytesIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("blk: { const init = ");
         try self.genExpr(args[0]);
-        try self.emit("; var bio = std.ArrayList(u8).init(pyaot_allocator); bio.appendSlice(init) catch {}; break :blk .{ .buffer = bio, .pos = 0 }; }");
+        try self.emit("; var bio = std.ArrayList(u8).init(metal0_allocator); bio.appendSlice(init) catch {}; break :blk .{ .buffer = bio, .pos = 0 }; }");
     } else {
-        try self.emit(".{ .buffer = std.ArrayList(u8).init(pyaot_allocator), .pos = 0 }");
+        try self.emit(".{ .buffer = std.ArrayList(u8).init(metal0_allocator), .pos = 0 }");
     }
 }
 
@@ -35,9 +35,9 @@ pub fn genStringIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("blk: { const init = ");
         try self.genExpr(args[0]);
-        try self.emit("; var sio = std.ArrayList(u8).init(pyaot_allocator); sio.appendSlice(init) catch {}; break :blk .{ .buffer = sio, .pos = 0 }; }");
+        try self.emit("; var sio = std.ArrayList(u8).init(metal0_allocator); sio.appendSlice(init) catch {}; break :blk .{ .buffer = sio, .pos = 0 }; }");
     } else {
-        try self.emit(".{ .buffer = std.ArrayList(u8).init(pyaot_allocator), .pos = 0 }");
+        try self.emit(".{ .buffer = std.ArrayList(u8).init(metal0_allocator), .pos = 0 }");
     }
 }
 

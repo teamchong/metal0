@@ -5,6 +5,21 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const NativeType = @import("../../../analysis/native_types.zig").NativeType;
 
+/// Check if an expression produces a Zig block/struct expression that can't have methods called directly
+fn producesBlockExpression(expr: ast.Node) bool {
+    return switch (expr) {
+        .subscript => true,
+        .list => true,
+        .dict => true,
+        .listcomp => true,
+        .dictcomp => true,
+        .genexp => true,
+        .if_expr => true,
+        .call => true, // dict() or other constructor calls
+        else => false,
+    };
+}
+
 /// Generate code for dict.get(key, default)
 /// Returns value if key exists, otherwise returns default (or null if no default)
 /// If no args, generates generic method call (for custom class methods)
@@ -19,21 +34,52 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 
     const default_val = if (args.len >= 2) args[1] else null;
 
-    if (default_val) |def| {
-        // Generate: dict.get(key) orelse default
+    // Check if obj produces a block/struct expression that can't have
+    // methods called on them directly in Zig. Need to assign to intermediate variable.
+    const is_dict_literal = producesBlockExpression(obj);
+
+    if (is_dict_literal) {
+        // Wrap in block with intermediate variable
+        try self.emit("blk: {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("const __dict_temp = ");
         try self.genExpr(obj);
-        try self.emit(".get(");
-        try self.genExpr(args[0]);
-        try self.emit(") orelse ");
-        try self.genExpr(def);
+        try self.emit(";\n");
+        try self.emitIndent();
+        try self.emit("break :blk ");
+
+        if (default_val) |def| {
+            try self.emit("__dict_temp.get(");
+            try self.genExpr(args[0]);
+            try self.emit(") orelse ");
+            try self.genExpr(def);
+        } else {
+            try self.emit("__dict_temp.get(");
+            try self.genExpr(args[0]);
+            try self.emit(").?");
+        }
+        try self.emit(";\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}");
     } else {
-        // Generate: dict.get(key).? (force unwrap - assumes key exists, like Python does)
-        // Python's dict.get(key) without default returns None if key not found,
-        // but in AOT context, we assume keys exist for typed access
-        try self.genExpr(obj);
-        try self.emit(".get(");
-        try self.genExpr(args[0]);
-        try self.emit(").?");
+        if (default_val) |def| {
+            // Generate: dict.get(key) orelse default
+            try self.genExpr(obj);
+            try self.emit(".get(");
+            try self.genExpr(args[0]);
+            try self.emit(") orelse ");
+            try self.genExpr(def);
+        } else {
+            // Generate: dict.get(key).? (force unwrap - assumes key exists, like Python does)
+            // Python's dict.get(key) without default returns None if key not found,
+            // but in AOT context, we assume keys exist for typed access
+            try self.genExpr(obj);
+            try self.emit(".get(");
+            try self.genExpr(args[0]);
+            try self.emit(").?");
+        }
     }
 }
 
@@ -42,16 +88,30 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // keys() takes no arguments
 
+    const needs_temp = producesBlockExpression(obj);
+
     // Generate block that builds list of keys using .keys() slice
     try self.emit("blk: {\n");
     self.indent_level += 1;
+
+    // Store block expression in temp variable if needed
+    if (needs_temp) {
+        try self.emitIndent();
+        try self.emit("const __dict_temp = ");
+        try self.genExpr(obj);
+        try self.emit(";\n");
+    }
 
     try self.emitIndent();
     try self.emit("var _keys_list = std.ArrayList([]const u8){};\n");
 
     try self.emitIndent();
     try self.emit("for (");
-    try self.genExpr(obj);
+    if (needs_temp) {
+        try self.emit("__dict_temp");
+    } else {
+        try self.genExpr(obj);
+    }
     try self.emit(".keys()) |key| {\n");
     self.indent_level += 1;
 
@@ -79,9 +139,19 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     const dict_type = try self.type_inferrer.inferExpr(obj);
     const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType.int;
 
+    const needs_temp = producesBlockExpression(obj);
+
     // Generate block that builds list of values
     try self.emit("blk: {\n");
     self.indent_level += 1;
+
+    // Store block expression in temp variable if needed
+    if (needs_temp) {
+        try self.emitIndent();
+        try self.emit("const __dict_temp = ");
+        try self.genExpr(obj);
+        try self.emit(";\n");
+    }
 
     try self.emitIndent();
     try self.emit("var _values_list = std.ArrayList(");
@@ -90,7 +160,11 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     try self.emitIndent();
     try self.emit("var _iter = ");
-    try self.genExpr(obj);
+    if (needs_temp) {
+        try self.emit("__dict_temp");
+    } else {
+        try self.genExpr(obj);
+    }
     try self.emit(".valueIterator();\n");
 
     try self.emitIndent();
@@ -121,9 +195,19 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     const dict_type = try self.type_inferrer.inferExpr(obj);
     const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType.int;
 
+    const needs_temp = producesBlockExpression(obj);
+
     // Generate block that builds list of tuples
     try self.emit("blk: {\n");
     self.indent_level += 1;
+
+    // Store block expression in temp variable if needed
+    if (needs_temp) {
+        try self.emitIndent();
+        try self.emit("const __dict_temp = ");
+        try self.genExpr(obj);
+        try self.emit(";\n");
+    }
 
     try self.emitIndent();
     try self.emit("var _items_list = std.ArrayList(std.meta.Tuple(&[_]type{[]const u8, ");
@@ -132,7 +216,11 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     try self.emitIndent();
     try self.emit("var _iter = ");
-    try self.genExpr(obj);
+    if (needs_temp) {
+        try self.emit("__dict_temp");
+    } else {
+        try self.genExpr(obj);
+    }
     try self.emit(".iterator();\n");
 
     try self.emitIndent();

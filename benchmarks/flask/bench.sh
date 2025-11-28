@@ -12,7 +12,7 @@ echo "Flask app logic + external HTTP fetch"
 echo "Tests: Flask app creation + requests + response handling"
 echo ""
 
-# Python source (SAME code for PyAOT, Python, PyPy)
+# Python source (SAME code for metal0, Python, PyPy)
 # Tests Flask app instantiation + requests fetch (no server needed)
 cat > flask_bench.py <<'EOF'
 from flask import Flask
@@ -97,8 +97,8 @@ EOF
 
 print_header "Building"
 
-build_pyaot_compiler
-compile_pyaot flask_bench.py flask_bench_pyaot
+build_metal0_compiler
+compile_metal0 flask_bench.py flask_bench_metal0
 compile_go flask_bench.go flask_bench_go
 
 # Rust with cargo
@@ -119,7 +119,7 @@ echo ""
 
 BENCH_CMD=(hyperfine --warmup 1 --runs 5 --export-markdown results.md)
 
-add_pyaot BENCH_CMD flask_bench_pyaot
+add_metal0 BENCH_CMD flask_bench_metal0
 add_rust BENCH_CMD flask_bench_rust
 add_go BENCH_CMD flask_bench_go
 
@@ -140,5 +140,5 @@ print_header "Results"
 cat results.md
 
 # Cleanup
-rm -f flask_bench.py flask_bench.go flask_bench_pyaot flask_bench_rust flask_bench_go
+rm -f flask_bench.py flask_bench.go flask_bench_metal0 flask_bench_rust flask_bench_go
 rm -rf rust

@@ -18,13 +18,13 @@ pub fn genIskeyword(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate keyword.kwlist
 pub fn genKwlist(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).fromSlice(&[_][]const u8{ \"False\", \"None\", \"True\", \"and\", \"as\", \"assert\", \"async\", \"await\", \"break\", \"class\", \"continue\", \"def\", \"del\", \"elif\", \"else\", \"except\", \"finally\", \"for\", \"from\", \"global\", \"if\", \"import\", \"in\", \"is\", \"lambda\", \"nonlocal\", \"not\", \"or\", \"pass\", \"raise\", \"return\", \"try\", \"while\", \"with\", \"yield\" })");
+    try self.emit("metal0_runtime.PyList([]const u8).fromSlice(&[_][]const u8{ \"False\", \"None\", \"True\", \"and\", \"as\", \"assert\", \"async\", \"await\", \"break\", \"class\", \"continue\", \"def\", \"del\", \"elif\", \"else\", \"except\", \"finally\", \"for\", \"from\", \"global\", \"if\", \"import\", \"in\", \"is\", \"lambda\", \"nonlocal\", \"not\", \"or\", \"pass\", \"raise\", \"return\", \"try\", \"while\", \"with\", \"yield\" })");
 }
 
 /// Generate keyword.softkwlist (Python 3.10+)
 pub fn genSoftkwlist(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("pyaot_runtime.PyList([]const u8).fromSlice(&[_][]const u8{ \"_\", \"case\", \"match\", \"type\" })");
+    try self.emit("metal0_runtime.PyList([]const u8).fromSlice(&[_][]const u8{ \"_\", \"case\", \"match\", \"type\" })");
 }
 
 /// Generate keyword.issoftkeyword(s)

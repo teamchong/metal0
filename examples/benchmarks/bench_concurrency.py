@@ -1,4 +1,4 @@
-# Concurrency benchmark - PyAOT async/await vs Go goroutines
+# Concurrency benchmark - metal0 async/await vs Go goroutines
 import asyncio
 import time
 

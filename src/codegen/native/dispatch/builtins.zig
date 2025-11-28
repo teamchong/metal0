@@ -54,6 +54,9 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     // Type functions
     .{ "type", builtins.genType },
     .{ "isinstance", builtins.genIsinstance },
+    .{ "issubclass", builtins.genIssubclass },
+    .{ "callable", builtins.genCallable },
+    .{ "complex", builtins.genComplex },
     // Dynamic code execution
     .{ "exec", builtins.genExec },
     .{ "compile", builtins.genCompile },

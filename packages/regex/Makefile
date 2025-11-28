@@ -8,14 +8,14 @@ BLUE := \033[0;34m
 NC := \033[0m # No Color
 
 help:
-	@echo "$(BLUE)PyAOT Regex Benchmarks$(NC)"
+	@echo "$(BLUE)metal0 Regex Benchmarks$(NC)"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  $(GREEN)make benchmark$(NC)           - Run ALL benchmarks (Python, Zig, Rust, Go)"
-	@echo "  $(GREEN)make benchmark-hyperfine$(NC) - Official comparison: PyAOT vs Rust (hyperfine)"
+	@echo "  $(GREEN)make benchmark-hyperfine$(NC) - Official comparison: metal0 vs Rust (hyperfine)"
 	@echo "  $(GREEN)make benchmark-sizes$(NC)     - Multi-size benchmarks (small/medium/large)"
 	@echo "  $(GREEN)make benchmark-python$(NC)    - Run Python benchmark only"
-	@echo "  $(GREEN)make benchmark-zig$(NC)       - Run Zig/PyAOT benchmark only"
+	@echo "  $(GREEN)make benchmark-zig$(NC)       - Run Zig/metal0 benchmark only"
 	@echo "  $(GREEN)make benchmark-rust$(NC)      - Run Rust benchmark only"
 	@echo "  $(GREEN)make benchmark-go$(NC)        - Run Go benchmark only"
 	@echo "  $(GREEN)make build$(NC)               - Build all benchmarks"
@@ -59,7 +59,7 @@ benchmark: build
 # Hyperfine benchmarks (OFFICIAL - Use these for comparisons!)
 benchmark-hyperfine: build-zig build-rust
 	@echo "$(BLUE)========================================$(NC)"
-	@echo "$(BLUE)🏆 OFFICIAL BENCHMARK: PyAOT vs Rust$(NC)"
+	@echo "$(BLUE)🏆 OFFICIAL BENCHMARK: metal0 vs Rust$(NC)"
 	@echo "$(BLUE)Using hyperfine (10 runs, 3 warmup)$(NC)"
 	@echo "$(BLUE)========================================$(NC)"
 	@echo ""
@@ -96,7 +96,7 @@ benchmark-python:
 	@hyperfine --warmup 2 --runs 5 "python3 bench_python.py"
 
 benchmark-zig: build-zig
-	@echo "$(YELLOW)Running PyAOT benchmark (hyperfine)...$(NC)"
+	@echo "$(YELLOW)Running metal0 benchmark (hyperfine)...$(NC)"
 	@hyperfine --warmup 3 --runs 5 "./BENCHMARK"
 
 benchmark-rust: build-rust

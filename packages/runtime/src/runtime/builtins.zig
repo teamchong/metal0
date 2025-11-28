@@ -334,3 +334,75 @@ pub fn filterTruthy(iterable: *PyObject, allocator: std.mem.Allocator) !*PyObjec
 
     return result;
 }
+
+/// callable() builtin - returns true if object is callable
+/// Works with: functions, function pointers, PyObjects with __call__
+pub fn callable(obj: anytype) bool {
+    const T = @TypeOf(obj);
+    // Check if it's a function type
+    if (@typeInfo(T) == .@"fn") return true;
+    if (@typeInfo(T) == .pointer) {
+        const child = @typeInfo(T).pointer.child;
+        if (@typeInfo(child) == .@"fn") return true;
+    }
+    // Check for PyObject with __call__
+    if (T == *PyObject) {
+        // For now, return false for PyObjects (no callable detection yet)
+        // TODO: check for __call__ attribute
+        return false;
+    }
+    return false;
+}
+
+/// len() builtin as a first-class function value
+/// For use in contexts like callable(len)
+pub fn len(obj: anytype) usize {
+    const T = @TypeOf(obj);
+    if (T == *PyObject) {
+        return runtime_core.pyLen(obj);
+    } else if (@typeInfo(T) == .pointer) {
+        const Child = @typeInfo(T).pointer.child;
+        if (@hasField(Child, "items")) {
+            return obj.items.len;
+        } else if (@hasDecl(Child, "len")) {
+            return obj.len;
+        }
+    } else if (@typeInfo(T) == .array) {
+        return @typeInfo(T).array.len;
+    } else if (comptime isSlice(T)) {
+        return obj.len;
+    }
+    return 0;
+}
+
+/// id() builtin - returns object identity (pointer address)
+pub fn id(obj: anytype) usize {
+    const T = @TypeOf(obj);
+    if (@typeInfo(T) == .pointer) {
+        return @intFromPtr(obj);
+    }
+    return 0;
+}
+
+/// hash() builtin - returns hash of object
+pub fn hash(obj: anytype) i64 {
+    const T = @TypeOf(obj);
+    if (T == *PyObject) {
+        return @intCast(runtime_core.pyHash(obj));
+    } else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+        return @intCast(obj);
+    } else if (T == []const u8 or T == []u8) {
+        var h: u64 = 0;
+        for (obj) |c| h = h *% 31 +% c;
+        return @intCast(h);
+    }
+    return 0;
+}
+
+/// Helper to check if type is a slice
+fn isSlice(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| p.size == .Slice,
+        else => false,
+    };
+}

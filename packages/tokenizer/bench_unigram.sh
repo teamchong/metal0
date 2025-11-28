@@ -1,12 +1,12 @@
 #!/bin/bash
-# Hyperfine benchmark: Unigram Training (PyAOT vs HuggingFace vs SentencePiece)
+# Hyperfine benchmark: Unigram Training (metal0 vs HuggingFace vs SentencePiece)
 
 set -e
 
 echo "⚡ Unigram Training Benchmark (hyperfine)"
 echo "============================================================"
 echo "Training: 583 texts × 300 iterations"
-echo "PyAOT/HF: vocab 32000 | SentencePiece: vocab 32000"
+echo "metal0/HF: vocab 32000 | SentencePiece: vocab 32000"
 echo "Python startup overhead ~0.2% with 300 training runs"
 echo ""
 
@@ -83,7 +83,7 @@ hyperfine \
     --warmup 1 \
     --runs 5 \
     --export-markdown bench_unigram_results.md \
-    --command-name "PyAOT (Zig)" 'ALGORITHM=Unigram ./zig-out/bin/bench_train' \
+    --command-name "metal0 (Zig)" 'ALGORITHM=Unigram ./zig-out/bin/bench_train' \
     --command-name "HuggingFace (Rust)" 'python3 /tmp/bench_hf_unigram.py' \
     --command-name "SentencePiece (C++)" 'python3 /tmp/bench_spm_unigram.py'
 

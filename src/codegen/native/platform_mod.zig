@@ -48,7 +48,7 @@ pub fn genProcessor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate platform.python_implementation() -> str
 pub fn genPythonImplementation(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("\"PyAOT\"");
+    try self.emit("\"metal0\"");
 }
 
 /// Generate platform.python_version() -> str

@@ -1,12 +1,12 @@
 #!/bin/bash
-# Hyperfine benchmark: WordPiece Training (PyAOT vs HuggingFace)
+# Hyperfine benchmark: WordPiece Training (metal0 vs HuggingFace)
 
 set -e
 
 echo "⚡ WordPiece Training Benchmark (hyperfine)"
 echo "============================================================"
 echo "Training: 583 texts × 300 iterations"
-echo "PyAOT/HF: vocab 32000"
+echo "metal0/HF: vocab 32000"
 echo "Note: SentencePiece doesn't support WordPiece"
 echo ""
 
@@ -47,7 +47,7 @@ hyperfine \
     --warmup 1 \
     --runs 5 \
     --export-markdown bench_wordpiece_results.md \
-    --command-name "PyAOT (Zig)" './zig-out/bin/bench_train' \
+    --command-name "metal0 (Zig)" './zig-out/bin/bench_train' \
     --command-name "HuggingFace (Rust)" 'python3 /tmp/bench_hf_wordpiece.py'
 
 echo ""

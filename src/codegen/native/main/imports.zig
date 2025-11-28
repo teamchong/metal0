@@ -263,10 +263,18 @@ pub fn collectImports(
             .import_stmt => |imp| {
                 const module_name = imp.module;
                 try module_names.put(module_name, {});
+                // Also add root module for dotted imports (e.g., "test.support" -> "test")
+                if (std.mem.indexOfScalar(u8, module_name, '.')) |dot_idx| {
+                    try module_names.put(module_name[0..dot_idx], {});
+                }
             },
             .import_from => |imp| {
                 const module_name = imp.module;
                 try module_names.put(module_name, {});
+                // Also add root module for dotted imports (e.g., "test.support" -> "test")
+                if (std.mem.indexOfScalar(u8, module_name, '.')) |dot_idx| {
+                    try module_names.put(module_name[0..dot_idx], {});
+                }
 
                 // Store from-import info for symbol re-export generation
                 try self.from_imports.append(self.allocator, core.FromImportInfo{
@@ -352,7 +360,7 @@ pub fn collectImports(
                     std.debug.print("Error: Dynamic imports not supported in AOT compilation\n", .{});
                     std.debug.print("  --> import {s}\n", .{python_module});
                     std.debug.print("   |\n", .{});
-                    std.debug.print("   = PyAOT resolves all imports at compile time\n", .{});
+                    std.debug.print("   = metal0 resolves all imports at compile time\n", .{});
                     std.debug.print("   = Dynamic runtime module loading not supported\n", .{});
                     if (std.mem.eql(u8, python_module, "importlib")) {
                         std.debug.print("   = Suggestion: Use static imports (import json) instead of importlib.import_module('json')\n", .{});
@@ -380,15 +388,25 @@ pub fn collectImports(
                 // Local user module - add to imports list for compilation
                 try imports.append(self.allocator, python_module);
             } else {
-                // Check if it's a C extension installed in site-packages
-                const is_c_ext = import_resolver.isCExtension(python_module, self.allocator);
-                if (is_c_ext) {
-                    std.debug.print("[C Extension] Detected {s} in site-packages (no mapping yet)\n", .{python_module});
+                // Check if module was already compiled by import_scanner (e.g., stdlib modules)
+                const compiled_path = try std.fmt.allocPrint(self.allocator, ".build/{s}.zig", .{python_module});
+                defer self.allocator.free(compiled_path);
+                const already_compiled = std.fs.cwd().access(compiled_path, .{}) != error.FileNotFound;
+
+                if (already_compiled) {
+                    // Module was compiled by import_scanner - add to imports
+                    try imports.append(self.allocator, python_module);
                 } else {
-                    // External package not in registry - skip with warning
-                    std.debug.print("Warning: External module '{s}' not found, skipping import\n", .{python_module});
-                    // Track this module as skipped so we can skip code that references it
-                    try self.markSkippedModule(python_module);
+                    // Check if it's a C extension installed in site-packages
+                    const is_c_ext = import_resolver.isCExtension(python_module, self.allocator);
+                    if (is_c_ext) {
+                        std.debug.print("[C Extension] Detected {s} in site-packages (no mapping yet)\n", .{python_module});
+                    } else {
+                        // External package not in registry - skip with warning
+                        std.debug.print("Warning: External module '{s}' not found, skipping import\n", .{python_module});
+                        // Track this module as skipped so we can skip code that references it
+                        try self.markSkippedModule(python_module);
+                    }
                 }
             }
         }

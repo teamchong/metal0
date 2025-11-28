@@ -354,9 +354,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
         }
 
-        // Create helper function
+        // Create helper function with unique name to avoid shadowing in nested try blocks
+        const helper_id = self.try_helper_counter;
+        self.try_helper_counter += 1;
+
         try self.emitIndent();
-        try self.emit("const __TryHelper = struct {\n");
+        try self.output.writer(self.allocator).print("const __TryHelper_{d} = struct {{\n", .{helper_id});
         self.indent();
         try self.emitIndent();
         try self.emit("fn run(");
@@ -475,7 +478,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // - written_outer_vars: as pointer (&)
         // - declared_vars: as pointer (&)
         try self.emitIndent();
-        try self.emit("__TryHelper.run(");
+        try self.output.writer(self.allocator).print("__TryHelper_{d}.run(", .{helper_id});
         var call_param_count: usize = 0;
         for (read_only_vars.items) |var_name| {
             if (call_param_count > 0) try self.emit(", ");
@@ -503,8 +506,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             break :blk false;
         };
 
+        // Use unique error variable name to avoid shadowing in nested try blocks
+        var err_var_buf: [32]u8 = undefined;
+        const err_var = std.fmt.bufPrint(&err_var_buf, "__err_{d}", .{helper_id}) catch "__err";
+
         if (needs_err_capture) {
-            try self.emit(") catch |err| {\n");
+            try self.output.writer(self.allocator).print(") catch |{s}| {{\n", .{err_var});
         } else {
             try self.emit(") catch {\n");
         }
@@ -522,7 +529,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
             if (handler.type) |exc_type| {
                 const zig_err = pythonExceptionToZigError(exc_type);
-                try self.emit("if (err == error.");
+                try self.output.writer(self.allocator).print("if ({s} == error.", .{err_var});
                 try self.emit(zig_err);
                 try self.emit(") {\n");
                 self.indent();
@@ -531,7 +538,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     try self.emitIndent();
                     try self.emit("const ");
                     try self.emit(exc_name);
-                    try self.emit(": []const u8 = @errorName(err);\n");
+                    try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
                 }
                 for (handler.body) |stmt| {
                     try self.generateStmt(stmt);
@@ -551,7 +558,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     try self.emitIndent();
                     try self.emit("const ");
                     try self.emit(exc_name);
-                    try self.emit(": []const u8 = @errorName(err);\n");
+                    try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
                 }
                 for (handler.body) |stmt| {
                     try self.generateStmt(stmt);
@@ -568,7 +575,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.emit("} else {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("return err;\n");
+            try self.output.writer(self.allocator).print("return {s};\n", .{err_var});
             self.dedent();
             try self.emitIndent();
             try self.emit("}\n");

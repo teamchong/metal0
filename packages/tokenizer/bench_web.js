@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Web/WASM benchmark for hyperfine
- * Tests PyAOT WASM tokenizer performance
+ * Tests metal0 WASM tokenizer performance
  */
 
 const fs = require('fs');

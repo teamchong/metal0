@@ -123,8 +123,8 @@ pub fn main() !void {
         // Save last trained model for verification
         if (last_tokenizer) |*tok| {
             defer tok.deinit();
-            std.debug.print("Saving to pyaot_trained.json...\n", .{});
-            tok.saveToFile("pyaot_trained.json") catch |err| {
+            std.debug.print("Saving to metal0_trained.json...\n", .{});
+            tok.saveToFile("metal0_trained.json") catch |err| {
                 std.debug.print("ERROR saving file: {}\n", .{err});
                 return err;
             };
@@ -172,8 +172,8 @@ pub fn main() !void {
         // Save last trained model for verification
         if (last_tokenizer) |*tok| {
             defer tok.deinit();
-            std.debug.print("Saving to pyaot_trained.json...\n", .{});
-            tok.saveToFile("pyaot_trained.json") catch |err| {
+            std.debug.print("Saving to metal0_trained.json...\n", .{});
+            tok.saveToFile("metal0_trained.json") catch |err| {
                 std.debug.print("ERROR saving file: {}\n", .{err});
                 return err;
             };

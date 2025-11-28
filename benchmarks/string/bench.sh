@@ -1,6 +1,6 @@
 #!/bin/bash
 # String Benchmark - Comparison and length operations
-# Compares PyAOT vs Python vs PyPy
+# Compares metal0 vs Python vs PyPy
 
 source "$(dirname "$0")/../common.sh"
 cd "$SCRIPT_DIR"
@@ -10,7 +10,7 @@ echo ""
 echo "String comparison and length operations"
 echo ""
 
-# Python source (SAME code for PyAOT, Python, PyPy)
+# Python source (SAME code for metal0, Python, PyPy)
 cat > string.py <<'EOF'
 def benchmark():
     n = 100000000
@@ -41,20 +41,20 @@ benchmark()
 EOF
 
 echo "Building..."
-build_pyaot_compiler
-compile_pyaot string.py string_pyaot
+build_metal0_compiler
+compile_metal0 string.py string_metal0
 
 print_header "Running Benchmarks"
 BENCH_CMD=(hyperfine --warmup 3 --runs 5 --export-markdown results.md)
 
-add_pyaot BENCH_CMD string_pyaot
+add_metal0 BENCH_CMD string_metal0
 add_pypy BENCH_CMD string.py
 add_python BENCH_CMD string.py
 
 "${BENCH_CMD[@]}"
 
 # Cleanup
-rm -f string_pyaot
+rm -f string_metal0
 
 echo ""
 echo "Results saved to: results.md"

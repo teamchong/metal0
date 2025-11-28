@@ -62,7 +62,7 @@ pub fn genExpanduser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("blk: { const path = ");
         try self.genExpr(args[0]);
-        try self.emit("; if (path.len > 0 and path[0] == '~') { const home = std.posix.getenv(\"USERPROFILE\") orelse std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(pyaot_allocator, \"{s}{s}\", .{ home, path[1..] }) catch path; } break :blk path; }");
+        try self.emit("; if (path.len > 0 and path[0] == '~') { const home = std.posix.getenv(\"USERPROFILE\") orelse std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}{s}\", .{ home, path[1..] }) catch path; } break :blk path; }");
     } else {
         try self.emit("\"\"");
     }
@@ -156,7 +156,7 @@ pub fn genJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.genExpr(arg);
             try self.emit("; count += 1; ");
         }
-        try self.emit("break :blk std.fs.path.join(pyaot_allocator, parts[0..count]) catch \"\"; }");
+        try self.emit("break :blk std.fs.path.join(metal0_allocator, parts[0..count]) catch \"\"; }");
     } else {
         try self.emit("\"\"");
     }
@@ -171,7 +171,7 @@ pub fn genNormcase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Windows: lowercase and normalize separators
         try self.emit("blk: { const path = ");
         try self.genExpr(args[0]);
-        try self.emit("; var result = pyaot_allocator.alloc(u8, path.len) catch break :blk path; for (path, 0..) |c, i| { result[i] = if (c >= 'A' and c <= 'Z') c + 32 else if (c == '/') '\\\\' else c; } break :blk result; }");
+        try self.emit("; var result = metal0_allocator.alloc(u8, path.len) catch break :blk path; for (path, 0..) |c, i| { result[i] = if (c >= 'A' and c <= 'Z') c + 32 else if (c == '/') '\\\\' else c; } break :blk result; }");
     } else {
         try self.emit("\"\"");
     }

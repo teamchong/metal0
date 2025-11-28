@@ -1,5 +1,5 @@
-# Flask import example for PyAOT
-# This demonstrates that PyAOT can parse Flask's complex Python syntax
+# Flask import example for metal0
+# This demonstrates that metal0 can parse Flask's complex Python syntax
 
 from flask import Flask, request, jsonify
 
@@ -9,7 +9,7 @@ app = Flask(__name__)
 # Simple route
 @app.route('/')
 def hello():
-    return "Hello from PyAOT-compiled Flask!"
+    return "Hello from metal0-compiled Flask!"
 
 # Route with parameters
 @app.route('/greet/<name>')
@@ -21,7 +21,7 @@ def greet(name):
 def get_data():
     data = {
         "status": "success",
-        "message": "PyAOT Flask API working",
+        "message": "metal0 Flask API working",
         "items": [1, 2, 3, 4, 5]
     }
     return jsonify(data)

@@ -16,10 +16,10 @@ if [ ! -f benchmark_data.json ]; then
 fi
 
 # Make scripts executable
-chmod +x bench_web_pyaot.js bench_web_ai.js bench_web_gpt.js bench_web_tiktoken.js
+chmod +x bench_web_metal0.js bench_web_ai.js bench_web_gpt.js bench_web_tiktoken.js
 
 echo "📊 Benchmarking ALL 4 libraries:"
-echo "   1. PyAOT (WASM)"
+echo "   1. metal0 (WASM)"
 echo "   2. @anthropic-ai/tokenizer (JS)"
 echo "   3. gpt-tokenizer (JS)"
 echo "   4. tiktoken (Node)"
@@ -31,7 +31,7 @@ timeout 180 hyperfine \
     --runs 5 \
     --export-markdown bench_web_results.md \
     --ignore-failure \
-    --command-name "PyAOT (WASM)" 'node bench_web_pyaot.js' \
+    --command-name "metal0 (WASM)" 'node bench_web_metal0.js' \
     --command-name "@anthropic-ai/tokenizer (JS)" 'node bench_web_ai.js' \
     --command-name "gpt-tokenizer (JS)" 'node bench_web_gpt.js' \
     --command-name "tiktoken (Node)" 'node bench_web_tiktoken.js'

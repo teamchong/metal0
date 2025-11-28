@@ -1,6 +1,6 @@
 /// Python bindings via C ABI
 /// Compatible with nanochat's rustbpe API
-/// Usage: import pyaot_tokenizer
+/// Usage: import metal0_tokenizer
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Trainer = @import("trainer.zig").Trainer;
@@ -141,6 +141,6 @@ export fn trainer_train(
 }
 
 /// Get version
-export fn pyaot_tokenizer_version() [*:0]const u8 {
+export fn metal0_tokenizer_version() [*:0]const u8 {
     return "0.1.0";
 }

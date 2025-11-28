@@ -1,5 +1,5 @@
 """
-Async HTTP Demo - Concurrent HTTP requests using PyAOT's async runtime
+Async HTTP Demo - Concurrent HTTP requests using metal0's async runtime
 """
 import asyncio
 import http

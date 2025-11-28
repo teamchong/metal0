@@ -1,4 +1,4 @@
-/// NumPy array implementation for PyAOT
+/// NumPy array implementation for metal0
 /// Provides NumPy-compatible arrays with C BLAS interoperability
 const std = @import("std");
 const runtime = @import("runtime.zig");

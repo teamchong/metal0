@@ -8,7 +8,7 @@ None of PyTorch, TensorFlow >= 2.0, or Flax have been found. Models won't be ava
 ✅ [2/5] tiktoken:        1070ms
 ❌ [3/5] TokenDagger:   tokendagger C++ extension not found. Mak
 ✅ [4/5] HuggingFace:     5300ms
-⏳ [5/5] PyAOT:         WIP (87.9% correct)
+⏳ [5/5] metal0:         WIP (87.9% correct)
 
 ==================================================
 Results (3/5 working):
