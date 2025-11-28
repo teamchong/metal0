@@ -354,6 +354,10 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     try import_graph.scanRecursive(opts.input_file, &visited);
 
     // Compile each imported module in dependency order
+    // Ensure .build directory exists for module Zig output
+    std.fs.cwd().makeDir(".build") catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
     std.debug.print("Compiling {d} imported modules...\n", .{import_graph.modules.count()});
     var iter = import_graph.modules.iterator();
     while (iter.next()) |entry| {

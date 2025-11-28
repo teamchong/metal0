@@ -223,14 +223,11 @@ fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
         if (UnittestAssertions.has(method_name)) return false;
 
         // Module function call (e.g., test_utils.double(x))
-        // Codegen passes allocator to imported module functions
-        // But NOT self.method() calls - those are instance method calls
+        // Codegen uses __global_allocator for these calls, not the function's allocator param
+        // So they don't count as "using" the allocator param
         if (call.func.attribute.value.* == .name) {
-            const obj_name = call.func.attribute.value.name.id;
-            // Skip 'self' - instance methods don't automatically use allocator param
-            if (std.mem.eql(u8, obj_name, "self")) return false;
-            // Any module.function() call will receive allocator param in codegen
-            return true;
+            // Neither self.method() nor module.function() uses the allocator param
+            return false;
         }
     }
     if (call.func.* == .name) {
