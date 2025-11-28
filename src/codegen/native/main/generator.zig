@@ -121,9 +121,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     if (analysis.needs_hashmap_helper) {
         try self.emit("const hashmap_helper = @import(\"./utils/hashmap_helper.zig\");\n");
     }
-    if (analysis.needs_allocator) {
-        try self.emit("const allocator_helper = @import(\"./utils/allocator_helper.zig\");\n");
-    }
+    // Always import allocator_helper - needs_allocator defaults to true and most code uses it
+    try self.emit("const allocator_helper = @import(\"./utils/allocator_helper.zig\");\n");
 
     // PHASE 3.5: Generate C library imports (if any detected)
     if (self.import_ctx) |ctx| {
@@ -424,6 +423,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         if (analysis.needs_hashmap_helper) {
             try self.emit("const hashmap_helper = @import(\"./utils/hashmap_helper.zig\");\n");
         }
+        // Always import allocator_helper (matches the non-lambda path)
+        try self.emit("const allocator_helper = @import(\"./utils/allocator_helper.zig\");\n");
         try self.emit("\n");
 
         // Add __name__ constant

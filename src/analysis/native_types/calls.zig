@@ -347,6 +347,14 @@ pub fn inferCall(
         {
             return .deque; // Returns std.ArrayList(i64)
         }
+
+        // functools module functions
+        const REDUCE_HASH = comptime fnv_hash.hash("reduce");
+        if (func_hash == REDUCE_HASH) {
+            // reduce(func, iterable) -> element type of iterable
+            // Most common use case is numeric reduction, so default to int
+            return .int;
+        }
     }
 
     // Check if this is a method call (attribute access)
