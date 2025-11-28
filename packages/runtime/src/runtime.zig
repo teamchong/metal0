@@ -58,6 +58,9 @@ pub const PyObject = struct {
     ref_count: usize,
     type_id: TypeId,
     data: *anyopaque,
+    /// Optional arena pointer - if set, this object was allocated from an arena
+    /// When ref_count hits 0 on a root object with arena_ptr, free the entire arena
+    arena_ptr: ?*anyopaque = null,
 
     pub const TypeId = enum {
         int,
@@ -91,6 +94,16 @@ pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
     }
     obj.ref_count -= 1;
     if (obj.ref_count == 0) {
+        // Check if this is an arena-allocated root object
+        if (obj.arena_ptr) |arena_ptr| {
+            // This is a JSON arena root - free entire arena at once
+            // All child objects are in the arena, no need to recurse
+            const JsonArena = @import("json/arena.zig").JsonArena;
+            const arena: *JsonArena = @ptrCast(@alignCast(arena_ptr));
+            arena.decref();
+            return; // Arena freed everything, we're done
+        }
+
         // Free internal data based on type
         switch (obj.type_id) {
             .int => {

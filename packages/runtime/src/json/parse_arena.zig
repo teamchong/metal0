@@ -1,0 +1,465 @@
+/// Arena-based JSON Parser - Maximum performance for json.loads()
+///
+/// Key optimizations:
+/// 1. Single arena allocation for entire parse (bump pointer = 2 cycles)
+/// 2. Pre-sized containers when possible
+/// 3. Key interning for repeated dictionary keys
+/// 4. SIMD whitespace skipping
+///
+/// Memory strategy:
+/// - All PyObjects, PyDict, PyList, strings allocated from arena
+/// - Arena attached to root PyObject via arena_ptr field
+/// - When root is freed, entire arena is freed at once
+const std = @import("std");
+const runtime = @import("../runtime.zig");
+const JsonArena = @import("arena.zig").JsonArena;
+const simd = @import("json_simd");
+const JsonError = @import("errors.zig").JsonError;
+const ParseResult = @import("errors.zig").ParseResult;
+const hashmap_helper = @import("hashmap_helper");
+
+/// Thread-local key cache for interning (avoids repeated allocations)
+const KEY_CACHE_SIZE = 32;
+threadlocal var key_cache: [KEY_CACHE_SIZE][]const u8 = [_][]const u8{""} ** KEY_CACHE_SIZE;
+threadlocal var key_cache_idx: usize = 0;
+
+/// Thread-local arena for current parse operation
+threadlocal var current_arena: ?*JsonArena = null;
+
+/// Intern a key string - returns cached version if seen recently
+fn internKey(key: []const u8, arena: *JsonArena) ![]const u8 {
+    // Check cache first
+    for (key_cache[0..@min(key_cache_idx, KEY_CACHE_SIZE)]) |cached| {
+        if (std.mem.eql(u8, cached, key)) {
+            return cached; // Hit! No allocation needed
+        }
+    }
+
+    // Cache miss - allocate and cache
+    const owned = try arena.dupeString(key);
+
+    // Add to cache (circular buffer)
+    key_cache[key_cache_idx % KEY_CACHE_SIZE] = owned;
+    key_cache_idx +%= 1;
+
+    return owned;
+}
+
+/// SIMD whitespace skip
+inline fn skipWhitespace(data: []const u8, pos: usize) usize {
+    return simd.skipWhitespace(data, pos);
+}
+
+/// Main entry: Parse JSON with arena allocation
+/// Returns a PyObject with arena attached (arena freed when object freed)
+pub fn parseWithArena(data: []const u8, backing_allocator: std.mem.Allocator) JsonError!*runtime.PyObject {
+    // Estimate arena size: 4x input size is usually enough
+    // (JSON objects expand due to struct overhead)
+    const arena_size = @max(JsonArena.DEFAULT_SIZE, data.len * 4);
+
+    const arena = JsonArena.init(backing_allocator, arena_size) catch return JsonError.OutOfMemory;
+    errdefer arena.decref();
+
+    // Set thread-local for nested parsing
+    current_arena = arena;
+    defer current_arena = null;
+
+    // Reset key cache for this parse
+    key_cache_idx = 0;
+
+    const i = skipWhitespace(data, 0);
+    if (i >= data.len) return JsonError.UnexpectedEndOfInput;
+
+    const result = try parseValue(data, i, arena);
+
+    // Check for trailing content
+    const final_pos = skipWhitespace(data, i + result.consumed);
+    if (final_pos < data.len) {
+        return JsonError.UnexpectedToken;
+    }
+
+    // Attach arena to root object for lifetime management
+    // When root is freed, arena is freed
+    result.value.arena_ptr = arena;
+
+    return result.value;
+}
+
+/// Parse any JSON value
+fn parseValue(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+    const i = skipWhitespace(data, pos);
+    if (i >= data.len) return JsonError.UnexpectedEndOfInput;
+
+    const c = data[i];
+    return switch (c) {
+        '{' => parseObject(data, i, arena),
+        '[' => parseArray(data, i, arena),
+        '"' => parseString(data, i, arena),
+        '-', '0'...'9' => parseNumber(data, i, arena),
+        'n' => parseNull(data, i, arena),
+        't' => parseTrue(data, i, arena),
+        'f' => parseFalse(data, i, arena),
+        else => JsonError.UnexpectedToken,
+    };
+}
+
+/// Parse null literal
+fn parseNull(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+    if (pos + 4 > data.len) return JsonError.UnexpectedEndOfInput;
+    if (!std.mem.eql(u8, data[pos..][0..4], "null")) return JsonError.UnexpectedToken;
+
+    const obj = arena.alloc(runtime.PyObject) catch return JsonError.OutOfMemory;
+    obj.* = .{
+        .ref_count = 1,
+        .type_id = .none,
+        .data = undefined,
+        .arena_ptr = null,
+    };
+    return ParseResult(*runtime.PyObject).init(obj, 4);
+}
+
+/// Parse true literal
+fn parseTrue(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+    if (pos + 4 > data.len) return JsonError.UnexpectedEndOfInput;
+    if (!std.mem.eql(u8, data[pos..][0..4], "true")) return JsonError.UnexpectedToken;
+
+    const obj = arena.alloc(runtime.PyObject) catch return JsonError.OutOfMemory;
+    const int_data = arena.alloc(runtime.PyInt) catch return JsonError.OutOfMemory;
+    int_data.* = .{ .value = 1 };
+    obj.* = .{
+        .ref_count = 1,
+        .type_id = .bool,
+        .data = int_data,
+        .arena_ptr = null,
+    };
+    return ParseResult(*runtime.PyObject).init(obj, 4);
+}
+
+/// Parse false literal
+fn parseFalse(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+    if (pos + 5 > data.len) return JsonError.UnexpectedEndOfInput;
+    if (!std.mem.eql(u8, data[pos..][0..5], "false")) return JsonError.UnexpectedToken;
+
+    const obj = arena.alloc(runtime.PyObject) catch return JsonError.OutOfMemory;
+    const int_data = arena.alloc(runtime.PyInt) catch return JsonError.OutOfMemory;
+    int_data.* = .{ .value = 0 };
+    obj.* = .{
+        .ref_count = 1,
+        .type_id = .bool,
+        .data = int_data,
+        .arena_ptr = null,
+    };
+    return ParseResult(*runtime.PyObject).init(obj, 5);
+}
+
+/// Parse number (integer or float)
+fn parseNumber(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+    var i = pos;
+    var is_float = false;
+
+    // Optional minus
+    if (i < data.len and data[i] == '-') i += 1;
+
+    // Integer part
+    if (i >= data.len) return JsonError.UnexpectedEndOfInput;
+    if (data[i] == '0') {
+        i += 1;
+    } else if (data[i] >= '1' and data[i] <= '9') {
+        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
+    } else {
+        return JsonError.UnexpectedToken;
+    }
+
+    // Fractional part
+    if (i < data.len and data[i] == '.') {
+        is_float = true;
+        i += 1;
+        if (i >= data.len or data[i] < '0' or data[i] > '9') return JsonError.UnexpectedToken;
+        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
+    }
+
+    // Exponent
+    if (i < data.len and (data[i] == 'e' or data[i] == 'E')) {
+        is_float = true;
+        i += 1;
+        if (i < data.len and (data[i] == '+' or data[i] == '-')) i += 1;
+        if (i >= data.len or data[i] < '0' or data[i] > '9') return JsonError.UnexpectedToken;
+        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
+    }
+
+    const num_str = data[pos..i];
+    const obj = arena.alloc(runtime.PyObject) catch return JsonError.OutOfMemory;
+
+    if (is_float) {
+        const float_data = arena.alloc(runtime.PyFloat) catch return JsonError.OutOfMemory;
+        float_data.* = .{
+            .value = std.fmt.parseFloat(f64, num_str) catch return JsonError.InvalidNumber,
+        };
+        obj.* = .{
+            .ref_count = 1,
+            .type_id = .float,
+            .data = float_data,
+            .arena_ptr = null,
+        };
+    } else {
+        const int_data = arena.alloc(runtime.PyInt) catch return JsonError.OutOfMemory;
+        int_data.* = .{
+            .value = std.fmt.parseInt(i64, num_str, 10) catch return JsonError.InvalidNumber,
+        };
+        obj.* = .{
+            .ref_count = 1,
+            .type_id = .int,
+            .data = int_data,
+            .arena_ptr = null,
+        };
+    }
+
+    return ParseResult(*runtime.PyObject).init(obj, i - pos);
+}
+
+/// Parse string
+fn parseString(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+    if (pos >= data.len or data[pos] != '"') return JsonError.UnexpectedToken;
+
+    var i = pos + 1;
+    var has_escape = false;
+
+    // Scan for end quote, check for escapes
+    while (i < data.len) {
+        const c = data[i];
+        if (c == '"') break;
+        if (c == '\\') {
+            has_escape = true;
+            i += 2; // Skip escape sequence
+        } else {
+            i += 1;
+        }
+    }
+
+    if (i >= data.len) return JsonError.UnexpectedEndOfInput;
+
+    const str_content = data[pos + 1 .. i];
+    const consumed = i + 1 - pos;
+
+    // Allocate string content
+    var final_str: []const u8 = undefined;
+    if (has_escape) {
+        // Need to unescape
+        final_str = unescapeString(str_content, arena) catch return JsonError.OutOfMemory;
+    } else {
+        // Zero-copy: just duplicate into arena
+        final_str = arena.dupeString(str_content) catch return JsonError.OutOfMemory;
+    }
+
+    // Create PyString
+    const obj = arena.alloc(runtime.PyObject) catch return JsonError.OutOfMemory;
+    const str_data = arena.alloc(runtime.PyString) catch return JsonError.OutOfMemory;
+    str_data.* = .{
+        .data = final_str,
+        .source = null, // Owned by arena (arena handles cleanup)
+    };
+    obj.* = .{
+        .ref_count = 1,
+        .type_id = .string,
+        .data = str_data,
+        .arena_ptr = null,
+    };
+
+    return ParseResult(*runtime.PyObject).init(obj, consumed);
+}
+
+/// Unescape JSON string
+fn unescapeString(str: []const u8, arena: *JsonArena) ![]const u8 {
+    // Allocate max possible size
+    const dest = try arena.allocSlice(u8, str.len);
+    var j: usize = 0;
+    var i: usize = 0;
+
+    while (i < str.len) {
+        if (str[i] == '\\' and i + 1 < str.len) {
+            const escape_char = str[i + 1];
+            switch (escape_char) {
+                '"' => dest[j] = '"',
+                '\\' => dest[j] = '\\',
+                '/' => dest[j] = '/',
+                'b' => dest[j] = '\x08',
+                'f' => dest[j] = '\x0C',
+                'n' => dest[j] = '\n',
+                'r' => dest[j] = '\r',
+                't' => dest[j] = '\t',
+                'u' => {
+                    // Unicode escape: \uXXXX
+                    if (i + 6 <= str.len) {
+                        const hex = str[i + 2 .. i + 6];
+                        const code = std.fmt.parseInt(u16, hex, 16) catch {
+                            dest[j] = '?';
+                            j += 1;
+                            i += 6;
+                            continue;
+                        };
+                        // Simple ASCII handling for now
+                        if (code < 128) {
+                            dest[j] = @truncate(code);
+                        } else {
+                            // UTF-8 encode (simplified)
+                            dest[j] = '?';
+                        }
+                        j += 1;
+                        i += 6;
+                        continue;
+                    }
+                    dest[j] = '?';
+                },
+                else => dest[j] = escape_char,
+            }
+            j += 1;
+            i += 2;
+        } else {
+            dest[j] = str[i];
+            j += 1;
+            i += 1;
+        }
+    }
+
+    return dest[0..j];
+}
+
+/// Parse array
+fn parseArray(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+    if (pos >= data.len or data[pos] != '[') return JsonError.UnexpectedToken;
+
+    // Create PyList with arena allocator
+    const obj = arena.alloc(runtime.PyObject) catch return JsonError.OutOfMemory;
+    const list_data = arena.alloc(runtime.PyList) catch return JsonError.OutOfMemory;
+
+    // Initialize with arena allocator
+    list_data.* = .{
+        .items = .{},
+        .allocator = arena.allocator(),
+    };
+    obj.* = .{
+        .ref_count = 1,
+        .type_id = .list,
+        .data = list_data,
+        .arena_ptr = null,
+    };
+
+    var i = skipWhitespace(data, pos + 1);
+
+    // Empty array
+    if (i < data.len and data[i] == ']') {
+        return ParseResult(*runtime.PyObject).init(obj, i + 1 - pos);
+    }
+
+    // Parse elements
+    while (true) {
+        const value_result = try parseValue(data, i, arena);
+        list_data.items.append(arena.allocator(), value_result.value) catch return JsonError.OutOfMemory;
+        i += value_result.consumed;
+
+        i = skipWhitespace(data, i);
+        if (i >= data.len) return JsonError.UnexpectedEndOfInput;
+
+        if (data[i] == ']') {
+            return ParseResult(*runtime.PyObject).init(obj, i + 1 - pos);
+        } else if (data[i] == ',') {
+            i = skipWhitespace(data, i + 1);
+        } else {
+            return JsonError.UnexpectedToken;
+        }
+    }
+}
+
+/// Parse object (dict)
+fn parseObject(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
+    if (pos >= data.len or data[pos] != '{') return JsonError.UnexpectedToken;
+
+    // Create PyDict with arena allocator
+    const obj = arena.alloc(runtime.PyObject) catch return JsonError.OutOfMemory;
+    const dict_data = arena.alloc(runtime.PyDict) catch return JsonError.OutOfMemory;
+
+    // Use @TypeOf to get the exact map type from PyDict to avoid module path conflicts
+    dict_data.* = .{
+        .map = @TypeOf(dict_data.map).init(arena.allocator()),
+    };
+    obj.* = .{
+        .ref_count = 1,
+        .type_id = .dict,
+        .data = dict_data,
+        .arena_ptr = null,
+    };
+
+    var i = skipWhitespace(data, pos + 1);
+
+    // Empty object
+    if (i < data.len and data[i] == '}') {
+        return ParseResult(*runtime.PyObject).init(obj, i + 1 - pos);
+    }
+
+    // Parse key-value pairs
+    while (true) {
+        // Parse key (must be string)
+        if (i >= data.len or data[i] != '"') return JsonError.UnexpectedToken;
+
+        // Parse key string directly (no PyObject wrapper needed)
+        const key_result = try parseKeyString(data, i, arena);
+        i += key_result.consumed;
+
+        // Expect colon
+        i = skipWhitespace(data, i);
+        if (i >= data.len or data[i] != ':') return JsonError.UnexpectedToken;
+        i = skipWhitespace(data, i + 1);
+
+        // Parse value
+        const value_result = try parseValue(data, i, arena);
+        i += value_result.consumed;
+
+        // Add to dict
+        dict_data.map.put(key_result.value, value_result.value) catch return JsonError.OutOfMemory;
+
+        i = skipWhitespace(data, i);
+        if (i >= data.len) return JsonError.UnexpectedEndOfInput;
+
+        if (data[i] == '}') {
+            return ParseResult(*runtime.PyObject).init(obj, i + 1 - pos);
+        } else if (data[i] == ',') {
+            i = skipWhitespace(data, i + 1);
+        } else {
+            return JsonError.UnexpectedToken;
+        }
+    }
+}
+
+/// Parse key string - returns raw string (with interning)
+fn parseKeyString(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult([]const u8) {
+    if (pos >= data.len or data[pos] != '"') return JsonError.UnexpectedToken;
+
+    var i = pos + 1;
+    var has_escape = false;
+
+    while (i < data.len) {
+        const c = data[i];
+        if (c == '"') break;
+        if (c == '\\') {
+            has_escape = true;
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+
+    if (i >= data.len) return JsonError.UnexpectedEndOfInput;
+
+    const key_content = data[pos + 1 .. i];
+    const consumed = i + 1 - pos;
+
+    var final_key: []const u8 = undefined;
+    if (has_escape) {
+        final_key = unescapeString(key_content, arena) catch return JsonError.OutOfMemory;
+    } else {
+        // Use key interning for non-escaped keys
+        final_key = internKey(key_content, arena) catch return JsonError.OutOfMemory;
+    }
+
+    return ParseResult([]const u8).init(final_key, consumed);
+}

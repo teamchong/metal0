@@ -2,15 +2,34 @@
 const std = @import("std");
 const runtime = @import("runtime.zig");
 const parse_direct = @import("json/parse_direct.zig");
+const parse_arena = @import("json/parse_arena.zig");
 
 // Export for internal use (e.g. notebook parsing)
 pub const parse = @import("json/parse.zig");
 pub const JsonValue = @import("json/value.zig").JsonValue;
 
-/// Deserialize JSON string to PyObject (lazy mode - zero-copy strings!)
+/// Deserialize JSON string to PyObject (arena-allocated for speed!)
 /// Python: json.loads(json_str) -> obj
-/// Strings without escapes borrow from json_str (kept alive via refcount)
+/// Uses arena allocation: single malloc for entire parse, single free on cleanup
 pub fn loads(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
+    // Validate input is a string
+    if (json_str.type_id != .string) {
+        return error.TypeError;
+    }
+
+    const str_data: *runtime.PyString = @ptrCast(@alignCast(json_str.data));
+    const json_bytes = str_data.data;
+
+    // Use arena-based parser for maximum performance
+    // Arena is attached to root object and freed when root is decref'd to 0
+    const result = try parse_arena.parseWithArena(json_bytes, allocator);
+
+    return result;
+}
+
+/// Deserialize JSON string to PyObject (legacy - uses per-object allocation)
+/// Use this when you need objects to outlive the parse scope independently
+pub fn loadsLegacy(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
     // Validate input is a string
     if (json_str.type_id != .string) {
         return error.TypeError;
