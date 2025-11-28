@@ -27,6 +27,7 @@ const struct_mod = @import("../struct_mod.zig");
 const base64_mod = @import("../base64_mod.zig");
 const random_mod = @import("../random_mod.zig");
 const string_mod = @import("../string_mod.zig");
+const time_mod = @import("../time_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -431,6 +432,26 @@ const StringFuncs = FuncMap.initComptime(.{
     .{ "Template", string_mod.genTemplate },
 });
 
+/// time module functions
+const TimeFuncs = FuncMap.initComptime(.{
+    .{ "time", time_mod.genTime },
+    .{ "time_ns", time_mod.genTimeNs },
+    .{ "sleep", time_mod.genSleep },
+    .{ "perf_counter", time_mod.genPerfCounter },
+    .{ "perf_counter_ns", time_mod.genPerfCounterNs },
+    .{ "monotonic", time_mod.genMonotonic },
+    .{ "monotonic_ns", time_mod.genMonotonicNs },
+    .{ "process_time", time_mod.genProcessTime },
+    .{ "process_time_ns", time_mod.genProcessTimeNs },
+    .{ "ctime", time_mod.genCtime },
+    .{ "gmtime", time_mod.genGmtime },
+    .{ "localtime", time_mod.genLocaltime },
+    .{ "mktime", time_mod.genMktime },
+    .{ "strftime", time_mod.genStrftime },
+    .{ "strptime", time_mod.genStrptime },
+    .{ "get_clock_info", time_mod.genGetClockInfo },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -466,6 +487,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "base64", Base64Funcs },
     .{ "random", RandomFuncs },
     .{ "string", StringFuncs },
+    .{ "time", TimeFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
