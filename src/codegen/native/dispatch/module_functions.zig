@@ -125,6 +125,14 @@ const nntplib_mod = @import("../nntplib_mod.zig");
 const ssl_mod = @import("../ssl_mod.zig");
 const selectors_mod = @import("../selectors_mod.zig");
 const ipaddress_mod = @import("../ipaddress_mod.zig");
+const telnetlib_mod = @import("../telnetlib_mod.zig");
+const xmlrpc_mod = @import("../xmlrpc_mod.zig");
+const http_cookiejar_mod = @import("../http_cookiejar_mod.zig");
+const urllib_request_mod = @import("../urllib_request_mod.zig");
+const urllib_error_mod = @import("../urllib_error_mod.zig");
+const urllib_robotparser_mod = @import("../urllib_robotparser_mod.zig");
+const cgi_mod = @import("../cgi_mod.zig");
+const wsgiref_mod = @import("../wsgiref_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -2545,6 +2553,196 @@ const IpaddressFuncs = FuncMap.initComptime(.{
     .{ "NetmaskValueError", ipaddress_mod.genNetmaskValueError },
 });
 
+/// telnetlib module functions
+const TelnetlibFuncs = FuncMap.initComptime(.{
+    .{ "Telnet", telnetlib_mod.genTelnet },
+    .{ "THEOPT", telnetlib_mod.genTHEOPT },
+    .{ "SE", telnetlib_mod.genSE },
+    .{ "NOP", telnetlib_mod.genNOP },
+    .{ "DM", telnetlib_mod.genDM },
+    .{ "BRK", telnetlib_mod.genBRK },
+    .{ "IP", telnetlib_mod.genIP },
+    .{ "AO", telnetlib_mod.genAO },
+    .{ "AYT", telnetlib_mod.genAYT },
+    .{ "EC", telnetlib_mod.genEC },
+    .{ "EL", telnetlib_mod.genEL },
+    .{ "GA", telnetlib_mod.genGA },
+    .{ "SB", telnetlib_mod.genSB },
+    .{ "WILL", telnetlib_mod.genWILL },
+    .{ "WONT", telnetlib_mod.genWONT },
+    .{ "DO", telnetlib_mod.genDO },
+    .{ "DONT", telnetlib_mod.genDONT },
+    .{ "IAC", telnetlib_mod.genIAC },
+    .{ "ECHO", telnetlib_mod.genECHO },
+    .{ "SGA", telnetlib_mod.genSGA },
+    .{ "TTYPE", telnetlib_mod.genTTYPE },
+    .{ "NAWS", telnetlib_mod.genNAWS },
+    .{ "LINEMODE", telnetlib_mod.genLINEMODE },
+    .{ "NEW_ENVIRON", telnetlib_mod.genNEW_ENVIRON },
+    .{ "XDISPLOC", telnetlib_mod.genXDISPLOC },
+    .{ "AUTHENTICATION", telnetlib_mod.genAUTHENTICATION },
+    .{ "ENCRYPT", telnetlib_mod.genENCRYPT },
+    .{ "TELNET_PORT", telnetlib_mod.genTELNET_PORT },
+});
+
+/// xmlrpc.client module functions
+const XmlrpcClientFuncs = FuncMap.initComptime(.{
+    .{ "ServerProxy", xmlrpc_mod.genServerProxy },
+    .{ "Transport", xmlrpc_mod.genTransport },
+    .{ "SafeTransport", xmlrpc_mod.genSafeTransport },
+    .{ "dumps", xmlrpc_mod.genDumps },
+    .{ "loads", xmlrpc_mod.genLoads },
+    .{ "gzip_encode", xmlrpc_mod.genGzip_encode },
+    .{ "gzip_decode", xmlrpc_mod.genGzip_decode },
+    .{ "Fault", xmlrpc_mod.genFault },
+    .{ "ProtocolError", xmlrpc_mod.genProtocolError },
+    .{ "ResponseError", xmlrpc_mod.genResponseError },
+    .{ "Boolean", xmlrpc_mod.genBoolean },
+    .{ "DateTime", xmlrpc_mod.genDateTime },
+    .{ "Binary", xmlrpc_mod.genBinary },
+    .{ "MAXINT", xmlrpc_mod.genMAXINT },
+    .{ "MININT", xmlrpc_mod.genMININT },
+});
+
+/// xmlrpc.server module functions
+const XmlrpcServerFuncs = FuncMap.initComptime(.{
+    .{ "SimpleXMLRPCServer", xmlrpc_mod.genSimpleXMLRPCServer },
+    .{ "CGIXMLRPCRequestHandler", xmlrpc_mod.genCGIXMLRPCRequestHandler },
+    .{ "SimpleXMLRPCRequestHandler", xmlrpc_mod.genSimpleXMLRPCRequestHandler },
+    .{ "DocXMLRPCServer", xmlrpc_mod.genDocXMLRPCServer },
+    .{ "DocCGIXMLRPCRequestHandler", xmlrpc_mod.genDocCGIXMLRPCRequestHandler },
+});
+
+/// http.cookiejar module functions
+const HttpCookiejarFuncs = FuncMap.initComptime(.{
+    .{ "CookieJar", http_cookiejar_mod.genCookieJar },
+    .{ "FileCookieJar", http_cookiejar_mod.genFileCookieJar },
+    .{ "MozillaCookieJar", http_cookiejar_mod.genMozillaCookieJar },
+    .{ "LWPCookieJar", http_cookiejar_mod.genLWPCookieJar },
+    .{ "Cookie", http_cookiejar_mod.genCookie },
+    .{ "DefaultCookiePolicy", http_cookiejar_mod.genDefaultCookiePolicy },
+    .{ "BlockingPolicy", http_cookiejar_mod.genBlockingPolicy },
+    .{ "BlockAllCookies", http_cookiejar_mod.genBlockAllCookies },
+    .{ "DomainStrictNoDots", http_cookiejar_mod.genDomainStrictNoDots },
+    .{ "DomainStrictNonDomain", http_cookiejar_mod.genDomainStrictNonDomain },
+    .{ "DomainRFC2965Match", http_cookiejar_mod.genDomainRFC2965Match },
+    .{ "DomainLiberal", http_cookiejar_mod.genDomainLiberal },
+    .{ "DomainStrict", http_cookiejar_mod.genDomainStrict },
+    .{ "LoadError", http_cookiejar_mod.genLoadError },
+    .{ "time2isoz", http_cookiejar_mod.genTime2isoz },
+    .{ "time2netscape", http_cookiejar_mod.genTime2netscape },
+});
+
+/// urllib.request module functions
+const UrllibRequestFuncs = FuncMap.initComptime(.{
+    .{ "urlopen", urllib_request_mod.genUrlopen },
+    .{ "install_opener", urllib_request_mod.genInstall_opener },
+    .{ "build_opener", urllib_request_mod.genBuild_opener },
+    .{ "pathname2url", urllib_request_mod.genPathname2url },
+    .{ "url2pathname", urllib_request_mod.genUrl2pathname },
+    .{ "getproxies", urllib_request_mod.genGetproxies },
+    .{ "Request", urllib_request_mod.genRequest },
+    .{ "OpenerDirector", urllib_request_mod.genOpenerDirector },
+    .{ "BaseHandler", urllib_request_mod.genBaseHandler },
+    .{ "HTTPDefaultErrorHandler", urllib_request_mod.genHTTPDefaultErrorHandler },
+    .{ "HTTPRedirectHandler", urllib_request_mod.genHTTPRedirectHandler },
+    .{ "HTTPCookieProcessor", urllib_request_mod.genHTTPCookieProcessor },
+    .{ "ProxyHandler", urllib_request_mod.genProxyHandler },
+    .{ "HTTPPasswordMgr", urllib_request_mod.genHTTPPasswordMgr },
+    .{ "HTTPPasswordMgrWithDefaultRealm", urllib_request_mod.genHTTPPasswordMgrWithDefaultRealm },
+    .{ "HTTPPasswordMgrWithPriorAuth", urllib_request_mod.genHTTPPasswordMgrWithPriorAuth },
+    .{ "AbstractBasicAuthHandler", urllib_request_mod.genAbstractBasicAuthHandler },
+    .{ "HTTPBasicAuthHandler", urllib_request_mod.genHTTPBasicAuthHandler },
+    .{ "ProxyBasicAuthHandler", urllib_request_mod.genProxyBasicAuthHandler },
+    .{ "AbstractDigestAuthHandler", urllib_request_mod.genAbstractDigestAuthHandler },
+    .{ "HTTPDigestAuthHandler", urllib_request_mod.genHTTPDigestAuthHandler },
+    .{ "ProxyDigestAuthHandler", urllib_request_mod.genProxyDigestAuthHandler },
+    .{ "HTTPHandler", urllib_request_mod.genHTTPHandler },
+    .{ "HTTPSHandler", urllib_request_mod.genHTTPSHandler },
+    .{ "FileHandler", urllib_request_mod.genFileHandler },
+    .{ "FTPHandler", urllib_request_mod.genFTPHandler },
+    .{ "CacheFTPHandler", urllib_request_mod.genCacheFTPHandler },
+    .{ "DataHandler", urllib_request_mod.genDataHandler },
+    .{ "UnknownHandler", urllib_request_mod.genUnknownHandler },
+    .{ "HTTPErrorProcessor", urllib_request_mod.genHTTPErrorProcessor },
+    .{ "URLError", urllib_request_mod.genURLError },
+    .{ "HTTPError", urllib_request_mod.genHTTPError },
+    .{ "ContentTooShortError", urllib_request_mod.genContentTooShortError },
+});
+
+/// urllib.error module functions
+const UrllibErrorFuncs = FuncMap.initComptime(.{
+    .{ "URLError", urllib_error_mod.genURLError },
+    .{ "HTTPError", urllib_error_mod.genHTTPError },
+    .{ "ContentTooShortError", urllib_error_mod.genContentTooShortError },
+});
+
+/// urllib.robotparser module functions
+const UrllibRobotparserFuncs = FuncMap.initComptime(.{
+    .{ "RobotFileParser", urllib_robotparser_mod.genRobotFileParser },
+});
+
+/// cgi module functions
+const CgiFuncs = FuncMap.initComptime(.{
+    .{ "parse", cgi_mod.genParse },
+    .{ "parse_qs", cgi_mod.genParse_qs },
+    .{ "parse_qsl", cgi_mod.genParse_qsl },
+    .{ "parse_multipart", cgi_mod.genParse_multipart },
+    .{ "parse_header", cgi_mod.genParse_header },
+    .{ "test", cgi_mod.genTest },
+    .{ "print_environ", cgi_mod.genPrint_environ },
+    .{ "print_form", cgi_mod.genPrint_form },
+    .{ "print_directory", cgi_mod.genPrint_directory },
+    .{ "print_environ_usage", cgi_mod.genPrint_environ_usage },
+    .{ "escape", cgi_mod.genEscape },
+    .{ "FieldStorage", cgi_mod.genFieldStorage },
+    .{ "MiniFieldStorage", cgi_mod.genMiniFieldStorage },
+    .{ "maxlen", cgi_mod.genMaxlen },
+});
+
+/// wsgiref.simple_server module functions
+const WsgirefSimpleServerFuncs = FuncMap.initComptime(.{
+    .{ "make_server", wsgiref_mod.genMake_server },
+    .{ "WSGIServer", wsgiref_mod.genWSGIServer },
+    .{ "WSGIRequestHandler", wsgiref_mod.genWSGIRequestHandler },
+    .{ "demo_app", wsgiref_mod.genDemo_app },
+});
+
+/// wsgiref.util module functions
+const WsgirefUtilFuncs = FuncMap.initComptime(.{
+    .{ "setup_testing_defaults", wsgiref_mod.genSetup_testing_defaults },
+    .{ "request_uri", wsgiref_mod.genRequest_uri },
+    .{ "application_uri", wsgiref_mod.genApplication_uri },
+    .{ "shift_path_info", wsgiref_mod.genShift_path_info },
+    .{ "FileWrapper", wsgiref_mod.genFileWrapper },
+});
+
+/// wsgiref.headers module functions
+const WsgirefHeadersFuncs = FuncMap.initComptime(.{
+    .{ "Headers", wsgiref_mod.genHeaders },
+});
+
+/// wsgiref.handlers module functions
+const WsgirefHandlersFuncs = FuncMap.initComptime(.{
+    .{ "BaseHandler", wsgiref_mod.genBaseHandler },
+    .{ "SimpleHandler", wsgiref_mod.genSimpleHandler },
+    .{ "BaseCGIHandler", wsgiref_mod.genBaseCGIHandler },
+    .{ "CGIHandler", wsgiref_mod.genCGIHandler },
+    .{ "IISCGIHandler", wsgiref_mod.genIISCGIHandler },
+});
+
+/// wsgiref.validate module functions
+const WsgirefValidateFuncs = FuncMap.initComptime(.{
+    .{ "validator", wsgiref_mod.genValidator },
+    .{ "assert_", wsgiref_mod.genAssert_ },
+    .{ "check_status", wsgiref_mod.genCheck_status },
+    .{ "check_headers", wsgiref_mod.genCheck_headers },
+    .{ "check_content_type", wsgiref_mod.genCheck_content_type },
+    .{ "check_exc_info", wsgiref_mod.genCheck_exc_info },
+    .{ "check_environ", wsgiref_mod.genCheck_environ },
+    .{ "WSGIWarning", wsgiref_mod.genWSGIWarning },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -2690,6 +2888,19 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "ssl", SslFuncs },
     .{ "selectors", SelectorsFuncs },
     .{ "ipaddress", IpaddressFuncs },
+    .{ "telnetlib", TelnetlibFuncs },
+    .{ "xmlrpc.client", XmlrpcClientFuncs },
+    .{ "xmlrpc.server", XmlrpcServerFuncs },
+    .{ "http.cookiejar", HttpCookiejarFuncs },
+    .{ "urllib.request", UrllibRequestFuncs },
+    .{ "urllib.error", UrllibErrorFuncs },
+    .{ "urllib.robotparser", UrllibRobotparserFuncs },
+    .{ "cgi", CgiFuncs },
+    .{ "wsgiref.simple_server", WsgirefSimpleServerFuncs },
+    .{ "wsgiref.util", WsgirefUtilFuncs },
+    .{ "wsgiref.headers", WsgirefHeadersFuncs },
+    .{ "wsgiref.handlers", WsgirefHandlersFuncs },
+    .{ "wsgiref.validate", WsgirefValidateFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
