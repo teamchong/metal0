@@ -222,6 +222,17 @@ const modulefinder_mod = @import("../modulefinder_mod.zig");
 const pyclbr_mod = @import("../pyclbr_mod.zig");
 const tabnanny_mod = @import("../tabnanny_mod.zig");
 const stringprep_mod = @import("../stringprep_mod.zig");
+const pickletools_mod = @import("../pickletools_mod.zig");
+const pipes_mod = @import("../pipes_mod.zig");
+const socketserver_mod = @import("../socketserver_mod.zig");
+const cgitb_mod = @import("../cgitb_mod.zig");
+const optparse_mod = @import("../optparse_mod.zig");
+const sre_compile_mod = @import("../sre_compile_mod.zig");
+const sre_constants_mod = @import("../sre_constants_mod.zig");
+const sre_parse_mod = @import("../sre_parse_mod.zig");
+const encodings_mod = @import("../encodings_mod.zig");
+const marshal_mod = @import("../marshal_mod.zig");
+const opcode_mod = @import("../opcode_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -4573,6 +4584,244 @@ const StringprepFuncs = FuncMap.initComptime(.{
     .{ "in_table_d2", stringprep_mod.genInTableD2 },
 });
 
+/// pickletools module functions
+const PickletoolsFuncs = FuncMap.initComptime(.{
+    .{ "dis", pickletools_mod.genDis },
+    .{ "genops", pickletools_mod.genGenops },
+    .{ "optimize", pickletools_mod.genOptimize },
+    .{ "OpcodeInfo", pickletools_mod.genOpcodeInfo },
+    .{ "opcodes", pickletools_mod.genOpcodes },
+    .{ "bytes_types", pickletools_mod.genBytesTypes },
+    .{ "UP_TO_NEWLINE", pickletools_mod.genUpToNewline },
+    .{ "TAKEN_FROM_ARGUMENT1", pickletools_mod.genTakenFromArgument1 },
+    .{ "TAKEN_FROM_ARGUMENT4", pickletools_mod.genTakenFromArgument4 },
+    .{ "TAKEN_FROM_ARGUMENT4U", pickletools_mod.genTakenFromArgument4U },
+    .{ "TAKEN_FROM_ARGUMENT8U", pickletools_mod.genTakenFromArgument8U },
+});
+
+/// pipes module functions
+const PipesFuncs = FuncMap.initComptime(.{
+    .{ "Template", pipes_mod.genTemplate },
+    .{ "reset", pipes_mod.genReset },
+    .{ "clone", pipes_mod.genClone },
+    .{ "debug", pipes_mod.genDebug },
+    .{ "append", pipes_mod.genAppend },
+    .{ "prepend", pipes_mod.genPrepend },
+    .{ "open", pipes_mod.genOpen },
+    .{ "copy", pipes_mod.genCopy },
+    .{ "FILEIN_FILEOUT", pipes_mod.genFileInFileOut },
+    .{ "STDIN_FILEOUT", pipes_mod.genStdinFileOut },
+    .{ "FILEIN_STDOUT", pipes_mod.genFileInStdout },
+    .{ "STDIN_STDOUT", pipes_mod.genStdinStdout },
+    .{ "quote", pipes_mod.genQuote },
+});
+
+/// socketserver module functions
+const SocketserverFuncs = FuncMap.initComptime(.{
+    .{ "BaseServer", socketserver_mod.genBaseServer },
+    .{ "TCPServer", socketserver_mod.genTCPServer },
+    .{ "UDPServer", socketserver_mod.genUDPServer },
+    .{ "UnixStreamServer", socketserver_mod.genUnixStreamServer },
+    .{ "UnixDatagramServer", socketserver_mod.genUnixDatagramServer },
+    .{ "ForkingMixIn", socketserver_mod.genForkingMixIn },
+    .{ "ThreadingMixIn", socketserver_mod.genThreadingMixIn },
+    .{ "ForkingTCPServer", socketserver_mod.genForkingTCPServer },
+    .{ "ForkingUDPServer", socketserver_mod.genForkingUDPServer },
+    .{ "ThreadingTCPServer", socketserver_mod.genThreadingTCPServer },
+    .{ "ThreadingUDPServer", socketserver_mod.genThreadingUDPServer },
+    .{ "ThreadingUnixStreamServer", socketserver_mod.genThreadingUnixStreamServer },
+    .{ "ThreadingUnixDatagramServer", socketserver_mod.genThreadingUnixDatagramServer },
+    .{ "BaseRequestHandler", socketserver_mod.genBaseRequestHandler },
+    .{ "StreamRequestHandler", socketserver_mod.genStreamRequestHandler },
+    .{ "DatagramRequestHandler", socketserver_mod.genDatagramRequestHandler },
+    .{ "serve_forever", socketserver_mod.genServeForever },
+    .{ "shutdown", socketserver_mod.genShutdown },
+    .{ "handle_request", socketserver_mod.genHandleRequest },
+    .{ "server_close", socketserver_mod.genServerClose },
+});
+
+/// cgitb module functions
+const CgitbFuncs = FuncMap.initComptime(.{
+    .{ "enable", cgitb_mod.genEnable },
+    .{ "handler", cgitb_mod.genHandler },
+    .{ "text", cgitb_mod.genText },
+    .{ "html", cgitb_mod.genHtml },
+    .{ "reset", cgitb_mod.genReset },
+    .{ "Hook", cgitb_mod.genHook },
+});
+
+/// optparse module functions
+const OptparseFuncs = FuncMap.initComptime(.{
+    .{ "OptionParser", optparse_mod.genOptionParser },
+    .{ "add_option", optparse_mod.genAddOption },
+    .{ "parse_args", optparse_mod.genParseArgs },
+    .{ "set_usage", optparse_mod.genSetUsage },
+    .{ "set_defaults", optparse_mod.genSetDefaults },
+    .{ "get_default_values", optparse_mod.genGetDefaultValues },
+    .{ "get_option", optparse_mod.genGetOption },
+    .{ "has_option", optparse_mod.genHasOption },
+    .{ "remove_option", optparse_mod.genRemoveOption },
+    .{ "add_option_group", optparse_mod.genAddOptionGroup },
+    .{ "get_option_group", optparse_mod.genGetOptionGroup },
+    .{ "print_help", optparse_mod.genPrintHelp },
+    .{ "print_usage", optparse_mod.genPrintUsage },
+    .{ "print_version", optparse_mod.genPrintVersion },
+    .{ "format_help", optparse_mod.genFormatHelp },
+    .{ "format_usage", optparse_mod.genFormatUsage },
+    .{ "error", optparse_mod.genError },
+    .{ "Option", optparse_mod.genOption },
+    .{ "OptionGroup", optparse_mod.genOptionGroup },
+    .{ "Values", optparse_mod.genValues },
+    .{ "OptionError", optparse_mod.genOptionError },
+    .{ "OptionConflictError", optparse_mod.genOptionConflictError },
+    .{ "OptionValueError", optparse_mod.genOptionValueError },
+    .{ "BadOptionError", optparse_mod.genBadOptionError },
+    .{ "AmbiguousOptionError", optparse_mod.genAmbiguousOptionError },
+    .{ "HelpFormatter", optparse_mod.genHelpFormatter },
+    .{ "IndentedHelpFormatter", optparse_mod.genIndentedHelpFormatter },
+    .{ "TitledHelpFormatter", optparse_mod.genTitledHelpFormatter },
+    .{ "SUPPRESS_HELP", optparse_mod.genSuppressHelp },
+    .{ "SUPPRESS_USAGE", optparse_mod.genSuppressUsage },
+    .{ "NO_DEFAULT", optparse_mod.genNoDefault },
+});
+
+/// sre_compile module functions
+const SreCompileFuncs = FuncMap.initComptime(.{
+    .{ "compile", sre_compile_mod.genCompile },
+    .{ "isstring", sre_compile_mod.genIsstring },
+    .{ "MAXCODE", sre_compile_mod.genMaxcode },
+    .{ "MAXGROUPS", sre_compile_mod.genMaxgroups },
+    .{ "_code", sre_compile_mod.genCode },
+    .{ "_compile", sre_compile_mod.genInternalCompile },
+    .{ "_compile_charset", sre_compile_mod.genCompileCharset },
+    .{ "_optimize_charset", sre_compile_mod.genOptimizeCharset },
+    .{ "_generate_overlap_table", sre_compile_mod.genGenerateOverlapTable },
+    .{ "_compile_info", sre_compile_mod.genCompileInfo },
+    .{ "SRE_FLAG_TEMPLATE", sre_compile_mod.genSreFlagTemplate },
+    .{ "SRE_FLAG_IGNORECASE", sre_compile_mod.genSreFlagIgnorecase },
+    .{ "SRE_FLAG_LOCALE", sre_compile_mod.genSreFlagLocale },
+    .{ "SRE_FLAG_MULTILINE", sre_compile_mod.genSreFlagMultiline },
+    .{ "SRE_FLAG_DOTALL", sre_compile_mod.genSreFlagDotall },
+    .{ "SRE_FLAG_UNICODE", sre_compile_mod.genSreFlagUnicode },
+    .{ "SRE_FLAG_VERBOSE", sre_compile_mod.genSreFlagVerbose },
+    .{ "SRE_FLAG_DEBUG", sre_compile_mod.genSreFlagDebug },
+    .{ "SRE_FLAG_ASCII", sre_compile_mod.genSreFlagAscii },
+});
+
+/// sre_constants module functions
+const SreConstantsFuncs = FuncMap.initComptime(.{
+    .{ "MAGIC", sre_constants_mod.genMagic },
+    .{ "MAXREPEAT", sre_constants_mod.genMaxrepeat },
+    .{ "MAXGROUPS", sre_constants_mod.genMaxgroups },
+    .{ "OPCODES", sre_constants_mod.genOpcodes },
+    .{ "ATCODES", sre_constants_mod.genAtcodes },
+    .{ "CHCODES", sre_constants_mod.genChcodes },
+    .{ "FAILURE", sre_constants_mod.genFailure },
+    .{ "SUCCESS", sre_constants_mod.genSuccess },
+    .{ "ANY", sre_constants_mod.genAny },
+    .{ "ANY_ALL", sre_constants_mod.genAnyAll },
+    .{ "ASSERT", sre_constants_mod.genAssert },
+    .{ "ASSERT_NOT", sre_constants_mod.genAssertNot },
+    .{ "AT", sre_constants_mod.genAt },
+    .{ "BRANCH", sre_constants_mod.genBranch },
+    .{ "CALL", sre_constants_mod.genCall },
+    .{ "CATEGORY", sre_constants_mod.genCategory },
+    .{ "CHARSET", sre_constants_mod.genCharset },
+    .{ "BIGCHARSET", sre_constants_mod.genBigcharset },
+    .{ "GROUPREF", sre_constants_mod.genGroupref },
+    .{ "GROUPREF_EXISTS", sre_constants_mod.genGrouprefExists },
+    .{ "IN", sre_constants_mod.genIn },
+    .{ "INFO", sre_constants_mod.genInfo },
+    .{ "JUMP", sre_constants_mod.genJump },
+    .{ "LITERAL", sre_constants_mod.genLiteral },
+    .{ "MARK", sre_constants_mod.genMark },
+    .{ "MAX_UNTIL", sre_constants_mod.genMaxUntil },
+    .{ "MIN_UNTIL", sre_constants_mod.genMinUntil },
+    .{ "NOT_LITERAL", sre_constants_mod.genNotLiteral },
+    .{ "NEGATE", sre_constants_mod.genNegate },
+    .{ "RANGE", sre_constants_mod.genRange },
+    .{ "REPEAT", sre_constants_mod.genRepeat },
+    .{ "REPEAT_ONE", sre_constants_mod.genRepeatOne },
+    .{ "SUBPATTERN", sre_constants_mod.genSubpattern },
+    .{ "MIN_REPEAT_ONE", sre_constants_mod.genMinRepeatOne },
+    .{ "SRE_FLAG_TEMPLATE", sre_constants_mod.genSreFlagTemplate },
+    .{ "SRE_FLAG_IGNORECASE", sre_constants_mod.genSreFlagIgnorecase },
+    .{ "SRE_FLAG_LOCALE", sre_constants_mod.genSreFlagLocale },
+    .{ "SRE_FLAG_MULTILINE", sre_constants_mod.genSreFlagMultiline },
+    .{ "SRE_FLAG_DOTALL", sre_constants_mod.genSreFlagDotall },
+    .{ "SRE_FLAG_UNICODE", sre_constants_mod.genSreFlagUnicode },
+    .{ "SRE_FLAG_VERBOSE", sre_constants_mod.genSreFlagVerbose },
+    .{ "SRE_FLAG_DEBUG", sre_constants_mod.genSreFlagDebug },
+    .{ "SRE_FLAG_ASCII", sre_constants_mod.genSreFlagAscii },
+    .{ "SRE_INFO_PREFIX", sre_constants_mod.genSreInfoPrefix },
+    .{ "SRE_INFO_LITERAL", sre_constants_mod.genSreInfoLiteral },
+    .{ "SRE_INFO_CHARSET", sre_constants_mod.genSreInfoCharset },
+    .{ "error", sre_constants_mod.genError },
+});
+
+/// sre_parse module functions
+const SreParseFuncs = FuncMap.initComptime(.{
+    .{ "parse", sre_parse_mod.genParse },
+    .{ "parse_template", sre_parse_mod.genParseTemplate },
+    .{ "expand_template", sre_parse_mod.genExpandTemplate },
+    .{ "SubPattern", sre_parse_mod.genSubPattern },
+    .{ "Pattern", sre_parse_mod.genPattern },
+    .{ "Tokenizer", sre_parse_mod.genTokenizer },
+    .{ "getwidth", sre_parse_mod.genGetwidth },
+    .{ "SPECIAL_CHARS", sre_parse_mod.genSpecialChars },
+    .{ "REPEAT_CHARS", sre_parse_mod.genRepeatChars },
+    .{ "DIGITS", sre_parse_mod.genDigits },
+    .{ "OCTDIGITS", sre_parse_mod.genOctdigits },
+    .{ "HEXDIGITS", sre_parse_mod.genHexdigits },
+    .{ "ASCIILETTERS", sre_parse_mod.genAsciiletters },
+    .{ "WHITESPACE", sre_parse_mod.genWhitespace },
+    .{ "ESCAPES", sre_parse_mod.genEscapes },
+    .{ "CATEGORIES", sre_parse_mod.genCategories },
+    .{ "FLAGS", sre_parse_mod.genFlags },
+    .{ "TYPE_FLAGS", sre_parse_mod.genTypeFlags },
+    .{ "GLOBAL_FLAGS", sre_parse_mod.genGlobalFlags },
+    .{ "Verbose", sre_parse_mod.genVerbose },
+});
+
+/// encodings module functions
+const EncodingsFuncs = FuncMap.initComptime(.{
+    .{ "search_function", encodings_mod.genSearchFunction },
+    .{ "normalize_encoding", encodings_mod.genNormalizeEncoding },
+    .{ "CodecInfo", encodings_mod.genCodecInfo },
+    .{ "aliases", encodings_mod.genAliases },
+});
+
+/// marshal module functions
+const MarshalFuncs = FuncMap.initComptime(.{
+    .{ "dump", marshal_mod.genDump },
+    .{ "dumps", marshal_mod.genDumps },
+    .{ "load", marshal_mod.genLoad },
+    .{ "loads", marshal_mod.genLoads },
+    .{ "version", marshal_mod.genVersion },
+});
+
+/// opcode module functions
+const OpcodeFuncs = FuncMap.initComptime(.{
+    .{ "opname", opcode_mod.genOpname },
+    .{ "opmap", opcode_mod.genOpmap },
+    .{ "cmp_op", opcode_mod.genCmpOp },
+    .{ "hasarg", opcode_mod.genHasarg },
+    .{ "hasconst", opcode_mod.genHasconst },
+    .{ "hasname", opcode_mod.genHasname },
+    .{ "hasjrel", opcode_mod.genHasjrel },
+    .{ "hasjabs", opcode_mod.genHasjabs },
+    .{ "haslocal", opcode_mod.genHaslocal },
+    .{ "hascompare", opcode_mod.genHascompare },
+    .{ "hasfree", opcode_mod.genHasfree },
+    .{ "hasexc", opcode_mod.genHasexc },
+    .{ "HAVE_ARGUMENT", opcode_mod.genHaveArgument },
+    .{ "EXTENDED_ARG", opcode_mod.genExtendedArg },
+    .{ "stack_effect", opcode_mod.genStackEffect },
+    .{ "_specialized_opmap", opcode_mod.genSpecializedOpmap },
+    .{ "_intrinsic_1_descs", opcode_mod.genIntrinsic1Descs },
+    .{ "_intrinsic_2_descs", opcode_mod.genIntrinsic2Descs },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -4831,6 +5080,17 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "pyclbr", PyclbrFuncs },
     .{ "tabnanny", TabnannyFuncs },
     .{ "stringprep", StringprepFuncs },
+    .{ "pickletools", PickletoolsFuncs },
+    .{ "pipes", PipesFuncs },
+    .{ "socketserver", SocketserverFuncs },
+    .{ "cgitb", CgitbFuncs },
+    .{ "optparse", OptparseFuncs },
+    .{ "sre_compile", SreCompileFuncs },
+    .{ "sre_constants", SreConstantsFuncs },
+    .{ "sre_parse", SreParseFuncs },
+    .{ "encodings", EncodingsFuncs },
+    .{ "marshal", MarshalFuncs },
+    .{ "opcode", OpcodeFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
