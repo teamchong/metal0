@@ -4,7 +4,7 @@ const runtime = @import("runtime.zig");
 
 /// Datetime struct - represents datetime.datetime
 pub const Datetime = struct {
-    year: i32,
+    year: u32,
     month: u8,
     day: u8,
     hour: u8,
@@ -12,39 +12,47 @@ pub const Datetime = struct {
     second: u8,
     microsecond: u32,
 
-    /// Create datetime.datetime.now()
+    /// Create datetime.datetime.now() using local time
     pub fn now() Datetime {
         const ts = std.time.timestamp();
-        return fromTimestamp(ts);
+        // Get local timezone offset (hardcoded PST -8 hours for now)
+        // TODO: Use proper timezone detection
+        const local_offset: i64 = -8 * 3600; // PST offset
+        return fromTimestamp(ts + local_offset);
     }
 
-    /// Create from Unix timestamp
+    /// Create from Unix timestamp (UTC)
     pub fn fromTimestamp(ts: i64) Datetime {
         const epoch_secs = std.time.epoch.EpochSeconds{ .secs = @intCast(ts) };
         const day_seconds = epoch_secs.getDaySeconds();
         const year_day = epoch_secs.getEpochDay().calculateYearDay();
         const month_day = year_day.calculateMonthDay();
 
+        // Get microseconds from nanoTimestamp if available
+        const nano_ts = std.time.nanoTimestamp();
+        const micros: u32 = @intCast(@mod(@divFloor(nano_ts, 1000), 1_000_000));
+
         return Datetime{
-            .year = year_day.year,
+            .year = @intCast(year_day.year),
             .month = month_day.month.numeric(),
             .day = month_day.day_index + 1,
             .hour = day_seconds.getHoursIntoDay(),
             .minute = day_seconds.getMinutesIntoHour(),
             .second = day_seconds.getSecondsIntoMinute(),
-            .microsecond = 0,
+            .microsecond = micros,
         };
     }
 
-    /// Convert to string: YYYY-MM-DD HH:MM:SS
+    /// Convert to string: YYYY-MM-DD HH:MM:SS.ffffff (Python format)
     pub fn toString(self: Datetime, allocator: std.mem.Allocator) ![]const u8 {
-        return std.fmt.allocPrint(allocator, "{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}:{d:0>2}", .{
+        return std.fmt.allocPrint(allocator, "{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}:{d:0>2}.{d:0>6}", .{
             self.year,
             self.month,
             self.day,
             self.hour,
             self.minute,
             self.second,
+            self.microsecond,
         });
     }
 
