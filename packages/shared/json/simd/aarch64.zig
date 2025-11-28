@@ -204,7 +204,60 @@ test "hasEscapesNeon" {
     try std.testing.expect(hasEscapesNeon("hello\\nworld"));
 }
 
+/// Find closing quote AND detect escapes using NEON
+/// Processes 16 bytes at a time for faster string scanning
 pub fn findClosingQuoteAndEscapesNeon(data: []const u8) ?@import("dispatch.zig").QuoteAndEscapeResult {
-    // Use scalar implementation (SIMD escape tracking is complex, scalar is proven correct)
-    return scalar.findClosingQuoteAndEscapes(data);
+    if (data.len < 16) {
+        return scalar.findClosingQuoteAndEscapes(data);
+    }
+
+    var i: usize = 0;
+    var has_escapes = false;
+    const end = data.len - 16;
+
+    const quote_vec: @Vector(16, u8) = @splat('"');
+    const backslash_vec: @Vector(16, u8) = @splat('\\');
+    const control_max: @Vector(16, u8) = @splat(0x1F);
+
+    // SIMD fast path: scan 16 bytes at a time looking for quote/backslash/control
+    while (i <= end) {
+        const chunk: @Vector(16, u8) = data[i..][0..16].*;
+
+        const is_quote = chunk == quote_vec;
+        const is_backslash = chunk == backslash_vec;
+        const is_control = chunk <= control_max;
+
+        // Check for any terminating character (quote, backslash, or control char)
+        const is_terminator = is_quote | is_backslash | is_control;
+
+        if (@reduce(.Or, is_terminator)) {
+            // Found something, switch to byte-by-byte from here
+            break;
+        }
+
+        i += 16;
+    }
+
+    // Byte-by-byte for remainder and to handle escapes correctly
+    while (i < data.len) {
+        const c = data[i];
+        if (c == '"') {
+            return .{
+                .quote_pos = i,
+                .has_escapes = has_escapes,
+            };
+        } else if (c == '\\') {
+            has_escapes = true;
+            i += 1; // Skip escape character
+            if (i >= data.len) return null;
+            i += 1; // Skip escaped character
+        } else if (c < 0x20) {
+            // Control character - invalid in JSON string
+            return null;
+        } else {
+            i += 1;
+        }
+    }
+
+    return null; // No closing quote found
 }
