@@ -39,39 +39,33 @@ pub const HashObject = struct {
         const d = self.data.items;
         switch (self.algorithm) {
             .md5 => {
-                const result = try allocator.alloc(u8, 16);
-                const hash = Md5.hash(d, .{});
-                @memcpy(result, &hash);
+                const result = try allocator.alloc(u8, Md5.digest_length);
+                Md5.hash(d, result[0..Md5.digest_length], .{});
                 return result;
             },
             .sha1 => {
-                const result = try allocator.alloc(u8, 20);
-                const hash = Sha1.hash(d, .{});
-                @memcpy(result, &hash);
+                const result = try allocator.alloc(u8, Sha1.digest_length);
+                Sha1.hash(d, result[0..Sha1.digest_length], .{});
                 return result;
             },
             .sha224 => {
-                const result = try allocator.alloc(u8, 28);
-                const hash = Sha224.hash(d, .{});
-                @memcpy(result, &hash);
+                const result = try allocator.alloc(u8, Sha224.digest_length);
+                Sha224.hash(d, result[0..Sha224.digest_length], .{});
                 return result;
             },
             .sha256 => {
-                const result = try allocator.alloc(u8, 32);
-                const hash = Sha256.hash(d, .{});
-                @memcpy(result, &hash);
+                const result = try allocator.alloc(u8, Sha256.digest_length);
+                Sha256.hash(d, result[0..Sha256.digest_length], .{});
                 return result;
             },
             .sha384 => {
-                const result = try allocator.alloc(u8, 48);
-                const hash = Sha384.hash(d, .{});
-                @memcpy(result, &hash);
+                const result = try allocator.alloc(u8, Sha384.digest_length);
+                Sha384.hash(d, result[0..Sha384.digest_length], .{});
                 return result;
             },
             .sha512 => {
-                const result = try allocator.alloc(u8, 64);
-                const hash = Sha512.hash(d, .{});
-                @memcpy(result, &hash);
+                const result = try allocator.alloc(u8, Sha512.digest_length);
+                Sha512.hash(d, result[0..Sha512.digest_length], .{});
                 return result;
             },
         }
@@ -114,8 +108,8 @@ pub fn md5() HashObject {
     return HashObject{
         .algorithm = .md5,
         .data = std.ArrayList(u8){},
-        .digest_size = 16,
-        .block_size = 64,
+        .digest_size = Md5.digest_length,
+        .block_size = Md5.block_length,
         .name = "md5",
     };
 }
@@ -125,8 +119,8 @@ pub fn sha1() HashObject {
     return HashObject{
         .algorithm = .sha1,
         .data = std.ArrayList(u8){},
-        .digest_size = 20,
-        .block_size = 64,
+        .digest_size = Sha1.digest_length,
+        .block_size = Sha1.block_length,
         .name = "sha1",
     };
 }
@@ -136,8 +130,8 @@ pub fn sha224() HashObject {
     return HashObject{
         .algorithm = .sha224,
         .data = std.ArrayList(u8){},
-        .digest_size = 28,
-        .block_size = 64,
+        .digest_size = Sha224.digest_length,
+        .block_size = Sha224.block_length,
         .name = "sha224",
     };
 }
@@ -147,8 +141,8 @@ pub fn sha256() HashObject {
     return HashObject{
         .algorithm = .sha256,
         .data = std.ArrayList(u8){},
-        .digest_size = 32,
-        .block_size = 64,
+        .digest_size = Sha256.digest_length,
+        .block_size = Sha256.block_length,
         .name = "sha256",
     };
 }
@@ -158,8 +152,8 @@ pub fn sha384() HashObject {
     return HashObject{
         .algorithm = .sha384,
         .data = std.ArrayList(u8){},
-        .digest_size = 48,
-        .block_size = 128,
+        .digest_size = Sha384.digest_length,
+        .block_size = Sha384.block_length,
         .name = "sha384",
     };
 }
@@ -169,8 +163,8 @@ pub fn sha512() HashObject {
     return HashObject{
         .algorithm = .sha512,
         .data = std.ArrayList(u8){},
-        .digest_size = 64,
-        .block_size = 128,
+        .digest_size = Sha512.digest_length,
+        .block_size = Sha512.block_length,
         .name = "sha512",
     };
 }
@@ -191,23 +185,23 @@ pub fn new(name: []const u8) !HashObject {
 // ============================================================================
 
 /// One-shot MD5 hash
-pub fn md5Hash(data: []const u8) [16]u8 {
-    return Md5.hash(data, .{});
+pub fn md5Hash(data: []const u8, out: *[Md5.digest_length]u8) void {
+    Md5.hash(data, out, .{});
 }
 
 /// One-shot SHA1 hash
-pub fn sha1Hash(data: []const u8) [20]u8 {
-    return Sha1.hash(data, .{});
+pub fn sha1Hash(data: []const u8, out: *[Sha1.digest_length]u8) void {
+    Sha1.hash(data, out, .{});
 }
 
 /// One-shot SHA256 hash
-pub fn sha256Hash(data: []const u8) [32]u8 {
-    return Sha256.hash(data, .{});
+pub fn sha256Hash(data: []const u8, out: *[Sha256.digest_length]u8) void {
+    Sha256.hash(data, out, .{});
 }
 
 /// One-shot SHA512 hash
-pub fn sha512Hash(data: []const u8) [64]u8 {
-    return Sha512.hash(data, .{});
+pub fn sha512Hash(data: []const u8, out: *[Sha512.digest_length]u8) void {
+    Sha512.hash(data, out, .{});
 }
 
 /// Convert bytes to hex string

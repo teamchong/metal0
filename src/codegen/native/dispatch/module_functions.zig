@@ -28,6 +28,7 @@ const base64_mod = @import("../base64_mod.zig");
 const random_mod = @import("../random_mod.zig");
 const string_mod = @import("../string_mod.zig");
 const time_mod = @import("../time_mod.zig");
+const sys_mod = @import("../sys_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -452,6 +453,29 @@ const TimeFuncs = FuncMap.initComptime(.{
     .{ "get_clock_info", time_mod.genGetClockInfo },
 });
 
+/// sys module functions
+const SysFuncs = FuncMap.initComptime(.{
+    .{ "argv", sys_mod.genArgv },
+    .{ "exit", sys_mod.genExit },
+    .{ "path", sys_mod.genPath },
+    .{ "platform", sys_mod.genPlatform },
+    .{ "version", sys_mod.genVersion },
+    .{ "version_info", sys_mod.genVersionInfo },
+    .{ "executable", sys_mod.genExecutable },
+    .{ "stdin", sys_mod.genStdin },
+    .{ "stdout", sys_mod.genStdout },
+    .{ "stderr", sys_mod.genStderr },
+    .{ "maxsize", sys_mod.genMaxsize },
+    .{ "byteorder", sys_mod.genByteorder },
+    .{ "getsizeof", sys_mod.genGetsizeof },
+    .{ "getrecursionlimit", sys_mod.genGetrecursionlimit },
+    .{ "setrecursionlimit", sys_mod.genSetrecursionlimit },
+    .{ "getdefaultencoding", sys_mod.genGetdefaultencoding },
+    .{ "getfilesystemencoding", sys_mod.genGetfilesystemencoding },
+    .{ "intern", sys_mod.genIntern },
+    .{ "modules", sys_mod.genModules },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -488,6 +512,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "random", RandomFuncs },
     .{ "string", StringFuncs },
     .{ "time", TimeFuncs },
+    .{ "sys", SysFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
