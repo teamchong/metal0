@@ -65,6 +65,11 @@ const inspect_mod = @import("../inspect_mod.zig");
 const dataclasses_mod = @import("../dataclasses_mod.zig");
 const enum_mod = @import("../enum_mod.zig");
 const operator_mod = @import("../operator_mod.zig");
+const atexit_mod = @import("../atexit_mod.zig");
+const warnings_mod = @import("../warnings_mod.zig");
+const traceback_mod = @import("../traceback_mod.zig");
+const linecache_mod = @import("../linecache_mod.zig");
+const pprint_mod = @import("../pprint_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -1109,6 +1114,84 @@ const OperatorFuncs = FuncMap.initComptime(.{
     .{ "__call__", operator_mod.genCall },
 });
 
+/// atexit module functions
+const AtexitFuncs = FuncMap.initComptime(.{
+    .{ "register", atexit_mod.genRegister },
+    .{ "unregister", atexit_mod.genUnregister },
+    .{ "_run_exitfuncs", atexit_mod.genRunExitfuncs },
+    .{ "_clear", atexit_mod.genClear },
+    .{ "_ncallbacks", atexit_mod.genNcallbacks },
+});
+
+/// warnings module functions
+const WarningsFuncs = FuncMap.initComptime(.{
+    .{ "warn", warnings_mod.genWarn },
+    .{ "warn_explicit", warnings_mod.genWarnExplicit },
+    .{ "showwarning", warnings_mod.genShowwarning },
+    .{ "formatwarning", warnings_mod.genFormatwarning },
+    .{ "filterwarnings", warnings_mod.genFilterwarnings },
+    .{ "simplefilter", warnings_mod.genSimplefilter },
+    .{ "resetwarnings", warnings_mod.genResetwarnings },
+    .{ "catch_warnings", warnings_mod.genCatchWarnings },
+    .{ "Warning", warnings_mod.genWarning },
+    .{ "UserWarning", warnings_mod.genUserWarning },
+    .{ "DeprecationWarning", warnings_mod.genDeprecationWarning },
+    .{ "PendingDeprecationWarning", warnings_mod.genPendingDeprecationWarning },
+    .{ "SyntaxWarning", warnings_mod.genSyntaxWarning },
+    .{ "RuntimeWarning", warnings_mod.genRuntimeWarning },
+    .{ "FutureWarning", warnings_mod.genFutureWarning },
+    .{ "ImportWarning", warnings_mod.genImportWarning },
+    .{ "UnicodeWarning", warnings_mod.genUnicodeWarning },
+    .{ "BytesWarning", warnings_mod.genBytesWarning },
+    .{ "ResourceWarning", warnings_mod.genResourceWarning },
+    .{ "filters", warnings_mod.genFilters },
+});
+
+/// traceback module functions
+const TracebackFuncs = FuncMap.initComptime(.{
+    .{ "print_tb", traceback_mod.genPrintTb },
+    .{ "print_exception", traceback_mod.genPrintException },
+    .{ "print_exc", traceback_mod.genPrintExc },
+    .{ "print_last", traceback_mod.genPrintLast },
+    .{ "print_stack", traceback_mod.genPrintStack },
+    .{ "extract_tb", traceback_mod.genExtractTb },
+    .{ "extract_stack", traceback_mod.genExtractStack },
+    .{ "format_list", traceback_mod.genFormatList },
+    .{ "format_exception_only", traceback_mod.genFormatExceptionOnly },
+    .{ "format_exception", traceback_mod.genFormatException },
+    .{ "format_exc", traceback_mod.genFormatExc },
+    .{ "format_tb", traceback_mod.genFormatTb },
+    .{ "format_stack", traceback_mod.genFormatStack },
+    .{ "clear_frames", traceback_mod.genClearFrames },
+    .{ "walk_tb", traceback_mod.genWalkTb },
+    .{ "walk_stack", traceback_mod.genWalkStack },
+    .{ "TracebackException", traceback_mod.genTracebackException },
+    .{ "StackSummary", traceback_mod.genStackSummary },
+    .{ "FrameSummary", traceback_mod.genFrameSummary },
+});
+
+/// linecache module functions
+const LinecacheFuncs = FuncMap.initComptime(.{
+    .{ "getline", linecache_mod.genGetline },
+    .{ "getlines", linecache_mod.genGetlines },
+    .{ "clearcache", linecache_mod.genClearcache },
+    .{ "checkcache", linecache_mod.genCheckcache },
+    .{ "updatecache", linecache_mod.genUpdatecache },
+    .{ "lazycache", linecache_mod.genLazycache },
+    .{ "cache", linecache_mod.genCache },
+});
+
+/// pprint module functions
+const PprintFuncs = FuncMap.initComptime(.{
+    .{ "pprint", pprint_mod.genPprint },
+    .{ "pformat", pprint_mod.genPformat },
+    .{ "pp", pprint_mod.genPp },
+    .{ "isreadable", pprint_mod.genIsreadable },
+    .{ "isrecursive", pprint_mod.genIsrecursive },
+    .{ "saferepr", pprint_mod.genSaferepr },
+    .{ "PrettyPrinter", pprint_mod.genPrettyPrinter },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -1190,6 +1273,11 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "dataclasses", DataclassesFuncs },
     .{ "enum", EnumFuncs },
     .{ "operator", OperatorFuncs },
+    .{ "atexit", AtexitFuncs },
+    .{ "warnings", WarningsFuncs },
+    .{ "traceback", TracebackFuncs },
+    .{ "linecache", LinecacheFuncs },
+    .{ "pprint", PprintFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

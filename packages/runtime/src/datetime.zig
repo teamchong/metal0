@@ -1,6 +1,9 @@
 /// DateTime module - Python datetime.datetime, datetime.date, datetime.timedelta support
 const std = @import("std");
 const runtime = @import("runtime.zig");
+const c = @cImport({
+    @cInclude("time.h");
+});
 
 /// Datetime struct - represents datetime.datetime
 pub const Datetime = struct {
@@ -15,10 +18,27 @@ pub const Datetime = struct {
     /// Create datetime.datetime.now() using local time
     pub fn now() Datetime {
         const ts = std.time.timestamp();
-        // Get local timezone offset (hardcoded PST -8 hours for now)
-        // TODO: Use proper timezone detection
-        const local_offset: i64 = -8 * 3600; // PST offset
-        return fromTimestamp(ts + local_offset);
+        // Use C localtime to get proper timezone-aware local time
+        var time_val: c.time_t = @intCast(ts);
+        const local_tm = c.localtime(&time_val);
+        if (local_tm) |tm_ptr| {
+            const tm = tm_ptr.*;
+            // Get microseconds from nanoTimestamp
+            const nano_ts = std.time.nanoTimestamp();
+            const micros: u32 = @intCast(@mod(@divFloor(nano_ts, 1000), 1_000_000));
+
+            return Datetime{
+                .year = @intCast(tm.tm_year + 1900),
+                .month = @intCast(tm.tm_mon + 1),
+                .day = @intCast(tm.tm_mday),
+                .hour = @intCast(tm.tm_hour),
+                .minute = @intCast(tm.tm_min),
+                .second = @intCast(tm.tm_sec),
+                .microsecond = micros,
+            };
+        }
+        // Fallback to UTC
+        return fromTimestamp(ts);
     }
 
     /// Create from Unix timestamp (UTC)
@@ -65,19 +85,30 @@ pub const Datetime = struct {
 
 /// Date struct - represents datetime.date
 pub const Date = struct {
-    year: i32,
+    year: u32,
     month: u8,
     day: u8,
 
-    /// Create datetime.date.today()
+    /// Create datetime.date.today() using local time
     pub fn today() Date {
         const ts = std.time.timestamp();
+        // Use C localtime to get proper timezone-aware local date
+        var time_val: c.time_t = @intCast(ts);
+        const local_tm = c.localtime(&time_val);
+        if (local_tm) |tm_ptr| {
+            const tm = tm_ptr.*;
+            return Date{
+                .year = @intCast(tm.tm_year + 1900),
+                .month = @intCast(tm.tm_mon + 1),
+                .day = @intCast(tm.tm_mday),
+            };
+        }
+        // Fallback to UTC
         const epoch_secs = std.time.epoch.EpochSeconds{ .secs = @intCast(ts) };
         const year_day = epoch_secs.getEpochDay().calculateYearDay();
         const month_day = year_day.calculateMonthDay();
-
         return Date{
-            .year = year_day.year,
+            .year = @intCast(year_day.year),
             .month = month_day.month.numeric(),
             .day = month_day.day_index + 1,
         };
@@ -227,11 +258,11 @@ test "datetime.toString()" {
         .hour = 14,
         .minute = 30,
         .second = 45,
-        .microsecond = 0,
+        .microsecond = 123456,
     };
     const str = try dt.toString(allocator);
     defer allocator.free(str);
-    try std.testing.expectEqualStrings("2025-11-25 14:30:45", str);
+    try std.testing.expectEqualStrings("2025-11-25 14:30:45.123456", str);
 }
 
 test "date.toString()" {
