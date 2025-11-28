@@ -7,6 +7,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 const builtins = @import("../builtins.zig");
 const io_mod = @import("../io.zig");
 const collections_mod = @import("../collections_mod.zig");
+const functools_mod = @import("../functools_mod.zig");
 
 /// Handler function type for builtin dispatchers
 const BuiltinHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -62,6 +63,12 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "defaultdict", collections_mod.genDefaultdict },
     .{ "deque", collections_mod.genDeque },
     .{ "OrderedDict", collections_mod.genOrderedDict },
+    // functools module (from functools import partial, reduce)
+    .{ "partial", functools_mod.genPartial },
+    .{ "reduce", functools_mod.genReduce },
+    .{ "lru_cache", functools_mod.genLruCache },
+    .{ "cache", functools_mod.genCache },
+    .{ "wraps", functools_mod.genWraps },
 });
 
 /// Try to dispatch built-in function call
