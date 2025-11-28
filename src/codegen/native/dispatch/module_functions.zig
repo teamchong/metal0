@@ -44,6 +44,7 @@ const csv_mod = @import("../csv_mod.zig");
 const configparser_mod = @import("../configparser_mod.zig");
 const argparse_mod = @import("../argparse_mod.zig");
 const zipfile_mod = @import("../zipfile_mod.zig");
+const gzip_mod = @import("../gzip_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -663,6 +664,15 @@ const ZipfileFuncs = FuncMap.initComptime(.{
     .{ "LargeZipFile", zipfile_mod.genLargeZipFile },
 });
 
+/// gzip module functions
+const GzipFuncs = FuncMap.initComptime(.{
+    .{ "compress", gzip_mod.genCompress },
+    .{ "decompress", gzip_mod.genDecompress },
+    .{ "open", gzip_mod.genOpen },
+    .{ "GzipFile", gzip_mod.genGzipFile },
+    .{ "BadGzipFile", gzip_mod.genBadGzipFile },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -715,6 +725,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "configparser", ConfigparserFuncs },
     .{ "argparse", ArgparseFuncs },
     .{ "zipfile", ZipfileFuncs },
+    .{ "gzip", GzipFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
