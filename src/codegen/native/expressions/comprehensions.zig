@@ -268,6 +268,119 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     try self.emit("}");
 }
 
+/// Generate generator expression: (x * 2 for x in range(5))
+/// For AOT compilation, we treat this as a list comprehension and return the list
+/// (Real generators would need lazy evaluation which is complex)
+pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!void {
+    // Forward declare genExpr - it's in parent module
+    const parent = @import("../expressions.zig");
+    const genExpr = parent.genExpr;
+
+    // Generate: blk: { ... }
+    try self.emit("blk: {\n");
+    self.indent();
+
+    // Generate: var __comp_result = std.ArrayList(i64){};
+    try self.emitIndent();
+    try self.emit("var __comp_result = std.ArrayList(i64){};\n");
+
+    // Generate nested loops for each generator
+    for (genexp.generators, 0..) |gen, gen_idx| {
+        // Check if this is a range() call
+        const is_range = gen.iter.* == .call and gen.iter.call.func.* == .name and
+            std.mem.eql(u8, gen.iter.call.func.name.id, "range");
+
+        if (is_range) {
+            // Generate range loop as while loop
+            const var_name = gen.target.name.id;
+            const args = gen.iter.call.args;
+
+            // Parse range arguments
+            var start_val: i64 = 0;
+            var stop_val: i64 = 0;
+            const step_val: i64 = 1;
+
+            if (args.len == 1) {
+                // range(stop)
+                if (args[0] == .constant and args[0].constant.value == .int) {
+                    stop_val = args[0].constant.value.int;
+                }
+            } else if (args.len == 2) {
+                // range(start, stop)
+                if (args[0] == .constant and args[0].constant.value == .int) {
+                    start_val = args[0].constant.value.int;
+                }
+                if (args[1] == .constant and args[1].constant.value == .int) {
+                    stop_val = args[1].constant.value.int;
+                }
+            }
+
+            // Generate: var <var_name>: i64 = <start>;
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ var_name, start_val });
+
+            // Generate: while (<var_name> < <stop>) {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ var_name, stop_val });
+            self.indent();
+
+            // Defer increment: defer <var_name> += <step>;
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ var_name, step_val });
+        } else {
+            // Regular iteration
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
+            try genExpr(self, gen.iter.*);
+            try self.emit(".items;\n");
+
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
+            try genExpr(self, gen.target.*);
+            try self.emit("| {\n");
+            self.indent();
+        }
+
+        // Generate if conditions for this generator
+        for (gen.ifs) |if_cond| {
+            try self.emitIndent();
+            try self.emit("if (");
+            try genExpr(self, if_cond);
+            try self.emit(") {\n");
+            self.indent();
+        }
+    }
+
+    // Generate: try __comp_result.append(allocator, <elt_expr>);
+    try self.emitIndent();
+    try self.emit("try __comp_result.append(allocator, ");
+    try genExpr(self, genexp.elt.*);
+    try self.emit(");\n");
+
+    // Close all if conditions and for loops
+    for (genexp.generators) |gen| {
+        // Close if conditions for this generator
+        for (gen.ifs) |_| {
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+        }
+
+        // Close for loop
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    // Generate: break :blk __comp_result;
+    try self.emitIndent();
+    try self.emit("break :blk __comp_result;\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
 /// Check if an expression evaluates to an integer type
 fn isIntExpr(node: ast.Node) bool {
     return switch (node) {

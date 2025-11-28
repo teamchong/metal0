@@ -119,11 +119,13 @@ pub const Node = union(enum) {
         target: *Node,
         iter: *Node,
         body: []Node,
+        orelse_body: ?[]Node = null, // Optional else clause (for/else)
     };
 
     pub const While = struct {
         condition: *Node,
         body: []Node,
+        orelse_body: ?[]Node = null, // Optional else clause (while/else)
     };
 
     pub const FunctionDef = struct {
