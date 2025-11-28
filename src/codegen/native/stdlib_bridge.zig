@@ -25,8 +25,8 @@ pub fn genSimpleCall(comptime spec: SimpleCallSpec) fn (*NativeCodegen, []ast.No
 
             try self.emit("try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit(alloc_name);
+                // Always use allocator for stdlib calls - it's passed as param for class methods
+                try self.emit("allocator");
                 if (spec.arg_count > 0) {
                     try self.emit(", ");
                 }
@@ -58,8 +58,8 @@ pub fn genNoArgCall(comptime spec: NoArgCallSpec) fn (*NativeCodegen, []ast.Node
 
             try self.emit("try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit(alloc_name);
+                // Always use allocator for stdlib calls - it's passed as param for class methods
+                try self.emit("allocator");
             }
             try self.emit(")");
         }
@@ -84,8 +84,8 @@ pub fn genVarArgCall(comptime spec: VarArgCallSpec) fn (*NativeCodegen, []ast.No
 
             try self.emit("try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit(alloc_name);
+                // Always use allocator for stdlib calls - it's passed as param for class methods
+                try self.emit("allocator");
                 if (args.len > 0) {
                     try self.emit(", ");
                 }

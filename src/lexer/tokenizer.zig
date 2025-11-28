@@ -123,6 +123,7 @@ pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usi
             break :blk .RBrace;
         },
         ',' => .Comma,
+        ';' => .Semicolon,
         ':' => blk: {
             if (self.peek() == '=') {
                 _ = self.advance();

@@ -94,6 +94,7 @@ pub const TokenType = enum {
     RBrace,
     Comma,
     Colon,
+    Semicolon,
     Dot,
     Arrow,
     At,

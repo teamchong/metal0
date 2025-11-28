@@ -53,11 +53,11 @@ pub const Parser = struct {
             stmts.deinit(self.allocator);
         }
 
-        // Skip leading newlines
-        while (self.match(.Newline)) {}
+        // Skip leading newlines and semicolons
+        while (self.match(.Newline) or self.match(.Semicolon)) {}
 
         while (!self.isAtEnd()) {
-            if (self.match(.Newline)) continue;
+            if (self.match(.Newline) or self.match(.Semicolon)) continue;
             const stmt = try self.parseStatement();
             try stmts.append(self.allocator, stmt);
             self.is_first_statement = false;

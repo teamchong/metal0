@@ -31,7 +31,8 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         }
         errdefer if (value) |*v| v.deinit(self.allocator);
 
-        _ = self.expect(.Newline) catch {};
+        // Accept either newline or semicolon as statement terminator
+        if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
         return ast.Node{
             .ann_assign = .{
@@ -88,7 +89,7 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
             try value_list.append(self.allocator, first_value);
 
             while (self.match(.Comma)) {
-                if (self.check(.Eq) or self.check(.Newline)) break;
+                if (self.check(.Eq) or self.check(.Newline) or self.check(.Semicolon)) break;
                 var val = try parseAssignTarget(self);
                 errdefer val.deinit(self.allocator);
                 try value_list.append(self.allocator, val);
@@ -108,7 +109,8 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
             value = try self.parseExpression();
         }
 
-        _ = self.expect(.Newline) catch {};
+        // Accept either newline or semicolon as statement terminator
+        if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
         const targets = try all_targets.toOwnedSlice(self.allocator);
         all_targets = std.ArrayList(ast.Node){};
@@ -139,7 +141,8 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
     if (aug_op) |op| {
         var value = try self.parseExpression();
         errdefer value.deinit(self.allocator);
-        _ = self.expect(.Newline) catch {};
+        // Accept either newline or semicolon as statement terminator
+        if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
         return ast.Node{
             .aug_assign = .{
@@ -175,7 +178,7 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
 
             while (self.match(.Comma)) {
                 // Check if next is '=' (chained assignment) or Newline (trailing comma) - if so, stop tuple building
-                if (self.check(.Eq) or self.check(.Newline)) break;
+                if (self.check(.Eq) or self.check(.Newline) or self.check(.Semicolon)) break;
                 // Use parseAssignTarget to handle starred expressions like *args
                 var val = try parseAssignTarget(self);
                 errdefer val.deinit(self.allocator);
@@ -196,7 +199,8 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
             value = try self.parseExpression();
         }
 
-        _ = self.expect(.Newline) catch {};
+        // Accept either newline or semicolon as statement terminator
+        if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
         const targets = try all_targets.toOwnedSlice(self.allocator);
         all_targets = std.ArrayList(ast.Node){};
@@ -212,9 +216,10 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         expr.constant.value == .string;
 
     if (is_module_docstring) {
-        _ = self.match(.Newline);
+        if (!self.match(.Newline)) _ = self.match(.Semicolon);
     } else {
-        _ = self.expect(.Newline) catch {};
+        // Accept either newline or semicolon as statement terminator
+        if (!self.match(.Newline)) _ = self.match(.Semicolon);
     }
 
     return ast.Node{ .expr_stmt = .{ .value = try self.allocNode(expr) } };
