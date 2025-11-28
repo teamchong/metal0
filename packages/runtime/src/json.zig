@@ -180,6 +180,17 @@ fn stringifyValue(value: anytype, comptime T: type, buffer: *std.ArrayList(u8), 
         }
     }
 
+    // Handle arrays (e.g. [3]i64)
+    if (type_info == .array) {
+        try buffer.append(allocator, '[');
+        for (value, 0..) |elem, i| {
+            if (i > 0) try buffer.appendSlice(allocator, ", ");
+            try stringifyValue(elem, type_info.array.child, buffer, allocator);
+        }
+        try buffer.append(allocator, ']');
+        return;
+    }
+
     // Fallback for unsupported types
     try buffer.appendSlice(allocator, JSON_NULL);
 }

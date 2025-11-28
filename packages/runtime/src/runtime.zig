@@ -6,7 +6,7 @@ const pyint = @import("pyint.zig");
 const pyfloat = @import("pyfloat.zig");
 const pybool = @import("pybool.zig");
 const pylist = @import("pylist.zig");
-const pystring = @import("pystring.zig");
+pub const pystring = @import("pystring.zig");
 const pytuple = @import("pytuple.zig");
 const pyfile = @import("pyfile.zig");
 

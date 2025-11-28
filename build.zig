@@ -225,24 +225,6 @@ pub fn build(b: *std.Build) void {
     const json_manual_step = b.step("test-json-manual", "Run manual JSON tests");
     json_manual_step.dependOn(&run_json_manual_test.step);
 
-    // Work-stealing benchmark
-    const bench_work_stealing = b.addExecutable(.{
-        .name = "bench_work_stealing",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/integration/bench_work_stealing.zig"),
-            .target = target,
-            .optimize = .ReleaseFast,
-        }),
-    });
-    bench_work_stealing.root_module.addImport("scheduler", scheduler_module);
-    bench_work_stealing.root_module.addImport("green_thread", green_thread_module);
-
-    b.installArtifact(bench_work_stealing);
-
-    const run_bench_work_stealing = b.addRunArtifact(bench_work_stealing);
-    const bench_work_stealing_step = b.step("bench-work-stealing", "Run work-stealing benchmark");
-    bench_work_stealing_step.dependOn(&run_bench_work_stealing.step);
-
     // JSON parse benchmark
     const bench_json_parse = b.addExecutable(.{
         .name = "bench_pyaot_json_parse",

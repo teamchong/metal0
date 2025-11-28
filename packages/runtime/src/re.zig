@@ -319,3 +319,116 @@ test "re.split no matches" {
     try std.testing.expect(result.type_id == .list);
     try std.testing.expectEqual(@as(usize, 1), runtime.PyList.len(result));
 }
+
+/// Python-compatible fullmatch() function
+/// Usage: match = re.fullmatch(r"hello", "hello")
+/// Returns PyString with matched text only if entire string matches, or None
+pub fn fullmatch(allocator: std.mem.Allocator, pattern: anytype, text: anytype) !*runtime.PyObject {
+    const pattern_str = if (@TypeOf(pattern) == []const u8) pattern else @as([]const u8, pattern);
+    const text_str = if (@TypeOf(text) == []const u8) text else @as([]const u8, text);
+
+    var regex = try Regex.compile(allocator, pattern_str);
+    defer regex.deinit();
+
+    const match_opt = try regex.find(text_str);
+    if (match_opt == null) return try createNone(allocator);
+
+    var m = match_opt.?;
+    defer m.deinit(allocator);
+
+    // fullmatch requires entire string to match
+    if (m.span.start != 0 or m.span.end != text_str.len) return try createNone(allocator);
+
+    const matched_text = text_str[m.span.start..m.span.end];
+    return try runtime.PyString.create(allocator, matched_text);
+}
+
+/// Python-compatible subn() function
+/// Usage: result, count = re.subn(r'\d+', 'NUM', 'abc123def456')
+/// Returns tuple of (result_string, replacement_count)
+pub fn subn(allocator: std.mem.Allocator, pattern: []const u8, replacement: []const u8, text: []const u8) !*runtime.PyObject {
+    var regex = try Regex.compile(allocator, pattern);
+    defer regex.deinit();
+
+    var result = std.ArrayList(u8){};
+    defer result.deinit(allocator);
+
+    var count: i64 = 0;
+    var pos: usize = 0;
+    while (pos < text.len) {
+        const match_opt = try regex.find(text[pos..]);
+
+        if (match_opt) |m| {
+            defer {
+                var match_copy = m;
+                match_copy.deinit(allocator);
+            }
+
+            try result.appendSlice(allocator, text[pos .. pos + m.span.start]);
+            try result.appendSlice(allocator, replacement);
+            count += 1;
+
+            const match_end = pos + m.span.end;
+            if (match_end == pos) {
+                if (pos < text.len) {
+                    try result.append(allocator, text[pos]);
+                }
+                pos += 1;
+            } else {
+                pos = match_end;
+            }
+        } else {
+            try result.appendSlice(allocator, text[pos..]);
+            break;
+        }
+    }
+
+    const owned = try result.toOwnedSlice(allocator);
+    const str_obj = try runtime.PyString.createOwned(allocator, owned);
+
+    // Create tuple (string, count)
+    const tuple = try runtime.PyTuple.create(allocator, 2);
+    runtime.PyTuple.setItem(tuple, 0, str_obj);
+    const count_obj = try runtime.PyInt.create(allocator, count);
+    runtime.PyTuple.setItem(tuple, 1, count_obj);
+
+    return tuple;
+}
+
+/// Python-compatible finditer() function
+/// Usage: for match in re.finditer(r"\d+", "abc123def456"): ...
+/// Returns a PyList of match objects (simplified as strings for now)
+pub fn finditer(allocator: std.mem.Allocator, pattern: []const u8, text: []const u8) !*runtime.PyObject {
+    // For simplicity, finditer returns same as findall (list of strings)
+    // A full implementation would return Match objects
+    return findall(allocator, pattern, text);
+}
+
+/// Python-compatible escape() function
+/// Usage: escaped = re.escape("hello.world")
+/// Escapes special regex characters
+pub fn escape(allocator: std.mem.Allocator, pattern: []const u8) !*runtime.PyObject {
+    var result = std.ArrayList(u8){};
+    defer result.deinit(allocator);
+
+    const special = "\\^$.|?*+()[]{}";
+    for (pattern) |c| {
+        for (special) |s| {
+            if (c == s) {
+                try result.append(allocator, '\\');
+                break;
+            }
+        }
+        try result.append(allocator, c);
+    }
+
+    const owned = try result.toOwnedSlice(allocator);
+    return try runtime.PyString.createOwned(allocator, owned);
+}
+
+/// Python-compatible purge() function
+/// Usage: re.purge()
+/// Clears the regex cache (no-op in our implementation)
+pub fn purge() void {
+    // No-op - we don't have a global cache
+}
