@@ -13,6 +13,7 @@ const copy_mod = @import("../copy_mod.zig");
 const struct_mod = @import("../struct_mod.zig");
 const base64_mod = @import("../base64_mod.zig");
 const random_mod = @import("../random_mod.zig");
+const string_mod = @import("../string_mod.zig");
 
 /// Handler function type for builtin dispatchers
 const BuiltinHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -95,6 +96,13 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     // random module (from random import randint, choice)
     .{ "randint", random_mod.genRandint },
     .{ "randrange", random_mod.genRandrange },
+    // string module (from string import ascii_letters, digits)
+    .{ "ascii_letters", string_mod.genAsciiLetters },
+    .{ "ascii_lowercase", string_mod.genAsciiLowercase },
+    .{ "ascii_uppercase", string_mod.genAsciiUppercase },
+    .{ "digits", string_mod.genDigits },
+    .{ "punctuation", string_mod.genPunctuation },
+    .{ "capwords", string_mod.genCapwords },
 });
 
 /// Try to dispatch built-in function call

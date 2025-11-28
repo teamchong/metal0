@@ -26,6 +26,7 @@ const hashlib_mod = @import("../hashlib_mod.zig");
 const struct_mod = @import("../struct_mod.zig");
 const base64_mod = @import("../base64_mod.zig");
 const random_mod = @import("../random_mod.zig");
+const string_mod = @import("../string_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -414,6 +415,22 @@ const RandomFuncs = FuncMap.initComptime(.{
     .{ "getrandbits", random_mod.genGetrandbits },
 });
 
+/// string module functions (constants and utilities)
+const StringFuncs = FuncMap.initComptime(.{
+    .{ "ascii_lowercase", string_mod.genAsciiLowercase },
+    .{ "ascii_uppercase", string_mod.genAsciiUppercase },
+    .{ "ascii_letters", string_mod.genAsciiLetters },
+    .{ "digits", string_mod.genDigits },
+    .{ "hexdigits", string_mod.genHexdigits },
+    .{ "octdigits", string_mod.genOctdigits },
+    .{ "punctuation", string_mod.genPunctuation },
+    .{ "whitespace", string_mod.genWhitespace },
+    .{ "printable", string_mod.genPrintable },
+    .{ "capwords", string_mod.genCapwords },
+    .{ "Formatter", string_mod.genFormatter },
+    .{ "Template", string_mod.genTemplate },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -448,6 +465,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "struct", StructFuncs },
     .{ "base64", Base64Funcs },
     .{ "random", RandomFuncs },
+    .{ "string", StringFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

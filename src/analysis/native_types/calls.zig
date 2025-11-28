@@ -212,6 +212,12 @@ const NumpyArrayFuncs = std.StaticStringMap(void).initComptime(.{
     .{ "nan_to_num", {} },
     .{ "absolute", {} },
     .{ "fabs", {} },
+    // Advanced linalg
+    .{ "qr", {} },
+    .{ "cholesky", {} },
+    .{ "eig", {} },
+    .{ "svd", {} },
+    .{ "lstsq", {} },
 });
 
 // NumPy functions that return scalars (float)
@@ -385,8 +391,30 @@ pub fn inferCall(
             const NUMPY_HASH = comptime fnv_hash.hash("numpy");
             const NP_HASH = comptime fnv_hash.hash("np");
             const IO_HASH = comptime fnv_hash.hash("io");
+            const HASHLIB_HASH = comptime fnv_hash.hash("hashlib");
 
             switch (module_hash) {
+                HASHLIB_HASH => {
+                    // hashlib.md5(), sha1(), sha256(), etc. all return HashObject
+                    const func_hash = fnv_hash.hash(func_name);
+                    const MD5_HASH = comptime fnv_hash.hash("md5");
+                    const SHA1_HASH = comptime fnv_hash.hash("sha1");
+                    const SHA224_HASH = comptime fnv_hash.hash("sha224");
+                    const SHA256_HASH = comptime fnv_hash.hash("sha256");
+                    const SHA384_HASH = comptime fnv_hash.hash("sha384");
+                    const SHA512_HASH = comptime fnv_hash.hash("sha512");
+                    const NEW_HASH = comptime fnv_hash.hash("new");
+                    if (func_hash == MD5_HASH or
+                        func_hash == SHA1_HASH or
+                        func_hash == SHA224_HASH or
+                        func_hash == SHA256_HASH or
+                        func_hash == SHA384_HASH or
+                        func_hash == SHA512_HASH or
+                        func_hash == NEW_HASH)
+                    {
+                        return .hash_object;
+                    }
+                },
                 IO_HASH => {
                     const func_hash = fnv_hash.hash(func_name);
                     if (func_hash == comptime fnv_hash.hash("StringIO")) return .stringio;
