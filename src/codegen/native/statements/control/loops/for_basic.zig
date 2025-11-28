@@ -240,7 +240,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.emit(").items");
     } else {
         try self.genExpr(for_stmt.iter.*);
-        if (iter_type == .list) {
+        // ArrayList (list or deque types) need .items for iteration
+        if (iter_type == .list or iter_type == .deque) {
             try self.emit(".items");
         }
     }
@@ -262,6 +263,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // Register loop variable as i64 type
             try self.type_inferrer.var_types.put(var_name, .int);
         }
+    }
+
+    // If iterating over a deque (ArrayList from itertools, etc.), loop variable is i64
+    if (iter_type == .deque) {
+        try self.type_inferrer.var_types.put(var_name, .int);
     }
 
     for (for_stmt.body) |stmt| {
