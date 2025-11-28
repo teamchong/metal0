@@ -460,48 +460,77 @@ pub fn det(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     return result;
 }
 
-/// Matrix inverse - np.linalg.inv(arr)
+/// Matrix inverse using Gauss-Jordan elimination - np.linalg.inv(arr)
 /// Returns: inverted matrix as PyObject
 pub fn inv(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
     const arr = try numpy_array_mod.extractArray(arr_obj);
     if (arr.shape.len != 2 or arr.shape[0] != arr.shape[1]) {
         return error.InvalidDimension;
     }
-    const n: c_int = @intCast(arr.shape[0]);
+    const n = arr.shape[0];
 
-    // Copy matrix data in column-major order (LAPACK uses Fortran layout)
-    // For row-major input, transposing is equivalent to computing inv(A^T)^T = inv(A)
-    // So we can just use the data as-is and the result will be correct
-    const result_data = try allocator.alloc(f64, @intCast(n * n));
-    @memcpy(result_data, arr.data);
+    // Create augmented matrix [A | I]
+    const aug = try allocator.alloc(f64, n * n * 2);
+    defer allocator.free(aug);
 
-    // Pivot indices for LU factorization
-    const ipiv = try allocator.alloc(c_int, @intCast(n));
-    defer allocator.free(ipiv);
-
-    // LU factorization (Fortran interface)
-    var info: c_int = 0;
-    dgetrf_(&n, &n, result_data.ptr, &n, ipiv.ptr, &info);
-    if (info != 0) {
-        allocator.free(result_data);
-        return error.SingularMatrix;
+    // Initialize: left half is A, right half is identity
+    for (0..n) |i| {
+        for (0..n) |j| {
+            aug[i * (2 * n) + j] = arr.data[i * n + j];
+            aug[i * (2 * n) + n + j] = if (i == j) 1.0 else 0.0;
+        }
     }
 
-    // Query optimal workspace size
-    var work_query: f64 = 0;
-    var lwork: c_int = -1;
-    dgetri_(&n, result_data.ptr, &n, ipiv.ptr, @ptrCast(&work_query), &lwork, &info);
+    // Gauss-Jordan elimination with partial pivoting
+    for (0..n) |col| {
+        // Find pivot
+        var max_row = col;
+        var max_val = @abs(aug[col * (2 * n) + col]);
+        for ((col + 1)..n) |row| {
+            const val = @abs(aug[row * (2 * n) + col]);
+            if (val > max_val) {
+                max_val = val;
+                max_row = row;
+            }
+        }
 
-    // Allocate workspace
-    lwork = @intFromFloat(work_query);
-    const work = try allocator.alloc(f64, @intCast(lwork));
-    defer allocator.free(work);
+        // Check for singular matrix
+        if (max_val < 1e-10) {
+            return error.SingularMatrix;
+        }
 
-    // Compute inverse from LU factorization
-    dgetri_(&n, result_data.ptr, &n, ipiv.ptr, work.ptr, &lwork, &info);
-    if (info != 0) {
-        allocator.free(result_data);
-        return error.SingularMatrix;
+        // Swap rows
+        if (max_row != col) {
+            for (0..(2 * n)) |j| {
+                const tmp = aug[col * (2 * n) + j];
+                aug[col * (2 * n) + j] = aug[max_row * (2 * n) + j];
+                aug[max_row * (2 * n) + j] = tmp;
+            }
+        }
+
+        // Scale pivot row
+        const pivot = aug[col * (2 * n) + col];
+        for (0..(2 * n)) |j| {
+            aug[col * (2 * n) + j] /= pivot;
+        }
+
+        // Eliminate column
+        for (0..n) |row| {
+            if (row != col) {
+                const factor = aug[row * (2 * n) + col];
+                for (0..(2 * n)) |j| {
+                    aug[row * (2 * n) + j] -= factor * aug[col * (2 * n) + j];
+                }
+            }
+        }
+    }
+
+    // Extract inverse (right half of augmented matrix)
+    const result_data = try allocator.alloc(f64, n * n);
+    for (0..n) |i| {
+        for (0..n) |j| {
+            result_data[i * n + j] = aug[i * (2 * n) + n + j];
+        }
     }
 
     // Wrap result
@@ -510,9 +539,9 @@ pub fn inv(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
     return try numpy_array_mod.createPyObject(allocator, np_result);
 }
 
-/// Solve linear system - np.linalg.solve(a, b)
+/// Solve linear system using Gaussian elimination - np.linalg.solve(a, b)
 /// Solves Ax = b for x
-/// Returns: solution vector/matrix as PyObject
+/// Returns: solution vector as PyObject
 pub fn solve(a_obj: *PyObject, b_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
     const a_arr = try numpy_array_mod.extractArray(a_obj);
     const b_arr = try numpy_array_mod.extractArray(b_obj);
@@ -520,30 +549,66 @@ pub fn solve(a_obj: *PyObject, b_obj: *PyObject, allocator: std.mem.Allocator) !
     if (a_arr.shape.len != 2 or a_arr.shape[0] != a_arr.shape[1]) {
         return error.InvalidDimension;
     }
-    const n: c_int = @intCast(a_arr.shape[0]);
+    const n = a_arr.shape[0];
 
-    // Determine number of right-hand sides
-    const nrhs: c_int = if (b_arr.shape.len == 1) 1 else @intCast(b_arr.shape[1]);
+    // Create augmented matrix [A | b]
+    const aug = try allocator.alloc(f64, n * (n + 1));
+    defer allocator.free(aug);
 
-    // Copy A matrix (LAPACK modifies in place)
-    const a_copy = try allocator.alloc(f64, @intCast(n * n));
-    defer allocator.free(a_copy);
-    @memcpy(a_copy, a_arr.data);
+    // Initialize augmented matrix
+    for (0..n) |i| {
+        for (0..n) |j| {
+            aug[i * (n + 1) + j] = a_arr.data[i * n + j];
+        }
+        aug[i * (n + 1) + n] = b_arr.data[i];
+    }
 
-    // Copy b vector/matrix (solution overwrites this)
-    const result_data = try allocator.alloc(f64, b_arr.size);
-    @memcpy(result_data, b_arr.data);
+    // Forward elimination with partial pivoting
+    for (0..n) |col| {
+        // Find pivot
+        var max_row = col;
+        var max_val = @abs(aug[col * (n + 1) + col]);
+        for ((col + 1)..n) |row| {
+            const val = @abs(aug[row * (n + 1) + col]);
+            if (val > max_val) {
+                max_val = val;
+                max_row = row;
+            }
+        }
 
-    // Pivot indices
-    const ipiv = try allocator.alloc(c_int, @intCast(n));
-    defer allocator.free(ipiv);
+        // Check for singular matrix
+        if (max_val < 1e-10) {
+            return error.SingularMatrix;
+        }
 
-    // Solve the system (Fortran interface)
-    var info: c_int = 0;
-    dgesv_(&n, &nrhs, a_copy.ptr, &n, ipiv.ptr, result_data.ptr, &n, &info);
-    if (info != 0) {
-        allocator.free(result_data);
-        return error.SingularMatrix;
+        // Swap rows
+        if (max_row != col) {
+            for (0..(n + 1)) |j| {
+                const tmp = aug[col * (n + 1) + j];
+                aug[col * (n + 1) + j] = aug[max_row * (n + 1) + j];
+                aug[max_row * (n + 1) + j] = tmp;
+            }
+        }
+
+        // Eliminate below
+        for ((col + 1)..n) |row| {
+            const factor = aug[row * (n + 1) + col] / aug[col * (n + 1) + col];
+            for (col..(n + 1)) |j| {
+                aug[row * (n + 1) + j] -= factor * aug[col * (n + 1) + j];
+            }
+        }
+    }
+
+    // Back substitution
+    const result_data = try allocator.alloc(f64, n);
+    var row_idx: usize = n;
+    while (row_idx > 0) {
+        row_idx -= 1;
+        var row_sum: f64 = aug[row_idx * (n + 1) + n];
+        for ((row_idx + 1)..n) |j| {
+            row_sum -= aug[row_idx * (n + 1) + j] * result_data[j];
+        }
+        result_data[row_idx] = row_sum / aug[row_idx * (n + 1) + row_idx];
     }
 
     // Wrap result
