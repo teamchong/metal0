@@ -19,6 +19,33 @@ const AllocatorMethods = std.StaticStringMap(void).initComptime(.{
     .{ "insert", {} },
 });
 
+/// unittest assertion methods - these don't need allocator
+const UnittestAssertions = std.StaticStringMap(void).initComptime(.{
+    .{ "assertEqual", {} },
+    .{ "assertTrue", {} },
+    .{ "assertFalse", {} },
+    .{ "assertIsNone", {} },
+    .{ "assertGreater", {} },
+    .{ "assertLess", {} },
+    .{ "assertGreaterEqual", {} },
+    .{ "assertLessEqual", {} },
+    .{ "assertNotEqual", {} },
+    .{ "assertIs", {} },
+    .{ "assertIsNot", {} },
+    .{ "assertIsNotNone", {} },
+    .{ "assertIn", {} },
+    .{ "assertNotIn", {} },
+    .{ "assertAlmostEqual", {} },
+    .{ "assertNotAlmostEqual", {} },
+    .{ "assertCountEqual", {} },
+    .{ "assertRaises", {} },
+    .{ "assertRegex", {} },
+    .{ "assertNotRegex", {} },
+    .{ "assertIsInstance", {} },
+    .{ "assertNotIsInstance", {} },
+    .{ "subTest", {} },
+});
+
 /// Built-in functions that use allocator param
 const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "str", {} },
@@ -192,9 +219,16 @@ fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
         const method_name = call.func.attribute.attr;
         if (AllocatorMethods.has(method_name)) return true;
 
+        // unittest assertion methods don't use allocator (self.assertEqual, etc.)
+        if (UnittestAssertions.has(method_name)) return false;
+
         // Module function call (e.g., test_utils.double(x))
         // Codegen passes allocator to imported module functions
+        // But NOT self.method() calls - those are instance method calls
         if (call.func.attribute.value.* == .name) {
+            const obj_name = call.func.attribute.value.name.id;
+            // Skip 'self' - instance methods don't automatically use allocator param
+            if (std.mem.eql(u8, obj_name, "self")) return false;
             // Any module.function() call will receive allocator param in codegen
             return true;
         }
@@ -343,9 +377,16 @@ fn callNeedsAllocator(call: ast.Node.Call) bool {
         const method_name = call.func.attribute.attr;
         if (AllocatorMethods.has(method_name)) return true;
 
+        // unittest assertion methods don't need allocator (self.assertEqual, etc.)
+        if (UnittestAssertions.has(method_name)) return false;
+
         // Module function call (e.g., test_utils.double(x))
         // Codegen passes allocator to imported module functions
+        // But NOT self.method() calls - those are instance method calls
         if (call.func.attribute.value.* == .name) {
+            const obj_name = call.func.attribute.value.name.id;
+            // Skip 'self' - instance methods don't automatically need allocator
+            if (std.mem.eql(u8, obj_name, "self")) return false;
             // Any module.function() call will receive allocator param in codegen
             return true;
         }
