@@ -315,6 +315,20 @@ pub fn moduloInt(a: i64, b: i64) PythonError!i64 {
     return @mod(a, b);
 }
 
+/// Split string on whitespace (Python str.split() with no args)
+/// Returns ArrayList of string slices, removes empty strings
+pub fn stringSplitWhitespace(text: []const u8, allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
+    var result = std.ArrayList([]const u8){};
+
+    // Split on any whitespace, skip empty parts (like Python's split())
+    var iter = std.mem.tokenizeAny(u8, text, " \t\n\r\x0c\x0b");
+    while (iter.next()) |part| {
+        try result.append(allocator, part);
+    }
+
+    return result;
+}
+
 /// Convert primitive i64 to PyString
 pub fn intToString(allocator: std.mem.Allocator, value: i64) !*PyObject {
     const str = try std.fmt.allocPrint(allocator, "{}", .{value});
