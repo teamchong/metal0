@@ -22,6 +22,8 @@ const itertools_mod = @import("../itertools_mod.zig");
 const copy_mod = @import("../copy_mod.zig");
 const typing_mod = @import("../typing_mod.zig");
 const contextlib_mod = @import("../contextlib_mod.zig");
+const hashlib_mod = @import("../hashlib_mod.zig");
+const struct_mod = @import("../struct_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -354,6 +356,27 @@ const ContextlibFuncs = FuncMap.initComptime(.{
     .{ "ExitStack", contextlib_mod.genExitStack },
 });
 
+/// hashlib module functions
+const HashlibFuncs = FuncMap.initComptime(.{
+    .{ "md5", hashlib_mod.genMd5 },
+    .{ "sha1", hashlib_mod.genSha1 },
+    .{ "sha224", hashlib_mod.genSha224 },
+    .{ "sha256", hashlib_mod.genSha256 },
+    .{ "sha384", hashlib_mod.genSha384 },
+    .{ "sha512", hashlib_mod.genSha512 },
+    .{ "new", hashlib_mod.genNew },
+});
+
+/// struct module functions
+const StructFuncs = FuncMap.initComptime(.{
+    .{ "pack", struct_mod.genPack },
+    .{ "unpack", struct_mod.genUnpack },
+    .{ "calcsize", struct_mod.genCalcsize },
+    .{ "pack_into", struct_mod.genPackInto },
+    .{ "unpack_from", struct_mod.genUnpackFrom },
+    .{ "iter_unpack", struct_mod.genIterUnpack },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -384,6 +407,8 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "copy", CopyFuncs },
     .{ "typing", TypingFuncs },
     .{ "contextlib", ContextlibFuncs },
+    .{ "hashlib", HashlibFuncs },
+    .{ "struct", StructFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
