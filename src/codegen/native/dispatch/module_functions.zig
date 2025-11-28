@@ -24,6 +24,7 @@ const typing_mod = @import("../typing_mod.zig");
 const contextlib_mod = @import("../contextlib_mod.zig");
 const hashlib_mod = @import("../hashlib_mod.zig");
 const struct_mod = @import("../struct_mod.zig");
+const base64_mod = @import("../base64_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -377,6 +378,24 @@ const StructFuncs = FuncMap.initComptime(.{
     .{ "iter_unpack", struct_mod.genIterUnpack },
 });
 
+/// base64 module functions
+const Base64Funcs = FuncMap.initComptime(.{
+    .{ "b64encode", base64_mod.genB64encode },
+    .{ "b64decode", base64_mod.genB64decode },
+    .{ "urlsafe_b64encode", base64_mod.genUrlsafeB64encode },
+    .{ "urlsafe_b64decode", base64_mod.genUrlsafeB64decode },
+    .{ "standard_b64encode", base64_mod.genStandardB64encode },
+    .{ "standard_b64decode", base64_mod.genStandardB64decode },
+    .{ "encodebytes", base64_mod.genEncodebytes },
+    .{ "decodebytes", base64_mod.genDecodebytes },
+    .{ "b32encode", base64_mod.genB32encode },
+    .{ "b32decode", base64_mod.genB32decode },
+    .{ "b16encode", base64_mod.genB16encode },
+    .{ "b16decode", base64_mod.genB16decode },
+    .{ "a85encode", base64_mod.genA85encode },
+    .{ "a85decode", base64_mod.genA85decode },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -409,6 +428,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "contextlib", ContextlibFuncs },
     .{ "hashlib", HashlibFuncs },
     .{ "struct", StructFuncs },
+    .{ "base64", Base64Funcs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

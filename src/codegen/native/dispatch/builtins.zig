@@ -11,6 +11,7 @@ const functools_mod = @import("../functools_mod.zig");
 const itertools_mod = @import("../itertools_mod.zig");
 const copy_mod = @import("../copy_mod.zig");
 const struct_mod = @import("../struct_mod.zig");
+const base64_mod = @import("../base64_mod.zig");
 
 /// Handler function type for builtin dispatchers
 const BuiltinHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -85,6 +86,11 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "pack", struct_mod.genPack },
     .{ "unpack", struct_mod.genUnpack },
     .{ "calcsize", struct_mod.genCalcsize },
+    // base64 module (from base64 import b64encode, b64decode)
+    .{ "b64encode", base64_mod.genB64encode },
+    .{ "b64decode", base64_mod.genB64decode },
+    .{ "urlsafe_b64encode", base64_mod.genUrlsafeB64encode },
+    .{ "urlsafe_b64decode", base64_mod.genUrlsafeB64decode },
 });
 
 /// Try to dispatch built-in function call
