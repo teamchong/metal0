@@ -29,14 +29,26 @@ pub fn compile(allocator: std.mem.Allocator, pattern: []const u8) !*runtime.PyOb
     return obj;
 }
 
+/// Create a None PyObject
+fn createNone(allocator: std.mem.Allocator) !*runtime.PyObject {
+    const obj = try allocator.create(runtime.PyObject);
+    obj.* = .{
+        .ref_count = 1,
+        .type_id = .none,
+        .data = undefined,
+    };
+    return obj;
+}
+
 /// Python-compatible search() function
 /// Usage: match = re.search(r"hello", "hello world")
-pub fn search(allocator: std.mem.Allocator, pattern: []const u8, text: []const u8) !?*runtime.PyObject {
+/// Returns PyString with matched text, or None if no match
+pub fn search(allocator: std.mem.Allocator, pattern: []const u8, text: []const u8) !*runtime.PyObject {
     var regex = try Regex.compile(allocator, pattern);
     defer regex.deinit();
 
     const match_opt = try regex.find(text);
-    if (match_opt == null) return null;
+    if (match_opt == null) return try createNone(allocator);
 
     var m = match_opt.?;
     defer m.deinit(allocator);
@@ -49,18 +61,19 @@ pub fn search(allocator: std.mem.Allocator, pattern: []const u8, text: []const u
 
 /// Python-compatible match() function
 /// Usage: match = re.match(r"hello", "hello world")
-pub fn match(allocator: std.mem.Allocator, pattern: []const u8, text: []const u8) !?*runtime.PyObject {
+/// Returns PyString with matched text, or None if no match
+pub fn match(allocator: std.mem.Allocator, pattern: []const u8, text: []const u8) !*runtime.PyObject {
     var regex = try Regex.compile(allocator, pattern);
     defer regex.deinit();
 
     const match_opt = try regex.find(text);
-    if (match_opt == null) return null;
+    if (match_opt == null) return try createNone(allocator);
 
     var m = match_opt.?;
     defer m.deinit(allocator);
 
     // match() only succeeds if pattern matches at start
-    if (m.span.start != 0) return null;
+    if (m.span.start != 0) return try createNone(allocator);
 
     const matched_text = text[m.span.start..m.span.end];
     return try runtime.PyString.create(allocator, matched_text);

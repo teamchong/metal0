@@ -36,8 +36,6 @@ pub const FunctionMeta = struct {
     no_alloc: bool = false,
     /// Function returns error union (needs try)
     returns_error: bool = false,
-    /// Function returns optional (needs orelse or if check)
-    returns_optional: bool = false,
 };
 
 /// Information about how to import a Python module
@@ -180,14 +178,14 @@ const MathFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
     .{ "erfc", PureFn },   .{ "gamma", PureFn },      .{ "lgamma", PureFn },
 });
 
-/// re module: regex functions that return optionals (match can fail)
-const OptionalFn = FunctionMeta{ .no_alloc = false, .returns_error = true, .returns_optional = true };
+/// re module: regex functions (all return error unions, match/search return None on no-match)
+const ReErrorFn = FunctionMeta{ .no_alloc = false, .returns_error = true };
 const ReFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
-    .{ "match", OptionalFn },
-    .{ "search", OptionalFn },
-    .{ "compile", FunctionMeta{ .no_alloc = false, .returns_error = true } },
-    .{ "sub", FunctionMeta{ .no_alloc = false, .returns_error = true } },
-    .{ "findall", FunctionMeta{ .no_alloc = false, .returns_error = true } },
+    .{ "match", ReErrorFn },
+    .{ "search", ReErrorFn },
+    .{ "compile", ReErrorFn },
+    .{ "sub", ReErrorFn },
+    .{ "findall", ReErrorFn },
 });
 
 // ============================================================================
