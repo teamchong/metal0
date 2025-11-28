@@ -37,6 +37,7 @@ const textwrap_mod = @import("../textwrap_mod.zig");
 const shutil_mod = @import("../shutil_mod.zig");
 const glob_mod = @import("../glob_mod.zig");
 const fnmatch_mod = @import("../fnmatch_mod.zig");
+const secrets_mod = @import("../secrets_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -576,6 +577,18 @@ const FnmatchFuncs = FuncMap.initComptime(.{
     .{ "translate", fnmatch_mod.genTranslate },
 });
 
+/// secrets module functions (cryptographically secure random)
+const SecretsFuncs = FuncMap.initComptime(.{
+    .{ "token_bytes", secrets_mod.genTokenBytes },
+    .{ "token_hex", secrets_mod.genTokenHex },
+    .{ "token_urlsafe", secrets_mod.genTokenUrlsafe },
+    .{ "randbelow", secrets_mod.genRandbelow },
+    .{ "choice", secrets_mod.genChoice },
+    .{ "randbits", secrets_mod.genRandbits },
+    .{ "compare_digest", secrets_mod.genCompareDigest },
+    .{ "SystemRandom", secrets_mod.genSystemRandom },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -621,6 +634,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "shutil", ShutilFuncs },
     .{ "glob", GlobFuncs },
     .{ "fnmatch", FnmatchFuncs },
+    .{ "secrets", SecretsFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
