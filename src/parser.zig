@@ -206,7 +206,7 @@ pub const Parser = struct {
         if (self.peek()) |tok| {
             switch (tok.type) {
                 .At => return try statements.parseDecorated(self),
-                .Async => return try statements.parseFunctionDef(self),
+                .Async => return try statements.parseAsync(self),
                 .Def => return try statements.parseFunctionDef(self),
                 .Class => return try statements.parseClassDef(self),
                 .If => return try statements.parseIf(self),
