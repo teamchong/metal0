@@ -68,6 +68,13 @@ pub fn arrayFloat(data: []const f64, allocator: std.mem.Allocator) !*PyObject {
     return try numpy_array_mod.createPyObject(allocator, np_array);
 }
 
+/// Create 2D array from flattened data and shape (Python: np.array([[1, 2], [3, 4]]))
+/// Wraps in PyObject
+pub fn array2D(data: []const f64, rows: usize, cols: usize, allocator: std.mem.Allocator) !*PyObject {
+    const np_array = try NumpyArray.fromSlice2D(allocator, data, rows, cols);
+    return try numpy_array_mod.createPyObject(allocator, np_array);
+}
+
 /// Create array of zeros (Python: np.zeros(shape))
 pub fn zeros(shape_spec: []const usize, allocator: std.mem.Allocator) !*PyObject {
     const np_array = try NumpyArray.zeros(allocator, shape_spec);
@@ -176,6 +183,72 @@ pub fn matmul(a_obj: *PyObject, b_obj: *PyObject, m: usize, n: usize, k: usize, 
 
     // Wrap result in NumpyArray and PyObject
     const np_result = try NumpyArray.fromOwnedSlice(allocator, result_data);
+    return try numpy_array_mod.createPyObject(allocator, np_result);
+}
+
+/// Matrix-matrix multiplication with auto dimension detection
+/// For use with @ operator - extracts dimensions from array shapes
+pub fn matmulAuto(a_obj: *PyObject, b_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+    const a_arr = try numpy_array_mod.extractArray(a_obj);
+    const b_arr = try numpy_array_mod.extractArray(b_obj);
+
+    // Get dimensions from shapes
+    // A: m x k (or 1D with k elements treated as 1 x k or k x 1)
+    // B: k x n (or 1D with n elements treated as k x 1 or 1 x n)
+    var m: usize = undefined;
+    var k: usize = undefined;
+    var n: usize = undefined;
+
+    const a_ndim = a_arr.shape.len;
+    const b_ndim = b_arr.shape.len;
+
+    if (a_ndim == 2) {
+        m = a_arr.shape[0];
+        k = a_arr.shape[1];
+    } else if (a_ndim == 1) {
+        // 1D array treated as row vector
+        m = 1;
+        k = a_arr.shape[0];
+    } else {
+        return error.InvalidDimension;
+    }
+
+    if (b_ndim == 2) {
+        // Verify k matches
+        if (b_arr.shape[0] != k) return error.DimensionMismatch;
+        n = b_arr.shape[1];
+    } else if (b_ndim == 1) {
+        // 1D array treated as column vector
+        if (b_arr.shape[0] != k) return error.DimensionMismatch;
+        n = 1;
+    } else {
+        return error.InvalidDimension;
+    }
+
+    // Allocate result
+    const result_data = try allocator.alloc(f64, m * n);
+    @memset(result_data, 0.0);
+
+    // Use BLAS dgemm
+    cblas_dgemm(
+        CblasRowMajor,
+        CblasNoTrans,
+        CblasNoTrans,
+        @intCast(m),
+        @intCast(n),
+        @intCast(k),
+        1.0,
+        a_arr.data.ptr,
+        @intCast(k),
+        b_arr.data.ptr,
+        @intCast(n),
+        0.0,
+        result_data.ptr,
+        @intCast(n)
+    );
+
+    // Wrap result with proper shape
+    const np_result = try NumpyArray.fromOwnedSlice2D(allocator, result_data, m, n);
     return try numpy_array_mod.createPyObject(allocator, np_result);
 }
 
@@ -898,6 +971,83 @@ pub fn getIndex2D(arr_obj: *PyObject, row: usize, col: usize) !f64 {
         return error.IndexOutOfBounds;
     }
     return arr.data[flat_idx];
+}
+
+/// Get a column from 2D array: arr[:, col]
+pub fn getColumn(arr_obj: *PyObject, col: usize, allocator: std.mem.Allocator) !*PyObject {
+    const arr = try numpy_array_mod.extractArray(arr_obj);
+
+    if (arr.shape.len < 2) {
+        return error.InvalidDimensions;
+    }
+
+    const rows = arr.shape[0];
+    const cols = arr.shape[1];
+
+    if (col >= cols) {
+        return error.IndexOutOfBounds;
+    }
+
+    // Extract column data
+    const col_data = try allocator.alloc(f64, rows);
+    for (0..rows) |row| {
+        col_data[row] = arr.data[row * cols + col];
+    }
+
+    const np_result = try NumpyArray.fromOwnedSlice(allocator, col_data);
+    return try numpy_array_mod.createPyObject(allocator, np_result);
+}
+
+/// Get a row from 2D array: arr[row, :]
+pub fn getRow(arr_obj: *PyObject, row: usize, allocator: std.mem.Allocator) !*PyObject {
+    const arr = try numpy_array_mod.extractArray(arr_obj);
+
+    if (arr.shape.len < 2) {
+        return error.InvalidDimensions;
+    }
+
+    const rows = arr.shape[0];
+    const cols = arr.shape[1];
+
+    if (row >= rows) {
+        return error.IndexOutOfBounds;
+    }
+
+    // Extract row data
+    const row_data = try allocator.alloc(f64, cols);
+    const row_start = row * cols;
+    @memcpy(row_data, arr.data[row_start .. row_start + cols]);
+
+    const np_result = try NumpyArray.fromOwnedSlice(allocator, row_data);
+    return try numpy_array_mod.createPyObject(allocator, np_result);
+}
+
+/// 1D array slicing: arr[start:end]
+pub fn slice1D(arr_obj: *PyObject, start_opt: ?usize, end_opt: ?usize, allocator: std.mem.Allocator) !*PyObject {
+    const arr = try numpy_array_mod.extractArray(arr_obj);
+
+    // Default start to 0, end to array size
+    const start = start_opt orelse 0;
+    const end = end_opt orelse arr.size;
+
+    // Clamp to valid bounds
+    const safe_start = @min(start, arr.size);
+    const safe_end = @min(end, arr.size);
+
+    if (safe_start >= safe_end) {
+        // Empty slice
+        const empty_data = try allocator.alloc(f64, 0);
+        const np_result = try NumpyArray.fromOwnedSlice(allocator, empty_data);
+        return try numpy_array_mod.createPyObject(allocator, np_result);
+    }
+
+    // Create new array from slice
+    const slice_len = safe_end - safe_start;
+    const slice_data = try allocator.alloc(f64, slice_len);
+    @memcpy(slice_data, arr.data[safe_start..safe_end]);
+
+    const np_result = try NumpyArray.fromOwnedSlice(allocator, slice_data);
+    return try numpy_array_mod.createPyObject(allocator, np_result);
 }
 
 test "array creation from integers" {

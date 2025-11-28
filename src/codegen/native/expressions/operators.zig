@@ -130,7 +130,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
     // Matrix multiplication is handled separately via numpy - check early before emitting anything
     if (binop.op == .MatMul) {
-        try self.emit("try numpy.matmul(");
+        try self.emit("try numpy.matmulAuto(");
         try genExpr(self, binop.left.*);
         try self.emit(", ");
         try genExpr(self, binop.right.*);

@@ -14,30 +14,55 @@ pub fn genArray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg = args[0];
     if (arg == .list) {
         const elements = arg.list.elts;
+        if (elements.len == 0) {
+            try self.emit("try numpy.arrayFloat(&[_]f64{}, allocator)");
+            return;
+        }
 
-        // Determine element type from first element
-        const elem_type = if (elements.len > 0)
-            try self.type_inferrer.inferExpr(elements[0])
-        else
-            .int;
+        // Check if first element is also a list (2D array)
+        if (elements[0] == .list) {
+            // 2D array - [[1, 2], [3, 4]]
+            const rows = elements.len;
+            const cols = elements[0].list.elts.len;
 
-        // Generate inline array literal
-        if (elem_type == .float) {
-            // Float array - pass directly to arrayFloat
-            try self.emit("try numpy.arrayFloat(&[_]f64{");
-            for (elements, 0..) |elem, i| {
-                if (i > 0) try self.emit(", ");
-                try self.genExpr(elem);
+            // Flatten to 1D and call array2D
+            try self.emit("try numpy.array2D(&[_]f64{");
+            var first = true;
+            for (elements) |row| {
+                if (row == .list) {
+                    for (row.list.elts) |elem| {
+                        if (!first) try self.emit(", ");
+                        first = false;
+                        try self.emit("@as(f64, ");
+                        try self.genExpr(elem);
+                        try self.emit(")");
+                    }
+                }
             }
-            try self.emit("}, allocator)");
+            try self.emitFmt("}}, {d}, {d}, allocator)", .{ rows, cols });
         } else {
-            // Integer array - convert via array()
-            try self.emit("try numpy.array(&[_]i64{");
-            for (elements, 0..) |elem, i| {
-                if (i > 0) try self.emit(", ");
-                try self.genExpr(elem);
+            // 1D array - [1, 2, 3]
+            // Determine element type from first element
+            const elem_type = try self.type_inferrer.inferExpr(elements[0]);
+
+            // Generate inline array literal
+            if (elem_type == .float) {
+                // Float array - pass directly to arrayFloat
+                try self.emit("try numpy.arrayFloat(&[_]f64{");
+                for (elements, 0..) |elem, i| {
+                    if (i > 0) try self.emit(", ");
+                    try self.genExpr(elem);
+                }
+                try self.emit("}, allocator)");
+            } else {
+                // Integer array - convert via array()
+                try self.emit("try numpy.array(&[_]i64{");
+                for (elements, 0..) |elem, i| {
+                    if (i > 0) try self.emit(", ");
+                    try self.genExpr(elem);
+                }
+                try self.emit("}, allocator)");
             }
-            try self.emit("}, allocator)");
         }
     } else {
         // Variable reference - need to convert

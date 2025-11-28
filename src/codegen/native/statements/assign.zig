@@ -512,8 +512,9 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Regular operators: +=, -=, *=, /=, &=, |=, ^=
     // Handle matrix multiplication separately
     if (aug.op == .MatMul) {
-        // MatMul: target @= value => target = numpy.matmul(target, value)
-        try self.emit("try numpy.matmul(");
+        // MatMul: target @= value => target = numpy.matmulAuto(target, value)
+        try self.genExpr(aug.target.*);
+        try self.emit(" = try numpy.matmulAuto(");
         try self.genExpr(aug.target.*);
         try self.emit(", ");
         try self.genExpr(aug.value.*);

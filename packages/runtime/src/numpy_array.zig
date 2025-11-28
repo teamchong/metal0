@@ -49,6 +49,34 @@ pub const NumpyArray = struct {
         return arr;
     }
 
+    /// Create 2D array from slice with explicit dimensions
+    pub fn fromSlice2D(allocator: std.mem.Allocator, data: []const f64, rows: usize, cols: usize) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+
+        // Copy data
+        const data_copy = try allocator.alloc(f64, data.len);
+        @memcpy(data_copy, data);
+
+        // Allocate shape and strides
+        const shape = try allocator.alloc(usize, 2);
+        shape[0] = rows;
+        shape[1] = cols;
+
+        const strides = try allocator.alloc(usize, 2);
+        strides[0] = cols; // Row stride
+        strides[1] = 1; // Column stride
+
+        arr.* = .{
+            .data = data_copy,
+            .shape = shape,
+            .strides = strides,
+            .size = data.len,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
     /// Create 1D array from owned slice (takes ownership, no copy)
     pub fn fromOwnedSlice(allocator: std.mem.Allocator, data: []f64) !*NumpyArray {
         const arr = try allocator.create(NumpyArray);
@@ -59,6 +87,30 @@ pub const NumpyArray = struct {
 
         const strides = try allocator.alloc(usize, 1);
         strides[0] = 1;
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = data.len,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Create 2D array from owned slice (takes ownership, no copy)
+    pub fn fromOwnedSlice2D(allocator: std.mem.Allocator, data: []f64, rows: usize, cols: usize) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+
+        // Allocate shape and strides
+        const shape = try allocator.alloc(usize, 2);
+        shape[0] = rows;
+        shape[1] = cols;
+
+        const strides = try allocator.alloc(usize, 2);
+        strides[0] = cols; // Row stride
+        strides[1] = 1; // Column stride
 
         arr.* = .{
             .data = data,

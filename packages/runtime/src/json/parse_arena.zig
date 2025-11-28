@@ -356,7 +356,7 @@ fn unescapeString(str: []const u8, arena: *JsonArena) ![]const u8 {
                 'r' => dest[j] = '\r',
                 't' => dest[j] = '\t',
                 'u' => {
-                    // Unicode escape: \uXXXX
+                    // Unicode escape: \uXXXX (RFC 8259 compliant with surrogate pair support)
                     if (i + 6 <= str.len) {
                         const hex = str[i + 2 .. i + 6];
                         const code = std.fmt.parseInt(u16, hex, 16) catch {
@@ -365,14 +365,38 @@ fn unescapeString(str: []const u8, arena: *JsonArena) ![]const u8 {
                             i += 6;
                             continue;
                         };
-                        // Simple ASCII handling for now
-                        if (code < 128) {
-                            dest[j] = @truncate(code);
-                        } else {
-                            // UTF-8 encode (simplified)
-                            dest[j] = '?';
+
+                        var codepoint: u21 = code;
+
+                        // Handle UTF-16 surrogate pairs (\uD800-\uDBFF followed by \uDC00-\uDFFF)
+                        if (code >= 0xD800 and code <= 0xDBFF) {
+                            // High surrogate - check for low surrogate
+                            if (i + 12 <= str.len and str[i + 6] == '\\' and str[i + 7] == 'u') {
+                                const low_hex = str[i + 8 .. i + 12];
+                                const low_code = std.fmt.parseInt(u16, low_hex, 16) catch {
+                                    dest[j] = '?';
+                                    j += 1;
+                                    i += 6;
+                                    continue;
+                                };
+                                if (low_code >= 0xDC00 and low_code <= 0xDFFF) {
+                                    // Valid surrogate pair - decode to full codepoint
+                                    codepoint = 0x10000 + ((@as(u21, code) - 0xD800) << 10) + (@as(u21, low_code) - 0xDC00);
+                                    i += 6; // Skip the extra \uXXXX
+                                }
+                            }
                         }
-                        j += 1;
+
+                        // Proper UTF-8 encoding for all codepoints
+                        var utf8_buf: [4]u8 = undefined;
+                        const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch {
+                            dest[j] = '?'; // Invalid codepoint
+                            j += 1;
+                            i += 6;
+                            continue;
+                        };
+                        @memcpy(dest[j..][0..utf8_len], utf8_buf[0..utf8_len]);
+                        j += utf8_len;
                         i += 6;
                         continue;
                     }

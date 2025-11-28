@@ -34,9 +34,30 @@ pub fn parseSubscript(self: *Parser, value: ast.Node) ParseError!ast.Node {
     }
 }
 
-/// Parse slice starting with colon: [:end] or [:end:step] or [::step]
+/// Parse slice starting with colon: [:end] or [:end:step] or [::step] or [:, idx] (numpy 2D)
 fn parseSliceFromStart(self: *Parser, node_ptr: *ast.Node) ParseError!ast.Node {
     _ = self.advance(); // consume first colon
+
+    // Check for comma: [:, idx] - numpy column indexing
+    if (self.check(.Comma)) {
+        _ = self.advance(); // consume comma
+        const col_idx = try self.parseExpression();
+        _ = try self.expect(.RBracket);
+
+        // Create tuple (:, idx) where : is represented as None slice
+        const tuple_elts = try self.allocator.alloc(ast.Node, 2);
+        tuple_elts[0] = ast.Node{ .constant = .{ .value = .none } }; // : becomes None
+        tuple_elts[1] = col_idx;
+
+        return ast.Node{
+            .subscript = .{
+                .value = node_ptr,
+                .slice = .{ .index = try self.allocNode(ast.Node{
+                    .tuple = .{ .elts = tuple_elts },
+                }) },
+            },
+        };
+    }
 
     // Check for second colon: [::step]
     if (self.check(.Colon)) {
@@ -97,7 +118,7 @@ fn parseSliceWithLower(self: *Parser, node_ptr: *ast.Node, lower: ast.Node) Pars
     };
 }
 
-/// Parse multi-element subscript: arr[0, 1, 2] (numpy-style)
+/// Parse multi-element subscript: arr[0, 1, 2] or arr[0, :] (numpy-style)
 fn parseMultiSubscript(self: *Parser, node_ptr: *ast.Node, first: ast.Node) ParseError!ast.Node {
     var indices = std.ArrayList(ast.Node){};
     defer indices.deinit(self.allocator);
@@ -106,7 +127,14 @@ fn parseMultiSubscript(self: *Parser, node_ptr: *ast.Node, first: ast.Node) Pars
     while (self.match(.Comma)) {
         // Allow trailing comma: [0,]
         if (self.check(.RBracket)) break;
-        try indices.append(self.allocator, try self.parseExpression());
+        // Check for colon: [idx, :] - numpy row slicing
+        if (self.check(.Colon)) {
+            _ = self.advance(); // consume colon
+            // : becomes None to represent "all"
+            try indices.append(self.allocator, ast.Node{ .constant = .{ .value = .none } });
+        } else {
+            try indices.append(self.allocator, try self.parseExpression());
+        }
     }
 
     _ = try self.expect(.RBracket);

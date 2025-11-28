@@ -96,19 +96,42 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     return;
                 }
 
-                // Check for 2D indexing: arr[i, j] - parsed as arr[tuple(i, j)]
+                // Check for 2D indexing: arr[i, j] or arr[:, j] or arr[i, :] - parsed as arr[tuple(i, j)]
                 if (index == .tuple) {
                     const indices = index.tuple.elts;
                     if (indices.len == 2) {
-                        // 2D indexing: arr[i, j] → numpy.getIndex2D(arr, i, j)
-                        try self.emit("try numpy.getIndex2D(");
-                        try genExpr(self, subscript.value.*);
-                        try self.emit(", @intCast(");
-                        try genExpr(self, indices[0]);
-                        try self.emit("), @intCast(");
-                        try genExpr(self, indices[1]);
-                        try self.emit("))");
-                        return;
+                        const first = indices[0];
+                        const second = indices[1];
+                        const first_is_slice = (first == .constant and first.constant.value == .none);
+                        const second_is_slice = (second == .constant and second.constant.value == .none);
+
+                        if (first_is_slice and !second_is_slice) {
+                            // Column slice: arr[:, j] → numpy.getColumn(arr, j)
+                            try self.emit("try numpy.getColumn(");
+                            try genExpr(self, subscript.value.*);
+                            try self.emit(", @intCast(");
+                            try genExpr(self, second);
+                            try self.emit("), allocator)");
+                            return;
+                        } else if (!first_is_slice and second_is_slice) {
+                            // Row slice: arr[i, :] → numpy.getRow(arr, i)
+                            try self.emit("try numpy.getRow(");
+                            try genExpr(self, subscript.value.*);
+                            try self.emit(", @intCast(");
+                            try genExpr(self, first);
+                            try self.emit("), allocator)");
+                            return;
+                        } else {
+                            // Regular 2D indexing: arr[i, j] → numpy.getIndex2D(arr, i, j)
+                            try self.emit("try numpy.getIndex2D(");
+                            try genExpr(self, subscript.value.*);
+                            try self.emit(", @intCast(");
+                            try genExpr(self, first);
+                            try self.emit("), @intCast(");
+                            try genExpr(self, second);
+                            try self.emit("))");
+                            return;
+                        }
                     }
                 }
 
@@ -298,14 +321,43 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
         },
         .slice => |slice_range| {
             // Slicing: a[start:end] or a[start:end:step]
+            const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
+
+            // NumPy array slicing: arr[start:end]
+            if (value_type == .numpy_array) {
+                try self.emit("try numpy.slice1D(");
+                try genExpr(self, subscript.value.*);
+                try self.emit(", ");
+
+                // Start index
+                if (slice_range.lower) |lower| {
+                    try self.emit("@as(?usize, @intCast(");
+                    try genExpr(self, lower.*);
+                    try self.emit("))");
+                } else {
+                    try self.emit("null");
+                }
+
+                try self.emit(", ");
+
+                // End index
+                if (slice_range.upper) |upper| {
+                    try self.emit("@as(?usize, @intCast(");
+                    try genExpr(self, upper.*);
+                    try self.emit("))");
+                } else {
+                    try self.emit("null");
+                }
+
+                try self.emit(", allocator)");
+                return;
+            }
+
             const has_step = slice_range.step != null;
             const needs_len = slice_range.upper == null;
 
             if (has_step) {
                 // With step: use slice with step calculation
-                // Need to check if this is string or list slicing
-                const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
-
                 if (value_type == .string) {
                     // String slicing with step (supports negative step for reverse iteration)
                     try self.emit("blk: { const __s = ");
@@ -374,7 +426,6 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 }
             } else if (needs_len) {
                 // Need length for upper bound - use block expression with bounds checking
-                const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
                 const is_list = (value_type == .list);
 
                 try self.emit("blk: { const __s = ");
@@ -394,7 +445,6 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 }
             } else {
                 // Simple slice with both bounds known - need to check for negative indices
-                const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
                 const is_list = (value_type == .list);
 
                 const has_negative = blk: {

@@ -93,6 +93,20 @@ pub fn inferExpr(
                             // Boolean indexing returns a numpy array
                             break :blk .numpy_array;
                         }
+                        // Check for tuple index with slices: arr[:, 0] or arr[0, :]
+                        if (idx.* == .tuple) {
+                            const indices = idx.tuple.elts;
+                            if (indices.len == 2) {
+                                const first = indices[0];
+                                const second = indices[1];
+                                const first_is_slice = (first == .constant and first.constant.value == .none);
+                                const second_is_slice = (second == .constant and second.constant.value == .none);
+                                if (first_is_slice or second_is_slice) {
+                                    // Row or column slicing returns numpy_array
+                                    break :blk .numpy_array;
+                                }
+                            }
+                        }
                         // Single index access returns float (f64)
                         break :blk .float;
                     } else {
