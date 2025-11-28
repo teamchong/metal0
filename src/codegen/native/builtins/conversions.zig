@@ -241,6 +241,12 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Converts to bool
 /// Python truthiness rules: 0, "", [], {} are False, everything else is True
 pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    // bool() with no args returns False
+    if (args.len == 0) {
+        try self.emit("false");
+        return;
+    }
+
     if (args.len != 1) {
         return;
     }

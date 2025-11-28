@@ -97,6 +97,31 @@ pub fn tokenizeNumber(self: *Lexer, start: usize, start_column: usize) !Token {
         }
     }
 
+    // Handle scientific notation (e.g., 1.23e167, 1e-5, 2E+10)
+    if (self.peek()) |c| {
+        if (c == 'e' or c == 'E') {
+            const after_e = self.peekAhead(1);
+            // Check if next is digit, + or -
+            if (after_e) |next| {
+                if (self.isDigit(next) or next == '+' or next == '-') {
+                    _ = self.advance(); // consume 'e' or 'E'
+                    // Consume optional sign
+                    if (self.peek() == '+' or self.peek() == '-') {
+                        _ = self.advance();
+                    }
+                    // Consume exponent digits
+                    while (self.peek()) |d| {
+                        if (self.isDigit(d) or d == '_') {
+                            _ = self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Handle complex number suffix 'j' or 'J'
     const is_complex = if (self.peek()) |c| (c == 'j' or c == 'J') else false;
     if (is_complex) {

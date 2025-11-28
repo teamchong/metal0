@@ -10,6 +10,7 @@ const analyzer = @import("../analyzer.zig");
 const statements = @import("../statements.zig");
 const expressions = @import("../expressions.zig");
 const import_resolver = @import("../../../import_resolver.zig");
+const zig_keywords = @import("zig_keywords");
 
 // Comptime constants for code generation (zero runtime cost)
 const BUILD_DIR = ".build";
@@ -64,8 +65,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             continue;
         };
 
-        // Generate import statement
-        const import_stmt = try std.fmt.allocPrint(self.allocator, "const {s} = @import(\"{s}\");\n", .{ mod_name, import_path });
+        // Generate import statement (escape module name if it's a Zig keyword)
+        const escaped_name = try zig_keywords.escapeIfKeyword(self.allocator, mod_name);
+        const import_stmt = try std.fmt.allocPrint(self.allocator, "const {s} = @import(\"{s}\");\n", .{ escaped_name, import_path });
         try inlined_modules.append(self.allocator, import_stmt);
     }
 
@@ -146,7 +148,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 .zig_runtime, .c_library => {
                     // Use Zig import from registry (not inlined)
                     try self.emit("const ");
-                    try self.emit(mod_name);
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
                     try self.emit(" = ");
                     if (info.zig_import) |zig_import| {
                         try self.emit(zig_import);
@@ -229,7 +231,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
         if (self.module_name) |mod_name| {
             try self.emit("pub const ");
-            try self.emit(mod_name);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
             try self.emit(" = struct {\n");
             self.indent();
         }
@@ -362,7 +364,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (self.import_registry.lookup(mod_name)) |info| {
                 if (info.needs_init) {
                     try self.emitIndent();
-                    try self.emit(mod_name);
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
                     try self.emit(".init(allocator);\n");
                 }
             }

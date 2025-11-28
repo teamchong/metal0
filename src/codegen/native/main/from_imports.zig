@@ -3,6 +3,7 @@ const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
 const hashmap_helper = @import("hashmap_helper");
 const import_resolver = @import("../../../import_resolver.zig");
+const zig_keywords = @import("zig_keywords");
 
 /// Generate from-import symbol re-exports with deduplication
 /// For "from json import loads", generates: const loads = json.loads;
@@ -67,9 +68,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
             // Generate: const symbol_name = module.name;
             try self.emit("const ");
-            try self.emit(symbol_name);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
             try self.emit(" = ");
-            try self.emit(from_imp.module);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), from_imp.module);
             try self.emit(".");
             try self.emit(name);
             try self.emit(";\n");

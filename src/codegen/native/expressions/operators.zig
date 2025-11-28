@@ -128,6 +128,16 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         return;
     }
 
+    // Matrix multiplication is handled separately via numpy - check early before emitting anything
+    if (binop.op == .MatMul) {
+        try self.emit("try numpy.matmul(");
+        try genExpr(self, binop.left.*);
+        try self.emit(", ");
+        try genExpr(self, binop.right.*);
+        try self.emit(", allocator)");
+        return;
+    }
+
     // Check for type mismatches between usize and i64
     const left_type = try self.type_inferrer.inferExpr(binop.left.*);
     const right_type = try self.type_inferrer.inferExpr(binop.right.*);
@@ -369,17 +379,31 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 }
             } else if (right_type == .dict) {
                 // Dict key check: dict.contains(key)
-                if (op == .In) {
-                    try genExpr(self, compare.comparators[i]); // dict
-                    try self.emit(".contains(");
+                // For dict literals, wrap in block to assign to temp var
+                const is_literal = compare.comparators[i] == .dict;
+                if (is_literal) {
+                    try self.emit("(blk: { const __d = ");
+                    try genExpr(self, compare.comparators[i]); // dict literal
+                    if (op == .In) {
+                        try self.emit("; break :blk __d.contains(");
+                    } else {
+                        try self.emit("; break :blk !__d.contains(");
+                    }
                     try genExpr(self, current_left); // key
-                    try self.emit(")");
+                    try self.emit("); })");
                 } else {
-                    try self.emit("!");
-                    try genExpr(self, compare.comparators[i]); // dict
-                    try self.emit(".contains(");
-                    try genExpr(self, current_left); // key
-                    try self.emit(")");
+                    if (op == .In) {
+                        try genExpr(self, compare.comparators[i]); // dict var
+                        try self.emit(".contains(");
+                        try genExpr(self, current_left); // key
+                        try self.emit(")");
+                    } else {
+                        try self.emit("!");
+                        try genExpr(self, compare.comparators[i]); // dict var
+                        try self.emit(".contains(");
+                        try genExpr(self, current_left); // key
+                        try self.emit(")");
+                    }
                 }
             } else {
                 // Fallback for arrays and unrecognized types

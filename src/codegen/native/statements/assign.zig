@@ -245,10 +245,19 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             try self.emitIndent();
 
             // For unused variables, discard with _ = expr; to avoid Zig errors
+            // But PyObjects still need decref to free memory (e.g., json.loads)
             if (is_first_assignment and self.isVarUnused(var_name)) {
-                try self.emit("_ = ");
-                try self.genExpr(assign.value.*);
-                try self.emit(";\n");
+                if (value_type == .unknown) {
+                    // PyObject: capture in block and decref immediately
+                    // { const __unused = expr; runtime.decref(__unused, allocator); }
+                    try self.emit("{ const __unused = ");
+                    try self.genExpr(assign.value.*);
+                    try self.emit("; runtime.decref(__unused, allocator); }\n");
+                } else {
+                    try self.emit("_ = ");
+                    try self.genExpr(assign.value.*);
+                    try self.emit(";\n");
+                }
                 // Don't declare - variable doesn't exist
                 return;
             }
@@ -448,6 +457,15 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!void {
     try self.emitIndent();
 
+    // Handle subscript with slice augmented assignment: x[1:2] *= 2
+    // This is a complex operation that modifies the list in place
+    if (aug.target.* == .subscript and aug.target.subscript.slice == .slice) {
+        // For slice augmented assignment, we need runtime support
+        // For now, emit a comment placeholder - this feature is not yet supported
+        try self.emit("// TODO: slice augmented assignment not yet supported\n");
+        return;
+    }
+
     // Emit target (variable name)
     try self.genExpr(aug.target.*);
     try self.emit(" = ");
@@ -492,6 +510,17 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     }
 
     // Regular operators: +=, -=, *=, /=, &=, |=, ^=
+    // Handle matrix multiplication separately
+    if (aug.op == .MatMul) {
+        // MatMul: target @= value => target = numpy.matmul(target, value)
+        try self.emit("try numpy.matmul(");
+        try self.genExpr(aug.target.*);
+        try self.emit(", ");
+        try self.genExpr(aug.value.*);
+        try self.emit(", allocator);\n");
+        return;
+    }
+
     try self.genExpr(aug.target.*);
 
     const op_str = switch (aug.op) {

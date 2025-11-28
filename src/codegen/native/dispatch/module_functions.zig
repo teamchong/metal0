@@ -99,6 +99,8 @@ const NumpyFuncs = FuncMap.initComptime(.{
 const NumpyLinalgFuncs = FuncMap.initComptime(.{
     .{ "norm", numpy_mod.genNorm },
     .{ "det", numpy_mod.genDet },
+    .{ "inv", numpy_mod.genInv },
+    .{ "solve", numpy_mod.genSolve },
 });
 
 /// NumPy random module functions

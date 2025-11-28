@@ -549,6 +549,26 @@ pub fn genDet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
+/// Generate numpy.linalg.inv() call
+pub fn genInv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) return;
+
+    try self.emit("try numpy.inv(");
+    try self.genExpr(args[0]);
+    try self.emit(", allocator)");
+}
+
+/// Generate numpy.linalg.solve() call
+pub fn genSolve(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) return;
+
+    try self.emit("try numpy.solve(");
+    try self.genExpr(args[0]);
+    try self.emit(", ");
+    try self.genExpr(args[1]);
+    try self.emit(", allocator)");
+}
+
 /// Generate numpy.trace() call
 pub fn genTrace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

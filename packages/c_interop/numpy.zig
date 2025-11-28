@@ -43,6 +43,7 @@ extern "c" fn cblas_dgemm(
 const CblasRowMajor: c_int = 101;
 const CblasNoTrans: c_int = 111;
 
+
 /// Create NumPy array from integer slice (Python: np.array([1,2,3]))
 /// Converts i64 → f64 and wraps in PyObject
 pub fn array(data: []const i64, allocator: std.mem.Allocator) !*PyObject {
@@ -457,6 +458,98 @@ pub fn det(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
         return error.NotImplemented;
     }
     return result;
+}
+
+/// Matrix inverse - np.linalg.inv(arr)
+/// Returns: inverted matrix as PyObject
+pub fn inv(arr_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+    const arr = try numpy_array_mod.extractArray(arr_obj);
+    if (arr.shape.len != 2 or arr.shape[0] != arr.shape[1]) {
+        return error.InvalidDimension;
+    }
+    const n: c_int = @intCast(arr.shape[0]);
+
+    // Copy matrix data in column-major order (LAPACK uses Fortran layout)
+    // For row-major input, transposing is equivalent to computing inv(A^T)^T = inv(A)
+    // So we can just use the data as-is and the result will be correct
+    const result_data = try allocator.alloc(f64, @intCast(n * n));
+    @memcpy(result_data, arr.data);
+
+    // Pivot indices for LU factorization
+    const ipiv = try allocator.alloc(c_int, @intCast(n));
+    defer allocator.free(ipiv);
+
+    // LU factorization (Fortran interface)
+    var info: c_int = 0;
+    dgetrf_(&n, &n, result_data.ptr, &n, ipiv.ptr, &info);
+    if (info != 0) {
+        allocator.free(result_data);
+        return error.SingularMatrix;
+    }
+
+    // Query optimal workspace size
+    var work_query: f64 = 0;
+    var lwork: c_int = -1;
+    dgetri_(&n, result_data.ptr, &n, ipiv.ptr, @ptrCast(&work_query), &lwork, &info);
+
+    // Allocate workspace
+    lwork = @intFromFloat(work_query);
+    const work = try allocator.alloc(f64, @intCast(lwork));
+    defer allocator.free(work);
+
+    // Compute inverse from LU factorization
+    dgetri_(&n, result_data.ptr, &n, ipiv.ptr, work.ptr, &lwork, &info);
+    if (info != 0) {
+        allocator.free(result_data);
+        return error.SingularMatrix;
+    }
+
+    // Wrap result
+    const np_result = try NumpyArray.fromOwnedSlice(allocator, result_data);
+    np_result.shape = try allocator.dupe(usize, arr.shape);
+    return try numpy_array_mod.createPyObject(allocator, np_result);
+}
+
+/// Solve linear system - np.linalg.solve(a, b)
+/// Solves Ax = b for x
+/// Returns: solution vector/matrix as PyObject
+pub fn solve(a_obj: *PyObject, b_obj: *PyObject, allocator: std.mem.Allocator) !*PyObject {
+    const a_arr = try numpy_array_mod.extractArray(a_obj);
+    const b_arr = try numpy_array_mod.extractArray(b_obj);
+
+    if (a_arr.shape.len != 2 or a_arr.shape[0] != a_arr.shape[1]) {
+        return error.InvalidDimension;
+    }
+    const n: c_int = @intCast(a_arr.shape[0]);
+
+    // Determine number of right-hand sides
+    const nrhs: c_int = if (b_arr.shape.len == 1) 1 else @intCast(b_arr.shape[1]);
+
+    // Copy A matrix (LAPACK modifies in place)
+    const a_copy = try allocator.alloc(f64, @intCast(n * n));
+    defer allocator.free(a_copy);
+    @memcpy(a_copy, a_arr.data);
+
+    // Copy b vector/matrix (solution overwrites this)
+    const result_data = try allocator.alloc(f64, b_arr.size);
+    @memcpy(result_data, b_arr.data);
+
+    // Pivot indices
+    const ipiv = try allocator.alloc(c_int, @intCast(n));
+    defer allocator.free(ipiv);
+
+    // Solve the system (Fortran interface)
+    var info: c_int = 0;
+    dgesv_(&n, &nrhs, a_copy.ptr, &n, ipiv.ptr, result_data.ptr, &n, &info);
+    if (info != 0) {
+        allocator.free(result_data);
+        return error.SingularMatrix;
+    }
+
+    // Wrap result
+    const np_result = try NumpyArray.fromOwnedSlice(allocator, result_data);
+    np_result.shape = try allocator.dupe(usize, b_arr.shape);
+    return try numpy_array_mod.createPyObject(allocator, np_result);
 }
 
 /// Trace - np.trace(arr)
