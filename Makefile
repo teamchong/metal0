@@ -1,4 +1,4 @@
-.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-regex benchmark-tokenizer clean format
+.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-regex benchmark-tokenizer clean format
 
 # =============================================================================
 # HELP
@@ -24,6 +24,7 @@ help:
 	@echo "  make benchmark-string    String operations"
 	@echo "  make benchmark-json      JSON quick (shared vs std.json)"
 	@echo "  make benchmark-json-full JSON full (PyAOT vs Rust vs Go vs Python)"
+	@echo "  make benchmark-http      HTTP client (PyAOT vs Rust vs Go vs Python)"
 	@echo "  make benchmark-regex     Regex (PyAOT vs Python vs Rust vs Go)"
 	@echo "  make benchmark-tokenizer BPE tokenizer (vs tiktoken/HuggingFace)"
 	@echo ""
@@ -147,6 +148,13 @@ benchmark-json-full: build-release
 	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
 	@echo "JSON Full Benchmark: PyAOT vs Rust vs Go vs Python vs PyPy"
 	@cd benchmarks/json && bash bench.sh
+
+benchmark-http: build-release
+	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
+	@echo "HTTP Client Benchmark: PyAOT vs Rust vs Go vs Python vs PyPy"
+	@# Install requests for PyPy if missing
+	@pypy3 -c "import requests" 2>/dev/null || pypy3 -m pip install requests -q 2>/dev/null || true
+	@cd benchmarks/http && bash bench.sh
 
 benchmark-regex: build-release
 	@echo "Regex Benchmark: PyAOT vs Python vs Rust vs Go"
