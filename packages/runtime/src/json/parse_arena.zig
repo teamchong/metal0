@@ -20,9 +20,10 @@ const ParseResult = @import("errors.zig").ParseResult;
 const hashmap_helper = @import("hashmap_helper");
 
 /// Thread-local key cache for interning (avoids repeated allocations)
-const KEY_CACHE_SIZE = 32;
+/// Using hash-based lookup instead of linear scan for O(1) cache checks
+const KEY_CACHE_SIZE = 64; // Power of 2 for fast modulo
 threadlocal var key_cache: [KEY_CACHE_SIZE][]const u8 = [_][]const u8{""} ** KEY_CACHE_SIZE;
-threadlocal var key_cache_idx: usize = 0;
+threadlocal var key_cache_hash: [KEY_CACHE_SIZE]u32 = [_]u32{0} ** KEY_CACHE_SIZE;
 
 /// Thread-local arena for current parse operation
 threadlocal var current_arena: ?*JsonArena = null;
@@ -64,21 +65,33 @@ inline fn getCachedInt(value: i64) ?*runtime.PyObject {
     return null;
 }
 
+/// Fast hash for key interning (wyhash for speed)
+inline fn quickHash(key: []const u8) u32 {
+    // Simple fast hash - FNV-1a style but faster
+    var h: u32 = 2166136261;
+    for (key) |c| {
+        h = (h ^ c) *% 16777619;
+    }
+    return h;
+}
+
 /// Intern a key string - returns cached version if seen recently
+/// O(1) hash-based lookup instead of O(n) linear scan
 fn internKey(key: []const u8, arena: *JsonArena) ![]const u8 {
-    // Check cache first
-    for (key_cache[0..@min(key_cache_idx, KEY_CACHE_SIZE)]) |cached| {
-        if (std.mem.eql(u8, cached, key)) {
-            return cached; // Hit! No allocation needed
-        }
+    const hash = quickHash(key);
+    const slot = hash & (KEY_CACHE_SIZE - 1); // Fast modulo for power of 2
+
+    // Check if this slot has our key (hash + string match)
+    if (key_cache_hash[slot] == hash and std.mem.eql(u8, key_cache[slot], key)) {
+        return key_cache[slot]; // Cache hit!
     }
 
     // Cache miss - allocate and cache
     const owned = try arena.dupeString(key);
 
-    // Add to cache (circular buffer)
-    key_cache[key_cache_idx % KEY_CACHE_SIZE] = owned;
-    key_cache_idx +%= 1;
+    // Store in cache (overwrites previous)
+    key_cache[slot] = owned;
+    key_cache_hash[slot] = hash;
 
     return owned;
 }
@@ -105,8 +118,8 @@ pub fn parseWithArena(data: []const u8, backing_allocator: std.mem.Allocator) Js
     current_arena = arena;
     defer current_arena = null;
 
-    // Reset key cache for this parse
-    key_cache_idx = 0;
+    // Reset key cache for this parse (clear hashes to invalidate)
+    @memset(&key_cache_hash, 0);
 
     const i = skipWhitespace(data, 0);
     if (i >= data.len) return JsonError.UnexpectedEndOfInput;

@@ -139,6 +139,673 @@ pub const NumpyArray = struct {
         return arr;
     }
 
+    /// Create empty array (uninitialized) - np.empty(shape)
+    pub fn empty(allocator: std.mem.Allocator, shape_spec: []const usize) !*NumpyArray {
+        var size: usize = 1;
+        for (shape_spec) |dim| {
+            size *= dim;
+        }
+
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, size);
+        // Don't initialize - that's the point of empty()
+
+        const shape = try allocator.dupe(usize, shape_spec);
+        const strides = try allocator.alloc(usize, shape_spec.len);
+
+        // Calculate strides (C-contiguous order)
+        var stride: usize = 1;
+        var i: usize = shape_spec.len;
+        while (i > 0) {
+            i -= 1;
+            strides[i] = stride;
+            stride *= shape_spec[i];
+        }
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Create array filled with given value - np.full(shape, fill_value)
+    pub fn full(allocator: std.mem.Allocator, shape_spec: []const usize, fill_value: f64) !*NumpyArray {
+        const arr = try zeros(allocator, shape_spec);
+        @memset(arr.data, fill_value);
+        return arr;
+    }
+
+    /// Create identity matrix - np.eye(n) or np.identity(n)
+    pub fn eye(allocator: std.mem.Allocator, n: usize) !*NumpyArray {
+        const shape = [_]usize{ n, n };
+        const arr = try zeros(allocator, &shape);
+
+        // Set diagonal to 1
+        for (0..n) |i| {
+            arr.data[i * n + i] = 1.0;
+        }
+
+        return arr;
+    }
+
+    /// Create range array - np.arange(start, stop, step)
+    pub fn arange(allocator: std.mem.Allocator, start: f64, stop: f64, step: f64) !*NumpyArray {
+        // Calculate number of elements
+        const range = stop - start;
+        const count: usize = @intFromFloat(@ceil(@abs(range / step)));
+
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, count);
+
+        var val = start;
+        for (0..count) |i| {
+            data[i] = val;
+            val += step;
+        }
+
+        const shape = try allocator.alloc(usize, 1);
+        shape[0] = count;
+
+        const strides = try allocator.alloc(usize, 1);
+        strides[0] = 1;
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = count,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Create linearly spaced array - np.linspace(start, stop, num)
+    pub fn linspace(allocator: std.mem.Allocator, start: f64, stop: f64, num: usize) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, num);
+
+        if (num == 1) {
+            data[0] = start;
+        } else {
+            const step = (stop - start) / @as(f64, @floatFromInt(num - 1));
+            for (0..num) |i| {
+                data[i] = start + @as(f64, @floatFromInt(i)) * step;
+            }
+        }
+
+        const shape = try allocator.alloc(usize, 1);
+        shape[0] = num;
+
+        const strides = try allocator.alloc(usize, 1);
+        strides[0] = 1;
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = num,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Create logarithmically spaced array - np.logspace(start, stop, num)
+    pub fn logspace(allocator: std.mem.Allocator, start: f64, stop: f64, num: usize) !*NumpyArray {
+        const arr = try linspace(allocator, start, stop, num);
+
+        // Convert to powers of 10
+        for (arr.data) |*val| {
+            val.* = std.math.pow(f64, 10.0, val.*);
+        }
+
+        return arr;
+    }
+
+    /// Reshape array - np.reshape(arr, new_shape)
+    /// Returns new array with same data but different shape
+    pub fn reshape(self: *NumpyArray, allocator: std.mem.Allocator, new_shape: []const usize) !*NumpyArray {
+        // Verify total size matches
+        var new_size: usize = 1;
+        for (new_shape) |dim| {
+            new_size *= dim;
+        }
+
+        if (new_size != self.size) {
+            return error.ShapeMismatch;
+        }
+
+        const arr = try allocator.create(NumpyArray);
+
+        // Copy data
+        const data = try allocator.alloc(f64, self.size);
+        @memcpy(data, self.data);
+
+        const shape = try allocator.dupe(usize, new_shape);
+        const strides = try allocator.alloc(usize, new_shape.len);
+
+        // Calculate strides
+        var stride: usize = 1;
+        var i: usize = new_shape.len;
+        while (i > 0) {
+            i -= 1;
+            strides[i] = stride;
+            stride *= new_shape[i];
+        }
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Flatten array to 1D - np.flatten() or np.ravel()
+    pub fn flatten(self: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        const shape = [_]usize{self.size};
+        return self.reshape(allocator, &shape);
+    }
+
+    /// Transpose array - np.transpose() or arr.T
+    pub fn transpose(self: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        if (self.shape.len != 2) {
+            return error.InvalidDimension;
+        }
+
+        const rows = self.shape[0];
+        const cols = self.shape[1];
+
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        // Transpose: out[j,i] = in[i,j]
+        for (0..rows) |i| {
+            for (0..cols) |j| {
+                data[j * rows + i] = self.data[i * cols + j];
+            }
+        }
+
+        const shape = try allocator.alloc(usize, 2);
+        shape[0] = cols;
+        shape[1] = rows;
+
+        const strides = try allocator.alloc(usize, 2);
+        strides[0] = rows;
+        strides[1] = 1;
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Squeeze - remove dimensions of size 1
+    pub fn squeeze(self: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        // Count non-1 dimensions
+        var new_ndim: usize = 0;
+        for (self.shape) |dim| {
+            if (dim != 1) new_ndim += 1;
+        }
+
+        if (new_ndim == 0) new_ndim = 1; // Keep at least 1 dimension
+
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+        @memcpy(data, self.data);
+
+        const new_shape = try allocator.alloc(usize, new_ndim);
+        const new_strides = try allocator.alloc(usize, new_ndim);
+
+        var idx: usize = 0;
+        for (self.shape, self.strides) |dim, stride| {
+            if (dim != 1) {
+                new_shape[idx] = dim;
+                new_strides[idx] = stride;
+                idx += 1;
+            }
+        }
+
+        // Handle all-ones case
+        if (idx == 0) {
+            new_shape[0] = 1;
+            new_strides[0] = 1;
+        }
+
+        arr.* = .{
+            .data = data,
+            .shape = new_shape,
+            .strides = new_strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Expand dimensions - add axis of size 1
+    pub fn expand_dims(self: *NumpyArray, allocator: std.mem.Allocator, axis: usize) !*NumpyArray {
+        const new_ndim = self.shape.len + 1;
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+        @memcpy(data, self.data);
+
+        const new_shape = try allocator.alloc(usize, new_ndim);
+        const new_strides = try allocator.alloc(usize, new_ndim);
+
+        var old_idx: usize = 0;
+        for (0..new_ndim) |i| {
+            if (i == axis) {
+                new_shape[i] = 1;
+                new_strides[i] = if (old_idx < self.strides.len) self.strides[old_idx] else 1;
+            } else {
+                new_shape[i] = self.shape[old_idx];
+                new_strides[i] = self.strides[old_idx];
+                old_idx += 1;
+            }
+        }
+
+        arr.* = .{
+            .data = data,
+            .shape = new_shape,
+            .strides = new_strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    // ============================================================================
+    // Element-wise operations (return new array)
+    // ============================================================================
+
+    /// Element-wise addition
+    pub fn add(self: *NumpyArray, other: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        if (self.size != other.size) return error.ShapeMismatch;
+
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, other.data, 0..) |a, b, i| {
+            data[i] = a + b;
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Element-wise subtraction
+    pub fn subtract(self: *NumpyArray, other: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        if (self.size != other.size) return error.ShapeMismatch;
+
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, other.data, 0..) |a, b, i| {
+            data[i] = a - b;
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Element-wise multiplication
+    pub fn multiply(self: *NumpyArray, other: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        if (self.size != other.size) return error.ShapeMismatch;
+
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, other.data, 0..) |a, b, i| {
+            data[i] = a * b;
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Element-wise division
+    pub fn divide(self: *NumpyArray, other: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        if (self.size != other.size) return error.ShapeMismatch;
+
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, other.data, 0..) |a, b, i| {
+            data[i] = a / b;
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Scalar multiplication
+    pub fn multiplyScalar(self: *NumpyArray, scalar: f64, allocator: std.mem.Allocator) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, 0..) |a, i| {
+            data[i] = a * scalar;
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Element-wise power
+    pub fn power(self: *NumpyArray, exponent: f64, allocator: std.mem.Allocator) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, 0..) |a, i| {
+            data[i] = std.math.pow(f64, a, exponent);
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Element-wise sqrt
+    pub fn sqrt(self: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, 0..) |a, i| {
+            data[i] = @sqrt(a);
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Element-wise exp
+    pub fn exp(self: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, 0..) |a, i| {
+            data[i] = @exp(a);
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Element-wise log (natural)
+    pub fn log(self: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, 0..) |a, i| {
+            data[i] = @log(a);
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Element-wise sin
+    pub fn sin(self: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, 0..) |a, i| {
+            data[i] = @sin(a);
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Element-wise cos
+    pub fn cos(self: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, 0..) |a, i| {
+            data[i] = @cos(a);
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    /// Element-wise absolute value
+    pub fn abs(self: *NumpyArray, allocator: std.mem.Allocator) !*NumpyArray {
+        const arr = try allocator.create(NumpyArray);
+        const data = try allocator.alloc(f64, self.size);
+
+        for (self.data, 0..) |a, i| {
+            data[i] = @abs(a);
+        }
+
+        const shape = try allocator.dupe(usize, self.shape);
+        const strides = try allocator.dupe(usize, self.strides);
+
+        arr.* = .{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .size = self.size,
+            .allocator = allocator,
+        };
+
+        return arr;
+    }
+
+    // ============================================================================
+    // Reduction operations (return scalar)
+    // ============================================================================
+
+    /// Sum all elements
+    pub fn sum(self: *NumpyArray) f64 {
+        var total: f64 = 0.0;
+        for (self.data) |val| {
+            total += val;
+        }
+        return total;
+    }
+
+    /// Product of all elements
+    pub fn prod(self: *NumpyArray) f64 {
+        var total: f64 = 1.0;
+        for (self.data) |val| {
+            total *= val;
+        }
+        return total;
+    }
+
+    /// Mean of all elements
+    pub fn mean(self: *NumpyArray) f64 {
+        return self.sum() / @as(f64, @floatFromInt(self.size));
+    }
+
+    /// Standard deviation (named stddev to avoid conflict with std import)
+    pub fn stddev(self: *NumpyArray) f64 {
+        const m = self.mean();
+        var sum_sq: f64 = 0.0;
+        for (self.data) |val| {
+            const diff = val - m;
+            sum_sq += diff * diff;
+        }
+        return @sqrt(sum_sq / @as(f64, @floatFromInt(self.size)));
+    }
+
+    /// Variance
+    pub fn variance(self: *NumpyArray) f64 {
+        const s = self.stddev();
+        return s * s;
+    }
+
+    /// Minimum value
+    pub fn min(self: *NumpyArray) f64 {
+        var result = self.data[0];
+        for (self.data[1..]) |val| {
+            if (val < result) result = val;
+        }
+        return result;
+    }
+
+    /// Maximum value
+    pub fn max(self: *NumpyArray) f64 {
+        var result = self.data[0];
+        for (self.data[1..]) |val| {
+            if (val > result) result = val;
+        }
+        return result;
+    }
+
+    /// Index of minimum value
+    pub fn argmin(self: *NumpyArray) usize {
+        var min_idx: usize = 0;
+        var min_val = self.data[0];
+        for (self.data[1..], 1..) |val, i| {
+            if (val < min_val) {
+                min_val = val;
+                min_idx = i;
+            }
+        }
+        return min_idx;
+    }
+
+    /// Index of maximum value
+    pub fn argmax(self: *NumpyArray) usize {
+        var max_idx: usize = 0;
+        var max_val = self.data[0];
+        for (self.data[1..], 1..) |val, i| {
+            if (val > max_val) {
+                max_val = val;
+                max_idx = i;
+            }
+        }
+        return max_idx;
+    }
+
     /// Get element at index (1D only for now)
     pub fn get(self: *const NumpyArray, index: usize) f64 {
         return self.data[index];
