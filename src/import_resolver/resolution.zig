@@ -10,9 +10,9 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
     // Third-party packages (flask, requests, werkzeug, etc.) are handled by import_registry
     const stdlib_modules = [_][]const u8{
         // Core Python stdlib
-        "os",         "sys",        "io",        "typing",
+        "sys",        "io",         "typing",
         "pathlib",    "urllib",     "datetime",  "importlib",
-        "subprocess", "tempfile",   "threading", "socket",
+        "subprocess", "tempfile",   "threading",
         // Stdlib modules with complex/unsupported syntax
         "functools",  "collections", "inspect",  "contextlib",
         "abc",        "operator",    "itertools", "enum",

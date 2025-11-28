@@ -220,6 +220,8 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("base64", .zig_runtime, "std", null); // base64 uses std.base64
     try registry.register("pickle", .zig_runtime, "std", null); // pickle uses JSON serialization
     try registry.register("hmac", .zig_runtime, "std", null); // hmac uses std.crypto.auth.hmac
+    try registry.register("socket", .zig_runtime, "std", null); // socket uses std.posix
+    try registry.register("os", .zig_runtime, "std", null); // os uses std.fs and std.process
 
     // Additional Tier 1: OS and filesystem modules
     try registry.register("pathlib", .zig_runtime, "runtime.pathlib", null);

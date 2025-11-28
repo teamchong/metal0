@@ -374,6 +374,25 @@ pub fn inferCall(
                     // inv, solve, eig, svd return arrays
                     return .numpy_array;
                 }
+                // Check for os.path module
+                if (std.mem.eql(u8, prefix, "os.path") or std.mem.eql(u8, prefix, "path")) {
+                    const func_name = attr.attr;
+                    if (std.mem.eql(u8, func_name, "exists") or
+                        std.mem.eql(u8, func_name, "isfile") or
+                        std.mem.eql(u8, func_name, "isdir"))
+                    {
+                        return .bool;
+                    }
+                    if (std.mem.eql(u8, func_name, "join") or
+                        std.mem.eql(u8, func_name, "dirname") or
+                        std.mem.eql(u8, func_name, "basename") or
+                        std.mem.eql(u8, func_name, "abspath") or
+                        std.mem.eql(u8, func_name, "realpath") or
+                        std.mem.eql(u8, func_name, "splitext"))
+                    {
+                        return .{ .string = .runtime };
+                    }
+                }
             }
         }
 
@@ -397,6 +416,9 @@ pub fn inferCall(
             const PICKLE_HASH = comptime fnv_hash.hash("pickle");
             const HMAC_HASH = comptime fnv_hash.hash("hmac");
             const SOCKET_HASH = comptime fnv_hash.hash("socket");
+            const OS_HASH = comptime fnv_hash.hash("os");
+            const OS_PATH_HASH = comptime fnv_hash.hash("os.path");
+            const PATH_HASH = comptime fnv_hash.hash("path");
 
             switch (module_hash) {
                 BASE64_HASH => {
@@ -443,6 +465,34 @@ pub fn inferCall(
                         return .int;
                     }
                     return .none; // setdefaulttimeout, etc.
+                },
+                OS_HASH => {
+                    // os module type inference
+                    const func_hash = fnv_hash.hash(func_name);
+                    const GETCWD_HASH = comptime fnv_hash.hash("getcwd");
+                    const LISTDIR_HASH = comptime fnv_hash.hash("listdir");
+                    const CHDIR_HASH = comptime fnv_hash.hash("chdir");
+                    if (func_hash == GETCWD_HASH) return .{ .string = .runtime };
+                    if (func_hash == LISTDIR_HASH) return .unknown; // ArrayList([]const u8)
+                    if (func_hash == CHDIR_HASH) return .none;
+                    return .unknown;
+                },
+                OS_PATH_HASH, PATH_HASH => {
+                    // os.path module type inference
+                    const func_hash = fnv_hash.hash(func_name);
+                    const EXISTS_HASH = comptime fnv_hash.hash("exists");
+                    const ISFILE_HASH = comptime fnv_hash.hash("isfile");
+                    const ISDIR_HASH = comptime fnv_hash.hash("isdir");
+                    const JOIN_HASH = comptime fnv_hash.hash("join");
+                    const DIRNAME_HASH = comptime fnv_hash.hash("dirname");
+                    const BASENAME_HASH = comptime fnv_hash.hash("basename");
+                    if (func_hash == EXISTS_HASH or func_hash == ISFILE_HASH or func_hash == ISDIR_HASH) {
+                        return .bool;
+                    }
+                    if (func_hash == JOIN_HASH or func_hash == DIRNAME_HASH or func_hash == BASENAME_HASH) {
+                        return .{ .string = .runtime };
+                    }
+                    return .unknown;
                 },
                 PICKLE_HASH => {
                     // pickle.dumps() returns bytes, pickle.loads() returns dynamic value

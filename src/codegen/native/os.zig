@@ -10,23 +10,15 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 // const bridge = @import("stdlib_bridge.zig"); // Future: for any runtime passthrough functions
 
 /// Generate code for os.getcwd()
-/// Returns current working directory as PyString
+/// Returns current working directory as []const u8
 pub fn genGetcwd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 0) {
         std.debug.print("os.getcwd() takes no arguments\n", .{});
         return;
     }
 
-    // Use Zig's std.process.getCwdAlloc, wrap in PyString for Python compatibility
-    try self.emit("os_getcwd_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _cwd = std.process.getCwdAlloc(allocator) catch \"\";\n");
-    try self.emitIndent();
-    try self.emit("break :os_getcwd_blk try runtime.PyString.create(allocator, _cwd);\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    // Use Zig's std.process.getCwdAlloc, returns []const u8
+    try self.emit("(std.process.getCwdAlloc(allocator) catch \"\")");
 }
 
 /// Generate code for os.chdir(path)
@@ -146,7 +138,7 @@ pub fn genPathExists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for os.path.join(a, b, ...)
-/// Joins path components with separator, returns PyString
+/// Joins path components with separator, returns []const u8
 pub fn genPathJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
         std.debug.print("os.path.join() requires at least 2 arguments\n", .{});
@@ -168,16 +160,14 @@ pub fn genPathJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(" };\n");
 
     try self.emitIndent();
-    try self.emit("const _joined = std.fs.path.join(allocator, &_paths) catch \"\";\n");
-    try self.emitIndent();
-    try self.emit("break :os_path_join_blk try runtime.PyString.create(allocator, _joined);\n");
+    try self.emit("break :os_path_join_blk std.fs.path.join(allocator, &_paths) catch \"\";\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
 }
 
 /// Generate code for os.path.dirname(path)
-/// Returns directory component of path as PyString
+/// Returns directory component of path as []const u8
 pub fn genPathDirname(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         std.debug.print("os.path.dirname() requires exactly 1 argument\n", .{});
@@ -191,16 +181,14 @@ pub fn genPathDirname(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("const _dirname = std.fs.path.dirname(_path) orelse \"\";\n");
-    try self.emitIndent();
-    try self.emit("break :os_path_dirname_blk try runtime.PyString.create(allocator, _dirname);\n");
+    try self.emit("break :os_path_dirname_blk std.fs.path.dirname(_path) orelse \"\";\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
 }
 
 /// Generate code for os.path.basename(path)
-/// Returns final component of path as PyString
+/// Returns final component of path as []const u8
 pub fn genPathBasename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         std.debug.print("os.path.basename() requires exactly 1 argument\n", .{});
@@ -214,7 +202,7 @@ pub fn genPathBasename(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("break :os_path_basename_blk try runtime.PyString.create(allocator, std.fs.path.basename(_path));\n");
+    try self.emit("break :os_path_basename_blk std.fs.path.basename(_path);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
