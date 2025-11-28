@@ -492,9 +492,11 @@ fn handleHashMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.Node
         try self.emit(".digest()");
     } else if (method_hash == HEXDIGEST) {
         // h.hexdigest(allocator) - returns hex string
+        // Use scope-aware allocator: __global_allocator in functions, allocator in main()
+        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
         try self.emit("try ");
         try self.emit(receiver);
-        try self.emit(".hexdigest(allocator)");
+        try self.emitFmt(".hexdigest({s})", .{alloc_name});
     } else if (method_hash == COPY) {
         // h.copy() - returns a copy
         try self.emit(receiver);

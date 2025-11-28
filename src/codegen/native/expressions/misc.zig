@@ -4,6 +4,7 @@ const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const subscript_mod = @import("subscript.zig");
+const zig_keywords = @import("zig_keywords");
 
 /// Generate tuple literal as Zig struct with named fields
 /// Uses named field syntax (.{ .@"0" = elem1, .@"1" = elem2 }) for compatibility
@@ -164,9 +165,10 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.int", .{attr.attr});
     } else {
         // Known attribute: direct field access
+        // Escape attribute name if it's a Zig keyword (e.g., "test")
         try genExpr(self, attr.value.*);
         try self.emit(".");
-        try self.emit(attr.attr);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
     }
 }
 

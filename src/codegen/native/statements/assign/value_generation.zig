@@ -54,7 +54,10 @@ pub fn emitVarDeclaration(
     // This checks both module-level analysis AND function-local mutations
     const is_mutated = self.isVarMutated(var_name);
 
-    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or is_mutated;
+    // hash_object types need var because they have mutating methods like update()
+    const is_hash_object = (value_type == .hash_object);
+
+    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or is_mutated or is_hash_object;
 
     if (needs_var) {
         try self.emit("var ");
@@ -145,6 +148,11 @@ pub fn trackVariableMetadata(
     is_array_slice: bool,
     assign: ast.Node.Assign,
 ) CodegenError!void {
+    // Track local variable type for current function/method scope
+    // This helps avoid type shadowing issues when the same variable name is used in different methods
+    const value_type = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
+    try self.setLocalVarType(var_name, value_type);
+
     // Track if this variable holds a constant array
     if (is_constant_array) {
         const var_name_copy = try self.allocator.dupe(u8, var_name);

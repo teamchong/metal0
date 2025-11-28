@@ -8,6 +8,9 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 pub fn genWrap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
+    // Use scope-aware allocator name
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
     try self.emit("textwrap_wrap_blk: {\n");
     self.indent();
     try self.emitIndent();
@@ -25,7 +28,7 @@ pub fn genWrap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _lines = std.ArrayList([]const u8).init(allocator);\n");
+    try self.emit("var _lines = std.ArrayList([]const u8){};\n");
     try self.emitIndent();
     try self.emit("var _start: usize = 0;\n");
     try self.emitIndent();
@@ -34,7 +37,7 @@ pub fn genWrap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _end = @min(_start + _width, _text.len);\n");
     try self.emitIndent();
-    try self.emit("_lines.append(allocator, _text[_start.._end]) catch continue;\n");
+    try self.emitFmt("_lines.append({s}, _text[_start.._end]) catch continue;\n", .{alloc_name});
     try self.emitIndent();
     try self.emit("_start = _end;\n");
     self.dedent();
@@ -50,6 +53,9 @@ pub fn genWrap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate textwrap.fill(text, width=70) -> single string with newlines
 pub fn genFill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
+
+    // Use scope-aware allocator name
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
     try self.emit("textwrap_fill_blk: {\n");
     self.indent();
@@ -68,7 +74,7 @@ pub fn genFill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(allocator);\n");
+    try self.emit("var _result = std.ArrayList(u8){};\n");
     try self.emitIndent();
     try self.emit("var _start: usize = 0;\n");
     try self.emitIndent();
@@ -77,9 +83,9 @@ pub fn genFill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _end = @min(_start + _width, _text.len);\n");
     try self.emitIndent();
-    try self.emit("if (_start > 0) _result.append(allocator, '\\n') catch continue;\n");
+    try self.emitFmt("if (_start > 0) _result.append({s}, '\\n') catch continue;\n", .{alloc_name});
     try self.emitIndent();
-    try self.emit("_result.appendSlice(allocator, _text[_start.._end]) catch continue;\n");
+    try self.emitFmt("_result.appendSlice({s}, _text[_start.._end]) catch continue;\n", .{alloc_name});
     try self.emitIndent();
     try self.emit("_start = _end;\n");
     self.dedent();
@@ -95,6 +101,9 @@ pub fn genFill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate textwrap.dedent(text) -> text with common leading whitespace removed
 pub fn genDedent(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
+
+    // Use scope-aware allocator name
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
     try self.emit("textwrap_dedent_blk: {\n");
     self.indent();
@@ -124,7 +133,7 @@ pub fn genDedent(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("if (_min_indent == std.math.maxInt(usize)) _min_indent = 0;\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(allocator);\n");
+    try self.emit("var _result = std.ArrayList(u8){};\n");
     try self.emitIndent();
     try self.emit("var _lines_iter2 = std.mem.splitSequence(u8, _text, \"\\n\");\n");
     try self.emitIndent();
@@ -133,11 +142,11 @@ pub fn genDedent(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("while (_lines_iter2.next()) |line| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("if (!_first) _result.append(allocator, '\\n') catch continue;\n");
+    try self.emitFmt("if (!_first) _result.append({s}, '\\n') catch continue;\n", .{alloc_name});
     try self.emitIndent();
     try self.emit("_first = false;\n");
     try self.emitIndent();
-    try self.emit("if (line.len > _min_indent) _result.appendSlice(allocator, line[_min_indent..]) catch continue;\n");
+    try self.emitFmt("if (line.len > _min_indent) _result.appendSlice({s}, line[_min_indent..]) catch continue;\n", .{alloc_name});
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -152,6 +161,9 @@ pub fn genDedent(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genIndent(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
 
+    // Use scope-aware allocator name
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
     try self.emit("textwrap_indent_blk: {\n");
     self.indent();
     try self.emitIndent();
@@ -163,7 +175,7 @@ pub fn genIndent(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[1]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(allocator);\n");
+    try self.emit("var _result = std.ArrayList(u8){};\n");
     try self.emitIndent();
     try self.emit("var _lines_iter = std.mem.splitSequence(u8, _text, \"\\n\");\n");
     try self.emitIndent();
@@ -172,13 +184,13 @@ pub fn genIndent(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("while (_lines_iter.next()) |line| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("if (!_first) _result.append(allocator, '\\n') catch continue;\n");
+    try self.emitFmt("if (!_first) _result.append({s}, '\\n') catch continue;\n", .{alloc_name});
     try self.emitIndent();
     try self.emit("_first = false;\n");
     try self.emitIndent();
-    try self.emit("_result.appendSlice(allocator, _prefix) catch continue;\n");
+    try self.emitFmt("_result.appendSlice({s}, _prefix) catch continue;\n", .{alloc_name});
     try self.emitIndent();
-    try self.emit("_result.appendSlice(allocator, line) catch continue;\n");
+    try self.emitFmt("_result.appendSlice({s}, line) catch continue;\n", .{alloc_name});
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

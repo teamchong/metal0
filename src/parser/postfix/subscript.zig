@@ -27,6 +27,27 @@ pub fn parseSubscript(self: *Parser, value: ast.Node) ParseError!ast.Node {
         return parseMultiDimFromStart(self, node_ptr);
     }
 
+    // Check for starred expression at start: [*Y] for PEP 646 TypeVarTuple unpacking
+    if (self.match(.Star)) {
+        var starred_value = try self.parseExpression();
+        errdefer starred_value.deinit(self.allocator);
+        const starred = ast.Node{ .starred = .{ .value = try self.allocNode(starred_value) } };
+
+        // Check for multi-dim: [*Y, Z]
+        if (self.check(.Comma)) {
+            return parseMultiSubscript(self, node_ptr, starred);
+        }
+
+        // Simple starred subscript: [*Y]
+        _ = try self.expect(.RBracket);
+        return ast.Node{
+            .subscript = .{
+                .value = node_ptr,
+                .slice = .{ .index = try self.allocNode(starred) },
+            },
+        };
+    }
+
     var lower = try self.parseExpression();
     errdefer lower.deinit(self.allocator);
 
@@ -196,12 +217,19 @@ fn parseMultiSubscript(self: *Parser, node_ptr: *ast.Node, first: ast.Node) Pars
     };
 }
 
-/// Parse a single element in multi-dimensional subscript: can be slice, ellipsis, or expression
+/// Parse a single element in multi-dimensional subscript: can be slice, ellipsis, starred, or expression
 fn parseMultiDimElement(self: *Parser) ParseError!ast.Node {
     // Check for ellipsis: [idx, ...]
     if (self.check(.Ellipsis)) {
         _ = self.advance();
         return ast.Node{ .ellipsis_literal = {} };
+    }
+
+    // Check for starred expression: [*Y] for PEP 646 TypeVarTuple unpacking
+    if (self.match(.Star)) {
+        var value = try self.parseExpression();
+        errdefer value.deinit(self.allocator);
+        return ast.Node{ .starred = .{ .value = try self.allocNode(value) } };
     }
 
     // Check for colon-starting slice: [:end] or [:end:step] or [::step] or [:]

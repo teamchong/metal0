@@ -34,7 +34,15 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Check if argument is dict or tuple
-    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    // For variable names, check local scope first to avoid type shadowing from other methods
+    const arg_type = blk: {
+        if (args[0] == .name) {
+            if (self.getVarType(args[0].name.id)) |local_type| {
+                break :blk local_type;
+            }
+        }
+        break :blk self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    };
 
     const is_dict = switch (arg_type) {
         .dict => true,

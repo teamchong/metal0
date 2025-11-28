@@ -7,6 +7,7 @@ const hashmap_helper = @import("hashmap_helper");
 const signature = @import("../signature.zig");
 const class_fields = @import("class_fields.zig");
 const allocator_analyzer = @import("../../allocator_analyzer.zig");
+const zig_keywords = @import("zig_keywords");
 
 // Import from parent for methodMutatesSelf and genMethodBody
 const body = @import("../body.zig");
@@ -89,7 +90,10 @@ pub fn genInitMethod(
                     const field_name = attr.attr;
 
                     try self.emitIndent();
-                    try self.output.writer(self.allocator).print(".{s} = ", .{field_name});
+                    // Escape field name if it's a Zig keyword (e.g., "test")
+                    try self.emit(".");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
+                    try self.emit(" = ");
                     try self.genExpr(assign.value.*);
                     try self.emit(",\n");
                 }

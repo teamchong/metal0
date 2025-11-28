@@ -242,6 +242,9 @@ pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) Codegen
     // Note: self-usage is now handled in signature generation by using `_` as param name
     // No need to add `_ = self;` here anymore
 
+    // Clear local variable types (new method scope)
+    self.clearLocalVarTypes();
+
     // Push new scope for method body
     try self.pushScope();
 

@@ -272,6 +272,16 @@ fn parseTypeAnnotation(self: *Parser) ParseError!?[]const u8 {
                     try type_buf.appendSlice(self.allocator, "...");
                     need_separator = true;
                 },
+                .Star => {
+                    // PEP 646 TypeVarTuple unpacking: tuple[*Y]
+                    try type_buf.append(self.allocator, '*');
+                    need_separator = false;
+                },
+                .DoubleStar => {
+                    // PEP 695 ParamSpec unpacking: Generic[**P]
+                    try type_buf.appendSlice(self.allocator, "**");
+                    need_separator = false;
+                },
                 else => break, // unexpected token, stop parsing
             }
             self.current += 1;

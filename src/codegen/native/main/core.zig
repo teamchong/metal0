@@ -220,6 +220,11 @@ pub const NativeCodegen = struct {
     // Used to skip calls to functions that weren't generated
     skipped_functions: FnvVoidMap,
 
+    // Track local variable types within current function/method scope
+    // Maps variable name -> NativeType (e.g., "result" -> .string)
+    // Cleared when entering a new function scope, used to avoid type shadowing issues
+    local_var_types: hashmap_helper.StringHashMap(NativeType),
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -283,6 +288,7 @@ pub const NativeCodegen = struct {
             .current_function_name = null,
             .skipped_modules = FnvVoidMap.init(allocator),
             .skipped_functions = FnvVoidMap.init(allocator),
+            .local_var_types = hashmap_helper.StringHashMap(NativeType).init(allocator),
         };
         return self;
     }
@@ -374,8 +380,25 @@ pub const NativeCodegen = struct {
     }
 
     /// Get the inferred type of a variable from type inference
+    /// Checks local scope first (to avoid type shadowing from other methods),
+    /// then falls back to global type inference.
     pub fn getVarType(self: *NativeCodegen, var_name: []const u8) ?NativeType {
+        // Check local scope first (function/method local variables)
+        if (self.local_var_types.get(var_name)) |local_type| {
+            return local_type;
+        }
+        // Fall back to global type inference
         return self.type_inferrer.var_types.get(var_name);
+    }
+
+    /// Register a local variable type (for current function/method scope)
+    pub fn setLocalVarType(self: *NativeCodegen, var_name: []const u8, var_type: NativeType) !void {
+        try self.local_var_types.put(var_name, var_type);
+    }
+
+    /// Clear local variable types (call when entering a new function/method)
+    pub fn clearLocalVarTypes(self: *NativeCodegen) void {
+        self.local_var_types.clearRetainingCapacity();
     }
 
     /// Check if a variable is mutated (reassigned after first assignment)

@@ -77,6 +77,9 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     // Set current function name for tail-call optimization detection
     self.current_function_name = func.name;
 
+    // Clear local variable types (new function scope)
+    self.clearLocalVarTypes();
+
     // Generate function body
     try body.genFunctionBody(self, func, needs_allocator, actually_uses_allocator);
 
