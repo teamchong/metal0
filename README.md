@@ -495,6 +495,25 @@ Tests SSL/TLS, sockets, and HTTP networking using the `requests` library.
 make benchmark-http  # Run HTTP benchmark
 ```
 
+### Flask + Requests Benchmark (10 HTTPS requests)
+
+Tests full web stack: Flask app instantiation + requests HTTP client.
+**Same Python code** runs on PyAOT, Python, and PyPy.
+
+| Language | Time | vs Rust | CPU Time |
+|----------|------|---------|----------|
+| **Rust** (ureq) | **2.3s** | **1.00x** 🏆 | 0.02s |
+| Go (net/http) | 2.6s | 1.12x | 0.01s |
+| PyPy (flask+requests) | 3.6s | 1.54x | 0.45s |
+| PyAOT (flask+requests) | 3.8s | 1.62x | 0.07s |
+| Python (flask+requests) | 4.1s | 1.75x | 0.44s |
+
+*Network latency dominates. PyAOT uses **6x less CPU** than Python with Flask overhead.*
+
+```bash
+make benchmark-flask  # Run Flask benchmark
+```
+
 ### Tokenizer Benchmark (Native Binary)
 
 All benchmarks run with [hyperfine](https://github.com/sharkdp/hyperfine) on Apple M2 using realistic, industry-standard benchmark data (583 diverse texts, 200K chars). Python/Node startup overhead <2% (1000 iterations for encoding, 30 runs for training).
