@@ -25,6 +25,7 @@ const contextlib_mod = @import("../contextlib_mod.zig");
 const hashlib_mod = @import("../hashlib_mod.zig");
 const struct_mod = @import("../struct_mod.zig");
 const base64_mod = @import("../base64_mod.zig");
+const pickle_mod = @import("../pickle_mod.zig");
 const random_mod = @import("../random_mod.zig");
 const string_mod = @import("../string_mod.zig");
 const time_mod = @import("../time_mod.zig");
@@ -34,6 +35,7 @@ const subprocess_mod = @import("../subprocess_mod.zig");
 const tempfile_mod = @import("../tempfile_mod.zig");
 const textwrap_mod = @import("../textwrap_mod.zig");
 const shutil_mod = @import("../shutil_mod.zig");
+const glob_mod = @import("../glob_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -405,6 +407,14 @@ const Base64Funcs = FuncMap.initComptime(.{
     .{ "a85decode", base64_mod.genA85decode },
 });
 
+/// pickle module functions (JSON-backed serialization)
+const PickleFuncs = FuncMap.initComptime(.{
+    .{ "dumps", pickle_mod.genDumps },
+    .{ "loads", pickle_mod.genLoads },
+    .{ "dump", pickle_mod.genDump },
+    .{ "load", pickle_mod.genLoad },
+});
+
 /// random module functions
 const RandomFuncs = FuncMap.initComptime(.{
     .{ "random", random_mod.genRandom },
@@ -549,6 +559,14 @@ const ShutilFuncs = FuncMap.initComptime(.{
     .{ "unpack_archive", shutil_mod.genUnpackArchive },
 });
 
+/// glob module functions
+const GlobFuncs = FuncMap.initComptime(.{
+    .{ "glob", glob_mod.genGlob },
+    .{ "iglob", glob_mod.genIglob },
+    .{ "escape", glob_mod.genEscape },
+    .{ "has_magic", glob_mod.genHasMagic },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -582,6 +600,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "hashlib", HashlibFuncs },
     .{ "struct", StructFuncs },
     .{ "base64", Base64Funcs },
+    .{ "pickle", PickleFuncs },
     .{ "random", RandomFuncs },
     .{ "string", StringFuncs },
     .{ "time", TimeFuncs },
@@ -591,6 +610,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "tempfile", TempfileFuncs },
     .{ "textwrap", TextwrapFuncs },
     .{ "shutil", ShutilFuncs },
+    .{ "glob", GlobFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
