@@ -45,6 +45,11 @@ const configparser_mod = @import("../configparser_mod.zig");
 const argparse_mod = @import("../argparse_mod.zig");
 const zipfile_mod = @import("../zipfile_mod.zig");
 const gzip_mod = @import("../gzip_mod.zig");
+const logging_mod = @import("../logging_mod.zig");
+const threading_mod = @import("../threading_mod.zig");
+const queue_mod = @import("../queue_mod.zig");
+const html_mod = @import("../html_mod.zig");
+const urllib_mod = @import("../urllib_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -673,6 +678,78 @@ const GzipFuncs = FuncMap.initComptime(.{
     .{ "BadGzipFile", gzip_mod.genBadGzipFile },
 });
 
+/// logging module functions
+const LoggingFuncs = FuncMap.initComptime(.{
+    .{ "debug", logging_mod.genDebug },
+    .{ "info", logging_mod.genInfo },
+    .{ "warning", logging_mod.genWarning },
+    .{ "error", logging_mod.genError },
+    .{ "critical", logging_mod.genCritical },
+    .{ "exception", logging_mod.genException },
+    .{ "log", logging_mod.genLog },
+    .{ "basicConfig", logging_mod.genBasicConfig },
+    .{ "getLogger", logging_mod.genGetLogger },
+    .{ "Logger", logging_mod.genLogger },
+    .{ "Handler", logging_mod.genHandler },
+    .{ "StreamHandler", logging_mod.genStreamHandler },
+    .{ "FileHandler", logging_mod.genFileHandler },
+    .{ "Formatter", logging_mod.genFormatter },
+    .{ "DEBUG", logging_mod.genDEBUG },
+    .{ "INFO", logging_mod.genINFO },
+    .{ "WARNING", logging_mod.genWARNING },
+    .{ "ERROR", logging_mod.genERROR },
+    .{ "CRITICAL", logging_mod.genCRITICAL },
+    .{ "NOTSET", logging_mod.genNOTSET },
+});
+
+/// threading module functions
+const ThreadingFuncs = FuncMap.initComptime(.{
+    .{ "Thread", threading_mod.genThread },
+    .{ "Lock", threading_mod.genLock },
+    .{ "RLock", threading_mod.genRLock },
+    .{ "Condition", threading_mod.genCondition },
+    .{ "Semaphore", threading_mod.genSemaphore },
+    .{ "BoundedSemaphore", threading_mod.genBoundedSemaphore },
+    .{ "Event", threading_mod.genEvent },
+    .{ "Barrier", threading_mod.genBarrier },
+    .{ "Timer", threading_mod.genTimer },
+    .{ "current_thread", threading_mod.genCurrentThread },
+    .{ "main_thread", threading_mod.genMainThread },
+    .{ "active_count", threading_mod.genActiveCount },
+    .{ "enumerate", threading_mod.genEnumerate },
+    .{ "local", threading_mod.genLocal },
+});
+
+/// queue module functions
+const QueueFuncs = FuncMap.initComptime(.{
+    .{ "Queue", queue_mod.genQueue },
+    .{ "LifoQueue", queue_mod.genLifoQueue },
+    .{ "PriorityQueue", queue_mod.genPriorityQueue },
+    .{ "SimpleQueue", queue_mod.genSimpleQueue },
+    .{ "Empty", queue_mod.genEmpty },
+    .{ "Full", queue_mod.genFull },
+});
+
+/// html module functions
+const HtmlFuncs = FuncMap.initComptime(.{
+    .{ "escape", html_mod.genEscape },
+    .{ "unescape", html_mod.genUnescape },
+});
+
+/// urllib.parse module functions
+const UrllibParseFuncs = FuncMap.initComptime(.{
+    .{ "urlparse", urllib_mod.genUrlparse },
+    .{ "urlunparse", urllib_mod.genUrlunparse },
+    .{ "urlencode", urllib_mod.genUrlencode },
+    .{ "quote", urllib_mod.genQuote },
+    .{ "quote_plus", urllib_mod.genQuotePlus },
+    .{ "unquote", urllib_mod.genUnquote },
+    .{ "unquote_plus", urllib_mod.genUnquotePlus },
+    .{ "urljoin", urllib_mod.genUrljoin },
+    .{ "parse_qs", urllib_mod.genParseQs },
+    .{ "parse_qsl", urllib_mod.genParseQsl },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -726,6 +803,11 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "argparse", ArgparseFuncs },
     .{ "zipfile", ZipfileFuncs },
     .{ "gzip", GzipFuncs },
+    .{ "logging", LoggingFuncs },
+    .{ "threading", ThreadingFuncs },
+    .{ "queue", QueueFuncs },
+    .{ "html", HtmlFuncs },
+    .{ "urllib.parse", UrllibParseFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
