@@ -8,6 +8,7 @@ const builtins = @import("../builtins.zig");
 const io_mod = @import("../io.zig");
 const collections_mod = @import("../collections_mod.zig");
 const functools_mod = @import("../functools_mod.zig");
+const itertools_mod = @import("../itertools_mod.zig");
 
 /// Handler function type for builtin dispatchers
 const BuiltinHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -69,6 +70,13 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "lru_cache", functools_mod.genLruCache },
     .{ "cache", functools_mod.genCache },
     .{ "wraps", functools_mod.genWraps },
+    // itertools module (from itertools import chain, repeat)
+    .{ "chain", itertools_mod.genChain },
+    .{ "repeat", itertools_mod.genRepeat },
+    .{ "count", itertools_mod.genCount },
+    .{ "cycle", itertools_mod.genCycle },
+    .{ "islice", itertools_mod.genIslice },
+    .{ "zip_longest", itertools_mod.genZipLongest },
 });
 
 /// Try to dispatch built-in function call
