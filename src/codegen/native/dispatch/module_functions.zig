@@ -70,6 +70,11 @@ const warnings_mod = @import("../warnings_mod.zig");
 const traceback_mod = @import("../traceback_mod.zig");
 const linecache_mod = @import("../linecache_mod.zig");
 const pprint_mod = @import("../pprint_mod.zig");
+const getpass_mod = @import("../getpass_mod.zig");
+const platform_mod = @import("../platform_mod.zig");
+const locale_mod = @import("../locale_mod.zig");
+const codecs_mod = @import("../codecs_mod.zig");
+const shelve_mod = @import("../shelve_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -1192,6 +1197,119 @@ const PprintFuncs = FuncMap.initComptime(.{
     .{ "PrettyPrinter", pprint_mod.genPrettyPrinter },
 });
 
+/// getpass module functions
+const GetpassFuncs = FuncMap.initComptime(.{
+    .{ "getpass", getpass_mod.genGetpass },
+    .{ "getuser", getpass_mod.genGetuser },
+    .{ "GetPassWarning", getpass_mod.genGetPassWarning },
+});
+
+/// platform module functions
+const PlatformFuncs = FuncMap.initComptime(.{
+    .{ "system", platform_mod.genSystem },
+    .{ "machine", platform_mod.genMachine },
+    .{ "node", platform_mod.genNode },
+    .{ "release", platform_mod.genRelease },
+    .{ "version", platform_mod.genVersion },
+    .{ "platform", platform_mod.genPlatform },
+    .{ "processor", platform_mod.genProcessor },
+    .{ "python_implementation", platform_mod.genPythonImplementation },
+    .{ "python_version", platform_mod.genPythonVersion },
+    .{ "python_version_tuple", platform_mod.genPythonVersionTuple },
+    .{ "python_branch", platform_mod.genPythonBranch },
+    .{ "python_revision", platform_mod.genPythonRevision },
+    .{ "python_build", platform_mod.genPythonBuild },
+    .{ "python_compiler", platform_mod.genPythonCompiler },
+    .{ "uname", platform_mod.genUname },
+    .{ "architecture", platform_mod.genArchitecture },
+    .{ "mac_ver", platform_mod.genMacVer },
+    .{ "win32_ver", platform_mod.genWin32Ver },
+    .{ "win32_edition", platform_mod.genWin32Edition },
+    .{ "win32_is_iot", platform_mod.genWin32IsIot },
+    .{ "libc_ver", platform_mod.genLibcVer },
+    .{ "freedesktop_os_release", platform_mod.genFreedesktopOsRelease },
+});
+
+/// locale module functions
+const LocaleFuncs = FuncMap.initComptime(.{
+    .{ "setlocale", locale_mod.genSetlocale },
+    .{ "getlocale", locale_mod.genGetlocale },
+    .{ "getdefaultlocale", locale_mod.genGetdefaultlocale },
+    .{ "getpreferredencoding", locale_mod.genGetpreferredencoding },
+    .{ "getencoding", locale_mod.genGetencoding },
+    .{ "normalize", locale_mod.genNormalize },
+    .{ "resetlocale", locale_mod.genResetlocale },
+    .{ "localeconv", locale_mod.genLocaleconv },
+    .{ "strcoll", locale_mod.genStrcoll },
+    .{ "strxfrm", locale_mod.genStrxfrm },
+    .{ "format_string", locale_mod.genFormatString },
+    .{ "currency", locale_mod.genCurrency },
+    .{ "str", locale_mod.genStr },
+    .{ "atof", locale_mod.genAtof },
+    .{ "atoi", locale_mod.genAtoi },
+    .{ "delocalize", locale_mod.genDelocalize },
+    .{ "localize", locale_mod.genLocalize },
+    .{ "nl_langinfo", locale_mod.genNlLanginfo },
+    .{ "gettext", locale_mod.genGettext },
+    .{ "LC_CTYPE", locale_mod.genLC_CTYPE },
+    .{ "LC_COLLATE", locale_mod.genLC_COLLATE },
+    .{ "LC_TIME", locale_mod.genLC_TIME },
+    .{ "LC_MONETARY", locale_mod.genLC_MONETARY },
+    .{ "LC_MESSAGES", locale_mod.genLC_MESSAGES },
+    .{ "LC_NUMERIC", locale_mod.genLC_NUMERIC },
+    .{ "LC_ALL", locale_mod.genLC_ALL },
+    .{ "Error", locale_mod.genError },
+});
+
+/// codecs module functions
+const CodecsFuncs = FuncMap.initComptime(.{
+    .{ "encode", codecs_mod.genEncode },
+    .{ "decode", codecs_mod.genDecode },
+    .{ "lookup", codecs_mod.genLookup },
+    .{ "getencoder", codecs_mod.genGetencoder },
+    .{ "getdecoder", codecs_mod.genGetdecoder },
+    .{ "getincrementalencoder", codecs_mod.genGetincrementalencoder },
+    .{ "getincrementaldecoder", codecs_mod.genGetincrementaldecoder },
+    .{ "getreader", codecs_mod.genGetreader },
+    .{ "getwriter", codecs_mod.genGetwriter },
+    .{ "register", codecs_mod.genRegister },
+    .{ "unregister", codecs_mod.genUnregister },
+    .{ "register_error", codecs_mod.genRegisterError },
+    .{ "lookup_error", codecs_mod.genLookupError },
+    .{ "strict_errors", codecs_mod.genStrictErrors },
+    .{ "ignore_errors", codecs_mod.genIgnoreErrors },
+    .{ "replace_errors", codecs_mod.genReplaceErrors },
+    .{ "xmlcharrefreplace_errors", codecs_mod.genXmlcharrefreplaceErrors },
+    .{ "backslashreplace_errors", codecs_mod.genBackslashreplaceErrors },
+    .{ "namereplace_errors", codecs_mod.genNamereplaceErrors },
+    .{ "open", codecs_mod.genOpen },
+    .{ "EncodedFile", codecs_mod.genEncodedFile },
+    .{ "iterencode", codecs_mod.genIterencode },
+    .{ "iterdecode", codecs_mod.genIterdecode },
+    .{ "BOM", codecs_mod.genBOM },
+    .{ "BOM_UTF8", codecs_mod.genBOM_UTF8 },
+    .{ "BOM_UTF16", codecs_mod.genBOM_UTF16 },
+    .{ "BOM_UTF16_LE", codecs_mod.genBOM_UTF16_LE },
+    .{ "BOM_UTF16_BE", codecs_mod.genBOM_UTF16_BE },
+    .{ "BOM_UTF32", codecs_mod.genBOM_UTF32 },
+    .{ "BOM_UTF32_LE", codecs_mod.genBOM_UTF32_LE },
+    .{ "BOM_UTF32_BE", codecs_mod.genBOM_UTF32_BE },
+    .{ "Codec", codecs_mod.genCodec },
+    .{ "IncrementalEncoder", codecs_mod.genIncrementalEncoder },
+    .{ "IncrementalDecoder", codecs_mod.genIncrementalDecoder },
+    .{ "StreamWriter", codecs_mod.genStreamWriter },
+    .{ "StreamReader", codecs_mod.genStreamReader },
+    .{ "StreamReaderWriter", codecs_mod.genStreamReaderWriter },
+});
+
+/// shelve module functions
+const ShelveFuncs = FuncMap.initComptime(.{
+    .{ "open", shelve_mod.genOpen },
+    .{ "Shelf", shelve_mod.genShelf },
+    .{ "BsdDbShelf", shelve_mod.genBsdDbShelf },
+    .{ "DbfilenameShelf", shelve_mod.genDbfilenameShelf },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -1278,6 +1396,11 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "traceback", TracebackFuncs },
     .{ "linecache", LinecacheFuncs },
     .{ "pprint", PprintFuncs },
+    .{ "getpass", GetpassFuncs },
+    .{ "platform", PlatformFuncs },
+    .{ "locale", LocaleFuncs },
+    .{ "codecs", CodecsFuncs },
+    .{ "shelve", ShelveFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
