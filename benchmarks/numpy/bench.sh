@@ -45,11 +45,11 @@ build_pyaot_compiler
 compile_pyaot matmul.py matmul_pyaot
 
 print_header "Running Benchmarks"
-# Note: PyPy skipped - doesn't include numpy by default
 BENCH_CMD=(hyperfine --warmup 1 --runs 5 --export-markdown results.md)
 
 add_pyaot BENCH_CMD matmul_pyaot
 add_python BENCH_CMD matmul_numpy.py numpy
+add_pypy BENCH_CMD matmul_numpy.py
 
 "${BENCH_CMD[@]}"
 

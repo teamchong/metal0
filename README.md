@@ -520,10 +520,11 @@ make benchmark-flask  # Run Flask benchmark
 
 | Runtime | Time | vs PyAOT |
 |---------|------|----------|
-| **PyAOT** (BLAS) | **3.1ms** | **1.00x** 🏆 |
-| Python (NumPy) | 64ms | 21x slower |
+| **PyAOT** (BLAS) | **3.2ms** | **1.00x** 🏆 |
+| Python (NumPy) | 66ms | 21x slower |
+| PyPy (NumPy) | 129ms | 40x slower |
 
-*Both use the same BLAS library - PyAOT eliminates Python's interpreter overhead.*
+*All use the same BLAS library - PyAOT eliminates interpreter overhead.*
 
 ```bash
 make benchmark-numpy  # Run NumPy benchmark

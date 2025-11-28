@@ -176,7 +176,9 @@ benchmark-tokenizer: build-release
 
 benchmark-numpy: build-release
 	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
-	@echo "NumPy Matrix Multiplication: PyAOT+BLAS vs Python+NumPy"
+	@echo "NumPy Matrix Multiplication: PyAOT+BLAS vs Python+NumPy vs PyPy"
+	@# Install numpy for PyPy if missing
+	@pypy3 -c "import numpy" 2>/dev/null || pypy3 -m pip install numpy -q 2>/dev/null || true
 	@cd benchmarks/numpy && bash bench.sh
 
 # =============================================================================
