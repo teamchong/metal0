@@ -333,7 +333,12 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     // PHASE 2.3: Import Dependency Scanning
     std.debug.print("Scanning imports recursively...\n", .{});
-    var import_graph = import_scanner.ImportGraph.init(allocator);
+
+    // Create registry to skip zig_runtime/c_library modules during scanning
+    var scan_registry = try import_registry.createDefaultRegistry(allocator);
+    defer scan_registry.deinit();
+
+    var import_graph = import_scanner.ImportGraph.initWithRegistry(allocator, &scan_registry);
     defer import_graph.deinit();
 
     var visited = hashmap_helper.StringHashMap(void).init(allocator);

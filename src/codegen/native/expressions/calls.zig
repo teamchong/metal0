@@ -15,6 +15,11 @@ const NO_ALLOC_FUNCS = [_][]const u8{
     "time.perf_counter",
     // sys module - exit is pure and doesn't allocate
     "sys.exit",
+    // requests module - uses internal allocator (initialized via requests.init)
+    "requests.get",
+    "requests.post",
+    "requests.put",
+    "requests.delete",
     // math module - all functions are pure and don't allocate
     "math.sqrt",
     "math.sin",
@@ -63,12 +68,28 @@ const NO_ALLOC_FUNCS = [_][]const u8{
     "math.lgamma",
 };
 
+/// Functions that return errors (need try) but don't take allocator param
+const NEEDS_TRY_NO_ALLOC = [_][]const u8{
+    "requests.get",
+    "requests.post",
+    "requests.put",
+    "requests.delete",
+};
+
 /// Check if qualified function name needs allocator
 fn needsAllocator(qualified_name: []const u8) bool {
     for (NO_ALLOC_FUNCS) |func| {
         if (std.mem.eql(u8, qualified_name, func)) return false;
     }
     return true; // Default: assume needs allocator
+}
+
+/// Check if qualified function name returns error (needs try)
+fn needsTry(qualified_name: []const u8) bool {
+    for (NEEDS_TRY_NO_ALLOC) |func| {
+        if (std.mem.eql(u8, qualified_name, func)) return true;
+    }
+    return false;
 }
 
 /// Generate function call - dispatches to specialized handlers or fallback
@@ -166,19 +187,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             while (true) {
                 if (current.* == .name) {
                     // Found base name - check if it's an imported module
-                    is_module_call = self.imported_modules.contains(current.name.id);
+                    is_module_call = self.imported_modules.contains(current.*.name.id);
                     if (is_module_call) {
                         // Build qualified name: module.function
                         qualified_name = std.fmt.allocPrint(
                             self.allocator,
                             "{s}.{s}",
-                            .{ current.name.id, attr.attr },
+                            .{ current.*.name.id, attr.attr },
                         ) catch null;
                     }
                     break;
                 } else if (current.* == .attribute) {
                     // Keep traversing the chain
-                    current = current.attribute.value;
+                    current = current.*.attribute.value;
                 } else {
                     // Not a name or attribute (e.g., a method call result)
                     break;
@@ -217,8 +238,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         else
             false; // Default to false for other method calls (string methods, etc. handle allocator internally)
 
-        // Add 'try' for calls that need allocator (they can error)
-        if ((is_module_call or is_class_method_call) and needs_alloc) {
+        // Check if function returns error (needs try) even without allocator param
+        const needs_try_no_alloc = if (qualified_name) |qn| needsTry(qn) else false;
+
+        // Add 'try' for calls that need allocator (they can error) OR explicitly need try
+        if ((is_module_call or is_class_method_call) and (needs_alloc or needs_try_no_alloc)) {
             try self.emit("try ");
         }
 

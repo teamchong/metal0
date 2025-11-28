@@ -238,8 +238,14 @@ fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: 
             try methods.genStrIndex(self, obj, call.args);
         },
         .get => {
-            // get - only dict.get(key) with args
+            // get - only dict.get(key) with args, NOT module.get() like requests.get()
             if (call.args.len == 0) return false;
+            // Skip if obj is a name that's an imported module
+            if (obj == .name) {
+                if (self.imported_modules.contains(obj.name.id)) {
+                    return false; // Let module function handler deal with it
+                }
+            }
             try methods.genGet(self, obj, call.args);
         },
     }

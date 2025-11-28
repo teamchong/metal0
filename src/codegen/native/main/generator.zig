@@ -356,6 +356,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emitIndent();
         try self.emit("__allocator_initialized = true;\n");
         try self.emit("\n");
+
+        // Initialize runtime modules that need allocator (e.g., requests)
+        if (self.imported_modules.contains("requests")) {
+            try self.emitIndent();
+            try self.emit("requests.init(allocator);\n");
+        }
     }
 
     // PHASE 7: Generate statements (skip class/function defs and imports - already handled)

@@ -32,8 +32,15 @@ pub const Flask = struct {
         return RouteDecorator{ .app = self, .path = path };
     }
 
-    /// Run the Flask development server
-    pub fn run(self: *Flask, options: struct {
+    /// Run the Flask development server (no args version)
+    pub fn run(self: *Flask) void {
+        self.runWithOptions(.{}) catch |err| {
+            std.debug.print("Flask server error: {}\n", .{err});
+        };
+    }
+
+    /// Run the Flask development server with options
+    pub fn runWithOptions(self: *Flask, options: struct {
         host: []const u8 = "127.0.0.1",
         port: u16 = 5000,
         debug: bool = false,

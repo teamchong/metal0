@@ -4,6 +4,7 @@ const ast = @import("ast");
 const parser = @import("parser.zig");
 const lexer = @import("lexer.zig");
 const import_resolver = @import("import_resolver.zig");
+const import_registry = @import("codegen/native/import_registry.zig");
 const hashmap_helper = @import("hashmap_helper");
 
 pub const ModuleInfo = struct {
@@ -53,12 +54,33 @@ fn isPycacheDir(path: []const u8) bool {
 pub const ImportGraph = struct {
     modules: hashmap_helper.StringHashMap(ModuleInfo),
     allocator: std.mem.Allocator,
+    registry: ?*import_registry.ImportRegistry,
 
     pub fn init(allocator: std.mem.Allocator) ImportGraph {
         return .{
             .modules = hashmap_helper.StringHashMap(ModuleInfo).init(allocator),
             .allocator = allocator,
+            .registry = null,
         };
+    }
+
+    /// Initialize with a registry to skip zig_runtime/c_library modules
+    pub fn initWithRegistry(allocator: std.mem.Allocator, reg: *import_registry.ImportRegistry) ImportGraph {
+        return .{
+            .modules = hashmap_helper.StringHashMap(ModuleInfo).init(allocator),
+            .allocator = allocator,
+            .registry = reg,
+        };
+    }
+
+    /// Check if module is handled by the registry (zig_runtime or c_library)
+    fn isRegistryModule(self: *ImportGraph, module_name: []const u8) bool {
+        if (self.registry) |reg| {
+            if (reg.lookup(module_name)) |info| {
+                return info.strategy == .zig_runtime or info.strategy == .c_library;
+            }
+        }
+        return false;
     }
 
     pub fn deinit(self: *ImportGraph) void {
@@ -188,9 +210,14 @@ pub const ImportGraph = struct {
             }
 
             // Non-relative imports - pass import_name as explicit module name
-            // Skip builtin modules (they're handled by runtime, not compiled from Python)
+            // Skip stdlib modules (they're handled by runtime, not compiled from Python)
             if (import_resolver.isBuiltinModule(import_name)) {
-                std.debug.print("  Skipped import (builtin): {s}\n", .{import_name});
+                std.debug.print("  Skipped import (stdlib): {s}\n", .{import_name});
+                continue;
+            }
+            // Skip modules with native Zig implementations (from registry)
+            if (self.isRegistryModule(import_name)) {
+                std.debug.print("  Skipped import (zig_runtime): {s}\n", .{import_name});
                 continue;
             }
             if (try import_resolver.resolveImportSource(import_name, dir, self.allocator)) |resolved| {
