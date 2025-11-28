@@ -26,6 +26,7 @@ const hashlib_mod = @import("../hashlib_mod.zig");
 const struct_mod = @import("../struct_mod.zig");
 const base64_mod = @import("../base64_mod.zig");
 const pickle_mod = @import("../pickle_mod.zig");
+const hmac_mod = @import("../hmac_mod.zig");
 const random_mod = @import("../random_mod.zig");
 const string_mod = @import("../string_mod.zig");
 const time_mod = @import("../time_mod.zig");
@@ -38,6 +39,7 @@ const shutil_mod = @import("../shutil_mod.zig");
 const glob_mod = @import("../glob_mod.zig");
 const fnmatch_mod = @import("../fnmatch_mod.zig");
 const secrets_mod = @import("../secrets_mod.zig");
+const csv_mod = @import("../csv_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -417,6 +419,13 @@ const PickleFuncs = FuncMap.initComptime(.{
     .{ "load", pickle_mod.genLoad },
 });
 
+/// hmac module functions (HMAC-SHA256)
+const HmacFuncs = FuncMap.initComptime(.{
+    .{ "new", hmac_mod.genNew },
+    .{ "digest", hmac_mod.genDigest },
+    .{ "compare_digest", hmac_mod.genCompareDigest },
+});
+
 /// random module functions
 const RandomFuncs = FuncMap.initComptime(.{
     .{ "random", random_mod.genRandom },
@@ -589,6 +598,19 @@ const SecretsFuncs = FuncMap.initComptime(.{
     .{ "SystemRandom", secrets_mod.genSystemRandom },
 });
 
+/// csv module functions
+const CsvFuncs = FuncMap.initComptime(.{
+    .{ "reader", csv_mod.genReader },
+    .{ "writer", csv_mod.genWriter },
+    .{ "DictReader", csv_mod.genDictReader },
+    .{ "DictWriter", csv_mod.genDictWriter },
+    .{ "field_size_limit", csv_mod.genFieldSizeLimit },
+    .{ "QUOTE_ALL", csv_mod.genQuoteAll },
+    .{ "QUOTE_MINIMAL", csv_mod.genQuoteMinimal },
+    .{ "QUOTE_NONNUMERIC", csv_mod.genQuoteNonnumeric },
+    .{ "QUOTE_NONE", csv_mod.genQuoteNone },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -635,6 +657,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "glob", GlobFuncs },
     .{ "fnmatch", FnmatchFuncs },
     .{ "secrets", SecretsFuncs },
+    .{ "csv", CsvFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
