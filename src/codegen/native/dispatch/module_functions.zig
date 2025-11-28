@@ -294,6 +294,23 @@ const _crypt_mod = @import("../_crypt_mod.zig");
 const _gdbm_mod = @import("../_gdbm_mod.zig");
 const _frozen_importlib_mod = @import("../_frozen_importlib_mod.zig");
 const _frozen_importlib_external_mod = @import("../_frozen_importlib_external_mod.zig");
+const _aix_support_mod = @import("../_aix_support_mod.zig");
+const _osx_support_mod = @import("../_osx_support_mod.zig");
+const _msi_mod = @import("../_msi_mod.zig");
+const _overlapped_mod = @import("../_overlapped_mod.zig");
+const _posixshmem_mod = @import("../_posixshmem_mod.zig");
+const _scproxy_mod = @import("../_scproxy_mod.zig");
+const _tkinter_mod = @import("../_tkinter_mod.zig");
+const _winapi_mod = @import("../_winapi_mod.zig");
+const _wmi_mod = @import("../_wmi_mod.zig");
+const lib2to3_mod = @import("../lib2to3_mod.zig");
+const msilib_mod = @import("../msilib_mod.zig");
+const msvcrt_mod = @import("../msvcrt_mod.zig");
+const nis_mod = @import("../nis_mod.zig");
+const nt_mod = @import("../nt_mod.zig");
+const nturl2path_mod = @import("../nturl2path_mod.zig");
+const ossaudiodev_mod = @import("../ossaudiodev_mod.zig");
+const pydoc_data_mod = @import("../pydoc_data_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -5761,6 +5778,359 @@ const FrozenImportlibExternalInternalFuncs = FuncMap.initComptime(.{
     .{ "EXTENSION_SUFFIXES", _frozen_importlib_external_mod.genEXTENSION_SUFFIXES },
 });
 
+/// _aix_support internal module functions
+const AixSupportInternalFuncs = FuncMap.initComptime(.{
+    .{ "aix_platform", _aix_support_mod.genAixPlatform },
+    .{ "aix_buildtag", _aix_support_mod.genAixBuildtag },
+});
+
+/// _osx_support internal module functions
+const OsxSupportInternalFuncs = FuncMap.initComptime(.{
+    .{ "_find_build_tool", _osx_support_mod.genFindBuildTool },
+    .{ "_read_output", _osx_support_mod.genReadOutput },
+    .{ "_find_appropriate_compiler", _osx_support_mod.genFindAppropriateCompiler },
+    .{ "_remove_original_values", _osx_support_mod.genRemoveOriginalValues },
+    .{ "_save_modified_value", _osx_support_mod.genSaveModifiedValue },
+    .{ "_supports_universal_builds", _osx_support_mod.genSupportsUniversalBuilds },
+    .{ "_find_sdk_root", _osx_support_mod.genFindSdkRoot },
+    .{ "_get_system_version", _osx_support_mod.genGetSystemVersion },
+    .{ "customize_config_vars", _osx_support_mod.genCustomizeConfigVars },
+    .{ "customize_compiler", _osx_support_mod.genCustomizeCompiler },
+    .{ "get_platform_osx", _osx_support_mod.genGetPlatformOsx },
+});
+
+/// _msi internal module functions
+const MsiInternalFuncs = FuncMap.initComptime(.{
+    .{ "OpenDatabase", _msi_mod.genOpenDatabase },
+    .{ "CreateRecord", _msi_mod.genCreateRecord },
+    .{ "UuidCreate", _msi_mod.genUuidCreate },
+    .{ "FCICreate", _msi_mod.genFCICreate },
+    .{ "MSIDBOPEN_READONLY", _msi_mod.genMSIDBOPEN_READONLY },
+    .{ "MSIDBOPEN_TRANSACT", _msi_mod.genMSIDBOPEN_TRANSACT },
+    .{ "MSIDBOPEN_CREATE", _msi_mod.genMSIDBOPEN_CREATE },
+    .{ "MSIDBOPEN_CREATEDIRECT", _msi_mod.genMSIDBOPEN_CREATEDIRECT },
+    .{ "MSIDBOPEN_DIRECT", _msi_mod.genMSIDBOPEN_DIRECT },
+    .{ "PID_CODEPAGE", _msi_mod.genPID_CODEPAGE },
+    .{ "PID_TITLE", _msi_mod.genPID_TITLE },
+    .{ "PID_SUBJECT", _msi_mod.genPID_SUBJECT },
+    .{ "PID_AUTHOR", _msi_mod.genPID_AUTHOR },
+    .{ "PID_KEYWORDS", _msi_mod.genPID_KEYWORDS },
+    .{ "PID_COMMENTS", _msi_mod.genPID_COMMENTS },
+    .{ "PID_TEMPLATE", _msi_mod.genPID_TEMPLATE },
+    .{ "PID_REVNUMBER", _msi_mod.genPID_REVNUMBER },
+    .{ "PID_PAGECOUNT", _msi_mod.genPID_PAGECOUNT },
+    .{ "PID_WORDCOUNT", _msi_mod.genPID_WORDCOUNT },
+    .{ "PID_APPNAME", _msi_mod.genPID_APPNAME },
+    .{ "PID_SECURITY", _msi_mod.genPID_SECURITY },
+});
+
+/// _overlapped internal module functions
+const OverlappedInternalFuncs = FuncMap.initComptime(.{
+    .{ "Overlapped", _overlapped_mod.genOverlapped },
+    .{ "CreateEvent", _overlapped_mod.genCreateEvent },
+    .{ "CreateIoCompletionPort", _overlapped_mod.genCreateIoCompletionPort },
+    .{ "GetQueuedCompletionStatus", _overlapped_mod.genGetQueuedCompletionStatus },
+    .{ "PostQueuedCompletionStatus", _overlapped_mod.genPostQueuedCompletionStatus },
+    .{ "ResetEvent", _overlapped_mod.genResetEvent },
+    .{ "SetEvent", _overlapped_mod.genSetEvent },
+    .{ "FormatMessage", _overlapped_mod.genFormatMessage },
+    .{ "BindLocal", _overlapped_mod.genBindLocal },
+    .{ "RegisterWaitWithQueue", _overlapped_mod.genRegisterWaitWithQueue },
+    .{ "UnregisterWait", _overlapped_mod.genUnregisterWait },
+    .{ "UnregisterWaitEx", _overlapped_mod.genUnregisterWaitEx },
+    .{ "ConnectPipe", _overlapped_mod.genConnectPipe },
+    .{ "WSAConnect", _overlapped_mod.genWSAConnect },
+    .{ "INVALID_HANDLE_VALUE", _overlapped_mod.genINVALID_HANDLE_VALUE },
+    .{ "NULL", _overlapped_mod.genNULL },
+    .{ "ERROR_IO_PENDING", _overlapped_mod.genERROR_IO_PENDING },
+    .{ "ERROR_NETNAME_DELETED", _overlapped_mod.genERROR_NETNAME_DELETED },
+    .{ "ERROR_SEM_TIMEOUT", _overlapped_mod.genERROR_SEM_TIMEOUT },
+    .{ "ERROR_PIPE_BUSY", _overlapped_mod.genERROR_PIPE_BUSY },
+    .{ "INFINITE", _overlapped_mod.genINFINITE },
+});
+
+/// _posixshmem internal module functions
+const PosixshmemInternalFuncs = FuncMap.initComptime(.{
+    .{ "shm_open", _posixshmem_mod.genShmOpen },
+    .{ "shm_unlink", _posixshmem_mod.genShmUnlink },
+});
+
+/// _scproxy internal module functions
+const ScproxyInternalFuncs = FuncMap.initComptime(.{
+    .{ "_get_proxy_settings", _scproxy_mod.genGetProxySettings },
+    .{ "_get_proxies", _scproxy_mod.genGetProxies },
+});
+
+/// _tkinter internal module functions
+const TkinterInternalFuncs = FuncMap.initComptime(.{
+    .{ "create", _tkinter_mod.genCreate },
+    .{ "setbusywaitinterval", _tkinter_mod.genSetbusywaitinterval },
+    .{ "getbusywaitinterval", _tkinter_mod.genGetbusywaitinterval },
+    .{ "TclError", _tkinter_mod.genTclError },
+    .{ "TK_VERSION", _tkinter_mod.genTK_VERSION },
+    .{ "TCL_VERSION", _tkinter_mod.genTCL_VERSION },
+    .{ "READABLE", _tkinter_mod.genREADABLE },
+    .{ "WRITABLE", _tkinter_mod.genWRITABLE },
+    .{ "EXCEPTION", _tkinter_mod.genEXCEPTION },
+    .{ "DONT_WAIT", _tkinter_mod.genDONT_WAIT },
+    .{ "WINDOW_EVENTS", _tkinter_mod.genWINDOW_EVENTS },
+    .{ "FILE_EVENTS", _tkinter_mod.genFILE_EVENTS },
+    .{ "TIMER_EVENTS", _tkinter_mod.genTIMER_EVENTS },
+    .{ "IDLE_EVENTS", _tkinter_mod.genIDLE_EVENTS },
+    .{ "ALL_EVENTS", _tkinter_mod.genALL_EVENTS },
+});
+
+/// _winapi internal module functions
+const WinapiInternalFuncs = FuncMap.initComptime(.{
+    .{ "CloseHandle", _winapi_mod.genCloseHandle },
+    .{ "CreateFile", _winapi_mod.genCreateFile },
+    .{ "CreateJunction", _winapi_mod.genCreateJunction },
+    .{ "CreateNamedPipe", _winapi_mod.genCreateNamedPipe },
+    .{ "CreatePipe", _winapi_mod.genCreatePipe },
+    .{ "CreateProcess", _winapi_mod.genCreateProcess },
+    .{ "DuplicateHandle", _winapi_mod.genDuplicateHandle },
+    .{ "ExitProcess", _winapi_mod.genExitProcess },
+    .{ "GetCurrentProcess", _winapi_mod.genGetCurrentProcess },
+    .{ "GetExitCodeProcess", _winapi_mod.genGetExitCodeProcess },
+    .{ "GetLastError", _winapi_mod.genGetLastError },
+    .{ "GetModuleFileName", _winapi_mod.genGetModuleFileName },
+    .{ "GetStdHandle", _winapi_mod.genGetStdHandle },
+    .{ "GetVersion", _winapi_mod.genGetVersion },
+    .{ "OpenProcess", _winapi_mod.genOpenProcess },
+    .{ "PeekNamedPipe", _winapi_mod.genPeekNamedPipe },
+    .{ "ReadFile", _winapi_mod.genReadFile },
+    .{ "SetNamedPipeHandleState", _winapi_mod.genSetNamedPipeHandleState },
+    .{ "TerminateProcess", _winapi_mod.genTerminateProcess },
+    .{ "WaitForMultipleObjects", _winapi_mod.genWaitForMultipleObjects },
+    .{ "WaitForSingleObject", _winapi_mod.genWaitForSingleObject },
+    .{ "WaitNamedPipe", _winapi_mod.genWaitNamedPipe },
+    .{ "WriteFile", _winapi_mod.genWriteFile },
+    .{ "ConnectNamedPipe", _winapi_mod.genConnectNamedPipe },
+    .{ "GetFileType", _winapi_mod.genGetFileType },
+    .{ "STD_INPUT_HANDLE", _winapi_mod.genSTD_INPUT_HANDLE },
+    .{ "STD_OUTPUT_HANDLE", _winapi_mod.genSTD_OUTPUT_HANDLE },
+    .{ "STD_ERROR_HANDLE", _winapi_mod.genSTD_ERROR_HANDLE },
+    .{ "DUPLICATE_SAME_ACCESS", _winapi_mod.genDUPLICATE_SAME_ACCESS },
+    .{ "DUPLICATE_CLOSE_SOURCE", _winapi_mod.genDUPLICATE_CLOSE_SOURCE },
+    .{ "STARTUPINFO", _winapi_mod.genSTARTUPINFO },
+    .{ "INFINITE", _winapi_mod.genINFINITE },
+    .{ "WAIT_OBJECT_0", _winapi_mod.genWAIT_OBJECT_0 },
+    .{ "WAIT_ABANDONED_0", _winapi_mod.genWAIT_ABANDONED_0 },
+    .{ "WAIT_TIMEOUT", _winapi_mod.genWAIT_TIMEOUT },
+    .{ "CREATE_NEW_CONSOLE", _winapi_mod.genCREATE_NEW_CONSOLE },
+    .{ "CREATE_NEW_PROCESS_GROUP", _winapi_mod.genCREATE_NEW_PROCESS_GROUP },
+    .{ "STILL_ACTIVE", _winapi_mod.genSTILL_ACTIVE },
+    .{ "PIPE_ACCESS_INBOUND", _winapi_mod.genPIPE_ACCESS_INBOUND },
+    .{ "PIPE_ACCESS_OUTBOUND", _winapi_mod.genPIPE_ACCESS_OUTBOUND },
+    .{ "PIPE_ACCESS_DUPLEX", _winapi_mod.genPIPE_ACCESS_DUPLEX },
+    .{ "NMPWAIT_WAIT_FOREVER", _winapi_mod.genNMPWAIT_WAIT_FOREVER },
+    .{ "GENERIC_READ", _winapi_mod.genGENERIC_READ },
+    .{ "GENERIC_WRITE", _winapi_mod.genGENERIC_WRITE },
+    .{ "OPEN_EXISTING", _winapi_mod.genOPEN_EXISTING },
+    .{ "FILE_FLAG_OVERLAPPED", _winapi_mod.genFILE_FLAG_OVERLAPPED },
+    .{ "FILE_FLAG_FIRST_PIPE_INSTANCE", _winapi_mod.genFILE_FLAG_FIRST_PIPE_INSTANCE },
+    .{ "PIPE_WAIT", _winapi_mod.genPIPE_WAIT },
+    .{ "PIPE_TYPE_MESSAGE", _winapi_mod.genPIPE_TYPE_MESSAGE },
+    .{ "PIPE_READMODE_MESSAGE", _winapi_mod.genPIPE_READMODE_MESSAGE },
+    .{ "PIPE_UNLIMITED_INSTANCES", _winapi_mod.genPIPE_UNLIMITED_INSTANCES },
+    .{ "ERROR_IO_PENDING", _winapi_mod.genERROR_IO_PENDING },
+    .{ "ERROR_PIPE_BUSY", _winapi_mod.genERROR_PIPE_BUSY },
+    .{ "ERROR_ALREADY_EXISTS", _winapi_mod.genERROR_ALREADY_EXISTS },
+    .{ "ERROR_BROKEN_PIPE", _winapi_mod.genERROR_BROKEN_PIPE },
+    .{ "ERROR_NO_DATA", _winapi_mod.genERROR_NO_DATA },
+    .{ "ERROR_NO_SYSTEM_RESOURCES", _winapi_mod.genERROR_NO_SYSTEM_RESOURCES },
+    .{ "ERROR_OPERATION_ABORTED", _winapi_mod.genERROR_OPERATION_ABORTED },
+    .{ "ERROR_PIPE_CONNECTED", _winapi_mod.genERROR_PIPE_CONNECTED },
+    .{ "ERROR_SEM_TIMEOUT", _winapi_mod.genERROR_SEM_TIMEOUT },
+    .{ "ERROR_MORE_DATA", _winapi_mod.genERROR_MORE_DATA },
+    .{ "ERROR_NETNAME_DELETED", _winapi_mod.genERROR_NETNAME_DELETED },
+    .{ "NULL", _winapi_mod.genNULL },
+});
+
+/// _wmi internal module functions
+const WmiInternalFuncs = FuncMap.initComptime(.{
+    .{ "exec_query", _wmi_mod.genExecQuery },
+});
+
+/// lib2to3 module functions
+const Lib2to3Funcs = FuncMap.initComptime(.{
+    .{ "main", lib2to3_mod.genMain },
+    .{ "RefactoringTool", lib2to3_mod.genRefactoringTool },
+    .{ "BaseFix", lib2to3_mod.genBaseFix },
+    .{ "Base", lib2to3_mod.genBase },
+    .{ "Node", lib2to3_mod.genNode },
+    .{ "Leaf", lib2to3_mod.genLeaf },
+    .{ "python_grammar", lib2to3_mod.genPythonGrammar },
+    .{ "python_grammar_no_print_statement", lib2to3_mod.genPythonGrammarNoPrintStatement },
+});
+
+/// msilib module functions
+const MsilibFuncs = FuncMap.initComptime(.{
+    .{ "init_database", msilib_mod.genInitDatabase },
+    .{ "add_data", msilib_mod.genAddData },
+    .{ "add_tables", msilib_mod.genAddTables },
+    .{ "add_stream", msilib_mod.genAddStream },
+    .{ "gen_uuid", msilib_mod.genGenUuid },
+    .{ "OpenDatabase", msilib_mod.genOpenDatabase },
+    .{ "CreateRecord", msilib_mod.genCreateRecord },
+    .{ "CAB", msilib_mod.genCAB },
+    .{ "Directory", msilib_mod.genDirectory },
+    .{ "Feature", msilib_mod.genFeature },
+    .{ "Dialog", msilib_mod.genDialog },
+    .{ "Control", msilib_mod.genControl },
+    .{ "RadioButtonGroup", msilib_mod.genRadioButtonGroup },
+    .{ "AMD64", msilib_mod.genAMD64 },
+    .{ "Win64", msilib_mod.genWin64 },
+    .{ "Itanium", msilib_mod.genItanium },
+    .{ "schema", msilib_mod.genSchema },
+    .{ "sequence", msilib_mod.genSequence },
+    .{ "text", msilib_mod.genText },
+    .{ "MSIDBOPEN_CREATEDIRECT", msilib_mod.genMSIDBOPEN_CREATEDIRECT },
+    .{ "MSIDBOPEN_CREATE", msilib_mod.genMSIDBOPEN_CREATE },
+    .{ "MSIDBOPEN_DIRECT", msilib_mod.genMSIDBOPEN_DIRECT },
+    .{ "MSIDBOPEN_READONLY", msilib_mod.genMSIDBOPEN_READONLY },
+    .{ "MSIDBOPEN_TRANSACT", msilib_mod.genMSIDBOPEN_TRANSACT },
+});
+
+/// msvcrt module functions
+const MsvcrtFuncs = FuncMap.initComptime(.{
+    .{ "getch", msvcrt_mod.genGetch },
+    .{ "getwch", msvcrt_mod.genGetwch },
+    .{ "getche", msvcrt_mod.genGetche },
+    .{ "getwche", msvcrt_mod.genGetwche },
+    .{ "putch", msvcrt_mod.genPutch },
+    .{ "putwch", msvcrt_mod.genPutwch },
+    .{ "ungetch", msvcrt_mod.genUngetch },
+    .{ "ungetwch", msvcrt_mod.genUngetwch },
+    .{ "kbhit", msvcrt_mod.genKbhit },
+    .{ "locking", msvcrt_mod.genLocking },
+    .{ "setmode", msvcrt_mod.genSetmode },
+    .{ "open_osfhandle", msvcrt_mod.genOpenOsfhandle },
+    .{ "get_osfhandle", msvcrt_mod.genGetOsfhandle },
+    .{ "heapmin", msvcrt_mod.genHeapmin },
+    .{ "SetErrorMode", msvcrt_mod.genSetErrorMode },
+    .{ "CRT_ASSEMBLY_VERSION", msvcrt_mod.genCRT_ASSEMBLY_VERSION },
+    .{ "LK_NBLCK", msvcrt_mod.genLK_NBLCK },
+    .{ "LK_NBRLCK", msvcrt_mod.genLK_NBRLCK },
+    .{ "LK_LOCK", msvcrt_mod.genLK_LOCK },
+    .{ "LK_RLCK", msvcrt_mod.genLK_RLCK },
+    .{ "LK_UNLCK", msvcrt_mod.genLK_UNLCK },
+    .{ "SEM_FAILCRITICALERRORS", msvcrt_mod.genSEM_FAILCRITICALERRORS },
+    .{ "SEM_NOALIGNMENTFAULTEXCEPT", msvcrt_mod.genSEM_NOALIGNMENTFAULTEXCEPT },
+    .{ "SEM_NOGPFAULTERRORBOX", msvcrt_mod.genSEM_NOGPFAULTERRORBOX },
+    .{ "SEM_NOOPENFILEERRORBOX", msvcrt_mod.genSEM_NOOPENFILEERRORBOX },
+});
+
+/// nis module functions
+const NisFuncs = FuncMap.initComptime(.{
+    .{ "match", nis_mod.genMatch },
+    .{ "cat", nis_mod.genCat },
+    .{ "maps", nis_mod.genMaps },
+    .{ "get_default_domain", nis_mod.genGetDefaultDomain },
+    .{ "error", nis_mod.genError },
+});
+
+/// nt module functions
+const NtFuncs = FuncMap.initComptime(.{
+    .{ "getcwd", nt_mod.genGetcwd },
+    .{ "getcwdb", nt_mod.genGetcwdb },
+    .{ "chdir", nt_mod.genChdir },
+    .{ "listdir", nt_mod.genListdir },
+    .{ "mkdir", nt_mod.genMkdir },
+    .{ "rmdir", nt_mod.genRmdir },
+    .{ "remove", nt_mod.genRemove },
+    .{ "unlink", nt_mod.genUnlink },
+    .{ "rename", nt_mod.genRename },
+    .{ "stat", nt_mod.genStat },
+    .{ "lstat", nt_mod.genLstat },
+    .{ "fstat", nt_mod.genFstat },
+    .{ "open", nt_mod.genOpen },
+    .{ "close", nt_mod.genClose },
+    .{ "read", nt_mod.genRead },
+    .{ "write", nt_mod.genWrite },
+    .{ "getpid", nt_mod.genGetpid },
+    .{ "getppid", nt_mod.genGetppid },
+    .{ "getlogin", nt_mod.genGetlogin },
+    .{ "environ", nt_mod.genEnviron },
+    .{ "getenv", nt_mod.genGetenv },
+    .{ "putenv", nt_mod.genPutenv },
+    .{ "unsetenv", nt_mod.genUnsetenv },
+    .{ "access", nt_mod.genAccess },
+    .{ "F_OK", nt_mod.genF_OK },
+    .{ "R_OK", nt_mod.genR_OK },
+    .{ "W_OK", nt_mod.genW_OK },
+    .{ "X_OK", nt_mod.genX_OK },
+    .{ "O_RDONLY", nt_mod.genO_RDONLY },
+    .{ "O_WRONLY", nt_mod.genO_WRONLY },
+    .{ "O_RDWR", nt_mod.genO_RDWR },
+    .{ "O_APPEND", nt_mod.genO_APPEND },
+    .{ "O_CREAT", nt_mod.genO_CREAT },
+    .{ "O_TRUNC", nt_mod.genO_TRUNC },
+    .{ "O_EXCL", nt_mod.genO_EXCL },
+    .{ "O_BINARY", nt_mod.genO_BINARY },
+    .{ "O_TEXT", nt_mod.genO_TEXT },
+    .{ "sep", nt_mod.genSep },
+    .{ "altsep", nt_mod.genAltsep },
+    .{ "extsep", nt_mod.genExtsep },
+    .{ "pathsep", nt_mod.genPathsep },
+    .{ "linesep", nt_mod.genLinesep },
+    .{ "devnull", nt_mod.genDevnull },
+    .{ "name", nt_mod.genName },
+    .{ "curdir", nt_mod.genCurdir },
+    .{ "pardir", nt_mod.genPardir },
+    .{ "defpath", nt_mod.genDefpath },
+    .{ "cpu_count", nt_mod.genCpuCount },
+    .{ "urandom", nt_mod.genUrandom },
+    .{ "strerror", nt_mod.genStrerror },
+    .{ "device_encoding", nt_mod.genDeviceEncoding },
+    .{ "error", nt_mod.genError },
+});
+
+/// nturl2path module functions
+const Nturl2pathFuncs = FuncMap.initComptime(.{
+    .{ "url2pathname", nturl2path_mod.genUrl2pathname },
+    .{ "pathname2url", nturl2path_mod.genPathname2url },
+});
+
+/// ossaudiodev module functions
+const OssaudiodevFuncs = FuncMap.initComptime(.{
+    .{ "open", ossaudiodev_mod.genOpen },
+    .{ "openmixer", ossaudiodev_mod.genOpenmixer },
+    .{ "error", ossaudiodev_mod.genError },
+    .{ "AFMT_U8", ossaudiodev_mod.genAFMT_U8 },
+    .{ "AFMT_S16_LE", ossaudiodev_mod.genAFMT_S16_LE },
+    .{ "AFMT_S16_BE", ossaudiodev_mod.genAFMT_S16_BE },
+    .{ "AFMT_S16_NE", ossaudiodev_mod.genAFMT_S16_NE },
+    .{ "AFMT_AC3", ossaudiodev_mod.genAFMT_AC3 },
+    .{ "AFMT_QUERY", ossaudiodev_mod.genAFMT_QUERY },
+    .{ "SNDCTL_DSP_CHANNELS", ossaudiodev_mod.genSNDCTL_DSP_CHANNELS },
+    .{ "SNDCTL_DSP_GETFMTS", ossaudiodev_mod.genSNDCTL_DSP_GETFMTS },
+    .{ "SNDCTL_DSP_SETFMT", ossaudiodev_mod.genSNDCTL_DSP_SETFMT },
+    .{ "SNDCTL_DSP_SPEED", ossaudiodev_mod.genSNDCTL_DSP_SPEED },
+    .{ "SNDCTL_DSP_STEREO", ossaudiodev_mod.genSNDCTL_DSP_STEREO },
+    .{ "SNDCTL_DSP_SYNC", ossaudiodev_mod.genSNDCTL_DSP_SYNC },
+    .{ "SNDCTL_DSP_RESET", ossaudiodev_mod.genSNDCTL_DSP_RESET },
+    .{ "SNDCTL_DSP_GETOSPACE", ossaudiodev_mod.genSNDCTL_DSP_GETOSPACE },
+    .{ "SNDCTL_DSP_GETISPACE", ossaudiodev_mod.genSNDCTL_DSP_GETISPACE },
+    .{ "SNDCTL_DSP_NONBLOCK", ossaudiodev_mod.genSNDCTL_DSP_NONBLOCK },
+    .{ "SNDCTL_DSP_GETCAPS", ossaudiodev_mod.genSNDCTL_DSP_GETCAPS },
+    .{ "SNDCTL_DSP_SETFRAGMENT", ossaudiodev_mod.genSNDCTL_DSP_SETFRAGMENT },
+    .{ "SOUND_MIXER_NRDEVICES", ossaudiodev_mod.genSOUND_MIXER_NRDEVICES },
+    .{ "SOUND_MIXER_VOLUME", ossaudiodev_mod.genSOUND_MIXER_VOLUME },
+    .{ "SOUND_MIXER_BASS", ossaudiodev_mod.genSOUND_MIXER_BASS },
+    .{ "SOUND_MIXER_TREBLE", ossaudiodev_mod.genSOUND_MIXER_TREBLE },
+    .{ "SOUND_MIXER_PCM", ossaudiodev_mod.genSOUND_MIXER_PCM },
+    .{ "SOUND_MIXER_LINE", ossaudiodev_mod.genSOUND_MIXER_LINE },
+    .{ "SOUND_MIXER_MIC", ossaudiodev_mod.genSOUND_MIXER_MIC },
+    .{ "SOUND_MIXER_CD", ossaudiodev_mod.genSOUND_MIXER_CD },
+    .{ "SOUND_MIXER_REC", ossaudiodev_mod.genSOUND_MIXER_REC },
+});
+
+/// pydoc_data module functions
+const PydocDataFuncs = FuncMap.initComptime(.{
+    .{ "topics", pydoc_data_mod.genTopics },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -6092,6 +6462,23 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "_gdbm", GdbmInternalFuncs },
     .{ "_frozen_importlib", FrozenImportlibInternalFuncs },
     .{ "_frozen_importlib_external", FrozenImportlibExternalInternalFuncs },
+    .{ "_aix_support", AixSupportInternalFuncs },
+    .{ "_osx_support", OsxSupportInternalFuncs },
+    .{ "_msi", MsiInternalFuncs },
+    .{ "_overlapped", OverlappedInternalFuncs },
+    .{ "_posixshmem", PosixshmemInternalFuncs },
+    .{ "_scproxy", ScproxyInternalFuncs },
+    .{ "_tkinter", TkinterInternalFuncs },
+    .{ "_winapi", WinapiInternalFuncs },
+    .{ "_wmi", WmiInternalFuncs },
+    .{ "lib2to3", Lib2to3Funcs },
+    .{ "msilib", MsilibFuncs },
+    .{ "msvcrt", MsvcrtFuncs },
+    .{ "nis", NisFuncs },
+    .{ "nt", NtFuncs },
+    .{ "nturl2path", Nturl2pathFuncs },
+    .{ "ossaudiodev", OssaudiodevFuncs },
+    .{ "pydoc_data", PydocDataFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
