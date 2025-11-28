@@ -110,6 +110,12 @@ const codeop_mod = @import("../codeop_mod.zig");
 const dis_mod = @import("../dis_mod.zig");
 const gc_mod = @import("../gc_mod.zig");
 const ast_module = @import("../ast_mod.zig");
+const unittest_mock_mod = @import("../unittest_mock_mod.zig");
+const doctest_mod = @import("../doctest_mod.zig");
+const profile_mod = @import("../profile_mod.zig");
+const pdb_mod = @import("../pdb_mod.zig");
+const timeit_mod = @import("../timeit_mod.zig");
+const trace_mod = @import("../trace_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -2266,6 +2272,96 @@ const AstFuncs = FuncMap.initComptime(.{
     .{ "PyCF_TYPE_COMMENTS", ast_module.genPyCF_TYPE_COMMENTS },
 });
 
+/// unittest.mock module functions
+const UnittestMockFuncs = FuncMap.initComptime(.{
+    .{ "Mock", unittest_mock_mod.genMock },
+    .{ "MagicMock", unittest_mock_mod.genMagicMock },
+    .{ "AsyncMock", unittest_mock_mod.genAsyncMock },
+    .{ "NonCallableMock", unittest_mock_mod.genNonCallableMock },
+    .{ "NonCallableMagicMock", unittest_mock_mod.genNonCallableMagicMock },
+    .{ "patch", unittest_mock_mod.genPatch },
+    .{ "patch.object", unittest_mock_mod.genPatch_object },
+    .{ "patch.dict", unittest_mock_mod.genPatch_dict },
+    .{ "patch.multiple", unittest_mock_mod.genPatch_multiple },
+    .{ "create_autospec", unittest_mock_mod.genCreate_autospec },
+    .{ "call", unittest_mock_mod.genCall },
+    .{ "ANY", unittest_mock_mod.genANY },
+    .{ "FILTER_DIR", unittest_mock_mod.genFILTER_DIR },
+    .{ "sentinel", unittest_mock_mod.genSentinel },
+    .{ "DEFAULT", unittest_mock_mod.genDEFAULT },
+    .{ "seal", unittest_mock_mod.genSeal },
+    .{ "PropertyMock", unittest_mock_mod.genPropertyMock },
+});
+
+/// doctest module functions
+const DoctestFuncs = FuncMap.initComptime(.{
+    .{ "testmod", doctest_mod.genTestmod },
+    .{ "testfile", doctest_mod.genTestfile },
+    .{ "run_docstring_examples", doctest_mod.genRun_docstring_examples },
+    .{ "DocTestSuite", doctest_mod.genDocTestSuite },
+    .{ "DocFileSuite", doctest_mod.genDocFileSuite },
+    .{ "DocTestParser", doctest_mod.genDocTestParser },
+    .{ "DocTestRunner", doctest_mod.genDocTestRunner },
+    .{ "DocTestFinder", doctest_mod.genDocTestFinder },
+    .{ "DocTest", doctest_mod.genDocTest },
+    .{ "Example", doctest_mod.genExample },
+    .{ "OutputChecker", doctest_mod.genOutputChecker },
+    .{ "DebugRunner", doctest_mod.genDebugRunner },
+    .{ "OPTIONFLAGS", doctest_mod.genOPTIONFLAGS },
+    .{ "ELLIPSIS", doctest_mod.genELLIPSIS },
+    .{ "NORMALIZE_WHITESPACE", doctest_mod.genNORMALIZE_WHITESPACE },
+    .{ "DONT_ACCEPT_TRUE_FOR_1", doctest_mod.genDONT_ACCEPT_TRUE_FOR_1 },
+    .{ "DONT_ACCEPT_BLANKLINE", doctest_mod.genDONT_ACCEPT_BLANKLINE },
+    .{ "SKIP", doctest_mod.genSKIP },
+    .{ "IGNORE_EXCEPTION_DETAIL", doctest_mod.genIGNORE_EXCEPTION_DETAIL },
+    .{ "REPORT_UDIFF", doctest_mod.genREPORT_UDIFF },
+    .{ "REPORT_CDIFF", doctest_mod.genREPORT_CDIFF },
+    .{ "REPORT_NDIFF", doctest_mod.genREPORT_NDIFF },
+    .{ "REPORT_ONLY_FIRST_FAILURE", doctest_mod.genREPORT_ONLY_FIRST_FAILURE },
+    .{ "FAIL_FAST", doctest_mod.genFAIL_FAST },
+});
+
+/// profile module functions
+const ProfileFuncs = FuncMap.initComptime(.{
+    .{ "Profile", profile_mod.genProfile },
+    .{ "run", profile_mod.genRun },
+    .{ "runctx", profile_mod.genRunctx },
+});
+
+/// cProfile module functions (same as profile)
+const CProfileFuncs = FuncMap.initComptime(.{
+    .{ "Profile", profile_mod.genCProfile },
+    .{ "run", profile_mod.genRun },
+    .{ "runctx", profile_mod.genRunctx },
+});
+
+/// pdb module functions
+const PdbFuncs = FuncMap.initComptime(.{
+    .{ "Pdb", pdb_mod.genPdb },
+    .{ "run", pdb_mod.genRun },
+    .{ "runeval", pdb_mod.genRuneval },
+    .{ "runcall", pdb_mod.genRuncall },
+    .{ "set_trace", pdb_mod.genSet_trace },
+    .{ "post_mortem", pdb_mod.genPost_mortem },
+    .{ "pm", pdb_mod.genPm },
+    .{ "help", pdb_mod.genHelp },
+    .{ "Breakpoint", pdb_mod.genBreakpoint },
+});
+
+/// timeit module functions
+const TimeitFuncs = FuncMap.initComptime(.{
+    .{ "timeit", timeit_mod.genTimeit },
+    .{ "repeat", timeit_mod.genRepeat },
+    .{ "default_timer", timeit_mod.genDefault_timer },
+    .{ "Timer", timeit_mod.genTimer },
+});
+
+/// trace module functions
+const TraceFuncs = FuncMap.initComptime(.{
+    .{ "Trace", trace_mod.genTrace },
+    .{ "CoverageResults", trace_mod.genCoverageResults },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -2394,6 +2490,14 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "dis", DisFuncs },
     .{ "gc", GcFuncs },
     .{ "ast", AstFuncs },
+    .{ "unittest.mock", UnittestMockFuncs },
+    .{ "mock", UnittestMockFuncs }, // Also support direct "from mock import ..."
+    .{ "doctest", DoctestFuncs },
+    .{ "profile", ProfileFuncs },
+    .{ "cProfile", CProfileFuncs },
+    .{ "pdb", PdbFuncs },
+    .{ "timeit", TimeitFuncs },
+    .{ "trace", TraceFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
