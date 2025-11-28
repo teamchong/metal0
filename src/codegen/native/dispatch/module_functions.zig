@@ -31,6 +31,7 @@ const time_mod = @import("../time_mod.zig");
 const sys_mod = @import("../sys_mod.zig");
 const uuid_mod = @import("../uuid_mod.zig");
 const subprocess_mod = @import("../subprocess_mod.zig");
+const tempfile_mod = @import("../tempfile_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -506,6 +507,19 @@ const SubprocessFuncs = FuncMap.initComptime(.{
     .{ "DEVNULL", subprocess_mod.genDEVNULL },
 });
 
+/// tempfile module functions
+const TempfileFuncs = FuncMap.initComptime(.{
+    .{ "mktemp", tempfile_mod.genMktemp },
+    .{ "mkdtemp", tempfile_mod.genMkdtemp },
+    .{ "mkstemp", tempfile_mod.genMkstemp },
+    .{ "gettempdir", tempfile_mod.genGettempdir },
+    .{ "gettempprefix", tempfile_mod.genGettempprefix },
+    .{ "NamedTemporaryFile", tempfile_mod.genNamedTemporaryFile },
+    .{ "TemporaryFile", tempfile_mod.genTemporaryFile },
+    .{ "SpooledTemporaryFile", tempfile_mod.genSpooledTemporaryFile },
+    .{ "TemporaryDirectory", tempfile_mod.genTemporaryDirectory },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -545,6 +559,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "sys", SysFuncs },
     .{ "uuid", UuidFuncs },
     .{ "subprocess", SubprocessFuncs },
+    .{ "tempfile", TempfileFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
