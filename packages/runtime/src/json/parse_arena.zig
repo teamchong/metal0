@@ -324,7 +324,7 @@ fn parseString(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
     return ParseResult(*runtime.PyObject).init(obj, consumed);
 }
 
-/// Unescape JSON string
+/// Unescape JSON string - optimized to copy non-escape segments in bulk
 fn unescapeString(str: []const u8, arena: *JsonArena) ![]const u8 {
     // Allocate max possible size
     const dest = try arena.allocSlice(u8, str.len);
@@ -332,7 +332,19 @@ fn unescapeString(str: []const u8, arena: *JsonArena) ![]const u8 {
     var i: usize = 0;
 
     while (i < str.len) {
-        if (str[i] == '\\' and i + 1 < str.len) {
+        // Find next backslash (start of escape sequence)
+        const copy_start = i;
+        while (i < str.len and str[i] != '\\') : (i += 1) {}
+
+        // Bulk copy non-escape segment
+        const copy_len = i - copy_start;
+        if (copy_len > 0) {
+            @memcpy(dest[j..][0..copy_len], str[copy_start..][0..copy_len]);
+            j += copy_len;
+        }
+
+        // Handle escape sequence if found
+        if (i < str.len and str[i] == '\\' and i + 1 < str.len) {
             const escape_char = str[i + 1];
             switch (escape_char) {
                 '"' => dest[j] = '"',
@@ -370,10 +382,6 @@ fn unescapeString(str: []const u8, arena: *JsonArena) ![]const u8 {
             }
             j += 1;
             i += 2;
-        } else {
-            dest[j] = str[i];
-            j += 1;
-            i += 1;
         }
     }
 
