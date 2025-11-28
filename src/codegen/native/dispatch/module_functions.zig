@@ -2464,6 +2464,87 @@ const NntplibFuncs = FuncMap.initComptime(.{
     .{ "decode_header", nntplib_mod.genDecode_header },
 });
 
+/// ssl module functions
+const SslFuncs = FuncMap.initComptime(.{
+    .{ "SSLContext", ssl_mod.genSSLContext },
+    .{ "create_default_context", ssl_mod.genCreate_default_context },
+    .{ "wrap_socket", ssl_mod.genWrap_socket },
+    .{ "get_default_verify_paths", ssl_mod.genGet_default_verify_paths },
+    .{ "cert_time_to_seconds", ssl_mod.genCert_time_to_seconds },
+    .{ "get_server_certificate", ssl_mod.genGet_server_certificate },
+    .{ "DER_cert_to_PEM_cert", ssl_mod.genDER_cert_to_PEM_cert },
+    .{ "PEM_cert_to_DER_cert", ssl_mod.genPEM_cert_to_DER_cert },
+    .{ "match_hostname", ssl_mod.genMatch_hostname },
+    .{ "RAND_status", ssl_mod.genRAND_status },
+    .{ "RAND_add", ssl_mod.genRAND_add },
+    .{ "RAND_bytes", ssl_mod.genRAND_bytes },
+    .{ "RAND_pseudo_bytes", ssl_mod.genRAND_pseudo_bytes },
+    .{ "PROTOCOL_SSLv23", ssl_mod.genPROTOCOL_SSLv23 },
+    .{ "PROTOCOL_TLS", ssl_mod.genPROTOCOL_TLS },
+    .{ "PROTOCOL_TLS_CLIENT", ssl_mod.genPROTOCOL_TLS_CLIENT },
+    .{ "PROTOCOL_TLS_SERVER", ssl_mod.genPROTOCOL_TLS_SERVER },
+    .{ "CERT_NONE", ssl_mod.genCERT_NONE },
+    .{ "CERT_OPTIONAL", ssl_mod.genCERT_OPTIONAL },
+    .{ "CERT_REQUIRED", ssl_mod.genCERT_REQUIRED },
+    .{ "OP_ALL", ssl_mod.genOP_ALL },
+    .{ "OP_NO_SSLv2", ssl_mod.genOP_NO_SSLv2 },
+    .{ "OP_NO_SSLv3", ssl_mod.genOP_NO_SSLv3 },
+    .{ "OP_NO_TLSv1", ssl_mod.genOP_NO_TLSv1 },
+    .{ "OP_NO_TLSv1_1", ssl_mod.genOP_NO_TLSv1_1 },
+    .{ "OP_NO_TLSv1_2", ssl_mod.genOP_NO_TLSv1_2 },
+    .{ "OP_NO_TLSv1_3", ssl_mod.genOP_NO_TLSv1_3 },
+    .{ "SSLError", ssl_mod.genSSLError },
+    .{ "SSLZeroReturnError", ssl_mod.genSSLZeroReturnError },
+    .{ "SSLWantReadError", ssl_mod.genSSLWantReadError },
+    .{ "SSLWantWriteError", ssl_mod.genSSLWantWriteError },
+    .{ "SSLSyscallError", ssl_mod.genSSLSyscallError },
+    .{ "SSLEOFError", ssl_mod.genSSLEOFError },
+    .{ "SSLCertVerificationError", ssl_mod.genSSLCertVerificationError },
+    .{ "Purpose.SERVER_AUTH", ssl_mod.genPurpose_SERVER_AUTH },
+    .{ "Purpose.CLIENT_AUTH", ssl_mod.genPurpose_CLIENT_AUTH },
+    .{ "OPENSSL_VERSION", ssl_mod.genOPENSSL_VERSION },
+    .{ "OPENSSL_VERSION_INFO", ssl_mod.genOPENSSL_VERSION_INFO },
+    .{ "OPENSSL_VERSION_NUMBER", ssl_mod.genOPENSSL_VERSION_NUMBER },
+    .{ "HAS_SNI", ssl_mod.genHAS_SNI },
+    .{ "HAS_ALPN", ssl_mod.genHAS_ALPN },
+    .{ "HAS_ECDH", ssl_mod.genHAS_ECDH },
+    .{ "HAS_TLSv1_3", ssl_mod.genHAS_TLSv1_3 },
+});
+
+/// selectors module functions
+const SelectorsFuncs = FuncMap.initComptime(.{
+    .{ "DefaultSelector", selectors_mod.genDefaultSelector },
+    .{ "SelectSelector", selectors_mod.genSelectSelector },
+    .{ "PollSelector", selectors_mod.genPollSelector },
+    .{ "EpollSelector", selectors_mod.genEpollSelector },
+    .{ "DevpollSelector", selectors_mod.genDevpollSelector },
+    .{ "KqueueSelector", selectors_mod.genKqueueSelector },
+    .{ "BaseSelector", selectors_mod.genBaseSelector },
+    .{ "SelectorKey", selectors_mod.genSelectorKey },
+    .{ "EVENT_READ", selectors_mod.genEVENT_READ },
+    .{ "EVENT_WRITE", selectors_mod.genEVENT_WRITE },
+});
+
+/// ipaddress module functions
+const IpaddressFuncs = FuncMap.initComptime(.{
+    .{ "ip_address", ipaddress_mod.genIp_address },
+    .{ "ip_network", ipaddress_mod.genIp_network },
+    .{ "ip_interface", ipaddress_mod.genIp_interface },
+    .{ "IPv4Address", ipaddress_mod.genIPv4Address },
+    .{ "IPv4Network", ipaddress_mod.genIPv4Network },
+    .{ "IPv4Interface", ipaddress_mod.genIPv4Interface },
+    .{ "IPv6Address", ipaddress_mod.genIPv6Address },
+    .{ "IPv6Network", ipaddress_mod.genIPv6Network },
+    .{ "IPv6Interface", ipaddress_mod.genIPv6Interface },
+    .{ "v4_int_to_packed", ipaddress_mod.genV4_int_to_packed },
+    .{ "v6_int_to_packed", ipaddress_mod.genV6_int_to_packed },
+    .{ "summarize_address_range", ipaddress_mod.genSummarize_address_range },
+    .{ "collapse_addresses", ipaddress_mod.genCollapse_addresses },
+    .{ "get_mixed_type_key", ipaddress_mod.genGet_mixed_type_key },
+    .{ "AddressValueError", ipaddress_mod.genAddressValueError },
+    .{ "NetmaskValueError", ipaddress_mod.genNetmaskValueError },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -2606,6 +2687,9 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "ftplib", FtplibFuncs },
     .{ "poplib", PoplibFuncs },
     .{ "nntplib", NntplibFuncs },
+    .{ "ssl", SslFuncs },
+    .{ "selectors", SelectorsFuncs },
+    .{ "ipaddress", IpaddressFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
