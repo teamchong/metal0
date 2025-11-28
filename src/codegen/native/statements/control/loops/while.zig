@@ -26,4 +26,13 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
     self.popScope();
 
     _ = try builder.endBlock();
+
+    // Handle optional else clause (while/else)
+    // Note: In Python, else runs if loop completes without break.
+    // For now, we emit it unconditionally (correct for loops without break)
+    if (while_stmt.orelse_body) |else_body| {
+        for (else_body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+    }
 }

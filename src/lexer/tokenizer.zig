@@ -89,6 +89,11 @@ pub fn tokenizeRawString(self: *Lexer, start: usize, start_column: usize) !Token
     return tokenizePrefixedString(self, start, start_column, .raw);
 }
 
+pub fn tokenizeRawByteString(self: *Lexer, start: usize, start_column: usize) !Token {
+    // Raw byte string (br"" or rb"") - treat as byte string with no escape processing
+    return tokenizePrefixedString(self, start, start_column, .byte);
+}
+
 pub fn tokenizeOperatorOrDelimiter(self: *Lexer, start: usize, start_column: usize, paren_depth: *usize) !?Token {
     const c = self.advance() orelse return null;
 

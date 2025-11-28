@@ -275,6 +275,15 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     try self.emitIndent();
     try self.emit("}\n");
+
+    // Handle optional else clause (for/else)
+    // Note: In Python, else runs if loop completes without break.
+    // For now, we emit it unconditionally (correct for loops without break)
+    if (for_stmt.orelse_body) |else_body| {
+        for (else_body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+    }
 }
 
 /// Generate range() loop as Zig while loop

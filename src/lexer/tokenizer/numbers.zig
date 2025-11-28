@@ -83,10 +83,14 @@ pub fn tokenizeNumber(self: *Lexer, start: usize, start_column: usize) !Token {
     }
 
     // Handle decimal point
-    if (self.peek() == '.' and self.peekAhead(1) != null) {
-        const next = self.peekAhead(1).?;
-        if (self.isDigit(next)) {
+    // Python allows: 1.5, 1., .5 - we handle 1.5 and 1. here
+    if (self.peek() == '.') {
+        const next = self.peekAhead(1);
+        // Check it's not an attribute access like 1.bit_length() or ellipsis 1...
+        const is_attr_or_ellipsis = if (next) |n| (n >= 'a' and n <= 'z') or (n >= 'A' and n <= 'Z') or n == '_' or n == '.' else false;
+        if (!is_attr_or_ellipsis) {
             _ = self.advance(); // consume '.'
+            // Consume any fractional digits (optional - 1. is valid)
             while (self.peek()) |c| {
                 if (self.isDigit(c) or c == '_') {
                     _ = self.advance();

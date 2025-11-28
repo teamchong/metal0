@@ -36,6 +36,7 @@ const tempfile_mod = @import("../tempfile_mod.zig");
 const textwrap_mod = @import("../textwrap_mod.zig");
 const shutil_mod = @import("../shutil_mod.zig");
 const glob_mod = @import("../glob_mod.zig");
+const fnmatch_mod = @import("../fnmatch_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -567,6 +568,14 @@ const GlobFuncs = FuncMap.initComptime(.{
     .{ "has_magic", glob_mod.genHasMagic },
 });
 
+/// fnmatch module functions
+const FnmatchFuncs = FuncMap.initComptime(.{
+    .{ "fnmatch", fnmatch_mod.genFnmatch },
+    .{ "fnmatchcase", fnmatch_mod.genFnmatchcase },
+    .{ "filter", fnmatch_mod.genFilter },
+    .{ "translate", fnmatch_mod.genTranslate },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -611,6 +620,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "textwrap", TextwrapFuncs },
     .{ "shutil", ShutilFuncs },
     .{ "glob", GlobFuncs },
+    .{ "fnmatch", FnmatchFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
