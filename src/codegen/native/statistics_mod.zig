@@ -16,7 +16,7 @@ pub fn genMean(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_mean_blk @as(f64, 0.0);\n");
     try self.emitIndent();
@@ -47,7 +47,7 @@ pub fn genGeometricMean(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_gmean_blk @as(f64, 0.0);\n");
     try self.emitIndent();
@@ -73,7 +73,7 @@ pub fn genHarmonicMean(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_hmean_blk @as(f64, 0.0);\n");
     try self.emitIndent();
@@ -99,7 +99,7 @@ pub fn genMedian(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_median_blk @as(f64, 0.0);\n");
     try self.emitIndent();
@@ -129,7 +129,7 @@ pub fn genMedianLow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_median_low_blk @as(i64, 0);\n");
     try self.emitIndent();
@@ -157,7 +157,7 @@ pub fn genMedianHigh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_median_high_blk @as(i64, 0);\n");
     try self.emitIndent();
@@ -190,7 +190,7 @@ pub fn genMode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_mode_blk @as(@TypeOf(_data[0]), undefined);\n");
     try self.emitIndent();
@@ -208,7 +208,7 @@ pub fn genMultimode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit("&[_]@TypeOf(");
     try self.genExpr(args[0]);
-    try self.emit(".items[0]){}");
+    try self.emit("[0]){}");
 }
 
 /// Generate statistics.pstdev(data, mu=None) -> population standard deviation
@@ -223,7 +223,7 @@ pub fn genPstdev(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_pstdev_blk @as(f64, 0.0);\n");
     try self.emitIndent();
@@ -255,7 +255,7 @@ pub fn genPvariance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_pvar_blk @as(f64, 0.0);\n");
     try self.emitIndent();
@@ -287,7 +287,7 @@ pub fn genStdev(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len < 2) break :stats_stdev_blk @as(f64, 0.0);\n");
     try self.emitIndent();
@@ -319,7 +319,7 @@ pub fn genVariance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _data = ");
     try self.genExpr(args[0]);
-    try self.emit(".items;\n");
+    try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len < 2) break :stats_var_blk @as(f64, 0.0);\n");
     try self.emitIndent();
