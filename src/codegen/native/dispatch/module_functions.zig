@@ -104,6 +104,12 @@ const tarfile_mod = @import("../tarfile_mod.zig");
 const shlex_mod = @import("../shlex_mod.zig");
 const gettext_mod = @import("../gettext_mod.zig");
 const calendar_mod = @import("../calendar_mod.zig");
+const cmd_mod = @import("../cmd_mod.zig");
+const code_mod = @import("../code_mod.zig");
+const codeop_mod = @import("../codeop_mod.zig");
+const dis_mod = @import("../dis_mod.zig");
+const gc_mod = @import("../gc_mod.zig");
+const ast_module = @import("../ast_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -2161,6 +2167,105 @@ const CalendarFuncs = FuncMap.initComptime(.{
     .{ "IllegalWeekdayError", calendar_mod.genIllegalWeekdayError },
 });
 
+/// cmd module functions
+const CmdFuncs = FuncMap.initComptime(.{
+    .{ "Cmd", cmd_mod.genCmd },
+});
+
+/// code module functions
+const CodeFuncs = FuncMap.initComptime(.{
+    .{ "InteractiveConsole", code_mod.genInteractiveConsole },
+    .{ "InteractiveInterpreter", code_mod.genInteractiveInterpreter },
+    .{ "compile_command", code_mod.genCompile_command },
+    .{ "interact", code_mod.genInteract },
+});
+
+/// codeop module functions
+const CodeopFuncs = FuncMap.initComptime(.{
+    .{ "compile_command", codeop_mod.genCompile_command },
+    .{ "Compile", codeop_mod.genCompile },
+    .{ "CommandCompiler", codeop_mod.genCommandCompiler },
+    .{ "PyCF_DONT_IMPLY_DEDENT", codeop_mod.genPyCF_DONT_IMPLY_DEDENT },
+    .{ "PyCF_ALLOW_INCOMPLETE_INPUT", codeop_mod.genPyCF_ALLOW_INCOMPLETE_INPUT },
+});
+
+/// dis module functions
+const DisFuncs = FuncMap.initComptime(.{
+    .{ "dis", dis_mod.genDis },
+    .{ "disassemble", dis_mod.genDisassemble },
+    .{ "distb", dis_mod.genDistb },
+    .{ "disco", dis_mod.genDisco },
+    .{ "code_info", dis_mod.genCode_info },
+    .{ "show_code", dis_mod.genShow_code },
+    .{ "get_instructions", dis_mod.genGet_instructions },
+    .{ "findlinestarts", dis_mod.genFindlinestarts },
+    .{ "findlabels", dis_mod.genFindlabels },
+    .{ "stack_effect", dis_mod.genStack_effect },
+    .{ "Bytecode", dis_mod.genBytecode },
+    .{ "Instruction", dis_mod.genInstruction },
+    .{ "HAVE_ARGUMENT", dis_mod.genHAVE_ARGUMENT },
+    .{ "EXTENDED_ARG", dis_mod.genEXTENDED_ARG },
+});
+
+/// gc module functions
+const GcFuncs = FuncMap.initComptime(.{
+    .{ "enable", gc_mod.genEnable },
+    .{ "disable", gc_mod.genDisable },
+    .{ "isenabled", gc_mod.genIsenabled },
+    .{ "collect", gc_mod.genCollect },
+    .{ "set_debug", gc_mod.genSet_debug },
+    .{ "get_debug", gc_mod.genGet_debug },
+    .{ "get_stats", gc_mod.genGet_stats },
+    .{ "set_threshold", gc_mod.genSet_threshold },
+    .{ "get_threshold", gc_mod.genGet_threshold },
+    .{ "get_count", gc_mod.genGet_count },
+    .{ "get_objects", gc_mod.genGet_objects },
+    .{ "get_referrers", gc_mod.genGet_referrers },
+    .{ "get_referents", gc_mod.genGet_referents },
+    .{ "is_tracked", gc_mod.genIs_tracked },
+    .{ "is_finalized", gc_mod.genIs_finalized },
+    .{ "freeze", gc_mod.genFreeze },
+    .{ "unfreeze", gc_mod.genUnfreeze },
+    .{ "get_freeze_count", gc_mod.genGet_freeze_count },
+    .{ "garbage", gc_mod.genGarbage },
+    .{ "callbacks", gc_mod.genCallbacks },
+    .{ "DEBUG_STATS", gc_mod.genDEBUG_STATS },
+    .{ "DEBUG_COLLECTABLE", gc_mod.genDEBUG_COLLECTABLE },
+    .{ "DEBUG_UNCOLLECTABLE", gc_mod.genDEBUG_UNCOLLECTABLE },
+    .{ "DEBUG_SAVEALL", gc_mod.genDEBUG_SAVEALL },
+    .{ "DEBUG_LEAK", gc_mod.genDEBUG_LEAK },
+});
+
+/// ast module functions
+const AstFuncs = FuncMap.initComptime(.{
+    .{ "parse", ast_module.genParse },
+    .{ "literal_eval", ast_module.genLiteral_eval },
+    .{ "dump", ast_module.genDump },
+    .{ "unparse", ast_module.genUnparse },
+    .{ "fix_missing_locations", ast_module.genFix_missing_locations },
+    .{ "increment_lineno", ast_module.genIncrement_lineno },
+    .{ "copy_location", ast_module.genCopy_location },
+    .{ "iter_fields", ast_module.genIter_fields },
+    .{ "iter_child_nodes", ast_module.genIter_child_nodes },
+    .{ "walk", ast_module.genWalk },
+    .{ "get_docstring", ast_module.genGet_docstring },
+    .{ "get_source_segment", ast_module.genGet_source_segment },
+    .{ "AST", ast_module.genAST },
+    .{ "Module", ast_module.genModule },
+    .{ "Expression", ast_module.genExpression },
+    .{ "Interactive", ast_module.genInteractive },
+    .{ "FunctionDef", ast_module.genFunctionDef },
+    .{ "AsyncFunctionDef", ast_module.genAsyncFunctionDef },
+    .{ "ClassDef", ast_module.genClassDef },
+    .{ "Return", ast_module.genReturn },
+    .{ "Name", ast_module.genName },
+    .{ "Constant", ast_module.genConstant },
+    .{ "NodeVisitor", ast_module.genNodeVisitor },
+    .{ "NodeTransformer", ast_module.genNodeTransformer },
+    .{ "PyCF_ONLY_AST", ast_module.genPyCF_ONLY_AST },
+    .{ "PyCF_TYPE_COMMENTS", ast_module.genPyCF_TYPE_COMMENTS },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -2283,6 +2388,12 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "shlex", ShlexFuncs },
     .{ "gettext", GettextFuncs },
     .{ "calendar", CalendarFuncs },
+    .{ "cmd", CmdFuncs },
+    .{ "code", CodeFuncs },
+    .{ "codeop", CodeopFuncs },
+    .{ "dis", DisFuncs },
+    .{ "gc", GcFuncs },
+    .{ "ast", AstFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
