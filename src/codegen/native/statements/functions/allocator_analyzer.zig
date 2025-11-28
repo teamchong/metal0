@@ -315,7 +315,7 @@ fn stmtNeedsAllocator(stmt: ast.Node) bool {
     };
 }
 
-/// Check if an expression needs allocator
+/// Check if an expression needs allocator (or is otherwise fallible)
 fn exprNeedsAllocator(expr: ast.Node) bool {
     return switch (expr) {
         .binop => |b| {
@@ -325,6 +325,10 @@ fn exprNeedsAllocator(expr: ast.Node) bool {
                 if (mightBeString(b.left.*) or mightBeString(b.right.*)) {
                     return true;
                 }
+            }
+            // Division can fail with ZeroDivisionError
+            if (b.op == .Div or b.op == .FloorDiv or b.op == .Mod) {
+                return true;
             }
             // Check nested expressions
             return exprNeedsAllocator(b.left.*) or exprNeedsAllocator(b.right.*);

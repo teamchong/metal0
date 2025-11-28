@@ -235,8 +235,34 @@ pub const Parser = struct {
                             return try statements.parseTypeAlias(self);
                         }
                     } else if (std.mem.eql(u8, tok.lexeme, "match")) {
-                        // Check if this is a match statement: match subject:
-                        return try statements.parseMatch(self);
+                        // Check if this looks like a match statement: match <expr>:
+                        // NOT an assignment like: match = foo()
+                        // Scan ahead to check if there's a colon before newline/EOF
+                        var lookahead: usize = self.current + 1;
+                        var paren_depth: usize = 0;
+                        var is_match_stmt = false;
+                        while (lookahead < self.tokens.len) {
+                            const la_tok = self.tokens[lookahead];
+                            if (la_tok.type == .LParen) {
+                                paren_depth += 1;
+                            } else if (la_tok.type == .RParen) {
+                                if (paren_depth > 0) paren_depth -= 1;
+                            } else if (la_tok.type == .Eq and paren_depth == 0) {
+                                // This is an assignment: match = ...
+                                break;
+                            } else if (la_tok.type == .Colon and paren_depth == 0) {
+                                // Found colon at top level - this is a match statement
+                                is_match_stmt = true;
+                                break;
+                            } else if (la_tok.type == .Newline) {
+                                // Hit newline before colon - not a match statement
+                                break;
+                            }
+                            lookahead += 1;
+                        }
+                        if (is_match_stmt) {
+                            return try statements.parseMatch(self);
+                        }
                     }
                     // Could be assignment or expression statement
                     return try statements.parseExprOrAssign(self);
