@@ -194,6 +194,15 @@ const _codecs_mod = @import("../_codecs_mod.zig");
 const _collections_mod = @import("../_collections_mod.zig");
 const _stat_mod = @import("../_stat_mod.zig");
 const stat_mod = @import("../stat_mod.zig");
+const _heapq_mod = @import("../_heapq_mod.zig");
+const _bisect_mod = @import("../_bisect_mod.zig");
+const _random_mod = @import("../_random_mod.zig");
+const _struct_mod = @import("../_struct_mod.zig");
+const _pickle_mod = @import("../_pickle_mod.zig");
+const _datetime_mod = @import("../_datetime_mod.zig");
+const _csv_mod = @import("../_csv_mod.zig");
+const _socket_mod = @import("../_socket_mod.zig");
+const _hashlib_mod = @import("../_hashlib_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -3961,6 +3970,154 @@ const StatInternalFuncs = FuncMap.initComptime(.{
 /// stat module functions (same as _stat)
 const StatFuncs = StatInternalFuncs;
 
+/// _heapq module functions
+const HeapqInternalFuncs = FuncMap.initComptime(.{
+    .{ "heappush", _heapq_mod.genHeappush },
+    .{ "heappop", _heapq_mod.genHeappop },
+    .{ "heapify", _heapq_mod.genHeapify },
+    .{ "heapreplace", _heapq_mod.genHeapreplace },
+    .{ "heappushpop", _heapq_mod.genHeappushpop },
+    .{ "nlargest", _heapq_mod.genNlargest },
+    .{ "nsmallest", _heapq_mod.genNsmallest },
+});
+
+/// _bisect module functions
+const BisectInternalFuncs = FuncMap.initComptime(.{
+    .{ "bisect_left", _bisect_mod.genBisectLeft },
+    .{ "bisect_right", _bisect_mod.genBisectRight },
+    .{ "bisect", _bisect_mod.genBisectRight },
+    .{ "insort_left", _bisect_mod.genInsortLeft },
+    .{ "insort_right", _bisect_mod.genInsortRight },
+    .{ "insort", _bisect_mod.genInsortRight },
+});
+
+/// _random module functions
+const RandomInternalFuncs = FuncMap.initComptime(.{
+    .{ "Random", _random_mod.genRandom },
+    .{ "random", _random_mod.genRandomRandom },
+    .{ "seed", _random_mod.genSeed },
+    .{ "getstate", _random_mod.genGetstate },
+    .{ "setstate", _random_mod.genSetstate },
+    .{ "getrandbits", _random_mod.genGetrandbits },
+});
+
+/// _struct module functions
+const StructInternalFuncs = FuncMap.initComptime(.{
+    .{ "pack", _struct_mod.genPack },
+    .{ "pack_into", _struct_mod.genPackInto },
+    .{ "unpack", _struct_mod.genUnpack },
+    .{ "unpack_from", _struct_mod.genUnpackFrom },
+    .{ "iter_unpack", _struct_mod.genIterUnpack },
+    .{ "calcsize", _struct_mod.genCalcsize },
+    .{ "Struct", _struct_mod.genStruct },
+    .{ "error", _struct_mod.genError },
+});
+
+/// _pickle module functions
+const PickleInternalFuncs = FuncMap.initComptime(.{
+    .{ "dumps", _pickle_mod.genDumps },
+    .{ "dump", _pickle_mod.genDump },
+    .{ "loads", _pickle_mod.genLoads },
+    .{ "load", _pickle_mod.genLoad },
+    .{ "Pickler", _pickle_mod.genPickler },
+    .{ "Unpickler", _pickle_mod.genUnpickler },
+    .{ "HIGHEST_PROTOCOL", _pickle_mod.genHIGHEST_PROTOCOL },
+    .{ "DEFAULT_PROTOCOL", _pickle_mod.genDEFAULT_PROTOCOL },
+    .{ "PickleError", _pickle_mod.genPickleError },
+    .{ "PicklingError", _pickle_mod.genPicklingError },
+    .{ "UnpicklingError", _pickle_mod.genUnpicklingError },
+});
+
+/// _datetime module functions
+const DatetimeInternalFuncs = FuncMap.initComptime(.{
+    .{ "datetime", _datetime_mod.genDatetime },
+    .{ "date", _datetime_mod.genDate },
+    .{ "time", _datetime_mod.genTime },
+    .{ "timedelta", _datetime_mod.genTimedelta },
+    .{ "timezone", _datetime_mod.genTimezone },
+    .{ "MINYEAR", _datetime_mod.genMINYEAR },
+    .{ "MAXYEAR", _datetime_mod.genMAXYEAR },
+    .{ "timezone_utc", _datetime_mod.genTimezoneUtc },
+});
+
+/// _csv module functions
+const CsvInternalFuncs = FuncMap.initComptime(.{
+    .{ "reader", _csv_mod.genReader },
+    .{ "writer", _csv_mod.genWriter },
+    .{ "register_dialect", _csv_mod.genRegisterDialect },
+    .{ "unregister_dialect", _csv_mod.genUnregisterDialect },
+    .{ "get_dialect", _csv_mod.genGetDialect },
+    .{ "list_dialects", _csv_mod.genListDialects },
+    .{ "field_size_limit", _csv_mod.genFieldSizeLimit },
+    .{ "QUOTE_ALL", _csv_mod.genQUOTE_ALL },
+    .{ "QUOTE_MINIMAL", _csv_mod.genQUOTE_MINIMAL },
+    .{ "QUOTE_NONNUMERIC", _csv_mod.genQUOTE_NONNUMERIC },
+    .{ "QUOTE_NONE", _csv_mod.genQUOTE_NONE },
+    .{ "Error", _csv_mod.genError },
+});
+
+/// _socket module functions
+const SocketInternalFuncs = FuncMap.initComptime(.{
+    .{ "socket", _socket_mod.genSocket },
+    .{ "getaddrinfo", _socket_mod.genGetaddrinfo },
+    .{ "getnameinfo", _socket_mod.genGetnameinfo },
+    .{ "gethostname", _socket_mod.genGethostname },
+    .{ "gethostbyname", _socket_mod.genGethostbyname },
+    .{ "gethostbyname_ex", _socket_mod.genGethostbynameEx },
+    .{ "gethostbyaddr", _socket_mod.genGethostbyaddr },
+    .{ "getfqdn", _socket_mod.genGetfqdn },
+    .{ "getservbyname", _socket_mod.genGetservbyname },
+    .{ "getservbyport", _socket_mod.genGetservbyport },
+    .{ "getprotobyname", _socket_mod.genGetprotobyname },
+    .{ "getdefaulttimeout", _socket_mod.genGetdefaulttimeout },
+    .{ "setdefaulttimeout", _socket_mod.genSetdefaulttimeout },
+    .{ "ntohs", _socket_mod.genNtohs },
+    .{ "ntohl", _socket_mod.genNtohl },
+    .{ "htons", _socket_mod.genHtons },
+    .{ "htonl", _socket_mod.genHtonl },
+    .{ "inet_aton", _socket_mod.genInetAton },
+    .{ "inet_ntoa", _socket_mod.genInetNtoa },
+    .{ "inet_pton", _socket_mod.genInetPton },
+    .{ "inet_ntop", _socket_mod.genInetNtop },
+    .{ "AF_INET", _socket_mod.genAF_INET },
+    .{ "AF_INET6", _socket_mod.genAF_INET6 },
+    .{ "AF_UNIX", _socket_mod.genAF_UNIX },
+    .{ "SOCK_STREAM", _socket_mod.genSOCK_STREAM },
+    .{ "SOCK_DGRAM", _socket_mod.genSOCK_DGRAM },
+    .{ "SOCK_RAW", _socket_mod.genSOCK_RAW },
+    .{ "SOL_SOCKET", _socket_mod.genSOL_SOCKET },
+    .{ "SO_REUSEADDR", _socket_mod.genSO_REUSEADDR },
+    .{ "SO_KEEPALIVE", _socket_mod.genSO_KEEPALIVE },
+    .{ "IPPROTO_TCP", _socket_mod.genIPPROTO_TCP },
+    .{ "IPPROTO_UDP", _socket_mod.genIPPROTO_UDP },
+    .{ "error", _socket_mod.genSocketError },
+    .{ "timeout", _socket_mod.genSocketTimeout },
+    .{ "gaierror", _socket_mod.genSocketGaierror },
+    .{ "herror", _socket_mod.genSocketHerror },
+});
+
+/// _hashlib module functions
+const HashlibInternalFuncs = FuncMap.initComptime(.{
+    .{ "new", _hashlib_mod.genNew },
+    .{ "openssl_md5", _hashlib_mod.genOpensslMd5 },
+    .{ "openssl_sha1", _hashlib_mod.genOpensslSha1 },
+    .{ "openssl_sha224", _hashlib_mod.genOpensslSha224 },
+    .{ "openssl_sha256", _hashlib_mod.genOpensslSha256 },
+    .{ "openssl_sha384", _hashlib_mod.genOpensslSha384 },
+    .{ "openssl_sha512", _hashlib_mod.genOpensslSha512 },
+    .{ "openssl_sha3_224", _hashlib_mod.genOpensslSha3_224 },
+    .{ "openssl_sha3_256", _hashlib_mod.genOpensslSha3_256 },
+    .{ "openssl_sha3_384", _hashlib_mod.genOpensslSha3_384 },
+    .{ "openssl_sha3_512", _hashlib_mod.genOpensslSha3_512 },
+    .{ "openssl_shake_128", _hashlib_mod.genOpensslShake128 },
+    .{ "openssl_shake_256", _hashlib_mod.genOpensslShake256 },
+    .{ "pbkdf2_hmac", _hashlib_mod.genPbkdf2Hmac },
+    .{ "scrypt", _hashlib_mod.genScrypt },
+    .{ "hmac_digest", _hashlib_mod.genHmacDigest },
+    .{ "compare_digest", _hashlib_mod.genCompareDigest },
+    .{ "openssl_md_meth_names", _hashlib_mod.genOpensslMdMethNames },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -4191,6 +4348,15 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "_collections", CollectionsInternalFuncs },
     .{ "_stat", StatInternalFuncs },
     .{ "stat", StatFuncs },
+    .{ "_heapq", HeapqInternalFuncs },
+    .{ "_bisect", BisectInternalFuncs },
+    .{ "_random", RandomInternalFuncs },
+    .{ "_struct", StructInternalFuncs },
+    .{ "_pickle", PickleInternalFuncs },
+    .{ "_datetime", DatetimeInternalFuncs },
+    .{ "_csv", CsvInternalFuncs },
+    .{ "_socket", SocketInternalFuncs },
+    .{ "_hashlib", HashlibInternalFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
