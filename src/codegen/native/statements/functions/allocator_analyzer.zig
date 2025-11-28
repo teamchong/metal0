@@ -58,6 +58,11 @@ const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "input", {} },
     .{ "StringIO", {} },
     .{ "BytesIO", {} },
+    // collections module
+    .{ "Counter", {} },
+    .{ "deque", {} },
+    .{ "defaultdict", {} },
+    .{ "OrderedDict", {} },
 });
 
 /// Functions that return strings (for mightBeString)
@@ -217,6 +222,33 @@ const GlobalAllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "print", {} }, // print with string concat uses __global_allocator
 });
 
+/// Module functions that use the allocator param in generated code
+/// These module.function() calls generate code using `allocator` variable
+const ModuleFunctionsUsingAllocator = std.StaticStringMap(void).initComptime(.{
+    // json module
+    .{ "dumps", {} },
+    .{ "loads", {} },
+    // re module
+    .{ "match", {} },
+    .{ "search", {} },
+    .{ "findall", {} },
+    .{ "sub", {} },
+    .{ "split", {} },
+    .{ "compile", {} },
+});
+
+/// Builtin classes/constructors that use allocator in generated code
+const AllocatorConstructors = std.StaticStringMap(void).initComptime(.{
+    // collections module
+    .{ "Counter", {} },
+    .{ "deque", {} },
+    .{ "defaultdict", {} },
+    .{ "OrderedDict", {} },
+    // io module
+    .{ "StringIO", {} },
+    .{ "BytesIO", {} },
+});
+
 /// Check if a call uses allocator param
 /// func_name is the current function name to detect recursive calls
 fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
@@ -227,11 +259,16 @@ fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
         // unittest assertion methods don't use allocator (self.assertEqual, etc.)
         if (UnittestAssertions.has(method_name)) return false;
 
-        // Module function call (e.g., test_utils.double(x))
-        // Codegen uses __global_allocator for these calls, not the function's allocator param
-        // So they don't count as "using" the allocator param
+        // Check if this is a module function that uses allocator param
         if (call.func.attribute.value.* == .name) {
-            // Neither self.method() nor module.function() uses the allocator param
+            const obj_name = call.func.attribute.value.name.id;
+            // json.dumps(), json.loads(), re.match(), etc. use allocator param
+            if (ModuleFunctionsUsingAllocator.has(method_name) and
+                !std.mem.eql(u8, obj_name, "self"))
+            {
+                return true;
+            }
+            // Other module.function() calls use __global_allocator, not the param
             return false;
         }
     }
@@ -242,6 +279,8 @@ fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
         // Recursive call: function calls itself, allocator will be passed
         if (std.mem.eql(u8, called_name, func_name)) return true;
         if (AllocatorBuiltins.has(called_name)) return true;
+        // Constructor calls that use allocator (Counter, deque, etc.)
+        if (AllocatorConstructors.has(called_name)) return true;
     }
     for (call.args) |arg| {
         if (exprUsesAllocatorParam(arg, func_name)) return true;

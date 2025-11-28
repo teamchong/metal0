@@ -70,6 +70,120 @@ pub fn dumpsDirect(obj: *runtime.PyObject, allocator: std.mem.Allocator) ![]cons
     };
 }
 
+/// Serialize native Zig values to JSON string (generic version)
+/// Handles strings, ints, floats, bools, null directly without PyObject wrapper
+pub fn dumpsValue(value: anytype, allocator: std.mem.Allocator) ![]const u8 {
+    const T = @TypeOf(value);
+    var buffer = try std.ArrayList(u8).initCapacity(allocator, 256);
+
+    stringifyValue(value, T, &buffer, allocator) catch |err| {
+        buffer.deinit(allocator);
+        return err;
+    };
+
+    return buffer.toOwnedSlice(allocator) catch |err| {
+        buffer.deinit(allocator);
+        return err;
+    };
+}
+
+/// Stringify native value to buffer
+fn stringifyValue(value: anytype, comptime T: type, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
+    const type_info = @typeInfo(T);
+
+    // Handle null
+    if (T == @TypeOf(null)) {
+        try buffer.appendSlice(allocator, JSON_NULL);
+        return;
+    }
+
+    // Handle optionals
+    if (type_info == .optional) {
+        if (value) |v| {
+            try stringifyValue(v, type_info.optional.child, buffer, allocator);
+        } else {
+            try buffer.appendSlice(allocator, JSON_NULL);
+        }
+        return;
+    }
+
+    // Handle bools
+    if (T == bool) {
+        try buffer.appendSlice(allocator, if (value) JSON_TRUE else JSON_FALSE);
+        return;
+    }
+
+    // Handle integers
+    if (type_info == .int or type_info == .comptime_int) {
+        var buf: [32]u8 = undefined;
+        const formatted = std.fmt.bufPrint(&buf, "{d}", .{value}) catch unreachable;
+        try buffer.appendSlice(allocator, formatted);
+        return;
+    }
+
+    // Handle floats
+    if (type_info == .float or type_info == .comptime_float) {
+        var buf: [32]u8 = undefined;
+        const formatted = std.fmt.bufPrint(&buf, "{d}", .{value}) catch unreachable;
+        try buffer.appendSlice(allocator, formatted);
+        return;
+    }
+
+    // Handle strings (pointers to u8 arrays or slices)
+    if (type_info == .pointer) {
+        const child_info = @typeInfo(type_info.pointer.child);
+        // Slice of u8 - []const u8 or []u8
+        if (type_info.pointer.size == .slice and type_info.pointer.child == u8) {
+            try buffer.append(allocator, '"');
+            for (value) |c| {
+                if (NEEDS_ESCAPE[c]) {
+                    const escape = ESCAPE_SEQUENCES[c];
+                    if (escape.len > 0) {
+                        try buffer.appendSlice(allocator, escape);
+                    } else {
+                        var hex_buf: [6]u8 = undefined;
+                        _ = std.fmt.bufPrint(&hex_buf, "\\u{x:0>4}", .{c}) catch unreachable;
+                        try buffer.appendSlice(allocator, &hex_buf);
+                    }
+                } else {
+                    try buffer.append(allocator, c);
+                }
+            }
+            try buffer.append(allocator, '"');
+            return;
+        }
+        // Pointer to array of u8 - *const [N]u8
+        if (type_info.pointer.size == .one and child_info == .array and child_info.array.child == u8) {
+            const slice: []const u8 = value;
+            try buffer.append(allocator, '"');
+            for (slice) |c| {
+                if (NEEDS_ESCAPE[c]) {
+                    const escape = ESCAPE_SEQUENCES[c];
+                    if (escape.len > 0) {
+                        try buffer.appendSlice(allocator, escape);
+                    } else {
+                        var hex_buf: [6]u8 = undefined;
+                        _ = std.fmt.bufPrint(&hex_buf, "\\u{x:0>4}", .{c}) catch unreachable;
+                        try buffer.appendSlice(allocator, &hex_buf);
+                    }
+                } else {
+                    try buffer.append(allocator, c);
+                }
+            }
+            try buffer.append(allocator, '"');
+            return;
+        }
+        // Pointer to PyObject - use dumpsDirect
+        if (type_info.pointer.child == runtime.PyObject) {
+            try stringifyPyObjectDirect(value, buffer, allocator);
+            return;
+        }
+    }
+
+    // Fallback for unsupported types
+    try buffer.appendSlice(allocator, JSON_NULL);
+}
+
 /// Comptime string table - avoids strlen at runtime
 const JSON_NULL = "null";
 const JSON_TRUE = "true";
