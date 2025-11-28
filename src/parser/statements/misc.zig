@@ -135,15 +135,9 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
         }
     }
 
-    // Parse try block body - check for one-liner
+    // Parse try block body - check for one-liner (any token that's not Newline)
     if (self.peek()) |next_tok| {
-        const is_oneliner = next_tok.type == .Pass or
-            next_tok.type == .Ellipsis or
-            next_tok.type == .Return or
-            next_tok.type == .Break or
-            next_tok.type == .Continue or
-            next_tok.type == .Raise or
-            next_tok.type == .Ident; // for assignments and expressions
+        const is_oneliner = next_tok.type != .Newline;
 
         if (is_oneliner) {
             const stmt = try self.parseStatement();
@@ -188,6 +182,25 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
                     } else break;
                 }
                 exc_type = type_name;
+
+                // Handle function call: except type(stop_exc) as e:
+                // Parse but skip the arguments - we just keep the function name
+                if (self.peek()) |next_tok| {
+                    if (next_tok.type == .LParen) {
+                        _ = self.advance(); // consume '('
+                        var paren_depth: usize = 1;
+                        while (paren_depth > 0) {
+                            if (self.peek()) |inner_tok| {
+                                if (inner_tok.type == .LParen) {
+                                    paren_depth += 1;
+                                } else if (inner_tok.type == .RParen) {
+                                    paren_depth -= 1;
+                                }
+                                _ = self.advance();
+                            } else break;
+                        }
+                    }
+                }
             } else if (tok.type == .LParen) {
                 // Parenthesized exception type: except (Exception) as e:
                 // or except (ValueError, TypeError) as e:
@@ -268,19 +281,43 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
     // Parse optional else block (runs if no exception)
     if (self.match(.Else)) {
         _ = try self.expect(.Colon);
-        _ = try self.expect(.Newline);
-        _ = try self.expect(.Indent);
-        else_body_alloc = try parseBlock(self);
-        _ = try self.expect(.Dedent);
+
+        // Check if this is a one-liner else: statement
+        if (self.peek()) |next_tok| {
+            const is_oneliner = next_tok.type != .Newline;
+            if (is_oneliner) {
+                const stmt = try self.parseStatement();
+                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                body_slice[0] = stmt;
+                else_body_alloc = body_slice;
+            } else {
+                _ = try self.expect(.Newline);
+                _ = try self.expect(.Indent);
+                else_body_alloc = try parseBlock(self);
+                _ = try self.expect(.Dedent);
+            }
+        }
     }
 
     // Parse optional finally block
     if (self.match(.Finally)) {
         _ = try self.expect(.Colon);
-        _ = try self.expect(.Newline);
-        _ = try self.expect(.Indent);
-        finally_body_alloc = try parseBlock(self);
-        _ = try self.expect(.Dedent);
+
+        // Check if this is a one-liner finally: statement
+        if (self.peek()) |next_tok| {
+            const is_oneliner = next_tok.type != .Newline;
+            if (is_oneliner) {
+                const stmt = try self.parseStatement();
+                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                body_slice[0] = stmt;
+                finally_body_alloc = body_slice;
+            } else {
+                _ = try self.expect(.Newline);
+                _ = try self.expect(.Indent);
+                finally_body_alloc = try parseBlock(self);
+                _ = try self.expect(.Dedent);
+            }
+        }
     }
 
     // Success - transfer ownership

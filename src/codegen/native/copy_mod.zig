@@ -8,9 +8,9 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 /// Creates a shallow copy of the object
 pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-    
-    // For primitive types, just return the value (immutable)
-    // For lists/dicts, we need to create a new container
+
+    // For primitive types and arrays, just return the value (shallow copy)
+    // For ArrayList, we need to create a new container
     try self.emit("copy_blk: {\n");
     self.indent();
     try self.emitIndent();
@@ -18,19 +18,20 @@ pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    // Use Zig's comptime type detection
-    try self.emit("if (@TypeOf(_src) == std.ArrayList(@TypeOf(_src.items[0]))) {\n");
+    // Check if it's an ArrayList using @hasField
+    try self.emit("if (@typeInfo(@TypeOf(_src)) == .@\"struct\" and @hasField(@TypeOf(_src), \"items\")) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var _copy = std.ArrayList(@TypeOf(_src.items[0])).init(allocator);\n");
+    try self.emit("var _copy = @TypeOf(_src).init(__global_allocator);\n");
     try self.emitIndent();
-    try self.emit("_copy.appendSlice(allocator, _src.items) catch {};\n");
+    try self.emit("_copy.appendSlice(__global_allocator, _src.items) catch {};\n");
     try self.emitIndent();
     try self.emit("break :copy_blk _copy;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
+    // For arrays and primitives, just return the value
     try self.emit("break :copy_blk _src;\n");
     self.dedent();
     try self.emitIndent();
@@ -64,12 +65,12 @@ pub fn genDeepcopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("if (@typeInfo(@TypeOf(_src)) == .@\"struct\" and @hasField(@TypeOf(_src), \"items\")) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var _copy = @TypeOf(_src).init(allocator);\n");
+    try self.emit("var _copy = @TypeOf(_src).init(__global_allocator);\n");
     try self.emitIndent();
     try self.emit("for (_src.items) |item| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("_copy.append(allocator, item) catch continue;\n");
+    try self.emit("_copy.append(__global_allocator, item) catch continue;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

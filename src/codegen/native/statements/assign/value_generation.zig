@@ -70,15 +70,17 @@ pub fn emitVarDeclaration(
 
     try self.emit(actual_name);
 
-    // Only emit type annotation for known types that aren't dicts, dictcomps, lists, tuples, closures, or ArrayLists
-    // For lists/ArrayLists/dicts/dictcomps/tuples/closures, let Zig infer the type from the initializer
+    // Only emit type annotation for known types that aren't dicts, dictcomps, lists, tuples, closures, counters, or ArrayLists
+    // For lists/ArrayLists/dicts/dictcomps/tuples/closures/counters, let Zig infer the type from the initializer
     // For unknown types (json.loads, etc.), let Zig infer
     const is_list = (value_type == .list);
     const is_tuple = (value_type == .tuple);
     const is_closure = (value_type == .closure);
     const is_dict_type = (value_type == .dict);
+    const is_counter = (value_type == .counter);
+    const is_deque = (value_type == .deque);
     const is_dictcomp = false; // Passed separately
-    if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure) {
+    if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_counter and !is_deque) {
         try self.emit(": ");
         try value_type.toZigType(self.allocator, &self.output);
     }

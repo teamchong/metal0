@@ -11,25 +11,30 @@ pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("counter_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var _counter = hashmap_helper.StringHashMap(i64).init(allocator);\n");
 
     if (args.len > 0) {
-        try self.emitIndent();
+        // Get the iterable first to infer its type
         try self.emit("const _iterable = ");
         try self.genExpr(args[0]);
         try self.emit(";\n");
+        try self.emitIndent();
+        // Use AutoArrayHashMap with inferred key type from iterable element type
+        try self.emit("var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator);\n");
         try self.emitIndent();
         // Use direct iteration - works for both arrays and ArrayList.items
         try self.emit("for (_iterable) |item| {\n");
         self.indent();
         try self.emitIndent();
-        // getOrPut for managed ArrayHashMap takes only key (uses internal allocator)
+        // getOrPut for managed AutoArrayHashMap takes only key
         try self.emit("const entry = _counter.getOrPut(item) catch continue;\n");
         try self.emitIndent();
         try self.emit("if (entry.found_existing) { entry.value_ptr.* += 1; } else { entry.value_ptr.* = 1; }\n");
         self.dedent();
         try self.emitIndent();
         try self.emit("}\n");
+    } else {
+        // Empty Counter - default to string keys
+        try self.emit("var _counter = hashmap_helper.StringHashMap(i64).init(__global_allocator);\n");
     }
 
     try self.emitIndent();
@@ -45,7 +50,7 @@ pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     // For now, generate a regular dict with a note
     // Full implementation would need runtime type tracking
     _ = args;
-    try self.emit("hashmap_helper.StringHashMap(i64).init(allocator)");
+    try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
 }
 
 /// Generate collections.deque(iterable?, maxlen?)
@@ -54,7 +59,7 @@ pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("deque_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var _deque = std.ArrayList(i64).init(allocator);\n");
+    try self.emit("var _deque = std.ArrayList(i64).init(__global_allocator);\n");
 
     if (args.len > 0) {
         try self.emitIndent();
@@ -66,7 +71,7 @@ pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("for (_iterable) |item| {\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("_deque.append(allocator, item) catch continue;\n");
+        try self.emit("_deque.append(__global_allocator, item) catch continue;\n");
         self.dedent();
         try self.emitIndent();
         try self.emit("}\n");
@@ -85,7 +90,7 @@ pub fn genOrderedDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     // In Python 3.7+, regular dict maintains insertion order
     // So OrderedDict is essentially a regular dict
     _ = args;
-    try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(allocator)");
+    try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
 }
 
 /// Generate collections.namedtuple(typename, field_names)

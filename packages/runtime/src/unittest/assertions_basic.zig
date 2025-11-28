@@ -236,8 +236,35 @@ pub fn assertIsNotNone(value: anytype) void {
 }
 
 /// Assertion: assertIn(item, container) - item must be in container
+/// For string-in-string checks, this performs substring search
 pub fn assertIn(item: anytype, container: anytype) void {
-    const found = blk: {
+    const ItemType = @TypeOf(item);
+    const ContainerType = @TypeOf(container);
+
+    // Check if both are string slices - use substring search
+    const is_string_in_string = comptime blk: {
+        const item_info = @typeInfo(ItemType);
+        const container_info = @typeInfo(ContainerType);
+        if (item_info == .pointer and container_info == .pointer) {
+            const item_ptr = item_info.pointer;
+            const container_ptr = container_info.pointer;
+            // Check for []const u8 or *const [N]u8 patterns
+            const item_is_string = (item_ptr.size == .slice and item_ptr.child == u8) or
+                (item_ptr.size == .one and @typeInfo(item_ptr.child) == .array and @typeInfo(item_ptr.child).array.child == u8);
+            const container_is_string = (container_ptr.size == .slice and container_ptr.child == u8) or
+                (container_ptr.size == .one and @typeInfo(container_ptr.child) == .array and @typeInfo(container_ptr.child).array.child == u8);
+            break :blk item_is_string and container_is_string;
+        }
+        break :blk false;
+    };
+
+    const found = if (comptime is_string_in_string) blk: {
+        // Coerce pointer types to slices for std.mem.indexOf
+        const container_slice: []const u8 = container;
+        const item_slice: []const u8 = item;
+        break :blk std.mem.indexOf(u8, container_slice, item_slice) != null;
+    } else blk: {
+        // Element search for other containers
         for (container) |elem| {
             if (elem == item) break :blk true;
         }
@@ -258,8 +285,35 @@ pub fn assertIn(item: anytype, container: anytype) void {
 }
 
 /// Assertion: assertNotIn(item, container) - item must not be in container
+/// For string-in-string checks, this performs substring search
 pub fn assertNotIn(item: anytype, container: anytype) void {
-    const found = blk: {
+    const ItemType = @TypeOf(item);
+    const ContainerType = @TypeOf(container);
+
+    // Check if both are string slices - use substring search
+    const is_string_in_string = comptime blk: {
+        const item_info = @typeInfo(ItemType);
+        const container_info = @typeInfo(ContainerType);
+        if (item_info == .pointer and container_info == .pointer) {
+            const item_ptr = item_info.pointer;
+            const container_ptr = container_info.pointer;
+            // Check for []const u8 or *const [N]u8 patterns
+            const item_is_string = (item_ptr.size == .slice and item_ptr.child == u8) or
+                (item_ptr.size == .one and @typeInfo(item_ptr.child) == .array and @typeInfo(item_ptr.child).array.child == u8);
+            const container_is_string = (container_ptr.size == .slice and container_ptr.child == u8) or
+                (container_ptr.size == .one and @typeInfo(container_ptr.child) == .array and @typeInfo(container_ptr.child).array.child == u8);
+            break :blk item_is_string and container_is_string;
+        }
+        break :blk false;
+    };
+
+    const found = if (comptime is_string_in_string) blk: {
+        // Coerce pointer types to slices for std.mem.indexOf
+        const container_slice: []const u8 = container;
+        const item_slice: []const u8 = item;
+        break :blk std.mem.indexOf(u8, container_slice, item_slice) != null;
+    } else blk: {
+        // Element search for other containers
         for (container) |elem| {
             if (elem == item) break :blk true;
         }

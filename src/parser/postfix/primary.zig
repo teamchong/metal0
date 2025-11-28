@@ -563,9 +563,10 @@ fn parseTupleElement(self: *Parser) ParseError!ast.Node {
     return self.parseExpression();
 }
 
-/// Parse a comprehension target: single name or tuple of names (e.g., x or x, y)
+/// Parse a comprehension target: single name, subscript, or tuple of names (e.g., x or tgt[0] or x, y)
 fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
-    var first = try parsePrimary(self);
+    // Use parsePostfix to handle subscript targets like tgt[0]
+    var first = try parsePostfix(self);
     errdefer first.deinit(self.allocator);
 
     // Check if there are more targets (tuple unpacking)
@@ -586,7 +587,7 @@ fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
     while (self.check(.Comma) and !self.check(.In)) {
         _ = self.advance(); // consume comma
         if (self.check(.In)) break; // trailing comma before 'in'
-        var elem = try parsePrimary(self);
+        var elem = try parsePostfix(self);
         errdefer elem.deinit(self.allocator);
         try elts.append(self.allocator, elem);
     }

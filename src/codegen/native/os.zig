@@ -18,7 +18,7 @@ pub fn genGetcwd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Use Zig's std.process.getCwdAlloc, returns []const u8
-    try self.emit("(std.process.getCwdAlloc(allocator) catch \"\")");
+    try self.emit("(std.process.getCwdAlloc(__global_allocator) catch \"\")");
 }
 
 /// Generate code for os.chdir(path)

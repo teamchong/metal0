@@ -696,9 +696,9 @@ pub fn inferCall(
                     const DEDENT_HASH = comptime fnv_hash.hash("dedent");
                     const INDENT_HASH = comptime fnv_hash.hash("indent");
                     const SHORTEN_HASH = comptime fnv_hash.hash("shorten");
-                    // wrap returns list of strings (array type for .len support)
+                    // wrap returns list of strings (list type for .len support)
                     if (func_hash == WRAP_HASH) {
-                        return .{ .array = @constCast(&NativeType{ .string = .slice }) };
+                        return .{ .list = @constCast(&NativeType{ .string = .slice }) };
                     }
                     if (func_hash == FILL_HASH or func_hash == DEDENT_HASH or
                         func_hash == INDENT_HASH or func_hash == SHORTEN_HASH)

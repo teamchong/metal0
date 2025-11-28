@@ -36,7 +36,7 @@ pub fn genBisectLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("break :bisect_left_blk _lo;\n");
+    try self.emit("break :bisect_left_blk @as(i64, @intCast(_lo));\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
@@ -74,7 +74,7 @@ pub fn genBisectRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("break :bisect_right_blk _lo;\n");
+    try self.emit("break :bisect_right_blk @as(i64, @intCast(_lo));\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

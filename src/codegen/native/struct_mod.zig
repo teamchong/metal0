@@ -31,18 +31,12 @@ pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Pack each value according to format
     for (args[1..], 0..) |arg, i| {
         try self.emitIndent();
+        // Cast to i32 for the "i" format specifier to handle comptime_int
         try self.emit("const _val");
         try emitNum(self, i);
-        try self.emit(" = ");
+        try self.emit(": i32 = @intCast(");
         try self.genExpr(arg);
-        try self.emit(";\n");
-        try self.emitIndent();
-        try self.emit("if (@TypeOf(_val");
-        try emitNum(self, i);
-        try self.emit(") == i32 or @TypeOf(_val");
-        try emitNum(self, i);
-        try self.emit(") == i64) {\n");
-        self.indent();
+        try self.emit(");\n");
         try self.emitIndent();
         try self.emit("const _bytes = std.mem.asBytes(&_val");
         try emitNum(self, i);
@@ -51,9 +45,6 @@ pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("@memcpy(_buf[_pos..][0.._bytes.len], _bytes);\n");
         try self.emitIndent();
         try self.emit("_pos += _bytes.len;\n");
-        self.dedent();
-        try self.emitIndent();
-        try self.emit("}\n");
     }
 
     try self.emitIndent();

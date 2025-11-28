@@ -11,7 +11,7 @@ pub fn genPath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    try self.emit("try runtime.pathlib.Path.create(allocator, ");
+    try self.emit("try runtime.pathlib.Path.create(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(")");
 }

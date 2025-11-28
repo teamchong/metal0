@@ -4,10 +4,11 @@ const lexer = @import("../lexer.zig");
 const ParseError = @import("../parser.zig").ParseError;
 const Parser = @import("../parser.zig").Parser;
 
-/// Parse a comprehension target: single name or tuple of names (e.g., x or x, y)
-/// Returns a Name node for single target, or a Tuple node for multiple targets
+/// Parse a comprehension target: single name, subscript, or tuple of names (e.g., x or tgt[0] or x, y)
+/// Returns a Name/Subscript node for single target, or a Tuple node for multiple targets
 fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
-    var first = try self.parsePrimary();
+    // Use parsePostfix to handle subscript targets like tgt[0]
+    var first = try self.parsePostfix();
     errdefer first.deinit(self.allocator);
 
     // Check if there are more targets (tuple unpacking)
@@ -28,7 +29,7 @@ fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
     while (self.check(.Comma) and !self.check(.In)) {
         _ = self.advance(); // consume comma
         if (self.check(.In)) break; // trailing comma before 'in'
-        var elem = try self.parsePrimary();
+        var elem = try self.parsePostfix();
         errdefer elem.deinit(self.allocator);
         try elts.append(self.allocator, elem);
     }
