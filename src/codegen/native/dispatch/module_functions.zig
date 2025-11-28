@@ -60,6 +60,11 @@ const weakref_mod = @import("../weakref_mod.zig");
 const types_mod = @import("../types_mod.zig");
 const bisect_mod = @import("../bisect_mod.zig");
 const statistics_mod = @import("../statistics_mod.zig");
+const abc_mod = @import("../abc_mod.zig");
+const inspect_mod = @import("../inspect_mod.zig");
+const dataclasses_mod = @import("../dataclasses_mod.zig");
+const enum_mod = @import("../enum_mod.zig");
+const operator_mod = @import("../operator_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -959,6 +964,151 @@ const StatisticsFuncs = FuncMap.initComptime(.{
     .{ "StatisticsError", statistics_mod.genStatisticsError },
 });
 
+/// abc module functions
+const AbcFuncs = FuncMap.initComptime(.{
+    .{ "ABC", abc_mod.genABC },
+    .{ "ABCMeta", abc_mod.genABCMeta },
+    .{ "abstractmethod", abc_mod.genAbstractmethod },
+    .{ "abstractclassmethod", abc_mod.genAbstractclassmethod },
+    .{ "abstractstaticmethod", abc_mod.genAbstractstaticmethod },
+    .{ "abstractproperty", abc_mod.genAbstractproperty },
+    .{ "get_cache_token", abc_mod.genGetCacheToken },
+    .{ "update_abstractmethods", abc_mod.genUpdateAbstractmethods },
+});
+
+/// inspect module functions
+const InspectFuncs = FuncMap.initComptime(.{
+    .{ "isclass", inspect_mod.genIsclass },
+    .{ "isfunction", inspect_mod.genIsfunction },
+    .{ "ismethod", inspect_mod.genIsmethod },
+    .{ "ismodule", inspect_mod.genIsmodule },
+    .{ "isbuiltin", inspect_mod.genIsbuiltin },
+    .{ "isroutine", inspect_mod.genIsroutine },
+    .{ "isabstract", inspect_mod.genIsabstract },
+    .{ "isgenerator", inspect_mod.genIsgenerator },
+    .{ "iscoroutine", inspect_mod.genIscoroutine },
+    .{ "isasyncgen", inspect_mod.genIsasyncgen },
+    .{ "isdatadescriptor", inspect_mod.genIsdatadescriptor },
+    .{ "getmembers", inspect_mod.genGetmembers },
+    .{ "getmodule", inspect_mod.genGetmodule },
+    .{ "getfile", inspect_mod.genGetfile },
+    .{ "getsourcefile", inspect_mod.genGetsourcefile },
+    .{ "getsourcelines", inspect_mod.genGetsourcelines },
+    .{ "getsource", inspect_mod.genGetsource },
+    .{ "getdoc", inspect_mod.genGetdoc },
+    .{ "getcomments", inspect_mod.genGetcomments },
+    .{ "signature", inspect_mod.genSignature },
+    .{ "Parameter", inspect_mod.genParameter },
+    .{ "currentframe", inspect_mod.genCurrentframe },
+    .{ "stack", inspect_mod.genStack },
+    .{ "getargspec", inspect_mod.genGetargspec },
+    .{ "getfullargspec", inspect_mod.genGetfullargspec },
+    .{ "iscoroutinefunction", inspect_mod.genIscoroutinefunction },
+    .{ "isgeneratorfunction", inspect_mod.genIsgeneratorfunction },
+    .{ "isasyncgenfunction", inspect_mod.genIsasyncgenfunction },
+    .{ "getattr_static", inspect_mod.genGetattrStatic },
+    .{ "unwrap", inspect_mod.genUnwrap },
+});
+
+/// dataclasses module functions
+const DataclassesFuncs = FuncMap.initComptime(.{
+    .{ "dataclass", dataclasses_mod.genDataclass },
+    .{ "field", dataclasses_mod.genField },
+    .{ "Field", dataclasses_mod.genFieldClass },
+    .{ "fields", dataclasses_mod.genFields },
+    .{ "asdict", dataclasses_mod.genAsdict },
+    .{ "astuple", dataclasses_mod.genAstuple },
+    .{ "make_dataclass", dataclasses_mod.genMakeDataclass },
+    .{ "replace", dataclasses_mod.genReplace },
+    .{ "is_dataclass", dataclasses_mod.genIsDataclass },
+    .{ "MISSING", dataclasses_mod.genMISSING },
+    .{ "KW_ONLY", dataclasses_mod.genKW_ONLY },
+    .{ "FrozenInstanceError", dataclasses_mod.genFrozenInstanceError },
+});
+
+/// enum module functions
+const EnumFuncs = FuncMap.initComptime(.{
+    .{ "Enum", enum_mod.genEnum },
+    .{ "IntEnum", enum_mod.genIntEnum },
+    .{ "StrEnum", enum_mod.genStrEnum },
+    .{ "Flag", enum_mod.genFlag },
+    .{ "IntFlag", enum_mod.genIntFlag },
+    .{ "auto", enum_mod.genAuto },
+    .{ "unique", enum_mod.genUnique },
+    .{ "verify", enum_mod.genVerify },
+    .{ "member", enum_mod.genMember },
+    .{ "nonmember", enum_mod.genNonmember },
+    .{ "global_enum", enum_mod.genGlobalEnum },
+    .{ "EJECT", enum_mod.genEJECT },
+    .{ "KEEP", enum_mod.genKEEP },
+    .{ "STRICT", enum_mod.genSTRICT },
+    .{ "CONFORM", enum_mod.genCONFORM },
+    .{ "CONTINUOUS", enum_mod.genCONTINUOUS },
+    .{ "NAMED_FLAGS", enum_mod.genNAMED_FLAGS },
+    .{ "EnumType", enum_mod.genEnumType },
+    .{ "EnumCheck", enum_mod.genEnumCheck },
+    .{ "FlagBoundary", enum_mod.genFlagBoundary },
+    .{ "property", enum_mod.genProperty },
+});
+
+/// operator module functions
+const OperatorFuncs = FuncMap.initComptime(.{
+    .{ "add", operator_mod.genAdd },
+    .{ "sub", operator_mod.genSub },
+    .{ "mul", operator_mod.genMul },
+    .{ "truediv", operator_mod.genTruediv },
+    .{ "floordiv", operator_mod.genFloordiv },
+    .{ "mod", operator_mod.genMod },
+    .{ "pow", operator_mod.genPow },
+    .{ "neg", operator_mod.genNeg },
+    .{ "pos", operator_mod.genPos },
+    .{ "abs", operator_mod.genAbs },
+    .{ "invert", operator_mod.genInvert },
+    .{ "lshift", operator_mod.genLshift },
+    .{ "rshift", operator_mod.genRshift },
+    .{ "and_", operator_mod.genAnd },
+    .{ "or_", operator_mod.genOr },
+    .{ "xor", operator_mod.genXor },
+    .{ "not_", operator_mod.genNot },
+    .{ "truth", operator_mod.genTruth },
+    .{ "eq", operator_mod.genEq },
+    .{ "ne", operator_mod.genNe },
+    .{ "lt", operator_mod.genLt },
+    .{ "le", operator_mod.genLe },
+    .{ "gt", operator_mod.genGt },
+    .{ "ge", operator_mod.genGe },
+    .{ "is_", operator_mod.genIs },
+    .{ "is_not", operator_mod.genIsNot },
+    .{ "concat", operator_mod.genConcat },
+    .{ "contains", operator_mod.genContains },
+    .{ "countOf", operator_mod.genCountOf },
+    .{ "indexOf", operator_mod.genIndexOf },
+    .{ "getitem", operator_mod.genGetitem },
+    .{ "setitem", operator_mod.genSetitem },
+    .{ "delitem", operator_mod.genDelitem },
+    .{ "length_hint", operator_mod.genLengthHint },
+    .{ "attrgetter", operator_mod.genAttrgetter },
+    .{ "itemgetter", operator_mod.genItemgetter },
+    .{ "methodcaller", operator_mod.genMethodcaller },
+    .{ "matmul", operator_mod.genMatmul },
+    .{ "index", operator_mod.genIndex },
+    .{ "iadd", operator_mod.genIadd },
+    .{ "isub", operator_mod.genIsub },
+    .{ "imul", operator_mod.genImul },
+    .{ "itruediv", operator_mod.genItruediv },
+    .{ "ifloordiv", operator_mod.genIfloordiv },
+    .{ "imod", operator_mod.genImod },
+    .{ "ipow", operator_mod.genIpow },
+    .{ "ilshift", operator_mod.genIlshift },
+    .{ "irshift", operator_mod.genIrshift },
+    .{ "iand", operator_mod.genIand },
+    .{ "ior", operator_mod.genIor },
+    .{ "ixor", operator_mod.genIxor },
+    .{ "iconcat", operator_mod.genIconcat },
+    .{ "imatmul", operator_mod.genImatmul },
+    .{ "__call__", operator_mod.genCall },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -1035,6 +1185,11 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "types", TypesFuncs },
     .{ "bisect", BisectFuncs },
     .{ "statistics", StatisticsFuncs },
+    .{ "abc", AbcFuncs },
+    .{ "inspect", InspectFuncs },
+    .{ "dataclasses", DataclassesFuncs },
+    .{ "enum", EnumFuncs },
+    .{ "operator", OperatorFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
