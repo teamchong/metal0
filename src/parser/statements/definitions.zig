@@ -391,6 +391,7 @@ pub fn parseFunctionDef(self: *Parser) ParseError!ast.Node {
             next_tok.type == .Break or
             next_tok.type == .Continue or
             next_tok.type == .Raise or
+            next_tok.type == .Yield or // async def _ag(): yield
             next_tok.type == .Ident; // for assignments and expressions like self.x = v
 
         if (is_oneliner) {

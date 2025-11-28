@@ -53,6 +53,8 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         try targets_list.append(self.allocator, expr);
 
         while (self.match(.Comma)) {
+            // Check for trailing comma before =
+            if (self.check(.Eq)) break;
             var target = try parseAssignTarget(self);
             errdefer target.deinit(self.allocator);
             try targets_list.append(self.allocator, target);
@@ -60,11 +62,24 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
 
         if (!self.match(.Eq)) return error.UnexpectedToken;
 
+        // Create tuple from targets
+        const targets_array = try targets_list.toOwnedSlice(self.allocator);
+        targets_list = std.ArrayList(ast.Node){};
+        const tuple_target = ast.Node{ .tuple = .{ .elts = targets_array } };
+
+        // Collect all assignment targets for chained assignment (ka, va = ta = expr)
+        var all_targets = std.ArrayList(ast.Node){};
+        errdefer {
+            for (all_targets.items) |*t| t.deinit(self.allocator);
+            all_targets.deinit(self.allocator);
+        }
+        try all_targets.append(self.allocator, tuple_target);
+
         var first_value = try self.parseExpression();
         errdefer first_value.deinit(self.allocator);
 
-        // Check if value side is also a tuple
-        var value = if (self.check(.Comma)) blk: {
+        // Check if value side is also a tuple (only if no chained assignment)
+        var value = if (self.check(.Comma) and !self.check(.Eq)) blk: {
             var value_list = std.ArrayList(ast.Node){};
             errdefer {
                 for (value_list.items) |*v| v.deinit(self.allocator);
@@ -73,6 +88,7 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
             try value_list.append(self.allocator, first_value);
 
             while (self.match(.Comma)) {
+                if (self.check(.Eq)) break;
                 var val = try self.parseExpression();
                 errdefer val.deinit(self.allocator);
                 try value_list.append(self.allocator, val);
@@ -84,12 +100,18 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         } else first_value;
         errdefer value.deinit(self.allocator);
 
+        // Handle chained assignment: ka, va = ta = expr
+        while (self.match(.Eq)) {
+            // Current value is actually another target
+            try all_targets.append(self.allocator, value);
+            // Parse the next value
+            value = try self.parseExpression();
+        }
+
         _ = self.expect(.Newline) catch {};
 
-        const targets_array = try targets_list.toOwnedSlice(self.allocator);
-        targets_list = std.ArrayList(ast.Node){};
-        var targets = try self.allocator.alloc(ast.Node, 1);
-        targets[0] = ast.Node{ .tuple = .{ .elts = targets_array } };
+        const targets = try all_targets.toOwnedSlice(self.allocator);
+        all_targets = std.ArrayList(ast.Node){};
 
         return ast.Node{
             .assign = .{ .targets = targets, .value = try self.allocNode(value) },

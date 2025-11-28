@@ -4,7 +4,7 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate collections.Counter(iterable?) 
+/// Generate collections.Counter(iterable?)
 /// Counter is a dict subclass for counting hashable objects
 pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Counter() -> empty dict, Counter(iterable) -> count elements
@@ -12,14 +12,15 @@ pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     self.indent();
     try self.emitIndent();
     try self.emit("var _counter = hashmap_helper.StringHashMap(i64).init(allocator);\n");
-    
+
     if (args.len > 0) {
         try self.emitIndent();
         try self.emit("const _iterable = ");
         try self.genExpr(args[0]);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.emit("for (_iterable.items) |item| {\n");
+        // Use direct iteration - works for both arrays and ArrayList.items
+        try self.emit("for (_iterable) |item| {\n");
         self.indent();
         try self.emitIndent();
         try self.emit("const entry = _counter.getOrPut(allocator, item) catch continue;\n");
@@ -29,7 +30,7 @@ pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitIndent();
         try self.emit("}\n");
     }
-    
+
     try self.emitIndent();
     try self.emit("break :counter_blk _counter;\n");
     self.dedent();
@@ -53,14 +54,15 @@ pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     self.indent();
     try self.emitIndent();
     try self.emit("var _deque = std.ArrayList(i64).init(allocator);\n");
-    
+
     if (args.len > 0) {
         try self.emitIndent();
         try self.emit("const _iterable = ");
         try self.genExpr(args[0]);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.emit("for (_iterable.items) |item| {\n");
+        // Use direct iteration - works for both arrays and ArrayList.items
+        try self.emit("for (_iterable) |item| {\n");
         self.indent();
         try self.emitIndent();
         try self.emit("_deque.append(allocator, item) catch continue;\n");
@@ -68,7 +70,7 @@ pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitIndent();
         try self.emit("}\n");
     }
-    
+
     try self.emitIndent();
     try self.emit("break :deque_blk _deque;\n");
     self.dedent();

@@ -383,6 +383,21 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                 if (std.mem.eql(u8, func_name, "print")) {
                     analysis.needs_std = true;
                 }
+
+                // collections module functions need hashmap_helper
+                if (std.mem.eql(u8, func_name, "Counter") or
+                    std.mem.eql(u8, func_name, "defaultdict") or
+                    std.mem.eql(u8, func_name, "OrderedDict"))
+                {
+                    analysis.needs_hashmap_helper = true;
+                    analysis.needs_allocator = true;
+                }
+
+                // collections.deque needs std ArrayList
+                if (std.mem.eql(u8, func_name, "deque")) {
+                    analysis.needs_std = true;
+                    analysis.needs_allocator = true;
+                }
             }
 
             // Analyze function arguments

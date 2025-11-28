@@ -87,6 +87,14 @@ const StreamMethods = std.StaticStringMap(void).initComptime(.{
     .{ "close", {} },
 });
 
+// HashObject methods (hashlib.md5(), sha256(), etc.) - O(1) lookup
+const HashMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "update", {} },
+    .{ "digest", {} },
+    .{ "hexdigest", {} },
+    .{ "copy", {} },
+});
+
 // Pandas column methods - O(1) lookup via StaticStringMap
 const PandasColumnMethods = std.StaticStringMap(ColumnHandler).initComptime(.{
     .{ "sum", pandas_mod.genColumnSum },
@@ -193,6 +201,16 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             // File methods (PyFile)
             if (FileMethods.get(method_name)) |handler| {
                 try handler(self, obj, call.args);
+                return true;
+            }
+        }
+    }
+
+    // HashObject methods (hashlib hash objects)
+    if (HashMethods.has(method_name)) {
+        const obj_type = self.type_inferrer.inferExpr(obj) catch .unknown;
+        if (obj_type == .hash_object) {
+            if (try handleHashMethod(self, method_name, obj, call.args)) {
                 return true;
             }
         }
@@ -389,6 +407,52 @@ fn handleStreamMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.No
     } else if (method_hash == CLOSE) {
         try self.emit(receiver);
         try self.emit(".close()");
+    } else {
+        return false;
+    }
+    return true;
+}
+
+/// Handle HashObject methods (update, digest, hexdigest, copy)
+fn handleHashMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.Node, args: []ast.Node) CodegenError!bool {
+    const parent = @import("../expressions.zig");
+
+    // Generate receiver expression once
+    var receiver_buf = std.ArrayList(u8){};
+    defer receiver_buf.deinit(self.allocator);
+    const saved_output = self.output;
+    self.output = receiver_buf;
+    try parent.genExpr(self, obj);
+    const receiver = try self.output.toOwnedSlice(self.allocator);
+    defer self.allocator.free(receiver);
+    self.output = saved_output;
+
+    const fnv = @import("fnv_hash");
+    const UPDATE = comptime fnv.hash("update");
+    const DIGEST = comptime fnv.hash("digest");
+    const HEXDIGEST = comptime fnv.hash("hexdigest");
+    const COPY = comptime fnv.hash("copy");
+
+    const method_hash = fnv.hash(method_name);
+    if (method_hash == UPDATE) {
+        // h.update(data) - modifies in place
+        try self.emit(receiver);
+        try self.emit(".update(");
+        if (args.len > 0) try parent.genExpr(self, args[0]);
+        try self.emit(")");
+    } else if (method_hash == DIGEST) {
+        // h.digest() - returns bytes
+        try self.emit(receiver);
+        try self.emit(".digest()");
+    } else if (method_hash == HEXDIGEST) {
+        // h.hexdigest(allocator) - returns hex string
+        try self.emit("try ");
+        try self.emit(receiver);
+        try self.emit(".hexdigest(allocator)");
+    } else if (method_hash == COPY) {
+        // h.copy() - returns a copy
+        try self.emit(receiver);
+        try self.emit(".copy()");
     } else {
         return false;
     }

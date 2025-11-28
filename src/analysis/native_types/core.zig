@@ -76,6 +76,7 @@ pub const NativeType = union(enum) {
     stringio: void, // io.StringIO in-memory text stream
     bytesio: void, // io.BytesIO in-memory binary stream
     file: void, // File object from open()
+    hash_object: void, // hashlib hash object (md5, sha256, etc.)
 
     /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
@@ -216,6 +217,7 @@ pub const NativeType = union(enum) {
             .stringio => try buf.appendSlice(allocator, "*runtime.io.StringIO"),
             .bytesio => try buf.appendSlice(allocator, "*runtime.io.BytesIO"),
             .file => try buf.appendSlice(allocator, "*runtime.PyFile"),
+            .hash_object => try buf.appendSlice(allocator, "hashlib.HashObject"),
         }
     }
 
@@ -251,8 +253,8 @@ pub const NativeType = union(enum) {
             (self_tag == .float and other_tag == .usize)) return .float;
 
         // IO types stay as their own types (no widening)
-        if (self_tag == .stringio or self_tag == .bytesio or self_tag == .file) return self;
-        if (other_tag == .stringio or other_tag == .bytesio or other_tag == .file) return other;
+        if (self_tag == .stringio or self_tag == .bytesio or self_tag == .file or self_tag == .hash_object) return self;
+        if (other_tag == .stringio or other_tag == .bytesio or other_tag == .file or other_tag == .hash_object) return other;
 
         // Different incompatible types → fallback to unknown
         return .unknown;

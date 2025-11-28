@@ -225,6 +225,20 @@ pub const Lexer = struct {
                 continue;
             }
 
+            // Raw f-strings: fr"" or rf"" (check before f"" and r"")
+            if ((c == 'f' and self.peekAhead(1) == 'r') or (c == 'r' and self.peekAhead(1) == 'f')) {
+                const quote = self.peekAhead(2);
+                if (quote == '"' or quote == '\'') {
+                    _ = self.advance(); // consume first prefix
+                    _ = self.advance(); // consume second prefix
+                    // For raw f-strings, we treat them as regular f-strings
+                    // The raw aspect (no escape processing) is handled in fstring parsing
+                    const token = try self.tokenizeFString(start, start_column);
+                    try tokens.append(self.allocator, token);
+                    continue;
+                }
+            }
+
             // F-strings (check before identifiers)
             if (c == 'f' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
                 _ = self.advance(); // consume 'f'

@@ -121,6 +121,9 @@ pub fn parseImportFrom(self: *Parser) ParseError!ast.Node {
     while (true) {
         _ = self.match(.Newline); // Skip leading newlines (for multiline)
 
+        // Check for trailing comma: from foo import (a, b,) - RParen after comma
+        if (has_parens and self.check(.RParen)) break;
+
         const name_tok = try self.expect(.Ident);
         try names.append(self.allocator, name_tok.lexeme);
 

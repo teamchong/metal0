@@ -75,6 +75,12 @@ const platform_mod = @import("../platform_mod.zig");
 const locale_mod = @import("../locale_mod.zig");
 const codecs_mod = @import("../codecs_mod.zig");
 const shelve_mod = @import("../shelve_mod.zig");
+const cmath_mod = @import("../cmath_mod.zig");
+const array_mod = @import("../array_mod.zig");
+const difflib_mod = @import("../difflib_mod.zig");
+const filecmp_mod = @import("../filecmp_mod.zig");
+const graphlib_mod = @import("../graphlib_mod.zig");
+const numbers_mod = @import("../numbers_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -1310,6 +1316,86 @@ const ShelveFuncs = FuncMap.initComptime(.{
     .{ "DbfilenameShelf", shelve_mod.genDbfilenameShelf },
 });
 
+/// cmath module functions (complex math)
+const CmathFuncs = FuncMap.initComptime(.{
+    .{ "sqrt", cmath_mod.genSqrt },
+    .{ "exp", cmath_mod.genExp },
+    .{ "log", cmath_mod.genLog },
+    .{ "log10", cmath_mod.genLog10 },
+    .{ "sin", cmath_mod.genSin },
+    .{ "cos", cmath_mod.genCos },
+    .{ "tan", cmath_mod.genTan },
+    .{ "asin", cmath_mod.genAsin },
+    .{ "acos", cmath_mod.genAcos },
+    .{ "atan", cmath_mod.genAtan },
+    .{ "sinh", cmath_mod.genSinh },
+    .{ "cosh", cmath_mod.genCosh },
+    .{ "tanh", cmath_mod.genTanh },
+    .{ "asinh", cmath_mod.genAsinh },
+    .{ "acosh", cmath_mod.genAcosh },
+    .{ "atanh", cmath_mod.genAtanh },
+    .{ "phase", cmath_mod.genPhase },
+    .{ "polar", cmath_mod.genPolar },
+    .{ "rect", cmath_mod.genRect },
+    .{ "isfinite", cmath_mod.genIsfinite },
+    .{ "isinf", cmath_mod.genIsinf },
+    .{ "isnan", cmath_mod.genIsnan },
+    .{ "isclose", cmath_mod.genIsclose },
+    .{ "pi", cmath_mod.genPi },
+    .{ "e", cmath_mod.genE },
+    .{ "tau", cmath_mod.genTau },
+    .{ "inf", cmath_mod.genInf },
+    .{ "infj", cmath_mod.genInfj },
+    .{ "nan", cmath_mod.genNan },
+    .{ "nanj", cmath_mod.genNanj },
+});
+
+/// array module functions
+const ArrayFuncs = FuncMap.initComptime(.{
+    .{ "array", array_mod.genArray },
+    .{ "typecodes", array_mod.genTypecodes },
+    .{ "ArrayType", array_mod.genArrayType },
+});
+
+/// difflib module functions
+const DifflibFuncs = FuncMap.initComptime(.{
+    .{ "SequenceMatcher", difflib_mod.genSequenceMatcher },
+    .{ "Differ", difflib_mod.genDiffer },
+    .{ "HtmlDiff", difflib_mod.genHtmlDiff },
+    .{ "get_close_matches", difflib_mod.genGetCloseMatches },
+    .{ "unified_diff", difflib_mod.genUnifiedDiff },
+    .{ "context_diff", difflib_mod.genContextDiff },
+    .{ "ndiff", difflib_mod.genNdiff },
+    .{ "restore", difflib_mod.genRestore },
+    .{ "IS_LINE_JUNK", difflib_mod.genIsLineJunk },
+    .{ "IS_CHARACTER_JUNK", difflib_mod.genIsCharacterJunk },
+    .{ "diff_bytes", difflib_mod.genDiffBytes },
+});
+
+/// filecmp module functions
+const FilecmpFuncs = FuncMap.initComptime(.{
+    .{ "cmp", filecmp_mod.genCmp },
+    .{ "cmpfiles", filecmp_mod.genCmpfiles },
+    .{ "dircmp", filecmp_mod.genDircmp },
+    .{ "clear_cache", filecmp_mod.genClearCache },
+    .{ "DEFAULT_IGNORES", filecmp_mod.genDEFAULT_IGNORES },
+});
+
+/// graphlib module functions
+const GraphlibFuncs = FuncMap.initComptime(.{
+    .{ "TopologicalSorter", graphlib_mod.genTopologicalSorter },
+    .{ "CycleError", graphlib_mod.genCycleError },
+});
+
+/// numbers module functions (numeric ABCs)
+const NumbersFuncs = FuncMap.initComptime(.{
+    .{ "Number", numbers_mod.genNumber },
+    .{ "Complex", numbers_mod.genComplex },
+    .{ "Real", numbers_mod.genReal },
+    .{ "Rational", numbers_mod.genRational },
+    .{ "Integral", numbers_mod.genIntegral },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -1401,6 +1487,12 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "locale", LocaleFuncs },
     .{ "codecs", CodecsFuncs },
     .{ "shelve", ShelveFuncs },
+    .{ "cmath", CmathFuncs },
+    .{ "array", ArrayFuncs },
+    .{ "difflib", DifflibFuncs },
+    .{ "filecmp", FilecmpFuncs },
+    .{ "graphlib", GraphlibFuncs },
+    .{ "numbers", NumbersFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)
