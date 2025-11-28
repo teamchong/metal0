@@ -91,6 +91,7 @@ fn parseListElement(self: *Parser) ParseError!ast.Node {
 }
 
 /// Parse list comprehension: [x for x in items if cond] or [x*y for x in range(3) for y in range(3)]
+/// Also handles async comprehensions: [x async for x in aiter]
 pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
     // We've already parsed the element expression
     // Now parse one or more: for <target> in <iter> [if <condition>]
@@ -110,8 +111,12 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
         generators.deinit(self.allocator);
     }
 
-    // Parse all "for ... in ..." clauses
-    while (self.match(.For)) {
+    // Parse all "for ... in ..." or "async for ... in ..." clauses
+    while (self.check(.For) or self.check(.Async)) {
+        // Handle async for
+        _ = self.match(.Async);
+        if (!self.match(.For)) break;
+
         // Parse target (name or tuple of names for unpacking)
         var target = try parseComprehensionTarget(self);
         errdefer target.deinit(self.allocator);
@@ -127,7 +132,7 @@ pub fn parseListComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
             ifs.deinit(self.allocator);
         }
 
-        while (self.check(.If) and !self.check(.For)) {
+        while (self.check(.If) and !self.check(.For) and !self.check(.Async)) {
             _ = self.advance();
             // Use parseOrExpr so nested 'if' doesn't get consumed as ternary
             var cond = try self.parseOrExpr();
@@ -303,6 +308,7 @@ pub fn parseDict(self: *Parser) ParseError!ast.Node {
 }
 
 /// Parse dict comprehension: {k: v for k in items if cond} or {k: v for x in range(3) for y in range(3)}
+/// Also handles async: {k: v async for k in aiter}
 pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!ast.Node {
     // We've already parsed the key and value expressions
     // Now parse one or more: for <target> in <iter> [if <condition>]
@@ -324,8 +330,11 @@ pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!a
         generators.deinit(self.allocator);
     }
 
-    // Parse all "for ... in ..." clauses
-    while (self.match(.For)) {
+    // Parse all "for ... in ..." or "async for ... in ..." clauses
+    while (self.check(.For) or self.check(.Async)) {
+        _ = self.match(.Async);
+        if (!self.match(.For)) break;
+
         // Parse target (name or tuple of names for unpacking)
         var target = try parseComprehensionTarget(self);
         errdefer target.deinit(self.allocator);
@@ -341,7 +350,7 @@ pub fn parseDictComp(self: *Parser, key: ast.Node, value: ast.Node) ParseError!a
             ifs.deinit(self.allocator);
         }
 
-        while (self.check(.If) and !self.check(.For)) {
+        while (self.check(.If) and !self.check(.For) and !self.check(.Async)) {
             _ = self.advance();
             // Use parseOrExpr so nested 'if' doesn't get consumed as ternary
             var cond = try self.parseOrExpr();
@@ -395,8 +404,11 @@ pub fn parseSetComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
         generators.deinit(self.allocator);
     }
 
-    // Parse all "for ... in ..." clauses
-    while (self.match(.For)) {
+    // Parse all "for ... in ..." or "async for ... in ..." clauses
+    while (self.check(.For) or self.check(.Async)) {
+        _ = self.match(.Async);
+        if (!self.match(.For)) break;
+
         // Parse target (name or tuple of names for unpacking)
         var target = try parseComprehensionTarget(self);
         errdefer target.deinit(self.allocator);
@@ -413,7 +425,8 @@ pub fn parseSetComp(self: *Parser, elt: ast.Node) ParseError!ast.Node {
             ifs.deinit(self.allocator);
         }
 
-        while (self.match(.If)) {
+        while (self.check(.If) and !self.check(.For) and !self.check(.Async)) {
+            _ = self.advance();
             var cond = try self.parseExpression();
             errdefer cond.deinit(self.allocator);
             try ifs.append(self.allocator, cond);

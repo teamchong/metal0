@@ -616,7 +616,11 @@ fn parseParenthesizedGenExpr(self: *Parser, element: ast.Node) ParseError!ast.No
         generators.deinit(self.allocator);
     }
 
-    while (self.match(.For)) {
+    // Parse all "for ... in ..." or "async for ... in ..." clauses
+    while (self.check(.For) or self.check(.Async)) {
+        _ = self.match(.Async);
+        if (!self.match(.For)) break;
+
         var target = try parseComprehensionTarget(self);
         errdefer target.deinit(self.allocator);
 
@@ -631,7 +635,7 @@ fn parseParenthesizedGenExpr(self: *Parser, element: ast.Node) ParseError!ast.No
             ifs.deinit(self.allocator);
         }
 
-        while (self.check(.If) and !self.check(.For)) {
+        while (self.check(.If) and !self.check(.For) and !self.check(.Async)) {
             _ = self.advance();
             var cond = try self.parseOrExpr();
             errdefer cond.deinit(self.allocator);
