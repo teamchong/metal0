@@ -36,6 +36,8 @@ pub const FunctionMeta = struct {
     no_alloc: bool = false,
     /// Function returns error union (needs try)
     returns_error: bool = false,
+    /// Function returns optional (needs orelse or if check)
+    returns_optional: bool = false,
 };
 
 /// Information about how to import a Python module
@@ -178,6 +180,16 @@ const MathFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
     .{ "erfc", PureFn },   .{ "gamma", PureFn },      .{ "lgamma", PureFn },
 });
 
+/// re module: regex functions that return optionals (match can fail)
+const OptionalFn = FunctionMeta{ .no_alloc = false, .returns_error = true, .returns_optional = true };
+const ReFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
+    .{ "match", OptionalFn },
+    .{ "search", OptionalFn },
+    .{ "compile", FunctionMeta{ .no_alloc = false, .returns_error = true } },
+    .{ "sub", FunctionMeta{ .no_alloc = false, .returns_error = true } },
+    .{ "findall", FunctionMeta{ .no_alloc = false, .returns_error = true } },
+});
+
 // ============================================================================
 // Registry initialization
 // ============================================================================
@@ -191,7 +203,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("json", .zig_runtime, "runtime.json", null);
     try registry.register("http", .zig_runtime, "runtime.http", null);
     try registry.register("asyncio", .zig_runtime, "runtime.async", null);
-    try registry.register("re", .zig_runtime, "runtime.re", null);
+    try registry.registerWithMeta("re", .zig_runtime, "runtime.re", null, false, &ReFuncMeta);
     try registry.registerWithMeta("sys", .zig_runtime, "runtime.sys", null, false, &SysFuncMeta);
     try registry.registerWithMeta("time", .zig_runtime, "runtime.time", null, false, &TimeFuncMeta);
     try registry.registerWithMeta("math", .zig_runtime, "runtime.math", null, false, &MathFuncMeta);
