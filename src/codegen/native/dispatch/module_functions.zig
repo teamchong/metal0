@@ -50,6 +50,10 @@ const threading_mod = @import("../threading_mod.zig");
 const queue_mod = @import("../queue_mod.zig");
 const html_mod = @import("../html_mod.zig");
 const urllib_mod = @import("../urllib_mod.zig");
+const xml_mod = @import("../xml_mod.zig");
+const decimal_mod = @import("../decimal_mod.zig");
+const fractions_mod = @import("../fractions_mod.zig");
+const email_mod = @import("../email_mod.zig");
 
 /// Handler function type for module dispatchers
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -750,6 +754,89 @@ const UrllibParseFuncs = FuncMap.initComptime(.{
     .{ "parse_qsl", urllib_mod.genParseQsl },
 });
 
+/// xml.etree.ElementTree module functions
+const XmlEtreeFuncs = FuncMap.initComptime(.{
+    .{ "parse", xml_mod.genParse },
+    .{ "fromstring", xml_mod.genFromstring },
+    .{ "tostring", xml_mod.genTostring },
+    .{ "Element", xml_mod.genElement },
+    .{ "SubElement", xml_mod.genSubElement },
+    .{ "ElementTree", xml_mod.genElementTree },
+    .{ "Comment", xml_mod.genComment },
+    .{ "ProcessingInstruction", xml_mod.genProcessingInstruction },
+    .{ "QName", xml_mod.genQName },
+    .{ "indent", xml_mod.genIndent },
+    .{ "dump", xml_mod.genDump },
+    .{ "iselement", xml_mod.genIselement },
+});
+
+/// decimal module functions
+const DecimalFuncs = FuncMap.initComptime(.{
+    .{ "Decimal", decimal_mod.genDecimal },
+    .{ "getcontext", decimal_mod.genGetcontext },
+    .{ "setcontext", decimal_mod.genSetcontext },
+    .{ "localcontext", decimal_mod.genLocalcontext },
+    .{ "BasicContext", decimal_mod.genBasicContext },
+    .{ "ExtendedContext", decimal_mod.genExtendedContext },
+    .{ "DefaultContext", decimal_mod.genDefaultContext },
+    .{ "ROUND_CEILING", decimal_mod.genROUND_CEILING },
+    .{ "ROUND_DOWN", decimal_mod.genROUND_DOWN },
+    .{ "ROUND_FLOOR", decimal_mod.genROUND_FLOOR },
+    .{ "ROUND_HALF_DOWN", decimal_mod.genROUND_HALF_DOWN },
+    .{ "ROUND_HALF_EVEN", decimal_mod.genROUND_HALF_EVEN },
+    .{ "ROUND_HALF_UP", decimal_mod.genROUND_HALF_UP },
+    .{ "ROUND_UP", decimal_mod.genROUND_UP },
+    .{ "ROUND_05UP", decimal_mod.genROUND_05UP },
+    .{ "DecimalException", decimal_mod.genDecimalException },
+    .{ "InvalidOperation", decimal_mod.genInvalidOperation },
+    .{ "DivisionByZero", decimal_mod.genDivisionByZero },
+    .{ "Overflow", decimal_mod.genOverflow },
+    .{ "Underflow", decimal_mod.genUnderflow },
+    .{ "Inexact", decimal_mod.genInexact },
+    .{ "Rounded", decimal_mod.genRounded },
+    .{ "Subnormal", decimal_mod.genSubnormal },
+    .{ "FloatOperation", decimal_mod.genFloatOperation },
+    .{ "Clamped", decimal_mod.genClamped },
+});
+
+/// fractions module functions
+const FractionsFuncs = FuncMap.initComptime(.{
+    .{ "Fraction", fractions_mod.genFraction },
+    .{ "gcd", fractions_mod.genGcd },
+});
+
+/// email module functions
+const EmailMessageFuncs = FuncMap.initComptime(.{
+    .{ "EmailMessage", email_mod.genEmailMessage },
+    .{ "Message", email_mod.genMessage },
+});
+
+/// email.mime.text module functions
+const EmailMimeTextFuncs = FuncMap.initComptime(.{
+    .{ "MIMEText", email_mod.genMIMEText },
+});
+
+/// email.mime.multipart module functions
+const EmailMimeMultipartFuncs = FuncMap.initComptime(.{
+    .{ "MIMEMultipart", email_mod.genMIMEMultipart },
+});
+
+/// email.mime.base module functions
+const EmailMimeBaseFuncs = FuncMap.initComptime(.{
+    .{ "MIMEBase", email_mod.genMIMEBase },
+    .{ "MIMEApplication", email_mod.genMIMEApplication },
+    .{ "MIMEImage", email_mod.genMIMEImage },
+    .{ "MIMEAudio", email_mod.genMIMEAudio },
+});
+
+/// email.utils module functions
+const EmailUtilsFuncs = FuncMap.initComptime(.{
+    .{ "formataddr", email_mod.genFormataddr },
+    .{ "parseaddr", email_mod.genParseaddr },
+    .{ "formatdate", email_mod.genFormatdate },
+    .{ "make_msgid", email_mod.genMakeMsgid },
+});
+
 /// Module to function map lookup
 const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", JsonFuncs },
@@ -808,6 +895,18 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "queue", QueueFuncs },
     .{ "html", HtmlFuncs },
     .{ "urllib.parse", UrllibParseFuncs },
+    .{ "xml.etree.ElementTree", XmlEtreeFuncs },
+    .{ "ET", XmlEtreeFuncs },
+    .{ "decimal", DecimalFuncs },
+    .{ "fractions", FractionsFuncs },
+    .{ "email.message", EmailMessageFuncs },
+    .{ "email.mime.text", EmailMimeTextFuncs },
+    .{ "email.mime.multipart", EmailMimeMultipartFuncs },
+    .{ "email.mime.base", EmailMimeBaseFuncs },
+    .{ "email.mime.application", EmailMimeBaseFuncs },
+    .{ "email.mime.image", EmailMimeBaseFuncs },
+    .{ "email.mime.audio", EmailMimeBaseFuncs },
+    .{ "email.utils", EmailUtilsFuncs },
 });
 
 /// Try to dispatch module function call (e.g., json.loads, numpy.array)

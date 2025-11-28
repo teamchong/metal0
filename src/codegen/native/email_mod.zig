@@ -1,0 +1,175 @@
+/// Python email module - Email handling
+const std = @import("std");
+const ast = @import("ast");
+const CodegenError = @import("main.zig").CodegenError;
+const NativeCodegen = @import("main.zig").NativeCodegen;
+
+/// Generate email.message.EmailMessage() -> EmailMessage
+pub fn genEmailMessage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("struct {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("headers: hashmap_helper.StringHashMap([]const u8),\n");
+    try self.emitIndent();
+    try self.emit("body: []const u8 = \"\",\n");
+    try self.emitIndent();
+    try self.emit("pub fn init() @This() {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("return @This(){ .headers = hashmap_helper.StringHashMap([]const u8).init(allocator) };\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+    try self.emitIndent();
+    try self.emit("pub fn set_content(self: *@This(), content: []const u8) void { self.body = content; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn get_content(self: *@This()) []const u8 { return self.body; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn get_body(self: *@This()) []const u8 { return self.body; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn as_string(self: *@This()) []const u8 { return self.body; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn get(self: *@This(), name: []const u8) ?[]const u8 { return self.headers.get(name); }\n");
+    try self.emitIndent();
+    try self.emit("pub fn set(self: *@This(), name: []const u8, value: []const u8) void { self.headers.put(name, value) catch {}; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn add_header(self: *@This(), name: []const u8, value: []const u8) void { self.set(name, value); }\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}.init()");
+}
+
+/// Generate email.message.Message() -> Message (legacy)
+pub fn genMessage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try genEmailMessage(self, args);
+}
+
+/// Generate email.mime.text.MIMEText(text, subtype='plain') -> MIMEText
+pub fn genMIMEText(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("struct { body: []const u8 = \"\", subtype: []const u8 = \"plain\" }{}");
+        return;
+    }
+
+    try self.emit("struct {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("body: []const u8,\n");
+    try self.emitIndent();
+    try self.emit("subtype: []const u8 = \"plain\",\n");
+    try self.emitIndent();
+    try self.emit("headers: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(allocator),\n");
+    try self.emitIndent();
+    try self.emit("pub fn as_string(self: *@This()) []const u8 { return self.body; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn get(self: *@This(), name: []const u8) ?[]const u8 { return self.headers.get(name); }\n");
+    try self.emitIndent();
+    try self.emit("pub fn set(self: *@This(), name: []const u8, value: []const u8) void { self.headers.put(name, value) catch {}; }\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}{ .body = ");
+    try self.genExpr(args[0]);
+    try self.emit(" }");
+}
+
+/// Generate email.mime.multipart.MIMEMultipart(subtype='mixed') -> MIMEMultipart
+pub fn genMIMEMultipart(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("struct {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("subtype: []const u8 = \"mixed\",\n");
+    try self.emitIndent();
+    try self.emit("parts: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(allocator),\n");
+    try self.emitIndent();
+    try self.emit("headers: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(allocator),\n");
+    try self.emitIndent();
+    try self.emit("pub fn attach(self: *@This(), part: anytype) void { self.parts.append(allocator, part.as_string()) catch {}; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn as_string(self: *@This()) []const u8 {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("var result = std.ArrayList(u8).init(allocator);\n");
+    try self.emitIndent();
+    try self.emit("for (self.parts.items) |p| result.appendSlice(allocator, p) catch {};\n");
+    try self.emitIndent();
+    try self.emit("return result.items;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+    try self.emitIndent();
+    try self.emit("pub fn get(self: *@This(), name: []const u8) ?[]const u8 { return self.headers.get(name); }\n");
+    try self.emitIndent();
+    try self.emit("pub fn set(self: *@This(), name: []const u8, value: []const u8) void { self.headers.put(name, value) catch {}; }\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}{}");
+}
+
+/// Generate email.mime.base.MIMEBase(maintype, subtype) -> MIMEBase
+pub fn genMIMEBase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("struct {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("maintype: []const u8 = \"application\",\n");
+    try self.emitIndent();
+    try self.emit("subtype: []const u8 = \"octet-stream\",\n");
+    try self.emitIndent();
+    try self.emit("payload: []const u8 = \"\",\n");
+    try self.emitIndent();
+    try self.emit("pub fn set_payload(self: *@This(), data: []const u8) void { self.payload = data; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn get_payload(self: *@This()) []const u8 { return self.payload; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn add_header(self: *@This(), name: []const u8, value: []const u8) void { _ = self; _ = name; _ = value; }\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}{}");
+}
+
+/// Generate email.mime.application.MIMEApplication(data) -> MIMEApplication
+pub fn genMIMEApplication(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("struct { payload: []const u8 = \"\" }{}");
+        return;
+    }
+    try self.emit("struct { payload: []const u8 }{ .payload = ");
+    try self.genExpr(args[0]);
+    try self.emit(" }");
+}
+
+/// Generate email.mime.image.MIMEImage(data) -> MIMEImage
+pub fn genMIMEImage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try genMIMEApplication(self, args);
+}
+
+/// Generate email.mime.audio.MIMEAudio(data) -> MIMEAudio
+pub fn genMIMEAudio(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try genMIMEApplication(self, args);
+}
+
+/// Generate email.utils.formataddr((name, addr)) -> formatted string
+pub fn genFormataddr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"\"");
+}
+
+/// Generate email.utils.parseaddr(addr) -> (name, email)
+pub fn genParseaddr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit(".{ \"\", \"\" }");
+}
+
+/// Generate email.utils.formatdate(timeval=None, localtime=False) -> date string
+pub fn genFormatdate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"\"");
+}
+
+/// Generate email.utils.make_msgid(idstring=None, domain=None) -> message id
+pub fn genMakeMsgid(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"<message@localhost>\"");
+}
