@@ -235,6 +235,12 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         }
     }
 
+    // Handle explicit parent method calls: Parent.method(self, ...) for complex parent types
+    // Pattern: array.array.__getitem__(self, i) when class inherits from array.array
+    if (try handleComplexParentMethodCall(self, call, method_name, obj)) {
+        return true;
+    }
+
     // Try string methods first (most common)
     if (StringMethods.get(method_name)) |handler| {
         try handler(self, obj, call.args);
@@ -385,6 +391,102 @@ fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: 
         },
     }
     return true;
+}
+
+/// Handle explicit parent method calls for complex parent types (like array.array)
+/// Pattern: array.array.__getitem__(self, i) -> inlined parent method code
+fn handleComplexParentMethodCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []const u8, obj: ast.Node) CodegenError!bool {
+    // Check if we're inside a class with a complex parent
+    const parent_name = self.current_class_parent orelse return false;
+
+    // Check if obj is an attribute access matching the parent (e.g., array.array)
+    if (obj != .attribute) return false;
+    const attr = obj.attribute;
+
+    // Build the full parent name from the attribute chain (e.g., "array.array")
+    var parent_full_name: []const u8 = undefined;
+    if (attr.value.* == .name) {
+        // Pattern: module.Type (e.g., array.array)
+        const module_name = attr.value.name.id;
+        const type_name = attr.attr;
+
+        // Allocate and format the full name
+        var buf = std.ArrayList(u8){};
+        try buf.writer(self.allocator).print("{s}.{s}", .{ module_name, type_name });
+        parent_full_name = buf.items;
+        defer buf.deinit(self.allocator);
+
+        // Check if this matches our current class's parent
+        if (!std.mem.eql(u8, parent_full_name, parent_name)) return false;
+    } else {
+        return false;
+    }
+
+    // Look up the complex parent info
+    const generators = @import("../statements/functions/generators.zig");
+    const parent_info = generators.getComplexParentInfo(parent_name) orelse return false;
+
+    // Find the method in the parent's methods
+    for (parent_info.methods) |method| {
+        if (std.mem.eql(u8, method.name, method_name)) {
+            // Found the method - inline the code with argument substitution
+            // Skip 'self' argument (first arg) when substituting
+            var code = method.inline_code;
+
+            // Replace {self} with the self variable name
+            // The first argument to parent method is 'self'
+            const self_var = if (self.method_nesting_depth > 0) "__self" else "self";
+
+            // Build the output by substituting placeholders
+            var result = std.ArrayList(u8){};
+            var i: usize = 0;
+            while (i < code.len) {
+                if (code[i] == '{') {
+                    // Find closing brace
+                    var j = i + 1;
+                    while (j < code.len and code[j] != '}') : (j += 1) {}
+                    if (j < code.len) {
+                        const placeholder = code[i + 1 .. j];
+                        if (std.mem.eql(u8, placeholder, "self")) {
+                            // Replace {self} with actual self variable
+                            try result.appendSlice(self.allocator, self_var);
+                        } else {
+                            // Replace {0}, {1}, etc. with call arguments (after self)
+                            const arg_idx = std.fmt.parseInt(usize, placeholder, 10) catch {
+                                try result.append(self.allocator, code[i]);
+                                i += 1;
+                                continue;
+                            };
+                            // Arguments in call: first is 'self', so we want arg_idx + 1
+                            if (arg_idx + 1 < call.args.len) {
+                                const arg = call.args[arg_idx + 1];
+                                const genExpr = @import("../expressions.zig").genExpr;
+                                const output_before = self.output.items.len;
+                                try genExpr(self, arg);
+                                const arg_code = self.output.items[output_before..];
+                                try result.appendSlice(self.allocator, arg_code);
+                                // Remove from main output - we're building our own
+                                self.output.shrinkRetainingCapacity(output_before);
+                            } else {
+                                try result.appendSlice(self.allocator, "undefined");
+                            }
+                        }
+                        i = j + 1;
+                        continue;
+                    }
+                }
+                try result.append(self.allocator, code[i]);
+                i += 1;
+            }
+
+            // Emit the result
+            try self.emit(result.items);
+            result.deinit(self.allocator);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /// Handle super().method() calls for inheritance

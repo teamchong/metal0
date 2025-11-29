@@ -504,11 +504,16 @@ pub fn genMethodSignatureWithSkip(
     }
 
     // Add other parameters (skip 'self')
+    // For skipped methods, use "_" prefix to suppress unused parameter warnings
     for (method.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
         try self.emit(", ");
-        // Use writeParamName to handle Zig keywords AND method shadowing (e.g., "init" -> "init_arg")
-        try zig_keywords.writeParamName(self.output.writer(self.allocator), arg.name);
+        if (is_skipped) {
+            try self.emit("_");
+        } else {
+            // Use writeParamName to handle Zig keywords AND method shadowing (e.g., "init" -> "init_arg")
+            try zig_keywords.writeParamName(self.output.writer(self.allocator), arg.name);
+        }
         try self.emit(": ");
         // Use anytype for method params without type annotation to support string literals
         // This lets Zig infer the type from the call site
@@ -533,14 +538,22 @@ pub fn genMethodSignatureWithSkip(
     // Add *args parameter as a slice if present
     if (method.vararg) |vararg_name| {
         try self.emit(", ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
+        if (is_skipped) {
+            try self.emit("_");
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
+        }
         try self.emit(": anytype"); // Use anytype for flexibility
     }
 
     // Add **kwargs parameter if present
     if (method.kwarg) |kwarg_name| {
         try self.emit(", ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
+        if (is_skipped) {
+            try self.emit("_");
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
+        }
         try self.emit(": anytype");
     }
 
