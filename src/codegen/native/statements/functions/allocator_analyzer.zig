@@ -433,6 +433,12 @@ const ModuleFunctionsUsingAllocator = std.StaticStringMap(void).initComptime(.{
     .{ "sub", {} },
     .{ "split", {} },
     .{ "compile", {} },
+    // gzip module
+    .{ "compress", {} },
+    .{ "decompress", {} },
+    // zlib module
+    .{ "crc32", {} },
+    .{ "adler32", {} },
 });
 
 /// Builtin classes/constructors that use allocator in generated code

@@ -8,62 +8,20 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 pub fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    try self.emit("gzip_compress_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _data = ");
+    // Use runtime.gzip.compress(allocator, data)
+    try self.emit("try runtime.gzip.compress(allocator, ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("var _compressed = std.ArrayList(u8).init(allocator);\n");
-    try self.emitIndent();
-    try self.emit("var _compressor = std.compress.gzip.compressor(_compressed.writer(allocator), .{}) catch break :gzip_compress_blk _data;\n");
-    try self.emitIndent();
-    try self.emit("_ = _compressor.write(_data) catch break :gzip_compress_blk _data;\n");
-    try self.emitIndent();
-    try self.emit("_compressor.close() catch {};\n");
-    try self.emitIndent();
-    try self.emit("break :gzip_compress_blk _compressed.items;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit(")");
 }
 
 /// Generate gzip.decompress(data) -> decompressed bytes
 pub fn genDecompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    try self.emit("gzip_decompress_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _data = ");
+    // Use runtime.gzip.decompress(allocator, data)
+    try self.emit("try runtime.gzip.decompress(allocator, ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("var _fbs = std.io.fixedBufferStream(_data);\n");
-    try self.emitIndent();
-    try self.emit("var _decompressor = std.compress.gzip.decompressor(_fbs.reader()) catch break :gzip_decompress_blk _data;\n");
-    try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(allocator);\n");
-    try self.emitIndent();
-    try self.emit("while (true) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var buf: [4096]u8 = undefined;\n");
-    try self.emitIndent();
-    try self.emit("const n = _decompressor.read(&buf) catch break;\n");
-    try self.emitIndent();
-    try self.emit("if (n == 0) break;\n");
-    try self.emitIndent();
-    try self.emit("_result.appendSlice(allocator, buf[0..n]) catch break;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("break :gzip_decompress_blk _result.items;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit(")");
 }
 
 /// Generate gzip.open(filename, mode='rb', compresslevel=9) -> file object

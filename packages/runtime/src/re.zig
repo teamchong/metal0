@@ -11,6 +11,7 @@ pub const Match = regex_impl.Match;
 pub const Span = regex_impl.Span;
 
 /// Python Match object - returned by re.search(), re.match(), etc.
+/// Can be null-like (is_match = false) or contain actual match data
 pub const PyMatch = struct {
     matched_text: []const u8,
     full_text: []const u8,
@@ -18,21 +19,10 @@ pub const PyMatch = struct {
     end: usize,
     groups: []const []const u8,
     allocator: std.mem.Allocator,
+    is_match: bool, // true if this is a real match, false for "None"
 
     /// Get the matched string (group 0) or a specific group
-    pub fn group(self: *const PyMatch, args: anytype) []const u8 {
-        const ArgType = @TypeOf(args);
-        if (ArgType == void or @typeInfo(ArgType) == .null) {
-            return self.matched_text;
-        }
-        if (@typeInfo(ArgType) == .@"struct" and @typeInfo(ArgType).@"struct".is_tuple) {
-            if (args.len == 0) return self.matched_text;
-            const idx = args[0];
-            if (idx == 0) return self.matched_text;
-            if (idx > 0 and idx <= self.groups.len) {
-                return self.groups[@intCast(idx - 1)];
-            }
-        }
+    pub fn group(self: *const PyMatch) []const u8 {
         return self.matched_text;
     }
 
@@ -47,7 +37,7 @@ pub const PyMatch = struct {
     }
 
     /// Get span as tuple
-    pub fn span(self: *const PyMatch) struct { usize, usize } {
+    pub fn getSpan(self: *const PyMatch) struct { usize, usize } {
         return .{ self.start, self.end };
     }
 
@@ -64,13 +54,31 @@ pub const PyMatch = struct {
             .end = m.span.end,
             .groups = &.{},
             .allocator = allocator,
+            .is_match = true,
+        };
+        return obj;
+    }
+
+    /// Create an empty/None match
+    pub fn createNone(allocator: std.mem.Allocator) !*PyMatch {
+        const obj = try allocator.create(PyMatch);
+        obj.* = .{
+            .matched_text = "",
+            .full_text = "",
+            .start = 0,
+            .end = 0,
+            .groups = &.{},
+            .allocator = allocator,
+            .is_match = false,
         };
         return obj;
     }
 
     pub fn deinit(self: *PyMatch) void {
-        self.allocator.free(self.matched_text);
-        self.allocator.free(self.full_text);
+        if (self.is_match) {
+            self.allocator.free(self.matched_text);
+            self.allocator.free(self.full_text);
+        }
         self.allocator.destroy(self);
     }
 };
@@ -113,13 +121,13 @@ pub const VERBOSE: i64 = 64;
 
 /// Python-compatible search() function - 2 arg version
 /// Usage: match = re.search(r"hello", "hello world")
-/// Returns PyMatch object, or null if no match
-pub fn search(allocator: std.mem.Allocator, pattern: anytype, text: anytype) !?*PyMatch {
+/// Returns PyMatch object (with is_match=false if no match)
+pub fn search(allocator: std.mem.Allocator, pattern: anytype, text: anytype) !*PyMatch {
     return searchImpl(allocator, pattern, text, 0);
 }
 
 /// search with flags - called when 3 args provided
-fn searchImpl(allocator: std.mem.Allocator, pattern: anytype, text: anytype, flags: anytype) !?*PyMatch {
+fn searchImpl(allocator: std.mem.Allocator, pattern: anytype, text: anytype, flags: anytype) !*PyMatch {
     _ = flags; // TODO: implement flag support
     const pattern_str = if (@TypeOf(pattern) == []const u8) pattern else @as([]const u8, pattern);
     const text_str = if (@TypeOf(text) == []const u8) text else @as([]const u8, text);
@@ -128,7 +136,7 @@ fn searchImpl(allocator: std.mem.Allocator, pattern: anytype, text: anytype, fla
     defer regex.deinit();
 
     const match_opt = try regex.find(text_str);
-    if (match_opt == null) return null;
+    if (match_opt == null) return try PyMatch.createNone(allocator);
 
     var m = match_opt.?;
     defer m.deinit(allocator);
@@ -139,13 +147,13 @@ fn searchImpl(allocator: std.mem.Allocator, pattern: anytype, text: anytype, fla
 
 /// Python-compatible match() function - 2 arg version
 /// Usage: match = re.match(r"hello", "hello world")
-/// Returns PyMatch object, or null if no match
-pub fn match(allocator: std.mem.Allocator, pattern: anytype, text: anytype) !?*PyMatch {
+/// Returns PyMatch object (with is_match=false if no match)
+pub fn match(allocator: std.mem.Allocator, pattern: anytype, text: anytype) !*PyMatch {
     return matchImpl(allocator, pattern, text, 0);
 }
 
 /// match with flags - called when 3 args provided
-fn matchImpl(allocator: std.mem.Allocator, pattern: anytype, text: anytype, flags: anytype) !?*PyMatch {
+fn matchImpl(allocator: std.mem.Allocator, pattern: anytype, text: anytype, flags: anytype) !*PyMatch {
     _ = flags; // TODO: implement flag support
     const pattern_str = if (@TypeOf(pattern) == []const u8) pattern else @as([]const u8, pattern);
     const text_str = if (@TypeOf(text) == []const u8) text else @as([]const u8, text);
@@ -154,13 +162,13 @@ fn matchImpl(allocator: std.mem.Allocator, pattern: anytype, text: anytype, flag
     defer regex.deinit();
 
     const match_opt = try regex.find(text_str);
-    if (match_opt == null) return null;
+    if (match_opt == null) return try PyMatch.createNone(allocator);
 
     var m = match_opt.?;
     defer m.deinit(allocator);
 
     // match() only succeeds if pattern matches at start
-    if (m.span.start != 0) return null;
+    if (m.span.start != 0) return try PyMatch.createNone(allocator);
 
     return try PyMatch.create(allocator, text_str, m);
 }

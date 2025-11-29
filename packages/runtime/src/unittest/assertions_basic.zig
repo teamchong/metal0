@@ -95,6 +95,47 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                         break :blk std.mem.eql(u8, pystr.data, b);
                     }
                     break :blk false;
+                } else if (b_info == .pointer and b_info.pointer.size == .one) {
+                    // Check if b is a pointer to array (string literal *const [N:0]u8)
+                    const b_child_info = @typeInfo(b_info.pointer.child);
+                    if (b_child_info == .array and b_child_info.array.child == u8) {
+                        if (a.type_id == .string) {
+                            const pystr: *runtime.pystring.PyString = @ptrCast(@alignCast(a.data));
+                            const b_slice: []const u8 = b;
+                            break :blk std.mem.eql(u8, pystr.data, b_slice);
+                        }
+                    }
+                    break :blk false;
+                } else if (b_info == .array) {
+                    const arr = b_info.array;
+                    // Compare PyObject (string) with byte array [N]u8
+                    if (arr.child == u8 and a.type_id == .string) {
+                        const pystr: *runtime.pystring.PyString = @ptrCast(@alignCast(a.data));
+                        break :blk std.mem.eql(u8, pystr.data, &b);
+                    }
+                    // Compare PyObject (list) with Zig array of strings
+                    if (a.type_id == .list) {
+                        const list_len = runtime.PyList.len(a);
+                        if (list_len != b.len) break :blk false;
+                        for (0..list_len) |i| {
+                            const elem = runtime.PyList.getItem(a, i) catch break :blk false;
+                            // Get element type
+                            const ElemType = @TypeOf(b[0]);
+                            if (@typeInfo(ElemType) == .pointer and @typeInfo(ElemType).pointer.child == u8) {
+                                // Compare list element with string
+                                if (elem.type_id == .string) {
+                                    const pystr: *runtime.pystring.PyString = @ptrCast(@alignCast(elem.data));
+                                    if (!std.mem.eql(u8, pystr.data, b[i])) break :blk false;
+                                } else {
+                                    break :blk false;
+                                }
+                            } else {
+                                break :blk false;
+                            }
+                        }
+                        break :blk true;
+                    }
+                    break :blk false;
                 }
             }
         }
@@ -149,12 +190,17 @@ pub fn assertFalse(value: bool) void {
 /// Assertion: assertIsNone(x) - value must be None/null
 pub fn assertIsNone(value: anytype) void {
     const runtime = @import("../runtime.zig");
-    const is_none = switch (@typeInfo(@TypeOf(value))) {
+    const T = @TypeOf(value);
+    const is_none = switch (@typeInfo(T)) {
         .optional => value == null,
         .pointer => |ptr| blk: {
             // Check if it's a PyObject pointer
             if (ptr.size == .one and ptr.child == runtime.PyObject) {
                 break :blk value.type_id == .none;
+            }
+            // Check if it's a PyMatch pointer (has is_match field)
+            if (ptr.size == .one and @hasField(ptr.child, "is_match")) {
+                break :blk !value.is_match;
             }
             // For slices, check if empty
             if (ptr.size != .one) {
@@ -339,9 +385,20 @@ pub fn assertIsNot(a: anytype, b: anytype) void {
 
 /// Assertion: assertIsNotNone(x) - value must not be None/null
 pub fn assertIsNotNone(value: anytype) void {
-    const is_none = switch (@typeInfo(@TypeOf(value))) {
+    const T = @TypeOf(value);
+    const is_none = switch (@typeInfo(T)) {
         .optional => value == null,
-        .pointer => |ptr| if (ptr.size == .one) false else value.len == 0,
+        .pointer => |ptr| blk: {
+            // Check if it's a PyMatch pointer (has is_match field)
+            if (ptr.size == .one and @hasField(ptr.child, "is_match")) {
+                break :blk !value.is_match;
+            }
+            // For slices, check if empty
+            if (ptr.size != .one) {
+                break :blk value.len == 0;
+            }
+            break :blk false;
+        },
         else => false,
     };
 

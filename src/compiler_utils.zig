@@ -72,6 +72,26 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
     }
 }
 
+/// Copy a single runtime file to .build
+pub fn copyRuntimeFile(allocator: std.mem.Allocator, filename: []const u8, build_dir: []const u8) !void {
+    const src_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{filename});
+    defer allocator.free(src_path);
+    const dst_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ build_dir, filename });
+    defer allocator.free(dst_path);
+
+    const src_file = std.fs.cwd().openFile(src_path, .{}) catch |err| {
+        if (err == error.FileNotFound) return;
+        return err;
+    };
+    defer src_file.close();
+    const dst_file = try std.fs.cwd().createFile(dst_path, .{});
+    defer dst_file.close();
+
+    const content = try src_file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+    defer allocator.free(content);
+    try dst_file.writeAll(content);
+}
+
 /// Copy JSON SIMD files from shared/json/simd to .build/json/simd
 pub fn copyJsonSimd(allocator: std.mem.Allocator, build_dir: []const u8) !void {
     const src_dir_path = "packages/shared/json/simd";

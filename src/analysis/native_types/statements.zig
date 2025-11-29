@@ -301,6 +301,9 @@ pub fn visitStmt(
                         .list => |l| l.*,
                         .array => |a| a.element_type.*,
                         .sqlite_rows => .sqlite_row, // []sqlite3.Row -> sqlite3.Row
+                        // If iterator is typed as .int (common when param has no annotation),
+                        // it's likely actually a list of ints. Use .int for elements.
+                        .int => .int,
                         else => .unknown,
                     };
                     try var_types.put(target_name, elem_type);
@@ -312,20 +315,33 @@ pub fn visitStmt(
         .function_def => |func_def| {
             // Register function return type from annotation
             // BUT don't overwrite if we already have a better inferred type from 4th pass
-            const return_type = try core.pythonTypeHintToNative(func_def.return_type, allocator);
+            var return_type = try core.pythonTypeHintToNative(func_def.return_type, allocator);
+
+            // Register function parameter types from type annotations FIRST
+            // This allows return type inference to see parameter types
+            for (func_def.args) |arg| {
+                const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
+                try var_types.put(arg.name, param_type);
+            }
+
+            // Visit function body FIRST to register local variable types
+            for (func_def.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+
+            // If no annotation (unknown), infer from return statements AFTER visiting body
+            if (return_type == .unknown) {
+                for (func_def.body) |body_stmt| {
+                    if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
+                        return_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*);
+                        break;
+                    }
+                }
+            }
+
             const existing = func_return_types.get(func_def.name);
             if (existing == null or existing.? == .unknown) {
                 // Only set if no existing type or existing is unknown
                 try func_return_types.put(func_def.name, return_type);
             }
-
-            // Register function parameter types from type annotations
-            for (func_def.args) |arg| {
-                const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
-                try var_types.put(arg.name, param_type);
-            }
-            // Visit function body
-            for (func_def.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
         },
         .try_stmt => |try_stmt| {
             // Visit try body

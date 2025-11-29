@@ -43,6 +43,9 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.arraylist_vars);
     self.arraylist_vars.deinit();
 
+    // Clean up anytype params tracking
+    self.anytype_params.deinit();
+
     // Clean up decorated functions tracking
     self.decorated_functions.deinit(self.allocator);
 

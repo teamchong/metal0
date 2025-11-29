@@ -52,6 +52,8 @@ fn isNameUsedInStmt(stmt: ast.Node, name: []const u8) bool {
             return false;
         },
         .for_stmt => |for_stmt| {
+            // Check the iterator expression (e.g., `items` in `for x in items:`)
+            if (isNameUsedInExpr(for_stmt.iter.*, name)) return true;
             if (isNameUsedInBody(for_stmt.body, name)) return true;
             return false;
         },
@@ -143,6 +145,39 @@ fn isNameUsedInExpr(expr: ast.Node, name: []const u8) bool {
             }
             return false;
         },
+        .listcomp => |lc| {
+            // Check if name is used in the element expression
+            if (isNameUsedInExpr(lc.elt.*, name)) return true;
+            // Check if name is used in generators (iterators and conditions)
+            for (lc.generators) |gen| {
+                if (isNameUsedInExpr(gen.iter.*, name)) return true;
+                for (gen.ifs) |cond| {
+                    if (isNameUsedInExpr(cond, name)) return true;
+                }
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (isNameUsedInExpr(dc.key.*, name)) return true;
+            if (isNameUsedInExpr(dc.value.*, name)) return true;
+            for (dc.generators) |gen| {
+                if (isNameUsedInExpr(gen.iter.*, name)) return true;
+                for (gen.ifs) |cond| {
+                    if (isNameUsedInExpr(cond, name)) return true;
+                }
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (isNameUsedInExpr(ge.elt.*, name)) return true;
+            for (ge.generators) |gen| {
+                if (isNameUsedInExpr(gen.iter.*, name)) return true;
+                for (gen.ifs) |cond| {
+                    if (isNameUsedInExpr(cond, name)) return true;
+                }
+            }
+            return false;
+        },
         else => false,
     };
 }
@@ -192,6 +227,77 @@ fn isParameterCalledInStmt(stmt: ast.Node, param_name: []const u8) bool {
         },
         .for_stmt => |for_stmt| {
             for (for_stmt.body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            return false;
+        },
+        else => false,
+    };
+}
+
+/// Check if a parameter is used as an iterator in a for loop or comprehension
+/// This indicates the parameter should be a slice/list type, not a scalar
+pub fn isParameterUsedAsIterator(body: []ast.Node, param_name: []const u8) bool {
+    for (body) |stmt| {
+        switch (stmt) {
+            .for_stmt => |for_stmt| {
+                // Check if the iterator is this parameter
+                if (for_stmt.iter.* == .name and std.mem.eql(u8, for_stmt.iter.name.id, param_name)) {
+                    return true;
+                }
+                // Recursively check nested statements
+                if (isParameterUsedAsIterator(for_stmt.body, param_name)) return true;
+            },
+            .if_stmt => |if_stmt| {
+                if (isParameterUsedAsIterator(if_stmt.body, param_name)) return true;
+                if (isParameterUsedAsIterator(if_stmt.else_body, param_name)) return true;
+            },
+            .while_stmt => |while_stmt| {
+                if (isParameterUsedAsIterator(while_stmt.body, param_name)) return true;
+            },
+            .function_def => |func_def| {
+                if (isParameterUsedAsIterator(func_def.body, param_name)) return true;
+            },
+            .return_stmt => |ret| {
+                if (ret.value) |val| {
+                    if (isParamIteratorInExpr(val.*, param_name)) return true;
+                }
+            },
+            .assign => |assign| {
+                if (isParamIteratorInExpr(assign.value.*, param_name)) return true;
+            },
+            .expr_stmt => |expr| {
+                if (isParamIteratorInExpr(expr.value.*, param_name)) return true;
+            },
+            else => {},
+        }
+    }
+    return false;
+}
+
+/// Check if param is used as iterator in an expression (e.g., list comprehension)
+fn isParamIteratorInExpr(expr: ast.Node, param_name: []const u8) bool {
+    return switch (expr) {
+        .listcomp => |lc| {
+            for (lc.generators) |gen| {
+                if (gen.iter.* == .name and std.mem.eql(u8, gen.iter.name.id, param_name)) {
+                    return true;
+                }
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            for (dc.generators) |gen| {
+                if (gen.iter.* == .name and std.mem.eql(u8, gen.iter.name.id, param_name)) {
+                    return true;
+                }
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            for (ge.generators) |gen| {
+                if (gen.iter.* == .name and std.mem.eql(u8, gen.iter.name.id, param_name)) {
+                    return true;
+                }
+            }
             return false;
         },
         else => false,

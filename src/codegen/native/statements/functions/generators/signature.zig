@@ -108,7 +108,13 @@ pub fn genFunctionSignature(
     // Add allocator as first parameter if needed
     var param_offset: usize = 0;
     if (needs_allocator) {
-        try self.emit("allocator: std.mem.Allocator");
+        // Check if allocator is actually used in function body
+        const allocator_used = param_analyzer.isNameUsedInBody(func.body, "allocator");
+        if (!allocator_used) {
+            try self.emit("_: std.mem.Allocator");
+        } else {
+            try self.emit("allocator: std.mem.Allocator");
+        }
         param_offset = 1;
         if (func.args.len > 0) {
             try self.emit(", ");
@@ -137,8 +143,17 @@ pub fn genFunctionSignature(
         // Check if this parameter is used as a function (called or returned - decorator pattern)
         // For decorators, use anytype to accept any function type
         const is_func = param_analyzer.isParameterUsedAsFunction(func.body, arg.name);
+        const is_iter = param_analyzer.isParameterUsedAsIterator(func.body, arg.name);
         if (is_func and arg.default == null) {
             try self.emit("anytype"); // For decorators and higher-order functions (without defaults)
+            try self.anytype_params.put(arg.name, {});
+        } else if (is_iter and arg.type_annotation == null) {
+            // Parameter used as iterator (for x in param:) - use anytype for slice inference
+            if (arg.default != null) {
+                try self.emit("?");
+            }
+            try self.emit("anytype");
+            try self.anytype_params.put(arg.name, {});
         } else if (arg.type_annotation) |_| {
             // Use explicit type annotation if provided
             const zig_type = pythonTypeToZig(arg.type_annotation);
@@ -423,8 +438,8 @@ pub fn genMethodSignature(
     for (method.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
         try self.emit(", ");
-        // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+        // Use writeParamName to handle Zig keywords AND method shadowing (e.g., "init" -> "init_arg")
+        try zig_keywords.writeParamName(self.output.writer(self.allocator), arg.name);
         try self.emit(": ");
         // Use anytype for method params without type annotation to support string literals
         // This lets Zig infer the type from the call site
@@ -485,8 +500,9 @@ pub fn genMethodSignature(
 
         if (returned_param_name) |param_name| {
             // Method returns an anytype param - use @TypeOf(param)
+            // Use writeParamName to handle renamed params (e.g., init -> init_arg)
             try self.emit("@TypeOf(");
-            try self.emit(param_name);
+            try zig_keywords.writeParamName(self.output.writer(self.allocator), param_name);
             try self.emit(")");
         } else {
             // Try to get inferred return type from class_fields.methods

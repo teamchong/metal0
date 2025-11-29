@@ -36,8 +36,8 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             }
             // Use renamed version if in var_renames map (for exception handling)
             const actual_name = self.var_renames.get(var_name) orelse var_name;
-            // Escape Zig reserved keywords (e.g., "false" -> @"false")
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+            // Use writeLocalVarName to handle keywords AND method shadowing
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
             try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
         }
     }
@@ -72,8 +72,8 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             }
             // Use renamed version if in var_renames map (for exception handling)
             const actual_name = self.var_renames.get(var_name) orelse var_name;
-            // Escape Zig reserved keywords (e.g., "false" -> @"false")
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+            // Use writeLocalVarName to handle keywords AND method shadowing
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
             try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
         }
     }
@@ -108,8 +108,8 @@ pub fn emitVarDeclaration(
     // Use renamed version if in var_renames map (for exception handling)
     const actual_name = self.var_renames.get(var_name) orelse var_name;
 
-    // Escape Zig reserved keywords (e.g., "false" -> @"false")
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+    // Use writeLocalVarName to handle keywords AND method shadowing
+    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
 
     // Only emit type annotation for known types that aren't dicts, dictcomps, lists, tuples, closures, counters, or ArrayLists
     // For lists/ArrayLists/dicts/dictcomps/tuples/closures/counters, let Zig infer the type from the initializer

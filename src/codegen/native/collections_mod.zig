@@ -59,7 +59,8 @@ pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("deque_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var _deque = std.ArrayList(i64).init(__global_allocator);\n");
+    // Zig 0.15: ArrayList uses {} initialization, allocator passed to methods
+    try self.emit("var _deque = std.ArrayList(i64){};\n");
 
     if (args.len > 0) {
         try self.emitIndent();

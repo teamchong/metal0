@@ -101,6 +101,10 @@ pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) void {
         if (std.mem.eql(u8, expected_type_name, "str")) {
             break :blk std.mem.indexOf(u8, actual_type_name, "u8") != null;
         }
+        if (std.mem.eql(u8, expected_type_name, "bytes")) {
+            // bytes in Python is []const u8 or []u8 in Zig
+            break :blk std.mem.indexOf(u8, actual_type_name, "u8") != null;
+        }
         if (std.mem.eql(u8, expected_type_name, "bool")) {
             break :blk std.mem.eql(u8, actual_type_name, "bool");
         }

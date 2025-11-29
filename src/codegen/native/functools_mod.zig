@@ -71,7 +71,8 @@ pub fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Initial value
     try self.emitIndent();
     if (args.len > 2) {
-        try self.emit("var _acc = ");
+        // Use @TypeOf iterable element to ensure type compatibility
+        try self.emit("var _acc: @TypeOf(_iterable[0]) = ");
         try self.genExpr(args[2]);
         try self.emit(";\n");
         try self.emitIndent();

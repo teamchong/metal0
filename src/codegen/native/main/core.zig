@@ -120,6 +120,9 @@ pub const NativeCodegen = struct {
     // Track ArrayList variables (for len() -> .items.len)
     arraylist_vars: FnvVoidMap,
 
+    // Track anytype parameters in current function scope (for comprehension iteration)
+    anytype_params: FnvVoidMap,
+
     // Track which classes have mutating methods (need var instances, not const)
     mutable_classes: FnvVoidMap,
 
@@ -265,6 +268,7 @@ pub const NativeCodegen = struct {
             .array_vars = FnvVoidMap.init(allocator),
             .array_slice_vars = FnvVoidMap.init(allocator),
             .arraylist_vars = FnvVoidMap.init(allocator),
+            .anytype_params = FnvVoidMap.init(allocator),
             .mutable_classes = FnvVoidMap.init(allocator),
             .unittest_classes = std.ArrayList(TestClassInfo){},
             .comptime_evaluator = comptime_eval.ComptimeEvaluator.init(allocator),

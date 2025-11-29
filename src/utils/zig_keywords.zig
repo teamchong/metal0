@@ -72,7 +72,57 @@ const zig_keywords = std.StaticStringMap(void).initComptime(.{
     .{ "noalias", {} },
     .{ "noinline", {} },
     .{ "addrspace", {} },
+
+    // Special identifiers that require @"" syntax
+    .{ "_", {} }, // Underscore for discarding values
 });
+
+/// Common method names that parameters should not shadow
+/// In Zig, function parameters cannot have the same name as methods in the same struct
+const shadowing_method_names = std.StaticStringMap(void).initComptime(.{
+    .{ "init", {} },
+    .{ "deinit", {} },
+    .{ "checksum", {} },
+    .{ "combine", {} },
+    .{ "compress", {} },
+    .{ "decompress", {} },
+    .{ "flush", {} },
+    .{ "copy", {} },
+    .{ "hash", {} },
+    .{ "update", {} },
+    .{ "read", {} },
+    .{ "write", {} },
+    .{ "close", {} },
+    .{ "open", {} },
+    .{ "get", {} },
+    .{ "set", {} },
+    .{ "put", {} },
+    .{ "pop", {} },
+    .{ "push", {} },
+    .{ "append", {} },
+    .{ "clear", {} },
+    .{ "reset", {} },
+    .{ "parse", {} },
+    .{ "format", {} },
+    .{ "encode", {} },
+    .{ "decode", {} },
+});
+
+/// Check if a parameter name would shadow a common method name
+pub fn wouldShadowMethod(name: []const u8) bool {
+    return shadowing_method_names.has(name);
+}
+
+/// Write parameter name, adding _arg suffix if it would shadow a method
+pub fn writeParamName(writer: anytype, name: []const u8) !void {
+    if (isZigKeyword(name)) {
+        try writer.print("@\"{s}\"", .{name});
+    } else if (wouldShadowMethod(name)) {
+        try writer.print("{s}_arg", .{name});
+    } else {
+        try writer.writeAll(name);
+    }
+}
 
 /// Check if identifier is a Zig reserved keyword
 pub fn isZigKeyword(name: []const u8) bool {
@@ -96,6 +146,19 @@ pub fn escapeIfKeyword(allocator: std.mem.Allocator, name: []const u8) ![]const 
 pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
     if (isZigKeyword(name)) {
         try writer.print("@\"{s}\"", .{name});
+    } else {
+        try writer.writeAll(name);
+    }
+}
+
+/// Write local variable name, renaming if it would shadow a method
+/// Use this for local variable declarations and usages, NOT for method/field names
+pub fn writeLocalVarName(writer: anytype, name: []const u8) !void {
+    if (isZigKeyword(name)) {
+        try writer.print("@\"{s}\"", .{name});
+    } else if (wouldShadowMethod(name)) {
+        // Rename to avoid shadowing method names in struct scope
+        try writer.print("{s}_", .{name});
     } else {
         try writer.writeAll(name);
     }

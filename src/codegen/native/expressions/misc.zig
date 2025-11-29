@@ -101,7 +101,8 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         const module_name = attr.value.name.id;
         const attr_name = attr.attr;
 
-        // Try module attribute dispatch (handles string.*, math.*, sys.*, etc.)
+        // Try module attribute dispatch FIRST (handles string.*, math.*, sys.*, etc.)
+        // This correctly handles constants like math.pi, math.e which need inline values
         const module_functions = @import("../dispatch/module_functions.zig");
         // Create a fake call with no args to use the module dispatcher
         const empty_args: []ast.Node = &[_]ast.Node{};
@@ -110,7 +111,26 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             .args = empty_args,
             .keyword_args = &[_]ast.Node.KeywordArg{},
         };
+
+        // Track output length before dispatch to detect if anything was emitted
+        const output_before = self.output.items.len;
         if (module_functions.tryDispatch(self, module_name, attr_name, fake_call) catch false) {
+            // Only return if something was actually emitted
+            // Some handlers check args.len == 0 and return early without emitting
+            if (self.output.items.len > output_before) {
+                return;
+            }
+        }
+
+        // Check if this module is imported (fallback for function references)
+        if (self.imported_modules.contains(module_name)) {
+            // For module function references (used as values, not calls),
+            // emit a reference to the runtime function
+            // e.g., copy.copy -> &runtime.copy.copy, zlib.compress -> &runtime.zlib.compress
+            try self.emit("&runtime.");
+            try self.emit(module_name);
+            try self.emit(".");
+            try self.emit(attr_name);
             return;
         }
     }
