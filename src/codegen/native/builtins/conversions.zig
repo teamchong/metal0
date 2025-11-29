@@ -274,7 +274,16 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    // Infer type, with fallback to local scope lookup for better accuracy
+    var arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // If type is unknown but arg is a name, try local scope lookup
+    // This helps with variables declared inside inline for loops
+    if (arg_type == .unknown and args[0] == .name) {
+        if (self.getVarType(args[0].name.id)) |local_type| {
+            arg_type = local_type;
+        }
+    }
 
     // Already an int - just return it
     if (arg_type == .int) {
@@ -306,10 +315,12 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Generic cast for unknown types - need explicit result type
-    try self.emit("@as(i64, @intCast(");
+    // For unknown types, use runtime.toInt which handles strings and numbers
+    // This handles cases where type inference couldn't determine the type
+    // (e.g., variables captured by anytype in try/except helper structs)
+    try self.emit("runtime.toInt(");
     try self.genExpr(args[0]);
-    try self.emit("))");
+    try self.emit(")");
 }
 
 /// Generate code for float(obj)

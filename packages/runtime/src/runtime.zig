@@ -54,6 +54,45 @@ pub const PythonError = error{
     KeyError,
 };
 
+/// Python exception type enum - integer values that can be stored in lists/tuples
+/// Used when Python code stores exception types as values: [("x", ValueError), ("y", 1)]
+pub const ExceptionTypeId = enum(i64) {
+    TypeError = -1000001,
+    ValueError = -1000002,
+    KeyError = -1000003,
+    IndexError = -1000004,
+    ZeroDivisionError = -1000005,
+    AttributeError = -1000006,
+    NameError = -1000007,
+    FileNotFoundError = -1000008,
+    IOError = -1000009,
+    RuntimeError = -1000010,
+    StopIteration = -1000011,
+    NotImplementedError = -1000012,
+    AssertionError = -1000013,
+    OverflowError = -1000014,
+    ImportError = -1000015,
+    ModuleNotFoundError = -1000016,
+    OSError = -1000017,
+    PermissionError = -1000018,
+    TimeoutError = -1000019,
+    ConnectionError = -1000020,
+    RecursionError = -1000021,
+    MemoryError = -1000022,
+    LookupError = -1000023,
+    ArithmeticError = -1000024,
+    UnicodeError = -1000025,
+    UnicodeDecodeError = -1000026,
+    UnicodeEncodeError = -1000027,
+    BlockingIOError = -1000028,
+    _,
+
+    /// Check if an i64 value represents an exception type
+    pub fn isExceptionType(value: i64) bool {
+        return value <= -1000001 and value >= -1000028;
+    }
+};
+
 /// Python exception type constants for use in assertRaises, etc.
 /// These are marker types that can be passed around and compared
 pub const TypeError = struct {
@@ -371,6 +410,47 @@ pub fn toBool(value: anytype) bool {
 
     // Default: truthy for everything else (non-empty types)
     return true;
+}
+
+/// Generic int conversion for Python int() semantics
+/// Handles: integers (pass through), strings (parse), bools, floats
+pub fn toInt(value: anytype) !i64 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Handle integers - pass through
+    if (info == .int or info == .comptime_int) {
+        return @as(i64, @intCast(value));
+    }
+
+    // Handle floats - truncate
+    if (info == .float or info == .comptime_float) {
+        return @as(i64, @intFromFloat(value));
+    }
+
+    // Handle bool
+    if (T == bool) {
+        return @as(i64, @intFromBool(value));
+    }
+
+    // Handle slices (strings)
+    if (info == .pointer and info.pointer.size == .slice) {
+        return std.fmt.parseInt(i64, value, 10);
+    }
+
+    // Handle single-item pointers to arrays (string literals)
+    if (info == .pointer and info.pointer.size == .one) {
+        const child = info.pointer.child;
+        if (@typeInfo(child) == .array) {
+            const array_info = @typeInfo(child).array;
+            if (array_info.child == u8) {
+                return std.fmt.parseInt(i64, value, 10);
+            }
+        }
+    }
+
+    // Fallback: try integer cast
+    return @as(i64, @intCast(value));
 }
 
 // =============================================================================

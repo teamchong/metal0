@@ -63,6 +63,42 @@ const ModuleMap = std.StaticStringMap(ModuleType).initComptime(.{
     .{ "os", .os },
 });
 
+/// Exception type names - when stored as values (e.g., in lists/tuples), treat as int
+const ExceptionTypeNames = std.StaticStringMap(void).initComptime(.{
+    .{ "TypeError", {} },
+    .{ "ValueError", {} },
+    .{ "KeyError", {} },
+    .{ "IndexError", {} },
+    .{ "ZeroDivisionError", {} },
+    .{ "AttributeError", {} },
+    .{ "NameError", {} },
+    .{ "FileNotFoundError", {} },
+    .{ "IOError", {} },
+    .{ "RuntimeError", {} },
+    .{ "StopIteration", {} },
+    .{ "NotImplementedError", {} },
+    .{ "AssertionError", {} },
+    .{ "OverflowError", {} },
+    .{ "ImportError", {} },
+    .{ "ModuleNotFoundError", {} },
+    .{ "OSError", {} },
+    .{ "PermissionError", {} },
+    .{ "TimeoutError", {} },
+    .{ "ConnectionError", {} },
+    .{ "RecursionError", {} },
+    .{ "MemoryError", {} },
+    .{ "LookupError", {} },
+    .{ "ArithmeticError", {} },
+    .{ "UnicodeError", {} },
+    .{ "UnicodeDecodeError", {} },
+    .{ "UnicodeEncodeError", {} },
+    .{ "BlockingIOError", {} },
+});
+
+fn isExceptionTypeName(name: []const u8) bool {
+    return ExceptionTypeNames.has(name);
+}
+
 /// Infer the native type of an expression node
 pub fn inferExpr(
     allocator: std.mem.Allocator,
@@ -74,7 +110,13 @@ pub fn inferExpr(
     return switch (node) {
         .constant => |c| inferConstant(c.value),
         .fstring => .{ .string = .runtime },
-        .name => |n| var_types.get(n.id) orelse .unknown,
+        .name => |n| blk: {
+            // Check if name is in var_types
+            if (var_types.get(n.id)) |vt| break :blk vt;
+            // Check if name is a Python exception type - treat as int (ExceptionTypeId)
+            if (isExceptionTypeName(n.id)) break :blk .int;
+            break :blk .unknown;
+        },
         .binop => |b| try inferBinOp(allocator, var_types, class_fields, func_return_types, b),
         .call => |c| try calls.inferCall(allocator, var_types, class_fields, func_return_types, c),
         .subscript => |s| blk: {
@@ -313,10 +355,17 @@ pub fn inferExpr(
             }
 
             // Otherwise, use ArrayList for dynamic lists
-            const elem_type = if (l.elts.len > 0)
+            // Widen element type across all elements for heterogeneous lists
+            var elem_type: NativeType = if (l.elts.len > 0)
                 try inferExpr(allocator, var_types, class_fields, func_return_types, l.elts[0])
             else
                 .unknown;
+
+            // Widen type to accommodate all elements
+            for (l.elts[1..]) |elem| {
+                const this_type = try inferExpr(allocator, var_types, class_fields, func_return_types, elem);
+                elem_type = elem_type.widen(this_type);
+            }
 
             const elem_ptr = try allocator.create(NativeType);
             elem_ptr.* = elem_type;
