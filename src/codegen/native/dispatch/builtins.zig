@@ -29,6 +29,8 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "float", builtins.genFloat },
     .{ "bool", builtins.genBool },
     .{ "bytes", builtins.genBytes },
+    .{ "bytearray", builtins.genBytearray },
+    .{ "memoryview", builtins.genMemoryview },
     .{ "list", builtins.genList },
     .{ "tuple", builtins.genTuple },
     .{ "dict", builtins.genDict },

@@ -72,7 +72,7 @@ pub const HashObject = struct {
     }
 
     /// Get the digest as hex string
-    pub fn hexdigest(self: *HashObject, allocator: std.mem.Allocator) ![]u8 {
+    pub fn hexdigest(self: *const HashObject, allocator: std.mem.Allocator) ![]u8 {
         const d = try self.digest(allocator);
         defer allocator.free(d);
         const hex = try allocator.alloc(u8, d.len * 2);

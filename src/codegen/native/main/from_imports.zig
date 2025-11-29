@@ -78,13 +78,40 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             }
 
             // Generate: const symbol_name = module.name;
+            // Special case: if symbol_name == module name (e.g., "from time import time"),
+            // we need to use the full path (e.g., runtime.time.time) to avoid duplicate
+            // const declarations since PHASE 3.7 already emits "const time = runtime.time;"
+            const same_as_module = std.mem.eql(u8, symbol_name, from_imp.module);
+
             try self.emit("const ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
             try self.emit(" = ");
-            // Use writeEscapedDottedIdent for dotted paths like "test.support" -> @"test_support"
-            try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
-            try self.emit(".");
-            try self.emit(name);
+
+            if (same_as_module) {
+                // Use full path from registry to avoid referencing the duplicate const
+                if (self.import_registry.lookup(from_imp.module)) |info| {
+                    if (info.zig_import) |zig_import| {
+                        try self.emit(zig_import);
+                        try self.emit(".");
+                        try self.emit(name);
+                    } else {
+                        // Fallback: use module name (will still have duplicate issue but rare case)
+                        try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
+                        try self.emit(".");
+                        try self.emit(name);
+                    }
+                } else {
+                    // Module not in registry - use module name
+                    try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
+                    try self.emit(".");
+                    try self.emit(name);
+                }
+            } else {
+                // Normal case: use module const reference
+                try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
+                try self.emit(".");
+                try self.emit(name);
+            }
             try self.emit(";\n");
             try generated_symbols.put(symbol_name, {});
         }

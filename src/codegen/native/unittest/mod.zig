@@ -25,7 +25,26 @@ pub const genAssertRegex = assertions.genAssertRegex;
 pub const genAssertNotRegex = assertions.genAssertNotRegex;
 pub const genAssertIsInstance = assertions.genAssertIsInstance;
 pub const genAssertNotIsInstance = assertions.genAssertNotIsInstance;
+pub const genAssertIsSubclass = assertions.genAssertIsSubclass;
+pub const genAssertNotIsSubclass = assertions.genAssertNotIsSubclass;
 pub const genAssertRaises = assertions.genAssertRaises;
+pub const genAssertRaisesRegex = assertions.genAssertRaisesRegex;
+pub const genAssertWarns = assertions.genAssertWarns;
+pub const genAssertWarnsRegex = assertions.genAssertWarnsRegex;
+pub const genAssertStartsWith = assertions.genAssertStartsWith;
+pub const genAssertEndsWith = assertions.genAssertEndsWith;
+pub const genAssertHasAttr = assertions.genAssertHasAttr;
+pub const genAssertNotHasAttr = assertions.genAssertNotHasAttr;
+pub const genAssertSequenceEqual = assertions.genAssertSequenceEqual;
+pub const genAssertListEqual = assertions.genAssertListEqual;
+pub const genAssertTupleEqual = assertions.genAssertTupleEqual;
+pub const genAssertSetEqual = assertions.genAssertSetEqual;
+pub const genAssertDictEqual = assertions.genAssertDictEqual;
+pub const genAssertMultiLineEqual = assertions.genAssertMultiLineEqual;
+pub const genAssertLogs = assertions.genAssertLogs;
+pub const genAssertNoLogs = assertions.genAssertNoLogs;
+pub const genFail = assertions.genFail;
+pub const genSkipTest = assertions.genSkipTest;
 
 // Re-export lifecycle functions
 pub const genUnittestMain = lifecycle.genUnittestMain;

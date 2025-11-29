@@ -245,10 +245,16 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     try self.emit(current_output);
 
     // Generate closure instantiation: Closure{ .f = f, .g = g }
+    // For "self", we need to dereference since it's a pointer in methods (*const @This() or *@This())
     try self.output.writer(self.allocator).print("{s}{{ ", .{closure_name});
     for (captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.emit(", ");
-        try self.output.writer(self.allocator).print(".{s} = {s}", .{ var_name, var_name });
+        if (std.mem.eql(u8, var_name, "self")) {
+            // Dereference self pointer to get the struct value
+            try self.output.writer(self.allocator).print(".{s} = {s}.*", .{ var_name, var_name });
+        } else {
+            try self.output.writer(self.allocator).print(".{s} = {s}", .{ var_name, var_name });
+        }
     }
     try self.emit(" }");
 
@@ -332,6 +338,32 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                 try self.emit(op_str);
                 try genExprWithCapture(self, cmp.comparators[i], captured_vars);
             }
+        },
+        .attribute => |attr| {
+            // For module.function references like struct.pack_into, use regular expression generation
+            // which handles keyword escaping properly
+            if (attr.value.* == .name) {
+                const module_name = attr.value.name.id;
+                // Always escape Zig keywords in module/attribute access
+                // Use proper module function dispatch with keyword escaping
+                try self.emit("runtime.");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
+                try self.emit(".");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+                return;
+            }
+            // Handle regular attribute access (e.g., self.foo) - recurse into value with capture
+            try genExprWithCapture(self, attr.value.*, captured_vars);
+            try self.emit(".");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+        },
+        .subscript => |sub| {
+            try genExprWithCapture(self, sub.value.*, captured_vars);
+            try self.emit("[");
+            if (sub.slice == .index) {
+                try genExprWithCapture(self, sub.slice.index.*, captured_vars);
+            }
+            try self.emit("]");
         },
         else => {
             // For other node types, fall back to regular generation

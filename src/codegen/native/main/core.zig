@@ -105,6 +105,9 @@ pub const NativeCodegen = struct {
     // Track which variables are closure factories (return closures)
     closure_factories: FnvVoidMap,
 
+    // Track which class methods return closures (ClassName.method_name -> void)
+    closure_returning_methods: FnvVoidMap,
+
     // Track which variables hold simple lambdas (function pointers)
     lambda_vars: FnvVoidMap,
 
@@ -215,6 +218,19 @@ pub const NativeCodegen = struct {
     // Set during class method generation, null otherwise
     current_class_name: ?[]const u8,
 
+    // Class nesting depth (0 = top-level, 1 = nested inside another class)
+    // Used to determine allocator parameter name (__alloc for nested classes)
+    class_nesting_depth: u32,
+
+    // Method nesting depth (0 = not in method, 1+ = inside nested class inside method)
+    // Used to rename self -> __self in nested struct methods to avoid shadowing
+    // Incremented when entering a class while inside_method_with_self is true
+    method_nesting_depth: u32,
+
+    // True when we're generating code inside a method that has a 'self' parameter
+    // Used to decide whether to increment method_nesting_depth when entering a nested class
+    inside_method_with_self: bool,
+
     // Current function being generated (for tail-call optimization)
     // Set during function generation, null otherwise
     current_function_name: ?[]const u8,
@@ -266,6 +282,7 @@ pub const NativeCodegen = struct {
             .block_label_counter = 0,
             .closure_vars = FnvVoidMap.init(allocator),
             .closure_factories = FnvVoidMap.init(allocator),
+            .closure_returning_methods = FnvVoidMap.init(allocator),
             .lambda_vars = FnvVoidMap.init(allocator),
             .var_renames = FnvStringMap.init(allocator),
             .hoisted_vars = FnvVoidMap.init(allocator),
@@ -297,6 +314,9 @@ pub const NativeCodegen = struct {
             .func_local_mutations = FnvVoidMap.init(allocator),
             .global_vars = FnvVoidMap.init(allocator),
             .current_class_name = null,
+            .class_nesting_depth = 0,
+            .method_nesting_depth = 0,
+            .inside_method_with_self = false,
             .current_function_name = null,
             .skipped_modules = FnvVoidMap.init(allocator),
             .skipped_functions = FnvVoidMap.init(allocator),

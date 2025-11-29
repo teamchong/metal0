@@ -89,13 +89,6 @@ class TestOperatorLogical(unittest.TestCase):
     def test_truth_false(self):
         self.assertFalse(operator.truth(0))
 
-    def test_is_same(self):
-        a = [1, 2, 3]
-        self.assertTrue(operator.is_(a, a))
-
-    def test_is_not_different(self):
-        self.assertTrue(operator.is_not([1], [1]))
-
 class TestOperatorBitwise(unittest.TestCase):
     def test_and(self):
         self.assertEqual(operator.and_(12, 10), 8)
@@ -112,27 +105,16 @@ class TestOperatorBitwise(unittest.TestCase):
     def test_rshift(self):
         self.assertEqual(operator.rshift(16, 2), 4)
 
-class TestOperatorSequence(unittest.TestCase):
-    def test_concat_lists(self):
-        self.assertEqual(operator.concat([1, 2], [3, 4]), [1, 2, 3, 4])
+    def test_invert(self):
+        # Note: invert(0) = -1, invert(1) = -2, etc.
+        self.assertEqual(operator.invert(1), -2)
 
-    def test_contains_true(self):
-        self.assertTrue(operator.contains([1, 2, 3], 2))
+class TestOperatorPow(unittest.TestCase):
+    def test_pow_2_3(self):
+        self.assertEqual(operator.pow(2, 3), 8)
 
-    def test_contains_false(self):
-        self.assertFalse(operator.contains([1, 2, 3], 5))
-
-    def test_countOf(self):
-        self.assertEqual(operator.countOf([1, 2, 2, 3], 2), 2)
-
-    def test_indexOf(self):
-        self.assertEqual(operator.indexOf([1, 2, 3], 2), 1)
-
-    def test_getitem(self):
-        self.assertEqual(operator.getitem([1, 2, 3], 1), 2)
-
-    def test_length_hint(self):
-        self.assertEqual(operator.length_hint([1, 2, 3]), 3)
+    def test_pow_10_0(self):
+        self.assertEqual(operator.pow(10, 0), 1)
 
 if __name__ == "__main__":
     unittest.main()

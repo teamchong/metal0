@@ -63,7 +63,10 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
 /// For local imports (inside functions), we need to generate const bindings
 pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!void {
     // Only generate for local imports (inside functions)
-    if (self.indent_level == 0) return; // Module-level handled elsewhere
+    // Module-level imports are handled in PHASE 3 of generator.zig
+    // In module mode, indent_level == 1 means we're at struct level (still module-level)
+    if (self.indent_level == 0) return;
+    if (self.mode == .module and self.indent_level == 1) return;
 
     const module_name = import.module;
     const alias = import.asname orelse module_name;

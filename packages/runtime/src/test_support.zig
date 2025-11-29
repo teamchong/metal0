@@ -342,8 +342,10 @@ pub const import_helper = struct {
     }
 
     /// Import a fresh module (no caching)
-    pub fn import_fresh_module(_: std.mem.Allocator, _: []const u8) !void {
-        // No-op - we don't have dynamic imports
+    /// Returns a module struct (stub for AOT)
+    pub fn import_fresh_module(_: []const u8, _: anytype) ?*anyopaque {
+        // No-op - we don't have dynamic imports, return null
+        return null;
     }
 
     /// Temporarily add a path to sys.path
@@ -361,6 +363,12 @@ pub const import_helper = struct {
         }
         pub fn deinit(_: *CleanImport) void {}
     };
+
+    /// Ensure lazy imports - no-op in AOT context
+    /// In CPython this verifies that certain modules are lazily imported
+    pub fn ensure_lazy_imports(_: []const u8, _: anytype) void {
+        // No-op - AOT compilation resolves all imports at compile time
+    }
 };
 
 /// warnings_helper submodule

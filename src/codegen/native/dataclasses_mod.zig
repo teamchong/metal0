@@ -54,7 +54,7 @@ pub fn genFields(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate dataclasses.asdict(instance, *, dict_factory=dict) -> dict
 pub fn genAsdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("hashmap_helper.StringHashMap([]const u8).init(allocator)");
+    try self.emit("hashmap_helper.StringHashMap([]const u8).init(__global_allocator)");
 }
 
 /// Generate dataclasses.astuple(instance, *, tuple_factory=tuple) -> tuple

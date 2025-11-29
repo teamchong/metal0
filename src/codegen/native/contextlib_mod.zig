@@ -57,5 +57,5 @@ pub fn genNullcontext(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
 pub fn genExitStack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     // Returns a simple struct that can push/pop context managers
-    try self.emit("struct { stack: std.ArrayList(*anyopaque) = std.ArrayList(*anyopaque).init(allocator), pub fn enter_context(self: *@This(), cm: anytype) void { _ = self; _ = cm; } pub fn close(self: *@This()) void { self.stack.deinit(allocator); } }{}");
+    try self.emit("struct { stack: std.ArrayList(*anyopaque) = std.ArrayList(*anyopaque).init(__global_allocator), pub fn enter_context(self: *@This(), cm: anytype) void { _ = self; _ = cm; } pub fn close(self: *@This()) void { self.stack.deinit(allocator); } }{}");
 }

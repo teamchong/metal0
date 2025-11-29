@@ -61,7 +61,7 @@ pub fn genCatchWarnings(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emitIndent();
     try self.emit("record: bool = false,\n");
     try self.emitIndent();
-    try self.emit("log: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(allocator),\n");
+    try self.emit("log: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(__global_allocator),\n");
     try self.emitIndent();
     try self.emit("pub fn __enter__(self: *@This()) *@This() { return self; }\n");
     try self.emitIndent();
@@ -143,4 +143,16 @@ pub fn genResourceWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!v
 pub fn genFilters(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("&[_][]const u8{}");
+}
+
+/// Generate warnings._filters_mutated() - notification that filters were changed
+pub fn genFiltersMutated(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("{}");
+}
+
+/// Generate warnings.WarningMessage class
+pub fn genWarningMessage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("struct { _WARNING_DETAILS: []const []const u8 = &[_][]const u8{\"message\", \"category\", \"filename\", \"lineno\", \"file\", \"line\", \"source\"} }{}");
 }

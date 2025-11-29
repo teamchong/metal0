@@ -193,13 +193,16 @@ class TestMathMisc(unittest.TestCase):
     def test_modf_positive(self):
         frac, integer = math.modf(3.5)
         self.assertAlmostEqual(frac, 0.5, places=5)
+        self.assertAlmostEqual(integer, 3.0, places=5)
 
     def test_ldexp(self):
         self.assertEqual(math.ldexp(1.0, 3), 8.0)
 
     def test_frexp(self):
         m, e = math.frexp(8.0)
-        self.assertEqual(m * (2 ** e), 8.0)
+        # m should be 0.5, e should be 4 (0.5 * 2^4 = 8.0)
+        self.assertAlmostEqual(m, 0.5, places=5)
+        self.assertEqual(e, 4)
 
     def test_hypot(self):
         self.assertEqual(math.hypot(3, 4), 5.0)

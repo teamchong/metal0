@@ -7,7 +7,7 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 /// Generate numbers.Number - Root of numeric hierarchy (ABC)
 pub fn genNumber(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("struct { _is_number: bool = true }{}");
+    try self.emit("struct { _is_number: bool = true, pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {} }{}");
 }
 
 /// Generate numbers.Complex - Complex numbers (ABC)
@@ -36,7 +36,9 @@ pub fn genComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("pub fn __eq__(self: @This(), other: @This()) bool { return self.real == other.real and self.imag == other.imag; }\n");
     try self.emitIndent();
-    try self.emit("pub fn __bool__(self: @This()) bool { return self.real != 0.0 or self.imag != 0.0; }\n");
+    try self.emit("pub fn __bool__(s: @This()) bool { return s.real != 0.0 or s.imag != 0.0; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {}\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");
@@ -75,6 +77,8 @@ pub fn genReal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn imag(self: @This()) f64 { return 0.0; }\n");
     try self.emitIndent();
     try self.emit("pub fn conjugate(self: @This()) @This() { return self; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {}\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");
@@ -83,6 +87,7 @@ pub fn genReal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate numbers.Rational - Rational numbers (ABC)
 pub fn genRational(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
+    // Generate a type reference, not an instance - for ABC.register() pattern
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
@@ -90,13 +95,16 @@ pub fn genRational(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("denominator: i64 = 1,\n");
     try self.emitIndent();
-    try self.emit("pub fn __float__(self: @This()) f64 {\n");
+    try self.emit("pub fn __float__(s: @This()) f64 {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return @as(f64, @floatFromInt(self.numerator)) / @as(f64, @floatFromInt(self.denominator));\n");
+    try self.emit("return @as(f64, @floatFromInt(s.numerator)) / @as(f64, @floatFromInt(s.denominator));\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
+    try self.emitIndent();
+    // ABC register method - no-op at AOT compile time
+    try self.emit("pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {}\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");
@@ -129,6 +137,8 @@ pub fn genIntegral(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn numerator(self: @This()) i64 { return self.value; }\n");
     try self.emitIndent();
     try self.emit("pub fn denominator(self: @This()) i64 { return 1; }\n");
+    try self.emitIndent();
+    try self.emit("pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {}\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");

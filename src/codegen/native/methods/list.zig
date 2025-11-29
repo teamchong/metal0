@@ -19,6 +19,17 @@ fn producesBlockExpression(expr: ast.Node) bool {
     };
 }
 
+/// Helper to emit object expression, wrapping in parens if it's a block expression
+fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    if (producesBlockExpression(obj)) {
+        try self.emit("(");
+        try self.genExpr(obj);
+        try self.emit(")");
+    } else {
+        try self.genExpr(obj);
+    }
+}
+
 /// Generate code for list.append(item)
 /// NOTE: Zig arrays are fixed size, need ArrayList for dynamic appending
 pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
@@ -28,7 +39,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Generate: try list.append(__global_allocator, item)
     try self.emit("try ");
-    try self.genExpr(obj);
+    try emitObjExpr(self, obj);
     try self.emit(".append(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(")");
@@ -62,7 +73,7 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     if (arg == .list) {
         // Generate: try list.appendSlice(__global_allocator, &[_]T{...})
         try self.emit("try ");
-        try self.genExpr(obj);
+        try emitObjExpr(self, obj);
         try self.emit(".appendSlice(__global_allocator, &");
         try self.genExpr(arg);
         try self.emit(")");
@@ -73,13 +84,13 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.emit("{ const __list_temp = ");
         try self.genExpr(arg);
         try self.emit("; try ");
-        try self.genExpr(obj);
+        try emitObjExpr(self, obj);
         try self.emit(".appendSlice(__global_allocator, __list_temp.items); }");
     } else {
         // Assume ArrayList variable - use .items
         // Generate: try list.appendSlice(__global_allocator, other.items)
         try self.emit("try ");
-        try self.genExpr(obj);
+        try emitObjExpr(self, obj);
         try self.emit(".appendSlice(__global_allocator, ");
         try self.genExpr(arg);
         try self.emit(".items)");
@@ -93,7 +104,7 @@ pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Generate: try list.insert(__global_allocator, index, item)
     try self.emit("try ");
-    try self.genExpr(obj);
+    try emitObjExpr(self, obj);
     try self.emit(".insert(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -155,7 +166,7 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 
     // Generate: try list.clone(__global_allocator)
     try self.emit("try ");
-    try self.genExpr(obj);
+    try emitObjExpr(self, obj);
     try self.emit(".clone(__global_allocator)");
 }
 
@@ -186,4 +197,72 @@ pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit(".items, &[_]i64{");
     try self.genExpr(args[0]);
     try self.emit("})))");
+}
+
+/// Generate code for deque.appendleft(item)
+/// Inserts item at the beginning (index 0)
+pub fn genAppendleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    // Generate: try deque.insert(__global_allocator, 0, item)
+    try self.emit("try ");
+    try emitObjExpr(self, obj);
+    try self.emit(".insert(__global_allocator, 0, ");
+    try self.genExpr(args[0]);
+    try self.emit(")");
+}
+
+/// Generate code for deque.popleft()
+/// Removes and returns the first item
+pub fn genPopleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    // Generate: deque.orderedRemove(0)
+    try self.genExpr(obj);
+    try self.emit(".orderedRemove(0)");
+}
+
+/// Generate code for deque.extendleft(iterable)
+/// Extends deque from the left (items are reversed)
+pub fn genExtendleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    const arg = args[0];
+
+    // Check if argument is a list literal - use & slice syntax
+    if (arg == .list) {
+        // Array literals: iterate directly with &
+        try self.emit("{ for (&");
+        try self.genExpr(arg);
+        try self.emit(") |__ext_item| { try ");
+        try self.genExpr(obj);
+        try self.emit(".insert(__global_allocator, 0, __ext_item); } }");
+    } else {
+        // ArrayList variable: use .items
+        try self.emit("{ const __ext_temp = ");
+        try self.genExpr(arg);
+        try self.emit(".items; for (__ext_temp) |__ext_item| { try ");
+        try self.genExpr(obj);
+        try self.emit(".insert(__global_allocator, 0, __ext_item); } }");
+    }
+}
+
+/// Generate code for deque.rotate(n)
+/// Rotates deque n steps to the right (negative = left)
+pub fn genRotate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    // Generate: std.mem.rotate(T, deque.items, n)
+    // Note: std.mem.rotate rotates left, so we need to negate for Python's right rotation
+    try self.emit("std.mem.rotate(@TypeOf(");
+    try self.genExpr(obj);
+    try self.emit(".items[0]), ");
+    try self.genExpr(obj);
+    try self.emit(".items, @as(usize, @intCast(");
+    try self.genExpr(obj);
+    try self.emit(".items.len)) -% @as(usize, @intCast(");
+    if (args.len > 0) {
+        try self.genExpr(args[0]);
+    } else {
+        try self.emit("1");
+    }
+    try self.emit(")))");
 }

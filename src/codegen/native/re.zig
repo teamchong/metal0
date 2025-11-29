@@ -28,3 +28,78 @@ pub const genReSplit = bridge.genVarArgCall(.{ .runtime_path = "runtime.re.split
 pub const genReEscape = bridge.genSimpleCall(.{ .runtime_path = "runtime.re.escape", .arg_count = 1 });
 // re.purge() - 0 args
 pub const genRePurge = bridge.genNoArgCall(.{ .runtime_path = "runtime.re.purge", .needs_allocator = false });
+
+// re module flag constants
+/// re.IGNORECASE / re.I - case insensitive matching
+pub fn genIGNORECASE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i64, 2)"); // re.IGNORECASE = 2
+}
+
+pub const genI = genIGNORECASE;
+
+/// re.MULTILINE / re.M - ^ and $ match at line breaks
+pub fn genMULTILINE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i64, 8)"); // re.MULTILINE = 8
+}
+
+pub const genM = genMULTILINE;
+
+/// re.DOTALL / re.S - dot matches newlines
+pub fn genDOTALL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i64, 16)"); // re.DOTALL = 16
+}
+
+pub const genS = genDOTALL;
+
+/// re.VERBOSE / re.X - allow comments and whitespace in pattern
+pub fn genVERBOSE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i64, 64)"); // re.VERBOSE = 64
+}
+
+pub const genX = genVERBOSE;
+
+/// re.ASCII / re.A - make \w, \W, \b, \B, \d, \D, \s, \S ASCII-only
+pub fn genASCII(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i64, 256)"); // re.ASCII = 256
+}
+
+pub const genA = genASCII;
+
+/// re.LOCALE / re.L - locale-dependent matching
+pub fn genLOCALE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i64, 4)"); // re.LOCALE = 4
+}
+
+pub const genL = genLOCALE;
+
+/// re.UNICODE / re.U - unicode matching (default in Python 3)
+pub fn genUNICODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i64, 32)"); // re.UNICODE = 32
+}
+
+pub const genU = genUNICODE;
+
+/// re.error exception
+pub fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("error.RegexError");
+}
+
+/// re.Pattern type
+pub fn genPattern(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"Pattern\"");
+}
+
+/// re.Match type
+pub fn genMatch(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"Match\"");
+}

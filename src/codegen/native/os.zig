@@ -68,7 +68,7 @@ pub fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     try self.emitIndent();
-    try self.emit("var _entries = std.ArrayList([]const u8).init(allocator);\n");
+    try self.emit("var _entries = std.ArrayList([]const u8).init(__global_allocator);\n");
     try self.emitIndent();
     try self.emit("var _dir = std.fs.cwd().openDir(_dir_path, .{ .iterate = true }) catch {\n");
     self.indent();
@@ -206,6 +206,27 @@ pub fn genPathBasename(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
+}
+
+/// Generate code for os.curdir constant
+/// Returns "." (current directory)
+pub fn genCurdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\".\"");
+}
+
+/// Generate code for os.pardir constant
+/// Returns ".." (parent directory)
+pub fn genPardir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"..\"");
+}
+
+/// Generate code for os.sep constant
+/// Returns path separator
+pub fn genSep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"/\"");
 }
 
 /// Generate code for os.getenv(key, default=None)
@@ -477,6 +498,182 @@ pub fn genName(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("};\n");
     self.dedent();
     try self.emitIndent();
-    try self.emit("}"
-    );
+    try self.emit("}");
+}
+
+/// Generate code for os.unlink(path) - alias for os.remove
+pub const genUnlink = genRemove;
+
+/// Generate code for os.stat(path) - returns stat struct
+pub fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        std.debug.print("os.stat() requires exactly 1 argument\n", .{});
+        return;
+    }
+
+    try self.emit("os_stat_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("const _stat = std.fs.cwd().statFile(_path) catch break :os_stat_blk struct { st_size: i64 = 0, st_mode: u32 = 0, st_ino: u64 = 0, st_mtime: i64 = 0, st_atime: i64 = 0, st_ctime: i64 = 0 }{};\n");
+    try self.emitIndent();
+    try self.emit("break :os_stat_blk .{ .st_size = @intCast(_stat.size), .st_mode = @intCast(_stat.mode), .st_ino = _stat.inode, .st_mtime = @intCast(@divFloor(_stat.mtime, 1_000_000_000)), .st_atime = @intCast(@divFloor(_stat.atime, 1_000_000_000)), .st_ctime = @intCast(@divFloor(_stat.ctime, 1_000_000_000)) };\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.path.splitext(path) - split extension
+pub fn genPathSplitext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        std.debug.print("os.path.splitext() requires exactly 1 argument\n", .{});
+        return;
+    }
+
+    try self.emit("os_path_splitext_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("const _ext = std.fs.path.extension(_path);\n");
+    try self.emitIndent();
+    try self.emit("const _root = if (_ext.len > 0) _path[0.._path.len - _ext.len] else _path;\n");
+    try self.emitIndent();
+    try self.emit("break :os_path_splitext_blk .{ .@\"0\" = _root, .@\"1\" = _ext };\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.path.getsize(path) - get file size
+pub fn genPathGetsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        std.debug.print("os.path.getsize() requires exactly 1 argument\n", .{});
+        return;
+    }
+
+    try self.emit("os_path_getsize_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("const _stat = std.fs.cwd().statFile(_path) catch break :os_path_getsize_blk @as(i64, 0);\n");
+    try self.emitIndent();
+    try self.emit("break :os_path_getsize_blk @as(i64, @intCast(_stat.size));\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.environ - environment variables dictionary
+pub fn genEnviron(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("hashmap_helper.StringHashMap([]const u8).init(__global_allocator)");
+}
+
+/// Generate code for os.removedirs(path) - remove directories recursively
+pub fn genRemovedirs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        std.debug.print("os.removedirs() requires exactly 1 argument\n", .{});
+        return;
+    }
+
+    try self.emit("os_removedirs_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _path = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("std.fs.cwd().deleteTree(_path) catch {};\n");
+    try self.emitIndent();
+    try self.emit("break :os_removedirs_blk {};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.linesep - line separator
+pub fn genLinesep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("os_linesep_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _builtin = @import(\"builtin\");\n");
+    try self.emitIndent();
+    try self.emit("break :os_linesep_blk switch (_builtin.os.tag) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit(".windows => \"\\r\\n\",\n");
+    try self.emitIndent();
+    try self.emit("else => \"\\n\",\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.altsep - alternate separator
+pub fn genAltsep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("null");
+}
+
+/// Generate code for os.extsep - extension separator
+pub fn genExtsep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\".\"");
+}
+
+/// Generate code for os.pathsep - path separator
+pub fn genPathsep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("os_pathsep_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _builtin = @import(\"builtin\");\n");
+    try self.emitIndent();
+    try self.emit("break :os_pathsep_blk switch (_builtin.os.tag) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit(".windows => \";\",\n");
+    try self.emitIndent();
+    try self.emit("else => \":\",\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for os.devnull - null device path
+pub fn genDevnull(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("os_devnull_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _builtin = @import(\"builtin\");\n");
+    try self.emitIndent();
+    try self.emit("break :os_devnull_blk switch (_builtin.os.tag) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit(".windows => \"nul\",\n");
+    try self.emitIndent();
+    try self.emit("else => \"/dev/null\",\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
 }

@@ -25,8 +25,8 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!vo
     try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 
     // Use __alloc for nested classes to avoid shadowing outer allocator
-    // Nested classes have indent_level > 2 (module + outer class/method)
-    const alloc_name = if (self.indent_level > 2) "__alloc" else "allocator";
+    // class_nesting_depth: 1 = top-level class, 2+ = nested class
+    const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
 
     try self.emit("\n");
     try self.emitIndent();
@@ -61,7 +61,7 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
     try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 
     // Use __alloc for nested classes to avoid shadowing outer allocator
-    const alloc_name = if (self.indent_level > 2) "__alloc" else "allocator";
+    const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
 
     try self.emit("\n");
     try self.emitIndent();
@@ -110,8 +110,8 @@ pub fn genInitMethod(
     init: ast.Node.FunctionDef,
 ) CodegenError!void {
     // Use __alloc for nested classes to avoid shadowing outer allocator
-    // Nested classes have indent_level > 2 (module + outer class/method)
-    const alloc_name = if (self.indent_level > 2) "__alloc" else "allocator";
+    // class_nesting_depth: 1 = top-level class, 2+ = nested class
+    const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
 
     try self.emit("\n");
     try self.emitIndent();
@@ -141,13 +141,35 @@ pub fn genInitMethod(
 
     // Note: allocator is always used for __dict__ initialization, so no discard needed
 
+    // First pass: generate non-field assignments (local variables, control flow, etc.)
+    // These need to be executed BEFORE the struct is created
+    for (init.body) |stmt| {
+        const is_field_assign = blk: {
+            if (stmt == .assign) {
+                const assign = stmt.assign;
+                if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                    const attr = assign.targets[0].attribute;
+                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        };
+
+        // Generate non-field statements (local var assignments, if statements, etc.)
+        if (!is_field_assign) {
+            try self.generateStmt(stmt);
+        }
+    }
+
     // Generate return statement with field initializers
     try self.emitIndent();
     // Use @This(){} for struct literal initialization
     try self.emit("return @This(){\n");
     self.indent();
 
-    // Extract field assignments from __init__ body
+    // Second pass: extract field assignments from __init__ body
     for (init.body) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
@@ -189,7 +211,7 @@ pub fn genInitMethodWithBuiltinBase(
     builtin_base: ?BuiltinBaseInfo,
 ) CodegenError!void {
     // Use __alloc for nested classes to avoid shadowing outer allocator
-    const alloc_name = if (self.indent_level > 2) "__alloc" else "allocator";
+    const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
 
     try self.emit("\n");
     try self.emitIndent();
@@ -231,6 +253,28 @@ pub fn genInitMethodWithBuiltinBase(
     try self.emit(") @This() {\n");
     self.indent();
 
+    // First pass: generate non-field assignments (local variables, control flow, etc.)
+    // These need to be executed BEFORE the struct is created
+    for (init.body) |stmt| {
+        const is_field_assign = blk: {
+            if (stmt == .assign) {
+                const assign = stmt.assign;
+                if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                    const attr = assign.targets[0].attribute;
+                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        };
+
+        // Generate non-field statements (local var assignments, if statements, etc.)
+        if (!is_field_assign) {
+            try self.generateStmt(stmt);
+        }
+    }
+
     // Generate return statement with field initializers
     try self.emitIndent();
     try self.emit("return @This(){\n");
@@ -242,7 +286,7 @@ pub fn genInitMethodWithBuiltinBase(
         try self.output.writer(self.allocator).print(".__base_value__ = {s},\n", .{base_info.zig_init});
     }
 
-    // Extract field assignments from __init__ body
+    // Second pass: extract field assignments from __init__ body
     for (init.body) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
@@ -295,9 +339,26 @@ pub fn genClassMethods(
 
             const mutates_self = body.methodMutatesSelf(method);
             // Skipped methods don't need allocator since their body is empty
-            const needs_allocator = if (is_skipped) false else allocator_analyzer.functionNeedsAllocator(method);
-            const actually_uses_allocator = if (is_skipped) false else allocator_analyzer.functionActuallyUsesAllocatorParam(method);
-            try signature.genMethodSignature(self, class.name, method, mutates_self, needs_allocator);
+            // Use methodNeedsAllocatorInClass to detect same-class constructor calls like Rat(x)
+            const needs_allocator = if (is_skipped) false else allocator_analyzer.methodNeedsAllocatorInClass(method, class.name);
+            const actually_uses_allocator = if (is_skipped) false else allocator_analyzer.functionActuallyUsesAllocatorParamInClass(method, class.name);
+
+            // Generate method signature
+            // Note: method_nesting_depth tracks whether we're inside a NESTED class inside a method
+            // It's incremented when we enter a class inside a method body, not when we enter a method itself
+            try signature.genMethodSignatureWithSkip(self, class.name, method, mutates_self, needs_allocator, is_skipped, actually_uses_allocator);
+
+            // Check if this method returns a lambda that captures self (closure)
+            // Register it so that callers can mark the variable as a closure
+            if (!is_skipped) {
+                if (signature.getReturnedLambda(method.body)) |lambda| {
+                    if (signature.lambdaCapturesSelf(lambda.body.*)) {
+                        // Register as "ClassName.method_name"
+                        const key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, method.name });
+                        try self.closure_returning_methods.put(key, {});
+                    }
+                }
+            }
 
             if (is_skipped) {
                 // Generate empty body for skipped test methods
@@ -339,9 +400,11 @@ pub fn genInheritedMethods(
             if (!is_overridden) {
                 // Copy parent method to child class
                 const mutates_self = body.methodMutatesSelf(parent_method);
-                const needs_allocator = allocator_analyzer.functionNeedsAllocator(parent_method);
-                const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParam(parent_method);
-                try signature.genMethodSignature(self, class.name, parent_method, mutates_self, needs_allocator);
+                // Use methodNeedsAllocatorInClass with parent class name for inherited methods
+                const needs_allocator = allocator_analyzer.methodNeedsAllocatorInClass(parent_method, parent.name);
+                const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParamInClass(parent_method, parent.name);
+                // Use genMethodSignatureWithSkip to properly pass actually_uses_allocator flag
+                try signature.genMethodSignatureWithSkip(self, class.name, parent_method, mutates_self, needs_allocator, false, actually_uses_allocator);
                 try body.genMethodBodyWithAllocatorInfo(self, parent_method, needs_allocator, actually_uses_allocator);
             }
         }

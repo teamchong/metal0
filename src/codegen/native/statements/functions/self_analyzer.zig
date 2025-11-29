@@ -26,6 +26,13 @@ const UnittestMethods = std.StaticStringMap(void).initComptime(.{
     .{ "assertNotRegex", {} },
     .{ "assertIsInstance", {} },
     .{ "assertNotIsInstance", {} },
+    .{ "assertIsSubclass", {} },
+    .{ "assertMultiLineEqual", {} },
+    .{ "assertSequenceEqual", {} },
+    .{ "assertListEqual", {} },
+    .{ "assertTupleEqual", {} },
+    .{ "assertSetEqual", {} },
+    .{ "assertDictEqual", {} },
     .{ "subTest", {} },
 });
 
@@ -67,6 +74,48 @@ fn stmtUsesSelf(node: ast.Node) bool {
             return usesSelf(while_stmt.body);
         },
         .for_stmt => |for_stmt| usesSelf(for_stmt.body),
+        .with_stmt => |with_stmt| {
+            // Check if context expression uses self
+            // Skip unittest context managers (self.subTest, self.assertRaises, etc.)
+            // because they're dispatched to runtime and don't actually use self
+            const is_unittest_context = blk: {
+                if (with_stmt.context_expr.* == .call) {
+                    const call = with_stmt.context_expr.call;
+                    if (call.func.* == .attribute) {
+                        const func_attr = call.func.attribute;
+                        if (func_attr.value.* == .name and
+                            std.mem.eql(u8, func_attr.value.name.id, "self") and
+                            UnittestMethods.has(func_attr.attr))
+                        {
+                            break :blk true;
+                        }
+                    }
+                }
+                break :blk false;
+            };
+            if (!is_unittest_context and exprUsesSelf(with_stmt.context_expr.*)) return true;
+            // Check if body uses self
+            return usesSelf(with_stmt.body);
+        },
+        else => false,
+    };
+}
+
+/// Check if expression uses self - for with statement context expressions
+/// This version does NOT filter out unittest methods (self.subTest) because
+/// the context manager pattern still uses self even if the method is a unittest helper
+fn exprUsesSelfForWith(node: ast.Node) bool {
+    return switch (node) {
+        .name => |name| std.mem.eql(u8, name.id, "self"),
+        .attribute => |attr| exprUsesSelfForWith(attr.value.*),
+        .call => |call| {
+            // For with statements, we want to detect self usage even in unittest methods
+            if (exprUsesSelfForWith(call.func.*)) return true;
+            for (call.args) |arg| {
+                if (exprUsesSelfForWith(arg)) return true;
+            }
+            return false;
+        },
         else => false,
     };
 }
@@ -74,7 +123,17 @@ fn stmtUsesSelf(node: ast.Node) bool {
 fn exprUsesSelf(node: ast.Node) bool {
     return switch (node) {
         .name => |name| std.mem.eql(u8, name.id, "self"),
-        .attribute => |attr| exprUsesSelf(attr.value.*),
+        .attribute => |attr| {
+            // Check for unittest assertion method references (e.g., eq = self.assertEqual)
+            // These are dispatched to runtime.unittest and don't actually use self
+            if (attr.value.* == .name and
+                std.mem.eql(u8, attr.value.name.id, "self") and
+                UnittestMethods.has(attr.attr))
+            {
+                return false;
+            }
+            return exprUsesSelf(attr.value.*);
+        },
         .call => |call| {
             // Check for super() calls - they need self because super().foo()
             // translates to ParentClass.foo(self)
@@ -130,6 +189,39 @@ fn exprUsesSelf(node: ast.Node) bool {
                     return false;
                 },
             };
+        },
+        .tuple => |tup| {
+            for (tup.elts) |elt| {
+                if (exprUsesSelf(elt)) return true;
+            }
+            return false;
+        },
+        .list => |list| {
+            for (list.elts) |elt| {
+                if (exprUsesSelf(elt)) return true;
+            }
+            return false;
+        },
+        .dict => |dict| {
+            for (dict.keys) |key| {
+                if (exprUsesSelf(key)) return true;
+            }
+            for (dict.values) |val| {
+                if (exprUsesSelf(val)) return true;
+            }
+            return false;
+        },
+        .unaryop => |unary| exprUsesSelf(unary.operand.*),
+        .if_expr => |if_expr| {
+            if (exprUsesSelf(if_expr.condition.*)) return true;
+            if (exprUsesSelf(if_expr.body.*)) return true;
+            if (exprUsesSelf(if_expr.orelse_value.*)) return true;
+            return false;
+        },
+        .lambda => |lambda| {
+            // Check if self is used in the lambda body
+            // This is critical for closures that capture self
+            return exprUsesSelf(lambda.body.*);
         },
         else => false,
     };

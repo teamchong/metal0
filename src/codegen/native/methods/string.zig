@@ -212,3 +212,11 @@ pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
 /// Alias for genIndex (string.index() in methods.zig)
 pub const genStrIndex = genIndex;
+
+/// Generate code for text.encode(encoding="utf-8")
+/// In Zig, strings are already UTF-8, so this just returns the string as bytes
+pub fn genEncode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args; // Ignore encoding arg - Zig strings are UTF-8
+    // Simply return the string as-is (it's already []const u8)
+    try self.genExpr(obj);
+}

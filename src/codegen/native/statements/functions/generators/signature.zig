@@ -4,7 +4,6 @@ const ast = @import("ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const param_analyzer = @import("../param_analyzer.zig");
-const allocator_analyzer = @import("../allocator_analyzer.zig");
 const self_analyzer = @import("../self_analyzer.zig");
 const zig_keywords = @import("zig_keywords");
 
@@ -61,6 +60,52 @@ pub fn returnsLambda(body: []ast.Node) bool {
         }
     }
     return false;
+}
+
+/// Check if lambda references 'self' in its body (captures self from method scope)
+pub fn lambdaCapturesSelf(lambda_body: ast.Node) bool {
+    return switch (lambda_body) {
+        .name => |n| std.mem.eql(u8, n.id, "self"),
+        .attribute => |attr| lambdaCapturesSelf(attr.value.*),
+        .binop => |b| lambdaCapturesSelf(b.left.*) or lambdaCapturesSelf(b.right.*),
+        .compare => |cmp| blk: {
+            if (lambdaCapturesSelf(cmp.left.*)) break :blk true;
+            for (cmp.comparators) |comp| {
+                if (lambdaCapturesSelf(comp)) break :blk true;
+            }
+            break :blk false;
+        },
+        .call => |c| blk: {
+            if (lambdaCapturesSelf(c.func.*)) break :blk true;
+            for (c.args) |arg| {
+                if (lambdaCapturesSelf(arg)) break :blk true;
+            }
+            break :blk false;
+        },
+        .subscript => |sub| blk: {
+            if (lambdaCapturesSelf(sub.value.*)) break :blk true;
+            if (sub.slice == .index) {
+                if (lambdaCapturesSelf(sub.slice.index.*)) break :blk true;
+            }
+            break :blk false;
+        },
+        .if_expr => |ie| lambdaCapturesSelf(ie.condition.*) or
+            lambdaCapturesSelf(ie.body.*) or lambdaCapturesSelf(ie.orelse_value.*),
+        .unaryop => |u| lambdaCapturesSelf(u.operand.*),
+        else => false,
+    };
+}
+
+/// Get returned lambda from method body (for closure type detection)
+pub fn getReturnedLambda(body: []ast.Node) ?ast.Node.Lambda {
+    for (body) |stmt| {
+        if (stmt == .return_stmt) {
+            if (stmt.return_stmt.value) |val| {
+                if (val.* == .lambda) return val.lambda;
+            }
+        }
+    }
+    return null;
 }
 
 /// Check if function has a return statement (recursively)
@@ -149,9 +194,7 @@ pub fn genFunctionSignature(
             try self.anytype_params.put(arg.name, {});
         } else if (is_iter and arg.type_annotation == null) {
             // Parameter used as iterator (for x in param:) - use anytype for slice inference
-            if (arg.default != null) {
-                try self.emit("?");
-            }
+            // Note: ?anytype is not valid in Zig, so we don't add ? prefix for anytype params
             try self.emit("anytype");
             try self.anytype_params.put(arg.name, {});
         } else if (arg.type_annotation) |_| {
@@ -401,11 +444,25 @@ pub fn genMethodSignature(
     mutates_self: bool,
     needs_allocator: bool,
 ) CodegenError!void {
+    return genMethodSignatureWithSkip(self, class_name, method, mutates_self, needs_allocator, false, true);
+}
+
+/// Generate method signature with skip flag for skipped test methods
+pub fn genMethodSignatureWithSkip(
+    self: *NativeCodegen,
+    class_name: []const u8,
+    method: ast.Node.FunctionDef,
+    mutates_self: bool,
+    needs_allocator: bool,
+    is_skipped: bool,
+    actually_uses_allocator: bool,
+) CodegenError!void {
     try self.emit("\n");
     try self.emitIndent();
 
     // Check if self is actually used in the method body
-    const uses_self = self_analyzer.usesSelf(method.body);
+    // If method is skipped, self is never used since body is replaced with empty stub
+    const uses_self = if (is_skipped) false else self_analyzer.usesSelf(method.body);
 
     // For __new__ methods, the first Python parameter is 'cls' not 'self', and the body often
     // does 'self = super().__new__(cls)' which would shadow a 'self' parameter.
@@ -414,7 +471,8 @@ pub fn genMethodSignature(
 
     // Use *const for methods that don't mutate self (read-only methods)
     // Use _ for self param if it's not actually used in the body, or if it's __new__
-    const self_param_name = if (is_new_method) "_" else if (uses_self) "self" else "_";
+    // Use __self for nested classes inside methods to avoid shadowing outer self parameter
+    const self_param_name = if (is_new_method) "_" else if (!uses_self) "_" else if (self.method_nesting_depth > 0) "__self" else "self";
 
     // Generate "pub fn methodname(self_param: *[const] @This()"
     // Use @This() instead of class name to handle nested classes and forward references
@@ -428,13 +486,17 @@ pub fn genMethodSignature(
         try self.emit("*const @This()");
     }
 
-    // Add allocator parameter if method needs it
-    // Use _ if allocator is needed for return type but not actually used in body
+    // Add allocator parameter if method needs it (for error union return type)
+    // Use "_" if allocator is not actually used in the body to avoid unused parameter error
     // Use __alloc for nested classes to avoid shadowing outer allocator
+    // Note: Check if "allocator" name is literally used in Python source - the allocator param
+    // is added by codegen, so if Python code doesn't use it, we should use "_"
     if (needs_allocator) {
-        const actually_uses = allocator_analyzer.functionActuallyUsesAllocatorParam(method);
-        const alloc_name = if (self.indent_level > 2) "__alloc" else "allocator";
-        if (actually_uses) {
+        // Check if any code in the method body actually references "allocator" by name
+        // (This handles cases where Python code explicitly uses allocator, though rare)
+        const allocator_literally_used = param_analyzer.isNameUsedInBody(method.body, "allocator");
+        if (actually_uses_allocator and allocator_literally_used) {
+            const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
             try self.output.writer(self.allocator).print(", {s}: std.mem.Allocator", .{alloc_name});
         } else {
             try self.emit(", _: std.mem.Allocator");
@@ -468,6 +530,20 @@ pub fn genMethodSignature(
         }
     }
 
+    // Add *args parameter as a slice if present
+    if (method.vararg) |vararg_name| {
+        try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
+        try self.emit(": anytype"); // Use anytype for flexibility
+    }
+
+    // Add **kwargs parameter if present
+    if (method.kwarg) |kwarg_name| {
+        try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
+        try self.emit(": anytype");
+    }
+
     try self.emit(") ");
 
     // Determine return type (add error union if allocator needed)
@@ -484,6 +560,23 @@ pub fn genMethodSignature(
             try self.emit(zig_return_type);
         }
     } else if (hasReturnStatement(method.body)) {
+        // Check if method returns a lambda that captures self (closure)
+        if (getReturnedLambda(method.body)) |lambda| {
+            if (lambdaCapturesSelf(lambda.body.*)) {
+                // Method returns a closure - use closure type name
+                // The closure will be generated with current lambda_counter value
+                const closure_type = try std.fmt.allocPrint(
+                    self.allocator,
+                    "__Closure_{d}",
+                    .{self.lambda_counter},
+                );
+                defer self.allocator.free(closure_type);
+                try self.emit(closure_type);
+                try self.emit(" {\n");
+                return;
+            }
+        }
+
         // Check if method returns a parameter directly (for anytype params)
         var returned_param_name: ?[]const u8 = null;
         for (method.body) |stmt| {

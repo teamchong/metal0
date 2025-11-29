@@ -25,6 +25,9 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.closure_factories);
     self.closure_factories.deinit();
 
+    freeMapKeys(self.allocator, &self.closure_returning_methods);
+    self.closure_returning_methods.deinit();
+
     freeMapKeys(self.allocator, &self.lambda_vars);
     self.lambda_vars.deinit();
 

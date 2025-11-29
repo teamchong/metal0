@@ -327,6 +327,10 @@ const FuncMap = std.StaticStringMap(ModuleHandler);
 const JsonFuncs = FuncMap.initComptime(.{
     .{ "loads", json.genJsonLoads },
     .{ "dumps", json.genJsonDumps },
+    .{ "load", json.genJsonLoad },
+    .{ "dump", json.genJsonDump },
+    .{ "JSONEncoder", json.genJSONEncoder },
+    .{ "JSONDecoder", json.genJSONDecoder },
 });
 
 /// HTTP module functions
@@ -545,6 +549,23 @@ const ReFuncs = FuncMap.initComptime(.{
     .{ "split", re_mod.genReSplit },
     .{ "escape", re_mod.genReEscape },
     .{ "purge", re_mod.genRePurge },
+    .{ "IGNORECASE", re_mod.genIGNORECASE },
+    .{ "I", re_mod.genI },
+    .{ "MULTILINE", re_mod.genMULTILINE },
+    .{ "M", re_mod.genM },
+    .{ "DOTALL", re_mod.genDOTALL },
+    .{ "S", re_mod.genS },
+    .{ "VERBOSE", re_mod.genVERBOSE },
+    .{ "X", re_mod.genX },
+    .{ "ASCII", re_mod.genASCII },
+    .{ "A", re_mod.genA },
+    .{ "LOCALE", re_mod.genLOCALE },
+    .{ "L", re_mod.genL },
+    .{ "UNICODE", re_mod.genUNICODE },
+    .{ "U", re_mod.genU },
+    .{ "error", re_mod.genError },
+    .{ "Pattern", re_mod.genPattern },
+    .{ "Match", re_mod.genMatch },
 });
 
 /// OS module functions
@@ -556,6 +577,21 @@ const OsFuncs = FuncMap.initComptime(.{
     .{ "mkdir", os_mod.genMkdir },
     .{ "makedirs", os_mod.genMakedirs },
     .{ "name", os_mod.genName },
+    .{ "curdir", os_mod.genCurdir },
+    .{ "pardir", os_mod.genPardir },
+    .{ "sep", os_mod.genSep },
+    .{ "remove", os_mod.genRemove },
+    .{ "unlink", os_mod.genUnlink },
+    .{ "rename", os_mod.genRename },
+    .{ "rmdir", os_mod.genRmdir },
+    .{ "removedirs", os_mod.genRemovedirs },
+    .{ "stat", os_mod.genStat },
+    .{ "environ", os_mod.genEnviron },
+    .{ "linesep", os_mod.genLinesep },
+    .{ "altsep", os_mod.genAltsep },
+    .{ "extsep", os_mod.genExtsep },
+    .{ "pathsep", os_mod.genPathsep },
+    .{ "devnull", os_mod.genDevnull },
 });
 
 /// OS.path module functions
@@ -568,6 +604,8 @@ const OsPathFuncs = FuncMap.initComptime(.{
     .{ "dirname", os_mod.genPathDirname },
     .{ "basename", os_mod.genPathBasename },
     .{ "split", os_mod.genPathSplit },
+    .{ "splitext", os_mod.genPathSplitext },
+    .{ "getsize", os_mod.genPathGetsize },
 });
 
 /// Pathlib module functions
@@ -595,6 +633,20 @@ const IoFuncs = FuncMap.initComptime(.{
     .{ "StringIO", io_mod.genStringIO },
     .{ "BytesIO", io_mod.genBytesIO },
     .{ "open", io_mod.genOpen },
+    .{ "TextIOWrapper", io_mod.genTextIOWrapper },
+    .{ "BufferedReader", io_mod.genBufferedReader },
+    .{ "BufferedWriter", io_mod.genBufferedWriter },
+    .{ "BufferedRandom", io_mod.genBufferedRandom },
+    .{ "BufferedRWPair", io_mod.genBufferedRWPair },
+    .{ "FileIO", io_mod.genFileIO },
+    .{ "RawIOBase", io_mod.genRawIOBase },
+    .{ "IOBase", io_mod.genIOBase },
+    .{ "TextIOBase", io_mod.genTextIOBase },
+    .{ "UnsupportedOperation", io_mod.genUnsupportedOperation },
+    .{ "DEFAULT_BUFFER_SIZE", io_mod.genDEFAULT_BUFFER_SIZE },
+    .{ "SEEK_SET", io_mod.genSEEK_SET },
+    .{ "SEEK_CUR", io_mod.genSEEK_CUR },
+    .{ "SEEK_END", io_mod.genSEEK_END },
 });
 
 /// collections module functions
@@ -629,12 +681,22 @@ const ItertoolsFuncs = FuncMap.initComptime(.{
     .{ "permutations", itertools_mod.genPermutations },
     .{ "combinations", itertools_mod.genCombinations },
     .{ "groupby", itertools_mod.genGroupby },
+    .{ "takewhile", itertools_mod.genTakewhile },
+    .{ "dropwhile", itertools_mod.genDropwhile },
+    .{ "filterfalse", itertools_mod.genFilterfalse },
+    .{ "accumulate", itertools_mod.genAccumulate },
+    .{ "starmap", itertools_mod.genStarmap },
+    .{ "compress", itertools_mod.genCompress },
+    .{ "tee", itertools_mod.genTee },
+    .{ "pairwise", itertools_mod.genPairwise },
+    .{ "batched", itertools_mod.genBatched },
 });
 
 /// copy module functions
 const CopyFuncs = FuncMap.initComptime(.{
     .{ "copy", copy_mod.genCopy },
     .{ "deepcopy", copy_mod.genDeepcopy },
+    .{ "replace", copy_mod.genReplace },
 });
 
 /// typing module functions (type hints - mostly no-ops)
@@ -701,6 +763,8 @@ const Base64Funcs = FuncMap.initComptime(.{
     .{ "b16decode", base64_mod.genB16decode },
     .{ "a85encode", base64_mod.genA85encode },
     .{ "a85decode", base64_mod.genA85decode },
+    .{ "z85encode", base64_mod.genZ85encode },
+    .{ "z85decode", base64_mod.genZ85decode },
 });
 
 /// pickle module functions (JSON-backed serialization)
@@ -709,6 +773,12 @@ const PickleFuncs = FuncMap.initComptime(.{
     .{ "loads", pickle_mod.genLoads },
     .{ "dump", pickle_mod.genDump },
     .{ "load", pickle_mod.genLoad },
+    .{ "HIGHEST_PROTOCOL", pickle_mod.genHIGHEST_PROTOCOL },
+    .{ "DEFAULT_PROTOCOL", pickle_mod.genDEFAULT_PROTOCOL },
+    .{ "PicklingError", pickle_mod.genPicklingError },
+    .{ "UnpicklingError", pickle_mod.genUnpicklingError },
+    .{ "Pickler", pickle_mod.genPickler },
+    .{ "Unpickler", pickle_mod.genUnpickler },
 });
 
 /// hmac module functions (HMAC-SHA256)
@@ -808,6 +878,29 @@ const SysFuncs = FuncMap.initComptime(.{
     .{ "getfilesystemencoding", sys_mod.genGetfilesystemencoding },
     .{ "intern", sys_mod.genIntern },
     .{ "modules", sys_mod.genModules },
+    .{ "getrefcount", sys_mod.genGetrefcount },
+    .{ "exc_info", sys_mod.genExcInfo },
+    .{ "get_coroutine_origin_tracking_depth", sys_mod.genGetCoroutineOriginTrackingDepth },
+    .{ "set_coroutine_origin_tracking_depth", sys_mod.genSetCoroutineOriginTrackingDepth },
+    .{ "flags", sys_mod.genFlags },
+    .{ "float_info", sys_mod.genFloatInfo },
+    .{ "int_info", sys_mod.genIntInfo },
+    .{ "hash_info", sys_mod.genHashInfo },
+    .{ "prefix", sys_mod.genPrefix },
+    .{ "exec_prefix", sys_mod.genExecPrefix },
+    .{ "base_prefix", sys_mod.genBasePrefix },
+    .{ "base_exec_prefix", sys_mod.genBaseExecPrefix },
+    .{ "implementation", sys_mod.genImplementation },
+    .{ "hexversion", sys_mod.genHexversion },
+    .{ "api_version", sys_mod.genApiVersion },
+    .{ "copyright", sys_mod.genCopyright },
+    .{ "builtin_module_names", sys_mod.genBuiltinModuleNames },
+    .{ "displayhook", sys_mod.genDisplayhook },
+    .{ "excepthook", sys_mod.genExcepthook },
+    .{ "settrace", sys_mod.genSettrace },
+    .{ "gettrace", sys_mod.genGettrace },
+    .{ "setprofile", sys_mod.genSetprofile },
+    .{ "getprofile", sys_mod.genGetprofile },
 });
 
 /// uuid module functions
@@ -904,6 +997,7 @@ const SecretsFuncs = FuncMap.initComptime(.{
     .{ "randbits", secrets_mod.genRandbits },
     .{ "compare_digest", secrets_mod.genCompareDigest },
     .{ "SystemRandom", secrets_mod.genSystemRandom },
+    .{ "DEFAULT_ENTROPY", secrets_mod.genDefaultEntropy },
 });
 
 /// csv module functions
@@ -1195,6 +1289,11 @@ const TypesFuncs = FuncMap.initComptime(.{
     .{ "prepare_class", types_mod.genPrepareClass },
     .{ "get_original_bases", types_mod.genGetOriginalBases },
     .{ "coroutine", types_mod.genCoroutine },
+    .{ "WrapperDescriptorType", types_mod.genWrapperDescriptorType },
+    .{ "MethodWrapperType", types_mod.genMethodWrapperType },
+    .{ "ClassMethodDescriptorType", types_mod.genClassMethodDescriptorType },
+    .{ "MethodDescriptorType", types_mod.genMethodDescriptorType },
+    .{ "CapsuleType", types_mod.genCapsuleType },
 });
 
 /// bisect module functions
@@ -1407,6 +1506,8 @@ const WarningsFuncs = FuncMap.initComptime(.{
     .{ "BytesWarning", warnings_mod.genBytesWarning },
     .{ "ResourceWarning", warnings_mod.genResourceWarning },
     .{ "filters", warnings_mod.genFilters },
+    .{ "_filters_mutated", warnings_mod.genFiltersMutated },
+    .{ "WarningMessage", warnings_mod.genWarningMessage },
 });
 
 /// traceback module functions
@@ -3912,6 +4013,15 @@ const ZlibFuncs = FuncMap.initComptime(.{
     .{ "ZLIB_VERSION", zlib_mod.genZLIB_VERSION },
     .{ "ZLIB_RUNTIME_VERSION", zlib_mod.genZLIB_RUNTIME_VERSION },
     .{ "error", zlib_mod.genError },
+    .{ "crc32_combine", zlib_mod.genCrc32Combine },
+    .{ "adler32_combine", zlib_mod.genAdler32Combine },
+    .{ "Z_NO_FLUSH", zlib_mod.genZ_NO_FLUSH },
+    .{ "Z_PARTIAL_FLUSH", zlib_mod.genZ_PARTIAL_FLUSH },
+    .{ "Z_SYNC_FLUSH", zlib_mod.genZ_SYNC_FLUSH },
+    .{ "Z_FULL_FLUSH", zlib_mod.genZ_FULL_FLUSH },
+    .{ "Z_FINISH", zlib_mod.genZ_FINISH },
+    .{ "Z_BLOCK", zlib_mod.genZ_BLOCK },
+    .{ "Z_TREES", zlib_mod.genZ_TREES },
 });
 
 /// zipapp module functions

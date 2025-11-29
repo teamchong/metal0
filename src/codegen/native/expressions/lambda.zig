@@ -210,7 +210,10 @@ fn findCapturedVars(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!
         }
         if (!is_param) {
             // Check if this variable is actually declared in outer scope
-            if (self.isDeclared(var_name)) {
+            // Also treat "self" as a captured variable when inside a class method
+            if (self.isDeclared(var_name) or
+                (std.mem.eql(u8, var_name, "self") and self.current_class_name != null))
+            {
                 try filtered.append(self.allocator, var_name);
             }
         }
@@ -300,11 +303,58 @@ fn findVarReferences(self: *NativeCodegen, node: ast.Node, captured: *std.ArrayL
             for (c.args) |arg| {
                 try findVarReferences(self, arg, captured);
             }
+            for (c.keyword_args) |kw| {
+                try findVarReferences(self, kw.value, captured);
+            }
         },
         .compare => |cmp| {
             try findVarReferences(self, cmp.left.*, captured);
             for (cmp.comparators) |comp| {
                 try findVarReferences(self, comp, captured);
+            }
+        },
+        .attribute => |attr| {
+            // Recurse into the value (e.g., for self.x, we need to capture self)
+            try findVarReferences(self, attr.value.*, captured);
+        },
+        .subscript => |sub| {
+            try findVarReferences(self, sub.value.*, captured);
+            if (sub.slice == .index) {
+                try findVarReferences(self, sub.slice.index.*, captured);
+            }
+        },
+        .if_expr => |ie| {
+            try findVarReferences(self, ie.condition.*, captured);
+            try findVarReferences(self, ie.body.*, captured);
+            try findVarReferences(self, ie.orelse_value.*, captured);
+        },
+        .unaryop => |u| {
+            try findVarReferences(self, u.operand.*, captured);
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                try findVarReferences(self, elt, captured);
+            }
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                try findVarReferences(self, elt, captured);
+            }
+        },
+        .dict => |d| {
+            for (d.keys) |key| {
+                try findVarReferences(self, key, captured);
+            }
+            for (d.values) |val| {
+                try findVarReferences(self, val, captured);
+            }
+        },
+        .lambda => |lam| {
+            try findVarReferences(self, lam.body.*, captured);
+        },
+        .boolop => |bo| {
+            for (bo.values) |v| {
+                try findVarReferences(self, v, captured);
             }
         },
         else => {},

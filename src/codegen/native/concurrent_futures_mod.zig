@@ -200,9 +200,9 @@ pub fn genWait(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(".{\n");
     self.indent();
     try self.emitIndent();
-    try self.emit(".done = std.ArrayList(Future).init(allocator),\n");
+    try self.emit(".done = std.ArrayList(Future).init(__global_allocator),\n");
     try self.emitIndent();
-    try self.emit(".not_done = std.ArrayList(Future).init(allocator),\n");
+    try self.emit(".not_done = std.ArrayList(Future).init(__global_allocator),\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

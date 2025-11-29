@@ -47,6 +47,43 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try self.emit(", allocator)");
             return;
         }
+        // Handle from-imported array.array: from array import array -> array("B", data)
+        // Returns bytes as []const u8 (Python array("B", ...) is byte array)
+        if (std.mem.eql(u8, func_name, "array") and call.args.len >= 1) {
+            // array("B", data) - typecode and optional initializer
+            // For "B" (unsigned byte), just return the data as bytes
+            if (call.args.len >= 2) {
+                // array("B", "abc") -> "abc" (bytes representation)
+                try genExpr(self, call.args[1]);
+            } else {
+                // array("B") with no initializer -> empty bytes
+                try self.emit("\"\"");
+            }
+            return;
+        }
+    }
+
+    // Handle chained calls: func(args1)(args2)
+    // e.g., functools.lru_cache(1)(testfunction)
+    // In this case func is itself a call expression
+    if (call.func.* == .call) {
+        // Generate: inner_call(outer_args)
+        // The inner call returns a callable which is then called with outer args
+        try genExpr(self, call.func.*);
+        try self.emit("(");
+
+        for (call.args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try genExpr(self, arg);
+        }
+
+        for (call.keyword_args, 0..) |kwarg, i| {
+            if (i > 0 or call.args.len > 0) try self.emit(", ");
+            try genExpr(self, kwarg.value);
+        }
+
+        try self.emit(")");
+        return;
     }
 
     // Handle immediate lambda calls: (lambda x: x * 2)(5)
@@ -260,10 +297,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
     // Check for class instantiation or closure calls
     if (call.func.* == .name) {
-        const func_name = call.func.name.id;
+        const raw_func_name = call.func.name.id;
+        // Check if variable has been renamed (for try/except captured variables)
+        const func_name = self.var_renames.get(raw_func_name) orelse raw_func_name;
 
         // Check if this is a simple lambda (function pointer)
-        if (self.lambda_vars.contains(func_name)) {
+        if (self.lambda_vars.contains(raw_func_name)) {
             // Lambda call: square(5) -> square(5)
             // Function pointers in Zig are called directly
             try self.emit(func_name);
@@ -284,7 +323,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
 
         // Check if this is a closure variable
-        if (self.closure_vars.contains(func_name)) {
+        if (self.closure_vars.contains(raw_func_name)) {
             // Closure call: add_five(3) -> add_five.call(3)
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
             try self.emit(".call(");
@@ -304,20 +343,25 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
 
         // If name starts with uppercase, it's a class constructor
-        if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
+        // Use raw_func_name for checking class registry (original Python name)
+        if (raw_func_name.len > 0 and std.ascii.isUpper(raw_func_name[0])) {
             // Class instantiation: Counter(10) -> Counter.init(allocator, 10)
             // User-defined classes return the struct directly, library classes like Path may return error unions
-            const is_user_class = self.class_registry.getClass(func_name) != null;
+            const is_user_class = self.class_registry.getClass(raw_func_name) != null;
 
             if (is_user_class) {
                 // User-defined class: init returns struct directly, no try needed
+                // Always use __global_allocator since the method may not have allocator param
                 try self.emit(func_name);
-                try self.emit(".init(allocator");
+                try self.emit(".init(__global_allocator");
             } else {
                 // Library class (e.g. Path): may return error union, wrap in (try ...)
+                // Use __alloc for nested class methods to avoid shadowing outer allocator
+                // class_nesting_depth: 1 = top-level class, 2+ = nested class
+                const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
                 try self.emit("(try ");
                 try self.emit(func_name);
-                try self.emit(".init(allocator");
+                try self.output.writer(self.allocator).print(".init({s}", .{alloc_name});
             }
 
             // Add comma if there are args
@@ -344,20 +388,21 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
 
         // Fallback: regular function call
+        // Use raw_func_name for registry lookups (original Python name)
         // Check if this is a user-defined function that needs allocator
-        const user_func_needs_alloc = self.functions_needing_allocator.contains(func_name);
+        const user_func_needs_alloc = self.functions_needing_allocator.contains(raw_func_name);
 
         // Check if this is a from-imported function that needs allocator
-        const from_import_needs_alloc = self.from_import_needs_allocator.contains(func_name);
+        const from_import_needs_alloc = self.from_import_needs_allocator.contains(raw_func_name);
 
         // Check if this is an async function (needs _async suffix)
-        const is_async_func = self.async_functions.contains(func_name);
+        const is_async_func = self.async_functions.contains(raw_func_name);
 
         // Check if this is a vararg function (needs args wrapped in slice)
-        const is_vararg_func = self.vararg_functions.contains(func_name);
+        const is_vararg_func = self.vararg_functions.contains(raw_func_name);
 
         // Check if this is a kwarg function (needs args wrapped in PyDict)
-        const is_kwarg_func = self.kwarg_functions.contains(func_name);
+        const is_kwarg_func = self.kwarg_functions.contains(raw_func_name);
 
         // Add 'try' if function needs allocator or is async (both return errors)
         // Note: kwarg functions don't need try - the block expression handles errors
@@ -365,8 +410,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try self.emit("try ");
         }
 
-        // Rename "main" to "__user_main" to match function definition renaming
-        const output_name = if (std.mem.eql(u8, func_name, "main")) "__user_main" else func_name;
+        // Use renamed func_name for output, with special handling for main
+        const output_name = if (std.mem.eql(u8, raw_func_name, "main")) "__user_main" else func_name;
 
         // Async functions need _async suffix for the wrapper function
         // Escape Zig reserved keywords (e.g., "test" -> @"test")
@@ -387,7 +432,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
 
         // Check if function has default parameters
-        const func_sig = self.function_signatures.get(func_name);
+        const func_sig = self.function_signatures.get(raw_func_name);
         const has_defaults = if (func_sig) |sig| sig.total_params > sig.required_params else false;
 
         // Add regular arguments - wrap in slice for vararg functions
@@ -496,5 +541,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
 
         try self.emit(")");
+        return;
     }
+
+    // Fallback for any other func type (e.g., subscript like dict['key']() or other expressions)
+    // Generate a generic call expression
+    try genExpr(self, call.func.*);
+    try self.emit("(");
+
+    for (call.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try genExpr(self, arg);
+    }
+
+    for (call.keyword_args, 0..) |kwarg, i| {
+        if (i > 0 or call.args.len > 0) try self.emit(", ");
+        try genExpr(self, kwarg.value);
+    }
+
+    try self.emit(")");
 }

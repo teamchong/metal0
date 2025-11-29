@@ -169,7 +169,7 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     try self.emitIndent();
     try self.emit("} else val;\n");
     try self.emitIndent();
-    try self.emit("try _list.append(allocator, cast_val);\n");
+    try self.emit("try _list.append(__global_allocator, cast_val);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -209,7 +209,7 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     // Append each element (with type coercion if needed)
     for (list.elts) |elem| {
         try self.emitIndent();
-        try self.emit("try _list.append(allocator, ");
+        try self.emit("try _list.append(__global_allocator, ");
 
         // Check if we need to cast this element
         const this_type = try self.type_inferrer.inferExpr(elem);
@@ -239,7 +239,7 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     // Empty sets shouldn't happen (parsed as empty dict), but handle it
     if (set_node.elts.len == 0) {
-        try self.emit("hashmap_helper.StringHashMap(void).init(allocator)");
+        try self.emit("hashmap_helper.StringHashMap(void).init(__global_allocator)");
         return;
     }
 
@@ -262,19 +262,19 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     // Use StringHashMap for strings, AutoHashMap for primitives
     const is_string = (elem_type == .string);
     if (is_string) {
-        try self.emit("var _set = hashmap_helper.StringHashMap(void).init(allocator);\n");
+        try self.emit("var _set = hashmap_helper.StringHashMap(void).init(__global_allocator);\n");
     } else {
         try self.emit("var _set = std.AutoHashMap(");
         try elem_type.toZigType(self.allocator, &self.output);
-        try self.emit(", void).init(allocator);\n");
+        try self.emit(", void).init(__global_allocator);\n");
     }
 
-    // Add each element
+    // Add each element (use catch unreachable since allocation failures are rare)
     for (set_node.elts) |elem| {
         try self.emitIndent();
-        try self.emit("try _set.put(");
+        try self.emit("_set.put(");
         try genExpr(self, elem);
-        try self.emit(", {});\n");
+        try self.emit(", {}) catch unreachable;\n");
     }
 
     try self.emitIndent();

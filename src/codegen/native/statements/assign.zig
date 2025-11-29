@@ -8,6 +8,7 @@ const comptimeHelpers = @import("assign_comptime.zig");
 const deferCleanup = @import("assign_defer.zig");
 const typeHandling = @import("assign/type_handling.zig");
 const valueGen = @import("assign/value_generation.zig");
+const zig_keywords = @import("zig_keywords");
 
 /// Check if an expression references a skipped module (e.g., pytest.main())
 /// This is used to skip code generation for calls to modules that weren't found
@@ -294,7 +295,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Reassignment: x = value (no var/const keyword!)
                 // Use renamed version if in var_renames map (for exception handling)
                 const actual_name = self.var_renames.get(var_name) orelse var_name;
-                try self.emit(actual_name);
+                // Use writeEscapedIdent to handle Zig keywords (e.g., "packed" -> @"packed")
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
                 try self.emit(" = ");
                 // No type annotation on reassignment
             }
@@ -391,6 +393,19 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         } else if (target == .attribute) {
             // Handle attribute assignment (self.x = value or obj.y = value)
             const attr = target.attribute;
+
+            // Check for module class attribute assignment (e.g., array.array.foo = 1)
+            // This is not supported - in Python it would raise TypeError
+            if (attr.value.* == .attribute) {
+                // Nested attribute like module.class.attr - check if it's a module type
+                const inner_attr = attr.value.attribute;
+                if (inner_attr.value.* == .name) {
+                    // Could be array.array.foo or similar - emit noop
+                    try self.emitIndent();
+                    try self.emit("// TypeError: cannot set attribute on immutable type\n");
+                    return;
+                }
+            }
 
             // Check if this is a dynamic attribute
             const is_dynamic = try isDynamicAttrAssign(self, attr);
@@ -641,6 +656,17 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     if (std.mem.eql(u8, generated, "{}")) {
         // Remove the "{}" and the indent we emitted
         self.output.shrinkRetainingCapacity(before_len - self.indent_level * 4);
+        return;
+    }
+
+    // If nothing was generated and we added a discard prefix, remove it all
+    // This handles cases where genExpr produces no output (e.g., unsupported expressions)
+    if (generated.len == 0) {
+        if (added_discard_prefix) {
+            // Remove the "_ = " prefix and indent we emitted
+            // "_ = " is 4 chars, plus indent
+            self.output.shrinkRetainingCapacity(before_len - 4);
+        }
         return;
     }
 

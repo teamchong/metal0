@@ -464,6 +464,7 @@ pub fn inferCall(
             const THREADING_HASH = comptime fnv_hash.hash("threading");
             const SQLITE3_HASH = comptime fnv_hash.hash("sqlite3");
             const ZLIB_HASH = comptime fnv_hash.hash("zlib");
+            const GZIP_HASH = comptime fnv_hash.hash("gzip");
             const RE_HASH = comptime fnv_hash.hash("re");
 
             switch (module_hash) {
@@ -486,6 +487,16 @@ pub fn inferCall(
                     }
                     if (func_hash == CRC32_HASH or func_hash == ADLER32_HASH) {
                         return .int;
+                    }
+                    return .unknown;
+                },
+                GZIP_HASH => {
+                    // gzip compress/decompress returns bytes (string)
+                    const func_hash = fnv_hash.hash(func_name);
+                    const COMPRESS_HASH = comptime fnv_hash.hash("compress");
+                    const DECOMPRESS_HASH = comptime fnv_hash.hash("decompress");
+                    if (func_hash == COMPRESS_HASH or func_hash == DECOMPRESS_HASH) {
+                        return .{ .string = .runtime };
                     }
                     return .unknown;
                 },

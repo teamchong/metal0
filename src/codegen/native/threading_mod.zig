@@ -201,5 +201,5 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate threading.local() -> thread local storage
 pub fn genLocal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("struct { data: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(allocator) }{}");
+    try self.emit("struct { data: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }{}");
 }

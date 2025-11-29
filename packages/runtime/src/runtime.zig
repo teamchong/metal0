@@ -54,6 +54,22 @@ pub const PythonError = error{
     KeyError,
 };
 
+/// Python's NotImplemented singleton - used by binary operations to signal
+/// that the operation is not supported for the given types.
+/// In Python: return NotImplemented tells the interpreter to try the reflected method.
+/// In metal0: we use a sentinel struct that evaluates to false in boolean contexts.
+pub const NotImplementedType = struct {
+    _marker: u8 = 0,
+
+    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = self;
+        _ = fmt;
+        _ = options;
+        try writer.writeAll("NotImplemented");
+    }
+};
+pub const NotImplemented: NotImplementedType = .{};
+
 /// Generic bool conversion for Python truthiness semantics
 /// Returns false for: 0, 0.0, false, empty strings, empty slices
 /// Returns true for everything else
@@ -760,6 +776,22 @@ pub fn pyLen(obj: *PyObject) usize {
         .string => PyString.len(obj),
         else => 0, // None, int, float, bool don't have length
     };
+}
+
+/// Compare PyObject with integer (for eval() result comparisons)
+pub fn pyObjEqInt(obj: *PyObject, value: i64) bool {
+    if (obj.type_id == .int) {
+        return PyInt.getValue(obj) == value;
+    }
+    return false;
+}
+
+/// Extract int value from PyObject (for eval() results)
+pub fn pyObjToInt(obj: *PyObject) i64 {
+    if (obj.type_id == .int) {
+        return PyInt.getValue(obj);
+    }
+    return 0;
 }
 
 /// Bounds-checked array list access for exception handling

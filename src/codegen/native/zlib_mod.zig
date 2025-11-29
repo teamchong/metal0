@@ -33,15 +33,24 @@ pub fn genDecompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate zlib.compressobj(level=-1, method=DEFLATED, wbits=MAX_WBITS, memLevel=DEF_MEM_LEVEL, strategy=Z_DEFAULT_STRATEGY)
+/// Returns a compression object that supports .compress() and .flush() methods
 pub fn genCompressobj(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .level = 6 }");
+    try self.emit("zlib.compressobj.init(");
+    if (args.len > 0) {
+        try self.emit("@intCast(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    } else {
+        try self.emit("-1"); // Z_DEFAULT_COMPRESSION
+    }
+    try self.emit(")");
 }
 
 /// Generate zlib.decompressobj(wbits=MAX_WBITS)
+/// Returns a decompression object that supports .decompress() and .flush() methods
 pub fn genDecompressobj(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit(".{}");
+    try self.emit("zlib.decompressobj.init()");
 }
 
 // ============================================================================
@@ -174,4 +183,77 @@ pub fn genZLIB_RUNTIME_VERSION(self: *NativeCodegen, args: []ast.Node) CodegenEr
 pub fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("error.ZlibError");
+}
+
+// ============================================================================
+// Checksum Combine Functions
+// ============================================================================
+
+/// Generate zlib.crc32_combine(crc1, crc2, len2)
+pub fn genCrc32Combine(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len >= 3) {
+        try self.emit("zlib.crc32_combine(@intCast(");
+        try self.genExpr(args[0]);
+        try self.emit("), @intCast(");
+        try self.genExpr(args[1]);
+        try self.emit("), @intCast(");
+        try self.genExpr(args[2]);
+        try self.emit("))");
+    } else {
+        try self.emit("@as(u32, 0)");
+    }
+}
+
+/// Generate zlib.adler32_combine(adler1, adler2, len2)
+pub fn genAdler32Combine(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len >= 3) {
+        try self.emit("zlib.adler32_combine(@intCast(");
+        try self.genExpr(args[0]);
+        try self.emit("), @intCast(");
+        try self.genExpr(args[1]);
+        try self.emit("), @intCast(");
+        try self.genExpr(args[2]);
+        try self.emit("))");
+    } else {
+        try self.emit("@as(u32, 0)");
+    }
+}
+
+// ============================================================================
+// Flush Constants
+// ============================================================================
+
+pub fn genZ_NO_FLUSH(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i32, 0)");
+}
+
+pub fn genZ_PARTIAL_FLUSH(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i32, 1)");
+}
+
+pub fn genZ_SYNC_FLUSH(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i32, 2)");
+}
+
+pub fn genZ_FULL_FLUSH(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i32, 3)");
+}
+
+pub fn genZ_FINISH(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i32, 4)");
+}
+
+pub fn genZ_BLOCK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i32, 5)");
+}
+
+pub fn genZ_TREES(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i32, 6)");
 }

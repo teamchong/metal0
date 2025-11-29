@@ -241,6 +241,18 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         });
     }
 
+    // Track class nesting depth for allocator parameter naming
+    self.class_nesting_depth += 1;
+    defer self.class_nesting_depth -= 1;
+
+    // If we're entering a class while inside a method with 'self',
+    // increment method_nesting_depth so nested class methods use __self
+    const bump_method_depth = self.inside_method_with_self;
+    if (bump_method_depth) self.method_nesting_depth += 1;
+    defer if (bump_method_depth) {
+        self.method_nesting_depth -= 1;
+    };
+
     // Generate: const ClassName = struct {
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{class.name});
@@ -320,6 +332,28 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 /// Returns the skip reason if found, null otherwise
 /// Looks for: """skip: reason""" or "skip: reason" as first statement
 pub fn getSkipReason(method: ast.Node.FunctionDef) ?[]const u8 {
+    // Check for hypothesis decorators (@hypothesis.given, @hypothesis.example)
+    // These tests require the hypothesis library which we don't support
+    for (method.decorators) |dec| {
+        // Check for @hypothesis.given or @hypothesis.example
+        if (dec == .call) {
+            const call = dec.call;
+            if (call.func.* == .attribute) {
+                const attr = call.func.attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "hypothesis")) {
+                    return "requires hypothesis library";
+                }
+            }
+        }
+        // Check for bare @hypothesis.something
+        if (dec == .attribute) {
+            const attr = dec.attribute;
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "hypothesis")) {
+                return "requires hypothesis library";
+            }
+        }
+    }
+
     if (method.body.len == 0) return null;
 
     // Check if first statement is an expression statement with a string constant

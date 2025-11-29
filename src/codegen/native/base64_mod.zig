@@ -240,3 +240,108 @@ pub fn genA85decode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}");
 }
+
+/// Z85 encoding alphabet
+const z85_alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#";
+
+/// Generate base64.z85encode(data) -> bytes (ZeroMQ Base85)
+pub fn genZ85encode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) return;
+
+    // Z85 encodes 4 bytes into 5 characters
+    try self.emit("z85_encode_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _data = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("if (_data.len % 4 != 0) break :z85_encode_blk \"\";\n");
+    try self.emitIndent();
+    try self.emit("const _out_len = _data.len * 5 / 4;\n");
+    try self.emitIndent();
+    try self.emit("const _buf = __global_allocator.alloc(u8, _out_len) catch break :z85_encode_blk \"\";\n");
+    try self.emitIndent();
+    try self.emit("const _z85 = \"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#\";\n");
+    try self.emitIndent();
+    try self.emit("var _i: usize = 0;\n");
+    try self.emitIndent();
+    try self.emit("var _j: usize = 0;\n");
+    try self.emitIndent();
+    try self.emit("while (_i < _data.len) : ({ _i += 4; _j += 5; }) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("var _val: u32 = (@as(u32, _data[_i]) << 24) | (@as(u32, _data[_i+1]) << 16) | (@as(u32, _data[_i+2]) << 8) | @as(u32, _data[_i+3]);\n");
+    try self.emitIndent();
+    try self.emit("var _k: usize = 5;\n");
+    try self.emitIndent();
+    try self.emit("while (_k > 0) : (_k -= 1) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("_buf[_j + _k - 1] = _z85[@as(usize, @intCast(_val % 85))];\n");
+    try self.emitIndent();
+    try self.emit("_val /= 85;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+    try self.emitIndent();
+    try self.emit("break :z85_encode_blk _buf;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate base64.z85decode(data) -> bytes (ZeroMQ Base85)
+pub fn genZ85decode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) return;
+
+    // Z85 decodes 5 characters into 4 bytes
+    try self.emit("z85_decode_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _data = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("if (_data.len % 5 != 0) break :z85_decode_blk \"\";\n");
+    try self.emitIndent();
+    try self.emit("const _out_len = _data.len * 4 / 5;\n");
+    try self.emitIndent();
+    try self.emit("const _buf = __global_allocator.alloc(u8, _out_len) catch break :z85_decode_blk \"\";\n");
+    try self.emitIndent();
+    try self.emit("const _z85 = \"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#\";\n");
+    try self.emitIndent();
+    try self.emit("var _decoder: [256]u8 = undefined;\n");
+    try self.emitIndent();
+    try self.emit("for (_z85, 0..) |_ch, _idx| { _decoder[_ch] = @as(u8, @intCast(_idx)); }\n");
+    try self.emitIndent();
+    try self.emit("var _i: usize = 0;\n");
+    try self.emitIndent();
+    try self.emit("var _j: usize = 0;\n");
+    try self.emitIndent();
+    try self.emit("while (_i < _data.len) : ({ _i += 5; _j += 4; }) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("var _val: u32 = 0;\n");
+    try self.emitIndent();
+    try self.emit("for (0..5) |_k| { _val = _val * 85 + @as(u32, _decoder[_data[_i + _k]]); }\n");
+    try self.emitIndent();
+    try self.emit("_buf[_j] = @as(u8, @intCast((_val >> 24) & 0xFF));\n");
+    try self.emitIndent();
+    try self.emit("_buf[_j+1] = @as(u8, @intCast((_val >> 16) & 0xFF));\n");
+    try self.emitIndent();
+    try self.emit("_buf[_j+2] = @as(u8, @intCast((_val >> 8) & 0xFF));\n");
+    try self.emitIndent();
+    try self.emit("_buf[_j+3] = @as(u8, @intCast(_val & 0xFF));\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+    try self.emitIndent();
+    try self.emit("break :z85_decode_blk _buf;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}

@@ -14,6 +14,189 @@ fn sanitizeVarName(name: []const u8) []const u8 {
     return name;
 }
 
+/// Check if a variable name is used in an expression
+fn exprUsesVar(expr: ast.Node, var_name: []const u8) bool {
+    return switch (expr) {
+        .name => |n| std.mem.eql(u8, n.id, var_name),
+        .attribute => |a| exprUsesVar(a.value.*, var_name),
+        .subscript => |s| blk: {
+            if (exprUsesVar(s.value.*, var_name)) break :blk true;
+            switch (s.slice) {
+                .index => |idx| break :blk exprUsesVar(idx.*, var_name),
+                .slice => |sl| {
+                    if (sl.lower) |l| if (exprUsesVar(l.*, var_name)) break :blk true;
+                    if (sl.upper) |u| if (exprUsesVar(u.*, var_name)) break :blk true;
+                    if (sl.step) |st| if (exprUsesVar(st.*, var_name)) break :blk true;
+                    break :blk false;
+                },
+            }
+        },
+        .call => |c| blk: {
+            if (exprUsesVar(c.func.*, var_name)) break :blk true;
+            for (c.args) |arg| {
+                if (exprUsesVar(arg, var_name)) break :blk true;
+            }
+            for (c.keyword_args) |kw| {
+                if (exprUsesVar(kw.value, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .binop => |b| exprUsesVar(b.left.*, var_name) or exprUsesVar(b.right.*, var_name),
+        .unaryop => |u| exprUsesVar(u.operand.*, var_name),
+        .boolop => |b| blk: {
+            for (b.values) |v| {
+                if (exprUsesVar(v, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .compare => |c| blk: {
+            if (exprUsesVar(c.left.*, var_name)) break :blk true;
+            for (c.comparators) |comp| {
+                if (exprUsesVar(comp, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .if_expr => |i| exprUsesVar(i.condition.*, var_name) or exprUsesVar(i.body.*, var_name) or exprUsesVar(i.orelse_value.*, var_name),
+        .list => |l| blk: {
+            for (l.elts) |e| {
+                if (exprUsesVar(e, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |e| {
+                if (exprUsesVar(e, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys) |k| {
+                if (exprUsesVar(k, var_name)) break :blk true;
+            }
+            for (d.values) |v| {
+                if (exprUsesVar(v, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .set => |s| blk: {
+            for (s.elts) |e| {
+                if (exprUsesVar(e, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .listcomp => |l| exprUsesVar(l.elt.*, var_name),
+        .dictcomp => |d| exprUsesVar(d.key.*, var_name) or exprUsesVar(d.value.*, var_name),
+        .genexp => |g| exprUsesVar(g.elt.*, var_name),
+        .fstring => |f| blk: {
+            for (f.parts) |p| {
+                switch (p) {
+                    .expr => |e| if (exprUsesVar(e.*, var_name)) break :blk true,
+                    .format_expr => |fe| if (exprUsesVar(fe.expr.*, var_name)) break :blk true,
+                    .conv_expr => |ce| if (exprUsesVar(ce.expr.*, var_name)) break :blk true,
+                    .literal => {},
+                }
+            }
+            break :blk false;
+        },
+        .lambda => |l| exprUsesVar(l.body.*, var_name),
+        .starred => |s| exprUsesVar(s.value.*, var_name),
+        .named_expr => |n| exprUsesVar(n.value.*, var_name),
+        else => false,
+    };
+}
+
+/// Check if a variable name is used in a statement
+fn stmtUsesVar(stmt: ast.Node, var_name: []const u8) bool {
+    return switch (stmt) {
+        .expr_stmt => |e| exprUsesVar(e.value.*, var_name),
+        .assign => |a| blk: {
+            if (exprUsesVar(a.value.*, var_name)) break :blk true;
+            for (a.targets) |t| {
+                if (exprUsesVar(t, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .aug_assign => |a| exprUsesVar(a.target.*, var_name) or exprUsesVar(a.value.*, var_name),
+        .ann_assign => |a| blk: {
+            if (a.value) |v| {
+                if (exprUsesVar(v.*, var_name)) break :blk true;
+            }
+            break :blk exprUsesVar(a.target.*, var_name);
+        },
+        .if_stmt => |i| blk: {
+            if (exprUsesVar(i.condition.*, var_name)) break :blk true;
+            for (i.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            for (i.else_body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            if (exprUsesVar(f.iter.*, var_name)) break :blk true;
+            for (f.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            if (exprUsesVar(w.condition.*, var_name)) break :blk true;
+            for (w.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .return_stmt => |r| if (r.value) |v| exprUsesVar(v.*, var_name) else false,
+        .assert_stmt => |a| blk: {
+            if (exprUsesVar(a.condition.*, var_name)) break :blk true;
+            if (a.msg) |m| {
+                break :blk exprUsesVar(m.*, var_name);
+            }
+            break :blk false;
+        },
+        .raise_stmt => |r| blk: {
+            if (r.exc) |e| {
+                if (exprUsesVar(e.*, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            for (t.handlers) |h| {
+                for (h.body) |s| {
+                    if (stmtUsesVar(s, var_name)) break :blk true;
+                }
+            }
+            for (t.else_body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            for (t.finalbody) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            if (exprUsesVar(w.context_expr.*, var_name)) break :blk true;
+            for (w.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+/// Check if a variable is used in the loop body
+fn varUsedInBody(body: []ast.Node, var_name: []const u8) bool {
+    for (body) |stmt| {
+        if (stmtUsesVar(stmt, var_name)) return true;
+    }
+    return false;
+}
+
 /// Check if an expression produces a Zig block expression that can't have field access directly
 fn producesBlockExpression(expr: ast.Node) bool {
     return switch (expr) {
@@ -186,6 +369,14 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.indent();
         try self.pushScope();
 
+        // Only add discard if variable is not used in body
+        if (!varUsedInBody(for_stmt.body, for_stmt.target.name.id)) {
+            try self.emitIndent();
+            try self.emit("_ = ");
+            try self.emit(var_name);
+            try self.emit(";\n");
+        }
+
         for (for_stmt.body) |stmt| {
             try self.generateStmt(stmt);
         }
@@ -211,6 +402,14 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
         self.indent();
         try self.pushScope();
+
+        // Only add discard if variable is not used in body
+        if (!varUsedInBody(for_stmt.body, for_stmt.target.name.id)) {
+            try self.emitIndent();
+            try self.emit("_ = ");
+            try self.emit(var_name);
+            try self.emit(";\n");
+        }
 
         for (for_stmt.body) |stmt| {
             try self.generateStmt(stmt);
@@ -312,6 +511,14 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Push new scope for loop body
     try self.pushScope();
+
+    // Only add discard if variable is not used in body
+    if (!varUsedInBody(for_stmt.body, for_stmt.target.name.id)) {
+        try self.emitIndent();
+        try self.emit("_ = ");
+        try self.emit(var_name);
+        try self.emit(";\n");
+    }
 
     // If iterating over a vararg param (e.g., args in *args), register loop var as i64
     // This enables correct type inference for print(x) inside the loop

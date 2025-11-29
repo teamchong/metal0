@@ -44,7 +44,7 @@ pub fn genReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("self.pos = line_end + 1;\n");
     try self.emitIndent();
-    try self.emit("var fields = std.ArrayList([]const u8).init(allocator);\n");
+    try self.emit("var fields = std.ArrayList([]const u8).init(__global_allocator);\n");
     try self.emitIndent();
     try self.emit("var iter = std.mem.splitScalar(u8, line, self.delim);\n");
     try self.emitIndent();
@@ -108,7 +108,7 @@ pub fn genWriter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn getvalue(self: *@This()) []const u8 { return self.buffer.items; }\n");
     self.dedent();
     try self.emitIndent();
-    try self.emit("}{ .buffer = std.ArrayList(u8).init(allocator) };\n");
+    try self.emit("}{ .buffer = std.ArrayList(u8).init(__global_allocator) };\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
@@ -148,7 +148,7 @@ pub fn genDictReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("if (self.fieldnames == null) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var headers = std.ArrayList([]const u8).init(allocator);\n");
+    try self.emit("var headers = std.ArrayList([]const u8).init(__global_allocator);\n");
     try self.emitIndent();
     try self.emit("var iter = std.mem.splitScalar(u8, line, ',');\n");
     try self.emitIndent();
@@ -161,7 +161,7 @@ pub fn genDictReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("var result = hashmap_helper.StringHashMap([]const u8).init(allocator);\n");
+    try self.emit("var result = hashmap_helper.StringHashMap([]const u8).init(__global_allocator);\n");
     try self.emitIndent();
     try self.emit("var iter = std.mem.splitScalar(u8, line, ',');\n");
     try self.emitIndent();
@@ -254,7 +254,7 @@ pub fn genDictWriter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn getvalue(self: *@This()) []const u8 { return self.buffer.items; }\n");
     self.dedent();
     try self.emitIndent();
-    try self.emit("}{ .buffer = std.ArrayList(u8).init(allocator), .fieldnames = _fieldnames };\n");
+    try self.emit("}{ .buffer = std.ArrayList(u8).init(__global_allocator), .fieldnames = _fieldnames };\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

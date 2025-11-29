@@ -29,25 +29,29 @@ pub fn genRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Generate runtime.builtins.range(allocator, start, stop, step)
+    // Wrap each arg in @as(i64, @intCast(...)) to handle usize loop variables
     try self.emit("(try runtime.builtins.range(__global_allocator, ");
     if (args.len == 1) {
         // range(stop) -> range(0, stop, 1)
-        try self.emit("0, ");
+        try self.emit("0, @as(i64, @intCast(");
         try self.genExpr(args[0]);
-        try self.emit(", 1");
+        try self.emit(")), 1");
     } else if (args.len == 2) {
         // range(start, stop) -> range(start, stop, 1)
+        try self.emit("@as(i64, @intCast(");
         try self.genExpr(args[0]);
-        try self.emit(", ");
+        try self.emit(")), @as(i64, @intCast(");
         try self.genExpr(args[1]);
-        try self.emit(", 1");
+        try self.emit(")), 1");
     } else {
         // range(start, stop, step)
+        try self.emit("@as(i64, @intCast(");
         try self.genExpr(args[0]);
-        try self.emit(", ");
+        try self.emit(")), @as(i64, @intCast(");
         try self.genExpr(args[1]);
-        try self.emit(", ");
+        try self.emit(")), @as(i64, @intCast(");
         try self.genExpr(args[2]);
+        try self.emit("))");
     }
     try self.emit("))");
 }

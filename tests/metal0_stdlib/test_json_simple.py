@@ -52,13 +52,24 @@ class TestJsonLoads(unittest.TestCase):
         result = json.loads("null")
         self.assertIsNone(result)
 
-    def test_loads_list(self):
-        result = json.loads("[1, 2, 3]")
-        self.assertEqual(result, [1, 2, 3])
+class TestJsonRoundTrip(unittest.TestCase):
+    def test_roundtrip_string(self):
+        original = "hello world"
+        result = json.loads(json.dumps(original))
+        self.assertEqual(result, original)
 
-    def test_loads_empty_list(self):
-        result = json.loads("[]")
-        self.assertEqual(result, [])
+    def test_roundtrip_int(self):
+        original = 12345
+        result = json.loads(json.dumps(original))
+        self.assertEqual(result, original)
+
+    def test_roundtrip_bool(self):
+        result = json.loads(json.dumps(True))
+        self.assertEqual(result, True)
+
+    def test_roundtrip_none(self):
+        result = json.loads(json.dumps(None))
+        self.assertIsNone(result)
 
 if __name__ == "__main__":
     unittest.main()

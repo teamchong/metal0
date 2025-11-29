@@ -58,7 +58,7 @@ pub const ImportInfo = struct {
     /// Only used for compile_python strategy
     python_source: ?[]const u8,
 
-    /// Whether module needs initialization (e.g., requests.init(allocator))
+    /// Whether module needs initialization (e.g., requests.init(__global_allocator))
     needs_init: bool = false,
 
     /// Function metadata (keyed by function name)
@@ -244,7 +244,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("hmac", .zig_runtime, "std", null); // hmac uses std.crypto.auth.hmac
     try registry.register("socket", .zig_runtime, "std", null); // socket uses std.posix
     try registry.register("os", .zig_runtime, "std", null); // os uses std.fs and std.process
-    try registry.register("random", .zig_runtime, "std", null); // random uses std.Random
+    try registry.register("random", .zig_runtime, null, null); // random module (inline codegen only)
     try registry.register("collections", .zig_runtime, null, null); // collections module (inline codegen only)
     try registry.register("collections.abc", .zig_runtime, null, null); // collections.abc module (inline codegen only)
     try registry.register("functools", .zig_runtime, "std", null); // functools module
@@ -282,7 +282,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("signal", .zig_runtime, "std", null); // signal module
     try registry.register("multiprocessing", .zig_runtime, "std", null); // multiprocessing module
     try registry.register("operator", .zig_runtime, "std", null); // operator module
-    try registry.register("array", .zig_runtime, "std", null); // array module
+    try registry.register("array", .zig_runtime, null, null); // array module - inline only
     try registry.register("weakref", .zig_runtime, "std", null); // weakref module
     try registry.register("types", .zig_runtime, "std", null); // types module
     try registry.register("abc", .zig_runtime, "std", null); // abc module

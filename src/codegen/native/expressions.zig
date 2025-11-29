@@ -40,6 +40,12 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             // Check if variable has been renamed (for exception handling)
             const name_to_use = self.var_renames.get(n.id) orelse n.id;
 
+            // Handle 'self' -> '__self' in nested class methods to avoid shadowing
+            if (std.mem.eql(u8, name_to_use, "self") and self.method_nesting_depth > 0) {
+                try self.emit("__self");
+                return;
+            }
+
             // Handle Python type names as type values
             if (std.mem.eql(u8, name_to_use, "int")) {
                 try self.emit("i64");
@@ -53,6 +59,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 try self.emit("[]const u8");
             } else if (std.mem.eql(u8, name_to_use, "None") or std.mem.eql(u8, name_to_use, "NoneType")) {
                 try self.emit("null");
+            } else if (std.mem.eql(u8, name_to_use, "NotImplemented")) {
+                // Python's NotImplemented singleton - used by binary operations
+                try self.emit("runtime.NotImplemented");
             } else if (std.mem.eql(u8, name_to_use, "object")) {
                 try self.emit("*runtime.PyObject");
             } else if (isBuiltinFunction(name_to_use)) {
@@ -102,7 +111,10 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .yield_from_stmt => |yf| try genYieldFrom(self, yf),
         .genexp => |ge| try comprehensions.genGenExp(self, ge),
         .slice_expr => |sl| try genSliceExpr(self, sl),
-        else => {},
+        else => {
+            // Unsupported expression type - emit undefined placeholder to avoid syntax errors
+            try self.emit("@as(?*anyopaque, null)");
+        },
     }
 }
 

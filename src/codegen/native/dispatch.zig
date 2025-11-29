@@ -26,6 +26,20 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
                 const sub_module = inner_attr.attr;
                 const func_name = attr.attr;
 
+                // Handle numbers ABC registration: numbers.Rational.register(cls) -> no-op
+                // ABC.register() is a runtime-only concept with no meaning at compile time
+                if (std.mem.eql(u8, root_module, "numbers") and std.mem.eql(u8, func_name, "register")) {
+                    // Check if sub_module is a valid ABC type
+                    const abc_types = [_][]const u8{ "Number", "Complex", "Real", "Rational", "Integral" };
+                    for (abc_types) |abc| {
+                        if (std.mem.eql(u8, sub_module, abc)) {
+                            // Emit no-op (void expression)
+                            try self.emit("{}");
+                            return true;
+                        }
+                    }
+                }
+
                 // Build compound module name: "datetime.datetime" or "datetime.date"
                 var compound_buf: [256]u8 = undefined;
                 const compound_name = std.fmt.bufPrint(

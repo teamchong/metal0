@@ -250,6 +250,15 @@ pub fn genMethodBodyWithAllocatorInfo(
     _: bool, // has_allocator_param - unused, handled in signature.zig
     _: bool, // actually_uses_allocator - unused, handled in signature.zig
 ) CodegenError!void {
+    // Track whether we're inside a method with 'self' parameter.
+    // This is used by generators.zig to know if a nested class should use __self.
+    const has_self = for (method.args) |arg| {
+        if (std.mem.eql(u8, arg.name, "self")) break true;
+    } else false;
+    const was_inside_method = self.inside_method_with_self;
+    if (has_self) self.inside_method_with_self = true;
+    defer self.inside_method_with_self = was_inside_method;
+
     // Analyze method body for mutated variables BEFORE generating code
     // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
     self.func_local_mutations.clearRetainingCapacity();

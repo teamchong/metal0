@@ -47,6 +47,7 @@ const StringMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "isascii", methods.genIsascii },
     .{ "istitle", methods.genIstitle },
     .{ "isprintable", methods.genIsprintable },
+    .{ "encode", methods.genEncode },
 });
 
 // List methods - O(1) lookup via StaticStringMap
@@ -60,6 +61,11 @@ const ListMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "sort", methods.genSort },
     .{ "clear", methods.genClear },
     .{ "copy", methods.genCopy },
+    // Deque methods (deque uses ArrayList internally)
+    .{ "appendleft", methods.genAppendleft },
+    .{ "popleft", methods.genPopleft },
+    .{ "extendleft", methods.genExtendleft },
+    .{ "rotate", methods.genRotate },
 });
 
 // Dict methods - O(1) lookup via StaticStringMap
@@ -176,10 +182,29 @@ const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "assertNotAlmostEqual", unittest_mod.genAssertNotAlmostEqual },
     .{ "assertCountEqual", unittest_mod.genAssertCountEqual },
     .{ "assertRaises", unittest_mod.genAssertRaises },
+    .{ "assertRaisesRegex", unittest_mod.genAssertRaisesRegex },
     .{ "assertRegex", unittest_mod.genAssertRegex },
     .{ "assertNotRegex", unittest_mod.genAssertNotRegex },
     .{ "assertIsInstance", unittest_mod.genAssertIsInstance },
     .{ "assertNotIsInstance", unittest_mod.genAssertNotIsInstance },
+    .{ "assertIsSubclass", unittest_mod.genAssertIsSubclass },
+    .{ "assertNotIsSubclass", unittest_mod.genAssertNotIsSubclass },
+    .{ "assertWarns", unittest_mod.genAssertWarns },
+    .{ "assertWarnsRegex", unittest_mod.genAssertWarnsRegex },
+    .{ "assertStartsWith", unittest_mod.genAssertStartsWith },
+    .{ "assertEndsWith", unittest_mod.genAssertEndsWith },
+    .{ "assertHasAttr", unittest_mod.genAssertHasAttr },
+    .{ "assertNotHasAttr", unittest_mod.genAssertNotHasAttr },
+    .{ "assertSequenceEqual", unittest_mod.genAssertSequenceEqual },
+    .{ "assertListEqual", unittest_mod.genAssertListEqual },
+    .{ "assertTupleEqual", unittest_mod.genAssertTupleEqual },
+    .{ "assertSetEqual", unittest_mod.genAssertSetEqual },
+    .{ "assertDictEqual", unittest_mod.genAssertDictEqual },
+    .{ "assertMultiLineEqual", unittest_mod.genAssertMultiLineEqual },
+    .{ "assertLogs", unittest_mod.genAssertLogs },
+    .{ "assertNoLogs", unittest_mod.genAssertNoLogs },
+    .{ "fail", unittest_mod.genFail },
+    .{ "skipTest", unittest_mod.genSkipTest },
 });
 
 /// Try to dispatch method call (obj.method())
@@ -193,6 +218,21 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // Handle super().method() calls for inheritance
     if (try handleSuperCall(self, call, method_name, obj)) {
         return true;
+    }
+
+    // Handle explicit parent __init__/__new__ calls: Parent.__init__(self) or module.Type.__new__(cls)
+    // These are used in class inheritance to call parent's __init__ or __new__
+    // We emit a no-op ({}) since the parent struct is already initialized
+    if (std.mem.eql(u8, method_name, "__init__") or std.mem.eql(u8, method_name, "__new__")) {
+        // Check if obj is an attribute access (module.Type or just Type)
+        // Pattern: array.array.__init__(self) -> emit {}
+        // Pattern: array.array.__new__(cls, ...) -> emit {}
+        if (obj == .attribute or obj == .name) {
+            // This is a Parent.__init__(self) or Parent.__new__(cls) pattern - emit no-op
+            // The actual initialization is handled by struct init
+            try self.emit("{}");
+            return true;
+        }
     }
 
     // Try string methods first (most common)
@@ -288,6 +328,9 @@ fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: 
 
     switch (method_type) {
         .count => {
+            // count only handles single-arg case; fall through for other arities
+            if (call.args.len != 1) return false;
+
             // count - needs type-based dispatch (list vs string)
             const is_list = blk: {
                 if (obj == .name) {
@@ -307,6 +350,10 @@ fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: 
             }
         },
         .index => {
+            // index only handles single-arg case; fall through for other arities
+            // (e.g., a.index(0, 2) with start/end params should use native method)
+            if (call.args.len != 1) return false;
+
             // index - string version (genStrIndex) vs list version
             const is_list = blk: {
                 if (obj == .name) {
@@ -487,9 +534,11 @@ fn handleHashMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.Node
         if (args.len > 0) try parent.genExpr(self, args[0]);
         try self.emit(")");
     } else if (method_hash == DIGEST) {
-        // h.digest() - returns bytes
+        // h.digest(allocator) - returns bytes
+        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+        try self.emit("try ");
         try self.emit(receiver);
-        try self.emit(".digest()");
+        try self.emitFmt(".digest({s})", .{alloc_name});
     } else if (method_hash == HEXDIGEST) {
         // h.hexdigest(allocator) - returns hex string
         // Use scope-aware allocator: __global_allocator in functions, allocator in main()

@@ -30,9 +30,9 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         // Create instance using init() which initializes __dict__
         try self.emitIndent();
         if (has_runnable_tests) {
-            try self.output.writer(self.allocator).print("var _test_instance_{s} = {s}.init(allocator);\n", .{ class_info.class_name, class_info.class_name });
+            try self.output.writer(self.allocator).print("var _test_instance_{s} = {s}.init(__global_allocator);\n", .{ class_info.class_name, class_info.class_name });
         } else {
-            try self.output.writer(self.allocator).print("_ = {s}.init(allocator);\n", .{class_info.class_name});
+            try self.output.writer(self.allocator).print("_ = {s}.init(__global_allocator);\n", .{class_info.class_name});
         }
 
         // Call setUpClass BEFORE all test methods (class-level fixture)

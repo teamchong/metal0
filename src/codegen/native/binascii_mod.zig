@@ -7,9 +7,31 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 /// Generate binascii.hexlify(data, sep=None, bytes_per_sep=1)
 pub fn genHexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("blk: { const data = ");
+        try self.emit("binascii_hexlify_blk: {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("const _data = ");
         try self.genExpr(args[0]);
-        try self.emit("; const arr = std.fmt.bytesToHex(data, .lower); break :blk @as([]const u8, &arr); }");
+        try self.emit(";\n");
+        try self.emitIndent();
+        try self.emit("const _hex = __global_allocator.alloc(u8, _data.len * 2) catch break :binascii_hexlify_blk \"\";\n");
+        try self.emitIndent();
+        try self.emit("const _hex_chars = \"0123456789abcdef\";\n");
+        try self.emitIndent();
+        try self.emit("for (_data, 0..) |b, i| {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("_hex[i * 2] = _hex_chars[b >> 4];\n");
+        try self.emitIndent();
+        try self.emit("_hex[i * 2 + 1] = _hex_chars[b & 0xf];\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        try self.emitIndent();
+        try self.emit("break :binascii_hexlify_blk _hex;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}");
     } else {
         try self.emit("\"\"");
     }
@@ -17,8 +39,35 @@ pub fn genHexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate binascii.unhexlify(hexstr)
 pub fn genUnhexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
+    if (args.len > 0) {
+        try self.emit("binascii_unhexlify_blk: {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("const _hexstr = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+        try self.emitIndent();
+        try self.emit("const _result = __global_allocator.alloc(u8, _hexstr.len / 2) catch break :binascii_unhexlify_blk \"\";\n");
+        try self.emitIndent();
+        try self.emit("for (0..(_hexstr.len / 2)) |i| {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("const _hi = if (_hexstr[i * 2] >= 'a') _hexstr[i * 2] - 'a' + 10 else if (_hexstr[i * 2] >= 'A') _hexstr[i * 2] - 'A' + 10 else _hexstr[i * 2] - '0';\n");
+        try self.emitIndent();
+        try self.emit("const _lo = if (_hexstr[i * 2 + 1] >= 'a') _hexstr[i * 2 + 1] - 'a' + 10 else if (_hexstr[i * 2 + 1] >= 'A') _hexstr[i * 2 + 1] - 'A' + 10 else _hexstr[i * 2 + 1] - '0';\n");
+        try self.emitIndent();
+        try self.emit("_result[i] = (_hi << 4) | _lo;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        try self.emitIndent();
+        try self.emit("break :binascii_unhexlify_blk _result;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}");
+    } else {
+        try self.emit("\"\"");
+    }
 }
 
 /// Generate binascii.b2a_hex(data) - same as hexlify

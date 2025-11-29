@@ -65,15 +65,36 @@ pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(")");
 }
 
-/// Generate code for round(n)
-/// Rounds to nearest integer
+/// Generate code for round(n) or round(n, ndigits)
+/// Rounds to nearest integer or specified decimal places
 pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    if (args.len == 0) {
+        try self.emit("@as(f64, 0.0)");
+        return;
+    }
 
-    // Generate: @round(n)
-    try self.emit("@round(");
+    if (args.len == 1) {
+        // round(n) - round to nearest integer
+        try self.emit("@round(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
+
+    // round(n, ndigits) - round to ndigits decimal places
+    // For ndigits=0, just use @round
+    // Otherwise use: @round(n * 10^ndigits) / 10^ndigits
+    try self.emit("round_blk: {\n");
+    try self.emit("const _val = ");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit(";\n");
+    try self.emit("const _ndigits = ");
+    try self.genExpr(args[1]);
+    try self.emit(";\n");
+    try self.emit("if (_ndigits == 0) break :round_blk @round(_val);\n");
+    try self.emit("const _factor = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(_ndigits)));\n");
+    try self.emit("break :round_blk @round(_val * _factor) / _factor;\n");
+    try self.emit("}");
 }
 
 /// Generate code for pow(base, exp)

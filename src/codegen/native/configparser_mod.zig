@@ -18,7 +18,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("return @This(){\n");
     self.indent();
     try self.emitIndent();
-    try self.emit(".sections_map = hashmap_helper.StringHashMap(hashmap_helper.StringHashMap([]const u8)).init(allocator),\n");
+    try self.emit(".sections_map = hashmap_helper.StringHashMap(hashmap_helper.StringHashMap([]const u8)).init(__global_allocator),\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
@@ -54,7 +54,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("if (self.sections_map.get(current_section.?) == null) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("self.sections_map.put(current_section.?, hashmap_helper.StringHashMap([]const u8).init(allocator)) catch continue;\n");
+    try self.emit("self.sections_map.put(current_section.?, hashmap_helper.StringHashMap([]const u8).init(__global_allocator)) catch continue;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -106,7 +106,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("if (self.sections_map.get(current_section.?) == null) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("self.sections_map.put(current_section.?, hashmap_helper.StringHashMap([]const u8).init(allocator)) catch continue;\n");
+    try self.emit("self.sections_map.put(current_section.?, hashmap_helper.StringHashMap([]const u8).init(__global_allocator)) catch continue;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -139,7 +139,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("pub fn sections(self: *@This()) [][]const u8 {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var result = std.ArrayList([]const u8).init(allocator);\n");
+    try self.emit("var result = std.ArrayList([]const u8).init(__global_allocator);\n");
     try self.emitIndent();
     try self.emit("var iter = self.sections_map.keyIterator();\n");
     try self.emitIndent();
@@ -220,7 +220,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("if (self.sections_map.get(section) == null) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("self.sections_map.put(section, hashmap_helper.StringHashMap([]const u8).init(allocator)) catch {};\n");
+    try self.emit("self.sections_map.put(section, hashmap_helper.StringHashMap([]const u8).init(__global_allocator)) catch {};\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -231,7 +231,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("pub fn options(self: *@This(), section: []const u8) [][]const u8 {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var result = std.ArrayList([]const u8).init(allocator);\n");
+    try self.emit("var result = std.ArrayList([]const u8).init(__global_allocator);\n");
     try self.emitIndent();
     try self.emit("if (self.sections_map.get(section)) |sec| {\n");
     self.indent();

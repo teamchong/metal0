@@ -164,6 +164,27 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         const mod_copy = try self.allocator.dupe(u8, mod_name);
         try self.imported_modules.put(mod_copy, {});
 
+        // Check if there's a from-import that imports a symbol with the same name as the module
+        // e.g., "from time import time" - in this case, skip generating "const time = runtime.time;"
+        // to avoid duplicate struct member name error
+        var skip_module_import = false;
+        for (self.from_imports.items) |from_imp| {
+            if (std.mem.eql(u8, from_imp.module, mod_name)) {
+                for (from_imp.names, 0..) |name, i| {
+                    const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                        from_imp.asnames[i].?
+                    else
+                        name;
+                    if (std.mem.eql(u8, symbol_name, mod_name)) {
+                        skip_module_import = true;
+                        break;
+                    }
+                }
+                if (skip_module_import) break;
+            }
+        }
+        if (skip_module_import) continue;
+
         // Look up module in registry - only emit registry modules here
         if (self.import_registry.lookup(mod_name)) |info| {
             switch (info.strategy) {
@@ -273,20 +294,77 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         } else if (stmt == .assign) {
             if (self.mode == .module) {
                 // In module mode, export constants as pub const
-                try self.emitIndent();
-                try self.emit("pub const ");
-                // Generate target name
-                for (stmt.assign.targets, 0..) |target, i| {
-                    if (target == .name) {
-                        try self.emit(target.name.id);
+                // Handle tuple unpacking: x, y = 1, 2 -> need individual pub const for each
+                if (stmt.assign.targets.len == 1 and (stmt.assign.targets[0] == .tuple or stmt.assign.targets[0] == .list)) {
+                    // Tuple/list unpacking at module level
+                    const target_elts = if (stmt.assign.targets[0] == .tuple)
+                        stmt.assign.targets[0].tuple.elts
+                    else
+                        stmt.assign.targets[0].list.elts;
+
+                    // Generate temporary for the tuple value
+                    try self.emitIndent();
+                    const tmp_name = try std.fmt.allocPrint(self.allocator, "__module_unpack_{d}", .{self.unpack_counter});
+                    defer self.allocator.free(tmp_name);
+                    self.unpack_counter += 1;
+
+                    try self.emit("const ");
+                    try self.emit(tmp_name);
+                    try self.emit(" = ");
+                    try expressions.genExpr(self, stmt.assign.value.*);
+                    try self.emit(";\n");
+
+                    // Generate pub const for each target (skip if already declared - reassignment)
+                    for (target_elts, 0..) |target, j| {
+                        if (target == .name) {
+                            const var_name = target.name.id;
+                            // Skip if this variable was already declared at module level
+                            if (self.isDeclared(var_name)) {
+                                // Reassignment at module level - skip (Zig doesn't allow redefinition)
+                                continue;
+                            }
+                            try self.declareVar(var_name);
+                            try self.emitIndent();
+                            try self.emit("pub const ");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                            try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, j });
+                        }
                     }
-                    if (i < stmt.assign.targets.len - 1) {
-                        try self.emit(", ");
+                } else {
+                    // Simple assignment: x = value
+                    // Check if variable was already declared (reassignment)
+                    var all_declared = true;
+                    for (stmt.assign.targets) |target| {
+                        if (target == .name) {
+                            if (!self.isDeclared(target.name.id)) {
+                                all_declared = false;
+                                break;
+                            }
+                        }
                     }
+
+                    // Skip reassignments at module level (Zig doesn't allow redefinition)
+                    if (all_declared) {
+                        continue;
+                    }
+
+                    try self.emitIndent();
+                    try self.emit("pub const ");
+                    // Generate target name
+                    for (stmt.assign.targets, 0..) |target, i| {
+                        if (target == .name) {
+                            const var_name = target.name.id;
+                            try self.declareVar(var_name);
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                        }
+                        if (i < stmt.assign.targets.len - 1) {
+                            try self.emit(", ");
+                        }
+                    }
+                    try self.emit(" = ");
+                    try expressions.genExpr(self, stmt.assign.value.*);
+                    try self.emit(";\n");
                 }
-                try self.emit(" = ");
-                try expressions.genExpr(self, stmt.assign.value.*);
-                try self.emit(";\n");
             }
         }
     }
@@ -383,7 +461,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     try self.emitIndent();
                     // Use writeEscapedDottedIdent for dotted module names like "test.support"
                     try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
-                    try self.emit(".init(allocator);\n");
+                    try self.emit(".init(__global_allocator);\n");
                 }
             }
         }

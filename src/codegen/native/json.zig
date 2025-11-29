@@ -185,3 +185,95 @@ fn genValueToPyObject(self: *NativeCodegen, value_expr: []const u8, value_type: 
         },
     }
 }
+
+/// Generate code for json.load(file)
+/// Reads from file object and parses JSON
+pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1) return;
+
+    try self.emit("json_load_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _file = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("const _content = _file.read() catch break :json_load_blk null;\n");
+    try self.emitIndent();
+    try self.emit("break :json_load_blk try runtime.json.loads(_content, allocator);\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for json.dump(obj, file)
+/// Writes JSON to file object
+pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) return;
+
+    try self.emit("json_dump_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const _obj = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("const _file = ");
+    try self.genExpr(args[1]);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("const _json_str = try runtime.json.dumpsValue(_obj, allocator);\n");
+    try self.emitIndent();
+    try self.emit("_file.write(_json_str) catch {};\n");
+    try self.emitIndent();
+    try self.emit("break :json_dump_blk null;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate code for json.JSONEncoder class
+pub fn genJSONEncoder(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    // Return a stub encoder struct
+    try self.emit("struct {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("pub fn encode(self: *const @This(), allocator: std.mem.Allocator, obj: anytype) ![]u8 {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("_ = self;\n");
+    try self.emitIndent();
+    try self.emit("return try runtime.json.dumpsValue(obj, allocator);\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}{}");
+}
+
+/// Generate code for json.JSONDecoder class
+pub fn genJSONDecoder(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    // Return a stub decoder struct
+    try self.emit("struct {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("pub fn decode(self: *const @This(), allocator: std.mem.Allocator, s: []const u8) !*runtime.PyObject {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("_ = self;\n");
+    try self.emitIndent();
+    try self.emit("const str_obj = try runtime.PyString.create(allocator, s);\n");
+    try self.emitIndent();
+    try self.emit("defer runtime.decref(str_obj, allocator);\n");
+    try self.emitIndent();
+    try self.emit("return try runtime.json.loads(str_obj, allocator);\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}{}");
+}

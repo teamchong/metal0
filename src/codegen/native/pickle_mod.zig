@@ -123,3 +123,46 @@ pub fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}");
 }
+
+/// Generate pickle.HIGHEST_PROTOCOL constant (value 5 in Python 3.8+)
+pub fn genHIGHEST_PROTOCOL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i64, 5)");
+}
+
+/// Generate pickle.DEFAULT_PROTOCOL constant (value 4 in Python 3.8+)
+pub fn genDEFAULT_PROTOCOL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i64, 4)");
+}
+
+/// Generate pickle.PicklingError exception
+pub fn genPicklingError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("error.PicklingError");
+}
+
+/// Generate pickle.UnpicklingError exception
+pub fn genUnpicklingError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("error.UnpicklingError");
+}
+
+/// Generate pickle.Pickler(file, protocol) class
+pub fn genPickler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("undefined");
+        return;
+    }
+    // For now, just store the file reference
+    try self.emit("try runtime.io.BytesIO.create(allocator)");
+}
+
+/// Generate pickle.Unpickler(file) class
+pub fn genUnpickler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("undefined");
+        return;
+    }
+    try self.emit("try runtime.io.BytesIO.create(allocator)");
+}

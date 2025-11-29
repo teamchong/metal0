@@ -72,6 +72,14 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         .tuple => true,
         else => false,
     };
+    const is_deque = switch (arg_type) {
+        .deque => true,
+        else => false,
+    };
+    const is_counter = switch (arg_type) {
+        .counter => true,
+        else => false,
+    };
 
     // Check if this is a tracked ArrayList variable (must check BEFORE dict/set type check)
     // Dict comprehensions generate ArrayList but are typed as .dict
@@ -123,13 +131,14 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     if (is_pyobject) {
-        // Unknown type (PyObject*) - use runtime.pyLen for dynamic dispatch
+        // Unknown type - check if it's an ArrayList (has .items) at compile time
+        // Use @hasField to detect ArrayList vs PyObject*
         if (needs_wrap) {
-            try self.emit("runtime.pyLen(__obj)");
+            try self.emit("if (@hasField(@TypeOf(__obj), \"items\")) __obj.items.len else runtime.pyLen(__obj)");
         } else {
-            try self.emit("runtime.pyLen(");
+            try self.emit("blk: { const __tmp = ");
             try self.genExpr(args[0]);
-            try self.emit(")");
+            try self.emit("; break :blk if (@hasField(@TypeOf(__tmp), \"items\")) __tmp.items.len else runtime.pyLen(__tmp); }");
         }
     } else if (is_kwarg_param) {
         // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()
@@ -140,7 +149,8 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.genExpr(args[0]);
             try self.emit(")");
         }
-    } else if (is_arraylist) {
+    } else if (is_arraylist or is_deque) {
+        // ArrayList and deque both use .items.len
         if (needs_wrap) {
             try self.emit("__obj.items.len");
         } else {
@@ -155,7 +165,7 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.genExpr(args[0]);
             try self.emit(")).@\"struct\".fields.len");
         }
-    } else if (is_dict or is_set) {
+    } else if (is_dict or is_set or is_counter) {
         if (needs_wrap) {
             try self.emit("__obj.count()");
         } else {
@@ -299,7 +309,13 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for float(obj)
 /// Converts to f64
 pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    // float() with no args returns 0.0
+    if (args.len == 0) {
+        try self.emit("@as(f64, 0.0)");
+        return;
+    }
     if (args.len != 1) {
+        try self.emit("@as(f64, 0.0)");
         return;
     }
 
@@ -313,9 +329,38 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Parse string to float
     if (arg_type == .string) {
-        try self.emit("try std.fmt.parseFloat(f64, ");
+        // Check for special float literals that can be used at module level without try
+        if (args[0] == .constant) {
+            if (args[0].constant.value == .string) {
+                const str_val = args[0].constant.value.string;
+                // Handle special float values that can be expressed as comptime constants
+                if (std.mem.eql(u8, str_val, "nan")) {
+                    try self.emit("std.math.nan(f64)");
+                    return;
+                } else if (std.mem.eql(u8, str_val, "-nan")) {
+                    try self.emit("-std.math.nan(f64)");
+                    return;
+                } else if (std.mem.eql(u8, str_val, "inf") or std.mem.eql(u8, str_val, "infinity")) {
+                    try self.emit("std.math.inf(f64)");
+                    return;
+                } else if (std.mem.eql(u8, str_val, "-inf") or std.mem.eql(u8, str_val, "-infinity")) {
+                    try self.emit("-std.math.inf(f64)");
+                    return;
+                }
+                // Try to parse as a numeric literal at comptime
+                if (std.fmt.parseFloat(f64, str_val)) |_| {
+                    // Valid numeric string - emit as literal
+                    try self.emit("@as(f64, ");
+                    try self.emit(str_val);
+                    try self.emit(")");
+                    return;
+                } else |_| {}
+            }
+        }
+        // For non-literal strings, use parseFloat (requires try, so only works in function scope)
+        try self.emit("(std.fmt.parseFloat(f64, ");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emit(") catch 0.0)");
         return;
     }
 
@@ -335,10 +380,31 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
+    // Check if the object has __float__ magic method (custom class support)
+    const has_magic_method = blk: {
+        if (args[0] == .name) {
+            // Check all registered classes to see if any have __float__
+            var class_iter = self.class_registry.iterator();
+            while (class_iter.next()) |entry| {
+                if (self.classHasMethod(entry.key_ptr.*, "__float__")) {
+                    break :blk true;
+                }
+            }
+        }
+        break :blk false;
+    };
+
+    // If we found a __float__ method, generate method call
+    if (has_magic_method and args[0] == .name) {
+        try self.genExpr(args[0]);
+        try self.emit(".__float__()");
+        return;
+    }
+
     // Generic cast for unknown types
-    try self.emit("@floatCast(");
+    try self.emit("@as(f64, @floatCast(");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit("))");
 }
 
 /// Generate code for bytes(obj) or bytes(str, encoding)
@@ -384,6 +450,62 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
 }
 
+/// Generate code for bytearray(obj) or bytearray(str, encoding)
+/// bytearray is a mutable sequence of bytes - in Zig, same as []u8
+pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        // bytearray() with no args returns empty byte array
+        try self.emit("\"\"");
+        return;
+    }
+
+    // bytearray(str, encoding) - encode string to bytes
+    // In Zig, strings are already []const u8, so just return the string
+    if (args.len >= 2) {
+        try self.genExpr(args[0]);
+        return;
+    }
+
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // Already a string/bytes - just return it
+    if (arg_type == .string) {
+        try self.genExpr(args[0]);
+        return;
+    }
+
+    // For integers, create bytearray of that length filled with zeros
+    if (arg_type == .int) {
+        // bytearray(n) creates a bytearray of n null bytes
+        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+        try self.emit("blk: {\n");
+        try self.emitFmt("const _len: usize = @intCast(", .{});
+        try self.genExpr(args[0]);
+        try self.emit(");\n");
+        try self.emitFmt("const _buf = {s}.alloc(u8, _len) catch unreachable;\n", .{alloc_name});
+        try self.emit("@memset(_buf, 0);\n");
+        try self.emit("break :blk _buf;\n");
+        try self.emit("}");
+        return;
+    }
+
+    // For lists/iterables, convert to bytearray
+    try self.genExpr(args[0]);
+}
+
+/// Generate code for memoryview(obj)
+/// memoryview provides a view into a buffer - in Zig, treated as []const u8
+pub fn genMemoryview(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("\"\"");
+        return;
+    }
+
+    // memoryview(bytes) - just return the bytes/buffer
+    // In Zig, this is essentially a no-op since slices are already views
+    try self.genExpr(args[0]);
+}
+
 /// Generate code for bool(obj)
 /// Converts to bool
 /// Python truthiness rules: 0, "", [], {} are False, everything else is True
@@ -420,15 +542,11 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Checks if object matches expected type at compile time
 /// For native codegen, this is a compile-time type check
 pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 2) return;
-
-    // For native codegen, check if types match
-    // Generate: @TypeOf(obj) == expected_type
-    // Since we can't easily get the type from the second arg (it's a name like "int"),
-    // we'll do a simple runtime check for common cases
-
-    // For now, just return true (type checking happens at compile time in Zig)
-    // A proper implementation would need type inference on both arguments
+    // For native codegen, check if types match at compile time
+    // Since Zig is strongly typed, isinstance is always true at runtime
+    // if the code compiled - just return true without consuming the value
+    // (consuming with _ = causes "pointless discard" if the value is used later)
+    _ = args;
     try self.emit("true");
 }
 
@@ -474,12 +592,17 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Convert iterable to ArrayList
     // Assign iterable to intermediate variable first to avoid issues with block expressions
     // (Zig doesn't allow subscripting block expressions directly)
+    //
+    // Use @hasField to detect if input is an ArrayList (has .items field)
+    // If so, use .items[0] for element type; otherwise use [0] directly
     try self.emit("list_blk: {\n");
     try self.emit("const _iterable = ");
     try self.genExpr(args[0]);
     try self.emit(";\n");
-    try self.emit("var _list = std.ArrayList(@TypeOf(_iterable[0])){};\n");
-    try self.emit("for (_iterable) |_item| {\n");
+    try self.emit("const _ElemType = if (@hasField(@TypeOf(_iterable), \"items\")) @TypeOf(_iterable.items[0]) else @TypeOf(_iterable[0]);\n");
+    try self.emit("var _list = std.ArrayList(_ElemType){};\n");
+    try self.emit("const _slice = if (@hasField(@TypeOf(_iterable), \"items\")) _iterable.items else _iterable;\n");
+    try self.emit("for (_slice) |_item| {\n");
     try self.emitFmt("try _list.append({s}, _item);\n", .{alloc_name});
     try self.emit("}\n");
     try self.emit("break :list_blk _list;\n");

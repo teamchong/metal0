@@ -5,7 +5,7 @@ const ast = @import("ast");
 
 // ComptimeStringMaps for O(1) lookup + DCE optimization
 
-/// Methods that use allocator param (string/list mutations)
+/// Methods that use allocator param (string mutations that use passed allocator)
 const AllocatorMethods = std.StaticStringMap(void).initComptime(.{
     .{ "upper", {} },
     .{ "lower", {} },
@@ -13,13 +13,25 @@ const AllocatorMethods = std.StaticStringMap(void).initComptime(.{
     .{ "split", {} },
     .{ "replace", {} },
     .{ "join", {} },
-    .{ "format", {} },
-    .{ "append", {} },
-    .{ "extend", {} },
-    .{ "insert", {} },
+    // Note: "format" is NOT here - string .format() is not yet implemented
+    // and the code that uses it doesn't pass allocator
     // StringIO/BytesIO methods
     .{ "write", {} },
     .{ "getvalue", {} },
+});
+
+/// Methods that need error union but use __global_allocator (not passed allocator)
+/// These should be in functionNeedsAllocator but NOT in functionActuallyUsesAllocatorParam
+const GlobalAllocatorMethods = std.StaticStringMap(void).initComptime(.{
+    // hashlib methods - use __global_allocator in codegen
+    .{ "hexdigest", {} },
+    .{ "digest", {} },
+    // list/deque methods - use __global_allocator in codegen
+    .{ "append", {} },
+    .{ "extend", {} },
+    .{ "insert", {} },
+    .{ "appendleft", {} },
+    .{ "extendleft", {} },
 });
 
 /// unittest assertion methods - these don't need allocator
@@ -54,7 +66,7 @@ const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "str", {} },
     .{ "list", {} },
     .{ "dict", {} },
-    .{ "format", {} },
+    // Note: "format" removed - builtins.format() uses __global_allocator
     .{ "input", {} },
     .{ "StringIO", {} },
     .{ "BytesIO", {} },
@@ -81,7 +93,7 @@ const StringMethods = std.StaticStringMap(void).initComptime(.{
     .{ "split", {} },
     .{ "join", {} },
     .{ "replace", {} },
-    .{ "format", {} },
+    // Note: "format" not listed - not yet implemented for string method calls
     .{ "capitalize", {} },
     .{ "title", {} },
     .{ "swapcase", {} },
@@ -94,12 +106,26 @@ const StringMethods = std.StaticStringMap(void).initComptime(.{
 
 /// Check if a function needs an allocator parameter (for error union return type)
 pub fn functionNeedsAllocator(func: ast.Node.FunctionDef) bool {
+    return methodNeedsAllocatorInClass(func, null);
+}
+
+/// Check if a method needs an allocator parameter (for error union return type)
+/// class_name is the containing class name (if method is inside a class)
+pub fn methodNeedsAllocatorInClass(func: ast.Node.FunctionDef, class_name: ?[]const u8) bool {
     // First, collect names of nested classes defined in this function
     var nested_classes: [32][]const u8 = undefined;
     var nested_class_count: usize = 0;
     collectNestedClassNames(func.body, &nested_classes, &nested_class_count);
 
-    // If there are nested classes, check if they're instantiated
+    // Add containing class name to the list (for same-class constructor calls like Rat(x))
+    if (class_name) |cn| {
+        if (nested_class_count < 32) {
+            nested_classes[nested_class_count] = cn;
+            nested_class_count += 1;
+        }
+    }
+
+    // If there are nested classes (or containing class), check if they're instantiated
     if (nested_class_count > 0) {
         if (hasNestedClassCalls(func.body, nested_classes[0..nested_class_count])) {
             return true;
@@ -214,10 +240,23 @@ fn exprHasNestedClassCall(expr: ast.Node, nested_classes: []const []const u8) bo
 /// Dict literals use __global_allocator so they don't actually use the param
 /// Also returns true for recursive calls since they pass allocator to self
 pub fn functionActuallyUsesAllocatorParam(func: ast.Node.FunctionDef) bool {
+    return functionActuallyUsesAllocatorParamInClass(func, null);
+}
+
+/// Check if method actually uses the 'allocator' param, including same-class constructor calls
+/// This is used for class methods where Foo(x) becomes Foo.init(allocator, x)
+/// NOTE: We do NOT include the containing class name here because same-class constructor
+/// calls use __global_allocator, not the allocator parameter. The containing class is
+/// included in methodNeedsAllocatorInClass for determining if error union is needed.
+pub fn functionActuallyUsesAllocatorParamInClass(func: ast.Node.FunctionDef, class_name: ?[]const u8) bool {
+    _ = class_name; // Not used - same-class calls use __global_allocator
     // First, collect names of nested classes defined in this function
     var nested_classes: [32][]const u8 = undefined;
     var nested_class_count: usize = 0;
     collectNestedClassNames(func.body, &nested_classes, &nested_class_count);
+
+    // NOTE: Do NOT add containing class name - same-class constructor calls like Rat(x)
+    // use __global_allocator in codegen, not the allocator parameter
 
     for (func.body) |stmt| {
         if (stmtUsesAllocatorParamWithClasses(stmt, func.name, nested_classes[0..nested_class_count])) return true;
@@ -435,12 +474,11 @@ const ModuleFunctionsUsingAllocator = std.StaticStringMap(void).initComptime(.{
     .{ "sub", {} },
     .{ "split", {} },
     .{ "compile", {} },
-    // gzip module
+    // gzip module - compress/decompress use allocator
     .{ "compress", {} },
     .{ "decompress", {} },
-    // zlib module
-    .{ "crc32", {} },
-    .{ "adler32", {} },
+    // NOTE: zlib.crc32/adler32 don't use allocator - they're pure inline functions
+    // zlib.compress/decompress DO use allocator (handled by compress/decompress above)
 });
 
 /// Builtin classes/constructors that use allocator in generated code
@@ -751,7 +789,15 @@ fn callNeedsAllocator(call: ast.Node.Call) bool {
     // Check if this is a method call that needs allocator
     if (call.func.* == .attribute) {
         const method_name = call.func.attribute.attr;
-        if (AllocatorMethods.has(method_name)) return true;
+        // Include both AllocatorMethods (which use allocator param) and
+        // GlobalAllocatorMethods (which use __global_allocator but still need error union)
+        if (AllocatorMethods.has(method_name) or GlobalAllocatorMethods.has(method_name)) return true;
+
+        // Check for chained calls like hashlib.md5(b"hello").hexdigest()
+        // The value is another call, so recursively check it
+        if (call.func.attribute.value.* == .call) {
+            if (exprNeedsAllocator(call.func.attribute.value.*)) return true;
+        }
 
         // Module function call (e.g., test_utils.double(x))
         // Codegen passes allocator to imported module functions

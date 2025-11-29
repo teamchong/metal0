@@ -99,6 +99,20 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try self.emit(")))");
             return;
         }
+
+        // unknown * int - could be string repeat in inline for context
+        // Generate comptime type check
+        if (left_type == .unknown and (right_type == .int or right_type == .unknown)) {
+            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+            try self.emit("blk: { const _lhs = ");
+            try genExpr(self, binop.left.*);
+            try self.emit("; const _rhs = ");
+            try genExpr(self, binop.right.*);
+            try self.emit("; break :blk if (@TypeOf(_lhs) == []const u8) runtime.strRepeat(");
+            try self.emit(alloc_name);
+            try self.emit(", _lhs, @as(usize, @intCast(_rhs))) else _lhs * _rhs; }");
+            return;
+        }
         // n * str -> repeat string n times
         if (right_type == .string and (left_type == .int or left_type == .unknown)) {
             const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
@@ -519,18 +533,18 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     }
                 } else {
                     // Integer and float arrays use indexOfScalar
-                    const elem_type_str = current_left_type.toSimpleZigType();
+                    // Use Zig's @typeInfo to get the actual array element type at comptime
+                    // This handles cases where type inference returns .unknown
 
-                    try self.emit("(std.mem.indexOfScalar(");
-                    try self.emit(elem_type_str);
-                    try self.emit(", &");
+                    try self.emit("blk: { const __arr = ");
                     try genExpr(self, compare.comparators[i]); // array/container
-                    try self.emit(", ");
+                    try self.emit("; const __val = ");
                     try genExpr(self, current_left); // item to search for
+                    try self.emit("; const T = @typeInfo(@TypeOf(__arr)).array.child; break :blk (std.mem.indexOfScalar(T, &__arr, __val)");
                     if (op == .In) {
-                        try self.emit(") != null)");
+                        try self.emit(" != null); }");
                     } else {
-                        try self.emit(") == null)");
+                        try self.emit(" == null); }");
                     }
                 }
             }
@@ -638,11 +652,63 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 }
 
 /// Generate boolean operations (and, or)
+/// Python's and/or return the actual values, not booleans:
+/// - "a or b" returns a if truthy, else b
+/// - "a and b" returns a if falsy, else b
 pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!void {
-    const op_str = if (boolop.op == .And) " and " else " or ";
+    // Check if all values are booleans - can use simple Zig and/or
+    var all_bool = true;
+    for (boolop.values) |value| {
+        const val_type = self.type_inferrer.inferExpr(value) catch .unknown;
+        if (val_type != .bool) {
+            all_bool = false;
+            break;
+        }
+    }
 
+    if (all_bool) {
+        const op_str = if (boolop.op == .And) " and " else " or ";
+        for (boolop.values, 0..) |value, i| {
+            if (i > 0) try self.emit(op_str);
+            try genExpr(self, value);
+        }
+        return;
+    }
+
+    // Non-boolean types need Python semantics
+    // For "a or b": if truthy(a) then a else b
+    // For "a and b": if not truthy(a) then a else b
+    // We generate nested ternary expressions
+    if (boolop.values.len == 2) {
+        const a = boolop.values[0];
+        const b = boolop.values[1];
+
+        try self.emit("blk: {\n");
+        try self.emit("const _a = ");
+        try genExpr(self, a);
+        try self.emit(";\n");
+        try self.emit("const _b = ");
+        try genExpr(self, b);
+        try self.emit(";\n");
+
+        if (boolop.op == .Or) {
+            // "a or b": return a if truthy, else b
+            // For strings: len > 0 is truthy
+            try self.emit("break :blk if (runtime.pyTruthy(_a)) _a else _b;\n");
+        } else {
+            // "a and b": return a if falsy, else b
+            try self.emit("break :blk if (!runtime.pyTruthy(_a)) _a else _b;\n");
+        }
+        try self.emit("}");
+        return;
+    }
+
+    // For more than 2 values, use simple approach (may not be fully correct but handles common cases)
+    const op_str = if (boolop.op == .And) " and " else " or ";
     for (boolop.values, 0..) |value, i| {
         if (i > 0) try self.emit(op_str);
+        try self.emit("runtime.pyTruthy(");
         try genExpr(self, value);
+        try self.emit(")");
     }
 }

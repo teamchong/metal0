@@ -6,9 +6,9 @@ const CodegenError = @import("../main.zig").CodegenError;
 const subscript_mod = @import("subscript.zig");
 const zig_keywords = @import("zig_keywords");
 
-/// Generate tuple literal as Zig struct with named fields
-/// Uses named field syntax (.{ .@"0" = elem1, .@"1" = elem2 }) for compatibility
-/// with declared tuple return types like struct { @"0": T, @"1": U }
+/// Generate tuple literal as Zig array/tuple
+/// Uses anonymous tuple syntax (.{ elem1, elem2 }) for iteration compatibility
+/// For tuple unpacking in for loops, this creates a proper Zig tuple that can be iterated
 pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
     // Forward declare genExpr - it's in parent module
     const parent = @import("../expressions.zig");
@@ -20,17 +20,35 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
         return;
     }
 
-    // Non-empty tuples: .{ .@"0" = elem1, .@"1" = elem2 }
-    try self.emit(".{ ");
-
-    for (tuple.elts, 0..) |elem, i| {
-        if (i > 0) try self.emit(", ");
-        // Use named field syntax for struct compatibility
-        try self.output.writer(self.allocator).print(".@\"{d}\" = ", .{i});
-        try genExpr(self, elem);
+    // Generate as array literal for homogeneous tuples (allows inline for iteration)
+    // Check if all elements are the same type
+    const first_type = self.type_inferrer.inferExpr(tuple.elts[0]) catch .unknown;
+    var all_same_type = true;
+    for (tuple.elts[1..]) |elem| {
+        const elem_type = self.type_inferrer.inferExpr(elem) catch .unknown;
+        if (!std.meta.eql(elem_type, first_type)) {
+            all_same_type = false;
+            break;
+        }
     }
 
-    try self.emit(" }");
+    if (all_same_type and first_type == .string) {
+        // Homogeneous string tuple: generate as array for iteration
+        try self.emit("[_][]const u8{ ");
+        for (tuple.elts, 0..) |elem, i| {
+            if (i > 0) try self.emit(", ");
+            try genExpr(self, elem);
+        }
+        try self.emit(" }");
+    } else {
+        // Heterogeneous tuple: use anonymous tuple syntax
+        try self.emit(".{ ");
+        for (tuple.elts, 0..) |elem, i| {
+            if (i > 0) try self.emit(", ");
+            try genExpr(self, elem);
+        }
+        try self.emit(" }");
+    }
 }
 
 /// Generate array/dict subscript with tuple support (a[b])
@@ -45,12 +63,12 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
         const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
 
         if (value_type == .tuple) {
-            // Tuple indexing: t[0] -> t.@"0"
+            // Tuple indexing: t[0] -> t[0] (array index for anonymous tuples)
             // Only constant indices supported for tuples
             if (subscript.slice.index.* == .constant and subscript.slice.index.constant.value == .int) {
                 const index = subscript.slice.index.constant.value.int;
                 try genExpr(self, subscript.value.*);
-                try self.output.writer(self.allocator).print(".@\"{d}\"", .{index});
+                try self.output.writer(self.allocator).print("[{d}]", .{index});
             } else {
                 // Non-constant tuple index - error
                 try self.emit("@compileError(\"Tuple indexing requires constant index\")");
@@ -128,9 +146,9 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             // emit a reference to the runtime function
             // e.g., copy.copy -> &runtime.copy.copy, zlib.compress -> &runtime.zlib.compress
             try self.emit("&runtime.");
-            try self.emit(module_name);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
             try self.emit(".");
-            try self.emit(attr_name);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
             return;
         }
     }
@@ -177,7 +195,7 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             if (std.mem.eql(u8, attr.attr, prop)) {
                 try genExpr(self, attr.value.*);
                 try self.emit(".");
-                try self.emit(attr.attr);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
                 try self.emit("()"); // Call as method in Zig
                 return;
             }
@@ -188,7 +206,7 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     if (isPathProperty(attr)) {
         try genExpr(self, attr.value.*);
         try self.emit(".");
-        try self.emit(attr.attr);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         try self.emit("()"); // Call as method in Zig
         return;
     }
@@ -199,11 +217,33 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     // Check if this is a known attribute or dynamic attribute
     const is_dynamic = try isDynamicAttribute(self, attr);
 
+    // Check if this is a unittest assertion method reference (e.g., eq = self.assertEqual)
+    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+        const unittest_methods = [_][]const u8{
+            "assertEqual",       "assertNotEqual",    "assertTrue",        "assertFalse",
+            "assertIs",          "assertIsNot",       "assertIsNone",      "assertIsNotNone",
+            "assertIn",          "assertNotIn",       "assertIsInstance",  "assertNotIsInstance",
+            "assertRaises",      "assertRaisesRegex", "assertWarns",       "assertWarnsRegex",
+            "assertLogs",        "assertNoLogs",      "assertAlmostEqual", "assertNotAlmostEqual",
+            "assertGreater",     "assertGreaterEqual", "assertLess",       "assertLessEqual",
+            "assertRegex",       "assertNotRegex",    "assertCountEqual",  "assertMultiLineEqual",
+            "assertSequenceEqual", "assertListEqual", "assertTupleEqual",  "assertSetEqual",
+            "assertDictEqual",   "fail",              "failIf",            "failUnless",
+        };
+        for (unittest_methods) |method| {
+            if (std.mem.eql(u8, attr.attr, method)) {
+                try self.emit("runtime.unittest.");
+                try self.emit(method);
+                return;
+            }
+        }
+    }
+
     if (is_property) {
         // Property method: call it automatically (Python @property semantics)
         try genExpr(self, attr.value.*);
         try self.emit(".");
-        try self.emit(attr.attr);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         try self.emit("()");
     } else if (is_dynamic) {
         // Dynamic attribute: use __dict__.get() and extract value
@@ -292,6 +332,24 @@ fn isDynamicAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
     // Check for special module attributes (sys.platform, etc.)
     if (std.mem.eql(u8, obj_name, "sys")) {
         return false; // Module attributes are not dynamic
+    }
+
+    // Check for unittest assertion methods (self.assertEqual, etc.)
+    const unittest_methods = [_][]const u8{
+        "assertEqual",       "assertNotEqual",    "assertTrue",        "assertFalse",
+        "assertIs",          "assertIsNot",       "assertIsNone",      "assertIsNotNone",
+        "assertIn",          "assertNotIn",       "assertIsInstance",  "assertNotIsInstance",
+        "assertRaises",      "assertRaisesRegex", "assertWarns",       "assertWarnsRegex",
+        "assertLogs",        "assertNoLogs",      "assertAlmostEqual", "assertNotAlmostEqual",
+        "assertGreater",     "assertGreaterEqual", "assertLess",       "assertLessEqual",
+        "assertRegex",       "assertNotRegex",    "assertCountEqual",  "assertMultiLineEqual",
+        "assertSequenceEqual", "assertListEqual", "assertTupleEqual",  "assertSetEqual",
+        "assertDictEqual",   "fail",              "failIf",            "failUnless",
+    };
+    for (unittest_methods) |method| {
+        if (std.mem.eql(u8, attr.attr, method)) {
+            return false; // Known unittest method
+        }
     }
 
     // Unknown field - dynamic attribute

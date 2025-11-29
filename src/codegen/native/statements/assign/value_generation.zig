@@ -93,11 +93,13 @@ pub fn emitVarDeclaration(
     // This checks both module-level analysis AND function-local mutations
     const is_mutated = self.isVarMutated(var_name);
 
-    // hash_object types need var because they have mutating methods like update()
-    const is_hash_object = (value_type == .hash_object);
+    // Check if value type is deque, counter, or hash_object (all are mutable collections)
+    // hash_object needs var because update() mutates it
+    const is_mutable_collection = (value_type == .deque or value_type == .counter or value_type == .hash_object);
 
     // List comprehensions return ArrayLists which need var for deinit()
-    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or is_mutated or is_hash_object or is_listcomp;
+    // Note: hash_object types can use const unless explicitly mutated (is_mutated check)
+    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or is_mutated or is_listcomp or is_mutable_collection;
 
     if (needs_var) {
         try self.emit("var ");
@@ -111,17 +113,19 @@ pub fn emitVarDeclaration(
     // Use writeLocalVarName to handle keywords AND method shadowing
     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
 
-    // Only emit type annotation for known types that aren't dicts, dictcomps, lists, tuples, closures, counters, or ArrayLists
+    // Only emit type annotation for known types that aren't dicts, dictcomps, lists, tuples, closures, counters, ArrayLists, or class instances
     // For lists/ArrayLists/dicts/dictcomps/tuples/closures/counters, let Zig infer the type from the initializer
     // For unknown types (json.loads, etc.), let Zig infer
+    // For class instances, let Zig infer to avoid cross-method type pollution issues
     const is_list = (value_type == .list);
     const is_tuple = (value_type == .tuple);
     const is_closure = (value_type == .closure);
     const is_dict_type = (value_type == .dict);
     const is_counter = (value_type == .counter);
     const is_deque = (value_type == .deque);
+    const is_class_instance = (value_type == .class_instance);
     const is_dictcomp = false; // Passed separately
-    if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_counter and !is_deque) {
+    if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_counter and !is_deque and !is_class_instance) {
         try self.emit(": ");
         try value_type.toZigType(self.allocator, &self.output);
     }
@@ -147,7 +151,7 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
         try self.emit("try ");
         const actual_name = self.var_renames.get(var_name) orelse var_name;
         try self.emit(actual_name);
-        try self.emit(".append(allocator, ");
+        try self.emit(".append(__global_allocator, ");
         try self.genExpr(elem);
         try self.emit(");\n");
     }
@@ -267,6 +271,33 @@ pub fn trackVariableMetadata(
         if (self.closure_factories.contains(called_func)) {
             // This is calling a closure factory, so the result is a closure
             try lambda_closure.markAsClosure(self, var_name);
+        }
+    }
+
+    // Track closure instances from method calls: adder = obj.get_adder()
+    // where get_adder() returns a lambda that captures self
+    if (assign.value.* == .call and assign.value.call.func.* == .attribute) {
+        const attr = assign.value.call.func.attribute;
+        // Check if obj is a class instance and method is registered as closure-returning
+        // First, try to get the type of the object being called on
+        if (attr.value.* == .name) {
+            const obj_name = attr.value.name.id;
+            const method_name = attr.attr;
+
+            // Look up the object's type to find its class name
+            if (self.getVarType(obj_name)) |obj_type| {
+                if (obj_type == .class_instance) {
+                    const class_name = obj_type.class_instance;
+                    // Check if ClassName.method_name is registered as closure-returning
+                    const key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, method_name });
+                    defer self.allocator.free(key);
+
+                    if (self.closure_returning_methods.contains(key)) {
+                        // This method returns a closure, mark the variable
+                        try lambda_closure.markAsClosure(self, var_name);
+                    }
+                }
+            }
         }
     }
 }

@@ -148,5 +148,5 @@ pub fn genLibcVer(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate platform.freedesktop_os_release() -> dict
 pub fn genFreedesktopOsRelease(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("hashmap_helper.StringHashMap([]const u8).init(allocator)");
+    try self.emit("hashmap_helper.StringHashMap([]const u8).init(__global_allocator)");
 }

@@ -16,7 +16,7 @@ pub fn genLstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     try self.genExpr(obj);
     try self.emit(";\n");
     try self.emit("    const _trimmed = std.mem.trimLeft(u8, _text, \" \\t\\n\\r\");\n");
-    try self.emit("    const _result = try allocator.alloc(u8, _trimmed.len);\n");
+    try self.emit("    const _result = __global_allocator.alloc(u8, _trimmed.len);\n");
     try self.emit("    @memcpy(_result, _trimmed);\n");
     try self.emitFmt("    break :lstrip_{d} _result;\n", .{label_id});
     try self.emit("}");
@@ -34,7 +34,7 @@ pub fn genRstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     try self.genExpr(obj);
     try self.emit(";\n");
     try self.emit("    const _trimmed = std.mem.trimRight(u8, _text, \" \\t\\n\\r\");\n");
-    try self.emit("    const _result = try allocator.alloc(u8, _trimmed.len);\n");
+    try self.emit("    const _result = __global_allocator.alloc(u8, _trimmed.len);\n");
     try self.emit("    @memcpy(_result, _trimmed);\n");
     try self.emitFmt("    break :rstrip_{d} _result;\n", .{label_id});
     try self.emit("}");
@@ -50,7 +50,7 @@ pub fn genCapitalize(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     try self.genExpr(obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk _text;\n");
-    try self.emit("    const _result = try allocator.alloc(u8, _text.len);\n");
+    try self.emit("    const _result = __global_allocator.alloc(u8, _text.len);\n");
     try self.emit("    _result[0] = std.ascii.toUpper(_text[0]);\n");
     try self.emit("    for (_text[1..], 0..) |_c, _idx| {\n");
     try self.emit("        _result[_idx + 1] = std.ascii.toLower(_c);\n");
@@ -69,7 +69,7 @@ pub fn genTitle(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.genExpr(obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk _text;\n");
-    try self.emit("    const _result = try allocator.alloc(u8, _text.len);\n");
+    try self.emit("    const _result = __global_allocator.alloc(u8, _text.len);\n");
     try self.emit("    var _prev_space = true;\n");
     try self.emit("    for (_text, 0..) |_c, _idx| {\n");
     try self.emit("        if (_prev_space and std.ascii.isAlphabetic(_c)) {\n");
@@ -92,7 +92,7 @@ pub fn genSwapcase(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
     try self.emit("    const _text = ");
     try self.genExpr(obj);
     try self.emit(";\n");
-    try self.emit("    const _result = try allocator.alloc(u8, _text.len);\n");
+    try self.emit("    const _result = __global_allocator.alloc(u8, _text.len);\n");
     try self.emit("    for (_text, 0..) |_c, _idx| {\n");
     try self.emit("        if (std.ascii.isUpper(_c)) {\n");
     try self.emit("            _result[_idx] = std.ascii.toLower(_c);\n");
@@ -155,7 +155,7 @@ pub fn genLjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emit("    if (_text.len >= _width) break :blk _text;\n");
-    try self.emit("    const _result = try allocator.alloc(u8, @intCast(_width));\n");
+    try self.emit("    const _result = __global_allocator.alloc(u8, @intCast(_width));\n");
     try self.emit("    @memcpy(_result[0.._text.len], _text);\n");
     try self.emit("    @memset(_result[_text.len..], ' ');\n");
     try self.emit("    break :blk _result;\n");
@@ -175,7 +175,7 @@ pub fn genRjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emit("    if (_text.len >= _width) break :blk _text;\n");
-    try self.emit("    const _result = try allocator.alloc(u8, @intCast(_width));\n");
+    try self.emit("    const _result = __global_allocator.alloc(u8, @intCast(_width));\n");
     try self.emit("    const _pad = @as(usize, @intCast(_width)) - _text.len;\n");
     try self.emit("    @memset(_result[0.._pad], ' ');\n");
     try self.emit("    @memcpy(_result[_pad..], _text);\n");
@@ -196,7 +196,7 @@ pub fn genCenter(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emit("    if (_text.len >= _width) break :blk _text;\n");
-    try self.emit("    const _result = try allocator.alloc(u8, @intCast(_width));\n");
+    try self.emit("    const _result = __global_allocator.alloc(u8, @intCast(_width));\n");
     try self.emit("    const _total_pad = @as(usize, @intCast(_width)) - _text.len;\n");
     try self.emit("    const _left_pad = _total_pad / 2;\n");
     try self.emit("    @memset(_result[0.._left_pad], ' ');\n");
@@ -219,7 +219,7 @@ pub fn genZfill(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emit("    if (_text.len >= _width) break :blk _text;\n");
-    try self.emit("    const _result = try allocator.alloc(u8, @intCast(_width));\n");
+    try self.emit("    const _result = __global_allocator.alloc(u8, @intCast(_width));\n");
     try self.emit("    const _pad = @as(usize, @intCast(_width)) - _text.len;\n");
     try self.emit("    @memset(_result[0.._pad], '0');\n");
     try self.emit("    @memcpy(_result[_pad..], _text);\n");

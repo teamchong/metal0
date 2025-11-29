@@ -88,13 +88,12 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("@as(i64, 1)");
         return;
     }
-    try self.emit("std.math.pow(@TypeOf(");
+    // Use std.math.powi for integer exponentiation
+    try self.emit("(std.math.powi(i64, @as(i64, ");
     try self.genExpr(args[0]);
-    try self.emit("), ");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
+    try self.emit("), @as(u32, @intCast(");
     try self.genExpr(args[1]);
-    try self.emit(")");
+    try self.emit("))) catch 0)");
 }
 
 /// Generate operator.neg(a) -> -a
@@ -134,9 +133,9 @@ pub fn genInvert(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("@as(i64, 0)");
         return;
     }
-    try self.emit("(~");
+    try self.emit("(~@as(i64, ");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit("))");
 }
 
 /// Generate operator.lshift(a, b) -> a << b
@@ -368,20 +367,30 @@ pub fn genGetitem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("]");
 }
 
-/// Generate operator.setitem(a, b, c) -> a[b] = c
+/// Generate operator.setitem(a, b, c) -> a[b] = c; returns None
 pub fn genSetitem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 3) return;
+    if (args.len < 3) {
+        try self.emit("null");
+        return;
+    }
+    // Wrap in block to make it an expression that returns null (Python None)
+    try self.emit("blk: { ");
     try self.genExpr(args[0]);
     try self.emit("[");
     try self.genExpr(args[1]);
     try self.emit("] = ");
     try self.genExpr(args[2]);
+    try self.emit("; break :blk null; }");
 }
 
-/// Generate operator.delitem(a, b) -> del a[b]
+/// Generate operator.delitem(a, b) -> del a[b]; returns None
 pub fn genDelitem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
+    if (args.len < 2) {
+        try self.emit("null");
+        return;
+    }
+    // For AOT, we can't truly delete - just return null
+    try self.emit("null");
 }
 
 /// Generate operator.length_hint(obj, default=0) -> length hint

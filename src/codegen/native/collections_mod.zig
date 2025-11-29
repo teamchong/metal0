@@ -56,28 +56,31 @@ pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
 /// Generate collections.deque(iterable?, maxlen?)
 /// deque is a double-ended queue with O(1) append/pop from both ends
 pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        // Empty deque - just return an empty ArrayList directly
+        try self.emit("std.ArrayList(i64){}");
+        return;
+    }
+
+    // Deque with initial values
     try self.emit("deque_blk: {\n");
     self.indent();
     try self.emitIndent();
+    try self.emit("const _iterable = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emitIndent();
     // Zig 0.15: ArrayList uses {} initialization, allocator passed to methods
-    try self.emit("var _deque = std.ArrayList(i64){};\n");
-
-    if (args.len > 0) {
-        try self.emitIndent();
-        try self.emit("const _iterable = ");
-        try self.genExpr(args[0]);
-        try self.emit(";\n");
-        try self.emitIndent();
-        // Use direct iteration - works for both arrays and ArrayList.items
-        try self.emit("for (_iterable) |item| {\n");
-        self.indent();
-        try self.emitIndent();
-        try self.emit("_deque.append(__global_allocator, item) catch continue;\n");
-        self.dedent();
-        try self.emitIndent();
-        try self.emit("}\n");
-    }
-
+    try self.emit("var _deque = std.ArrayList(@TypeOf(_iterable[0])){};\n");
+    try self.emitIndent();
+    // Use direct iteration - works for both arrays and ArrayList.items
+    try self.emit("for (_iterable) |item| {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("_deque.append(__global_allocator, item) catch continue;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
     try self.emitIndent();
     try self.emit("break :deque_blk _deque;\n");
     self.dedent();

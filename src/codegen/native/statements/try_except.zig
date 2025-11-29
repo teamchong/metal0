@@ -73,6 +73,14 @@ const ExceptionMap = std.StaticStringMap([]const u8).initComptime(.{
     .{ "KeyError", "KeyError" },
 });
 
+/// Check if a variable name is used in any statement within a list of statements
+fn isNameUsedInStmts(stmts: []ast.Node, name: []const u8, allocator: std.mem.Allocator) bool {
+    var vars = FnvVoidMap.init(allocator);
+    defer vars.deinit();
+    findReferencedVarsInStmts(stmts, &vars, allocator) catch return false;
+    return vars.contains(name);
+}
+
 /// Find all variable names referenced in an expression
 fn findReferencedVarsInExpr(expr: ast.Node, vars: *FnvVoidMap, allocator: std.mem.Allocator) !void {
     switch (expr) {
@@ -155,18 +163,16 @@ fn findWrittenVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap) !void {
     }
 }
 
-/// Find all variables locally declared within statements (including for-loop targets)
+/// Find all variables locally declared within statements (for-loop targets only)
 /// These are variables that should NOT be captured from outer scope
+/// NOTE: We only track for-loop targets here, NOT assignment targets,
+/// because assignments might be reassigning outer variables
 fn findLocallyDeclaredVars(stmts: []ast.Node, vars: *FnvVoidMap) !void {
     for (stmts) |stmt| {
         switch (stmt) {
-            .assign => |assign| {
-                for (assign.targets) |target| {
-                    if (target == .name) {
-                        try vars.put(target.name.id, {});
-                    }
-                }
-            },
+            // NOTE: Don't include .assign targets here - assignments might be
+            // reassigning variables from outer scope, not declaring new ones.
+            // The declared_var_set handles first-time declarations separately.
             .for_stmt => |for_stmt| {
                 // For-loop target variables are locally declared
                 if (for_stmt.target.* == .name) {
@@ -343,14 +349,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (self.function_signatures.contains(name)) continue;
             if (self.functions_needing_allocator.contains(name)) continue;
 
-            // Only capture if declared before this point
-            if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name)) {
-                // Check if this variable is written to inside try block
-                if (written_vars.contains(name)) {
-                    try written_outer_vars.append(self.allocator, name);
-                } else {
-                    try read_only_vars.append(self.allocator, name);
-                }
+            // Check if this variable is from outer scope
+            // If the variable is written in the try block, it's definitely an outer variable
+            // (otherwise it would be in declared_var_set or locally_declared)
+            // If it's only read, we need to verify it exists in some tracking mechanism
+            if (written_vars.contains(name)) {
+                // Variable is written in try block and not locally declared - it's an outer variable
+                try written_outer_vars.append(self.allocator, name);
+            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name)) {
+                // Variable is only read and we can verify it exists - capture as read-only
+                try read_only_vars.append(self.allocator, name);
             }
         }
 
@@ -534,11 +542,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 try self.emit(") {\n");
                 self.indent();
                 // If handler has "as name", declare the exception variable as a string
+                // But only if it's actually used in the handler body
                 if (handler.name) |exc_name| {
-                    try self.emitIndent();
-                    try self.emit("const ");
-                    try self.emit(exc_name);
-                    try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
+                    if (isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
+                        try self.emitIndent();
+                        try self.emit("const ");
+                        try self.emit(exc_name);
+                        try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
+                    }
                 }
                 for (handler.body) |stmt| {
                     try self.generateStmt(stmt);
@@ -554,11 +565,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 }
                 self.indent();
                 // If handler has "as name", declare the exception variable as a string
+                // But only if it's actually used in the handler body
                 if (handler.name) |exc_name| {
-                    try self.emitIndent();
-                    try self.emit("const ");
-                    try self.emit(exc_name);
-                    try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
+                    if (isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
+                        try self.emitIndent();
+                        try self.emit("const ");
+                        try self.emit(exc_name);
+                        try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
+                    }
                 }
                 for (handler.body) |stmt| {
                     try self.generateStmt(stmt);

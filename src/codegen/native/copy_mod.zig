@@ -42,7 +42,7 @@ pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Creates a deep copy of the object (recursive)
 pub fn genDeepcopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-    
+
     // For AOT, deep copy is complex because we need to recursively copy
     // nested structures. For now, implement like shallow copy.
     try self.emit("deepcopy_blk: {\n");
@@ -84,4 +84,19 @@ pub fn genDeepcopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
+}
+
+/// Generate copy.replace(obj, **kwargs)
+/// Python 3.11+ - creates a copy with replaced field values
+/// For AOT, we just return a shallow copy (kwargs replacement not supported)
+pub fn genReplace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        // No argument - emit a placeholder value
+        try self.emit("void{}");
+        return;
+    }
+
+    // For AOT, we just return the object as-is (simplification)
+    // Full replace semantics would need field replacement based on kwargs
+    try self.genExpr(args[0]);
 }

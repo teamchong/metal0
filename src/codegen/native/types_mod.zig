@@ -97,7 +97,7 @@ pub fn genMemberDescriptorType(self: *NativeCodegen, args: []ast.Node) CodegenEr
 /// Generate types.MappingProxyType(mapping) -> mapping proxy
 pub fn genMappingProxyType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("struct { data: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(allocator) }{}");
+        try self.emit("struct { data: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }{}");
         return;
     }
     // Return the mapping as-is (simplified)
@@ -110,7 +110,7 @@ pub fn genSimpleNamespace(self: *NativeCodegen, args: []ast.Node) CodegenError!v
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("attrs: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(allocator),\n");
+    try self.emit("attrs: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
     try self.emitIndent();
     try self.emit("pub fn get(self: *@This(), name: []const u8) ?[]const u8 { return self.attrs.get(name); }\n");
     try self.emitIndent();
@@ -179,7 +179,7 @@ pub fn genResolveBases(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 /// Generate types.prepare_class(name, bases, kwds) -> class dict
 pub fn genPrepareClass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("hashmap_helper.StringHashMap([]const u8).init(allocator)");
+    try self.emit("hashmap_helper.StringHashMap([]const u8).init(__global_allocator)");
 }
 
 /// Generate types.get_original_bases(cls) -> bases
@@ -195,4 +195,34 @@ pub fn genCoroutine(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
     try self.genExpr(args[0]);
+}
+
+/// Generate types.WrapperDescriptorType constant
+pub fn genWrapperDescriptorType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"wrapper_descriptor\"");
+}
+
+/// Generate types.MethodWrapperType constant
+pub fn genMethodWrapperType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"method-wrapper\"");
+}
+
+/// Generate types.ClassMethodDescriptorType constant
+pub fn genClassMethodDescriptorType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"classmethod_descriptor\"");
+}
+
+/// Generate types.MethodDescriptorType constant
+pub fn genMethodDescriptorType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"method_descriptor\"");
+}
+
+/// Generate types.CapsuleType constant
+pub fn genCapsuleType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("\"PyCapsule\"");
 }

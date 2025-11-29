@@ -36,6 +36,7 @@ pub const genZfill = string.genZfill;
 pub const genIsascii = string.genIsascii;
 pub const genIstitle = string.genIstitle;
 pub const genIsprintable = string.genIsprintable;
+pub const genEncode = string.genEncode;
 
 // List methods
 pub const genAppend = list.genAppend;
@@ -48,6 +49,12 @@ pub const genSort = list.genSort;
 pub const genClear = list.genClear;
 pub const genCopy = list.genCopy;
 pub const genIndex = list.genIndex;
+
+// Deque methods (using ArrayList as underlying type)
+pub const genAppendleft = list.genAppendleft;
+pub const genPopleft = list.genPopleft;
+pub const genExtendleft = list.genExtendleft;
+pub const genRotate = list.genRotate;
 
 // Dict methods
 pub const genGet = dict.genGet;

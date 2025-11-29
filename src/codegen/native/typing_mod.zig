@@ -79,5 +79,5 @@ pub fn genCast(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate typing.get_type_hints(obj) - returns empty dict
 pub fn genGetTypeHints(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(allocator)");
+    try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
 }

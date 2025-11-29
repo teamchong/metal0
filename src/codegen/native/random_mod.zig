@@ -132,7 +132,7 @@ pub fn genChoices(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(@TypeOf(_seq[0])).init(allocator);\n");
+    try self.emit("var _result = std.ArrayList(@TypeOf(_seq[0])).init(__global_allocator);\n");
     try self.emitIndent();
     try self.emit("var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp()));\n");
     try self.emitIndent();
@@ -190,12 +190,12 @@ pub fn genSample(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[1]);
     try self.emit(");\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(@TypeOf(_seq[0])).init(allocator);\n");
+    try self.emit("var _result = std.ArrayList(@TypeOf(_seq[0])).init(__global_allocator);\n");
     try self.emitIndent();
     try self.emit("var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp()));\n");
     try self.emitIndent();
     // Simple reservoir sampling (without replacement)
-    try self.emit("var _indices = std.ArrayList(usize).init(allocator);\n");
+    try self.emit("var _indices = std.ArrayList(usize).init(__global_allocator);\n");
     try self.emitIndent();
     try self.emit("for (_seq, 0..) |_, idx| _indices.append(allocator, idx) catch continue;\n");
     try self.emitIndent();

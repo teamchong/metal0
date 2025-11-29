@@ -124,7 +124,7 @@ pub fn genHTTPResponse(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("version: i64 = 11,\n");
     try self.emitIndent();
-    try self.emit("headers: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(allocator),\n");
+    try self.emit("headers: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
     try self.emitIndent();
     try self.emit("pub fn read(self: *@This(), amt: ?usize) []const u8 { _ = self; _ = amt; return \"\"; }\n");
     try self.emitIndent();
@@ -204,7 +204,7 @@ pub fn genBaseHTTPRequestHandler(self: *NativeCodegen, args: []ast.Node) Codegen
     try self.emitIndent();
     try self.emit("request_version: []const u8 = \"HTTP/1.1\",\n");
     try self.emitIndent();
-    try self.emit("headers: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(allocator),\n");
+    try self.emit("headers: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
     try self.emitIndent();
     try self.emit("rfile: ?*anyopaque = null,\n");
     try self.emitIndent();
@@ -240,7 +240,7 @@ pub fn genSimpleHTTPRequestHandler(self: *NativeCodegen, args: []ast.Node) Codeg
     try self.emitIndent();
     try self.emit("directory: []const u8 = \".\",\n");
     try self.emitIndent();
-    try self.emit("extensions_map: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(allocator),\n");
+    try self.emit("extensions_map: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
     try self.emitIndent();
     try self.emit("pub fn do_GET(self: *@This()) void { _ = self; }\n");
     try self.emitIndent();
@@ -284,7 +284,7 @@ pub fn genSimpleCookie(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("cookies: hashmap_helper.StringHashMap(Morsel) = hashmap_helper.StringHashMap(Morsel).init(allocator),\n");
+    try self.emit("cookies: hashmap_helper.StringHashMap(Morsel) = hashmap_helper.StringHashMap(Morsel).init(__global_allocator),\n");
     try self.emitIndent();
     try self.emit("pub const Morsel = struct {\n");
     self.indent();
@@ -334,7 +334,7 @@ pub fn genBaseCookie(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("cookies: hashmap_helper.StringHashMap(anyopaque) = hashmap_helper.StringHashMap(anyopaque).init(allocator),\n");
+    try self.emit("cookies: hashmap_helper.StringHashMap(anyopaque) = hashmap_helper.StringHashMap(anyopaque).init(__global_allocator),\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");

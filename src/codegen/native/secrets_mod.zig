@@ -4,13 +4,30 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+/// Generate secrets.DEFAULT_ENTROPY constant (32 bytes)
+pub fn genDefaultEntropy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("@as(i64, 32)");
+}
+
+/// Check if argument is None constant
+fn isNoneArg(arg: ast.Node) bool {
+    if (arg == .constant) {
+        if (arg.constant.value == .none) return true;
+    }
+    if (arg == .name) {
+        if (std.mem.eql(u8, arg.name.id, "None")) return true;
+    }
+    return false;
+}
+
 /// Generate secrets.token_bytes(nbytes=32) -> bytes
 pub fn genTokenBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("secrets_token_bytes_blk: {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const _nbytes: usize = ");
-    if (args.len > 0) {
+    if (args.len > 0 and !isNoneArg(args[0])) {
         try self.emit("@intCast(");
         try self.genExpr(args[0]);
         try self.emit(")");
@@ -19,7 +36,7 @@ pub fn genTokenBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _buf = __global_allocator.alloc(u8, _nbytes) catch break :secrets_token_bytes_blk \"\";\n");
+    try self.emit("const _buf = __global_allocator.alloc(u8, _nbytes) catch break :secrets_token_bytes_blk \"\";\n");
     try self.emitIndent();
     try self.emit("std.crypto.random.bytes(_buf);\n");
     try self.emitIndent();
@@ -35,7 +52,7 @@ pub fn genTokenHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     self.indent();
     try self.emitIndent();
     try self.emit("const _nbytes: usize = ");
-    if (args.len > 0) {
+    if (args.len > 0 and !isNoneArg(args[0])) {
         try self.emit("@intCast(");
         try self.genExpr(args[0]);
         try self.emit(")");
@@ -44,11 +61,11 @@ pub fn genTokenHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _buf = __global_allocator.alloc(u8, _nbytes) catch break :secrets_token_hex_blk \"\";\n");
+    try self.emit("const _buf = __global_allocator.alloc(u8, _nbytes) catch break :secrets_token_hex_blk \"\";\n");
     try self.emitIndent();
     try self.emit("std.crypto.random.bytes(_buf);\n");
     try self.emitIndent();
-    try self.emit("var _hex = __global_allocator.alloc(u8, _nbytes * 2) catch break :secrets_token_hex_blk \"\";\n");
+    try self.emit("const _hex = __global_allocator.alloc(u8, _nbytes * 2) catch break :secrets_token_hex_blk \"\";\n");
     try self.emitIndent();
     try self.emit("const _hex_chars = \"0123456789abcdef\";\n");
     try self.emitIndent();
@@ -74,7 +91,7 @@ pub fn genTokenUrlsafe(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     self.indent();
     try self.emitIndent();
     try self.emit("const _nbytes: usize = ");
-    if (args.len > 0) {
+    if (args.len > 0 and !isNoneArg(args[0])) {
         try self.emit("@intCast(");
         try self.genExpr(args[0]);
         try self.emit(")");
@@ -83,7 +100,7 @@ pub fn genTokenUrlsafe(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     }
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _buf = __global_allocator.alloc(u8, _nbytes) catch break :secrets_token_urlsafe_blk \"\";\n");
+    try self.emit("const _buf = __global_allocator.alloc(u8, _nbytes) catch break :secrets_token_urlsafe_blk \"\";\n");
     try self.emitIndent();
     try self.emit("std.crypto.random.bytes(_buf);\n");
     try self.emitIndent();
@@ -92,7 +109,7 @@ pub fn genTokenUrlsafe(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("const _out_len = ((_nbytes * 4) + 2) / 3;\n");
     try self.emitIndent();
-    try self.emit("var _result = __global_allocator.alloc(u8, _out_len) catch break :secrets_token_urlsafe_blk \"\";\n");
+    try self.emit("const _result = __global_allocator.alloc(u8, _out_len) catch break :secrets_token_urlsafe_blk \"\";\n");
     try self.emitIndent();
     try self.emit("var _i: usize = 0;\n");
     try self.emitIndent();
@@ -198,21 +215,21 @@ pub fn genCompareDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emit("secrets_compare_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _a = ");
+    try self.emit("const __cmp_left = ");
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("const _b = ");
+    try self.emit("const __cmp_right = ");
     try self.genExpr(args[1]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("if (_a.len != _b.len) break :secrets_compare_blk false;\n");
+    try self.emit("if (__cmp_left.len != __cmp_right.len) break :secrets_compare_blk false;\n");
     try self.emitIndent();
-    try self.emit("var _result: u8 = 0;\n");
+    try self.emit("var __cmp_result: u8 = 0;\n");
     try self.emitIndent();
-    try self.emit("for (_a, _b) |a, b| _result |= a ^ b;\n");
+    try self.emit("for (__cmp_left, __cmp_right) |__cmp_ca, __cmp_cb| __cmp_result |= __cmp_ca ^ __cmp_cb;\n");
     try self.emitIndent();
-    try self.emit("break :secrets_compare_blk _result == 0;\n");
+    try self.emit("break :secrets_compare_blk __cmp_result == 0;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
