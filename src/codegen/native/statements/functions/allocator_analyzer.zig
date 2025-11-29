@@ -455,6 +455,72 @@ const AllocatorConstructors = std.StaticStringMap(void).initComptime(.{
     .{ "BytesIO", {} },
 });
 
+/// Module functions that are inline codegen and DON'T need allocator
+/// These module.function() calls generate inline code, not function calls
+const InlineModuleFunctions = std.StaticStringMap(void).initComptime(.{
+    // binascii module - generates inline std.hash/std.fmt code
+    .{ "hexlify", {} },
+    .{ "unhexlify", {} },
+    .{ "b2a_hex", {} },
+    .{ "a2b_hex", {} },
+    .{ "crc32", {} },
+    .{ "crc_hqx", {} },
+    // math module - generates inline std.math code
+    .{ "sqrt", {} },
+    .{ "sin", {} },
+    .{ "cos", {} },
+    .{ "tan", {} },
+    .{ "log", {} },
+    .{ "log10", {} },
+    .{ "log2", {} },
+    .{ "exp", {} },
+    .{ "pow", {} },
+    .{ "ceil", {} },
+    .{ "floor", {} },
+    .{ "trunc", {} },
+    .{ "fabs", {} },
+    .{ "isnan", {} },
+    .{ "isinf", {} },
+    .{ "isfinite", {} },
+    .{ "radians", {} },
+    .{ "degrees", {} },
+    // operator module - generates inline operators
+    .{ "add", {} },
+    .{ "sub", {} },
+    .{ "mul", {} },
+    .{ "truediv", {} },
+    .{ "floordiv", {} },
+    .{ "mod", {} },
+    .{ "neg", {} },
+    .{ "pos", {} },
+    .{ "abs", {} },
+    .{ "eq", {} },
+    .{ "ne", {} },
+    .{ "lt", {} },
+    .{ "le", {} },
+    .{ "gt", {} },
+    .{ "ge", {} },
+    .{ "not_", {} },
+    .{ "and_", {} },
+    .{ "or_", {} },
+    .{ "xor", {} },
+    .{ "lshift", {} },
+    .{ "rshift", {} },
+    .{ "invert", {} },
+    .{ "contains", {} },
+    .{ "indexOf", {} },
+    .{ "countOf", {} },
+    .{ "getitem", {} },
+    .{ "setitem", {} },
+    .{ "delitem", {} },
+    .{ "truth", {} },
+    .{ "is_", {} },
+    .{ "is_not", {} },
+    .{ "concat", {} },
+    .{ "index", {} },
+    .{ "length_hint", {} },
+});
+
 /// Check if a call uses allocator param
 /// func_name is the current function name to detect recursive calls
 fn callUsesAllocatorParam(call: ast.Node.Call, func_name: []const u8) bool {
@@ -668,6 +734,9 @@ fn callNeedsAllocator(call: ast.Node.Call) bool {
     if (call.func.* == .attribute) {
         const method_name = call.func.attribute.attr;
         if (AllocatorMethods.has(method_name)) return true;
+
+        // Skip inline module functions that don't need allocator
+        if (InlineModuleFunctions.has(method_name)) return false;
 
         // Module function call (e.g., test_utils.double(x))
         // Codegen passes allocator to imported module functions
