@@ -112,7 +112,7 @@ pub fn dot(a_obj: *PyObject, b_obj: *PyObject, _: std.mem.Allocator) !f64 {
 /// Works for both numeric arrays and boolean arrays (counts true values)
 pub fn sum(arr_obj: *PyObject, _: std.mem.Allocator) !f64 {
     // Check if this is a boolean array
-    if (arr_obj.type_id == .bool_array) {
+    if (arr_obj.ob_type == &runtime.PyBoolArray_Type) {
         const bool_arr = try numpy_array_mod.extractBoolArray(arr_obj);
         return @floatFromInt(bool_arr.countTrue());
     }

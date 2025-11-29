@@ -160,8 +160,8 @@ fn numpy_std_impl(arr: []const f64) f64 {
 ///
 /// ```zig
 /// pub fn numpy_sum(arr_obj: *PyObject, allocator: Allocator) !*PyObject {
-///     // Type checking (5-10 lines)
-///     if (arr_obj.type_id != .numpy_array) return error.TypeError;
+///     // Type checking - CPython-compatible (ob_type comparison)
+///     if (!runtime.Py_IS_TYPE(arr_obj, &runtime.PyNumpyArray_Type)) return error.TypeError;
 ///
 ///     // Extract array (5-10 lines)
 ///     const arr = try runtime.numpy_array.extractArray(arr_obj);

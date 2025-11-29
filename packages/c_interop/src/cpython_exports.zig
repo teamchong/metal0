@@ -86,14 +86,26 @@ const PyList = struct {
         const py_list = @as(*runtime.PyObject, @ptrCast(@alignCast(list_obj)));
         const py_item = @as(*runtime.PyObject, @ptrCast(@alignCast(item)));
 
-        // Check type
-        if (py_list.type_id != .list) return -1;
+        // Check type using CPython-compatible ob_type comparison
+        if (!runtime.Py_IS_TYPE(py_list, &runtime.PyList_Type)) return -1;
 
-        // Get list
-        const list = @as(*runtime.PyList, @ptrCast(@alignCast(py_list.data)));
+        // Cast to PyListObject to access list data
+        const list_obj_typed: *runtime.PyListObject = @ptrCast(@alignCast(py_list));
+        const size: usize = @intCast(list_obj_typed.ob_base.ob_size);
 
-        // Append item
-        try list.items.append(list.items.allocator, py_item);
+        // Check if we need to grow the array
+        if (size >= @as(usize, @intCast(list_obj_typed.allocated))) {
+            // In a real implementation, we'd reallocate here
+            // For now, return error if full
+            return -1;
+        }
+
+        // Append item and increment size
+        list_obj_typed.ob_item[size] = py_item;
+        list_obj_typed.ob_base.ob_size += 1;
+
+        // Incref the item since we're keeping a reference
+        runtime.Py_INCREF(py_item);
 
         return 0; // Success
     }

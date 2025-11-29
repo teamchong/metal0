@@ -84,37 +84,37 @@ pub fn MarshalPyToC(comptime py_type: PyType, comptime c_type: type) type {
 
             return switch (py_type) {
                 .int => {
-                    // Extract PyInt → i64/i32
-                    if (py_obj.type_id != .int) return error.TypeError;
-                    const py_int = @as(*PyInt, @ptrCast(@alignCast(py_obj.data)));
+                    // Extract PyLongObject → i64/i32 (CPython-compatible)
+                    if (!runtime_impl.PyLong_Check(py_obj)) return error.TypeError;
+                    const long_obj: *runtime_impl.PyLongObject = @ptrCast(@alignCast(py_obj));
 
                     // Handle different target types
                     if (c_type == i64) {
-                        return py_int.value;
+                        return long_obj.ob_digit;
                     } else if (c_type == i32) {
-                        return @intCast(py_int.value);
+                        return @intCast(long_obj.ob_digit);
                     } else if (c_type == c_int) {
-                        return @intCast(py_int.value);
+                        return @intCast(long_obj.ob_digit);
                     } else {
                         @compileError("Unsupported integer type: " ++ @typeName(c_type));
                     }
                 },
                 .float => {
-                    // Extract PyFloat → f64
-                    if (py_obj.type_id != .float) return error.TypeError;
-                    const py_float = @as(*PyFloat, @ptrCast(@alignCast(py_obj.data)));
+                    // Extract PyFloatObject → f64 (CPython-compatible)
+                    if (!runtime_impl.PyFloat_Check(py_obj)) return error.TypeError;
+                    const float_obj: *runtime_impl.PyFloatObject = @ptrCast(@alignCast(py_obj));
 
                     if (c_type == f64) {
-                        return py_float.value;
+                        return float_obj.ob_fval;
                     } else if (c_type == f32) {
-                        return @floatCast(py_float.value);
+                        return @floatCast(float_obj.ob_fval);
                     } else {
                         @compileError("Unsupported float type: " ++ @typeName(c_type));
                     }
                 },
                 .numpy_array => {
-                    // Extract NumpyArray → []f64
-                    if (py_obj.type_id != .numpy_array) return error.TypeError;
+                    // Extract NumpyArray → []f64 (CPython-compatible)
+                    if (!runtime_impl.Py_IS_TYPE(py_obj, &runtime_impl.PyNumpyArray_Type)) return error.TypeError;
                     const arr = try runtime_impl.numpy_array.extractArray(py_obj);
 
                     if (c_type == []f64 or c_type == []const f64) {
@@ -126,10 +126,11 @@ pub fn MarshalPyToC(comptime py_type: PyType, comptime c_type: type) type {
                     }
                 },
                 .string => {
-                    // Extract PyString → []const u8
-                    if (py_obj.type_id != .string) return error.TypeError;
-                    const py_str = @as(*PyString, @ptrCast(@alignCast(py_obj.data)));
-                    return py_str.data;
+                    // Extract PyUnicodeObject → []const u8 (CPython-compatible)
+                    if (!runtime_impl.PyUnicode_Check(py_obj)) return error.TypeError;
+                    const str_obj: *runtime_impl.PyUnicodeObject = @ptrCast(@alignCast(py_obj));
+                    const len: usize = @intCast(str_obj.length);
+                    return str_obj.data[0..len];
                 },
                 .pyobject => {
                     // Pass through PyObject* unchanged
@@ -188,16 +189,10 @@ pub fn MarshalCToPy(comptime py_type: PyType, comptime c_type: type) type {
                     }
                 },
                 .void => {
-                    // Return None
+                    // Return None singleton (CPython-compatible)
                     _ = c_value; // Ignore void value
-                    // TODO: Implement PyNone singleton
-                    const none_obj = try allocator.create(PyObject);
-                    none_obj.* = .{
-                        .ref_count = 1,
-                        .type_id = .none,
-                        .data = undefined, // None has no data
-                    };
-                    return none_obj;
+                    _ = allocator; // Not needed for singleton
+                    return runtime_impl.Py_None;
                 },
                 .pyobject => {
                     // Pass through PyObject* unchanged
@@ -329,19 +324,19 @@ test "marshal f64 to PyFloat" {
     // Wrap using comptime marshaler
     const Wrapper = MarshalCToPy(.float, f64);
     const py_obj = try Wrapper.wrap(123.456, allocator);
-    defer allocator.destroy(py_obj);
+    defer allocator.destroy(@as(*runtime_impl.PyFloatObject, @ptrCast(@alignCast(py_obj))));
 
-    // Verify
-    try std.testing.expectEqual(PyObject.TypeId.float, py_obj.type_id);
-    const py_float = @as(*PyFloat, @ptrCast(@alignCast(py_obj.data)));
-    try std.testing.expectEqual(@as(f64, 123.456), py_float.value);
+    // Verify using CPython-compatible type check
+    try std.testing.expect(runtime_impl.PyFloat_Check(py_obj));
+    const py_float: *runtime_impl.PyFloatObject = @ptrCast(@alignCast(py_obj));
+    try std.testing.expectEqual(@as(f64, 123.456), py_float.ob_fval);
 }
 
 test "marshal PyInt to i64" {
     const allocator = std.testing.allocator;
 
     const py_int = try PyInt.create(allocator, 99);
-    defer allocator.destroy(py_int);
+    defer allocator.destroy(@as(*runtime_impl.PyLongObject, @ptrCast(@alignCast(py_int))));
 
     const Marshaler = MarshalPyToC(.int, i64);
     const c_value = try Marshaler.extract(py_int, allocator);
