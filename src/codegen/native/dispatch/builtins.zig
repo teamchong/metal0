@@ -162,6 +162,29 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         return true;
     }
 
+    // Special handling for int() with keyword args (base=...)
+    if (std.mem.eql(u8, func_name, "int") and call.keyword_args.len > 0) {
+        // Convert keyword args to positional: int('101', base=X) -> int('101', X)
+        var combined_args = std.ArrayList(ast.Node){};
+        defer combined_args.deinit(self.allocator);
+
+        // Add positional args first
+        for (call.args) |arg| {
+            try combined_args.append(self.allocator, arg);
+        }
+
+        // Find and add 'base' keyword arg as second positional
+        for (call.keyword_args) |kwarg| {
+            if (std.mem.eql(u8, kwarg.name, "base")) {
+                try combined_args.append(self.allocator, kwarg.value);
+                break;
+            }
+        }
+
+        try builtins.genInt(self, combined_args.items);
+        return true;
+    }
+
     // O(1) lookup for all standard builtins
     if (BuiltinMap.get(func_name)) |handler| {
         try handler(self, call.args);

@@ -76,9 +76,11 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 // Python's NotImplemented singleton - used by binary operations
                 try self.emit("runtime.NotImplemented");
             } else if (isPythonExceptionType(name_to_use)) {
-                // Python exception types - reference from runtime
-                try self.emit("runtime.");
+                // Python exception types - emit as integer enum value for storage in lists/tuples
+                // E.g., ValueError -> @intFromEnum(runtime.ExceptionTypeId.ValueError)
+                try self.emit("@intFromEnum(runtime.ExceptionTypeId.");
                 try self.emit(name_to_use);
+                try self.emit(")");
             } else if (std.mem.eql(u8, name_to_use, "object")) {
                 try self.emit("*runtime.PyObject");
             } else if (isBuiltinFunction(name_to_use)) {

@@ -310,6 +310,14 @@ pub fn visitStmt(
                         else => .unknown,
                     };
                     try var_types.put(target_name, elem_type);
+                } else if (for_stmt.iter.* == .list and for_stmt.iter.list.elts.len > 0) {
+                    // Iterating over list literal: for sign in ["", "+", "-"]
+                    const elem_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.list.elts[0]);
+                    try var_types.put(target_name, elem_type);
+                } else if (for_stmt.iter.* == .tuple and for_stmt.iter.tuple.elts.len > 0) {
+                    // Iterating over tuple literal: for sign in "", "+", "-"
+                    const elem_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.tuple.elts[0]);
+                    try var_types.put(target_name, elem_type);
                 }
             }
 

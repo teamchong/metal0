@@ -1,6 +1,7 @@
 /// Function and class definition code generation
 const std = @import("std");
 const ast = @import("ast");
+const hashmap_helper = @import("hashmap_helper");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const DecoratedFunction = @import("../../main.zig").DecoratedFunction;
 const CodegenError = @import("../../main.zig").CodegenError;
@@ -320,6 +321,20 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     self.class_nesting_depth += 1;
     defer self.class_nesting_depth -= 1;
 
+    // Save func_local_uses before entering nested class methods
+    // This is needed because nested class methods will call analyzeFunctionLocalUses
+    // which clears the map - we need to restore it after generating the class
+    // to correctly determine if the class itself is used in the enclosing scope
+    var saved_func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer saved_func_local_uses.deinit();
+    if (self.class_nesting_depth > 1) {
+        // Copy current func_local_uses
+        var it = self.func_local_uses.iterator();
+        while (it.next()) |entry| {
+            try saved_func_local_uses.put(entry.key_ptr.*, {});
+        }
+    }
+
     // If we're entering a class while inside a method with 'self',
     // increment method_nesting_depth so nested class methods use __self
     const bump_method_depth = self.inside_method_with_self;
@@ -417,6 +432,17 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Generate regular methods (non-__init__)
     try body.genClassMethods(self, class, captured_vars);
 
+    // Restore func_local_uses from saved state (for nested classes)
+    // This is critical: nested class methods call analyzeFunctionLocalUses which clears
+    // the map. We need to restore the parent scope's uses so isVarUnused() works correctly.
+    if (self.class_nesting_depth > 1) {
+        self.func_local_uses.clearRetainingCapacity();
+        var restore_it = saved_func_local_uses.iterator();
+        while (restore_it.next()) |entry| {
+            try self.func_local_uses.put(entry.key_ptr.*, {});
+        }
+    }
+
     // Inherit parent methods that aren't overridden
     if (parent_class) |parent| {
         try body.genInheritedMethods(self, class, parent, child_method_names.items);
@@ -425,11 +451,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
-    // For nested classes (inside functions), suppress unused warning
-    // This is needed because codegen may simplify away class instantiations
-    // (e.g., int('101', base=MyIndexable(2)) -> int('101', 2))
+    // For nested classes (inside functions), suppress unused warning only if truly unused
     // Note: class_nesting_depth > 1 means we're inside a method/function
-    // Only emit discard if the class is truly unused (checked via local uses tracking)
     if (self.class_nesting_depth > 1 and self.isVarUnused(class.name)) {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("_ = {s};\n", .{class.name});
