@@ -254,6 +254,14 @@ pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) Codegen
     // Push new scope for method body
     try self.pushScope();
 
+    // Declare method parameters in the scope (skip 'self')
+    // This prevents variable shadowing when reassigning parameters
+    for (method.args) |arg| {
+        if (!std.mem.eql(u8, arg.name, "self")) {
+            try self.declareVar(arg.name);
+        }
+    }
+
     // Generate method body
     for (method.body) |method_stmt| {
         try self.generateStmt(method_stmt);

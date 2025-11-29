@@ -24,6 +24,7 @@ pub const genTuple = conversions.genTuple;
 pub const genDict = conversions.genDict;
 pub const genSet = conversions.genSet;
 pub const genFrozenset = conversions.genFrozenset;
+pub const genObject = conversions.genObject;
 
 // Dynamic execution
 pub const genEval = eval_exec.genEval;
