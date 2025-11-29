@@ -530,6 +530,7 @@ pub const requests = @import("requests.zig");
 pub const eval_module = @import("eval.zig");
 pub const exec_module = @import("exec.zig");
 pub const gzip = @import("gzip/gzip.zig");
+pub const zlib = @import("zlib.zig");
 pub const hashlib = @import("hashlib.zig");
 pub const pickle = @import("pickle.zig");
 pub const test_support = @import("test_support.zig");

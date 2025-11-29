@@ -3,6 +3,70 @@ const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
+const hashmap_helper = @import("hashmap_helper");
+
+/// Generate expression with variable substitutions for comprehensions
+fn genExprWithSubs(
+    self: *NativeCodegen,
+    expr: ast.Node,
+    subs: *const hashmap_helper.StringHashMap([]const u8),
+) CodegenError!void {
+    switch (expr) {
+        .name => |n| {
+            // Check if this name should be substituted
+            if (subs.get(n.id)) |sub_name| {
+                try self.emit(sub_name);
+            } else {
+                try self.emit(n.id);
+            }
+        },
+        .binop => |b| {
+            try self.emit("(");
+            try genExprWithSubs(self, b.left.*, subs);
+            const op_str = switch (b.op) {
+                .Add => " + ",
+                .Sub => " - ",
+                .Mult => " * ",
+                .Div => " / ",
+                .Mod => " % ",
+                .Pow => " ** ",
+                .BitAnd => " & ",
+                .BitOr => " | ",
+                .BitXor => " ^ ",
+                .LShift => " << ",
+                .RShift => " >> ",
+                .FloorDiv => " / ",
+                else => " ? ",
+            };
+            try self.emit(op_str);
+            try genExprWithSubs(self, b.right.*, subs);
+            try self.emit(")");
+        },
+        .constant => |c| {
+            switch (c.value) {
+                .int => |i| try self.output.writer(self.allocator).print("{d}", .{i}),
+                .float => |f| try self.output.writer(self.allocator).print("{d}", .{f}),
+                .string => |s| {
+                    try self.emit("\"");
+                    try self.emit(s);
+                    try self.emit("\"");
+                },
+                .bool => |b| try self.emit(if (b) "true" else "false"),
+                .none => try self.emit("null"),
+            }
+        },
+        .call => {
+            // Fallback to regular genExpr for complex expressions
+            const parent = @import("../expressions.zig");
+            try parent.genExpr(self, expr);
+        },
+        else => {
+            // For other expressions, fallback to regular genExpr
+            const parent = @import("../expressions.zig");
+            try parent.genExpr(self, expr);
+        },
+    }
+}
 
 /// Generate list comprehension: [x * 2 for x in range(5)]
 /// Generates as imperative loop that builds ArrayList
@@ -10,6 +74,13 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     // Forward declare genExpr - it's in parent module
     const parent = @import("../expressions.zig");
     const genExpr = parent.genExpr;
+
+    // Generate unique ID for this comprehension to avoid variable shadowing
+    const comp_id = self.output.items.len;
+
+    // Build variable substitution map for this comprehension
+    var subs = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
+    defer subs.deinit();
 
     // Generate: blk: { ... }
     try self.emit("blk: {\n");
@@ -27,8 +98,13 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
 
         if (is_range) {
             // Generate range loop as while loop
-            const var_name = gen.target.name.id;
+            // Use unique mangled name to avoid shadowing outer variables
+            const orig_var_name = gen.target.name.id;
             const args = gen.iter.call.args;
+
+            // Create mangled name and add to substitution map
+            const mangled_name = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ orig_var_name, comp_id });
+            try subs.put(orig_var_name, mangled_name);
 
             // Parse range arguments
             var start_val: i64 = 0;
@@ -50,31 +126,34 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                 }
             }
 
-            // Generate: var <var_name>: i64 = <start>;
+            // Generate: var __comp_<orig>_<id>: i64 = <start>;
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ var_name, start_val });
+            try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ mangled_name, start_val });
 
-            // Generate: while (<var_name> < <stop>) {
+            // Generate: while (__comp_<orig>_<id> < <stop>) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ var_name, stop_val });
+            try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ mangled_name, stop_val });
             self.indent();
 
-            // Defer increment: defer <var_name> += <step>;
+            // Defer increment: defer __comp_<orig>_<id> += <step>;
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ var_name, step_val });
+            try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ mangled_name, step_val });
         } else {
-            // Regular iteration - check if source is constant array or ArrayList
-            const is_const_array_var = blk: {
+            // Regular iteration - check if source is constant array, ArrayList, or anytype param
+            const is_direct_iterable = blk: {
                 if (gen.iter.* == .name) {
                     const var_name = gen.iter.name.id;
-                    break :blk self.isArrayVar(var_name);
+                    // Const array variables can be iterated directly
+                    if (self.isArrayVar(var_name)) break :blk true;
+                    // anytype parameters should also be iterated directly (no .items)
+                    if (self.anytype_params.contains(var_name)) break :blk true;
                 }
                 break :blk false;
             };
 
             try self.emitIndent();
-            if (is_const_array_var) {
-                // Constant array variable - iterate directly
+            if (is_direct_iterable) {
+                // Constant array variable or anytype param - iterate directly
                 try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
                 try genExpr(self, gen.iter.*);
                 try self.emit(";\n");
@@ -124,7 +203,7 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         for (gen.ifs) |if_cond| {
             try self.emitIndent();
             try self.emit("if (");
-            try genExpr(self, if_cond);
+            try genExprWithSubs(self, if_cond, &subs);
             try self.emit(") {\n");
             self.indent();
         }
@@ -133,7 +212,7 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     // Generate: try __comp_result.append(allocator, <elt_expr>);
     try self.emitIndent();
     try self.emit("try __comp_result.append(allocator, ");
-    try genExpr(self, listcomp.elt.*);
+    try genExprWithSubs(self, listcomp.elt.*, &subs);
     try self.emit(");\n");
 
     // Close all if conditions and for loops
@@ -225,18 +304,21 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
             try self.emitIndent();
             try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ var_name, step_val });
         } else {
-            // Regular iteration - check if source is constant array or ArrayList
-            const is_const_array_var = blk: {
+            // Regular iteration - check if source is constant array, ArrayList, or anytype param
+            const is_direct_iterable = blk: {
                 if (gen.iter.* == .name) {
                     const var_name = gen.iter.name.id;
-                    break :blk self.isArrayVar(var_name);
+                    // Const array variables can be iterated directly
+                    if (self.isArrayVar(var_name)) break :blk true;
+                    // anytype parameters should also be iterated directly (no .items)
+                    if (self.anytype_params.contains(var_name)) break :blk true;
                 }
                 break :blk false;
             };
 
             try self.emitIndent();
-            if (is_const_array_var) {
-                // Constant array variable - iterate directly
+            if (is_direct_iterable) {
+                // Constant array variable or anytype param - iterate directly
                 try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
                 try genExpr(self, gen.iter.*);
                 try self.emit(";\n");

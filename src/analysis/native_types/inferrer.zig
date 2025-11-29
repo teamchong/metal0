@@ -224,6 +224,12 @@ pub const TypeInferrer = struct {
             try self.var_types.put(arg.name, param_type);
         }
 
+        // Visit function body to register local variables BEFORE inferring return types
+        // This ensures variables like `result` in `return result` are known
+        for (func_def.body) |body_stmt| {
+            try self.visitStmt(body_stmt);
+        }
+
         // Process nested functions in the body (they can now access outer parameters)
         for (func_def.body) |body_stmt| {
             if (body_stmt == .function_def) {

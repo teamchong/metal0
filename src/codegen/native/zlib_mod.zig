@@ -14,7 +14,7 @@ pub fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("try zlib.compress(");
         try self.genExpr(args[0]);
-        try self.emit(", __global_allocator)");
+        try self.emit(", allocator)");
     } else {
         try self.emit("\"\"");
     }
@@ -26,7 +26,7 @@ pub fn genDecompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("try zlib.decompressAuto(");
         try self.genExpr(args[0]);
-        try self.emit(", __global_allocator)");
+        try self.emit(", allocator)");
     } else {
         try self.emit("\"\"");
     }

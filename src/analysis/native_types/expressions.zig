@@ -203,7 +203,19 @@ pub fn inferExpr(
                     }
                 }
 
-                // Heuristic: Check all known classes for a field with this name
+                // First, check if this variable is a known class instance
+                // This ensures we look up the correct class's field type
+                if (var_types.get(module_name)) |var_type| {
+                    if (var_type == .class_instance) {
+                        if (class_fields.get(var_type.class_instance)) |class_info| {
+                            if (class_info.fields.get(a.attr)) |field_type| {
+                                break :blk field_type;
+                            }
+                        }
+                    }
+                }
+
+                // Heuristic fallback: Check all known classes for a field with this name
                 // This works when field names are unique across classes
                 var class_it = class_fields.iterator();
                 while (class_it.next()) |class_entry| {

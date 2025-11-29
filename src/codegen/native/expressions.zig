@@ -61,8 +61,8 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 try self.emit("runtime.builtins.");
                 try self.emit(name_to_use);
             } else {
-                // Escape Zig reserved keywords (e.g., "false" -> @"false")
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name_to_use);
+                // Use writeLocalVarName to handle keywords AND method shadowing
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
             }
         },
         .fstring => |f| try genFString(self, f),

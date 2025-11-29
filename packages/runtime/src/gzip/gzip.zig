@@ -1,6 +1,5 @@
 // metal0 gzip module implementation
 // Implements Python's gzip.compress() and gzip.decompress() functions
-//
 // Uses libdeflate for high-performance gzip compression/decompression
 
 const std = @import("std");
@@ -32,132 +31,72 @@ pub fn compress(allocator: Allocator, data: []const u8) ![]u8 {
     }
 
     // Resize to actual compressed size
-    return allocator.realloc(compressed, actual_size);
-}
-
-/// Parse gzip header and return offset to deflate stream
-fn parseGzipHeader(data: []const u8) !usize {
-    // Validate minimum gzip header size (10 bytes)
-    if (data.len < 10) {
-        return error.EndOfStream;
-    }
-
-    // Validate gzip magic bytes (0x1f 0x8b)
-    if (data[0] != 0x1f or data[1] != 0x8b) {
-        return error.BadGzipHeader;
-    }
-
-    // Validate compression method (must be 0x08 for deflate)
-    if (data[2] != 0x08) {
-        return error.BadGzipHeader;
-    }
-
-    const flags = data[3];
-    var offset: usize = 10; // Skip fixed header
-
-    // Skip extra field if present
-    if (flags & 0x04 != 0) {
-        if (offset + 2 > data.len) return error.EndOfStream;
-        const xlen = @as(usize, data[offset]) | (@as(usize, data[offset + 1]) << 8);
-        offset += 2 + xlen;
-    }
-
-    // Skip original filename if present
-    if (flags & 0x08 != 0) {
-        while (offset < data.len and data[offset] != 0) : (offset += 1) {}
-        offset += 1; // Skip null terminator
-    }
-
-    // Skip comment if present
-    if (flags & 0x10 != 0) {
-        while (offset < data.len and data[offset] != 0) : (offset += 1) {}
-        offset += 1; // Skip null terminator
-    }
-
-    // Skip header CRC if present
-    if (flags & 0x02 != 0) {
-        offset += 2;
-    }
-
-    if (offset >= data.len) return error.EndOfStream;
-    return offset;
+    return allocator.realloc(compressed, actual_size) catch compressed[0..actual_size];
 }
 
 /// Decompress gzip-compressed data
 /// Caller owns returned memory and must free it with allocator.free()
 pub fn decompress(allocator: Allocator, data: []const u8) ![]u8 {
-    // Parse gzip header
-    const header_size = try parseGzipHeader(data);
-
-    // Validate we have at least footer (8 bytes)
-    if (data.len < header_size + 8) {
-        return error.EndOfStream;
-    }
-
-    // Extract deflate stream (excluding 8-byte footer)
-    const deflate_data = data[header_size .. data.len - 8];
-
     const decompressor = c.libdeflate_alloc_decompressor() orelse return error.OutOfMemory;
     defer c.libdeflate_free_decompressor(decompressor);
 
-    // Try increasing buffer sizes until decompression succeeds
-    var output_size: usize = data.len * 3;
-    while (output_size < data.len * 1024) : (output_size *= 2) {
-        const output = try allocator.alloc(u8, output_size);
-        defer allocator.free(output); // Always free on loop iteration
+    // Start with a reasonable buffer size
+    var output_size: usize = data.len * 4;
+    if (output_size < 1024) output_size = 1024;
 
-        var actual_size: usize = undefined;
-        const result = c.libdeflate_deflate_decompress(
+    var output = try allocator.alloc(u8, output_size);
+    errdefer allocator.free(output);
+
+    // Try to decompress, grow buffer if needed
+    while (true) {
+        var actual_out_size: usize = 0;
+        const result = c.libdeflate_gzip_decompress(
             decompressor,
-            deflate_data.ptr,
-            deflate_data.len,
+            data.ptr,
+            data.len,
             output.ptr,
             output.len,
-            &actual_size,
+            &actual_out_size,
         );
 
         switch (result) {
             c.LIBDEFLATE_SUCCESS => {
-                // Read CRC32 and size from footer (last 8 bytes, little-endian)
-                const footer_offset = data.len - 8;
-                const expected_crc = @as(u32, data[footer_offset]) |
-                    (@as(u32, data[footer_offset + 1]) << 8) |
-                    (@as(u32, data[footer_offset + 2]) << 16) |
-                    (@as(u32, data[footer_offset + 3]) << 24);
-
-                const expected_size = @as(u32, data[footer_offset + 4]) |
-                    (@as(u32, data[footer_offset + 5]) << 8) |
-                    (@as(u32, data[footer_offset + 6]) << 16) |
-                    (@as(u32, data[footer_offset + 7]) << 24);
-
-                // Compute CRC32 of decompressed data
-                const actual_crc = c.libdeflate_crc32(0, output.ptr, actual_size);
-                const actual_size_mod = @as(u32, @truncate(actual_size));
-
-                // Check CRC32 first (as Python does)
-                if (actual_crc != expected_crc) {
-                    return error.WrongGzipChecksum;
-                }
-
-                // Check size
-                if (actual_size_mod != expected_size) {
-                    return error.WrongGzipSize;
-                }
-
-                // Success - duplicate output before defer frees it
-                return allocator.dupe(u8, output[0..actual_size]);
+                return allocator.realloc(output, actual_out_size) catch output[0..actual_out_size];
             },
-            c.LIBDEFLATE_BAD_DATA => {
-                return error.BadGzipHeader;
-            },
-            c.LIBDEFLATE_SHORT_OUTPUT, c.LIBDEFLATE_INSUFFICIENT_SPACE => {
-                continue; // Try larger buffer
+            c.LIBDEFLATE_INSUFFICIENT_SPACE => {
+                output_size *= 2;
+                output = try allocator.realloc(output, output_size);
             },
             else => {
-                return error.DecompressionFailed;
+                allocator.free(output);
+                return error.DecompressionError;
             },
         }
     }
+}
 
-    return error.OutputBufferTooSmall;
+test "gzip compress and decompress" {
+    const alloc = std.testing.allocator;
+    const data = "hello world hello world hello world";
+
+    const compressed = try compress(alloc, data);
+    defer alloc.free(compressed);
+
+    const decompressed = try decompress(alloc, compressed);
+    defer alloc.free(decompressed);
+
+    try std.testing.expectEqualStrings(data, decompressed);
+}
+
+test "gzip empty data" {
+    const alloc = std.testing.allocator;
+    const data = "";
+
+    const compressed = try compress(alloc, data);
+    defer alloc.free(compressed);
+
+    const decompressed = try decompress(alloc, compressed);
+    defer alloc.free(decompressed);
+
+    try std.testing.expectEqualStrings(data, decompressed);
 }

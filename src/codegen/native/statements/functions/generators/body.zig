@@ -9,6 +9,7 @@ const param_analyzer = @import("../param_analyzer.zig");
 const allocator_analyzer = @import("../allocator_analyzer.zig");
 const signature = @import("signature.zig");
 const hashmap_helper = @import("hashmap_helper");
+const zig_keywords = @import("zig_keywords");
 
 // Re-export from submodules
 const class_fields = @import("body/class_fields.zig");
@@ -256,10 +257,22 @@ pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) Codegen
     // Push new scope for method body
     try self.pushScope();
 
+    // Track parameters that were renamed to avoid method shadowing (e.g., init -> init_arg)
+    // We'll restore these when exiting the method
+    var renamed_params = std.ArrayList([]const u8){};
+    defer renamed_params.deinit(self.allocator);
+
     // Declare method parameters in the scope (skip 'self')
     // This prevents variable shadowing when reassigning parameters
     for (method.args) |arg| {
         if (!std.mem.eql(u8, arg.name, "self")) {
+            // Check if this param would shadow a method name and needs renaming
+            if (zig_keywords.wouldShadowMethod(arg.name)) {
+                // Add rename mapping: original -> renamed
+                const renamed = try std.fmt.allocPrint(self.allocator, "{s}_arg", .{arg.name});
+                try self.var_renames.put(arg.name, renamed);
+                try renamed_params.append(self.allocator, arg.name);
+            }
             try self.declareVar(arg.name);
         }
     }
@@ -267,6 +280,13 @@ pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) Codegen
     // Generate method body
     for (method.body) |method_stmt| {
         try self.generateStmt(method_stmt);
+    }
+
+    // Remove parameter renames when exiting method scope
+    for (renamed_params.items) |param_name| {
+        if (self.var_renames.fetchSwapRemove(param_name)) |entry| {
+            self.allocator.free(entry.value);
+        }
     }
 
     // Pop scope when exiting method

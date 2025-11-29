@@ -294,8 +294,8 @@ pub const Connection = struct {
     }
 
     /// Create a cursor
-    pub fn cursor(self: *Connection) Cursor {
-        return Cursor.init(self, self.allocator);
+    pub fn cursor(self: *const Connection) Cursor {
+        return Cursor.init(@constCast(self), self.allocator);
     }
 
     /// Execute SQL directly (convenience method)

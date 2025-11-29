@@ -49,6 +49,21 @@ pub const is_wasi: bool = @import("builtin").os.tag == .wasi;
 /// Whether running on Apple mobile
 pub const is_apple_mobile: bool = @import("builtin").os.tag == .ios;
 
+/// Whether running on s390x architecture
+pub const is_s390x: bool = @import("builtin").cpu.arch == .s390x;
+
+/// Whether running on ARM
+pub const is_arm: bool = @import("builtin").cpu.arch == .arm or @import("builtin").cpu.arch == .aarch64;
+
+/// Whether running on x86_64
+pub const is_x86_64: bool = @import("builtin").cpu.arch == .x86_64;
+
+/// Whether running on 32-bit platform
+pub const is_32bit: bool = @import("builtin").cpu.arch.ptrBitWidth() == 32;
+
+/// Whether running on 64-bit platform
+pub const is_64bit: bool = @import("builtin").cpu.arch.ptrBitWidth() == 64;
+
 /// Debug build flag
 pub const Py_DEBUG: bool = @import("builtin").mode == .Debug;
 
@@ -304,6 +319,28 @@ pub const os_helper = struct {
 
 /// import_helper submodule
 pub const import_helper = struct {
+    /// Import a module by name - returns the module reference
+    /// For compiled modules, this is a no-op that returns a type reference
+    pub fn import_module(comptime module_name: []const u8) type {
+        // Return the appropriate module based on name
+        // This is resolved at compile time
+        if (std.mem.eql(u8, module_name, "zlib")) {
+            return @import("zlib.zig");
+        } else if (std.mem.eql(u8, module_name, "gzip")) {
+            return @import("gzip/gzip.zig");
+        } else if (std.mem.eql(u8, module_name, "hashlib")) {
+            return @import("hashlib.zig");
+        } else if (std.mem.eql(u8, module_name, "json")) {
+            return @import("json.zig");
+        } else if (std.mem.eql(u8, module_name, "re")) {
+            return @import("re.zig");
+        } else if (std.mem.eql(u8, module_name, "math")) {
+            return @import("math.zig");
+        } else {
+            @compileError("Unknown module: " ++ module_name);
+        }
+    }
+
     /// Import a fresh module (no caching)
     pub fn import_fresh_module(_: std.mem.Allocator, _: []const u8) !void {
         // No-op - we don't have dynamic imports
