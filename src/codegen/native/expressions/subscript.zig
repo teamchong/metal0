@@ -83,10 +83,12 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
     const base_is_block = producesBlockExpression(subscript.value.*);
 
     if (base_is_block) {
-        // Wrap the entire subscript in a block
-        try self.emit("blk: { const __base = ");
+        // Wrap the entire subscript in a block with unique label
+        const label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emit(try std.fmt.allocPrint(self.allocator, "sub_{d}: {{ const __base = ", .{label_id}));
         try genExpr(self, subscript.value.*);
-        try self.emit("; break :blk ");
+        try self.emit(try std.fmt.allocPrint(self.allocator, "; break :sub_{d} ", .{label_id}));
 
         switch (subscript.slice) {
             .index => {
@@ -306,15 +308,19 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     const needs_cast = (index_type == .int);
 
                     if (isNegativeConstant(subscript.slice.index.*)) {
-                        try self.emit("blk: { const __list = ");
+                        const label_id = self.block_label_counter;
+                        self.block_label_counter += 1;
+                        try self.emitFmt("idx_{d}: {{ const __list = ", .{label_id});
                         try genExpr(self, subscript.value.*);
                         try self.emit("; const __idx = ");
                         try genSliceIndex(self, subscript.slice.index.*, true, false);
                         // No bounds check for arrays (Zig provides safety in debug mode)
-                        try self.emit("; break :blk __list[__idx]; }");
+                        try self.emitFmt("; break :idx_{d} __list[__idx]; }}", .{label_id});
                     } else {
                         // Runtime bounds check for positive index (skip for parameters)
-                        try self.emit("blk: { const __list = ");
+                        const label_id = self.block_label_counter;
+                        self.block_label_counter += 1;
+                        try self.emitFmt("idx_{d}: {{ const __list = ", .{label_id});
                         try genExpr(self, subscript.value.*);
                         try self.emit("; const __idx = ");
                         if (needs_cast) {
@@ -325,15 +331,17 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                             try self.emit("))");
                         }
                         // No bounds check for arrays (Zig provides safety in debug mode)
-                        try self.emit("; break :blk __list[__idx]; }");
+                        try self.emitFmt("; break :idx_{d} __list[__idx]; }}", .{label_id});
                     }
                 } else {
                     // ArrayList indexing - use .items with runtime bounds check
                     const needs_cast = (index_type == .int);
 
-                    // Generate: blk: { const __s = list; const __idx = idx; if (__idx >= __s.items.len) return error.IndexError; break :blk __s.items[__idx]; }
+                    // Generate: idx_N: { const __s = list; const __idx = idx; if (__idx >= __s.items.len) return error.IndexError; break :idx_N __s.items[__idx]; }
                     // Note: We use __s to be consistent with genSliceIndex which expects __s variable name
-                    try self.emit("blk: { const __s = ");
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.emitFmt("idx_{d}: {{ const __s = ", .{label_id});
                     try genExpr(self, subscript.value.*);
                     try self.emit("; const __idx = ");
                     if (needs_cast) {
@@ -348,7 +356,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     if (needs_cast) {
                         try self.emit("))");
                     }
-                    try self.emit("; if (__idx >= __s.items.len) return error.IndexError; break :blk __s.items[__idx]; }");
+                    try self.emitFmt("; if (__idx >= __s.items.len) return error.IndexError; break :idx_{d} __s.items[__idx]; }}", .{label_id});
                 }
             } else {
                 // Array/slice/string indexing: a[b]
@@ -360,18 +368,22 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // Generate: s[idx..idx+1] to return []const u8 slice
                     if (isNegativeConstant(subscript.slice.index.*)) {
                         // Negative index: s[-1..-1+1] = s[-1..0] doesn't work
-                        // Need: blk: { const __s = s; const idx = __s.len - 1; break :blk __s[idx..idx+1]; }
-                        try self.emit("blk: { const __s = ");
+                        // Need: str_N: { const __s = s; const idx = __s.len - 1; break :str_N __s[idx..idx+1]; }
+                        const label_id = self.block_label_counter;
+                        self.block_label_counter += 1;
+                        try self.emitFmt("str_{d}: {{ const __s = ", .{label_id});
                         try genExpr(self, subscript.value.*);
                         try self.emit("; const __idx = ");
                         try genSliceIndex(self, subscript.slice.index.*, true, false);
-                        try self.emit("; break :blk __s[__idx..__idx+1]; }");
+                        try self.emitFmt("; break :str_{d} __s[__idx..__idx+1]; }}", .{label_id});
                     } else {
                         // Positive index: generate idx..idx+1
                         // Need @intCast since Python uses i64 but Zig slicing requires usize
-                        try self.emit("blk: { const __idx = @as(usize, @intCast(");
+                        const label_id = self.block_label_counter;
+                        self.block_label_counter += 1;
+                        try self.emitFmt("str_{d}: {{ const __idx = @as(usize, @intCast(", .{label_id});
                         try genExpr(self, subscript.slice.index.*);
-                        try self.emit(")); break :blk ");
+                        try self.emitFmt(")); break :str_{d} ", .{label_id});
                         try genExpr(self, subscript.value.*);
                         try self.emit("[__idx..__idx+1]; }");
                     }
@@ -379,9 +391,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // Array/slice (not string): use direct indexing
                     if (isNegativeConstant(subscript.slice.index.*)) {
                         // Need block to access .len
-                        try self.emit("blk: { const __s = ");
+                        const label_id = self.block_label_counter;
+                        self.block_label_counter += 1;
+                        try self.emitFmt("arr_{d}: {{ const __s = ", .{label_id});
                         try genExpr(self, subscript.value.*);
-                        try self.emit("; break :blk __s[");
+                        try self.emitFmt("; break :arr_{d} __s[", .{label_id});
                         try genSliceIndex(self, subscript.slice.index.*, true, false);
                         try self.emit("]; }");
                     } else {
@@ -398,7 +412,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
                         if (is_arraylist) {
                             // ArrayList: use .items with runtime bounds check
-                            try self.emit("blk: { const __arr = ");
+                            const label_id = self.block_label_counter;
+                            self.block_label_counter += 1;
+                            try self.emitFmt("arr_{d}: {{ const __arr = ", .{label_id});
                             try genExpr(self, subscript.value.*);
                             try self.emit("; const __idx = ");
                             if (needs_cast) {
@@ -408,7 +424,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                             if (needs_cast) {
                                 try self.emit("))");
                             }
-                            try self.emit("; if (__idx >= __arr.items.len) return error.IndexError; break :blk __arr.items[__idx]; }");
+                            try self.emitFmt("; if (__idx >= __arr.items.len) return error.IndexError; break :arr_{d} __arr.items[__idx]; }}", .{label_id});
                         } else {
                             // Array/slice: direct indexing (Zig provides safety in debug mode)
                             try genExpr(self, subscript.value.*);
@@ -467,7 +483,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 // With step: use slice with step calculation
                 if (value_type == .string) {
                     // String slicing with step (supports negative step for reverse iteration)
-                    try self.emit("blk: { const __s = ");
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
                     try genExpr(self, subscript.value.*);
                     try self.emit("; const __step: i64 = ");
                     try genExpr(self, slice_range.step.?.*);
@@ -491,13 +509,15 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.emit("if (__step > 0) @as(i64, @intCast(__s.len)) else -1");
                     }
 
-                    try self.emit("; var __result = std.ArrayList(u8){}; if (__step > 0) { var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) { try __result.append(allocator, __s[__i]); } } else if (__step < 0) { var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) { try __result.append(allocator, __s[@intCast(__i)]); } } break :blk try __result.toOwnedSlice(allocator); }");
+                    try self.emitFmt("; var __result = std.ArrayList(u8){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(allocator, __s[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(allocator, __s[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(allocator); }}", .{label_id});
                 } else if (value_type == .list) {
                     // List slicing with step (supports negative step for reverse iteration)
                     // Get element type to generate proper ArrayList
                     const elem_type = value_type.list.*;
 
-                    try self.emit("blk: { const __s = ");
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
                     try genExpr(self, subscript.value.*);
                     try self.emit("; const __step: i64 = ");
                     try genExpr(self, slice_range.step.?.*);
@@ -526,7 +546,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // Generate element type
                     try elem_type.toZigType(self.allocator, &self.output);
 
-                    try self.emit("){}; if (__step > 0) { var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) { try __result.append(allocator, __s.items[__i]); } } else if (__step < 0) { var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) { try __result.append(allocator, __s.items[@intCast(__i)]); } } break :blk try __result.toOwnedSlice(allocator); }");
+                    try self.emitFmt("){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(allocator, __s.items[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(allocator, __s.items[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(allocator); }}", .{label_id});
                 } else {
                     // Unknown type - generate error
                     try self.emit("@compileError(\"Slicing with step requires string or list type\")");
@@ -535,7 +555,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 // Need length for upper bound - use block expression with bounds checking
                 const is_list = (value_type == .list);
 
-                try self.emit("blk: { const __s = ");
+                const label_id = self.block_label_counter;
+                self.block_label_counter += 1;
+                try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
                 try genExpr(self, subscript.value.*);
                 try self.emit("; const __start = @min(");
 
@@ -546,27 +568,29 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 }
 
                 if (is_list) {
-                    try self.emit(", __s.items.len); break :blk if (__start <= __s.items.len) __s.items[__start..__s.items.len] else &[_]i64{}; }");
+                    try self.emitFmt(", __s.items.len); break :slice_{d} if (__start <= __s.items.len) __s.items[__start..__s.items.len] else &[_]i64{{}}; }}", .{label_id});
                 } else {
-                    try self.emit(", __s.len); break :blk if (__start <= __s.len) __s[__start..__s.len] else \"\"; }");
+                    try self.emitFmt(", __s.len); break :slice_{d} if (__start <= __s.len) __s[__start..__s.len] else \"\"; }}", .{label_id});
                 }
             } else {
                 // Simple slice with both bounds known - need to check for negative indices
                 const is_list = (value_type == .list);
 
-                const has_negative = blk: {
+                const has_negative = check_neg: {
                     if (slice_range.lower) |lower| {
-                        if (isNegativeConstant(lower.*)) break :blk true;
+                        if (isNegativeConstant(lower.*)) break :check_neg true;
                     }
                     if (slice_range.upper) |upper| {
-                        if (isNegativeConstant(upper.*)) break :blk true;
+                        if (isNegativeConstant(upper.*)) break :check_neg true;
                     }
-                    break :blk false;
+                    break :check_neg false;
                 };
 
                 if (has_negative) {
                     // Need block expression to handle negative indices with bounds checking
-                    try self.emit("blk: { const __s = ");
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
                     try genExpr(self, subscript.value.*);
 
                     if (is_list) {
@@ -582,7 +606,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         } else {
                             try self.emit("__s.items.len");
                         }
-                        try self.emit(", __s.items.len); break :blk if (__start < __end) __s.items[__start..__end] else &[_]i64{}; }");
+                        try self.emitFmt(", __s.items.len); break :slice_{d} if (__start < __end) __s.items[__start..__end] else &[_]i64{{}}; }}", .{label_id});
                     } else {
                         try self.emit("; const __start = @min(");
                         if (slice_range.lower) |lower| {
@@ -596,12 +620,14 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         } else {
                             try self.emit("__s.len");
                         }
-                        try self.emit(", __s.len); break :blk if (__start < __end) __s[__start..__end] else \"\"; }");
+                        try self.emitFmt(", __s.len); break :slice_{d} if (__start < __end) __s[__start..__end] else \"\"; }}", .{label_id});
                     }
                 } else {
                     // No negative indices - but still need bounds checking for Python semantics
                     // Python allows out-of-bounds slices, Zig doesn't
-                    try self.emit("blk: { const __s = ");
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
                     try genExpr(self, subscript.value.*);
 
                     if (is_list) {
@@ -613,7 +639,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         }
                         try self.emit(", __s.items.len); const __end = @min(");
                         try genExpr(self, slice_range.upper.?.*);
-                        try self.emit(", __s.items.len); break :blk if (__start < __end) __s.items[__start..__end] else &[_]i64{}; }");
+                        try self.emitFmt(", __s.items.len); break :slice_{d} if (__start < __end) __s.items[__start..__end] else &[_]i64{{}}; }}", .{label_id});
                     } else {
                         try self.emit("; const __start = @min(");
                         if (slice_range.lower) |lower| {
@@ -623,7 +649,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         }
                         try self.emit(", __s.len); const __end = @min(");
                         try genExpr(self, slice_range.upper.?.*);
-                        try self.emit(", __s.len); break :blk if (__start < __end) __s[__start..__end] else \"\"; }");
+                        try self.emitFmt(", __s.len); break :slice_{d} if (__start < __end) __s[__start..__end] else \"\"; }}", .{label_id});
                     }
                 }
             }

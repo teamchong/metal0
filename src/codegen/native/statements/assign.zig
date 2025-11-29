@@ -645,10 +645,33 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
     // If we added "_ = " prefix, it's an assignment that always needs semicolon
     if (!added_discard_prefix and generated.len > 0 and generated[generated.len - 1] == '}') {
-        // Check for labeled blocks (blk: { ... } or contains :blk)
-        if (std.mem.indexOf(u8, generated, "blk: {") != null or
-            std.mem.indexOf(u8, generated, ":blk ") != null)
-        {
+        // Check for labeled blocks (e.g., "blk: {", "sub_0: {", "slice_1: {", "comp_2: {")
+        // Pattern: identifier followed by colon and space then brace
+        const is_labeled_block = blk: {
+            // Check for common label patterns
+            if (std.mem.indexOf(u8, generated, "blk: {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "sub_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "slice_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "comp_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "dict_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "gen_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "idx_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "str_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "arr_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            // Generic check: look for pattern like "word_N: {" at the start
+            if (generated.len >= 6) {
+                // Check if starts with a label pattern (letters/underscore followed by digits, then ": {")
+                var i: usize = 0;
+                while (i < generated.len and (std.ascii.isAlphabetic(generated[i]) or generated[i] == '_')) : (i += 1) {}
+                while (i < generated.len and std.ascii.isDigit(generated[i])) : (i += 1) {}
+                if (i > 0 and i + 3 < generated.len and std.mem.eql(u8, generated[i .. i + 3], ": {")) {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        };
+
+        if (is_labeled_block) {
             needs_semicolon = false;
         }
         // Check for anonymous statement blocks - starts with "{ " (not "Type{")

@@ -9,7 +9,7 @@ pub fn genHexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("blk: { const data = ");
         try self.genExpr(args[0]);
-        try self.emit("; break :blk std.fmt.bytesToHex(data, .lower); }");
+        try self.emit("; const arr = std.fmt.bytesToHex(data, .lower); break :blk @as([]const u8, &arr); }");
     } else {
         try self.emit("\"\"");
     }
