@@ -19,7 +19,9 @@ pub const genClassFieldsNoDict = class_fields.genClassFieldsNoDict;
 pub const inferParamType = class_fields.inferParamType;
 
 pub const genDefaultInitMethod = class_methods.genDefaultInitMethod;
+pub const genDefaultInitMethodWithBuiltinBase = class_methods.genDefaultInitMethodWithBuiltinBase;
 pub const genInitMethod = class_methods.genInitMethod;
+pub const genInitMethodWithBuiltinBase = class_methods.genInitMethodWithBuiltinBase;
 pub const genClassMethods = class_methods.genClassMethods;
 pub const genInheritedMethods = class_methods.genInheritedMethods;
 

@@ -8,6 +8,70 @@ const allocator_analyzer = @import("allocator_analyzer.zig");
 const signature = @import("generators/signature.zig");
 const body = @import("generators/body.zig");
 
+/// Builtin types that can be inherited from
+pub const BuiltinBaseInfo = struct {
+    zig_type: []const u8,
+    zig_init: []const u8, // Zig code to initialize the base value
+    init_args: []const InitArg, // Arguments for the init function
+
+    pub const InitArg = struct {
+        name: []const u8,
+        zig_type: []const u8,
+        default: ?[]const u8 = null,
+    };
+};
+
+/// Get builtin base info if the class inherits from a builtin type
+pub fn getBuiltinBaseInfo(base_name: []const u8) ?BuiltinBaseInfo {
+    const builtin_bases = std.StaticStringMap(BuiltinBaseInfo).initComptime(.{
+        .{ "complex", BuiltinBaseInfo{
+            .zig_type = "runtime.PyComplex",
+            .zig_init = "runtime.PyComplex.create(real, imag)",
+            .init_args = &.{
+                .{ .name = "real", .zig_type = "f64", .default = "0.0" },
+                .{ .name = "imag", .zig_type = "f64", .default = "0.0" },
+            },
+        } },
+        .{ "int", BuiltinBaseInfo{
+            .zig_type = "i64",
+            .zig_init = "value",
+            .init_args = &.{
+                .{ .name = "value", .zig_type = "i64", .default = "0" },
+            },
+        } },
+        .{ "float", BuiltinBaseInfo{
+            .zig_type = "f64",
+            .zig_init = "value",
+            .init_args = &.{
+                .{ .name = "value", .zig_type = "f64", .default = "0.0" },
+            },
+        } },
+        .{ "str", BuiltinBaseInfo{
+            .zig_type = "[]const u8",
+            .zig_init = "value",
+            .init_args = &.{
+                .{ .name = "value", .zig_type = "[]const u8", .default = "\"\"" },
+            },
+        } },
+        .{ "bool", BuiltinBaseInfo{
+            .zig_type = "bool",
+            .zig_init = "value",
+            .init_args = &.{
+                .{ .name = "value", .zig_type = "bool", .default = "false" },
+            },
+        } },
+        .{ "bytes", BuiltinBaseInfo{
+            .zig_type = "[]const u8",
+            .zig_init = "value",
+            .init_args = &.{
+                .{ .name = "value", .zig_type = "[]const u8", .default = "\"\"" },
+            },
+        } },
+    });
+
+    return builtin_bases.get(base_name);
+}
+
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
     // Skip entire functions that reference skipped modules to avoid undeclared variable errors.
@@ -117,10 +181,16 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Check for base classes - we support single inheritance
     var parent_class: ?ast.Node.ClassDef = null;
     var is_unittest_class = false;
+    var builtin_base: ?BuiltinBaseInfo = null;
     if (class.bases.len > 0) {
+        // First check if it's a builtin base type
+        builtin_base = getBuiltinBaseInfo(class.bases[0]);
+
         // Look up parent class in registry (populated in Phase 2 of generate())
         // Order doesn't matter - all classes are registered before code generation
-        parent_class = self.class_registry.getClass(class.bases[0]);
+        if (builtin_base == null) {
+            parent_class = self.class_registry.getClass(class.bases[0]);
+        }
 
         // Check if this class inherits from unittest.TestCase
         if (std.mem.eql(u8, class.bases[0], "unittest.TestCase")) {
@@ -176,6 +246,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{class.name});
     self.indent();
 
+    // For builtin base classes, add the base value field first
+    if (builtin_base) |base_info| {
+        try self.emitIndent();
+        try self.emit("// Base value inherited from builtin type\n");
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("__base_value__: {s},\n", .{base_info.zig_type});
+    }
+
     // Extract fields from __init__ body (self.x = ...)
     if (init_method) |init| {
         try body.genClassFields(self, class.name, init);
@@ -190,10 +268,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     // Generate init() method from __init__, or default init if no __init__
     if (init_method) |init| {
-        try body.genInitMethod(self, class.name, init);
+        try body.genInitMethodWithBuiltinBase(self, class.name, init, builtin_base);
     } else {
         // No __init__ defined, generate default init method
-        try body.genDefaultInitMethod(self, class.name);
+        try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base);
     }
 
     // Build list of child method names for override detection

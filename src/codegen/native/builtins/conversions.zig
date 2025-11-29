@@ -178,10 +178,21 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("))");
 }
 
-/// Generate code for str(obj)
+/// Generate code for str(obj) or str(bytes, encoding)
 /// Converts to string representation
 pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
+    if (args.len == 0) {
+        // str() with no args returns empty string
+        try self.emit("\"\"");
+        return;
+    }
+
+    // str(bytes, encoding) - decode bytes to string
+    // In Zig, bytes are already []const u8, so just return the bytes
+    if (args.len >= 2) {
+        // str(bytes, "ascii") or str(bytes, "utf-8") etc.
+        // Just return the bytes as-is since Zig strings are UTF-8
+        try self.genExpr(args[0]);
         return;
     }
 
@@ -328,6 +339,49 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("@floatCast(");
     try self.genExpr(args[0]);
     try self.emit(")");
+}
+
+/// Generate code for bytes(obj) or bytes(str, encoding)
+/// Converts to bytes ([]const u8 in Zig)
+pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        // bytes() with no args returns empty bytes
+        try self.emit("\"\"");
+        return;
+    }
+
+    // bytes(str, encoding) - encode string to bytes
+    // In Zig, strings are already []const u8, so just return the string
+    if (args.len >= 2) {
+        try self.genExpr(args[0]);
+        return;
+    }
+
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // Already a string/bytes - just return it
+    if (arg_type == .string) {
+        try self.genExpr(args[0]);
+        return;
+    }
+
+    // For integers, create bytes of that length filled with zeros
+    if (arg_type == .int) {
+        // bytes(n) creates a bytes object of n null bytes
+        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+        try self.emit("blk: {\n");
+        try self.emitFmt("const _len: usize = @intCast(", .{});
+        try self.genExpr(args[0]);
+        try self.emit(");\n");
+        try self.emitFmt("const _buf = try {s}.alloc(u8, _len);\n", .{alloc_name});
+        try self.emit("@memset(_buf, 0);\n");
+        try self.emit("break :blk _buf;\n");
+        try self.emit("}");
+        return;
+    }
+
+    // For lists/iterables, convert to bytes
+    try self.genExpr(args[0]);
 }
 
 /// Generate code for bool(obj)
