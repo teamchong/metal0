@@ -58,6 +58,50 @@ pub const PyValue = union(enum) {
             .none => false,
         };
     }
+
+    /// Create PyValue from any type
+    pub fn from(value: anytype) PyValue {
+        const T = @TypeOf(value);
+        if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize or T == comptime_int) {
+            return .{ .int = @intCast(value) };
+        } else if (T == f64 or T == f32 or T == comptime_float) {
+            return .{ .float = @floatCast(value) };
+        } else if (T == bool) {
+            return .{ .bool = value };
+        } else if (T == []const u8 or T == []u8) {
+            return .{ .string = value };
+        } else if (@typeInfo(T) == .pointer) {
+            const child = @typeInfo(T).pointer.child;
+            if (child == u8) {
+                return .{ .string = std.mem.span(value) };
+            }
+            return .{ .none = {} };
+        } else {
+            return .{ .none = {} };
+        }
+    }
+
+    /// Convert to string representation
+    pub fn toString(self: PyValue, allocator: std.mem.Allocator) ![]const u8 {
+        return switch (self) {
+            .int => |v| try std.fmt.allocPrint(allocator, "{d}", .{v}),
+            .float => |v| try std.fmt.allocPrint(allocator, "{d}", .{v}),
+            .string => |v| v,
+            .bool => |v| if (v) "True" else "False",
+            .none => "None",
+        };
+    }
+
+    /// Convert to repr representation (with quotes for strings)
+    pub fn toRepr(self: PyValue, allocator: std.mem.Allocator) ![]const u8 {
+        return switch (self) {
+            .int => |v| try std.fmt.allocPrint(allocator, "{d}", .{v}),
+            .float => |v| try std.fmt.allocPrint(allocator, "{d}", .{v}),
+            .string => |v| try std.fmt.allocPrint(allocator, "'{s}'", .{v}),
+            .bool => |v| if (v) "True" else "False",
+            .none => "None",
+        };
+    }
 };
 
 /// Optimized string comparison using comptime SIMD if available

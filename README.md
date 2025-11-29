@@ -2,7 +2,7 @@
 
 **v0.1.0-alpha** - Early development, not production-ready
 
-Python Syntax. Bare Metal Speed. The Infrastructure for the Post-Cloud Era.
+Python Syntax. Bare Metal Speed.
 
 ## Key Features
 

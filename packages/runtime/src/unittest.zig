@@ -53,6 +53,8 @@ pub const assertWarns = assertions_type.assertWarns;
 pub const assertWarnsRegex = assertions_type.assertWarnsRegex;
 pub const assertLogs = assertions_type.assertLogs;
 pub const assertNoLogs = assertions_type.assertNoLogs;
+pub const assertIsSubclass = assertions_type.assertIsSubclass;
+pub const assertNotIsSubclass = assertions_type.assertNotIsSubclass;
 
 // Re-export subtest
 pub const subTest = subtest.subTest;
