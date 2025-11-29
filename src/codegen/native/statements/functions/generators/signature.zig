@@ -430,10 +430,12 @@ pub fn genMethodSignature(
 
     // Add allocator parameter if method needs it
     // Use _ if allocator is needed for return type but not actually used in body
+    // Use __alloc for nested classes to avoid shadowing outer allocator
     if (needs_allocator) {
         const actually_uses = allocator_analyzer.functionActuallyUsesAllocatorParam(method);
+        const alloc_name = if (self.indent_level > 2) "__alloc" else "allocator";
         if (actually_uses) {
-            try self.emit(", allocator: std.mem.Allocator");
+            try self.output.writer(self.allocator).print(", {s}: std.mem.Allocator", .{alloc_name});
         } else {
             try self.emit(", _: std.mem.Allocator");
         }

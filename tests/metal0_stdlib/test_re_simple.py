@@ -54,7 +54,6 @@ class TestReFindall(unittest.TestCase):
         self.assertEqual(result, ['1', '2', '3'])
 
     def test_findall_words(self):
-        # Use [a-z]+ instead of \w+ due to regex engine limitation
         result = re.findall(r'[a-z]+', 'hello world')
         self.assertEqual(len(result), 2)
 

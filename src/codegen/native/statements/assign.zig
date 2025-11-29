@@ -636,6 +636,14 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Check if generated code ends with a block statement (not struct initializers)
     const generated = self.output.items[before_len..];
 
+    // Skip empty expression statements (e.g., void functions that emit just "{}")
+    // These are no-ops that would generate invalid "{};
+    if (std.mem.eql(u8, generated, "{}")) {
+        // Remove the "{}" and the indent we emitted
+        self.output.shrinkRetainingCapacity(before_len - self.indent_level * 4);
+        return;
+    }
+
     // Determine if we need a semicolon:
     // - If we added "_ = " prefix, we ALWAYS need a semicolon (it's an assignment)
     // - Struct initializers like "Type{}" need semicolons

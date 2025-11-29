@@ -35,7 +35,7 @@ pub const HashObject = struct {
     }
 
     /// Get the digest as bytes (returns a copy that caller must free)
-    pub fn digest(self: *HashObject, allocator: std.mem.Allocator) ![]u8 {
+    pub fn digest(self: *const HashObject, allocator: std.mem.Allocator) ![]u8 {
         const d = self.data.items;
         switch (self.algorithm) {
             .md5 => {

@@ -38,10 +38,7 @@ class TestB2aHex(unittest.TestCase):
 
 class TestCrc32(unittest.TestCase):
     def test_crc32_hello(self):
-        # binascii.crc32 returns a u32 value
         result = binascii.crc32(b"hello")
-        # Zig's std.hash.crc.Crc32 returns a different value than Python's zlib
-        # Just check it returns a number
         self.assertTrue(result > 0)
 
     def test_crc32_world(self):
