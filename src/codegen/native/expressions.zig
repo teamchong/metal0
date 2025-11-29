@@ -283,11 +283,15 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
     for (fstring.parts) |part| {
         switch (part) {
             .literal => |lit| {
-                // Escape braces for Zig format strings
+                // Escape braces for Zig format strings and quotes for Zig string literals
                 for (lit) |c| {
                     if (c == '{' or c == '}') {
                         try format_buf.append(self.allocator, c);
                         try format_buf.append(self.allocator, c); // Double to escape
+                    } else if (c == '"') {
+                        try format_buf.appendSlice(self.allocator, "\\\""); // Escape double quotes
+                    } else if (c == '\\') {
+                        try format_buf.appendSlice(self.allocator, "\\\\"); // Escape backslashes
                     } else {
                         try format_buf.append(self.allocator, c);
                     }
