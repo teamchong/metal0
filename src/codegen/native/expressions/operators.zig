@@ -549,18 +549,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     .NotEq => "true",
                     else => "false",
                 };
-                // Reference the non-None variable to mark it as used
-                if (current_left_type != .none) {
-                    // Left is non-None, reference it
-                    try self.emit("(blk: { _ = ");
-                    try genExpr(self, current_left);
-                    try self.emitFmt("; break :blk {s}; }})", .{result});
-                } else {
-                    // Right is non-None, reference it
-                    try self.emit("(blk: { _ = ");
-                    try genExpr(self, compare.comparators[i]);
-                    try self.emitFmt("; break :blk {s}; }})", .{result});
-                }
+                // Just emit the known result - variables may be used elsewhere so no need to reference them
+                try self.emit(result);
             } else {
                 // Both are None - compare normally
                 try genExpr(self, current_left);

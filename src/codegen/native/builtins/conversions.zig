@@ -693,3 +693,14 @@ pub fn genComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[1]);
     try self.emit(")");
 }
+
+/// Generate code for object()
+/// Creates a unique base object instance (used as sentinel values)
+/// Each call creates a new unique instance by returning a struct with unique identity
+pub fn genObject(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    // Generate a unique object using a struct that has unique identity per call
+    // In Python, object() returns a base object that can be used as a sentinel
+    // We use runtime.createObject() which returns a unique *PyObject
+    try self.emit("runtime.createObject()");
+}

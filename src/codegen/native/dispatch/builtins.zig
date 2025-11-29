@@ -5,6 +5,7 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
 const builtins = @import("../builtins.zig");
+const builtins_mod = @import("../builtins_mod.zig");
 const io_mod = @import("../io.zig");
 const collections_mod = @import("../collections_mod.zig");
 const functools_mod = @import("../functools_mod.zig");
@@ -63,6 +64,7 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "issubclass", builtins.genIssubclass },
     .{ "callable", builtins.genCallable },
     .{ "complex", builtins.genComplex },
+    .{ "object", builtins.genObject },
     // Dynamic code execution
     .{ "exec", builtins.genExec },
     .{ "compile", builtins.genCompile },
@@ -75,6 +77,8 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "locals", builtins.genLocals },
     // I/O
     .{ "open", builtins.genOpen },
+    // Other builtins
+    .{ "slice", builtins_mod.genSlice },
     // io module (from io import StringIO, BytesIO)
     .{ "StringIO", io_mod.genStringIO },
     .{ "BytesIO", io_mod.genBytesIO },

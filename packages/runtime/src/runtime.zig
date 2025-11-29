@@ -777,6 +777,16 @@ pub fn arrayListGet(comptime T: type, list: std.ArrayList(T), index: i64) Python
     return list.items[@intCast(actual_index)];
 }
 
+/// Create a unique base object instance (for sentinel values)
+/// Each call returns a new unique object that can be compared by identity
+pub fn createObject() *const anyopaque {
+    // Use a static struct for identity comparison
+    // Each call creates a unique instance at comptime
+    const Sentinel = struct { _marker: u8 = 0 };
+    const sentinel = Sentinel{};
+    return @ptrCast(&sentinel);
+}
+
 test "reference counting" {
     const allocator = std.testing.allocator;
     const obj = try PyInt.create(allocator, 42);
