@@ -463,7 +463,25 @@ pub fn genClassMethods(
 
             // Check if this is a skipped test method (has "skip:" docstring)
             // Use the same getSkipReason function used by the test runner to ensure consistency
-            const is_skipped = generators.getSkipReason(method) != null;
+            const has_skip_docstring = generators.getSkipReason(method) != null;
+
+            // ALSO check if method body references skipped modules (e.g., VALID_UNDERSCORE_LITERALS, _pylong)
+            // These methods should be skipped to avoid undeclared identifier errors
+            const assign_mod = @import("../../../assign.zig");
+            const refs_skipped = assign_mod.functionBodyRefersToSkippedModule(self, method.body);
+
+            // ALSO check if decorators reference skipped modules
+            // e.g., @mock.patch.object(_pylong, ...) or @unittest.skipUnless(_pylong, ...)
+            const decorator_refs_skipped = blk: {
+                for (method.decorators) |dec| {
+                    if (assign_mod.exprRefersToSkippedModule(self, dec)) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+
+            const is_skipped = has_skip_docstring or refs_skipped or decorator_refs_skipped;
 
             const mutates_self = body.methodMutatesSelf(method);
             // Skipped methods don't need allocator since their body is empty

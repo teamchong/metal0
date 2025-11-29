@@ -607,63 +607,56 @@ pub fn parseDel(self: *Parser) ParseError!ast.Node {
     };
 }
 
+/// Context manager info for multi-context with statements
+const ContextManager = struct {
+    expr: ast.Node,
+    var_name: ?[]const u8,
+};
+
 /// Parse with statement: with expr as var: body
 /// Also supports multiple context managers: with ctx1, ctx2 as var: body
 /// Python 3.10+: with (ctx1 as var1, ctx2 as var2):
+/// Multiple context managers are transformed into nested with statements.
 pub fn parseWith(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.With);
 
     // Check for parenthesized context managers (Python 3.10+)
     const has_parens = self.match(.LParen);
 
-    // Parse context expression
-    var context_expr = try self.parseExpression();
-    errdefer context_expr.deinit(self.allocator);
-
-    // Check for optional "as variable" - can be simple name, tuple, or attribute (os.environ)
-    var optional_vars: ?[]const u8 = null;
-    if (self.match(.As)) {
-        if (self.peek()) |tok| {
-            if (tok.type == .Ident) {
-                // Could be simple name or attribute access - parse as expression and extract name
-                const start_pos = self.current;
-                var target = try self.parsePostfix();
-                defer target.deinit(self.allocator);
-                // For simple names, use the name directly; for complex targets, ignore
-                if (target == .name) {
-                    optional_vars = self.tokens[start_pos].lexeme;
-                }
-                // For attribute access like os.environ, we parsed it but don't store the var name
-            } else if (tok.type == .LParen) {
-                // Tuple target: as (a, b)
-                _ = self.advance(); // consume (
-                _ = try self.parseExpression(); // skip tuple
-                _ = try self.expect(.RParen);
-            }
+    // Collect all context managers
+    var contexts = std.ArrayList(ContextManager){};
+    defer {
+        // Free any remaining context expressions on error
+        for (contexts.items) |*ctx| {
+            ctx.expr.deinit(self.allocator);
         }
+        contexts.deinit(self.allocator);
     }
 
-    // Handle multiple context managers: with ctx1, ctx2, ctx3:
-    // For now, just parse and skip additional context managers (use first one)
+    // Parse first context expression
+    const context_expr = try self.parseExpression();
+    var optional_vars: ?[]const u8 = null;
+
+    // Check for optional "as variable"
+    if (self.match(.As)) {
+        optional_vars = try parseAsTarget(self);
+    }
+
+    try contexts.append(self.allocator, .{ .expr = context_expr, .var_name = optional_vars });
+
+    // Handle additional context managers
     while (self.match(.Comma)) {
         // Allow trailing comma in parenthesized form
         if (has_parens and self.check(.RParen)) break;
 
-        var extra_ctx = try self.parseExpression();
-        extra_ctx.deinit(self.allocator); // Discard additional context managers
+        const next_expr = try self.parseExpression();
+        var next_var: ?[]const u8 = null;
+
         if (self.match(.As)) {
-            if (self.peek()) |tok| {
-                if (tok.type == .Ident) {
-                    // Could be simple name or attribute access - parse as expression
-                    var target = try self.parsePostfix();
-                    target.deinit(self.allocator); // Discard
-                } else if (tok.type == .LParen) {
-                    _ = self.advance();
-                    _ = try self.parseExpression();
-                    _ = try self.expect(.RParen);
-                }
-            }
+            next_var = try parseAsTarget(self);
         }
+
+        try contexts.append(self.allocator, .{ .expr = next_expr, .var_name = next_var });
     }
 
     // Close parenthesis for Python 3.10+ syntax
@@ -697,13 +690,65 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
         }
     } else return ParseError.UnexpectedEof;
 
-    return ast.Node{
-        .with_stmt = .{
-            .context_expr = try self.allocNode(context_expr),
-            .optional_vars = optional_vars,
-            .body = body,
-        },
-    };
+    // Build nested with statements from innermost to outermost
+    // with A, B, C: body -> with A: with B: with C: body
+    const ctx_slice = contexts.items;
+    if (ctx_slice.len == 0) return ParseError.UnexpectedToken;
+
+    // Start with innermost (last) context manager containing the actual body
+    var i = ctx_slice.len - 1;
+    var current_body = body;
+
+    while (true) {
+        const ctx = ctx_slice[i];
+        const expr_copy = ctx.expr;
+
+        const with_node = ast.Node{
+            .with_stmt = .{
+                .context_expr = try self.allocNode(expr_copy),
+                .optional_vars = ctx.var_name,
+                .body = current_body,
+            },
+        };
+
+        if (i == 0) {
+            // Clear contexts so defer doesn't double-free (ownership transferred)
+            contexts.clearRetainingCapacity();
+            return with_node;
+        }
+
+        // Wrap in a new body for the outer with
+        const body_slice = try self.allocator.alloc(ast.Node, 1);
+        body_slice[0] = with_node;
+        current_body = body_slice;
+
+        i -= 1;
+    }
+}
+
+/// Parse "as target" part of with statement, returning variable name if simple identifier
+fn parseAsTarget(self: *Parser) ParseError!?[]const u8 {
+    if (self.peek()) |tok| {
+        if (tok.type == .Ident) {
+            // Could be simple name or attribute access - parse as expression and extract name
+            const start_pos = self.current;
+            var target = try self.parsePostfix();
+            defer target.deinit(self.allocator);
+            // For simple names, use the name directly; for complex targets, ignore
+            if (target == .name) {
+                return self.tokens[start_pos].lexeme;
+            }
+            // For attribute access like os.environ, we parsed it but don't store the var name
+            return null;
+        } else if (tok.type == .LParen) {
+            // Tuple target: as (a, b)
+            _ = self.advance(); // consume (
+            _ = try self.parseExpression(); // skip tuple
+            _ = try self.expect(.RParen);
+            return null;
+        }
+    }
+    return null;
 }
 
 /// Parse async statement: async def, async for, async with

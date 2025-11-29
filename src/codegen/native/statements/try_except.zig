@@ -7,6 +7,47 @@ const hashmap_helper = @import("hashmap_helper");
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
+/// Detect try/except import pattern: try: import X except: X = None
+/// Returns the module name if pattern matches and module is unavailable
+fn detectOptionalImportPattern(try_node: ast.Node.Try, codegen: *NativeCodegen) ?[]const u8 {
+    // Check if try body has exactly one import statement
+    if (try_node.body.len != 1) return null;
+    const try_stmt = try_node.body[0];
+    if (try_stmt != .import_stmt) return null;
+    const module_name = try_stmt.import_stmt.module;
+
+    // Check if there's an except handler that assigns the same name to None
+    for (try_node.handlers) |handler| {
+        // Must be ImportError or bare except
+        if (handler.type) |exc_type| {
+            if (!std.mem.eql(u8, exc_type, "ImportError")) continue;
+        }
+        // Check handler body for: X = None
+        for (handler.body) |stmt| {
+            if (stmt == .assign) {
+                if (stmt.assign.targets.len > 0 and stmt.assign.targets[0] == .name) {
+                    const var_name = stmt.assign.targets[0].name.id;
+                    // Check if assigning to the module name and value is None
+                    if (std.mem.eql(u8, var_name, module_name)) {
+                        const is_none = if (stmt.assign.value.* == .constant)
+                            stmt.assign.value.constant.value == .none
+                        else
+                            false;
+                        if (is_none) {
+                            // Pattern matches! Check if module is available
+                            if (codegen.import_registry.lookup(module_name) == null) {
+                                // Module is not in registry - it's unavailable
+                                return module_name;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+
 // Static string maps for DCE optimization
 // Includes Python builtins, modules, and inline stdlib functions
 const BuiltinFuncs = std.StaticStringMap(void).initComptime(.{
@@ -238,21 +279,59 @@ fn findReferencedVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap, allocator: st
 }
 
 pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
-    // First pass: collect variables declared in try block that need hoisting
+    // Detect optional import pattern: try: import X except: X = None
+    // If module X is unavailable, mark it as skipped so functions using it are skipped
+    if (detectOptionalImportPattern(try_node, self)) |unavailable_module| {
+        try self.markSkippedModule(unavailable_module);
+        // Generate simple: const X = null; (module is not available)
+        try self.emitIndent();
+        try self.emit("// Optional import: ");
+        try self.emit(unavailable_module);
+        try self.emit(" not available\n");
+        return; // Skip generating the full try/except structure
+    }
+
+    // First pass: collect variables declared in try block AND except handlers that need hoisting
     // Only hoist variables that aren't already declared in the current scope
     var declared_vars = std.ArrayList([]const u8){};
     defer declared_vars.deinit(self.allocator);
 
+    // Helper to add variable if not already declared
+    const addVarIfNeeded = struct {
+        fn add(list: *std.ArrayList([]const u8), codegen: *NativeCodegen, var_name: []const u8) !void {
+            // Only hoist if not already declared in scope or previously hoisted
+            if (!codegen.isDeclared(var_name) and !codegen.hoisted_vars.contains(var_name)) {
+                // Check if already in list
+                for (list.items) |existing| {
+                    if (std.mem.eql(u8, existing, var_name)) return;
+                }
+                try list.append(codegen.allocator, var_name);
+            }
+        }
+    }.add;
+
+    // Collect from try body
     for (try_node.body) |stmt| {
         if (stmt == .assign) {
-            // Assign has targets (plural) not target
             if (stmt.assign.targets.len > 0) {
                 const target = stmt.assign.targets[0];
                 if (target == .name) {
-                    const var_name = target.name.id;
-                    // Only hoist if not already declared in scope or previously hoisted
-                    if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
-                        try declared_vars.append(self.allocator, var_name);
+                    try addVarIfNeeded(&declared_vars, self, target.name.id);
+                }
+            }
+        }
+    }
+
+    // CRITICAL: Also collect from except handlers!
+    // Pattern: try: import X except: X = None
+    // The X = None is in the except handler, needs hoisting too
+    for (try_node.handlers) |handler| {
+        for (handler.body) |stmt| {
+            if (stmt == .assign) {
+                if (stmt.assign.targets.len > 0) {
+                    const target = stmt.assign.targets[0];
+                    if (target == .name) {
+                        try addVarIfNeeded(&declared_vars, self, target.name.id);
                     }
                 }
             }

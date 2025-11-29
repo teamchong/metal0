@@ -290,7 +290,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // Generic method call: obj.method(args)
             // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
+            // IMPORTANT: Numeric literals need parentheses: 1.__round__() -> (1).__round__()
+            // Otherwise Zig parses "1." as start of a float literal
+            const needs_parens = attr.value.* == .constant and
+                (attr.value.constant.value == .int or attr.value.constant.value == .float);
+            if (needs_parens) try self.emit("(");
             try genExpr(self, attr.value.*);
+            if (needs_parens) try self.emit(")");
             try self.emit(".");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
             try self.emit("(");

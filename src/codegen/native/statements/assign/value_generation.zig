@@ -135,15 +135,24 @@ pub fn emitVarDeclaration(
 
 /// Generate ArrayList initialization from list literal
 pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.Node.List) CodegenError!void {
-    // Determine element type
-    const elem_type = if (list.elts.len > 0)
-        try self.type_inferrer.inferExpr(list.elts[0])
-    else
-        .int; // Default to int for empty lists
+    // Check if variable is already declared (e.g., global variable with type annotation)
+    // If so, use .{} to inherit the declared type instead of creating a new struct type
+    const is_declared = self.isDeclared(var_name) or self.isGlobalVar(var_name);
 
-    try self.emit("std.ArrayList(");
-    try elem_type.toZigType(self.allocator, &self.output);
-    try self.emit("){};\n");
+    if (is_declared) {
+        // Variable already has a type - use .{} to avoid type mismatch with anonymous structs
+        try self.emit(".{};\n");
+    } else {
+        // Determine element type
+        const elem_type = if (list.elts.len > 0)
+            try self.type_inferrer.inferExpr(list.elts[0])
+        else
+            .int; // Default to int for empty lists
+
+        try self.emit("std.ArrayList(");
+        try elem_type.toZigType(self.allocator, &self.output);
+        try self.emit("){};\n");
+    }
 
     // Append elements
     for (list.elts) |elem| {
@@ -152,7 +161,20 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
         const actual_name = self.var_renames.get(var_name) orelse var_name;
         try self.emit(actual_name);
         try self.emit(".append(__global_allocator, ");
-        try self.genExpr(elem);
+
+        // For tuples in pre-declared ArrayLists (with struct element type),
+        // generate named field syntax: .{ .@"0" = val1, .@"1" = val2 }
+        if (is_declared and elem == .tuple) {
+            try self.emit(".{ ");
+            for (elem.tuple.elts, 0..) |tuple_elem, i| {
+                if (i > 0) try self.emit(", ");
+                try self.output.writer(self.allocator).print(".@\"{d}\" = ", .{i});
+                try self.genExpr(tuple_elem);
+            }
+            try self.emit(" }");
+        } else {
+            try self.genExpr(elem);
+        }
         try self.emit(");\n");
     }
 

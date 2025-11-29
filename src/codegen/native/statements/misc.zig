@@ -85,12 +85,49 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
 }
 
 /// Generate from-import statement: from module import names
-/// Import statements are now handled at module level in main.zig
-/// This function is a no-op since imports are collected and generated in PHASE 3
+/// Module-level imports are handled in PHASE 3 of generator.zig
+/// Local imports (inside functions) need to generate const bindings
 pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenError!void {
-    _ = self;
-    _ = import;
-    // No-op: imports are handled at module level, not during statement generation
+    // Only generate for local imports (inside functions)
+    // Module-level imports are handled in PHASE 3
+    if (self.indent_level == 0) return;
+    if (self.mode == .module and self.indent_level == 1) return;
+
+    const module_name = import.module;
+
+    // Look up in registry to get the Zig module path
+    if (self.import_registry.lookup(module_name)) |info| {
+        if (info.zig_import) |zig_import| {
+            // Generate const bindings for each imported name
+            // from random import getrandbits -> const getrandbits = runtime.random.getrandbits;
+            for (import.names, 0..) |name, i| {
+                const alias = if (i < import.asnames.len and import.asnames[i] != null)
+                    import.asnames[i].?
+                else
+                    name;
+
+                try self.emitIndent();
+                try self.emit("const ");
+                try self.emit(alias);
+                try self.emit(" = ");
+                try self.emit(zig_import);
+                try self.emit(".");
+                try self.emit(name);
+                try self.emit(";\n");
+            }
+        } else {
+            // Module uses inline codegen (e.g., random) - track symbols for dispatch
+            // from random import getrandbits -> record "getrandbits" -> "random"
+            for (import.names, 0..) |name, i| {
+                const alias = if (i < import.asnames.len and import.asnames[i] != null)
+                    import.asnames[i].?
+                else
+                    name;
+
+                try self.local_from_imports.put(alias, module_name);
+            }
+        }
+    }
 }
 
 /// Generate global statement
@@ -201,6 +238,69 @@ fn isUnittestContextManager(expr: ast.Node) bool {
     return false;
 }
 
+/// Recursively hoist variables from with statement body
+/// This handles both direct assignments and nested with statements
+/// Uses @TypeOf(init_expr) for comptime type inference instead of guessing
+fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!void {
+    for (body) |stmt| {
+        if (stmt == .assign) {
+            if (stmt.assign.targets.len > 0) {
+                const target = stmt.assign.targets[0];
+                if (target == .name) {
+                    const var_name = target.name.id;
+                    // Use @TypeOf(value_expr) for proper type inference
+                    try hoistVarWithExpr(self, var_name, stmt.assign.value);
+                }
+            }
+        } else if (stmt == .with_stmt) {
+            // Nested with statement - hoist its variable if it has one
+            if (stmt.with_stmt.optional_vars) |var_name| {
+                // For unittest context managers, use ContextManager type
+                if (isUnittestContextManager(stmt.with_stmt.context_expr.*)) {
+                    try hoistVarWithType(self, var_name, "runtime.unittest.ContextManager");
+                } else {
+                    // Use @TypeOf(context_expr) for comptime type inference
+                    try hoistVarWithExpr(self, var_name, stmt.with_stmt.context_expr);
+                }
+            }
+            // Also recursively hoist variables from nested with body
+            try hoistWithBodyVars(self, stmt.with_stmt.body);
+        }
+    }
+}
+
+/// Hoist a variable with @TypeOf(expr) for comptime type inference
+fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *const ast.Node) CodegenError!void {
+    // Only hoist if not already declared in scope or previously hoisted
+    if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+        try self.emitIndent();
+        try self.emit("var ");
+        try self.emit(var_name);
+        try self.emit(": @TypeOf(");
+        try self.genExpr(init_expr.*);
+        try self.emit(") = undefined;\n");
+
+        // Mark as hoisted so assignment generation skips declaration
+        try self.hoisted_vars.put(var_name, {});
+    }
+}
+
+/// Hoist a variable with an explicit type (for special cases like ContextManager)
+fn hoistVarWithType(self: *NativeCodegen, var_name: []const u8, type_name: []const u8) CodegenError!void {
+    // Only hoist if not already declared in scope or previously hoisted
+    if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+        try self.emitIndent();
+        try self.emit("var ");
+        try self.emit(var_name);
+        try self.emit(": ");
+        try self.emit(type_name);
+        try self.emit(" = undefined;\n");
+
+        // Mark as hoisted so assignment generation skips declaration
+        try self.hoisted_vars.put(var_name, {});
+    }
+}
+
 /// Generate with statement (context manager)
 /// with open("file") as f: body => var f = ...; defer f.close(); body
 /// In Python, 'f' is accessible after the with block, so we don't use nested blocks
@@ -230,19 +330,28 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         // If there's a variable name (as cm), declare it as a dummy value
         // Python code might use cm.exception.args[0] after the with block
         if (with_node.optional_vars) |var_name| {
+            // Check if variable was hoisted or already declared (for multiple assertRaises in same scope)
+            const is_hoisted = self.hoisted_vars.contains(var_name);
+            const is_declared = self.isDeclared(var_name);
+            const needs_decl = !is_hoisted and !is_declared;
+
             try self.emitIndent();
-            try self.emit("const ");
+            if (needs_decl) {
+                // Use const for context manager variables (they're read-only)
+                // If multiple with statements use the same name, we rely on hoisting/declaration tracking
+                try self.emit("const ");
+            }
             try self.emit(var_name);
             try self.emit(" = runtime.unittest.ContextManager{};\n");
-            // Only emit discard if variable is truly unused (checked via semantic analysis)
-            // Otherwise we get "pointless discard of local constant" errors
-            if (self.isVarUnused(var_name)) {
-                try self.emitIndent();
-                try self.emit("_ = ");
-                try self.emit(var_name);
-                try self.emit(";\n");
+            // Always discard pointer to suppress unused warning
+            // Using pointer avoids "pointless discard" when variable IS used later
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(var_name);
+            try self.emit(";\n");
+            if (needs_decl) {
+                try self.declareVar(var_name);
             }
-            try self.declareVar(var_name);
         }
 
         // Just generate body without the context manager wrapper
@@ -254,11 +363,13 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 
     // If there's a variable name (as f), declare it at current scope
     if (with_node.optional_vars) |var_name| {
-        // Check if already declared (for nested with or reassignment)
-        const is_first = !self.isDeclared(var_name);
+        // Check if already declared or hoisted (for nested with)
+        const is_declared = self.isDeclared(var_name);
+        const is_hoisted = self.hoisted_vars.contains(var_name);
+        const needs_var = !is_declared and !is_hoisted;
 
         try self.emitIndent();
-        if (is_first) {
+        if (needs_var) {
             try self.emit("var ");
         }
         try self.emit(var_name);
@@ -273,8 +384,8 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         try self.emit(var_name);
         try self.emit(".close();\n");
 
-        // Mark as declared for body
-        if (is_first) {
+        // Mark as declared for body (unless hoisted)
+        if (needs_var) {
             try self.declareVar(var_name);
         }
     } else {
@@ -282,35 +393,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         // First, hoist any variables declared in body (similar to try-except)
         // This is needed because Python allows variables defined inside with blocks
         // to be used after the block ends
-        for (with_node.body) |stmt| {
-            if (stmt == .assign) {
-                if (stmt.assign.targets.len > 0) {
-                    const target = stmt.assign.targets[0];
-                    if (target == .name) {
-                        const var_name = target.name.id;
-                        // Only hoist if not already declared in scope or previously hoisted
-                        if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
-                            // Get the actual type from type inference
-                            const var_type = self.type_inferrer.var_types.get(var_name);
-                            const zig_type = if (var_type) |vt| blk: {
-                                break :blk try self.nativeTypeToZigType(vt);
-                            } else "i64";
-                            defer if (var_type != null) self.allocator.free(zig_type);
-
-                            try self.emitIndent();
-                            try self.emit("var ");
-                            try self.emit(var_name);
-                            try self.emit(": ");
-                            try self.emit(zig_type);
-                            try self.emit(" = undefined;\n");
-
-                            // Mark as hoisted so assignment generation skips declaration
-                            try self.hoisted_vars.put(var_name, {});
-                        }
-                    }
-                }
-            }
-        }
+        try hoistWithBodyVars(self, with_node.body);
 
         try self.emitIndent();
         try self.emit("{\n");

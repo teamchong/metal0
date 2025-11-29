@@ -429,7 +429,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // This is needed because codegen may simplify away class instantiations
     // (e.g., int('101', base=MyIndexable(2)) -> int('101', 2))
     // Note: class_nesting_depth > 1 means we're inside a method/function
-    // Only emit discard if the class is truly unused (checked via semantic analysis)
+    // Only emit discard if the class is truly unused (checked via local uses tracking)
     if (self.class_nesting_depth > 1 and self.isVarUnused(class.name)) {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("_ = {s};\n", .{class.name});

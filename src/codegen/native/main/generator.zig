@@ -217,6 +217,35 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 3.6: Generate from-import symbol re-exports
     try from_imports_gen.generateFromImports(self);
 
+    // PHASE 3.8: Pre-pass to detect optional import patterns (try: import X except: X = None)
+    // This MUST happen before class/function generation so methods using X can be skipped
+    for (module.body) |stmt| {
+        if (stmt == .try_stmt) {
+            // Check if this is an optional import pattern
+            const try_node = stmt.try_stmt;
+            if (try_node.body.len == 1 and try_node.body[0] == .import_stmt) {
+                const mod_name = try_node.body[0].import_stmt.module;
+                // Check if module is not in registry (unavailable)
+                if (self.import_registry.lookup(mod_name) == null) {
+                    // Check if except handler assigns to None
+                    for (try_node.handlers) |handler| {
+                        for (handler.body) |h_stmt| {
+                            if (h_stmt == .assign and h_stmt.assign.targets.len > 0) {
+                                if (h_stmt.assign.targets[0] == .name) {
+                                    const var_name = h_stmt.assign.targets[0].name.id;
+                                    if (std.mem.eql(u8, var_name, mod_name)) {
+                                        // This is an optional import pattern - mark as skipped
+                                        try self.markSkippedModule(mod_name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // PHASE 4: Define __name__ constant (for if __name__ == "__main__" support)
     try self.emit("const __name__ = \"__main__\";\n");
 

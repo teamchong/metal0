@@ -10,58 +10,87 @@ const typeHandling = @import("assign/type_handling.zig");
 const valueGen = @import("assign/value_generation.zig");
 const zig_keywords = @import("zig_keywords");
 
-/// Check if an expression references a skipped module (e.g., pytest.main())
+/// Check if an expression references a skipped module (e.g., pytest.main(), _pylong._spread)
 /// This is used to skip code generation for calls to modules that weren't found
 pub fn exprRefersToSkippedModule(self: *NativeCodegen, expr: ast.Node) bool {
-    // Check calls: pytest.main() or pytest.skip()
-    if (expr == .call) {
-        const func = expr.call.func.*;
-        // Check if func is module.method()
-        if (func == .attribute) {
-            const attr = func.attribute;
-            // Check if base is a name (module name)
-            if (attr.value.* == .name) {
-                const module_name = attr.value.name.id;
-                if (self.isSkippedModule(module_name)) {
-                    return true;
-                }
+    switch (expr) {
+        .name => |n| {
+            // Direct name reference: _pylong
+            return self.isSkippedModule(n.id);
+        },
+        .attribute => |attr| {
+            // Attribute access: _pylong._spread or _pylong.compute_powers
+            // Recursively check the base object
+            return exprRefersToSkippedModule(self, attr.value.*);
+        },
+        .call => |c| {
+            // Check the function being called
+            if (exprRefersToSkippedModule(self, c.func.*)) return true;
+            // Check all arguments
+            for (c.args) |arg| {
+                if (exprRefersToSkippedModule(self, arg)) return true;
             }
-        }
-        // Check if func is a skipped module function directly: pytest()
-        if (func == .name) {
-            const func_name = func.name.id;
-            if (self.isSkippedModule(func_name)) {
-                return true;
+            // Check keyword arguments
+            for (c.keyword_args) |kw| {
+                if (exprRefersToSkippedModule(self, kw.value)) return true;
             }
-            // Also check if it's a skipped user function: run_code()
-            if (self.isSkippedFunction(func_name)) {
-                return true;
+            return false;
+        },
+        .binop => |b| {
+            return exprRefersToSkippedModule(self, b.left.*) or
+                exprRefersToSkippedModule(self, b.right.*);
+        },
+        .compare => |cmp| {
+            if (exprRefersToSkippedModule(self, cmp.left.*)) return true;
+            for (cmp.comparators) |comp| {
+                if (exprRefersToSkippedModule(self, comp)) return true;
             }
-        }
+            return false;
+        },
+        .unaryop => |u| {
+            return exprRefersToSkippedModule(self, u.operand.*);
+        },
+        .subscript => |sub| {
+            if (exprRefersToSkippedModule(self, sub.value.*)) return true;
+            if (sub.slice == .index) {
+                return exprRefersToSkippedModule(self, sub.slice.index.*);
+            }
+            return false;
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                if (exprRefersToSkippedModule(self, elt)) return true;
+            }
+            return false;
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                if (exprRefersToSkippedModule(self, elt)) return true;
+            }
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |key| {
+                if (exprRefersToSkippedModule(self, key)) return true;
+            }
+            for (d.values) |val| {
+                if (exprRefersToSkippedModule(self, val)) return true;
+            }
+            return false;
+        },
+        .if_expr => |ie| {
+            return exprRefersToSkippedModule(self, ie.condition.*) or
+                exprRefersToSkippedModule(self, ie.body.*) or
+                exprRefersToSkippedModule(self, ie.orelse_value.*);
+        },
+        .boolop => |bo| {
+            for (bo.values) |v| {
+                if (exprRefersToSkippedModule(self, v)) return true;
+            }
+            return false;
+        },
+        else => return false,
     }
-    // Check attribute access: pytest.mark.skip
-    if (expr == .attribute) {
-        var current = expr.attribute.value;
-        while (true) {
-            if (current.* == .name) {
-                if (self.isSkippedModule(current.name.id)) {
-                    return true;
-                }
-                break;
-            } else if (current.* == .attribute) {
-                current = current.attribute.value;
-            } else {
-                break;
-            }
-        }
-    }
-    // Check name references: just using pytest as a variable
-    if (expr == .name) {
-        if (self.isSkippedModule(expr.name.id)) {
-            return true;
-        }
-    }
-    return false;
 }
 
 /// Check if a statement references a skipped module

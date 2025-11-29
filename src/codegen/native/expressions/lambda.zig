@@ -46,11 +46,18 @@ const TypeStrToNativeMap = std.StaticStringMap(NativeType).initComptime(.{
 
 /// Generate lambda expression as anonymous function
 /// Strategy: Generate named function at module level, return function pointer
+/// UNLESS the lambda captures nested types (classes defined in enclosing function),
+/// in which case generate an inline struct lambda to keep types in scope.
 ///
-/// Example:
+/// Example (no captures):
 ///   Python: lambda x: x * 2
 ///   Zig:    fn __lambda_0(x: i64) i64 { return x * 2; }
 ///           &__lambda_0
+///
+/// Example (captures nested type):
+///   Python: class Foo: ...; f = lambda x: Foo(x)
+///   Zig:    const Foo = struct { ... };
+///           const f = struct { fn call(x: i64) Foo { return Foo.init(x); } }.call;
 pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!void {
     // Check if this is a closure (lambda returning lambda)
     if (lambda.body.* == .lambda) {
@@ -59,6 +66,13 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
             // If closure generation fails, fall back to regular lambda
             // This can happen if closure support is incomplete
         };
+        return;
+    }
+
+    // Check if lambda references nested classes (types defined in enclosing function)
+    // These CANNOT be hoisted to module level - the type wouldn't be in scope
+    if (referencesNestedClass(self, lambda.body.*)) {
+        try genInlineLambda(self, lambda);
         return;
     }
 
@@ -511,4 +525,144 @@ fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8
         .dict => "hashmap_helper.StringHashMap(i64)", // Simplified
         else => inferred_type.toSimpleZigType(),
     };
+}
+
+/// Check if an AST node references any nested class names
+/// Nested classes are types defined inside the enclosing function - they cannot be
+/// referenced from module-level hoisted lambda functions because the type isn't in scope.
+fn referencesNestedClass(self: *NativeCodegen, node: ast.Node) bool {
+    // Skip if no nested classes are tracked
+    if (self.nested_class_names.count() == 0) return false;
+
+    switch (node) {
+        .name => |n| {
+            // Check if this name is a nested class
+            return self.nested_class_names.contains(n.id);
+        },
+        .call => |c| {
+            // Check function name (e.g., CustomStr(...))
+            if (referencesNestedClass(self, c.func.*)) return true;
+            // Check arguments
+            for (c.args) |arg| {
+                if (referencesNestedClass(self, arg)) return true;
+            }
+            for (c.keyword_args) |kw| {
+                if (referencesNestedClass(self, kw.value)) return true;
+            }
+            return false;
+        },
+        .binop => |b| {
+            return referencesNestedClass(self, b.left.*) or
+                referencesNestedClass(self, b.right.*);
+        },
+        .compare => |cmp| {
+            if (referencesNestedClass(self, cmp.left.*)) return true;
+            for (cmp.comparators) |comp| {
+                if (referencesNestedClass(self, comp)) return true;
+            }
+            return false;
+        },
+        .attribute => |attr| {
+            return referencesNestedClass(self, attr.value.*);
+        },
+        .subscript => |sub| {
+            if (referencesNestedClass(self, sub.value.*)) return true;
+            if (sub.slice == .index) {
+                return referencesNestedClass(self, sub.slice.index.*);
+            }
+            return false;
+        },
+        .if_expr => |ie| {
+            return referencesNestedClass(self, ie.condition.*) or
+                referencesNestedClass(self, ie.body.*) or
+                referencesNestedClass(self, ie.orelse_value.*);
+        },
+        .unaryop => |u| {
+            return referencesNestedClass(self, u.operand.*);
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                if (referencesNestedClass(self, elt)) return true;
+            }
+            return false;
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                if (referencesNestedClass(self, elt)) return true;
+            }
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |key| {
+                if (referencesNestedClass(self, key)) return true;
+            }
+            for (d.values) |val| {
+                if (referencesNestedClass(self, val)) return true;
+            }
+            return false;
+        },
+        .lambda => |lam| {
+            return referencesNestedClass(self, lam.body.*);
+        },
+        .boolop => |bo| {
+            for (bo.values) |v| {
+                if (referencesNestedClass(self, v)) return true;
+            }
+            return false;
+        },
+        else => return false,
+    }
+}
+
+/// Generate an inline struct lambda for lambdas that reference nested types
+/// This keeps the type in scope instead of hoisting to module level.
+///
+/// Python: lambda x: CustomStr(x)
+/// Zig:    (struct { fn call(x: i64) CustomStr { return CustomStr.init(x); } }).call
+fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!void {
+    // Start inline struct
+    try self.emit("(struct { fn call(");
+
+    // First pass: Infer parameter types
+    var param_types = try self.allocator.alloc([]const u8, lambda.args.len);
+    defer self.allocator.free(param_types);
+
+    for (lambda.args, 0..) |arg, i| {
+        param_types[i] = try inferParamType(self, arg.name, lambda.body.*);
+
+        // Register parameter with type inferrer
+        const native_type = stringToNativeType(param_types[i]);
+        try self.type_inferrer.var_types.put(arg.name, native_type);
+    }
+
+    // Generate parameter list
+    for (lambda.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        const is_used = isParamUsedInBody(arg.name, lambda.body.*);
+        if (is_used) {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(": ");
+            try self.emit(param_types[i]);
+        } else {
+            try self.emit("_: ");
+            try self.emit(param_types[i]);
+        }
+    }
+
+    // Return type
+    const return_type = try inferReturnType(self, lambda.body.*);
+    try self.emit(") ");
+    try self.emit(return_type);
+    try self.emit(" { return ");
+
+    // Generate body expression
+    const expressions = @import("../expressions.zig");
+    try expressions.genExpr(self, lambda.body.*);
+
+    try self.emit("; } }).call");
+
+    // Clean up registered parameters
+    for (lambda.args) |arg| {
+        _ = self.type_inferrer.var_types.swapRemove(arg.name);
+    }
 }

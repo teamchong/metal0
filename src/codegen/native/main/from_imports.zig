@@ -33,7 +33,15 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 continue;
             }
         } else {
-            continue; // Module not in registry - skip from-import generation
+            // Module not in registry - mark all imported symbols as skipped
+            // so functions that reference them can be detected and skipped
+            for (from_imp.names) |name| {
+                // Skip import * for now
+                if (!std.mem.eql(u8, name, "*")) {
+                    try self.skipped_modules.put(name, {});
+                }
+            }
+            continue; // Skip from-import generation
         }
 
         // Check if this is a Tier 1 runtime module (functions need allocator)

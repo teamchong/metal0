@@ -121,6 +121,10 @@ pub fn deinit(self: *NativeCodegen) void {
     // Note: Keys are references to AST data, not owned - don't free
     self.func_local_mutations.deinit();
 
+    // Clean up func_local_uses tracking
+    // Note: Keys are references to AST data, not owned - don't free
+    self.func_local_uses.deinit();
+
     // Clean up func_local_vars tracking
     // Note: Keys are references to AST data, not owned - don't free
     self.func_local_vars.deinit();
@@ -157,6 +161,10 @@ pub fn deinit(self: *NativeCodegen) void {
     // Clean up local_var_types tracking
     // Note: Keys are references to AST data or var_name parameters, not owned - don't free
     self.local_var_types.deinit();
+
+    // Clean up local_from_imports tracking
+    // Note: Keys and values are references to AST data, not owned
+    self.local_from_imports.deinit();
 
     self.allocator.destroy(self);
 }

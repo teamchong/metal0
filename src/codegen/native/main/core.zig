@@ -213,6 +213,11 @@ pub const NativeCodegen = struct {
     // Maps variable name -> void for variables that are reassigned within current function
     func_local_mutations: FnvVoidMap,
 
+    // Track function-local used variables (populated before genFunctionBody)
+    // Maps variable name -> void for variables that are read (not just assigned) within current function
+    // Used to prevent false "unused variable" detection for local variables
+    func_local_uses: FnvVoidMap,
+
     // Track variables declared as 'global' in current function scope
     // Maps variable name -> void for variables that reference outer (module) scope
     global_vars: FnvVoidMap,
@@ -284,6 +289,11 @@ pub const NativeCodegen = struct {
     // Cleared when entering a new function scope, used to avoid type shadowing issues
     local_var_types: hashmap_helper.StringHashMap(NativeType),
 
+    // Track local from-imports within function bodies (for inline-codegen modules)
+    // Maps symbol name -> module name (e.g., "getrandbits" -> "random")
+    // Used to route calls like getrandbits(...) to random.getrandbits dispatch
+    local_from_imports: FnvStringMap,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -347,6 +357,7 @@ pub const NativeCodegen = struct {
             .c_libraries = std.ArrayList([]const u8){},
             .comptime_evals = FnvVoidMap.init(allocator),
             .func_local_mutations = FnvVoidMap.init(allocator),
+            .func_local_uses = FnvVoidMap.init(allocator),
             .global_vars = FnvVoidMap.init(allocator),
             .func_local_vars = FnvVoidMap.init(allocator),
             .nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(allocator),
@@ -363,6 +374,7 @@ pub const NativeCodegen = struct {
             .skipped_modules = FnvVoidMap.init(allocator),
             .skipped_functions = FnvVoidMap.init(allocator),
             .local_var_types = hashmap_helper.StringHashMap(NativeType).init(allocator),
+            .local_from_imports = FnvStringMap.init(allocator),
         };
         return self;
     }
@@ -487,12 +499,29 @@ pub const NativeCodegen = struct {
         if (self.func_local_mutations.contains(var_name)) {
             return true;
         }
-        // Fall back to module-level semantic info
+        // If we're inside a function/method (func_local_uses has been populated),
+        // don't trust module-level semantic info for mutation detection.
+        // Module-level analysis doesn't distinguish between same-named variables
+        // in different scopes (e.g., class A's `int_class` vs class B's `int_class`).
+        if (self.func_local_uses.count() > 0) {
+            // We're in a function context - only trust func_local_mutations
+            return false;
+        }
+        // Fall back to module-level semantic info (for module-level variables)
         return self.semantic_info.isMutated(var_name);
     }
 
     /// Check if a variable is unused (assigned but never read)
+    /// For function-local variables, check func_local_uses first (if populated)
+    /// This prevents false "unused" detection for variables used within function bodies
     pub fn isVarUnused(self: *NativeCodegen, var_name: []const u8) bool {
+        // If we're inside a function/method (func_local_uses is populated),
+        // use that to determine if the variable is used
+        if (self.func_local_uses.count() > 0) {
+            // Variable is unused if it's NOT in the local uses map
+            return !self.func_local_uses.contains(var_name);
+        }
+        // At module level, use semantic info
         return self.semantic_info.isUnused(var_name);
     }
 

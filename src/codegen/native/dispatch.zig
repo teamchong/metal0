@@ -97,6 +97,18 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
         return true;
     }
 
+    // Check for local from-imports (e.g., from random import getrandbits)
+    // These functions were imported locally and need to be routed to module dispatch
+    if (call.func.* == .name) {
+        const func_name = call.func.name.id;
+        if (self.local_from_imports.get(func_name)) |module_name| {
+            // Route to module function dispatch
+            if (try module_functions.tryDispatch(self, module_name, func_name, call)) {
+                return true;
+            }
+        }
+    }
+
     // No dispatch handler found - use fallback
     return false;
 }
