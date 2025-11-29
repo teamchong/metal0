@@ -328,6 +328,12 @@ pub fn genClassMethods(
     self.current_class_name = class.name;
     defer self.current_class_name = null;
 
+    // Set current class parent for parent method call resolution (e.g., array.array.__getitem__(self, i))
+    if (class.bases.len > 0) {
+        self.current_class_parent = class.bases[0];
+    }
+    defer self.current_class_parent = null;
+
     for (class.body) |stmt| {
         if (stmt == .function_def) {
             const method = stmt.function_def;

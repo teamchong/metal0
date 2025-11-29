@@ -218,6 +218,10 @@ pub const NativeCodegen = struct {
     // Set during class method generation, null otherwise
     current_class_name: ?[]const u8,
 
+    // Current class's parent name (for parent method call resolution)
+    // E.g., "array.array" when class inherits from array.array
+    current_class_parent: ?[]const u8,
+
     // Class nesting depth (0 = top-level, 1 = nested inside another class)
     // Used to determine allocator parameter name (__alloc for nested classes)
     class_nesting_depth: u32,
@@ -314,6 +318,7 @@ pub const NativeCodegen = struct {
             .func_local_mutations = FnvVoidMap.init(allocator),
             .global_vars = FnvVoidMap.init(allocator),
             .current_class_name = null,
+            .current_class_parent = null,
             .class_nesting_depth = 0,
             .method_nesting_depth = 0,
             .inside_method_with_self = false,

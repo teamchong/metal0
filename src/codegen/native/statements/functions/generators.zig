@@ -72,6 +72,51 @@ pub fn getBuiltinBaseInfo(base_name: []const u8) ?BuiltinBaseInfo {
     return builtin_bases.get(base_name);
 }
 
+/// Complex parent types with multiple fields (like array.array)
+pub const ComplexParentInfo = struct {
+    /// Fields to add to child class (in order)
+    fields: []const FieldInfo,
+    /// Methods inherited from parent (for parent method call resolution)
+    methods: []const MethodInfo,
+
+    pub const FieldInfo = struct {
+        name: []const u8,
+        zig_type: []const u8,
+        default: []const u8,
+    };
+
+    pub const MethodInfo = struct {
+        name: []const u8,
+        /// The Zig code to inline when calling parent.method(self, ...)
+        /// Use {self} for the self parameter, {0}, {1}, etc. for other args
+        inline_code: []const u8,
+    };
+};
+
+/// Get complex parent info for module.class patterns (e.g., "array.array")
+pub fn getComplexParentInfo(base_name: []const u8) ?ComplexParentInfo {
+    const complex_parents = std.StaticStringMap(ComplexParentInfo).initComptime(.{
+        .{ "array.array", ComplexParentInfo{
+            .fields = &.{
+                .{ .name = "typecode", .zig_type = "u8", .default = "'l'" },
+                .{ .name = "__array_items", .zig_type = "std.ArrayList(i64)", .default = "std.ArrayList(i64){}" },
+            },
+            .methods = &.{
+                // __getitem__(self, i) -> self.__array_items.items[i]
+                .{ .name = "__getitem__", .inline_code = "{self}.__array_items.items[@as(usize, @intCast({0}))}" },
+                // __setitem__(self, i, v) -> self.__array_items.items[i] = v
+                .{ .name = "__setitem__", .inline_code = "{self}.__array_items.items[@as(usize, @intCast({0}))] = {1}" },
+                // __len__(self) -> self.__array_items.items.len
+                .{ .name = "__len__", .inline_code = "{self}.__array_items.items.len" },
+                // append(self, x) -> self.__array_items.append(x)
+                .{ .name = "append", .inline_code = "{self}.__array_items.append(__global_allocator, {0}) catch {}" },
+            },
+        } },
+    });
+
+    return complex_parents.get(base_name);
+}
+
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
     // Skip entire functions that reference skipped modules to avoid undeclared variable errors.
@@ -182,13 +227,19 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     var parent_class: ?ast.Node.ClassDef = null;
     var is_unittest_class = false;
     var builtin_base: ?BuiltinBaseInfo = null;
+    var complex_parent: ?ComplexParentInfo = null;
     if (class.bases.len > 0) {
-        // First check if it's a builtin base type
+        // First check if it's a builtin base type (simple types like int, float)
         builtin_base = getBuiltinBaseInfo(class.bases[0]);
+
+        // Then check for complex parent types (like array.array with multiple fields)
+        if (builtin_base == null) {
+            complex_parent = getComplexParentInfo(class.bases[0]);
+        }
 
         // Look up parent class in registry (populated in Phase 2 of generate())
         // Order doesn't matter - all classes are registered before code generation
-        if (builtin_base == null) {
+        if (builtin_base == null and complex_parent == null) {
             parent_class = self.class_registry.getClass(class.bases[0]);
         }
 
@@ -264,6 +315,16 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         try self.emit("// Base value inherited from builtin type\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("__base_value__: {s},\n", .{base_info.zig_type});
+    }
+
+    // For complex parent types (like array.array), add parent fields
+    if (complex_parent) |parent_info| {
+        try self.emitIndent();
+        try self.emit("// Fields inherited from parent type\n");
+        for (parent_info.fields) |field| {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("{s}: {s} = {s},\n", .{ field.name, field.zig_type, field.default });
+        }
     }
 
     // Extract fields from __init__ body (self.x = ...)
@@ -354,6 +415,11 @@ pub fn getSkipReason(method: ast.Node.FunctionDef) ?[]const u8 {
         }
     }
 
+    // Check if body references hypothesis (e.g., helper functions that use hypothesis.strategies)
+    if (bodyUsesHypothesis(method.body)) {
+        return "requires hypothesis library";
+    }
+
     if (method.body.len == 0) return null;
 
     // Check if first statement is an expression statement with a string constant
@@ -392,4 +458,78 @@ pub fn getSkipReason(method: ast.Node.FunctionDef) ?[]const u8 {
         }
     }
     return null;
+}
+
+/// Check if any expression in the body references 'hypothesis' module
+fn bodyUsesHypothesis(stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        if (stmtUsesHypothesis(stmt)) return true;
+    }
+    return false;
+}
+
+fn stmtUsesHypothesis(node: ast.Node) bool {
+    return switch (node) {
+        .assign => |assign| exprUsesHypothesis(assign.value.*),
+        .aug_assign => |aug| exprUsesHypothesis(aug.value.*),
+        .expr_stmt => |expr| exprUsesHypothesis(expr.value.*),
+        .return_stmt => |ret| if (ret.value) |val| exprUsesHypothesis(val.*) else false,
+        .if_stmt => |if_stmt| {
+            if (exprUsesHypothesis(if_stmt.condition.*)) return true;
+            if (bodyUsesHypothesis(if_stmt.body)) return true;
+            if (bodyUsesHypothesis(if_stmt.else_body)) return true;
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            if (exprUsesHypothesis(while_stmt.condition.*)) return true;
+            return bodyUsesHypothesis(while_stmt.body);
+        },
+        .for_stmt => |for_stmt| bodyUsesHypothesis(for_stmt.body),
+        else => false,
+    };
+}
+
+fn exprUsesHypothesis(node: ast.Node) bool {
+    return switch (node) {
+        .name => |name| std.mem.eql(u8, name.id, "hypothesis"),
+        .attribute => |attr| exprUsesHypothesis(attr.value.*),
+        .call => |call| {
+            if (exprUsesHypothesis(call.func.*)) return true;
+            for (call.args) |arg| {
+                if (exprUsesHypothesis(arg)) return true;
+            }
+            return false;
+        },
+        .binop => |binop| exprUsesHypothesis(binop.left.*) or exprUsesHypothesis(binop.right.*),
+        .compare => |comp| {
+            if (exprUsesHypothesis(comp.left.*)) return true;
+            for (comp.comparators) |c| {
+                if (exprUsesHypothesis(c)) return true;
+            }
+            return false;
+        },
+        .listcomp => |lc| {
+            if (exprUsesHypothesis(lc.elt.*)) return true;
+            for (lc.generators) |gen| {
+                if (exprUsesHypothesis(gen.iter.*)) return true;
+                for (gen.ifs) |cond| {
+                    if (exprUsesHypothesis(cond)) return true;
+                }
+            }
+            return false;
+        },
+        .tuple => |tup| {
+            for (tup.elts) |elt| {
+                if (exprUsesHypothesis(elt)) return true;
+            }
+            return false;
+        },
+        .list => |list| {
+            for (list.elts) |elt| {
+                if (exprUsesHypothesis(elt)) return true;
+            }
+            return false;
+        },
+        else => false,
+    };
 }

@@ -13,6 +13,9 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
+    // Use the appropriate allocator based on context (module level uses __global_allocator)
+    const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
+
     // Check if argument is already a PyObject (e.g., from file.read())
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
@@ -20,12 +23,20 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Already a PyObject - pass directly to json.loads
         try self.emit("try runtime.json.loads(");
         try self.genExpr(args[0]);
-        try self.emit(", allocator)");
+        try self.emit(", ");
+        try self.emit(alloc_name);
+        try self.emit(")");
     } else {
         // String literal or native string - wrap in PyString first
-        try self.emit("blk: { const json_str_obj = try runtime.PyString.create(allocator, ");
+        try self.emit("blk: { const json_str_obj = try runtime.PyString.create(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try self.emit("); defer runtime.decref(json_str_obj, allocator); break :blk try runtime.json.loads(json_str_obj, allocator); }");
+        try self.emit("); defer runtime.decref(json_str_obj, ");
+        try self.emit(alloc_name);
+        try self.emit("); break :blk try runtime.json.loads(json_str_obj, ");
+        try self.emit(alloc_name);
+        try self.emit("); }");
     }
 }
 
@@ -37,6 +48,9 @@ pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // TODO: Error handling
         return;
     }
+
+    // Use the appropriate allocator based on context (module level uses __global_allocator)
+    const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
 
     // Check if argument is a dict type that needs conversion
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
@@ -51,7 +65,9 @@ pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Native Zig value (string, int, bool, null) - use dumpsValue
         try self.emit("try runtime.json.dumpsValue(");
         try self.genExpr(args[0]);
-        try self.emit(", allocator)");
+        try self.emit(", ");
+        try self.emit(alloc_name);
+        try self.emit(")");
     }
 }
 

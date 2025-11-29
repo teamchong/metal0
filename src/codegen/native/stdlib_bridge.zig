@@ -26,8 +26,9 @@ pub fn genSimpleCall(comptime spec: SimpleCallSpec) fn (*NativeCodegen, []ast.No
 
             try self.emit("try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                // Always use allocator for stdlib calls - it's passed as param for class methods
-                try self.emit("allocator");
+                // Use __global_allocator at module level, allocator inside functions
+                const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
+                try self.emit(alloc_name);
                 if (spec.arg_count > 0) {
                     try self.emit(", ");
                 }
@@ -60,8 +61,9 @@ pub fn genNoArgCall(comptime spec: NoArgCallSpec) fn (*NativeCodegen, []ast.Node
 
             try self.emit("try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                // Always use allocator for stdlib calls - it's passed as param for class methods
-                try self.emit("allocator");
+                // Use __global_allocator at module level, allocator inside functions
+                const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
+                try self.emit(alloc_name);
             }
             try self.emit(")");
         }
@@ -88,8 +90,9 @@ pub fn genVarArgCall(comptime spec: VarArgCallSpec) fn (*NativeCodegen, []ast.No
 
             try self.emit("try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                // Always use allocator for stdlib calls - it's passed as param for class methods
-                try self.emit("allocator");
+                // Use __global_allocator at module level, allocator inside functions
+                const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
+                try self.emit(alloc_name);
                 if (args.len > 0) {
                     try self.emit(", ");
                 }
