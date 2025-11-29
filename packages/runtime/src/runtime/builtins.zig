@@ -249,6 +249,140 @@ pub fn maxVarArgs(values: []const i64) i64 {
     return max_val;
 }
 
+/// Minimum value from any iterable (generic)
+pub fn minIterable(iterable: anytype) i64 {
+    const T = @TypeOf(iterable);
+    if (T == *PyObject) {
+        return minList(iterable);
+    } else if (comptime std.meta.hasFn(T, "__getitem__")) {
+        // Custom sequence class with __getitem__ method
+        var min_val: i64 = std.math.maxInt(i64);
+        var i: i64 = 0;
+        while (true) {
+            const item = iterable.__getitem__(i) catch break;
+            if (item < min_val) {
+                min_val = item;
+            }
+            i += 1;
+        }
+        return min_val;
+    } else if (@typeInfo(T) == .pointer and @typeInfo(std.meta.Child(T)) == .@"struct") {
+        // Struct with items field (tuples, arrays)
+        if (@hasField(std.meta.Child(T), "items")) {
+            var min_val: i64 = std.math.maxInt(i64);
+            for (iterable.items) |item| {
+                if (item < min_val) {
+                    min_val = item;
+                }
+            }
+            return min_val;
+        }
+    }
+    // Fallback for slices
+    var min_val: i64 = std.math.maxInt(i64);
+    for (iterable) |item| {
+        if (item < min_val) {
+            min_val = item;
+        }
+    }
+    return min_val;
+}
+
+/// Get next item from an iterator
+pub fn next(iterator: anytype) @TypeOf(iterator).Item {
+    const T = @TypeOf(iterator);
+    if (@hasDecl(T, "__next__")) {
+        return iterator.__next__();
+    }
+    // For standard iterators
+    if (iterator.next()) |item| {
+        return item;
+    }
+    @panic("StopIteration");
+}
+
+/// iter() - return iterator over iterable (identity for already-iterable types)
+pub fn iter(iterable: anytype) @TypeOf(iterable) {
+    return iterable;
+}
+
+/// RangeIterator struct - lightweight lazy range iterator
+pub const RangeIterator = struct {
+    start: i64,
+    stop: i64,
+    step: i64,
+    current: i64,
+
+    pub fn init(start: i64, stop: i64, step: i64) RangeIterator {
+        return .{ .start = start, .stop = stop, .step = step, .current = start };
+    }
+
+    pub fn next(self: *RangeIterator) ?i64 {
+        if (self.step > 0) {
+            if (self.current >= self.stop) return null;
+        } else {
+            if (self.current <= self.stop) return null;
+        }
+        const result = self.current;
+        self.current += self.step;
+        return result;
+    }
+
+    pub fn len(self: RangeIterator) usize {
+        if (self.step > 0) {
+            if (self.stop <= self.start) return 0;
+            return @intCast(@divFloor(self.stop - self.start + self.step - 1, self.step));
+        } else {
+            if (self.stop >= self.start) return 0;
+            return @intCast(@divFloor(self.start - self.stop - self.step - 1, -self.step));
+        }
+    }
+};
+
+/// rangeLazy(start, stop, step) - creates a lightweight range iterator
+pub fn rangeLazy(start: i64, stop: i64, step: i64) RangeIterator {
+    return RangeIterator.init(start, stop, step);
+}
+
+/// Maximum value from any iterable (generic)
+pub fn maxIterable(iterable: anytype) i64 {
+    const T = @TypeOf(iterable);
+    if (T == *PyObject) {
+        return maxList(iterable);
+    } else if (comptime std.meta.hasFn(T, "__getitem__")) {
+        // Custom sequence class with __getitem__ method
+        var max_val: i64 = std.math.minInt(i64);
+        var i: i64 = 0;
+        while (true) {
+            const item = iterable.__getitem__(i) catch break;
+            if (item > max_val) {
+                max_val = item;
+            }
+            i += 1;
+        }
+        return max_val;
+    } else if (@typeInfo(T) == .pointer and @typeInfo(std.meta.Child(T)) == .@"struct") {
+        // Struct with items field (tuples, arrays)
+        if (@hasField(std.meta.Child(T), "items")) {
+            var max_val: i64 = std.math.minInt(i64);
+            for (iterable.items) |item| {
+                if (item > max_val) {
+                    max_val = item;
+                }
+            }
+            return max_val;
+        }
+    }
+    // Fallback for slices
+    var max_val: i64 = std.math.minInt(i64);
+    for (iterable) |item| {
+        if (item > max_val) {
+            max_val = item;
+        }
+    }
+    return max_val;
+}
+
 /// Sum of all numeric values in a list
 pub fn sum(iterable: *PyObject) i64 {
     std.debug.assert(iterable.type_id == .list);

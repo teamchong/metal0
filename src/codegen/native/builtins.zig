@@ -43,6 +43,7 @@ pub const genHash = math.genHash;
 
 pub const genEnumerate = collections.genEnumerate;
 pub const genZip = collections.genZip;
+pub const genRange = collections.genRange;
 pub const genSum = collections.genSum;
 pub const genAll = collections.genAll;
 pub const genAny = collections.genAny;
@@ -50,6 +51,8 @@ pub const genSorted = collections.genSorted;
 pub const genReversed = collections.genReversed;
 pub const genMap = collections.genMap;
 pub const genFilter = collections.genFilter;
+pub const genIter = collections.genIter;
+pub const genNext = collections.genNext;
 
 // Dynamic attributes
 pub const genGetattr = dynamic_attrs.genGetattr;

@@ -18,7 +18,16 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for min(a, b, ...)
 /// Returns minimum value
 pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len == 0) return;
+
+    if (args.len == 1) {
+        // Single argument - iterable case: min([1, 2, 3]) or min(some_sequence)
+        // Use runtime function that handles any iterable
+        try self.emit("runtime.builtins.minIterable(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
 
     // Generate: @min(a, @min(b, c))
     try self.emit("@min(");
@@ -34,7 +43,16 @@ pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for max(a, b, ...)
 /// Returns maximum value
 pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len == 0) return;
+
+    if (args.len == 1) {
+        // Single argument - iterable case: max([1, 2, 3]) or max(some_sequence)
+        // Use runtime function that handles any iterable
+        try self.emit("runtime.builtins.maxIterable(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
 
     // Generate: @max(a, @max(b, c))
     try self.emit("@max(");

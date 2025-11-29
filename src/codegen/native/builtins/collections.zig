@@ -20,11 +20,38 @@ fn producesBlockExpression(expr: ast.Node) bool {
     };
 }
 
-/// Note: range() is handled specially in for-loops by genRangeLoop() in main.zig
-/// It's not a standalone function but a loop optimization that generates:
-/// - range(n) → while (i < n)
-/// - range(start, end) → while (i < end) starting from start
-/// - range(start, end, step) → while (i < end) with custom increment
+/// Generate code for range(stop) or range(start, stop) or range(start, stop, step)
+/// Returns an iterable range object (PyObject list)
+pub fn genRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(try runtime.builtins.range(__global_allocator, 0, 0, 1))");
+        return;
+    }
+
+    // Generate runtime.builtins.range(allocator, start, stop, step)
+    try self.emit("(try runtime.builtins.range(__global_allocator, ");
+    if (args.len == 1) {
+        // range(stop) -> range(0, stop, 1)
+        try self.emit("0, ");
+        try self.genExpr(args[0]);
+        try self.emit(", 1");
+    } else if (args.len == 2) {
+        // range(start, stop) -> range(start, stop, 1)
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(", 1");
+    } else {
+        // range(start, stop, step)
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(", ");
+        try self.genExpr(args[2]);
+    }
+    try self.emit("))");
+}
+
 /// Generate code for enumerate(iterable)
 /// Returns: iterator with (index, value) tuples
 /// Note: enumerate() is ONLY supported in for-loop context by statements.zig
@@ -236,8 +263,44 @@ pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("@compileError(\"filter() not supported - use explicit for loop with if instead\")");
 }
 
+/// Generate code for iter(iterable)
+/// Returns an iterator over the iterable
+pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1) {
+        try self.emit("@as(?*anyopaque, null)");
+        return;
+    }
+
+    // For now, just pass through the iterable
+    // Python's iter() returns an iterator object, but since we iterate directly
+    // over iterables, we can just return the iterable itself
+    try self.genExpr(args[0]);
+}
+
+/// Generate code for next(iterator, [default])
+/// Returns the next item from the iterator
+pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1) {
+        try self.emit("@as(?*anyopaque, null)");
+        return;
+    }
+
+    // For custom iterator objects with __next__ method
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    if (arg_type == .class_instance) {
+        try self.genExpr(args[0]);
+        try self.emit(".__next__()");
+        return;
+    }
+
+    // For ArrayLists and other built-in iterables, use runtime function
+    try self.emit("runtime.builtins.next(");
+    try self.genExpr(args[0]);
+    try self.emit(")");
+}
+
 // Built-in functions implementation status:
-// ✅ Implemented: sum, all, any, sorted, reversed
+// ✅ Implemented: sum, all, any, sorted, reversed, iter, next
 // ❌ Not supported (need function pointers): map, filter
 // ❌ Not supported (need for-loop integration): enumerate, zip
 //

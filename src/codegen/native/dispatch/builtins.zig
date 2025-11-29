@@ -48,6 +48,12 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "reversed", builtins.genReversed },
     .{ "map", builtins.genMap },
     .{ "filter", builtins.genFilter },
+    // Iterator builtins
+    .{ "iter", builtins.genIter },
+    .{ "next", builtins.genNext },
+    .{ "range", builtins.genRange },
+    .{ "enumerate", builtins.genEnumerate },
+    .{ "zip", builtins.genZip },
     // String/char
     .{ "chr", builtins.genChr },
     .{ "ord", builtins.genOrd },
