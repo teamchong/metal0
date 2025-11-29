@@ -526,10 +526,10 @@ pub fn genAssertHasAttr(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) C
         try self.emit("@compileError(\"assertHasAttr requires 2 arguments\")");
         return;
     }
-    // For AOT, we check at compile time using @hasField
-    try self.emit("comptime { if (!@hasField(@TypeOf(");
+    // For AOT, we check at compile time using @hasField (must check struct type first)
+    try self.emit("comptime { const _T = @TypeOf(");
     try parent.genExpr(self, args[0]);
-    try self.emit("), ");
+    try self.emit("); if (@typeInfo(_T) != .@\"struct\" or !@hasField(_T, ");
     try parent.genExpr(self, args[1]);
     try self.emit(")) @compileError(\"assertHasAttr failed\"); }");
 }
@@ -541,10 +541,10 @@ pub fn genAssertNotHasAttr(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         try self.emit("@compileError(\"assertNotHasAttr requires 2 arguments\")");
         return;
     }
-    // For AOT, we check at compile time using @hasField
-    try self.emit("comptime { if (@hasField(@TypeOf(");
+    // For AOT, we check at compile time using @hasField (must check struct type first)
+    try self.emit("comptime { const _T = @TypeOf(");
     try parent.genExpr(self, args[0]);
-    try self.emit("), ");
+    try self.emit("); if (@typeInfo(_T) == .@\"struct\" and @hasField(_T, ");
     try parent.genExpr(self, args[1]);
     try self.emit(")) @compileError(\"assertNotHasAttr failed\"); }");
 }

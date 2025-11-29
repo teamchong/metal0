@@ -8,8 +8,8 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 pub fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    // Use runtime.gzip.compress(allocator, data)
-    try self.emit("try runtime.gzip.compress(allocator, ");
+    // Use runtime.gzip.compress(__global_allocator, data)
+    try self.emit("try runtime.gzip.compress(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(")");
 }
@@ -18,8 +18,8 @@ pub fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genDecompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
-    // Use runtime.gzip.decompress(allocator, data)
-    try self.emit("try runtime.gzip.decompress(allocator, ");
+    // Use runtime.gzip.decompress(__global_allocator, data)
+    try self.emit("try runtime.gzip.decompress(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(")");
 }
@@ -67,7 +67,7 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("defer file.close();\n");
     try self.emitIndent();
-    try self.emit("const content = file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch return \"\";\n");
+    try self.emit("const content = file.readToEndAlloc(__global_allocator, 10 * 1024 * 1024) catch return \"\";\n");
     try self.emitIndent();
     try self.emit("return content;\n");
     self.dedent();
@@ -77,7 +77,7 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn write(self: *@This(), data: []const u8) void {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("self.buffer.appendSlice(allocator, data) catch {};\n");
+    try self.emit("self.buffer.appendSlice(__global_allocator, data) catch {};\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

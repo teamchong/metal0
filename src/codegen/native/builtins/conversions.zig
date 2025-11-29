@@ -132,13 +132,13 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (is_pyobject) {
         // Unknown type - check if it's an ArrayList (has .items) at compile time
-        // Use @hasField to detect ArrayList vs PyObject*
+        // Must check .@"struct" first since @hasField only works on struct types
         if (needs_wrap) {
-            try self.emit("if (@hasField(@TypeOf(__obj), \"items\")) __obj.items.len else runtime.pyLen(__obj)");
+            try self.emit("if (@typeInfo(@TypeOf(__obj)) == .@\"struct\" and @hasField(@TypeOf(__obj), \"items\")) __obj.items.len else runtime.pyLen(__obj)");
         } else {
             try self.emit("blk: { const __tmp = ");
             try self.genExpr(args[0]);
-            try self.emit("; break :blk if (@hasField(@TypeOf(__tmp), \"items\")) __tmp.items.len else runtime.pyLen(__tmp); }");
+            try self.emit("; break :blk if (@typeInfo(@TypeOf(__tmp)) == .@\"struct\" and @hasField(@TypeOf(__tmp), \"items\")) __tmp.items.len else runtime.pyLen(__tmp); }");
         }
     } else if (is_kwarg_param) {
         // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()
@@ -599,9 +599,9 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("const _iterable = ");
     try self.genExpr(args[0]);
     try self.emit(";\n");
-    try self.emit("const _ElemType = if (@hasField(@TypeOf(_iterable), \"items\")) @TypeOf(_iterable.items[0]) else @TypeOf(_iterable[0]);\n");
+    try self.emit("const _ElemType = if (@typeInfo(@TypeOf(_iterable)) == .@\"struct\" and @hasField(@TypeOf(_iterable), \"items\")) @TypeOf(_iterable.items[0]) else @TypeOf(_iterable[0]);\n");
     try self.emit("var _list = std.ArrayList(_ElemType){};\n");
-    try self.emit("const _slice = if (@hasField(@TypeOf(_iterable), \"items\")) _iterable.items else _iterable;\n");
+    try self.emit("const _slice = if (@typeInfo(@TypeOf(_iterable)) == .@\"struct\" and @hasField(@TypeOf(_iterable), \"items\")) _iterable.items else _iterable;\n");
     try self.emit("for (_slice) |_item| {\n");
     try self.emitFmt("try _list.append({s}, _item);\n", .{alloc_name});
     try self.emit("}\n");

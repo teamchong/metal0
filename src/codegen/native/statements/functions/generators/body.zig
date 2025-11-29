@@ -168,17 +168,45 @@ pub fn genFunctionBody(
     }
 
     // Generate default parameter initialization (before declaring them in scope)
+    // When default value references the same name as the parameter (e.g., def foo(x=x):),
+    // we need to capture the module-level value first to avoid shadowing
     for (func.args) |arg| {
         if (arg.default) |default_expr| {
-            try self.emitIndent();
-            try self.emit("const ");
-            try self.emit(arg.name);
-            try self.emit(" = ");
-            try self.emit(arg.name);
-            try self.emit("_param orelse ");
             const expressions = @import("../../../expressions.zig");
-            try expressions.genExpr(self, default_expr.*);
-            try self.emit(";\n");
+
+            // Check if default expression is a name that matches the parameter name
+            const needs_capture = if (default_expr.* == .name)
+                std.mem.eql(u8, default_expr.name.id, arg.name)
+            else
+                false;
+
+            if (needs_capture) {
+                // Capture module-level value first to avoid shadowing
+                try self.emitIndent();
+                try self.emit("const __default_");
+                try self.emit(arg.name);
+                try self.emit(" = ");
+                try expressions.genExpr(self, default_expr.*);
+                try self.emit(";\n");
+
+                try self.emitIndent();
+                try self.emit("const ");
+                try self.emit(arg.name);
+                try self.emit(" = ");
+                try self.emit(arg.name);
+                try self.emit("_param orelse __default_");
+                try self.emit(arg.name);
+                try self.emit(";\n");
+            } else {
+                try self.emitIndent();
+                try self.emit("const ");
+                try self.emit(arg.name);
+                try self.emit(" = ");
+                try self.emit(arg.name);
+                try self.emit("_param orelse ");
+                try expressions.genExpr(self, default_expr.*);
+                try self.emit(";\n");
+            }
         }
     }
 

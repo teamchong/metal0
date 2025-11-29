@@ -103,13 +103,13 @@ pub fn getComplexParentInfo(base_name: []const u8) ?ComplexParentInfo {
             },
             .methods = &.{
                 // __getitem__(self, i) -> self.__array_items.items[i]
-                .{ .name = "__getitem__", .inline_code = "{self}.__array_items.items[@as(usize, @intCast({0}))}" },
+                .{ .name = "__getitem__", .inline_code = "{self}.__array_items.items[@as(usize, @intCast({0}))]" },
                 // __setitem__(self, i, v) -> self.__array_items.items[i] = v
                 .{ .name = "__setitem__", .inline_code = "{self}.__array_items.items[@as(usize, @intCast({0}))] = {1}" },
                 // __len__(self) -> self.__array_items.items.len
                 .{ .name = "__len__", .inline_code = "{self}.__array_items.items.len" },
                 // append(self, x) -> self.__array_items.append(x)
-                .{ .name = "append", .inline_code = "{self}.__array_items.append(__global_allocator, {0}) catch {}" },
+                .{ .name = "append", .inline_code = "try {self}.__array_items.append(__global_allocator, {0})" },
             },
         } },
     });
