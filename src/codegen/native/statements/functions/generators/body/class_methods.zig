@@ -13,6 +13,9 @@ const generators = @import("../../generators.zig");
 // Import from parent for methodMutatesSelf and genMethodBody
 const body = @import("../body.zig");
 
+// Type alias for builtin base info
+const BuiltinBaseInfo = generators.BuiltinBaseInfo;
+
 /// Generate default init() method for classes without __init__
 pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!void {
     // Default __dict__ field for dynamic attributes
@@ -35,6 +38,57 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!vo
     // Use @This(){} for struct literal initialization
     try self.emit("return @This(){\n");
     self.indent();
+
+    // Initialize __dict__ for dynamic attributes
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init({s}),\n", .{alloc_name});
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+}
+
+/// Generate default init() method with builtin base type support
+pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, builtin_base: ?BuiltinBaseInfo) CodegenError!void {
+    // Default __dict__ field for dynamic attributes
+    try self.emitIndent();
+    try self.emit("// Dynamic attributes dictionary\n");
+    try self.emitIndent();
+    try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
+
+    // Use __alloc for nested classes to avoid shadowing outer allocator
+    const alloc_name = if (self.indent_level > 2) "__alloc" else "allocator";
+
+    try self.emit("\n");
+    try self.emitIndent();
+
+    // Generate function signature with builtin base args if present
+    try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
+
+    // Add builtin base constructor args
+    if (builtin_base) |base_info| {
+        for (base_info.init_args) |arg| {
+            try self.emit(", ");
+            try self.output.writer(self.allocator).print("{s}: {s}", .{ arg.name, arg.zig_type });
+        }
+    }
+
+    try self.emit(") @This() {\n");
+    self.indent();
+
+    try self.emitIndent();
+    try self.emit("return @This(){\n");
+    self.indent();
+
+    // Initialize builtin base value first
+    if (builtin_base) |base_info| {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print(".__base_value__ = {s},\n", .{base_info.zig_init});
+    }
 
     // Initialize __dict__ for dynamic attributes
     try self.emitIndent();
@@ -104,6 +158,100 @@ pub fn genInitMethod(
 
                     try self.emitIndent();
                     // Escape field name if it's a Zig keyword (e.g., "test")
+                    try self.emit(".");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
+                    try self.emit(" = ");
+                    try self.genExpr(assign.value.*);
+                    try self.emit(",\n");
+                }
+            }
+        }
+    }
+
+    // Initialize __dict__ for dynamic attributes
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init({s}),\n", .{alloc_name});
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+}
+
+/// Generate init() method from __init__ with builtin base type support
+pub fn genInitMethodWithBuiltinBase(
+    self: *NativeCodegen,
+    class_name: []const u8,
+    init: ast.Node.FunctionDef,
+    builtin_base: ?BuiltinBaseInfo,
+) CodegenError!void {
+    // Use __alloc for nested classes to avoid shadowing outer allocator
+    const alloc_name = if (self.indent_level > 2) "__alloc" else "allocator";
+
+    try self.emit("\n");
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
+
+    // For builtin bases without __init__ body, add the builtin's constructor args
+    // Otherwise, use the __init__ parameters
+    const has_user_params = init.args.len > 1; // More than just 'self'
+
+    if (builtin_base != null and !has_user_params) {
+        // Class inherits from builtin but has no custom __init__ params
+        // Use the builtin's constructor args
+        if (builtin_base) |base_info| {
+            for (base_info.init_args) |arg| {
+                try self.emit(", ");
+                try self.output.writer(self.allocator).print("{s}: {s}", .{ arg.name, arg.zig_type });
+            }
+        }
+    } else {
+        // Use user-defined __init__ parameters (skip 'self')
+        for (init.args) |arg| {
+            if (std.mem.eql(u8, arg.name, "self")) continue;
+
+            try self.emit(", ");
+            try self.output.writer(self.allocator).print("{s}: ", .{arg.name});
+
+            // Type annotation: prefer type hints, fallback to inference
+            if (arg.type_annotation) |_| {
+                try self.emit(signature.pythonTypeToZig(arg.type_annotation));
+            } else {
+                const param_type = try class_fields.inferParamType(self, class_name, init, arg.name);
+                defer self.allocator.free(param_type);
+                try self.emit(param_type);
+            }
+        }
+    }
+
+    // Use @This() for self-referential return type
+    try self.emit(") @This() {\n");
+    self.indent();
+
+    // Generate return statement with field initializers
+    try self.emitIndent();
+    try self.emit("return @This(){\n");
+    self.indent();
+
+    // Initialize builtin base value first if present
+    if (builtin_base) |base_info| {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print(".__base_value__ = {s},\n", .{base_info.zig_init});
+    }
+
+    // Extract field assignments from __init__ body
+    for (init.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                const attr = assign.targets[0].attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                    const field_name = attr.attr;
+
+                    try self.emitIndent();
                     try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");

@@ -14,6 +14,7 @@ pub const genRepr = conversions.genRepr;
 pub const genInt = conversions.genInt;
 pub const genFloat = conversions.genFloat;
 pub const genBool = conversions.genBool;
+pub const genBytes = conversions.genBytes;
 pub const genType = conversions.genType;
 pub const genIsinstance = conversions.genIsinstance;
 pub const genIssubclass = conversions.genIssubclass;
