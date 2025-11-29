@@ -461,62 +461,27 @@ pub fn genClassMethods(
             const method = stmt.function_def;
             if (std.mem.eql(u8, method.name, "__init__")) continue;
 
-            // Check if this is a skipped test method (has "skip:" docstring)
-            // Use the same getSkipReason function used by the test runner to ensure consistency
-            const has_skip_docstring = generators.getSkipReason(method) != null;
-
-            // ALSO check if method body references skipped modules (e.g., VALID_UNDERSCORE_LITERALS, _pylong)
-            // These methods should be skipped to avoid undeclared identifier errors
-            const assign_mod = @import("../../../assign.zig");
-            const refs_skipped = assign_mod.functionBodyRefersToSkippedModule(self, method.body);
-
-            // ALSO check if decorators reference skipped modules
-            // e.g., @mock.patch.object(_pylong, ...) or @unittest.skipUnless(_pylong, ...)
-            const decorator_refs_skipped = blk: {
-                for (method.decorators) |dec| {
-                    if (assign_mod.exprRefersToSkippedModule(self, dec)) {
-                        break :blk true;
-                    }
-                }
-                break :blk false;
-            };
-
-            const is_skipped = has_skip_docstring or refs_skipped or decorator_refs_skipped;
-
             const mutates_self = body.methodMutatesSelf(method);
-            // Skipped methods don't need allocator since their body is empty
             // Use methodNeedsAllocatorInClass to detect same-class constructor calls like Rat(x)
-            const needs_allocator = if (is_skipped) false else allocator_analyzer.methodNeedsAllocatorInClass(method, class.name);
-            const actually_uses_allocator = if (is_skipped) false else allocator_analyzer.functionActuallyUsesAllocatorParamInClass(method, class.name);
+            const needs_allocator = allocator_analyzer.methodNeedsAllocatorInClass(method, class.name);
+            const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParamInClass(method, class.name);
 
             // Generate method signature
             // Note: method_nesting_depth tracks whether we're inside a NESTED class inside a method
             // It's incremented when we enter a class inside a method body, not when we enter a method itself
-            try signature.genMethodSignatureWithSkip(self, class.name, method, mutates_self, needs_allocator, is_skipped, actually_uses_allocator);
+            try signature.genMethodSignatureWithSkip(self, class.name, method, mutates_self, needs_allocator, false, actually_uses_allocator);
 
             // Check if this method returns a lambda that captures self (closure)
             // Register it so that callers can mark the variable as a closure
-            if (!is_skipped) {
-                if (signature.getReturnedLambda(method.body)) |lambda| {
-                    if (signature.lambdaCapturesSelf(lambda.body.*)) {
-                        // Register as "ClassName.method_name"
-                        const key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, method.name });
-                        try self.closure_returning_methods.put(key, {});
-                    }
+            if (signature.getReturnedLambda(method.body)) |lambda| {
+                if (signature.lambdaCapturesSelf(lambda.body.*)) {
+                    // Register as "ClassName.method_name"
+                    const key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, method.name });
+                    try self.closure_returning_methods.put(key, {});
                 }
             }
 
-            if (is_skipped) {
-                // Generate empty body for skipped test methods
-                self.indent();
-                try self.emitIndent();
-                try self.emit("// skipped test\n");
-                self.dedent();
-                try self.emitIndent();
-                try self.emit("}\n");
-            } else {
-                try body.genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses_allocator);
-            }
+            try body.genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses_allocator);
         }
     }
 }

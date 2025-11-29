@@ -38,6 +38,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"regex\")", "@import(\"regex/src/pyregex/regex.zig\")");
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"bigint\")", "@import(\"bigint.zig\")");
 
         // Patch relative utils imports to use local utils/ directory
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"../../src/utils/", "@import(\"utils/");
@@ -45,6 +46,20 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         const dst = try std.fs.cwd().createFile(dst_path, .{});
         defer dst.close();
         try dst.writeAll(content);
+    }
+
+    // Copy bigint package to .build
+    {
+        const src = std.fs.cwd().openFile("packages/bigint/src/bigint.zig", .{}) catch |e| {
+            std.debug.print("Failed to open bigint.zig: {any}\n", .{e});
+            return e;
+        };
+        defer src.close();
+        const bigint_content = try src.readToEndAlloc(aa, 1024 * 1024);
+        const dst_path = try std.fmt.allocPrint(aa, "{s}/bigint.zig", .{build_dir});
+        const dst = try std.fs.cwd().createFile(dst_path, .{});
+        defer dst.close();
+        try dst.writeAll(bigint_content);
     }
 
     // Copy runtime subdirectories to .build
@@ -384,6 +399,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"regex\")", "@import(\"regex/src/pyregex/regex.zig\")");
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"bigint\")", "@import(\"bigint.zig\")");
 
         // Patch relative utils imports to use local utils/ directory
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"../../src/utils/", "@import(\"utils/");
@@ -391,6 +407,20 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
         const dst = try std.fs.cwd().createFile(dst_path, .{});
         defer dst.close();
         try dst.writeAll(content);
+    }
+
+    // Copy bigint package to .build
+    {
+        const src = std.fs.cwd().openFile("packages/bigint/src/bigint.zig", .{}) catch |e| {
+            std.debug.print("Failed to open bigint.zig: {any}\n", .{e});
+            return e;
+        };
+        defer src.close();
+        const bigint_content = try src.readToEndAlloc(aa, 1024 * 1024);
+        const dst_path = try std.fmt.allocPrint(aa, "{s}/bigint.zig", .{build_dir});
+        const dst = try std.fs.cwd().createFile(dst_path, .{});
+        defer dst.close();
+        try dst.writeAll(bigint_content);
     }
 
     // Copy runtime subdirectories to .build

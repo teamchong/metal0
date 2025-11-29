@@ -481,6 +481,60 @@ pub const hashlib_helper = struct {
     }
 };
 
+/// numbers submodule - numeric literal test data
+pub const numbers = struct {
+    /// Valid underscore literals (PEP 515)
+    pub const VALID_UNDERSCORE_LITERALS: []const []const u8 = &.{
+        "0_0_0",
+        "4_2",
+        "1_0000_0000",
+        "0b1001_0100",
+        "0xffff_ffff",
+        "0o5_7_7",
+        "1_00_00.5",
+        "1_00_00.5e5",
+        "1_00_00e5_1",
+        "1e1_0",
+        ".1_4",
+        ".1_4e1",
+        "0b_0",
+        "0x_f",
+        "0o_5",
+        "1_00_00j",
+        "1_00_00.5j",
+        "1_00_00e5_1j",
+        ".1_4j",
+        "(1_2.5+3_3j)",
+        "(.5_6j)",
+    };
+
+    /// Invalid underscore literals (should raise ValueError/SyntaxError)
+    pub const INVALID_UNDERSCORE_LITERALS: []const []const u8 = &.{
+        // Trailing underscores
+        "0_",
+        "42_",
+        "1.4j_",
+        // Underscores in wrong positions
+        "0_b0",
+        "0_xf",
+        "0_o5",
+        // Multiple consecutive underscores
+        "4_______2",
+        "0.1__4",
+        // Around decimal point
+        "1_.4",
+        "1._4",
+        "._5",
+        // Around exponent
+        "1_e1",
+        "1e_1",
+        "1.0e+_1",
+        // Before j
+        "1.4_j",
+        "1e1__0j",
+    };
+};
+
 // ============================================================================
 // Async helpers (for async tests)
 // ============================================================================

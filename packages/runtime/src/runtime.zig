@@ -10,6 +10,10 @@ pub const pystring = @import("pystring.zig");
 const pytuple = @import("pytuple.zig");
 const pyfile = @import("pyfile.zig");
 
+/// BigInt for arbitrary precision integers (Python int semantics)
+pub const bigint = @import("bigint");
+pub const BigInt = bigint.BigInt;
+
 /// Export string utilities for native codegen
 pub const string_utils = @import("string_utils.zig");
 
@@ -1551,6 +1555,76 @@ pub inline fn concat(a: anytype, b: anytype) @TypeOf(a ++ b) {
 /// This is Python list multiplication: [1,2] * 3 = [1,2,1,2,1,2]
 pub inline fn listRepeat(arr: anytype, n: anytype) @TypeOf(arr ** @as(usize, @intCast(n))) {
     return arr ** @as(usize, @intCast(n));
+}
+
+/// int() builtin call wrapper for assertRaises testing
+/// Handles int(x) and int(x, base) with proper error checking
+pub fn intBuiltinCall(allocator: std.mem.Allocator, first: anytype, rest: anytype) PythonError!i128 {
+    _ = allocator;
+    const FirstType = @TypeOf(first);
+    const first_info = @typeInfo(FirstType);
+    const RestType = @TypeOf(rest);
+    const rest_info = @typeInfo(RestType);
+
+    // Count additional arguments
+    const has_extra_args = rest_info == .@"struct" and rest_info.@"struct".fields.len > 0;
+
+    // If first arg is numeric (int/float), any additional args are invalid
+    if (first_info == .int or first_info == .comptime_int or first_info == .float or first_info == .comptime_float) {
+        if (has_extra_args) {
+            // int(number, base) is TypeError
+            return PythonError.TypeError;
+        }
+        // int(number) is valid - convert to int
+        if (first_info == .float or first_info == .comptime_float) {
+            return @intFromFloat(first);
+        }
+        return @as(i128, @intCast(first));
+    }
+
+    // String case
+    if (first_info == .pointer) {
+        // Get base from rest args if present
+        const base: u8 = if (has_extra_args) blk: {
+            const fields = rest_info.@"struct".fields;
+            const base_val = @field(rest, fields[0].name);
+            // Check for invalid third+ arguments
+            if (fields.len > 1) {
+                return PythonError.TypeError;
+            }
+            break :blk @as(u8, @intCast(base_val));
+        } else 10;
+
+        return std.fmt.parseInt(i128, first, base) catch return PythonError.ValueError;
+    }
+
+    return PythonError.TypeError;
+}
+
+/// float() builtin call wrapper for assertRaises testing
+pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
+    const FirstType = @TypeOf(first);
+    const first_info = @typeInfo(FirstType);
+    const RestType = @TypeOf(rest);
+    const rest_info = @typeInfo(RestType);
+
+    // float() only takes one argument
+    const has_extra_args = rest_info == .@"struct" and rest_info.@"struct".fields.len > 0;
+    if (has_extra_args) {
+        return PythonError.TypeError;
+    }
+
+    if (first_info == .int or first_info == .comptime_int) {
+        return @as(f64, @floatFromInt(first));
+    }
+    if (first_info == .float or first_info == .comptime_float) {
+        return @as(f64, first);
+    }
+    if (first_info == .pointer) {
+        return std.fmt.parseFloat(f64, first) catch return PythonError.ValueError;
+    }
+
+    return PythonError.TypeError;
 }
 
 test "reference counting" {

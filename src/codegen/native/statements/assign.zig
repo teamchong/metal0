@@ -10,165 +10,6 @@ const typeHandling = @import("assign/type_handling.zig");
 const valueGen = @import("assign/value_generation.zig");
 const zig_keywords = @import("zig_keywords");
 
-/// Check if an expression references a skipped module (e.g., pytest.main(), _pylong._spread)
-/// This is used to skip code generation for calls to modules that weren't found
-pub fn exprRefersToSkippedModule(self: *NativeCodegen, expr: ast.Node) bool {
-    switch (expr) {
-        .name => |n| {
-            // Direct name reference: _pylong
-            return self.isSkippedModule(n.id);
-        },
-        .attribute => |attr| {
-            // Attribute access: _pylong._spread or _pylong.compute_powers
-            // Recursively check the base object
-            return exprRefersToSkippedModule(self, attr.value.*);
-        },
-        .call => |c| {
-            // Check the function being called
-            if (exprRefersToSkippedModule(self, c.func.*)) return true;
-            // Check all arguments
-            for (c.args) |arg| {
-                if (exprRefersToSkippedModule(self, arg)) return true;
-            }
-            // Check keyword arguments
-            for (c.keyword_args) |kw| {
-                if (exprRefersToSkippedModule(self, kw.value)) return true;
-            }
-            return false;
-        },
-        .binop => |b| {
-            return exprRefersToSkippedModule(self, b.left.*) or
-                exprRefersToSkippedModule(self, b.right.*);
-        },
-        .compare => |cmp| {
-            if (exprRefersToSkippedModule(self, cmp.left.*)) return true;
-            for (cmp.comparators) |comp| {
-                if (exprRefersToSkippedModule(self, comp)) return true;
-            }
-            return false;
-        },
-        .unaryop => |u| {
-            return exprRefersToSkippedModule(self, u.operand.*);
-        },
-        .subscript => |sub| {
-            if (exprRefersToSkippedModule(self, sub.value.*)) return true;
-            if (sub.slice == .index) {
-                return exprRefersToSkippedModule(self, sub.slice.index.*);
-            }
-            return false;
-        },
-        .list => |l| {
-            for (l.elts) |elt| {
-                if (exprRefersToSkippedModule(self, elt)) return true;
-            }
-            return false;
-        },
-        .tuple => |t| {
-            for (t.elts) |elt| {
-                if (exprRefersToSkippedModule(self, elt)) return true;
-            }
-            return false;
-        },
-        .dict => |d| {
-            for (d.keys) |key| {
-                if (exprRefersToSkippedModule(self, key)) return true;
-            }
-            for (d.values) |val| {
-                if (exprRefersToSkippedModule(self, val)) return true;
-            }
-            return false;
-        },
-        .if_expr => |ie| {
-            return exprRefersToSkippedModule(self, ie.condition.*) or
-                exprRefersToSkippedModule(self, ie.body.*) or
-                exprRefersToSkippedModule(self, ie.orelse_value.*);
-        },
-        .boolop => |bo| {
-            for (bo.values) |v| {
-                if (exprRefersToSkippedModule(self, v)) return true;
-            }
-            return false;
-        },
-        else => return false,
-    }
-}
-
-/// Check if a statement references a skipped module
-pub fn stmtRefersToSkippedModule(self: *NativeCodegen, stmt: ast.Node) bool {
-    switch (stmt) {
-        .assign => |a| {
-            return exprRefersToSkippedModule(self, a.value.*);
-        },
-        .ann_assign => |ann| {
-            if (ann.value) |val| {
-                return exprRefersToSkippedModule(self, val.*);
-            }
-            return false;
-        },
-        .expr_stmt => |expr| {
-            return exprRefersToSkippedModule(self, expr.value.*);
-        },
-        .return_stmt => |ret| {
-            if (ret.value) |val| {
-                return exprRefersToSkippedModule(self, val.*);
-            }
-            return false;
-        },
-        .if_stmt => |if_s| {
-            // Check condition and all branches
-            if (exprRefersToSkippedModule(self, if_s.condition.*)) return true;
-            for (if_s.body) |s| {
-                if (stmtRefersToSkippedModule(self, s)) return true;
-            }
-            for (if_s.else_body) |s| {
-                if (stmtRefersToSkippedModule(self, s)) return true;
-            }
-            return false;
-        },
-        .for_stmt => |for_s| {
-            if (exprRefersToSkippedModule(self, for_s.iter.*)) return true;
-            for (for_s.body) |s| {
-                if (stmtRefersToSkippedModule(self, s)) return true;
-            }
-            return false;
-        },
-        .while_stmt => |while_s| {
-            if (exprRefersToSkippedModule(self, while_s.condition.*)) return true;
-            for (while_s.body) |s| {
-                if (stmtRefersToSkippedModule(self, s)) return true;
-            }
-            return false;
-        },
-        .try_stmt => |try_s| {
-            for (try_s.body) |s| {
-                if (stmtRefersToSkippedModule(self, s)) return true;
-            }
-            for (try_s.finalbody) |s| {
-                if (stmtRefersToSkippedModule(self, s)) return true;
-            }
-            return false;
-        },
-        .with_stmt => |with_s| {
-            if (exprRefersToSkippedModule(self, with_s.context_expr.*)) return true;
-            for (with_s.body) |s| {
-                if (stmtRefersToSkippedModule(self, s)) return true;
-            }
-            return false;
-        },
-        else => return false,
-    }
-}
-
-/// Check if a function body references any skipped modules
-pub fn functionBodyRefersToSkippedModule(self: *NativeCodegen, body: []const ast.Node) bool {
-    for (body) |stmt| {
-        if (stmtRefersToSkippedModule(self, stmt)) {
-            return true;
-        }
-    }
-    return false;
-}
-
 /// Generate annotated assignment statement (x: int = 5)
 pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) CodegenError!void {
     // If no value, just a declaration (x: int), skip for now
@@ -190,12 +31,18 @@ pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) Codege
 
 /// Generate assignment statement with automatic defer cleanup
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
-    // Skip assignments that reference skipped modules (e.g., result = subprocess.run(...))
-    if (exprRefersToSkippedModule(self, assign.value.*)) {
-        return;
+    // Get the widened type from var_types map (accounts for all assignments to this variable)
+    // Fall back to inferring from current value if not found
+    var value_type = try self.type_inferrer.inferExpr(assign.value.*);
+    for (assign.targets) |target| {
+        if (target == .name) {
+            // Check if type inferrer has a widened type for this variable
+            if (self.type_inferrer.var_types.get(target.name.id)) |widened_type| {
+                value_type = widened_type;
+                break;
+            }
+        }
     }
-
-    const value_type = try self.type_inferrer.inferExpr(assign.value.*);
 
     // Handle tuple unpacking: a, b = (1, 2)
     // Note: Parser may represent tuple targets as either .tuple or .list
@@ -255,41 +102,44 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             const is_first_assignment = !self.isDeclared(var_name) and !is_hoisted and !is_global;
 
             // Try compile-time evaluation FIRST
-            if (self.comptime_evaluator.tryEval(assign.value.*)) |comptime_val| {
-                // Only apply for simple types (no strings/lists that allocate during evaluation)
-                // TODO: Strings and lists need proper arena allocation to avoid memory leaks
-                const is_simple_type = switch (comptime_val) {
-                    .int, .float, .bool => true,
-                    .string, .list => false,
-                };
+            // Skip comptime eval for variables typed as bigint (need runtime BigInt.fromInt)
+            if (value_type != .bigint) {
+                if (self.comptime_evaluator.tryEval(assign.value.*)) |comptime_val| {
+                    // Only apply for simple types (no strings/lists that allocate during evaluation)
+                    // TODO: Strings and lists need proper arena allocation to avoid memory leaks
+                    const is_simple_type = switch (comptime_val) {
+                        .int, .float, .bool => true,
+                        .string, .list => false,
+                    };
 
-                if (is_simple_type) {
-                    // Check mutability BEFORE emitting
-                    // Use isVarMutated() to check both module-level AND function-local mutations
-                    const is_mutable = if (is_first_assignment)
-                        self.isVarMutated(var_name)
-                    else
-                        false; // Reassignments don't declare
+                    if (is_simple_type) {
+                        // Check mutability BEFORE emitting
+                        // Use isVarMutated() to check both module-level AND function-local mutations
+                        const is_mutable = if (is_first_assignment)
+                            self.isVarMutated(var_name)
+                        else
+                            false; // Reassignments don't declare
 
-                    // Successfully evaluated at compile time!
-                    try comptimeHelpers.emitComptimeAssignment(self, var_name, comptime_val, is_first_assignment, is_mutable);
-                    if (is_first_assignment) {
-                        try self.declareVar(var_name);
+                        // Successfully evaluated at compile time!
+                        try comptimeHelpers.emitComptimeAssignment(self, var_name, comptime_val, is_first_assignment, is_mutable);
+                        if (is_first_assignment) {
+                            try self.declareVar(var_name);
+                        }
+
+                        // If variable is used in eval string but nowhere else in actual code,
+                        // emit _ = varname; to suppress Zig "unused" warning
+                        if (self.isEvalStringVar(var_name)) {
+                            try self.emitIndent();
+                            try self.emit("_ = ");
+                            try self.emit(var_name);
+                            try self.emit(";\n");
+                        }
+
+                        return;
                     }
-
-                    // If variable is used in eval string but nowhere else in actual code,
-                    // emit _ = varname; to suppress Zig "unused" warning
-                    if (self.isEvalStringVar(var_name)) {
-                        try self.emitIndent();
-                        try self.emit("_ = ");
-                        try self.emit(var_name);
-                        try self.emit(";\n");
-                    }
-
-                    return;
+                    // Fall through to runtime codegen for strings/lists
+                    // Don't free - these are either AST-owned or will leak (TODO: arena)
                 }
-                // Fall through to runtime codegen for strings/lists
-                // Don't free - these are either AST-owned or will leak (TODO: arena)
             }
 
             try self.emitIndent();
@@ -372,6 +222,38 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     assign.value.*,
                 );
                 return;
+            }
+
+            // Special handling for bigint variable assignments
+            // When variable is typed as bigint, we need to convert values to BigInt
+            if (value_type == .bigint) {
+                // Infer the type of the current value expression
+                const current_value_type = try self.type_inferrer.inferExpr(assign.value.*);
+
+                // If current value is int-typed, convert to BigInt
+                if (current_value_type == .int) {
+                    // Small integer constants can use fromInt (i64)
+                    // Other int expressions (arithmetic, int(string), etc.) may produce i128
+                    if (assign.value.* == .constant) {
+                        try self.emit("(runtime.BigInt.fromInt(__global_allocator, ");
+                    } else {
+                        try self.emit("(runtime.BigInt.fromInt128(__global_allocator, ");
+                    }
+                    try self.genExpr(assign.value.*);
+                    try self.emit(") catch unreachable);\n");
+
+                    // Track variable metadata
+                    try valueGen.trackVariableMetadata(
+                        self,
+                        var_name,
+                        is_first_assignment,
+                        is_constant_array,
+                        typeHandling.isArraySlice(self, assign.value.*),
+                        assign,
+                    );
+                    return;
+                }
+                // If current value is already bigint, emit normally
             }
 
             // Check if this is an async function call that needs auto-await
@@ -773,11 +655,6 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
 /// Generate expression statement (expression with semicolon)
 pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    // Skip expression statements that reference skipped modules (e.g., pytest.main())
-    if (exprRefersToSkippedModule(self, expr)) {
-        return;
-    }
-
     try self.emitIndent();
 
     // Special handling for print()

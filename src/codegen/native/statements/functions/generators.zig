@@ -144,16 +144,6 @@ pub fn getComplexParentInfo(base_name: []const u8) ?ComplexParentInfo {
 
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
-    // Skip entire functions that reference skipped modules to avoid undeclared variable errors.
-    // E.g., `result = subprocess.run(...)` skips assignment but `return result.stderr` still
-    // references `result` - causing compilation errors. Better to skip the whole function.
-    const assign = @import("../assign.zig");
-    if (assign.functionBodyRefersToSkippedModule(self, func.body)) {
-        // Mark this function as skipped so calls to it are also skipped
-        try self.markSkippedFunction(func.name);
-        return;
-    }
-
     // Check if function needs allocator parameter (for error union return type)
     const needs_allocator_for_errors = allocator_analyzer.functionNeedsAllocator(func);
 
@@ -287,14 +277,15 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 const method = stmt.function_def;
                 const method_name = method.name;
                 if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
-                    // Check for skip docstring: first statement is string starting with "skip:"
-                    const skip_reason = getSkipReason(method);
                     // Check if method body has fallible operations (needs allocator param)
                     const method_needs_allocator = allocator_analyzer.functionNeedsAllocator(method);
+
+                    // No skip logic - all tests must be compiled and run
                     try test_methods.append(self.allocator, core.TestMethodInfo{
                         .name = method_name,
-                        .skip_reason = skip_reason,
+                        .skip_reason = null,
                         .needs_allocator = method_needs_allocator,
+                        .is_skipped = false,
                     });
                 } else if (std.mem.eql(u8, method_name, "setUp")) {
                     has_setUp = true;
@@ -459,147 +450,3 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     }
 }
 
-/// Check if a test method has a skip docstring
-/// Returns the skip reason if found, null otherwise
-/// Looks for: """skip: reason""" or "skip: reason" as first statement
-pub fn getSkipReason(method: ast.Node.FunctionDef) ?[]const u8 {
-    // Check for hypothesis decorators (@hypothesis.given, @hypothesis.example)
-    // These tests require the hypothesis library which we don't support
-    for (method.decorators) |dec| {
-        // Check for @hypothesis.given or @hypothesis.example
-        if (dec == .call) {
-            const call = dec.call;
-            if (call.func.* == .attribute) {
-                const attr = call.func.attribute;
-                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "hypothesis")) {
-                    return "requires hypothesis library";
-                }
-            }
-        }
-        // Check for bare @hypothesis.something
-        if (dec == .attribute) {
-            const attr = dec.attribute;
-            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "hypothesis")) {
-                return "requires hypothesis library";
-            }
-        }
-    }
-
-    // Check if body references hypothesis (e.g., helper functions that use hypothesis.strategies)
-    if (bodyUsesHypothesis(method.body)) {
-        return "requires hypothesis library";
-    }
-
-    if (method.body.len == 0) return null;
-
-    // Check if first statement is an expression statement with a string constant
-    const first = method.body[0];
-    if (first != .expr_stmt) return null;
-
-    const expr = first.expr_stmt.value.*;
-    if (expr != .constant) return null;
-
-    const val = expr.constant.value;
-    if (val != .string) return null;
-
-    var docstring = val.string;
-
-    // The parser stores strings with their original Python quotes
-    // Single-quoted: "skip: reason" (with surrounding quotes)
-    // Triple-quoted: """skip: reason""" becomes ""skip: reason"" in storage
-    // We need to strip these outer quotes first
-
-    // Strip leading quotes (" or "")
-    while (docstring.len > 0 and docstring[0] == '"') {
-        docstring = docstring[1..];
-    }
-    // Strip trailing quotes
-    while (docstring.len > 0 and docstring[docstring.len - 1] == '"') {
-        docstring = docstring[0 .. docstring.len - 1];
-    }
-
-    // Check for "skip:" prefix (case insensitive for the prefix)
-    if (docstring.len >= 5) {
-        const prefix = docstring[0..5];
-        if (std.mem.eql(u8, prefix, "skip:") or std.mem.eql(u8, prefix, "SKIP:")) {
-            // Return the reason (everything after "skip:")
-            const reason = std.mem.trim(u8, docstring[5..], " \t\n\r");
-            return if (reason.len > 0) reason else "skipped";
-        }
-    }
-    return null;
-}
-
-/// Check if any expression in the body references 'hypothesis' module
-fn bodyUsesHypothesis(stmts: []ast.Node) bool {
-    for (stmts) |stmt| {
-        if (stmtUsesHypothesis(stmt)) return true;
-    }
-    return false;
-}
-
-fn stmtUsesHypothesis(node: ast.Node) bool {
-    return switch (node) {
-        .assign => |assign| exprUsesHypothesis(assign.value.*),
-        .aug_assign => |aug| exprUsesHypothesis(aug.value.*),
-        .expr_stmt => |expr| exprUsesHypothesis(expr.value.*),
-        .return_stmt => |ret| if (ret.value) |val| exprUsesHypothesis(val.*) else false,
-        .if_stmt => |if_stmt| {
-            if (exprUsesHypothesis(if_stmt.condition.*)) return true;
-            if (bodyUsesHypothesis(if_stmt.body)) return true;
-            if (bodyUsesHypothesis(if_stmt.else_body)) return true;
-            return false;
-        },
-        .while_stmt => |while_stmt| {
-            if (exprUsesHypothesis(while_stmt.condition.*)) return true;
-            return bodyUsesHypothesis(while_stmt.body);
-        },
-        .for_stmt => |for_stmt| bodyUsesHypothesis(for_stmt.body),
-        else => false,
-    };
-}
-
-fn exprUsesHypothesis(node: ast.Node) bool {
-    return switch (node) {
-        .name => |name| std.mem.eql(u8, name.id, "hypothesis"),
-        .attribute => |attr| exprUsesHypothesis(attr.value.*),
-        .call => |call| {
-            if (exprUsesHypothesis(call.func.*)) return true;
-            for (call.args) |arg| {
-                if (exprUsesHypothesis(arg)) return true;
-            }
-            return false;
-        },
-        .binop => |binop| exprUsesHypothesis(binop.left.*) or exprUsesHypothesis(binop.right.*),
-        .compare => |comp| {
-            if (exprUsesHypothesis(comp.left.*)) return true;
-            for (comp.comparators) |c| {
-                if (exprUsesHypothesis(c)) return true;
-            }
-            return false;
-        },
-        .listcomp => |lc| {
-            if (exprUsesHypothesis(lc.elt.*)) return true;
-            for (lc.generators) |gen| {
-                if (exprUsesHypothesis(gen.iter.*)) return true;
-                for (gen.ifs) |cond| {
-                    if (exprUsesHypothesis(cond)) return true;
-                }
-            }
-            return false;
-        },
-        .tuple => |tup| {
-            for (tup.elts) |elt| {
-                if (exprUsesHypothesis(elt)) return true;
-            }
-            return false;
-        },
-        .list => |list| {
-            for (list.elts) |elt| {
-                if (exprUsesHypothesis(elt)) return true;
-            }
-            return false;
-        },
-        else => false,
-    };
-}
