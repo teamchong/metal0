@@ -202,9 +202,10 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));
     //   break :blk copy;
     // }
+    const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
 
     try self.emit("blk: {\n");
-    try self.emit("const copy = try allocator.dupe(i64, ");
+    try self.emitFmt("const copy = try {s}.dupe(i64, ", .{alloc_name});
     try self.genExpr(args[0]);
     try self.emit(");\n");
     try self.emit("std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));\n");
@@ -222,9 +223,10 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   std.mem.reverse(i64, copy);
     //   break :blk copy;
     // }
+    const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
 
     try self.emit("blk: {\n");
-    try self.emit("const copy = try allocator.dupe(i64, ");
+    try self.emitFmt("const copy = try {s}.dupe(i64, ", .{alloc_name});
     try self.genExpr(args[0]);
     try self.emit(");\n");
     try self.emit("std.mem.reverse(i64, copy);\n");

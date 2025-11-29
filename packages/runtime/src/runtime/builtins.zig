@@ -1,11 +1,11 @@
 /// Built-in Python functions implemented in Zig
 const std = @import("std");
-const runtime_core = @import("runtime.zig");
-const pyint = @import("pyint.zig");
-const pylist = @import("pylist.zig");
-const pystring = @import("pystring.zig");
-const pytuple = @import("pytuple.zig");
-const dict_module = @import("dict.zig");
+const runtime_core = @import("../runtime.zig");
+const pyint = @import("../pyint.zig");
+const pylist = @import("../pylist.zig");
+const pystring = @import("../pystring.zig");
+const pytuple = @import("../pytuple.zig");
+const dict_module = @import("../dict.zig");
 
 const PyObject = runtime_core.PyObject;
 const PythonError = runtime_core.PythonError;

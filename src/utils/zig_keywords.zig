@@ -75,6 +75,38 @@ const zig_keywords = std.StaticStringMap(void).initComptime(.{
 
     // Special identifiers that require @"" syntax
     .{ "_", {} }, // Underscore for discarding values
+
+    // Zig primitive types (name shadows primitive error)
+    .{ "i1", {} },
+    .{ "i2", {} },
+    .{ "i8", {} },
+    .{ "i16", {} },
+    .{ "i32", {} },
+    .{ "i64", {} },
+    .{ "i128", {} },
+    .{ "u1", {} },
+    .{ "u2", {} },
+    .{ "u8", {} },
+    .{ "u16", {} },
+    .{ "u32", {} },
+    .{ "u64", {} },
+    .{ "u128", {} },
+    .{ "f16", {} },
+    .{ "f32", {} },
+    .{ "f64", {} },
+    .{ "f128", {} },
+    .{ "usize", {} },
+    .{ "isize", {} },
+    .{ "c_int", {} },
+    .{ "c_uint", {} },
+    .{ "c_long", {} },
+    .{ "c_ulong", {} },
+    .{ "c_longlong", {} },
+    .{ "c_ulonglong", {} },
+    .{ "c_short", {} },
+    .{ "c_ushort", {} },
+    .{ "c_char", {} },
+    .{ "bool", {} },
 });
 
 /// Common method names that parameters should not shadow

@@ -358,7 +358,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // Library class (e.g. Path): may return error union, wrap in (try ...)
                 // Use __alloc for nested class methods to avoid shadowing outer allocator
                 // class_nesting_depth: 1 = top-level class, 2+ = nested class
-                const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
+                // Use __global_allocator at module level (when not in a function)
+                const alloc_name = if (self.current_function_name == null)
+                    "__global_allocator"
+                else if (self.class_nesting_depth > 1)
+                    "__alloc"
+                else
+                    "allocator";
                 try self.emit("(try ");
                 try self.emit(func_name);
                 try self.output.writer(self.allocator).print(".init({s}", .{alloc_name});

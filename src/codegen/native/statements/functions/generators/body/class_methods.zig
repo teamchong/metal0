@@ -52,8 +52,8 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!vo
     try self.emit("}\n");
 }
 
-/// Generate default init() method with builtin base type support
-pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, builtin_base: ?BuiltinBaseInfo) CodegenError!void {
+/// Generate default init() method with builtin/complex parent type support
+pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, builtin_base: ?BuiltinBaseInfo, complex_parent: ?generators.ComplexParentInfo) CodegenError!void {
     // Default __dict__ field for dynamic attributes
     try self.emitIndent();
     try self.emit("// Dynamic attributes dictionary\n");
@@ -77,6 +77,14 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
         }
     }
 
+    // Add complex parent constructor args
+    if (complex_parent) |parent_info| {
+        for (parent_info.init_args) |arg| {
+            try self.emit(", ");
+            try self.output.writer(self.allocator).print("{s}: {s}", .{ arg.name, arg.zig_type });
+        }
+    }
+
     try self.emit(") @This() {\n");
     self.indent();
 
@@ -88,6 +96,28 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
     if (builtin_base) |base_info| {
         try self.emitIndent();
         try self.output.writer(self.allocator).print(".__base_value__ = {s},\n", .{base_info.zig_init});
+    }
+
+    // Initialize complex parent fields using field_init (uses constructor args)
+    if (complex_parent) |parent_info| {
+        for (parent_info.field_init) |fi| {
+            try self.emitIndent();
+            try self.emit(".");
+            try self.emit(fi.field_name);
+            try self.emit(" = ");
+            // Replace {alloc} with allocator name in init_code
+            var i: usize = 0;
+            while (i < fi.init_code.len) {
+                if (i + 7 <= fi.init_code.len and std.mem.eql(u8, fi.init_code[i .. i + 7], "{alloc}")) {
+                    try self.emit(alloc_name);
+                    i += 7;
+                } else {
+                    try self.output.append(self.allocator, fi.init_code[i]);
+                    i += 1;
+                }
+            }
+            try self.emit(",\n");
+        }
     }
 
     // Initialize __dict__ for dynamic attributes
@@ -203,12 +233,13 @@ pub fn genInitMethod(
     try self.emit("}\n");
 }
 
-/// Generate init() method from __init__ with builtin base type support
+/// Generate init() method from __init__ with builtin/complex parent type support
 pub fn genInitMethodWithBuiltinBase(
     self: *NativeCodegen,
     class_name: []const u8,
     init: ast.Node.FunctionDef,
     builtin_base: ?BuiltinBaseInfo,
+    complex_parent: ?generators.ComplexParentInfo,
 ) CodegenError!void {
     // Use __alloc for nested classes to avoid shadowing outer allocator
     const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
@@ -284,6 +315,32 @@ pub fn genInitMethodWithBuiltinBase(
     if (builtin_base) |base_info| {
         try self.emitIndent();
         try self.output.writer(self.allocator).print(".__base_value__ = {s},\n", .{base_info.zig_init});
+    }
+
+    // Initialize complex parent fields (e.g., array.array fields)
+    if (complex_parent) |parent_info| {
+        for (parent_info.fields) |field| {
+            // Check if this field is being initialized in __init__ body
+            // If so, skip the default - user's init will handle it
+            const is_user_initialized = for (init.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                        const attr = assign.targets[0].attribute;
+                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                            if (std.mem.eql(u8, attr.attr, field.name)) {
+                                break true;
+                            }
+                        }
+                    }
+                }
+            } else false;
+
+            if (!is_user_initialized) {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print(".{s} = {s},\n", .{ field.name, field.default });
+            }
+        }
     }
 
     // Second pass: extract field assignments from __init__ body

@@ -74,10 +74,12 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn write(self: *@This(), data: []const u8) void {\n");
+    try self.emit("pub fn write(self: *@This(), data: []const u8) i64 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("self.buffer.appendSlice(__global_allocator, data) catch {};\n");
+    try self.emitIndent();
+    try self.emit("return @intCast(data.len);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

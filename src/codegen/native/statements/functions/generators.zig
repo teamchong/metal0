@@ -78,6 +78,11 @@ pub const ComplexParentInfo = struct {
     fields: []const FieldInfo,
     /// Methods inherited from parent (for parent method call resolution)
     methods: []const MethodInfo,
+    /// Constructor arguments (for default init generation)
+    init_args: []const InitArg,
+    /// Zig code to initialize fields from constructor args
+    /// Use {alloc} for allocator, {0}, {1}, etc. for init args
+    field_init: []const FieldInit,
 
     pub const FieldInfo = struct {
         name: []const u8,
@@ -90,6 +95,17 @@ pub const ComplexParentInfo = struct {
         /// The Zig code to inline when calling parent.method(self, ...)
         /// Use {self} for the self parameter, {0}, {1}, etc. for other args
         inline_code: []const u8,
+    };
+
+    pub const InitArg = struct {
+        name: []const u8,
+        zig_type: []const u8,
+    };
+
+    pub const FieldInit = struct {
+        field_name: []const u8,
+        /// Zig code to initialize the field, use {0}, {1} for args, {alloc} for allocator
+        init_code: []const u8,
     };
 };
 
@@ -110,6 +126,14 @@ pub fn getComplexParentInfo(base_name: []const u8) ?ComplexParentInfo {
                 .{ .name = "__len__", .inline_code = "{self}.__array_items.items.len" },
                 // append(self, x) -> self.__array_items.append(x)
                 .{ .name = "append", .inline_code = "try {self}.__array_items.append(__global_allocator, {0})" },
+            },
+            .init_args = &.{
+                .{ .name = "typecode", .zig_type = "u8" },
+                .{ .name = "data", .zig_type = "[]const i64" },
+            },
+            .field_init = &.{
+                .{ .field_name = "typecode", .init_code = "typecode" },
+                .{ .field_name = "__array_items", .init_code = "blk: { var arr = std.ArrayList(i64){}; arr.appendSlice({alloc}, data) catch {}; break :blk arr; }" },
             },
         } },
     });
@@ -341,10 +365,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     // Generate init() method from __init__, or default init if no __init__
     if (init_method) |init| {
-        try body.genInitMethodWithBuiltinBase(self, class.name, init, builtin_base);
+        try body.genInitMethodWithBuiltinBase(self, class.name, init, builtin_base, complex_parent);
     } else {
         // No __init__ defined, generate default init method
-        try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base);
+        try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base, complex_parent);
     }
 
     // Build list of child method names for override detection

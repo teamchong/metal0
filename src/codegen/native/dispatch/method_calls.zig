@@ -576,8 +576,7 @@ fn handleStreamMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.No
 
     const method_hash = fnv.hash(method_name);
     if (method_hash == WRITE) {
-        // _ = stream.write(data) - returns bytes written
-        try self.emit("_ = ");
+        // stream.write(data) - returns bytes written (caller handles discard if needed)
         try self.emit(receiver);
         try self.emit(".write(");
         if (args.len > 0) try parent.genExpr(self, args[0]);

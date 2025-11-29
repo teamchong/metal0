@@ -19,6 +19,7 @@ fn producesBlockExpression(expr: ast.Node) bool {
         .if_expr => true,
         .call => true,
         .attribute => true, // field access on block expr wraps in block
+        .compare => true, // comparisons need parens in arithmetic: (b>a)-(b<a)
         else => false,
     };
 }
@@ -256,7 +257,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     if (left_is_usize and needs_cast) {
         try self.emit("@as(i64, @intCast(");
     }
-    try genExpr(self, binop.left.*);
+    // Use genExprWrapped to add parens around comparisons, etc.
+    try genExprWrapped(self, binop.left.*);
     if (left_is_usize and needs_cast) {
         try self.emit("))");
     }
@@ -278,7 +280,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     if (right_is_usize and needs_cast) {
         try self.emit("@as(i64, @intCast(");
     }
-    try genExpr(self, binop.right.*);
+    // Use genExprWrapped to add parens around comparisons, etc.
+    try genExprWrapped(self, binop.right.*);
     if (right_is_usize and needs_cast) {
         try self.emit("))");
     }
