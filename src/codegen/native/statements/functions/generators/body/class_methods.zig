@@ -296,6 +296,7 @@ pub fn genClassMethods(
             const mutates_self = body.methodMutatesSelf(method);
             // Skipped methods don't need allocator since their body is empty
             const needs_allocator = if (is_skipped) false else allocator_analyzer.functionNeedsAllocator(method);
+            const actually_uses_allocator = if (is_skipped) false else allocator_analyzer.functionActuallyUsesAllocatorParam(method);
             try signature.genMethodSignature(self, class.name, method, mutates_self, needs_allocator);
 
             if (is_skipped) {
@@ -307,7 +308,7 @@ pub fn genClassMethods(
                 try self.emitIndent();
                 try self.emit("}\n");
             } else {
-                try body.genMethodBody(self, method);
+                try body.genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses_allocator);
             }
         }
     }
@@ -339,8 +340,9 @@ pub fn genInheritedMethods(
                 // Copy parent method to child class
                 const mutates_self = body.methodMutatesSelf(parent_method);
                 const needs_allocator = allocator_analyzer.functionNeedsAllocator(parent_method);
+                const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParam(parent_method);
                 try signature.genMethodSignature(self, class.name, parent_method, mutates_self, needs_allocator);
-                try body.genMethodBody(self, parent_method);
+                try body.genMethodBodyWithAllocatorInfo(self, parent_method, needs_allocator, actually_uses_allocator);
             }
         }
     }

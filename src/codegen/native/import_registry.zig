@@ -265,7 +265,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("configparser", .zig_runtime, "std", null); // configparser module
     try registry.register("argparse", .zig_runtime, "std", null); // argparse module
     try registry.register("zipfile", .zig_runtime, "std", null); // zipfile module
-    try registry.register("gzip", .zig_runtime, "std", null); // gzip module
+    try registry.register("gzip", .zig_runtime, "std", "z"); // gzip module (uses zlib)
     try registry.register("textwrap", .zig_runtime, "std", null); // textwrap module
     try registry.register("uuid", .zig_runtime, "std", null); // uuid module
     try registry.register("tempfile", .zig_runtime, "std", null); // tempfile module

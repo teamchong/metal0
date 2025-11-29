@@ -414,6 +414,8 @@ fn exprUsesAllocatorParamWithClasses(expr: ast.Node, func_name: []const u8, nest
 /// Builtins that use __global_allocator instead of param (don't count as using param)
 const GlobalAllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "str", {} }, // str() uses __global_allocator in codegen
+    .{ "list", {} }, // list() generates std.ArrayList{} - no allocator param
+    .{ "dict", {} }, // dict() generates hashmap init - no allocator param
     .{ "print", {} }, // print with string concat uses __global_allocator
     .{ "eval", {} }, // runtime.eval() uses __global_allocator
     .{ "exec", {} }, // exec() uses __global_allocator

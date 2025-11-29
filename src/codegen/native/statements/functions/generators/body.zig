@@ -134,8 +134,8 @@ fn countAssignmentsInStmt(counts: *hashmap_helper.StringHashMap(usize), stmt: as
 pub fn genFunctionBody(
     self: *NativeCodegen,
     func: ast.Node.FunctionDef,
-    has_allocator_param: bool,
-    actually_uses_allocator: bool,
+    _: bool, // has_allocator_param - unused, handled in signature.zig
+    _: bool, // actually_uses_allocator - unused, handled in signature.zig
 ) CodegenError!void {
     // For async functions, generate task spawn wrapper
     if (func.is_async) {
@@ -154,11 +154,8 @@ pub fn genFunctionBody(
     // Push new scope for function body
     try self.pushScope();
 
-    // If allocator param was added but not actually used, suppress warning
-    if (has_allocator_param and !actually_uses_allocator) {
-        try self.emitIndent();
-        try self.emit("_ = allocator;\n");
-    }
+    // Note: Unused allocator param is handled in signature.zig with "_:" prefix
+    // No need to emit "_ = allocator;" here
 
     // Suppress warnings for unused function parameters (skip params with defaults - they get renamed)
     for (func.args) |arg| {
@@ -240,6 +237,19 @@ fn genAsyncFunctionBody(
 
 /// Generate method body with self-usage detection
 pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) CodegenError!void {
+    // genMethodBodyWithAllocatorInfo with automatic detection
+    const needs_allocator = allocator_analyzer.functionNeedsAllocator(method);
+    const actually_uses = allocator_analyzer.functionActuallyUsesAllocatorParam(method);
+    try genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses);
+}
+
+/// Generate method body with explicit allocator info
+pub fn genMethodBodyWithAllocatorInfo(
+    self: *NativeCodegen,
+    method: ast.Node.FunctionDef,
+    _: bool, // has_allocator_param - unused, handled in signature.zig
+    _: bool, // actually_uses_allocator - unused, handled in signature.zig
+) CodegenError!void {
     // Analyze method body for mutated variables BEFORE generating code
     // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
     self.func_local_mutations.clearRetainingCapacity();
@@ -248,14 +258,14 @@ pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) Codegen
 
     self.indent();
 
-    // Note: self-usage is now handled in signature generation by using `_` as param name
-    // No need to add `_ = self;` here anymore
+    // Push new scope for method body
+    try self.pushScope();
+
+    // Note: Unused allocator param is handled in signature.zig with "_:" prefix
+    // No need to emit "_ = allocator;" here
 
     // Clear local variable types (new method scope)
     self.clearLocalVarTypes();
-
-    // Push new scope for method body
-    try self.pushScope();
 
     // Track parameters that were renamed to avoid method shadowing (e.g., init -> init_arg)
     // We'll restore these when exiting the method

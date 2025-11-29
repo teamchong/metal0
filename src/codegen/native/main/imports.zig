@@ -341,6 +341,12 @@ pub fn collectImports(
                 .zig_runtime => {
                     // Include modules with Zig implementations
                     try imports.append(self.allocator, python_module);
+
+                    // Add C library to linking list if specified (e.g. gzip needs zlib)
+                    if (info.c_library) |lib_name| {
+                        try self.c_libraries.append(self.allocator, lib_name);
+                        std.debug.print("[C Extension] Detected {s} → link {s}\n", .{ python_module, lib_name });
+                    }
                 },
                 .c_library => {
                     // Include C library modules
