@@ -133,9 +133,10 @@ pub fn genStderr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate sys.maxsize -> largest positive integer
+/// Uses i128 to allow arithmetic like sys.maxsize + 1 without overflow
 pub fn genMaxsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("@as(i64, std.math.maxInt(i64))");
+    try self.emit("@as(i128, std.math.maxInt(i64))");
 }
 
 /// Generate sys.byteorder -> byte order ("little" or "big")

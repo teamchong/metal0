@@ -117,6 +117,8 @@ pub fn emitVarDeclaration(
     // For lists/ArrayLists/dicts/dictcomps/tuples/closures/counters, let Zig infer the type from the initializer
     // For unknown types (json.loads, etc.), let Zig infer
     // For class instances, let Zig infer to avoid cross-method type pollution issues
+    // For integers, let Zig infer to handle i64/i128 from int() calls (sys.maxsize + 1 needs i128)
+    const is_int = (value_type == .int);
     const is_list = (value_type == .list);
     const is_tuple = (value_type == .tuple);
     const is_closure = (value_type == .closure);
@@ -125,7 +127,7 @@ pub fn emitVarDeclaration(
     const is_deque = (value_type == .deque);
     const is_class_instance = (value_type == .class_instance);
     const is_dictcomp = false; // Passed separately
-    if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_counter and !is_deque and !is_class_instance) {
+    if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_counter and !is_deque and !is_class_instance and !is_int) {
         try self.emit(": ");
         try value_type.toZigType(self.allocator, &self.output);
     }

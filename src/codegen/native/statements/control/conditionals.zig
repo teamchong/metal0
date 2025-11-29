@@ -5,6 +5,40 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const CodeBuilder = @import("../../code_builder.zig").CodeBuilder;
 
+/// Check if a condition is a comptime constant and return its boolean value
+/// Returns null if not comptime constant, true/false otherwise
+fn isComptimeConstantCondition(node: ast.Node) ?bool {
+    switch (node) {
+        // Literal True/False
+        .constant => |c| {
+            switch (c.value) {
+                .bool => |b| return b,
+                else => return null,
+            }
+        },
+        // isinstance() always returns true at compile time for typed variables
+        .call => |call| {
+            if (call.func.* == .name) {
+                const func_name = call.func.name.id;
+                if (std.mem.eql(u8, func_name, "isinstance")) {
+                    return true;
+                }
+            }
+            return null;
+        },
+        // not <expr> - negate the inner value
+        .unaryop => |u| {
+            if (u.op == .Not) {
+                if (isComptimeConstantCondition(u.operand.*)) |inner| {
+                    return !inner;
+                }
+            }
+            return null;
+        },
+        else => return null,
+    }
+}
+
 /// Pre-scan an expression for walrus operators (named_expr) and emit variable declarations
 fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     switch (node) {
@@ -65,6 +99,23 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
 
 /// Generate if statement
 pub fn genIf(self: *NativeCodegen, if_stmt: ast.Node.If) CodegenError!void {
+    // Check for comptime constant conditions - eliminate dead branches
+    if (isComptimeConstantCondition(if_stmt.condition.*)) |comptime_value| {
+        if (comptime_value) {
+            // Condition is comptime True - only emit if body
+            for (if_stmt.body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+            return;
+        } else {
+            // Condition is comptime False - only emit else body
+            for (if_stmt.else_body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+            return;
+        }
+    }
+
     var builder = CodeBuilder.init(self);
 
     // Pre-scan condition for walrus operators and emit variable declarations

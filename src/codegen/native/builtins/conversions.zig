@@ -259,8 +259,9 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Handle int(string, base) - two argument form
+    // Use i128 to handle large integers like sys.maxsize + 1
     if (args.len == 2) {
-        try self.emit("try std.fmt.parseInt(i64, ");
+        try self.emit("try std.fmt.parseInt(i128, ");
         try self.genExpr(args[0]);
         try self.emit(", @intCast(");
         try self.genExpr(args[1]);
@@ -292,8 +293,9 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Parse string to int
+    // Use i128 to handle large integers like sys.maxsize + 1
     if (arg_type == .string) {
-        try self.emit("try std.fmt.parseInt(i64, ");
+        try self.emit("try std.fmt.parseInt(i128, ");
         try self.genExpr(args[0]);
         try self.emit(", 10)");
         return;
@@ -301,6 +303,17 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Cast float to int
     if (arg_type == .float) {
+        // Check if this is a literal float that exceeds i64 range (needs BigInt)
+        if (args[0] == .constant and args[0].constant.value == .float) {
+            const float_val = args[0].constant.value.float;
+            const max_i64: f64 = 9223372036854775807.0; // 2^63 - 1
+            const min_i64: f64 = -9223372036854775808.0; // -2^63
+            if (float_val > max_i64 or float_val < min_i64) {
+                // BigInt required - emit compile-time error
+                try self.emit("@compileError(\"int() value exceeds i64 range, requires BigInt (not implemented)\")");
+                return;
+            }
+        }
         try self.emit("@as(i64, @intFromFloat(");
         try self.genExpr(args[0]);
         try self.emit("))");
