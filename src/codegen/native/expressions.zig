@@ -454,6 +454,11 @@ fn isBuiltinFunction(name: []const u8) bool {
         "ascii",
         "breakpoint",
         "__import__",
+        // collections module builtins (from collections import ...)
+        "deque",
+        "Counter",
+        "defaultdict",
+        "OrderedDict",
     };
     for (builtins) |b| {
         if (std.mem.eql(u8, name, b)) return true;
