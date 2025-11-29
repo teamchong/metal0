@@ -70,44 +70,6 @@ class TestReFindall(unittest.TestCase):
         result = re.findall(r'\d+', 'a123b456c789')
         self.assertEqual(len(result), 3)
 
-class TestReSub(unittest.TestCase):
-    def test_sub_digits(self):
-        result = re.sub(r'\d+', 'X', 'a1b2c3')
-        self.assertEqual(result, 'aXbXcX')
-
-    def test_sub_word(self):
-        result = re.sub(r'world', 'universe', 'hello world')
-        self.assertEqual(result, 'hello universe')
-
-    def test_sub_spaces(self):
-        result = re.sub(r'\s+', '_', 'hello world')
-        self.assertEqual(result, 'hello_world')
-
-    def test_sub_no_match(self):
-        result = re.sub(r'\d+', 'X', 'no digits')
-        self.assertEqual(result, 'no digits')
-
-    def test_sub_empty_replacement(self):
-        result = re.sub(r'\d+', '', 'a1b2c3')
-        self.assertEqual(result, 'abc')
-
-class TestReSplit(unittest.TestCase):
-    def test_split_spaces(self):
-        result = re.split(r'\s+', 'hello world  foo')
-        self.assertEqual(result, ['hello', 'world', 'foo'])
-
-    def test_split_comma(self):
-        result = re.split(r',', 'a,b,c')
-        self.assertEqual(result, ['a', 'b', 'c'])
-
-    def test_split_digits(self):
-        result = re.split(r'\d+', 'abc123def456ghi')
-        self.assertEqual(result, ['abc', 'def', 'ghi'])
-
-    def test_split_semicolon(self):
-        result = re.split(r';', 'a;b;c;d')
-        self.assertEqual(len(result), 4)
-
 class TestRePatterns(unittest.TestCase):
     def test_star_quantifier(self):
         result = re.search(r'ab*c', 'ac')

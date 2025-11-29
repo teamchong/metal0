@@ -213,9 +213,9 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         }
     }
 
-    // Generate: try __comp_result.append(allocator, <elt_expr>);
+    // Generate: try __comp_result.append(__global_allocator, <elt_expr>);
     try self.emitIndent();
-    try self.emit("try __comp_result.append(allocator, ");
+    try self.emit("try __comp_result.append(__global_allocator, ");
     try genExprWithSubs(self, listcomp.elt.*, &subs);
     try self.emit(");\n");
 
@@ -263,9 +263,9 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     // Generate HashMap instead of ArrayList for compatibility with print(dict)
     try self.emitIndent();
     if (key_is_int) {
-        try self.emit("var __dict_result = std.AutoHashMap(i64, i64).init(allocator);\n");
+        try self.emit("var __dict_result = std.AutoHashMap(i64, i64).init(__global_allocator);\n");
     } else {
-        try self.emit("var __dict_result = hashmap_helper.StringHashMap(i64).init(allocator);\n");
+        try self.emit("var __dict_result = hashmap_helper.StringHashMap(i64).init(__global_allocator);\n");
     }
 
     // Generate nested loops for each generator
@@ -529,9 +529,9 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
         }
     }
 
-    // Generate: try __comp_result.append(allocator, <elt_expr>);
+    // Generate: try __comp_result.append(__global_allocator, <elt_expr>);
     try self.emitIndent();
-    try self.emit("try __comp_result.append(allocator, ");
+    try self.emit("try __comp_result.append(__global_allocator, ");
     try genExpr(self, genexp.elt.*);
     try self.emit(");\n");
 

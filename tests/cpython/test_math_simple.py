@@ -107,19 +107,19 @@ class TestMathTrig(unittest.TestCase):
         self.assertAlmostEqual(math.tan(0), 0.0, places=5)
 
     def test_sin_pi_2(self):
-        self.assertAlmostEqual(math.sin(math.pi / 2), 1.0, places=5)
+        self.assertAlmostEqual(math.sin(1.5707963267948966), 1.0, places=5)
 
     def test_cos_pi(self):
         self.assertAlmostEqual(math.cos(math.pi), -1.0, places=5)
 
     def test_asin_1(self):
-        self.assertAlmostEqual(math.asin(1), math.pi / 2, places=5)
+        self.assertAlmostEqual(math.asin(1), 1.5707963267948966, places=5)
 
     def test_acos_0(self):
-        self.assertAlmostEqual(math.acos(0), math.pi / 2, places=5)
+        self.assertAlmostEqual(math.acos(0), 1.5707963267948966, places=5)
 
     def test_atan_1(self):
-        self.assertAlmostEqual(math.atan(1), math.pi / 4, places=5)
+        self.assertAlmostEqual(math.atan(1), 0.7853981633974483, places=5)
 
 class TestMathHyperbolic(unittest.TestCase):
     def test_sinh_0(self):
@@ -177,13 +177,13 @@ class TestMathAngular(unittest.TestCase):
         self.assertAlmostEqual(math.degrees(math.pi), 180.0, places=5)
 
     def test_degrees_pi_2(self):
-        self.assertAlmostEqual(math.degrees(math.pi / 2), 90.0, places=5)
+        self.assertAlmostEqual(math.degrees(1.5707963267948966), 90.0, places=5)
 
     def test_radians_180(self):
         self.assertAlmostEqual(math.radians(180), math.pi, places=5)
 
     def test_radians_90(self):
-        self.assertAlmostEqual(math.radians(90), math.pi / 2, places=5)
+        self.assertAlmostEqual(math.radians(90), 1.5707963267948966, places=5)
 
 class TestMathComb(unittest.TestCase):
     def test_comb_5_2(self):

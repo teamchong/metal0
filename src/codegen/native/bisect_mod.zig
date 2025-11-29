@@ -14,9 +14,12 @@ pub fn genBisectLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("bisect_left_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _a = &");
+    try self.emit("const _a_raw = ");
     try self.genExpr(args[0]);
     try self.emit(";\n");
+    try self.emitIndent();
+    // Handle both ArrayList and plain arrays
+    try self.emit("const _a = if (@typeInfo(@TypeOf(_a_raw)) == .@\"struct\" and @hasField(@TypeOf(_a_raw), \"items\")) _a_raw.items else &_a_raw;\n");
     try self.emitIndent();
     try self.emit("const _x = ");
     try self.genExpr(args[1]);
@@ -52,9 +55,12 @@ pub fn genBisectRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.emit("bisect_right_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _a = &");
+    try self.emit("const _a_raw = ");
     try self.genExpr(args[0]);
     try self.emit(";\n");
+    try self.emitIndent();
+    // Handle both ArrayList and plain arrays
+    try self.emit("const _a = if (@typeInfo(@TypeOf(_a_raw)) == .@\"struct\" and @hasField(@TypeOf(_a_raw), \"items\")) _a_raw.items else &_a_raw;\n");
     try self.emitIndent();
     try self.emit("const _x = ");
     try self.genExpr(args[1]);

@@ -14,7 +14,7 @@ pub fn genMean(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("stats_mean_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _data = ");
+    try self.emit("const _data = &");
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
@@ -97,17 +97,17 @@ pub fn genMedian(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("stats_median_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _data = ");
+    try self.emit("const _data = &");
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
     try self.emit("if (_data.len == 0) break :stats_median_blk @as(f64, 0.0);\n");
     try self.emitIndent();
-    try self.emit("var _sorted = __global_allocator.alloc(@TypeOf(_data[0]), _data.len) catch break :stats_median_blk @as(f64, 0.0);\n");
+    try self.emit("const _sorted = __global_allocator.alloc(@TypeOf(_data[0]), _data.len) catch break :stats_median_blk @as(f64, 0.0);\n");
     try self.emitIndent();
     try self.emit("@memcpy(_sorted, _data);\n");
     try self.emitIndent();
-    try self.emit("std.mem.sort(@TypeOf(_data[0]), _sorted, {}, struct { fn cmp(_: void, a: anytype, b: anytype) bool { return a < b; } }.cmp);\n");
+    try self.emit("std.mem.sort(i64, _sorted, {}, struct { fn cmp(_: void, a: i64, b: i64) bool { return a < b; } }.cmp);\n");
     try self.emitIndent();
     try self.emit("const _mid = _sorted.len / 2;\n");
     try self.emitIndent();
@@ -137,7 +137,7 @@ pub fn genMedianLow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("@memcpy(_sorted, _data);\n");
     try self.emitIndent();
-    try self.emit("std.mem.sort(@TypeOf(_data[0]), _sorted, {}, struct { fn cmp(_: void, a: anytype, b: anytype) bool { return a < b; } }.cmp);\n");
+    try self.emit("std.mem.sort(i64, _sorted, {}, struct { fn cmp(_: void, a: i64, b: i64) bool { return a < b; } }.cmp);\n");
     try self.emitIndent();
     try self.emit("break :stats_median_low_blk _sorted[(_sorted.len - 1) / 2];\n");
     self.dedent();
@@ -165,7 +165,7 @@ pub fn genMedianHigh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("@memcpy(_sorted, _data);\n");
     try self.emitIndent();
-    try self.emit("std.mem.sort(@TypeOf(_data[0]), _sorted, {}, struct { fn cmp(_: void, a: anytype, b: anytype) bool { return a < b; } }.cmp);\n");
+    try self.emit("std.mem.sort(i64, _sorted, {}, struct { fn cmp(_: void, a: i64, b: i64) bool { return a < b; } }.cmp);\n");
     try self.emitIndent();
     try self.emit("break :stats_median_high_blk _sorted[_sorted.len / 2];\n");
     self.dedent();
@@ -188,7 +188,7 @@ pub fn genMode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("stats_mode_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _data = ");
+    try self.emit("const _data = &");
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
@@ -221,7 +221,7 @@ pub fn genPstdev(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("stats_pstdev_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _data = ");
+    try self.emit("const _data = &");
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
@@ -253,7 +253,7 @@ pub fn genPvariance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("stats_pvar_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _data = ");
+    try self.emit("const _data = &");
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
@@ -285,7 +285,7 @@ pub fn genStdev(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("stats_stdev_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _data = ");
+    try self.emit("const _data = &");
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
@@ -317,7 +317,7 @@ pub fn genVariance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("stats_var_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _data = ");
+    try self.emit("const _data = &");
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();

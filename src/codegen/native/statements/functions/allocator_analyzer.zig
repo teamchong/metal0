@@ -455,71 +455,83 @@ const AllocatorConstructors = std.StaticStringMap(void).initComptime(.{
     .{ "BytesIO", {} },
 });
 
-/// Module functions that are inline codegen and DON'T need allocator
-/// These module.function() calls generate inline code, not function calls
-const InlineModuleFunctions = std.StaticStringMap(void).initComptime(.{
-    // binascii module - generates inline std.hash/std.fmt code
-    .{ "hexlify", {} },
-    .{ "unhexlify", {} },
-    .{ "b2a_hex", {} },
-    .{ "a2b_hex", {} },
-    .{ "crc32", {} },
-    .{ "crc_hqx", {} },
-    // math module - generates inline std.math code
-    .{ "sqrt", {} },
-    .{ "sin", {} },
-    .{ "cos", {} },
-    .{ "tan", {} },
-    .{ "log", {} },
-    .{ "log10", {} },
-    .{ "log2", {} },
-    .{ "exp", {} },
-    .{ "pow", {} },
-    .{ "ceil", {} },
-    .{ "floor", {} },
-    .{ "trunc", {} },
-    .{ "fabs", {} },
-    .{ "isnan", {} },
-    .{ "isinf", {} },
-    .{ "isfinite", {} },
-    .{ "radians", {} },
-    .{ "degrees", {} },
-    // operator module - generates inline operators
-    .{ "add", {} },
-    .{ "sub", {} },
-    .{ "mul", {} },
-    .{ "truediv", {} },
-    .{ "floordiv", {} },
-    .{ "mod", {} },
-    .{ "neg", {} },
-    .{ "pos", {} },
-    .{ "abs", {} },
-    .{ "eq", {} },
-    .{ "ne", {} },
-    .{ "lt", {} },
-    .{ "le", {} },
-    .{ "gt", {} },
-    .{ "ge", {} },
-    .{ "not_", {} },
-    .{ "and_", {} },
-    .{ "or_", {} },
-    .{ "xor", {} },
-    .{ "lshift", {} },
-    .{ "rshift", {} },
-    .{ "invert", {} },
-    .{ "contains", {} },
-    .{ "indexOf", {} },
-    .{ "countOf", {} },
-    .{ "getitem", {} },
-    .{ "setitem", {} },
-    .{ "delitem", {} },
-    .{ "truth", {} },
-    .{ "is_", {} },
-    .{ "is_not", {} },
-    .{ "concat", {} },
-    .{ "index", {} },
-    .{ "length_hint", {} },
-});
+/// Check if a module.function call is an inline (doesn't need allocator)
+fn isInlineModuleFunction(module: []const u8, func_name: []const u8) bool {
+    // binascii module - inline std.hash/std.fmt code
+    if (std.mem.eql(u8, module, "binascii")) {
+        return std.mem.eql(u8, func_name, "hexlify") or
+            std.mem.eql(u8, func_name, "unhexlify") or
+            std.mem.eql(u8, func_name, "b2a_hex") or
+            std.mem.eql(u8, func_name, "a2b_hex") or
+            std.mem.eql(u8, func_name, "crc32") or
+            std.mem.eql(u8, func_name, "crc_hqx");
+    }
+    // math module - inline std.math code
+    if (std.mem.eql(u8, module, "math")) {
+        const math_funcs = std.StaticStringMap(void).initComptime(.{
+            .{ "sqrt", {} },
+            .{ "sin", {} },
+            .{ "cos", {} },
+            .{ "tan", {} },
+            .{ "log", {} },
+            .{ "log10", {} },
+            .{ "log2", {} },
+            .{ "exp", {} },
+            .{ "pow", {} },
+            .{ "ceil", {} },
+            .{ "floor", {} },
+            .{ "trunc", {} },
+            .{ "fabs", {} },
+            .{ "isnan", {} },
+            .{ "isinf", {} },
+            .{ "isfinite", {} },
+            .{ "radians", {} },
+            .{ "degrees", {} },
+        });
+        return math_funcs.has(func_name);
+    }
+    // operator module - inline operators
+    if (std.mem.eql(u8, module, "operator")) {
+        const op_funcs = std.StaticStringMap(void).initComptime(.{
+            .{ "add", {} },
+            .{ "sub", {} },
+            .{ "mul", {} },
+            .{ "truediv", {} },
+            .{ "floordiv", {} },
+            .{ "mod", {} },
+            .{ "neg", {} },
+            .{ "pos", {} },
+            .{ "abs", {} },
+            .{ "eq", {} },
+            .{ "ne", {} },
+            .{ "lt", {} },
+            .{ "le", {} },
+            .{ "gt", {} },
+            .{ "ge", {} },
+            .{ "not_", {} },
+            .{ "and_", {} },
+            .{ "or_", {} },
+            .{ "xor", {} },
+            .{ "lshift", {} },
+            .{ "rshift", {} },
+            .{ "invert", {} },
+            .{ "contains", {} },
+            .{ "indexOf", {} },
+            .{ "countOf", {} },
+            .{ "getitem", {} },
+            .{ "setitem", {} },
+            .{ "delitem", {} },
+            .{ "truth", {} },
+            .{ "is_", {} },
+            .{ "is_not", {} },
+            .{ "concat", {} },
+            .{ "index", {} },
+            .{ "length_hint", {} },
+        });
+        return op_funcs.has(func_name);
+    }
+    return false;
+}
 
 /// Check if a call uses allocator param
 /// func_name is the current function name to detect recursive calls
@@ -730,21 +742,32 @@ fn exprNeedsAllocator(expr: ast.Node) bool {
 
 /// Check if a call needs allocator
 fn callNeedsAllocator(call: ast.Node.Call) bool {
+    // ALWAYS check arguments first - even self.method() calls may have args that need allocator
+    // e.g., self.assertEqual(json.dumps(x), ...) needs allocator for json.dumps
+    for (call.args) |arg| {
+        if (exprNeedsAllocator(arg)) return true;
+    }
+
     // Check if this is a method call that needs allocator
     if (call.func.* == .attribute) {
         const method_name = call.func.attribute.attr;
         if (AllocatorMethods.has(method_name)) return true;
-
-        // Skip inline module functions that don't need allocator
-        if (InlineModuleFunctions.has(method_name)) return false;
 
         // Module function call (e.g., test_utils.double(x))
         // Codegen passes allocator to imported module functions
         // But NOT self.method() calls - those are instance method calls
         if (call.func.attribute.value.* == .name) {
             const obj_name = call.func.attribute.value.name.id;
-            // Any module.function() call (except self.) will receive allocator param in codegen
-            if (!std.mem.eql(u8, obj_name, "self")) return true;
+            // Skip self.method() calls (but args were already checked above)
+            if (std.mem.eql(u8, obj_name, "self")) return false;
+
+            // Check if this is an inline module function that doesn't need allocator
+            if (isInlineModuleFunction(obj_name, method_name)) {
+                return false;
+            }
+
+            // Any other module.function() call will receive allocator param in codegen
+            return true;
         }
     }
 
@@ -752,11 +775,6 @@ fn callNeedsAllocator(call: ast.Node.Call) bool {
     if (call.func.* == .name) {
         const fn_name = call.func.name.id;
         if (AllocatorBuiltins.has(fn_name)) return true;
-    }
-
-    // Check arguments recursively - even unittest assertions may have fallible args (e.g., division)
-    for (call.args) |arg| {
-        if (exprNeedsAllocator(arg)) return true;
     }
 
     return false;
