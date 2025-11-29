@@ -700,22 +700,21 @@ fn genStmtWithCaptureStruct(
             try genNestedFunctionWithOuterCapture(self, func, captured_vars, capture_param_name);
         },
         .assign => |assign| {
-            try self.emitIndent();
-            try self.emit("const ");
-            // For simple name target (single target), emit the name
+            // For simple name target (single target), emit the name with const
             if (assign.targets.len == 1 and assign.targets[0] == .name) {
+                try self.emitIndent();
+                try self.emit("const ");
                 try self.emit(assign.targets[0].name.id);
-            } else if (assign.targets.len == 1) {
-                const expressions = @import("../../expressions.zig");
-                try expressions.genExpr(self, assign.targets[0]);
-            } else {
-                // Multiple targets - fallback to regular generation
+                try self.emit(" = ");
+                try genExprWithCaptureStruct(self, assign.value.*, captured_vars, capture_param_name);
+                try self.emit(";\n");
+            } else if (assign.targets.len == 1 and (assign.targets[0] == .tuple or assign.targets[0] == .list)) {
+                // Tuple/list unpacking - use regular assignment generation
                 try self.generateStmt(stmt);
-                return;
+            } else {
+                // Multiple targets or other patterns - fallback to regular generation
+                try self.generateStmt(stmt);
             }
-            try self.emit(" = ");
-            try genExprWithCaptureStruct(self, assign.value.*, captured_vars, capture_param_name);
-            try self.emit(";\n");
         },
         else => {
             // For other statements, use regular generation

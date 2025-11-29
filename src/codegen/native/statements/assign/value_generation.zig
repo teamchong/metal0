@@ -43,6 +43,42 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
     }
 }
 
+/// Generate list unpacking assignment: [a, b] = [1, 2] or a, b = x (when parsed as list)
+pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list: ast.Node.List) CodegenError!void {
+    // Generate unique temporary variable name
+    const tmp_name = try std.fmt.allocPrint(self.allocator, "__unpack_tmp_{d}", .{self.unpack_counter});
+    defer self.allocator.free(tmp_name);
+    self.unpack_counter += 1;
+
+    // Generate: const __unpack_tmp_N = value_expr;
+    try self.emitIndent();
+    try self.emit("const ");
+    try self.emit(tmp_name);
+    try self.emit(" = ");
+    try self.genExpr(assign.value.*);
+    try self.emit(";\n");
+
+    // Generate: const a = __unpack_tmp_N.@"0";
+    //           const b = __unpack_tmp_N.@"1";
+    for (target_list.elts, 0..) |target, i| {
+        if (target == .name) {
+            const var_name = target.name.id;
+            const is_first_assignment = !self.isDeclared(var_name);
+
+            try self.emitIndent();
+            if (is_first_assignment) {
+                try self.emit("const ");
+                try self.declareVar(var_name);
+            }
+            // Use renamed version if in var_renames map (for exception handling)
+            const actual_name = self.var_renames.get(var_name) orelse var_name;
+            // Escape Zig reserved keywords (e.g., "false" -> @"false")
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+            try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+        }
+    }
+}
+
 /// Emit variable declaration with const/var decision
 pub fn emitVarDeclaration(
     self: *NativeCodegen,

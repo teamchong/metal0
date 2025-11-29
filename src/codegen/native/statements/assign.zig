@@ -168,9 +168,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
     const value_type = try self.type_inferrer.inferExpr(assign.value.*);
 
     // Handle tuple unpacking: a, b = (1, 2)
+    // Note: Parser may represent tuple targets as either .tuple or .list
     if (assign.targets.len == 1 and assign.targets[0] == .tuple) {
         const target_tuple = assign.targets[0].tuple;
         try valueGen.genTupleUnpack(self, assign, target_tuple);
+        return;
+    }
+    if (assign.targets.len == 1 and assign.targets[0] == .list) {
+        // List target unpacking: [a, b] = x or a, b = x (parsed as list)
+        const target_list = assign.targets[0].list;
+        try valueGen.genListUnpack(self, assign, target_list);
         return;
     }
 
