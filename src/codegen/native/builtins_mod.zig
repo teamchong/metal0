@@ -30,70 +30,64 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 }
 
-/// Generate builtins.range
+/// Generate builtins.range - forward to real implementation
 pub fn genRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]i64{}");
+    const collections = @import("builtins/collections.zig");
+    try collections.genRange(self, args);
 }
 
-/// Generate builtins.enumerate
+/// Generate builtins.enumerate - forward to real implementation
 pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]struct { @\"0\": i64, @\"1\": i64 }{}");
+    const collections = @import("builtins/collections.zig");
+    try collections.genEnumerate(self, args);
 }
 
-/// Generate builtins.zip
+/// Generate builtins.zip - forward to real implementation
 pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]struct { @\"0\": i64, @\"1\": i64 }{}");
+    const collections = @import("builtins/collections.zig");
+    try collections.genZip(self, args);
 }
 
-/// Generate builtins.map
+/// Generate builtins.map - forward to real implementation
 pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]i64{}");
+    const collections = @import("builtins/collections.zig");
+    try collections.genMap(self, args);
 }
 
-/// Generate builtins.filter
+/// Generate builtins.filter - forward to real implementation
 pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]i64{}");
+    const collections = @import("builtins/collections.zig");
+    try collections.genFilter(self, args);
 }
 
-/// Generate builtins.sorted
+/// Generate builtins.sorted - forward to real implementation
 pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("&[_]i64{}");
-    }
+    const collections = @import("builtins/collections.zig");
+    try collections.genSorted(self, args);
 }
 
-/// Generate builtins.reversed
+/// Generate builtins.reversed - forward to real implementation
 pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("&[_]i64{}");
-    }
+    const collections = @import("builtins/collections.zig");
+    try collections.genReversed(self, args);
 }
 
-/// Generate builtins.sum
+/// Generate builtins.sum - forward to real implementation
 pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
+    const collections = @import("builtins/collections.zig");
+    try collections.genSum(self, args);
 }
 
-/// Generate builtins.min
+/// Generate builtins.min - forward to real implementation
 pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
+    const builtins = @import("builtins.zig");
+    try builtins.genMin(self, args);
 }
 
-/// Generate builtins.max
+/// Generate builtins.max - forward to real implementation
 pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
+    const builtins = @import("builtins.zig");
+    try builtins.genMax(self, args);
 }
 
 /// Generate builtins.abs
@@ -107,16 +101,16 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 }
 
-/// Generate builtins.all
+/// Generate builtins.all - forward to real implementation
 pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
+    const collections = @import("builtins/collections.zig");
+    try collections.genAll(self, args);
 }
 
-/// Generate builtins.any
+/// Generate builtins.any - forward to real implementation
 pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
+    const collections = @import("builtins/collections.zig");
+    try collections.genAny(self, args);
 }
 
 /// Generate builtins.isinstance
@@ -235,63 +229,73 @@ pub fn genAscii(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("\"\"");
 }
 
-/// Generate builtins.chr
+/// Generate builtins.chr - forward to real implementation
 pub fn genChr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
+    const builtins = @import("builtins.zig");
+    try builtins.genChr(self, args);
 }
 
-/// Generate builtins.ord
+/// Generate builtins.ord - forward to real implementation
 pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
+    const builtins = @import("builtins.zig");
+    try builtins.genOrd(self, args);
 }
 
-/// Generate builtins.hex
+/// Generate builtins.hex - hex(n) returns hex string
 pub fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"0x0\"");
-}
-
-/// Generate builtins.oct
-pub fn genOct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"0o0\"");
-}
-
-/// Generate builtins.bin
-pub fn genBin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"0b0\"");
-}
-
-/// Generate builtins.pow
-pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 1)");
-}
-
-/// Generate builtins.round
-pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("@round(");
+        try self.emit("(try std.fmt.allocPrint(__global_allocator, \"0x{x}\", .{");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emit("}))");
     } else {
-        try self.emit("@as(f64, 0.0)");
+        try self.emit("\"0x0\"");
     }
 }
 
-/// Generate builtins.divmod
-pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ @as(i64, 0), @as(i64, 0) }");
+/// Generate builtins.oct - oct(n) returns octal string
+pub fn genOct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) {
+        try self.emit("(try std.fmt.allocPrint(__global_allocator, \"0o{o}\", .{");
+        try self.genExpr(args[0]);
+        try self.emit("}))");
+    } else {
+        try self.emit("\"0o0\"");
+    }
 }
 
-/// Generate builtins.hash
+/// Generate builtins.bin - bin(n) returns binary string
+pub fn genBin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) {
+        try self.emit("(try std.fmt.allocPrint(__global_allocator, \"0b{b}\", .{");
+        try self.genExpr(args[0]);
+        try self.emit("}))");
+    } else {
+        try self.emit("\"0b0\"");
+    }
+}
+
+/// Generate builtins.pow - forward to real implementation
+pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const builtins = @import("builtins.zig");
+    try builtins.genPow(self, args);
+}
+
+/// Generate builtins.round - forward to real implementation
+pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const builtins = @import("builtins.zig");
+    try builtins.genRound(self, args);
+}
+
+/// Generate builtins.divmod - forward to real implementation
+pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const builtins = @import("builtins.zig");
+    try builtins.genDivmod(self, args);
+}
+
+/// Generate builtins.hash - forward to real implementation
 pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
+    const builtins = @import("builtins.zig");
+    try builtins.genHash(self, args);
 }
 
 /// Generate builtins.id

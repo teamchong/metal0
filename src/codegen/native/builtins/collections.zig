@@ -162,16 +162,25 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: blk: {
-    //   for (items.items) |item| {  // .items for ArrayList
-    //     if (item != 0) break :blk true;
+    // Generate: any_N: {
+    //   for (items) |item| {  // Direct iteration for arrays/slices
+    //   // OR for (items.items) |item| { // .items for ArrayList/genexp
+    //     if (@TypeOf(item) == bool) { if (item) break :any_N true; }
+    //     else { if (item != 0) break :any_N true; }
     //   }
-    //   break :blk false;
+    //   break :any_N false;
     // }
 
+    // Use unique label to avoid conflicts with outer blocks
+    const any_label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    // Check if argument is a list/tuple literal (fixed array) or genexp/listcomp (ArrayList)
+    const is_list_literal = (args[0] == .list or args[0] == .tuple);
+    const is_arraylist = (args[0] == .genexp or args[0] == .listcomp);
     const needs_wrap = producesBlockExpression(args[0]);
 
-    try self.emit("blk: {\n");
+    try self.output.writer(self.allocator).print("any_{d}: {{\n", .{any_label_id});
     // If block expression, create temp variable first
     if (needs_wrap) {
         try self.emit("const __iterable = ");
@@ -180,15 +189,26 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit("for (");
     if (needs_wrap) {
-        try self.emit("__iterable.items");
+        if (is_arraylist) {
+            // genexp/listcomp produce ArrayList - need .items
+            try self.emit("__iterable.items");
+        } else {
+            // List/tuple/dict literals produce fixed arrays - iterate directly
+            try self.emit("__iterable");
+        }
+    } else if (is_list_literal) {
+        // Fixed array from list literal - iterate directly
+        try self.genExpr(args[0]);
     } else {
+        // ArrayList variable - need .items
         try self.genExpr(args[0]);
         try self.emit(".items");
     }
     try self.emit(") |item| {\n");
-    try self.emit("if (item != 0) break :blk true;\n");
+    // Use comptime type check for truthy semantics - bool vs int
+    try self.output.writer(self.allocator).print("if (@TypeOf(item) == bool) {{ if (item) break :any_{d} true; }} else {{ if (item != 0) break :any_{d} true; }}\n", .{ any_label_id, any_label_id });
     try self.emit("}\n");
-    try self.emit("break :blk false;\n");
+    try self.output.writer(self.allocator).print("break :any_{d} false;\n", .{any_label_id});
     try self.emit("}");
 }
 
