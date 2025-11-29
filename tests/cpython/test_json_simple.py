@@ -32,5 +32,14 @@ class TestJsonDumps(unittest.TestCase):
         self.assertIn('"a"', result)
         self.assertIn('1', result)
 
+    def test_dumps_zero(self):
+        self.assertEqual(json.dumps(0), '0')
+
+    def test_dumps_negative(self):
+        self.assertEqual(json.dumps(-42), '-42')
+
+    def test_dumps_large(self):
+        self.assertEqual(json.dumps(1000000), '1000000')
+
 if __name__ == "__main__":
     unittest.main()
