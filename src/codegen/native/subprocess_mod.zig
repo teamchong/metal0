@@ -97,7 +97,7 @@ pub fn genCheckOutput(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.emitIndent();
     try self.emit("_ = _child.spawn() catch break :subprocess_output_blk \"\";\n");
     try self.emitIndent();
-    try self.emit("const _output = _child.stdout.reader().readAllAlloc(allocator, 1024 * 1024) catch break :subprocess_output_blk \"\";\n");
+    try self.emit("const _output = _child.stdout.reader().readAllAlloc(__global_allocator, 1024 * 1024) catch break :subprocess_output_blk \"\";\n");
     try self.emitIndent();
     try self.emit("_ = _child.wait() catch {};\n");
     try self.emitIndent();
@@ -165,7 +165,7 @@ pub fn genGetoutput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_ = _child.spawn() catch break :getoutput_blk \"\";\n");
     try self.emitIndent();
-    try self.emit("const _output = _child.stdout.reader().readAllAlloc(allocator, 1024 * 1024) catch break :getoutput_blk \"\";\n");
+    try self.emit("const _output = _child.stdout.reader().readAllAlloc(__global_allocator, 1024 * 1024) catch break :getoutput_blk \"\";\n");
     try self.emitIndent();
     try self.emit("_ = _child.wait() catch {};\n");
     try self.emitIndent();
@@ -202,7 +202,7 @@ pub fn genGetstatusoutput(self: *NativeCodegen, args: []ast.Node) CodegenError!v
     try self.emitIndent();
     try self.emit("_ = _child.spawn() catch break :getstatusoutput_blk .{ @as(i64, -1), \"\" };\n");
     try self.emitIndent();
-    try self.emit("const _output = _child.stdout.reader().readAllAlloc(allocator, 1024 * 1024) catch \"\";\n");
+    try self.emit("const _output = _child.stdout.reader().readAllAlloc(__global_allocator, 1024 * 1024) catch \"\";\n");
     try self.emitIndent();
     try self.emit("const _result = _child.wait() catch break :getstatusoutput_blk .{ @as(i64, -1), _output };\n");
     try self.emitIndent();

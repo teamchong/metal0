@@ -1,9 +1,9 @@
 /// String search and test methods - contains, find, count, predicates
+/// Updated for CPython-compatible PyUnicodeObject
 const std = @import("std");
-const core = @import("core.zig");
-const PyString = core.PyString;
-const runtime = @import("runtime.zig");
+const runtime = @import("../runtime.zig");
 const PyObject = runtime.PyObject;
+const PyUnicodeObject = runtime.PyUnicodeObject;
 
 /// Comptime lookup tables for ASCII character classes (much faster than function calls!)
 const IS_DIGIT: [256]bool = blk: {
@@ -44,14 +44,19 @@ const IS_SPACE: [256]bool = blk: {
     break :blk table;
 };
 
-pub fn contains(obj: *PyObject, substring: *PyObject) bool {
-    std.debug.assert(obj.type_id == .string);
-    std.debug.assert(substring.type_id == .string);
-    const haystack_data: *PyString = @ptrCast(@alignCast(obj.data));
-    const needle_data: *PyString = @ptrCast(@alignCast(substring.data));
+/// Helper to get string data from PyUnicodeObject
+inline fn getStrData(obj: *PyObject) []const u8 {
+    const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(obj));
+    const len: usize = @intCast(str_obj.length);
+    return str_obj.data[0..len];
+}
 
-    const haystack = haystack_data.data;
-    const needle = needle_data.data;
+pub fn contains(obj: *PyObject, substring: *PyObject) bool {
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    std.debug.assert(runtime.PyUnicode_Check(substring));
+
+    const haystack = getStrData(obj);
+    const needle = getStrData(substring);
 
     // Empty string is always contained
     if (needle.len == 0) return true;
@@ -70,39 +75,33 @@ pub fn contains(obj: *PyObject, substring: *PyObject) bool {
 }
 
 pub fn startswith(obj: *PyObject, prefix: *PyObject) bool {
-    std.debug.assert(obj.type_id == .string);
-    std.debug.assert(prefix.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const prefix_data: *PyString = @ptrCast(@alignCast(prefix.data));
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    std.debug.assert(runtime.PyUnicode_Check(prefix));
 
-    const str = data.data;
-    const pre = prefix_data.data;
+    const str = getStrData(obj);
+    const pre = getStrData(prefix);
 
     if (pre.len > str.len) return false;
     return std.mem.eql(u8, str[0..pre.len], pre);
 }
 
 pub fn endswith(obj: *PyObject, suffix: *PyObject) bool {
-    std.debug.assert(obj.type_id == .string);
-    std.debug.assert(suffix.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const suffix_data: *PyString = @ptrCast(@alignCast(suffix.data));
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    std.debug.assert(runtime.PyUnicode_Check(suffix));
 
-    const str = data.data;
-    const suf = suffix_data.data;
+    const str = getStrData(obj);
+    const suf = getStrData(suffix);
 
     if (suf.len > str.len) return false;
     return std.mem.eql(u8, str[str.len - suf.len ..], suf);
 }
 
 pub fn find(obj: *PyObject, substring: *PyObject) i64 {
-    std.debug.assert(obj.type_id == .string);
-    std.debug.assert(substring.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const needle_data: *PyString = @ptrCast(@alignCast(substring.data));
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    std.debug.assert(runtime.PyUnicode_Check(substring));
 
-    const haystack = data.data;
-    const needle = needle_data.data;
+    const haystack = getStrData(obj);
+    const needle = getStrData(substring);
 
     // Empty string is found at position 0
     if (needle.len == 0) return 0;
@@ -121,13 +120,11 @@ pub fn find(obj: *PyObject, substring: *PyObject) i64 {
 }
 
 pub fn count_substr(obj: *PyObject, substring: *PyObject) i64 {
-    std.debug.assert(obj.type_id == .string);
-    std.debug.assert(substring.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const needle_data: *PyString = @ptrCast(@alignCast(substring.data));
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    std.debug.assert(runtime.PyUnicode_Check(substring));
 
-    const str = data.data;
-    const sub = needle_data.data;
+    const str = getStrData(obj);
+    const sub = getStrData(substring);
 
     if (sub.len == 0) return 0;
     if (sub.len > str.len) return 0;
@@ -147,10 +144,9 @@ pub fn count_substr(obj: *PyObject, substring: *PyObject) i64 {
 
 pub fn isdigit(obj: *PyObject) bool {
     @setRuntimeSafety(false); // Hot path - disable bounds checks
-    std.debug.assert(obj.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const str = data.data;
+    std.debug.assert(runtime.PyUnicode_Check(obj));
 
+    const str = getStrData(obj);
     if (str.len == 0) return false;
 
     // Use comptime lookup table (faster than function call!)
@@ -162,10 +158,9 @@ pub fn isdigit(obj: *PyObject) bool {
 
 pub fn isalpha(obj: *PyObject) bool {
     @setRuntimeSafety(false); // Hot path - disable bounds checks
-    std.debug.assert(obj.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const str = data.data;
+    std.debug.assert(runtime.PyUnicode_Check(obj));
 
+    const str = getStrData(obj);
     if (str.len == 0) return false;
 
     // Use comptime lookup table (faster than function call!)

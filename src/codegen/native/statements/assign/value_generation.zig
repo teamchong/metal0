@@ -237,7 +237,13 @@ pub fn trackVariableMetadata(
     // Track dict comprehension variables (generates HashMap)
     if (is_first_assignment and assign.value.* == .dictcomp) {
         const var_name_copy = try self.allocator.dupe(u8, var_name);
-        try self.arraylist_vars.put(var_name_copy, {});
+        try self.dict_vars.put(var_name_copy, {});
+    }
+
+    // Track dict literal variables (generates HashMap)
+    if (is_first_assignment and assign.value.* == .dict) {
+        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        try self.dict_vars.put(var_name_copy, {});
     }
 
     const lambda_closure = @import("../../expressions/lambda_closure.zig");

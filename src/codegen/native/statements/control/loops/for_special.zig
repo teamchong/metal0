@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
+const zig_keywords = @import("zig_keywords");
 
 /// Generate enumerate loop
 pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node) CodegenError!void {
@@ -106,7 +107,7 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     }
 
     try self.emit(") |");
-    try self.emit(item_var);
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), item_var);
     try self.emit("| {\n");
 
     self.indent();
@@ -116,7 +117,9 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 
     // Generate: const idx = __enum_idx_N;
     try self.emitIndent();
-    try self.emitFmt("const {s} = __enum_idx_{d};\n", .{ idx_var, unique_id });
+    try self.emit("const ");
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), idx_var);
+    try self.output.writer(self.allocator).print(" = __enum_idx_{d};\n", .{unique_id});
 
     // Generate: __enum_idx_N += 1;
     try self.emitIndent();
@@ -128,7 +131,11 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         for (nested_elts, 0..) |elt, i| {
             if (elt == .name) {
                 try self.emitIndent();
-                try self.emitFmt("const {s} = {s}.@\"{d}\";\n", .{ elt.name.id, item_var, i });
+                try self.emit("const ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), elt.name.id);
+                try self.emit(" = ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), item_var);
+                try self.output.writer(self.allocator).print(".@\"{d}\";\n", .{i});
             }
         }
     }
@@ -258,8 +265,8 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
         const var_name = if (elt == .name) elt.name.id else "_";
         try self.emitIndent();
         try self.emit("const ");
-        try self.emit(var_name);
-        try self.emitFmt(" = __zip_iter_{d}", .{i});
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try self.output.writer(self.allocator).print(" = __zip_iter_{d}", .{i});
         if (iter_is_list[i]) try self.emit(".items");
         try self.emit("[__zip_idx];\n");
     }

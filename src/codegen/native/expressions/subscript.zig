@@ -247,6 +247,14 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 break :blk false;
             };
 
+            // Check if this variable is tracked as a dict
+            const is_tracked_dict = blk: {
+                if (subscript.value.* == .name) {
+                    break :blk self.isDictVar(subscript.value.name.id);
+                }
+                break :blk false;
+            };
+
             // A variable is a list if type inference says .list OR if it's tracked as ArrayList
             const is_list = (value_type == .list) or is_tracked_arraylist_early;
 
@@ -267,7 +275,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try self.emit(", ");
                 try genExpr(self, subscript.slice.index.*);
                 try self.emit(").?");
-            } else if (is_dict or is_counter) {
+            } else if (is_dict or is_counter or is_tracked_dict) {
                 // Native dict/Counter access: dict.get(key).? for raw StringHashMap
                 // Counter returns 0 for missing keys in Python
                 try genExpr(self, subscript.value.*);

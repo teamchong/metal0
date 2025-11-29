@@ -14,7 +14,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
     // Initialize test runner
     try self.emitIndent();
-    try self.emit("_ = try runtime.unittest.initRunner(allocator);\n");
+    try self.emit("_ = try runtime.unittest.initRunner(__global_allocator);\n");
 
     // For each test class, instantiate and run test methods
     for (self.unittest_classes.items) |class_info| {
@@ -57,7 +57,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             // Pass allocator since setUp may need it for __dict__ operations
             if (class_info.has_setUp) {
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("try _test_instance_{s}.setUp(allocator);\n", .{class_info.class_name});
+                try self.output.writer(self.allocator).print("try _test_instance_{s}.setUp(__global_allocator);\n", .{class_info.class_name});
             }
 
             try self.emitIndent();
@@ -65,7 +65,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             try self.emitIndent();
             // Generate method call with try and allocator if needed
             if (method_info.needs_allocator) {
-                try self.output.writer(self.allocator).print("try _test_instance_{s}.{s}(allocator);\n", .{ class_info.class_name, method_name });
+                try self.output.writer(self.allocator).print("try _test_instance_{s}.{s}(__global_allocator);\n", .{ class_info.class_name, method_name });
             } else {
                 try self.output.writer(self.allocator).print("_test_instance_{s}.{s}();\n", .{ class_info.class_name, method_name });
             }
@@ -77,7 +77,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             // Pass allocator since tearDown may need it for __dict__ operations
             if (class_info.has_tearDown) {
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("try _test_instance_{s}.tearDown(allocator);\n", .{class_info.class_name});
+                try self.output.writer(self.allocator).print("try _test_instance_{s}.tearDown(__global_allocator);\n", .{class_info.class_name});
             }
         }
 

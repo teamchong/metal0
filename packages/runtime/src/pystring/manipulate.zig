@@ -1,22 +1,31 @@
 /// String manipulation methods - split, strip, replace, join, slice
+/// Updated for CPython-compatible PyUnicodeObject
 const std = @import("std");
 const core = @import("core.zig");
 const PyString = core.PyString;
-const runtime = @import("runtime.zig");
-const pylist = @import("pylist.zig");
+const runtime = @import("../runtime.zig");
 const PyObject = runtime.PyObject;
-const PyList = pylist.PyList;
+const PyUnicodeObject = runtime.PyUnicodeObject;
+const PyListObject = runtime.PyListObject;
+const PyList = runtime.PyList;
 const PythonError = runtime.PythonError;
+
+/// Helper to get string data from PyUnicodeObject
+inline fn getStrData(obj: *PyObject) []const u8 {
+    const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(obj));
+    const len: usize = @intCast(str_obj.length);
+    return str_obj.data[0..len];
+}
 
 pub fn slice(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i64, end_opt: ?i64) !*PyObject {
     return sliceWithStep(allocator, obj, start_opt, end_opt, null);
 }
 
 pub fn sliceWithStep(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i64, end_opt: ?i64, step_opt: ?i64) !*PyObject {
-    std.debug.assert(obj.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    const str = getStrData(obj);
 
-    const str_len: i64 = @intCast(data.data.len);
+    const str_len: i64 = @intCast(str.len);
     const step: i64 = step_opt orelse 1;
 
     if (step == 0) {
@@ -43,13 +52,12 @@ pub fn sliceWithStep(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i
         end = @max(-1, @min(end, str_len));
     }
 
-    // If step is 1, use COW (zero-copy slice!)
+    // If step is 1, direct slice
     if (step == 1) {
         const start_idx: usize = @intCast(start);
         const end_idx: usize = @intCast(end);
-        const substring = data.data[start_idx..end_idx];
-        // COW: borrow from source, no copy!
-        return try PyString.createBorrowed(allocator, obj, substring);
+        const substring = str[start_idx..end_idx];
+        return try PyString.create(allocator, substring);
     }
 
     // Calculate result size for step != 1
@@ -81,7 +89,7 @@ pub fn sliceWithStep(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i
         const step_usize: usize = @intCast(step);
         var i: usize = start_idx;
         while (i < end_idx and result_idx < result_len) : (i += step_usize) {
-            result[result_idx] = data.data[i];
+            result[result_idx] = str[i];
             result_idx += 1;
         }
     } else {
@@ -90,27 +98,21 @@ pub fn sliceWithStep(allocator: std.mem.Allocator, obj: *PyObject, start_opt: ?i
         var i: i64 = start;
         while (i > end and result_idx < result_len) {
             const idx: usize = @intCast(i);
-            result[result_idx] = data.data[idx];
+            result[result_idx] = str[idx];
             result_idx += 1;
             i -= step_neg;
         }
     }
 
-    // Create new string from result
-    const new_str = try PyString.create(allocator, result);
-    // Free the temporary buffer (create() duplicates it)
-    allocator.free(result);
-    return new_str;
+    return try PyString.createOwned(allocator, result);
 }
 
 pub fn split(allocator: std.mem.Allocator, obj: *PyObject, separator: *PyObject) !*PyObject {
-    std.debug.assert(obj.type_id == .string);
-    std.debug.assert(separator.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const sep_data: *PyString = @ptrCast(@alignCast(separator.data));
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    std.debug.assert(runtime.PyUnicode_Check(separator));
 
-    const str = data.data;
-    const sep = sep_data.data;
+    const str = getStrData(obj);
+    const sep = getStrData(separator);
 
     // Create result list
     const result = try PyList.create(allocator);
@@ -120,7 +122,6 @@ pub fn split(allocator: std.mem.Allocator, obj: *PyObject, separator: *PyObject)
         for (str) |c| {
             const char_obj = try PyString.create(allocator, &[_]u8{c});
             try PyList.append(result, char_obj);
-            // append transfers ownership (no incref), so don't decref
         }
         return result;
     }
@@ -134,7 +135,6 @@ pub fn split(allocator: std.mem.Allocator, obj: *PyObject, separator: *PyObject)
             const part = str[start..i];
             const part_obj = try PyString.create(allocator, part);
             try PyList.append(result, part_obj);
-            // append transfers ownership (no incref), so don't decref
             i += sep.len;
             start = i;
         } else {
@@ -146,15 +146,13 @@ pub fn split(allocator: std.mem.Allocator, obj: *PyObject, separator: *PyObject)
     const final_part = str[start..];
     const final_obj = try PyString.create(allocator, final_part);
     try PyList.append(result, final_obj);
-    // append transfers ownership (no incref), so don't decref
 
     return result;
 }
 
 pub fn strip(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
-    std.debug.assert(obj.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const str = data.data;
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    const str = getStrData(obj);
 
     // Find first non-whitespace
     var start: usize = 0;
@@ -170,9 +168,8 @@ pub fn strip(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
 }
 
 pub fn lstrip(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
-    std.debug.assert(obj.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const str = data.data;
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    const str = getStrData(obj);
 
     // Find first non-whitespace
     var start: usize = 0;
@@ -184,9 +181,8 @@ pub fn lstrip(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
 }
 
 pub fn rstrip(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
-    std.debug.assert(obj.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const str = data.data;
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    const str = getStrData(obj);
 
     // Find last non-whitespace
     var end: usize = str.len;
@@ -198,16 +194,13 @@ pub fn rstrip(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
 }
 
 pub fn replace(allocator: std.mem.Allocator, obj: *PyObject, old: *PyObject, new: *PyObject) !*PyObject {
-    std.debug.assert(obj.type_id == .string);
-    std.debug.assert(old.type_id == .string);
-    std.debug.assert(new.type_id == .string);
-    const data: *PyString = @ptrCast(@alignCast(obj.data));
-    const old_data: *PyString = @ptrCast(@alignCast(old.data));
-    const new_data: *PyString = @ptrCast(@alignCast(new.data));
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    std.debug.assert(runtime.PyUnicode_Check(old));
+    std.debug.assert(runtime.PyUnicode_Check(new));
 
-    const str = data.data;
-    const old_str = old_data.data;
-    const new_str = new_data.data;
+    const str = getStrData(obj);
+    const old_str = getStrData(old);
+    const new_str = getStrData(new);
 
     // Count occurrences to allocate result
     var count: usize = 0;
@@ -247,52 +240,48 @@ pub fn replace(allocator: std.mem.Allocator, obj: *PyObject, old: *PyObject, new
         }
     }
 
-    const result_obj = try PyString.create(allocator, result);
-    allocator.free(result); // Free temporary buffer after PyString duplicates it
-    return result_obj;
+    return try PyString.createOwned(allocator, result);
 }
 
 pub fn join(allocator: std.mem.Allocator, separator: *PyObject, list: *PyObject) !*PyObject {
-    std.debug.assert(separator.type_id == .string);
-    std.debug.assert(list.type_id == .list);
-    const sep_data: *PyString = @ptrCast(@alignCast(separator.data));
-    const list_data: *PyList = @ptrCast(@alignCast(list.data));
+    std.debug.assert(runtime.PyUnicode_Check(separator));
+    std.debug.assert(runtime.PyList_Check(list));
 
-    const sep = sep_data.data;
-    const items = list_data.items.items;
+    const sep = getStrData(separator);
+    const list_obj: *PyListObject = @ptrCast(@alignCast(list));
+    const size: usize = @intCast(list_obj.ob_base.ob_size);
 
-    if (items.len == 0) {
+    if (size == 0) {
         return try PyString.create(allocator, "");
     }
 
     // Calculate total length
     var total_len: usize = 0;
-    for (items) |item| {
-        if (item.type_id == .string) {
-            const item_data: *PyString = @ptrCast(@alignCast(item.data));
-            total_len += item_data.data.len;
+    for (0..size) |idx| {
+        const item = list_obj.ob_item[idx];
+        if (runtime.PyUnicode_Check(item)) {
+            total_len += getStrData(item).len;
         }
     }
-    total_len += sep.len * (items.len - 1);
+    total_len += sep.len * (size - 1);
 
     // Build result
     const result = try allocator.alloc(u8, total_len);
     var pos: usize = 0;
 
-    for (items, 0..) |item, i| {
-        if (item.type_id == .string) {
-            const item_data: *PyString = @ptrCast(@alignCast(item.data));
-            @memcpy(result[pos .. pos + item_data.data.len], item_data.data);
-            pos += item_data.data.len;
+    for (0..size) |idx| {
+        const item = list_obj.ob_item[idx];
+        if (runtime.PyUnicode_Check(item)) {
+            const item_str = getStrData(item);
+            @memcpy(result[pos .. pos + item_str.len], item_str);
+            pos += item_str.len;
 
-            if (i < items.len - 1) {
+            if (idx < size - 1) {
                 @memcpy(result[pos .. pos + sep.len], sep);
                 pos += sep.len;
             }
         }
     }
 
-    const result_obj = try PyString.create(allocator, result);
-    allocator.free(result); // Free temporary buffer after PyString duplicates it
-    return result_obj;
+    return try PyString.createOwned(allocator, result);
 }

@@ -87,7 +87,7 @@ pub fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _name = allocator.dupe(u8, entry.name) catch continue;\n");
     try self.emitIndent();
-    try self.emit("_entries.append(allocator, _name) catch continue;\n");
+    try self.emit("_entries.append(__global_allocator, _name) catch continue;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -160,7 +160,7 @@ pub fn genPathJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(" };\n");
 
     try self.emitIndent();
-    try self.emit("break :os_path_join_blk std.fs.path.join(allocator, &_paths) catch \"\";\n");
+    try self.emit("break :os_path_join_blk std.fs.path.join(__global_allocator, &_paths) catch \"\";\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

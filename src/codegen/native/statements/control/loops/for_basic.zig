@@ -357,25 +357,24 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Check iter type first (needed for tuple special case)
     const iter_type = try self.type_inferrer.inferExpr(for_stmt.iter.*);
 
+    // Check if variable is used in body once (used for all patterns below)
+    const tuple_var_used = varUsedInBody(for_stmt.body, for_stmt.target.name.id);
+
     // Special case: tuple iteration requires inline for (comptime)
     if (iter_type == .tuple) {
         try self.emitIndent();
         try self.emit("inline for (");
         try self.genExpr(for_stmt.iter.*);
         try self.emit(") |");
-        try self.emit(var_name);
+        if (!tuple_var_used) {
+            try self.emit("_");
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        }
         try self.emit("| {\n");
 
         self.indent();
         try self.pushScope();
-
-        // Only add discard if variable is not used in body
-        if (!varUsedInBody(for_stmt.body, for_stmt.target.name.id)) {
-            try self.emitIndent();
-            try self.emit("_ = ");
-            try self.emit(var_name);
-            try self.emit(";\n");
-        }
 
         for (for_stmt.body) |stmt| {
             try self.generateStmt(stmt);
@@ -397,19 +396,15 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.emit("for (");
         try self.genExpr(for_stmt.iter.*);
         try self.emit(".keys()) |");
-        try self.emit(var_name);
+        if (!tuple_var_used) {
+            try self.emit("_");
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        }
         try self.emit("| {\n");
 
         self.indent();
         try self.pushScope();
-
-        // Only add discard if variable is not used in body
-        if (!varUsedInBody(for_stmt.body, for_stmt.target.name.id)) {
-            try self.emitIndent();
-            try self.emit("_ = ");
-            try self.emit(var_name);
-            try self.emit(";\n");
-        }
 
         for (for_stmt.body) |stmt| {
             try self.generateStmt(stmt);
@@ -503,22 +498,21 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         }
     }
 
+    // Check if variable is used in body - if not, use _ to avoid unused capture error
+    const var_used = varUsedInBody(for_stmt.body, for_stmt.target.name.id);
     try self.emit(") |");
-    try self.emit(var_name);
+    if (!var_used) {
+        // Use bare _ for unused capture (Zig requires this)
+        try self.emit("_");
+    } else {
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+    }
     try self.emit("| {\n");
 
     self.indent();
 
     // Push new scope for loop body
     try self.pushScope();
-
-    // Only add discard if variable is not used in body
-    if (!varUsedInBody(for_stmt.body, for_stmt.target.name.id)) {
-        try self.emitIndent();
-        try self.emit("_ = ");
-        try self.emit(var_name);
-        try self.emit(";\n");
-    }
 
     // If iterating over a vararg param (e.g., args in *args), register loop var as i64
     // This enables correct type inference for print(x) inside the loop

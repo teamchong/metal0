@@ -22,6 +22,11 @@ const UnittestMethods = std.StaticStringMap(void).initComptime(.{
     .{ "assertNotAlmostEqual", {} },
     .{ "assertCountEqual", {} },
     .{ "assertRaises", {} },
+    .{ "assertRaisesRegex", {} },
+    .{ "assertWarns", {} },
+    .{ "assertWarnsRegex", {} },
+    .{ "assertLogs", {} },
+    .{ "assertNoLogs", {} },
     .{ "assertRegex", {} },
     .{ "assertNotRegex", {} },
     .{ "assertIsInstance", {} },
@@ -33,7 +38,12 @@ const UnittestMethods = std.StaticStringMap(void).initComptime(.{
     .{ "assertTupleEqual", {} },
     .{ "assertSetEqual", {} },
     .{ "assertDictEqual", {} },
+    .{ "assertHasAttr", {} },
+    .{ "assertNotHasAttr", {} },
+    .{ "addCleanup", {} },
     .{ "subTest", {} },
+    .{ "fail", {} },
+    .{ "skipTest", {} },
 });
 
 /// Check if 'self' is used in method body
@@ -73,7 +83,28 @@ fn stmtUsesSelf(node: ast.Node) bool {
             if (exprUsesSelf(while_stmt.condition.*)) return true;
             return usesSelf(while_stmt.body);
         },
-        .for_stmt => |for_stmt| usesSelf(for_stmt.body),
+        .for_stmt => |for_stmt| {
+            // Check both the iterator expression AND the body
+            if (exprUsesSelf(for_stmt.iter.*)) return true;
+            return usesSelf(for_stmt.body);
+        },
+        .try_stmt => |try_stmt| {
+            // Check try body
+            if (usesSelf(try_stmt.body)) return true;
+            // Check exception handlers
+            for (try_stmt.handlers) |handler| {
+                if (usesSelf(handler.body)) return true;
+            }
+            // Check else body
+            if (usesSelf(try_stmt.else_body)) return true;
+            // Check finally body
+            if (usesSelf(try_stmt.finalbody)) return true;
+            return false;
+        },
+        .function_def => |func_def| {
+            // Check if nested function body uses self (closures that capture self)
+            return usesSelf(func_def.body);
+        },
         .with_stmt => |with_stmt| {
             // Check if context expression uses self
             // Skip unittest context managers (self.subTest, self.assertRaises, etc.)

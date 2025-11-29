@@ -328,10 +328,26 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         self.method_nesting_depth -= 1;
     };
 
+    // Check if this class captures outer mutable variables
+    const captured_vars = self.nested_class_captures.get(class.name);
+
     // Generate: const ClassName = struct {
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{class.name});
     self.indent();
+
+    // Add pointer fields for captured outer variables
+    if (captured_vars) |vars| {
+        try self.emitIndent();
+        try self.emit("// Captured outer scope variables (pointers)\n");
+        for (vars) |var_name| {
+            try self.emitIndent();
+            // Use *anyopaque as a generic pointer type for captured vars
+            // The type will be inferred from usage
+            try self.output.writer(self.allocator).print("__captured_{s}: *std.ArrayList(i64),\n", .{var_name});
+        }
+        try self.emit("\n");
+    }
 
     // For builtin base classes, add the base value field first
     if (builtin_base) |base_info| {
@@ -365,10 +381,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     // Generate init() method from __init__, or default init if no __init__
     if (init_method) |init| {
-        try body.genInitMethodWithBuiltinBase(self, class.name, init, builtin_base, complex_parent);
+        try body.genInitMethodWithBuiltinBase(self, class.name, init, builtin_base, complex_parent, captured_vars);
     } else {
         // No __init__ defined, generate default init method
-        try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base, complex_parent);
+        try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base, complex_parent, captured_vars);
     }
 
     // Build list of child method names for override detection
@@ -399,7 +415,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     }
 
     // Generate regular methods (non-__init__)
-    try body.genClassMethods(self, class);
+    try body.genClassMethods(self, class, captured_vars);
 
     // Inherit parent methods that aren't overridden
     if (parent_class) |parent| {
@@ -409,8 +425,15 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
-    // Note: No comptime discard needed - if the class is unused, Zig will report it properly.
-    // If the class IS used (instantiated), adding a discard causes "pointless discard" errors.
+    // For nested classes (inside functions), suppress unused warning
+    // This is needed because codegen may simplify away class instantiations
+    // (e.g., int('101', base=MyIndexable(2)) -> int('101', 2))
+    // Note: class_nesting_depth > 1 means we're inside a method/function
+    // Only emit discard if the class is truly unused (checked via semantic analysis)
+    if (self.class_nesting_depth > 1 and self.isVarUnused(class.name)) {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("_ = {s};\n", .{class.name});
+    }
 }
 
 /// Check if a test method has a skip docstring

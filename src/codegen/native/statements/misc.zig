@@ -208,6 +208,43 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
     // Skip unittest context managers (assertWarns, assertRaises, etc.)
     // These are test helpers that don't have runtime implementations yet
     if (isUnittestContextManager(with_node.context_expr.*)) {
+        // Consume the arguments to avoid "unused local constant" errors
+        // e.g., with self.assertRaisesRegex(TypeError, msg): -> _ = msg;
+        // But only if the variable is truly unused (checked via semantic analysis)
+        if (with_node.context_expr.* == .call) {
+            const call = with_node.context_expr.call;
+            for (call.args) |arg| {
+                // Only emit discard for name references (variables) that are unused
+                if (arg == .name) {
+                    const var_name = arg.name.id;
+                    if (self.isVarUnused(var_name)) {
+                        try self.emitIndent();
+                        try self.emit("_ = ");
+                        try self.genExpr(arg);
+                        try self.emit(";\n");
+                    }
+                }
+            }
+        }
+
+        // If there's a variable name (as cm), declare it as a dummy value
+        // Python code might use cm.exception.args[0] after the with block
+        if (with_node.optional_vars) |var_name| {
+            try self.emitIndent();
+            try self.emit("const ");
+            try self.emit(var_name);
+            try self.emit(" = runtime.unittest.ContextManager{};\n");
+            // Only emit discard if variable is truly unused (checked via semantic analysis)
+            // Otherwise we get "pointless discard of local constant" errors
+            if (self.isVarUnused(var_name)) {
+                try self.emitIndent();
+                try self.emit("_ = ");
+                try self.emit(var_name);
+                try self.emit(";\n");
+            }
+            try self.declareVar(var_name);
+        }
+
         // Just generate body without the context manager wrapper
         for (with_node.body) |stmt| {
             try self.generateStmt(stmt);
@@ -242,6 +279,39 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         }
     } else {
         // No variable - just execute context expression and defer cleanup
+        // First, hoist any variables declared in body (similar to try-except)
+        // This is needed because Python allows variables defined inside with blocks
+        // to be used after the block ends
+        for (with_node.body) |stmt| {
+            if (stmt == .assign) {
+                if (stmt.assign.targets.len > 0) {
+                    const target = stmt.assign.targets[0];
+                    if (target == .name) {
+                        const var_name = target.name.id;
+                        // Only hoist if not already declared in scope or previously hoisted
+                        if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+                            // Get the actual type from type inference
+                            const var_type = self.type_inferrer.var_types.get(var_name);
+                            const zig_type = if (var_type) |vt| blk: {
+                                break :blk try self.nativeTypeToZigType(vt);
+                            } else "i64";
+                            defer if (var_type != null) self.allocator.free(zig_type);
+
+                            try self.emitIndent();
+                            try self.emit("var ");
+                            try self.emit(var_name);
+                            try self.emit(": ");
+                            try self.emit(zig_type);
+                            try self.emit(" = undefined;\n");
+
+                            // Mark as hoisted so assignment generation skips declaration
+                            try self.hoisted_vars.put(var_name, {});
+                        }
+                    }
+                }
+            }
+        }
+
         try self.emitIndent();
         try self.emit("{\n");
         self.indent();

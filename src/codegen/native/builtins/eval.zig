@@ -43,7 +43,7 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     // Generate embedded bytecode execution:
     // {
     //     const _bytecode_N = [_]u8{ ... };
-    //     var _program_N = runtime.BytecodeProgram.deserialize(allocator, &_bytecode_N) catch unreachable;
+    //     var _program_N = runtime.BytecodeProgram.deserialize(__global_allocator, &_bytecode_N) catch unreachable;
     //     defer _program_N.deinit();
     //     var _vm_N = runtime.BytecodeVM.init(__global_allocator);
     //     defer _vm_N.deinit();
@@ -59,7 +59,7 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     // Serialize bytecode and emit as byte array
     const serialized = program.serialize(self.allocator) catch {
         try self.emit("// serialization failed\n");
-        try self.emit("break :blk try runtime.eval(allocator, \"");
+        try self.emit("break :blk try runtime.eval(__global_allocator, \"");
         try escapeZigString(self, source);
         try self.emit("\");\n}");
         return;
@@ -124,18 +124,18 @@ fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
 
 /// Generate code for eval(source, [globals, [locals]])
 /// Calls runtime.eval() which uses bytecode VM
-/// Returns extracted int value for comparison compatibility
+/// Returns *runtime.PyObject that can be used with len(), pyObjToInt(), etc.
 pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
         return error.OutOfMemory; // eval() requires at least 1 argument
     }
 
     // For now, ignore globals and locals arguments (args[1] and args[2])
-    // Generate: runtime.pyObjToInt(try runtime.eval(__global_allocator, source_code))
-    // This extracts the int value from the PyObject for comparison
-    try self.emit("runtime.pyObjToInt(try runtime.eval(__global_allocator, ");
+    // Generate: try runtime.eval(__global_allocator, source_code)
+    // Returns *PyObject which can be a list, int, string, etc.
+    try self.emit("try runtime.eval(__global_allocator, ");
     try self.genExpr(args[0]);
-    try self.emit("))");
+    try self.emit(")");
 }
 
 /// Generate code for exec(source, [globals, [locals]])

@@ -73,7 +73,7 @@ pub fn genPool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("var result = std.ArrayList(@TypeOf(func(iterable[0]))).init(__global_allocator);\n");
     try self.emitIndent();
-    try self.emit("for (iterable) |item| result.append(allocator, func(item)) catch {};\n");
+    try self.emit("for (iterable) |item| result.append(__global_allocator, func(item)) catch {};\n");
     try self.emitIndent();
     try self.emit("return result.items;\n");
     self.dedent();
@@ -153,7 +153,7 @@ pub fn genQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_ = block; _ = timeout;\n");
     try self.emitIndent();
-    try self.emit("self.items.append(allocator, @ptrCast(&item)) catch {};\n");
+    try self.emit("self.items.append(__global_allocator, @ptrCast(&item)) catch {};\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

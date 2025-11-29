@@ -46,6 +46,10 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.arraylist_vars);
     self.arraylist_vars.deinit();
 
+    // Clean up dict vars tracking
+    freeMapKeys(self.allocator, &self.dict_vars);
+    self.dict_vars.deinit();
+
     // Clean up anytype params tracking
     self.anytype_params.deinit();
 
@@ -116,6 +120,21 @@ pub fn deinit(self: *NativeCodegen) void {
     // Clean up func_local_mutations tracking
     // Note: Keys are references to AST data, not owned - don't free
     self.func_local_mutations.deinit();
+
+    // Clean up func_local_vars tracking
+    // Note: Keys are references to AST data, not owned - don't free
+    self.func_local_vars.deinit();
+
+    // Clean up nested_class_captures tracking
+    // Free the allocated slices (lists of captured vars), keys are AST refs
+    var iter = self.nested_class_captures.iterator();
+    while (iter.next()) |entry| {
+        self.allocator.free(entry.value_ptr.*);
+    }
+    self.nested_class_captures.deinit();
+
+    // Clean up nested_class_instances tracking (keys are AST refs, values are AST refs)
+    self.nested_class_instances.deinit();
 
     // Clean up comptime_evals tracking
     freeMapKeys(self.allocator, &self.comptime_evals);

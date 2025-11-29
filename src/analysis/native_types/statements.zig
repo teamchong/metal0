@@ -104,6 +104,9 @@ pub fn visitStmt(
                                     } else if (assign.value.* == .call) {
                                         // If assigning from a call, infer type (handles class constructors)
                                         field_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
+                                    } else {
+                                        // For all other expressions (binop, unaryop, etc.), use generic inference
+                                        field_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
                                     }
 
                                     try fields.put(field_name, field_type);

@@ -63,7 +63,7 @@ pub fn genArgumentParser(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
     try self.emitIndent();
     try self.emit("const is_optional = name.len > 0 and name[0] == '-';\n");
     try self.emitIndent();
-    try self.emit("self.arguments.append(allocator, Argument{\n");
+    try self.emit("self.arguments.append(__global_allocator, Argument{\n");
     self.indent();
     try self.emitIndent();
     try self.emit(".name = name,\n");
@@ -79,7 +79,7 @@ pub fn genArgumentParser(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
     try self.emit("pub fn parse_args(self: *@This()) *@This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const args = std.process.argsAlloc(allocator) catch return self;\n");
+    try self.emit("const args = std.process.argsAlloc(__global_allocator) catch return self;\n");
     try self.emitIndent();
     try self.emit("var i: usize = 1;\n");
     try self.emitIndent();
@@ -137,7 +137,7 @@ pub fn genArgumentParser(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
     try self.emit("} else {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("self.positional_args.append(allocator, arg) catch {};\n");
+    try self.emit("self.positional_args.append(__global_allocator, arg) catch {};\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

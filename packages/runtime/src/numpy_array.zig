@@ -1100,42 +1100,50 @@ pub fn compareArrays(arr1: *NumpyArray, arr2: *NumpyArray, op: CompareOp, alloca
     return result;
 }
 
-/// Wrap NumpyArray in PyObject
+/// Wrap NumpyArray in PyObject using CPython-compatible layout
 pub fn createPyObject(allocator: std.mem.Allocator, array: *NumpyArray) !*runtime.PyObject {
-    const obj = try allocator.create(runtime.PyObject);
+    const obj = try allocator.create(runtime.PyNumpyArrayObject);
     obj.* = .{
-        .ref_count = 1,
-        .type_id = .numpy_array,
-        .data = @ptrCast(array),
+        .ob_base = .{
+            .ob_refcnt = 1,
+            .ob_type = &runtime.PyNumpyArray_Type,
+        },
+        .array_ptr = @ptrCast(array),
     };
-    return obj;
+    return @ptrCast(obj);
 }
 
 /// Extract NumpyArray from PyObject
 pub fn extractArray(obj: *runtime.PyObject) !*NumpyArray {
-    if (obj.type_id != .numpy_array) {
+    // Check type using ob_type pointer comparison
+    if (obj.ob_type != &runtime.PyNumpyArray_Type) {
         return error.TypeError;
     }
-    return @ptrCast(@alignCast(obj.data));
+    const numpy_obj: *runtime.PyNumpyArrayObject = @ptrCast(@alignCast(obj));
+    return @ptrCast(@alignCast(numpy_obj.array_ptr));
 }
 
-/// Wrap BoolArray in PyObject
+/// Wrap BoolArray in PyObject using CPython-compatible layout
 pub fn createBoolPyObject(allocator: std.mem.Allocator, array: *BoolArray) !*runtime.PyObject {
-    const obj = try allocator.create(runtime.PyObject);
+    const obj = try allocator.create(runtime.PyBoolArrayObject);
     obj.* = .{
-        .ref_count = 1,
-        .type_id = .bool_array,
-        .data = @ptrCast(array),
+        .ob_base = .{
+            .ob_refcnt = 1,
+            .ob_type = &runtime.PyBoolArray_Type,
+        },
+        .array_ptr = @ptrCast(array),
     };
-    return obj;
+    return @ptrCast(obj);
 }
 
 /// Extract BoolArray from PyObject
 pub fn extractBoolArray(obj: *runtime.PyObject) !*BoolArray {
-    if (obj.type_id != .bool_array) {
+    // Check type using ob_type pointer comparison
+    if (obj.ob_type != &runtime.PyBoolArray_Type) {
         return error.TypeError;
     }
-    return @ptrCast(@alignCast(obj.data));
+    const bool_obj: *runtime.PyBoolArrayObject = @ptrCast(@alignCast(obj));
+    return @ptrCast(@alignCast(bool_obj.array_ptr));
 }
 
 /// Boolean indexing: arr[mask] - filter array by boolean mask
@@ -1233,10 +1241,13 @@ test "wrap in PyObject" {
     defer {
         const extracted = extractArray(obj) catch unreachable;
         extracted.deinit();
-        allocator.destroy(obj);
+        // Destroy the PyNumpyArrayObject wrapper
+        const numpy_obj: *runtime.PyNumpyArrayObject = @ptrCast(@alignCast(obj));
+        allocator.destroy(numpy_obj);
     }
 
-    try std.testing.expectEqual(runtime.PyObject.TypeId.numpy_array, obj.type_id);
+    // Check type using ob_type pointer comparison (CPython-compatible)
+    try std.testing.expectEqual(&runtime.PyNumpyArray_Type, obj.ob_type);
 
     const extracted = try extractArray(obj);
     try std.testing.expectEqual(@as(usize, 3), extracted.size);

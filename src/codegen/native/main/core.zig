@@ -126,6 +126,9 @@ pub const NativeCodegen = struct {
     // Track ArrayList variables (for len() -> .items.len)
     arraylist_vars: FnvVoidMap,
 
+    // Track dict variables (for subscript access -> .get()/.put())
+    dict_vars: FnvVoidMap,
+
     // Track anytype parameters in current function scope (for comprehension iteration)
     anytype_params: FnvVoidMap,
 
@@ -214,9 +217,36 @@ pub const NativeCodegen = struct {
     // Maps variable name -> void for variables that reference outer (module) scope
     global_vars: FnvVoidMap,
 
+    // Track variables defined in current function scope (for nested class closure detection)
+    // Maps variable name -> void (e.g., "calls" -> {})
+    // Populated at start of function generation, used to detect outer scope references
+    func_local_vars: FnvVoidMap,
+
+    // Track captured variables for nested classes within current function
+    // Maps class name -> list of captured variable names
+    // E.g., "Left" -> ["calls", "results"]
+    nested_class_captures: hashmap_helper.StringHashMap([][]const u8),
+
+    // Track instances of nested classes (variable name -> class name)
+    // E.g., "obj" -> "Inner" when we have `obj = Inner()`
+    // Used to pass allocator to method calls on nested class instances
+    nested_class_instances: hashmap_helper.StringHashMap([]const u8),
+
+    // Track all nested class names defined in current function/method scope
+    // Used to detect class constructor calls for nested classes without captures
+    nested_class_names: FnvVoidMap,
+
     // Current class being generated (for super() support)
     // Set during class method generation, null otherwise
     current_class_name: ?[]const u8,
+
+    // Captured variables for the current class (from parent scope)
+    // Set when entering a class with captured variables, null otherwise
+    // Used by expression generator to convert `var_name` to `self.__captured_var_name.*`
+    current_class_captures: ?[][]const u8,
+
+    // True when inside __init__ method - captured vars accessed via __cap_* params, not self
+    inside_init_method: bool,
 
     // Current class's parent name (for parent method call resolution)
     // E.g., "array.array" when class inherits from array.array
@@ -293,6 +323,7 @@ pub const NativeCodegen = struct {
             .array_vars = FnvVoidMap.init(allocator),
             .array_slice_vars = FnvVoidMap.init(allocator),
             .arraylist_vars = FnvVoidMap.init(allocator),
+            .dict_vars = FnvVoidMap.init(allocator),
             .anytype_params = FnvVoidMap.init(allocator),
             .mutable_classes = FnvVoidMap.init(allocator),
             .unittest_classes = std.ArrayList(TestClassInfo){},
@@ -317,7 +348,13 @@ pub const NativeCodegen = struct {
             .comptime_evals = FnvVoidMap.init(allocator),
             .func_local_mutations = FnvVoidMap.init(allocator),
             .global_vars = FnvVoidMap.init(allocator),
+            .func_local_vars = FnvVoidMap.init(allocator),
+            .nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(allocator),
+            .nested_class_instances = hashmap_helper.StringHashMap([]const u8).init(allocator),
+            .nested_class_names = FnvVoidMap.init(allocator),
             .current_class_name = null,
+            .current_class_captures = null,
+            .inside_init_method = false,
             .current_class_parent = null,
             .class_nesting_depth = 0,
             .method_nesting_depth = 0,
@@ -376,6 +413,11 @@ pub const NativeCodegen = struct {
     /// Check if variable is an ArrayList (needs .items.len for len())
     pub fn isArrayListVar(self: *NativeCodegen, name: []const u8) bool {
         return self.arraylist_vars.contains(name);
+    }
+
+    /// Check if variable is a dict (needs .get()/.put() for subscript access)
+    pub fn isDictVar(self: *NativeCodegen, name: []const u8) bool {
+        return self.dict_vars.contains(name);
     }
 
     /// Look up async function definition for complexity analysis

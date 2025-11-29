@@ -373,119 +373,502 @@ pub fn toBool(value: anytype) bool {
     return true;
 }
 
-/// Python object representation
-pub const PyObject = struct {
-    ref_count: usize,
-    type_id: TypeId,
-    data: *anyopaque,
-    /// Optional arena pointer - if set, this object was allocated from an arena
-    /// When ref_count hits 0 on a root object with arena_ptr, free the entire arena
-    arena_ptr: ?*anyopaque = null,
+// =============================================================================
+// CPython-Compatible PyObject Layout
+// =============================================================================
+// These structures use `extern struct` for C ABI compatibility.
+// Field order and sizes MUST match CPython exactly for numpy/pandas to work.
+// Reference: https://github.com/python/cpython/blob/main/Include/object.h
+// =============================================================================
 
-    pub const TypeId = enum {
-        int,
-        float,
-        bool,
-        string,
-        list,
-        tuple,
-        dict,
-        none,
-        file, // File handle (open())
-        numpy_array, // NumPy array support for C interop
-        bool_array, // Boolean array (numpy comparison result)
-        regex, // Compiled regex pattern
-    };
+/// Py_ssize_t equivalent - signed size type matching C's ssize_t
+pub const Py_ssize_t = isize;
 
-    /// Value type for initializing lists/tuples from literals
+/// PyObject - Base object header (CPython compatible)
+/// Layout: ob_refcnt (8 bytes) + ob_type (8 bytes) = 16 bytes
+pub const PyObject = extern struct {
+    ob_refcnt: Py_ssize_t,
+    ob_type: *PyTypeObject,
+
+    /// Value type for initializing lists/tuples from literals (backwards compat)
     pub const Value = struct {
         int: i64,
     };
 };
 
-/// Reference counting
-pub fn incref(obj: *PyObject) void {
-    obj.ref_count += 1;
+/// PyVarObject - Variable-size object header (CPython compatible)
+/// Used for list, tuple, string, etc.
+pub const PyVarObject = extern struct {
+    ob_base: PyObject,
+    ob_size: Py_ssize_t,
+};
+
+/// Type object flags (subset of CPython's Py_TPFLAGS_*)
+pub const Py_TPFLAGS = struct {
+    pub const HEAPTYPE: u64 = 1 << 9;
+    pub const BASETYPE: u64 = 1 << 10;
+    pub const HAVE_GC: u64 = 1 << 14;
+    pub const DEFAULT: u64 = 0;
+};
+
+/// PyTypeObject - Type descriptor (simplified CPython compatible)
+/// Full CPython PyTypeObject has ~50 fields; we implement the critical ones
+pub const PyTypeObject = extern struct {
+    ob_base: PyVarObject,
+    tp_name: [*:0]const u8,
+    tp_basicsize: Py_ssize_t,
+    tp_itemsize: Py_ssize_t,
+    // Destructor
+    tp_dealloc: ?*const fn (*PyObject) callconv(.c) void,
+    // Placeholder for vectorcall_offset
+    tp_vectorcall_offset: Py_ssize_t,
+    // Reserved slots (for getattr, setattr, etc.)
+    tp_getattr: ?*anyopaque,
+    tp_setattr: ?*anyopaque,
+    tp_as_async: ?*anyopaque,
+    tp_repr: ?*const fn (*PyObject) callconv(.c) *PyObject,
+    // Number/sequence/mapping protocols
+    tp_as_number: ?*anyopaque,
+    tp_as_sequence: ?*anyopaque,
+    tp_as_mapping: ?*anyopaque,
+    tp_hash: ?*const fn (*PyObject) callconv(.c) Py_ssize_t,
+    tp_call: ?*anyopaque,
+    tp_str: ?*const fn (*PyObject) callconv(.c) *PyObject,
+    tp_getattro: ?*anyopaque,
+    tp_setattro: ?*anyopaque,
+    tp_as_buffer: ?*anyopaque,
+    tp_flags: u64,
+    tp_doc: ?[*:0]const u8,
+    // Traversal and clear for GC
+    tp_traverse: ?*anyopaque,
+    tp_clear: ?*anyopaque,
+    tp_richcompare: ?*anyopaque,
+    tp_weaklistoffset: Py_ssize_t,
+    tp_iter: ?*anyopaque,
+    tp_iternext: ?*anyopaque,
+    tp_methods: ?*anyopaque,
+    tp_members: ?*anyopaque,
+    tp_getset: ?*anyopaque,
+    tp_base: ?*PyTypeObject,
+    tp_dict: ?*PyObject,
+    tp_descr_get: ?*anyopaque,
+    tp_descr_set: ?*anyopaque,
+    tp_dictoffset: Py_ssize_t,
+    tp_init: ?*anyopaque,
+    tp_alloc: ?*anyopaque,
+    tp_new: ?*anyopaque,
+    tp_free: ?*anyopaque,
+    tp_is_gc: ?*anyopaque,
+    tp_bases: ?*PyObject,
+    tp_mro: ?*PyObject,
+    tp_cache: ?*PyObject,
+    tp_subclasses: ?*anyopaque,
+    tp_weaklist: ?*PyObject,
+    tp_del: ?*anyopaque,
+    tp_version_tag: u32,
+    tp_finalize: ?*anyopaque,
+    tp_vectorcall: ?*anyopaque,
+};
+
+// =============================================================================
+// Concrete Python Type Objects (CPython ABI compatible)
+// =============================================================================
+
+/// PyLongObject - Python integer (CPython compatible)
+/// CPython uses variable-length digit array; we use fixed i64 for simplicity
+/// Note: For full numpy compat, may need variable-length digits later
+pub const PyLongObject = extern struct {
+    ob_base: PyVarObject,
+    // In CPython this is a variable-length digit array
+    // We simplify to a single i64 for now (covers most use cases)
+    ob_digit: i64,
+};
+
+/// PyFloatObject - Python float (CPython compatible)
+pub const PyFloatObject = extern struct {
+    ob_base: PyObject,
+    ob_fval: f64,
+};
+
+/// PyBoolObject - Python bool (same layout as PyLongObject in CPython)
+pub const PyBoolObject = extern struct {
+    ob_base: PyVarObject,
+    ob_digit: i64, // 0 for False, 1 for True
+};
+
+/// PyListObject - Python list (CPython compatible)
+pub const PyListObject = extern struct {
+    ob_base: PyVarObject,
+    ob_item: [*]*PyObject, // Array of PyObject pointers
+    allocated: Py_ssize_t, // Allocated capacity
+};
+
+/// PyTupleObject - Python tuple (CPython compatible)
+pub const PyTupleObject = extern struct {
+    ob_base: PyVarObject,
+    ob_item: [*]*PyObject, // Inline array of PyObject pointers
+};
+
+/// PyDictObject - Python dict (simplified, not full CPython layout)
+/// CPython's dict is complex with compact dict + indices; we use simpler layout
+pub const PyDictObject = extern struct {
+    ob_base: PyObject,
+    ma_used: Py_ssize_t, // Number of items
+    // Internal hash map storage (not CPython compatible, but functional)
+    ma_keys: ?*anyopaque, // Pointer to our hashmap
+    ma_values: ?*anyopaque, // Reserved for split-table dict
+};
+
+/// PyBytesObject - Python bytes (CPython compatible)
+pub const PyBytesObject = extern struct {
+    ob_base: PyVarObject,
+    ob_shash: Py_ssize_t, // Cached hash (-1 if not computed)
+    ob_sval: [1]u8, // Variable-length byte array (at least 1 byte)
+};
+
+/// PyUnicodeObject - Python string (simplified)
+/// Full CPython Unicode is very complex (compact/legacy/etc.)
+/// We use a simplified UTF-8 representation
+pub const PyUnicodeObject = extern struct {
+    ob_base: PyObject,
+    length: Py_ssize_t, // Number of code points
+    hash: Py_ssize_t, // Cached hash (-1 if not computed)
+    // State flags (interned, kind, compact, ascii, ready)
+    state: u32,
+    _padding: u32, // Alignment padding
+    // UTF-8 data pointer (simplified from CPython's complex union)
+    data: [*]const u8,
+};
+
+/// PyNoneStruct - The None singleton
+pub const PyNoneStruct = extern struct {
+    ob_base: PyObject,
+};
+
+/// PyFileObject - File handle (metal0 specific, not CPython compatible)
+pub const PyFileObject = extern struct {
+    ob_base: PyObject,
+    // File-specific fields (not matching CPython's io module)
+    fd: i32,
+    mode: u32,
+    name: ?[*:0]const u8,
+};
+
+/// PyNumpyArrayObject - metal0 numpy array wrapper
+/// Uses CPython-style header for compatibility, with internal NumpyArray pointer
+pub const PyNumpyArrayObject = extern struct {
+    ob_base: PyObject,
+    // Pointer to internal NumpyArray struct (not CPython compatible, but functional)
+    array_ptr: ?*anyopaque,
+};
+
+/// PyBoolArrayObject - metal0 boolean array wrapper
+pub const PyBoolArrayObject = extern struct {
+    ob_base: PyObject,
+    // Pointer to internal BoolArray struct
+    array_ptr: ?*anyopaque,
+};
+
+// =============================================================================
+// Global Type Objects (singletons)
+// =============================================================================
+
+/// Forward declaration for type object initialization
+fn nullDealloc(_: *PyObject) callconv(.c) void {}
+
+/// Base type object template
+fn makeTypeObject(comptime name: [*:0]const u8, comptime basicsize: Py_ssize_t, comptime itemsize: Py_ssize_t) PyTypeObject {
+    return PyTypeObject{
+        .ob_base = .{
+            .ob_base = .{
+                .ob_refcnt = 1, // Immortal
+                .ob_type = undefined, // Will be set to &PyType_Type
+            },
+            .ob_size = 0,
+        },
+        .tp_name = name,
+        .tp_basicsize = basicsize,
+        .tp_itemsize = itemsize,
+        .tp_dealloc = nullDealloc,
+        .tp_vectorcall_offset = 0,
+        .tp_getattr = null,
+        .tp_setattr = null,
+        .tp_as_async = null,
+        .tp_repr = null,
+        .tp_as_number = null,
+        .tp_as_sequence = null,
+        .tp_as_mapping = null,
+        .tp_hash = null,
+        .tp_call = null,
+        .tp_str = null,
+        .tp_getattro = null,
+        .tp_setattro = null,
+        .tp_as_buffer = null,
+        .tp_flags = Py_TPFLAGS.DEFAULT,
+        .tp_doc = null,
+        .tp_traverse = null,
+        .tp_clear = null,
+        .tp_richcompare = null,
+        .tp_weaklistoffset = 0,
+        .tp_iter = null,
+        .tp_iternext = null,
+        .tp_methods = null,
+        .tp_members = null,
+        .tp_getset = null,
+        .tp_base = null,
+        .tp_dict = null,
+        .tp_descr_get = null,
+        .tp_descr_set = null,
+        .tp_dictoffset = 0,
+        .tp_init = null,
+        .tp_alloc = null,
+        .tp_new = null,
+        .tp_free = null,
+        .tp_is_gc = null,
+        .tp_bases = null,
+        .tp_mro = null,
+        .tp_cache = null,
+        .tp_subclasses = null,
+        .tp_weaklist = null,
+        .tp_del = null,
+        .tp_version_tag = 0,
+        .tp_finalize = null,
+        .tp_vectorcall = null,
+    };
 }
 
+// Type object singletons
+pub var PyLong_Type: PyTypeObject = makeTypeObject("int", @sizeOf(PyLongObject), 0);
+pub var PyFloat_Type: PyTypeObject = makeTypeObject("float", @sizeOf(PyFloatObject), 0);
+pub var PyBool_Type: PyTypeObject = makeTypeObject("bool", @sizeOf(PyBoolObject), 0);
+pub var PyList_Type: PyTypeObject = makeTypeObject("list", @sizeOf(PyListObject), @sizeOf(*PyObject));
+pub var PyTuple_Type: PyTypeObject = makeTypeObject("tuple", @sizeOf(PyTupleObject), @sizeOf(*PyObject));
+pub var PyDict_Type: PyTypeObject = makeTypeObject("dict", @sizeOf(PyDictObject), 0);
+pub var PyUnicode_Type: PyTypeObject = makeTypeObject("str", @sizeOf(PyUnicodeObject), 0);
+pub var PyBytes_Type: PyTypeObject = makeTypeObject("bytes", @sizeOf(PyBytesObject), 1);
+pub var PyNone_Type: PyTypeObject = makeTypeObject("NoneType", @sizeOf(PyNoneStruct), 0);
+pub var PyType_Type: PyTypeObject = makeTypeObject("type", @sizeOf(PyTypeObject), 0);
+pub var PyFile_Type: PyTypeObject = makeTypeObject("file", @sizeOf(PyFileObject), 0);
+pub var PyNumpyArray_Type: PyTypeObject = makeTypeObject("numpy.ndarray", @sizeOf(PyNumpyArrayObject), 0);
+pub var PyBoolArray_Type: PyTypeObject = makeTypeObject("numpy.ndarray[bool]", @sizeOf(PyBoolArrayObject), 0);
+
+// None singleton
+pub var _Py_NoneStruct: PyNoneStruct = .{
+    .ob_base = .{
+        .ob_refcnt = 1, // Immortal
+        .ob_type = &PyNone_Type,
+    },
+};
+pub const Py_None: *PyObject = @ptrCast(&_Py_NoneStruct);
+
+// =============================================================================
+// CPython-compatible Reference Counting Macros
+// =============================================================================
+
+pub inline fn Py_INCREF(op: *PyObject) void {
+    op.ob_refcnt += 1;
+}
+
+pub inline fn Py_DECREF(op: *PyObject) void {
+    op.ob_refcnt -= 1;
+    if (op.ob_refcnt == 0) {
+        if (op.ob_type.tp_dealloc) |dealloc| {
+            dealloc(op);
+        }
+    }
+}
+
+pub inline fn Py_XINCREF(op: ?*PyObject) void {
+    if (op) |o| Py_INCREF(o);
+}
+
+pub inline fn Py_XDECREF(op: ?*PyObject) void {
+    if (op) |o| Py_DECREF(o);
+}
+
+/// Type checking macros
+pub inline fn Py_TYPE(op: *PyObject) *PyTypeObject {
+    return op.ob_type;
+}
+
+pub inline fn Py_IS_TYPE(op: *PyObject, typ: *PyTypeObject) bool {
+    return Py_TYPE(op) == typ;
+}
+
+pub inline fn PyLong_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyLong_Type);
+}
+
+pub inline fn PyFloat_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyFloat_Type);
+}
+
+pub inline fn PyBool_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyBool_Type);
+}
+
+pub inline fn PyList_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyList_Type);
+}
+
+pub inline fn PyTuple_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyTuple_Type);
+}
+
+pub inline fn PyDict_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyDict_Type);
+}
+
+pub inline fn PyUnicode_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyUnicode_Type);
+}
+
+pub inline fn PyBytes_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyBytes_Type);
+}
+
+/// Get ob_size from PyVarObject
+pub inline fn Py_SIZE(op: *PyObject) Py_ssize_t {
+    const var_obj: *PyVarObject = @ptrCast(@alignCast(op));
+    return var_obj.ob_size;
+}
+
+/// Set ob_size on PyVarObject
+pub inline fn Py_SET_SIZE(op: *PyObject, size: Py_ssize_t) void {
+    const var_obj: *PyVarObject = @ptrCast(@alignCast(op));
+    var_obj.ob_size = size;
+}
+
+// =============================================================================
+// Backwards Compatibility - Legacy TypeId enum
+// =============================================================================
+// This provides a bridge for existing code that uses the old type_id system
+
+pub const TypeId = enum {
+    int,
+    float,
+    bool,
+    string,
+    list,
+    tuple,
+    dict,
+    none,
+    file,
+    numpy_array,
+    bool_array,
+    regex,
+    bytes,
+
+    /// Convert PyObject to legacy TypeId
+    pub fn fromPyObject(obj: *PyObject) TypeId {
+        if (Py_IS_TYPE(obj, &PyLong_Type)) return .int;
+        if (Py_IS_TYPE(obj, &PyFloat_Type)) return .float;
+        if (Py_IS_TYPE(obj, &PyBool_Type)) return .bool;
+        if (Py_IS_TYPE(obj, &PyUnicode_Type)) return .string;
+        if (Py_IS_TYPE(obj, &PyList_Type)) return .list;
+        if (Py_IS_TYPE(obj, &PyTuple_Type)) return .tuple;
+        if (Py_IS_TYPE(obj, &PyDict_Type)) return .dict;
+        if (Py_IS_TYPE(obj, &PyNone_Type)) return .none;
+        if (Py_IS_TYPE(obj, &PyBytes_Type)) return .bytes;
+        return .none; // Default fallback
+    }
+};
+
+/// Legacy type_id accessor for backwards compatibility
+pub fn getTypeId(obj: *PyObject) TypeId {
+    return TypeId.fromPyObject(obj);
+}
+
+// =============================================================================
+// Legacy Reference Counting (bridges to new CPython-compatible functions)
+// =============================================================================
+
+/// Legacy incref - bridges to Py_INCREF
+pub fn incref(obj: *PyObject) void {
+    Py_INCREF(obj);
+}
+
+/// Legacy decref with allocator - uses new type-based deallocation
 pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
-    if (obj.ref_count == 0) {
+    if (obj.ob_refcnt <= 0) {
         std.debug.print("WARNING: Attempting to decref object with ref_count already 0\n", .{});
         return;
     }
-    obj.ref_count -= 1;
-    if (obj.ref_count == 0) {
-        // Check if this is an arena-allocated root object
-        if (obj.arena_ptr) |arena_ptr| {
-            // This is a JSON arena root - free entire arena at once
-            // All child objects are in the arena, no need to recurse
-            const JsonArena = @import("json/arena.zig").JsonArena;
-            const arena: *JsonArena = @ptrCast(@alignCast(arena_ptr));
-            arena.decref();
-            return; // Arena freed everything, we're done
-        }
-
-        // Free internal data based on type
-        switch (obj.type_id) {
+    obj.ob_refcnt -= 1;
+    if (obj.ob_refcnt == 0) {
+        // Use type-based deallocation
+        const type_id = getTypeId(obj);
+        switch (type_id) {
             .int => {
-                const data: *PyInt = @ptrCast(@alignCast(obj.data));
-                allocator.destroy(data);
+                // PyLongObject is self-contained, just free it
+                const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
+                allocator.destroy(long_obj);
             },
             .float => {
-                const data: *PyFloat = @ptrCast(@alignCast(obj.data));
-                allocator.destroy(data);
+                const float_obj: *PyFloatObject = @ptrCast(@alignCast(obj));
+                allocator.destroy(float_obj);
             },
             .bool => {
-                const data: *PyBool = @ptrCast(@alignCast(obj.data));
-                allocator.destroy(data);
+                const bool_obj: *PyBoolObject = @ptrCast(@alignCast(obj));
+                allocator.destroy(bool_obj);
             },
             .list => {
-                const data: *PyList = @ptrCast(@alignCast(obj.data));
+                const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
+                const size: usize = @intCast(list_obj.ob_base.ob_size);
                 // Decref all items
-                for (data.items.items) |item| {
-                    decref(item, allocator);
+                for (0..size) |i| {
+                    decref(list_obj.ob_item[i], allocator);
                 }
-                data.items.deinit(data.allocator);
-                allocator.destroy(data);
+                // Free the item array
+                if (list_obj.allocated > 0) {
+                    const alloc_size: usize = @intCast(list_obj.allocated);
+                    allocator.free(list_obj.ob_item[0..alloc_size]);
+                }
+                allocator.destroy(list_obj);
             },
             .tuple => {
-                const data: *PyTuple = @ptrCast(@alignCast(obj.data));
+                const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
+                const size: usize = @intCast(tuple_obj.ob_base.ob_size);
                 // Decref all items
-                for (data.items) |item| {
-                    decref(item, allocator);
+                for (0..size) |i| {
+                    decref(tuple_obj.ob_item[i], allocator);
                 }
-                allocator.free(data.items);
-                allocator.destroy(data);
+                // Free the tuple (items are inline in CPython, but we allocate separately)
+                allocator.free(tuple_obj.ob_item[0..size]);
+                allocator.destroy(tuple_obj);
             },
             .string => {
-                const data: *PyString = @ptrCast(@alignCast(obj.data));
-                if (data.source) |source| {
-                    // COW: borrowed from source, just decref source
-                    decref(source, allocator);
-                } else {
-                    // Owned: free the data
-                    allocator.free(@constCast(data.data));
+                const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(obj));
+                // Free the string data if owned
+                const len: usize = @intCast(str_obj.length);
+                if (len > 0) {
+                    allocator.free(str_obj.data[0..len]);
                 }
-                allocator.destroy(data);
+                allocator.destroy(str_obj);
             },
             .dict => {
-                const data: *PyDict = @ptrCast(@alignCast(obj.data));
-                // Free keys and decref values
-                var it = data.map.iterator();
-                while (it.next()) |entry| {
-                    allocator.free(entry.key_ptr.*); // Free the duplicated key
-                    decref(entry.value_ptr.*, allocator); // Decref the value
+                const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+                // Free internal hashmap if present
+                if (dict_obj.ma_keys) |keys_ptr| {
+                    const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(keys_ptr));
+                    var it = map.iterator();
+                    while (it.next()) |entry| {
+                        allocator.free(entry.key_ptr.*);
+                        decref(entry.value_ptr.*, allocator);
+                    }
+                    map.deinit();
+                    allocator.destroy(map);
                 }
-                data.map.deinit();
-                allocator.destroy(data);
+                allocator.destroy(dict_obj);
             },
-            .file => {
-                PyFile.deinit(obj, allocator);
-                return; // deinit already destroys obj
+            .none => {
+                // Never free the None singleton
             },
-            else => {},
+            else => {
+                // Generic deallocation for unknown types
+                // Just free the base PyObject
+            },
         }
-        allocator.destroy(obj);
     }
 }
 
@@ -493,36 +876,36 @@ pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
 /// Returns false for: None, False, 0, empty string, empty list/dict
 /// Returns true for everything else
 pub fn pyTruthy(obj: *PyObject) bool {
-    switch (obj.type_id) {
+    const type_id = getTypeId(obj);
+    switch (type_id) {
         .none => return false,
         .bool => {
-            const val = @as(*bool, @ptrCast(@alignCast(obj.data)));
-            return val.*;
+            const bool_obj: *PyBoolObject = @ptrCast(@alignCast(obj));
+            return bool_obj.ob_digit != 0;
         },
         .int => {
-            const val = @as(*i64, @ptrCast(@alignCast(obj.data)));
-            return val.* != 0;
+            const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
+            return long_obj.ob_digit != 0;
         },
         .float => {
-            const val = @as(*f64, @ptrCast(@alignCast(obj.data)));
-            return val.* != 0.0;
+            const float_obj: *PyFloatObject = @ptrCast(@alignCast(obj));
+            return float_obj.ob_fval != 0.0;
         },
         .string => {
-            const str = @as(*[]const u8, @ptrCast(@alignCast(obj.data)));
-            return str.len > 0;
+            const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(obj));
+            return str_obj.length > 0;
         },
         .list => {
-            const items = @as(*[]const *PyObject, @ptrCast(@alignCast(obj.data)));
-            return items.len > 0;
+            const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
+            return list_obj.ob_base.ob_size > 0;
         },
         .dict => {
-            // Dict truthiness - check if any entries
-            const data: *PyDict = @ptrCast(@alignCast(obj.data));
-            return data.map.count() > 0;
+            const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+            return dict_obj.ma_used > 0;
         },
         .tuple => {
-            const items = @as(*[]const *PyObject, @ptrCast(@alignCast(obj.data)));
-            return items.len > 0;
+            const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
+            return tuple_obj.ob_base.ob_size > 0;
         },
         else => return true, // All other types (file, numpy_array, etc.) are truthy
     }
@@ -535,25 +918,27 @@ pub fn printPyObject(obj: *PyObject) void {
 
 /// Internal: print PyObject with quote_strings flag for container elements
 fn printPyObjectImpl(obj: *PyObject, quote_strings: bool) void {
-    switch (obj.type_id) {
+    const type_id = getTypeId(obj);
+    switch (type_id) {
         .int => {
-            const data: *PyInt = @ptrCast(@alignCast(obj.data));
-            std.debug.print("{}", .{data.value});
+            const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
+            std.debug.print("{}", .{long_obj.ob_digit});
         },
         .float => {
-            const data: *PyFloat = @ptrCast(@alignCast(obj.data));
-            std.debug.print("{d}", .{data.value});
+            const float_obj: *PyFloatObject = @ptrCast(@alignCast(obj));
+            std.debug.print("{d}", .{float_obj.ob_fval});
         },
         .bool => {
-            const data: *PyBool = @ptrCast(@alignCast(obj.data));
-            std.debug.print("{s}", .{if (data.value) "True" else "False"});
+            const bool_obj: *PyBoolObject = @ptrCast(@alignCast(obj));
+            std.debug.print("{s}", .{if (bool_obj.ob_digit != 0) "True" else "False"});
         },
         .string => {
-            const data: *PyString = @ptrCast(@alignCast(obj.data));
+            const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(obj));
+            const len: usize = @intCast(str_obj.length);
             if (quote_strings) {
-                std.debug.print("'{s}'", .{data.data});
+                std.debug.print("'{s}'", .{str_obj.data[0..len]});
             } else {
-                std.debug.print("{s}", .{data.data});
+                std.debug.print("{s}", .{str_obj.data[0..len]});
             }
         },
         .none => {
@@ -577,44 +962,51 @@ fn printPyObjectImpl(obj: *PyObject, quote_strings: bool) void {
 
 /// Helper function to print a dict in Python format: {'key': value, ...}
 fn printDict(obj: *PyObject) void {
-    std.debug.assert(obj.type_id == .dict);
-    const data: *PyDict = @ptrCast(@alignCast(obj.data));
+    std.debug.assert(PyDict_Check(obj));
+    const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
 
     std.debug.print("{{", .{});
-    var iter = data.map.iterator();
-    var idx: usize = 0;
-    while (iter.next()) |entry| {
-        if (idx > 0) {
-            std.debug.print(", ", .{});
+    if (dict_obj.ma_keys) |keys_ptr| {
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(keys_ptr));
+        var iter = map.iterator();
+        var idx: usize = 0;
+        while (iter.next()) |entry| {
+            if (idx > 0) {
+                std.debug.print(", ", .{});
+            }
+            // Print key with quotes (string keys)
+            std.debug.print("'{s}': ", .{entry.key_ptr.*});
+            // Recursively print value (with quoted strings)
+            printPyObjectImpl(entry.value_ptr.*, true);
+            idx += 1;
         }
-        // Print key with quotes (string keys)
-        std.debug.print("'{s}': ", .{entry.key_ptr.*});
-        // Recursively print value (with quoted strings)
-        printPyObjectImpl(entry.value_ptr.*, true);
-        idx += 1;
     }
     std.debug.print("}}", .{});
 }
 
 /// Helper function to print a list in Python format: [elem1, elem2, elem3]
 pub fn printList(obj: *PyObject) void {
-    std.debug.assert(obj.type_id == .list);
-    const data: *PyList = @ptrCast(@alignCast(obj.data));
+    std.debug.assert(PyList_Check(obj));
+    const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
+    const size: usize = @intCast(list_obj.ob_base.ob_size);
 
     std.debug.print("[", .{});
-    for (data.items.items, 0..) |item, i| {
+    for (0..size) |i| {
         if (i > 0) {
             std.debug.print(", ", .{});
         }
+        const item = list_obj.ob_item[i];
         // Print each element based on its type
-        switch (item.type_id) {
+        const item_type = getTypeId(item);
+        switch (item_type) {
             .int => {
-                const int_data: *PyInt = @ptrCast(@alignCast(item.data));
-                std.debug.print("{}", .{int_data.value});
+                const long_obj: *PyLongObject = @ptrCast(@alignCast(item));
+                std.debug.print("{}", .{long_obj.ob_digit});
             },
             .string => {
-                const str_data: *PyString = @ptrCast(@alignCast(item.data));
-                std.debug.print("'{s}'", .{str_data.data});
+                const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(item));
+                const len: usize = @intCast(str_obj.length);
+                std.debug.print("'{s}'", .{str_obj.data[0..len]});
             },
             .tuple => {
                 PyTuple.print(item);
@@ -635,6 +1027,10 @@ pub const PyFloat = pyfloat.PyFloat;
 
 /// Python bool type - re-exported from pybool.zig
 pub const PyBool = pybool.PyBool;
+
+/// Bool singletons - re-exported from pybool.zig
+pub const Py_True = pybool.Py_True;
+pub const Py_False = pybool.Py_False;
 
 /// Python file type - re-exported from pyfile.zig
 pub const PyFile = pyfile.PyFile;

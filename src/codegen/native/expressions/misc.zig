@@ -106,9 +106,11 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     // Check if value produces a block expression - need to wrap in temp variable
     // Because Zig doesn't allow field access on block expressions: blk:{}.field is invalid
     if (producesBlockExpression(attr.value.*)) {
-        try self.emit("blk: { const __obj = ");
+        const attr_label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("attr_{d}: {{ const __obj = ", .{attr_label_id});
         try genExpr(self, attr.value.*);
-        try self.emit("; break :blk __obj.");
+        try self.emitFmt("; break :attr_{d} __obj.", .{attr_label_id});
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         try self.emit("; }");
         return;

@@ -97,17 +97,30 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("}");
 }
 
-/// Generate code for pow(base, exp)
-/// Returns base^exp
+/// Generate code for pow(base, exp) or pow(base, exp, mod)
+/// Returns base^exp or base^exp % mod (modular exponentiation)
 pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 2) return;
+    if (args.len < 2) return;
 
-    // Generate: std.math.pow(f64, base, exp)
-    try self.emit("std.math.pow(f64, ");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(")");
+    if (args.len == 3) {
+        // pow(base, exp, mod) - modular exponentiation
+        // Generate: @rem(@as(i64, @intFromFloat(std.math.pow(f64, base, exp))), mod)
+        try self.emit("@rem(@as(i64, @intFromFloat(std.math.pow(f64, @as(f64, @floatFromInt(");
+        try self.genExpr(args[0]);
+        try self.emit(")), @as(f64, @floatFromInt(");
+        try self.genExpr(args[1]);
+        try self.emit("))))), ");
+        try self.genExpr(args[2]);
+        try self.emit(")");
+    } else {
+        // pow(base, exp) - standard power
+        // Generate: std.math.pow(f64, base, exp)
+        try self.emit("std.math.pow(f64, ");
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(")");
+    }
 }
 
 /// Generate code for chr(n)

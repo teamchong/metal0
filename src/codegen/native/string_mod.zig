@@ -81,7 +81,7 @@ pub fn genCapwords(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("if (c == ' ') {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("_result.append(allocator, ' ') catch continue;\n");
+    try self.emit("_result.append(__global_allocator, ' ') catch continue;\n");
     try self.emitIndent();
     try self.emit("_cap_next = true;\n");
     self.dedent();
@@ -89,7 +89,7 @@ pub fn genCapwords(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("} else if (_cap_next and c >= 'a' and c <= 'z') {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("_result.append(allocator, c - 32) catch continue;\n");
+    try self.emit("_result.append(__global_allocator, c - 32) catch continue;\n");
     try self.emitIndent();
     try self.emit("_cap_next = false;\n");
     self.dedent();
@@ -97,7 +97,7 @@ pub fn genCapwords(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("} else {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("_result.append(allocator, c) catch continue;\n");
+    try self.emit("_result.append(__global_allocator, c) catch continue;\n");
     try self.emitIndent();
     try self.emit("_cap_next = false;\n");
     self.dedent();

@@ -96,19 +96,19 @@ pub fn genFileIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate io.RawIOBase - base class
 pub fn genRawIOBase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("try runtime.io.BytesIO.create(allocator)");
+    try self.emit("try runtime.io.BytesIO.create(__global_allocator)");
 }
 
 /// Generate io.IOBase - base class
 pub fn genIOBase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("try runtime.io.BytesIO.create(allocator)");
+    try self.emit("try runtime.io.BytesIO.create(__global_allocator)");
 }
 
 /// Generate io.TextIOBase - base class
 pub fn genTextIOBase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("try runtime.io.StringIO.create(allocator)");
+    try self.emit("try runtime.io.StringIO.create(__global_allocator)");
 }
 
 /// Generate io.UnsupportedOperation exception

@@ -8,6 +8,8 @@ const expressions = @import("../expressions.zig");
 const parsePostfix = @import("../postfix.zig").parsePostfix;
 
 /// Parse primary expressions: literals, identifiers, grouped expressions
+/// NOTE: Unary operators (-, +, ~) are handled in parseFactor (arithmetic.zig)
+/// to ensure correct precedence with ** operator (e.g., -2**4 = -(2**4) = -16)
 pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
     if (self.peek()) |tok| {
         switch (tok.type) {
@@ -28,9 +30,6 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
             .LParen => return parseGroupedOrTuple(self),
             .LBracket => return literals.parseList(self),
             .LBrace => return literals.parseDict(self),
-            .Minus => return parseUnaryMinus(self),
-            .Plus => return parseUnaryPlus(self),
-            .Tilde => return parseBitwiseNot(self),
             else => {
                 std.debug.print("Unexpected token in primary: {s} at line {d}:{d}\n", .{
                     @tagName(tok.type),
@@ -664,23 +663,5 @@ fn parseParenthesizedGenExpr(self: *Parser, element: ast.Node) ParseError!ast.No
     };
 }
 
-fn parseUnaryMinus(self: *Parser) ParseError!ast.Node {
-    _ = self.advance();
-    var operand = try parsePrimary(self);
-    errdefer operand.deinit(self.allocator);
-    return ast.Node{ .unaryop = .{ .op = .USub, .operand = try self.allocNode(operand) } };
-}
-
-fn parseUnaryPlus(self: *Parser) ParseError!ast.Node {
-    _ = self.advance();
-    var operand = try parsePrimary(self);
-    errdefer operand.deinit(self.allocator);
-    return ast.Node{ .unaryop = .{ .op = .UAdd, .operand = try self.allocNode(operand) } };
-}
-
-fn parseBitwiseNot(self: *Parser) ParseError!ast.Node {
-    _ = self.advance();
-    var operand = try parsePrimary(self);
-    errdefer operand.deinit(self.allocator);
-    return ast.Node{ .unaryop = .{ .op = .Invert, .operand = try self.allocNode(operand) } };
-}
+// NOTE: parseUnaryMinus, parseUnaryPlus, and parseBitwiseNot have been moved
+// to arithmetic.zig as parseFactor to fix -2**4 operator precedence bug

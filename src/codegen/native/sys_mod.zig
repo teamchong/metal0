@@ -7,7 +7,7 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 /// Generate sys.argv -> list of command line arguments
 pub fn genArgv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("sys_argv_blk: {\n");
+    try self.emit("(sys_argv_blk: {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const _os_args = std.os.argv;\n");
@@ -17,7 +17,7 @@ pub fn genArgv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("for (_os_args) |arg| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("_argv.append(allocator, std.mem.span(arg)) catch continue;\n");
+    try self.emit("_argv.append(__global_allocator, std.mem.span(arg)) catch continue;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -25,7 +25,7 @@ pub fn genArgv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("break :sys_argv_blk _argv.items;\n");
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try self.emit("})");
 }
 
 /// Generate sys.exit(code=0) -> noreturn
@@ -227,25 +227,29 @@ pub fn genSetCoroutineOriginTrackingDepth(self: *NativeCodegen, args: []ast.Node
 /// Generate sys.flags -> struct with interpreter flags
 pub fn genFlags(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("struct { debug: i64 = 0, optimize: i64 = 0, inspect: i64 = 0, interactive: i64 = 0, verbose: i64 = 0, quiet: i64 = 0, dont_write_bytecode: i64 = 0, no_user_site: i64 = 0, no_site: i64 = 0, ignore_environment: i64 = 0, hash_randomization: i64 = 1, isolated: i64 = 0, bytes_warning: i64 = 0, warn_default_encoding: i64 = 0, safe_path: i64 = 0, int_max_str_digits: i64 = 4300 }{}");
+    // Wrap in parentheses to allow field access: (struct{...}{}).field
+    try self.emit("(struct { debug: i64 = 0, optimize: i64 = 0, inspect: i64 = 0, interactive: i64 = 0, verbose: i64 = 0, quiet: i64 = 0, dont_write_bytecode: i64 = 0, no_user_site: i64 = 0, no_site: i64 = 0, ignore_environment: i64 = 0, hash_randomization: i64 = 1, isolated: i64 = 0, bytes_warning: i64 = 0, warn_default_encoding: i64 = 0, safe_path: i64 = 0, int_max_str_digits: i64 = 4300 }{})");
 }
 
 /// Generate sys.float_info -> float info struct
 pub fn genFloatInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("struct { max: f64 = 1.7976931348623157e+308, max_exp: i64 = 1024, max_10_exp: i64 = 308, min: f64 = 2.2250738585072014e-308, min_exp: i64 = -1021, min_10_exp: i64 = -307, dig: i64 = 15, mant_dig: i64 = 53, epsilon: f64 = 2.220446049250313e-16, radix: i64 = 2, rounds: i64 = 1 }{}");
+    // Wrap in parentheses to allow field access: (struct{...}{}).field
+    try self.emit("(struct { max: f64 = 1.7976931348623157e+308, max_exp: i64 = 1024, max_10_exp: i64 = 308, min: f64 = 2.2250738585072014e-308, min_exp: i64 = -1021, min_10_exp: i64 = -307, dig: i64 = 15, mant_dig: i64 = 53, epsilon: f64 = 2.220446049250313e-16, radix: i64 = 2, rounds: i64 = 1 }{})");
 }
 
 /// Generate sys.int_info -> int info struct
 pub fn genIntInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("struct { bits_per_digit: i64 = 30, sizeof_digit: i64 = 4, default_max_str_digits: i64 = 4300, str_digits_check_threshold: i64 = 640 }{}");
+    // Wrap in parentheses to allow field access: (struct{...}{}).field
+    try self.emit("(struct { bits_per_digit: i64 = 30, sizeof_digit: i64 = 4, default_max_str_digits: i64 = 4300, str_digits_check_threshold: i64 = 640 }{})");
 }
 
 /// Generate sys.hash_info -> hash info struct
 pub fn genHashInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("struct { width: i64 = 64, modulus: i64 = 2305843009213693951, inf: i64 = 314159, nan: i64 = 0, imag: i64 = 1000003, algorithm: []const u8 = \"siphash24\", hash_bits: i64 = 64, seed_bits: i64 = 128, cutoff: i64 = 0 }{}");
+    // Wrap in parentheses to allow field access: (struct{...}{}).field
+    try self.emit("(struct { width: i64 = 64, modulus: i64 = 2305843009213693951, inf: i64 = 314159, nan: i64 = 0, imag: i64 = 1000003, algorithm: []const u8 = \"siphash24\", hash_bits: i64 = 64, seed_bits: i64 = 128, cutoff: i64 = 0 }{})");
 }
 
 /// Generate sys.prefix -> Python install prefix
@@ -275,7 +279,8 @@ pub fn genBaseExecPrefix(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
 /// Generate sys.implementation -> implementation info
 pub fn genImplementation(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("struct { name: []const u8 = \"metal0\", version: struct { major: i64 = 3, minor: i64 = 12, micro: i64 = 0, releaselevel: []const u8 = \"final\", serial: i64 = 0 } = .{}, cache_tag: ?[]const u8 = null }{}");
+    // Wrap in parentheses to allow field access: (struct{...}{}).field
+    try self.emit("(struct { name: []const u8 = \"metal0\", version: struct { major: i64 = 3, minor: i64 = 12, micro: i64 = 0, releaselevel: []const u8 = \"final\", serial: i64 = 0 } = .{}, cache_tag: ?[]const u8 = null }{})");
 }
 
 /// Generate sys.hexversion -> version as single integer

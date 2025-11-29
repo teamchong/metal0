@@ -17,7 +17,7 @@ pub fn genContextmanager(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
 pub fn genSuppress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     // Returns a no-op context manager struct
-    try self.emit("struct { pub fn __enter__(self: @This()) void { _ = self; } pub fn __exit__(self: @This(), exc: anytype) bool { _ = self; _ = exc; return true; } }{}");
+    try self.emit("struct { pub fn __enter__(self: @This()) void { _ = __self; } pub fn __exit__(self: @This(), exc: anytype) bool { _ = __self; _ = exc; return true; } }{}");
 }
 
 /// Generate contextlib.redirect_stdout(new_target)
@@ -25,13 +25,13 @@ pub fn genSuppress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genRedirectStdout(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     // Placeholder - stdout redirection is complex in AOT
-    try self.emit("struct { pub fn __enter__(self: @This()) void { _ = self; } pub fn __exit__(self: @This(), exc: anytype) void { _ = self; _ = exc; } }{}");
+    try self.emit("struct { pub fn __enter__(self: @This()) void { _ = __self; } pub fn __exit__(self: @This(), exc: anytype) void { _ = __self; _ = exc; } }{}");
 }
 
 /// Generate contextlib.redirect_stderr(new_target)
 pub fn genRedirectStderr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("struct { pub fn __enter__(self: @This()) void { _ = self; } pub fn __exit__(self: @This(), exc: anytype) void { _ = self; _ = exc; } }{}");
+    try self.emit("struct { pub fn __enter__(self: @This()) void { _ = __self; } pub fn __exit__(self: @This(), exc: anytype) void { _ = __self; _ = exc; } }{}");
 }
 
 /// Generate contextlib.closing(thing)
@@ -57,5 +57,5 @@ pub fn genNullcontext(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
 pub fn genExitStack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     // Returns a simple struct that can push/pop context managers
-    try self.emit("struct { stack: std.ArrayList(*anyopaque) = std.ArrayList(*anyopaque).init(__global_allocator), pub fn enter_context(self: *@This(), cm: anytype) void { _ = self; _ = cm; } pub fn close(self: *@This()) void { self.stack.deinit(allocator); } }{}");
+    try self.emit("struct { stack: std.ArrayList(*anyopaque) = std.ArrayList(*anyopaque).init(__global_allocator), pub fn enter_context(self: *@This(), cm: anytype) void { _ = __self; _ = cm; } pub fn close(__self: *@This()) void { __self.stack.deinit(__global_allocator); } }{}");
 }

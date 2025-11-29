@@ -102,12 +102,13 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 2) return;
 
-    // Generate: try list.insert(__global_allocator, index, item)
+    // Generate: try list.insert(__global_allocator, @intCast(index), item)
+    // Need @intCast because index may be i64 from floor division, but insert needs usize
     try self.emit("try ");
     try emitObjExpr(self, obj);
-    try self.emit(".insert(__global_allocator, ");
+    try self.emit(".insert(__global_allocator, @intCast(");
     try self.genExpr(args[0]);
-    try self.emit(", ");
+    try self.emit("), ");
     try self.genExpr(args[1]);
     try self.emit(")");
 }

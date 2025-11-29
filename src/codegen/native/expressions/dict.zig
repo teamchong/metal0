@@ -87,6 +87,10 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     const label = try std.fmt.allocPrint(self.allocator, "dict_{d}", .{@intFromPtr(dict.keys.ptr)});
     defer self.allocator.free(label);
 
+    // Infer key type from first key
+    const key_type = try self.type_inferrer.inferExpr(dict.keys[0]);
+    const uses_int_keys = key_type == .int;
+
     try self.emit(label);
     try self.emit(": {\n");
     self.indent();
@@ -112,7 +116,13 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("const V = comptime runtime.InferDictValueType(@TypeOf(_kvs));\n");
 
     try self.emitIndent();
-    try self.emit("var _dict = hashmap_helper.StringHashMap(V).init(");
+    if (uses_int_keys) {
+        // Integer keys - use AutoHashMap with i64 key type
+        try self.emit("var _dict = std.AutoHashMap(i64, V).init(");
+    } else {
+        // String keys - use StringHashMap
+        try self.emit("var _dict = hashmap_helper.StringHashMap(V).init(");
+    }
     try self.emit(alloc_name);
     try self.emit(");\n");
 
@@ -177,7 +187,12 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emitIndent();
     try self.emit("} else kv[1];\n");
     try self.emitIndent();
-    try self.emit("try _dict.put(kv[0], cast_val);\n");
+    if (uses_int_keys) {
+        // Cast comptime_int key to i64 for AutoHashMap
+        try self.emit("try _dict.put(@as(i64, kv[0]), cast_val);\n");
+    } else {
+        try self.emit("try _dict.put(kv[0], cast_val);\n");
+    }
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -206,6 +221,16 @@ fn getEntryValueType(self: *NativeCodegen, key: ast.Node, value: ast.Node) Codeg
 
 /// Generate runtime dict literal (fallback path)
 fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const u8) CodegenError!void {
+    // Infer key type from first key (for non-unpacking entries)
+    var uses_int_keys = false;
+    for (dict.keys) |key| {
+        if (key != .constant or key.constant.value != .none) {
+            const key_type = try self.type_inferrer.inferExpr(key);
+            uses_int_keys = key_type == .int;
+            break;
+        }
+    }
+
     // Infer value type - check if all values have same type
     var val_type: @import("../../../analysis/native_types.zig").NativeType = .unknown;
     if (dict.values.len > 0) {
@@ -231,7 +256,11 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     try self.emit("blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var map = hashmap_helper.StringHashMap(");
+    if (uses_int_keys) {
+        try self.emit("var map = std.AutoHashMap(i64, ");
+    } else {
+        try self.emit("var map = hashmap_helper.StringHashMap(");
+    }
     try val_type.toZigType(self.allocator, &self.output);
     try self.emit(").init(");
     try self.emit(alloc_name);

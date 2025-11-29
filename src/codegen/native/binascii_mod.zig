@@ -82,14 +82,58 @@ pub fn genA2b_hex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate binascii.b2a_base64(data, newline=True)
 pub fn genB2a_base64(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
+    if (args.len > 0) {
+        try self.emit("binascii_b2a_base64_blk: {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("const _data = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+        try self.emitIndent();
+        try self.emit("const _encoder = std.base64.standard.Encoder;\n");
+        try self.emitIndent();
+        try self.emit("const _len = _encoder.calcSize(_data.len);\n");
+        try self.emitIndent();
+        try self.emit("const _buf = __global_allocator.alloc(u8, _len + 1) catch break :binascii_b2a_base64_blk \"\";\n");
+        try self.emitIndent();
+        try self.emit("_ = _encoder.encode(_buf[0.._len], _data);\n");
+        try self.emitIndent();
+        try self.emit("_buf[_len] = '\\n';\n");
+        try self.emitIndent();
+        try self.emit("break :binascii_b2a_base64_blk _buf;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}");
+    } else {
+        try self.emit("\"\"");
+    }
 }
 
 /// Generate binascii.a2b_base64(string)
 pub fn genA2b_base64(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
+    if (args.len > 0) {
+        try self.emit("binascii_a2b_base64_blk: {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("const _input = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+        try self.emitIndent();
+        try self.emit("const _decoder = std.base64.standard.Decoder;\n");
+        try self.emitIndent();
+        try self.emit("const _len = _decoder.calcSizeForSlice(_input) catch break :binascii_a2b_base64_blk \"\";\n");
+        try self.emitIndent();
+        try self.emit("const _buf = __global_allocator.alloc(u8, _len) catch break :binascii_a2b_base64_blk \"\";\n");
+        try self.emitIndent();
+        try self.emit("_decoder.decode(_buf, _input) catch break :binascii_a2b_base64_blk \"\";\n");
+        try self.emitIndent();
+        try self.emit("break :binascii_a2b_base64_blk _buf;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}");
+    } else {
+        try self.emit("\"\"");
+    }
 }
 
 /// Generate binascii.b2a_uu(data, backtick=False)

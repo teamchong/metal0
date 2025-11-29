@@ -1,35 +1,48 @@
-/// Python float type implementation
+/// Python float type implementation (CPython ABI compatible)
 const std = @import("std");
+const runtime = @import("runtime.zig");
 
-pub const PyObject = @import("runtime.zig").PyObject;
+// Re-export CPython-compatible types
+pub const PyObject = runtime.PyObject;
+pub const PyFloatObject = runtime.PyFloatObject;
+pub const PyFloat_Type = &runtime.PyFloat_Type;
 
-/// Python float type
+/// Python float type - wrapper around CPython-compatible PyFloatObject
 pub const PyFloat = struct {
-    value: f64,
-
+    /// Create a new PyFloatObject with the given value
     pub fn create(allocator: std.mem.Allocator, val: f64) !*PyObject {
-        const obj = try allocator.create(PyObject);
-        const float_data = try allocator.create(PyFloat);
-        float_data.value = val;
-
-        obj.* = PyObject{
-            .ref_count = 1,
-            .type_id = .float,
-            .data = float_data,
+        const float_obj = try allocator.create(PyFloatObject);
+        float_obj.* = PyFloatObject{
+            .ob_base = .{
+                .ob_refcnt = 1,
+                .ob_type = PyFloat_Type,
+            },
+            .ob_fval = val,
         };
-        return obj;
+        return @ptrCast(float_obj);
     }
 
+    /// Get the float value from a PyFloatObject
     pub fn getValue(obj: *PyObject) f64 {
-        std.debug.assert(obj.type_id == .float);
-        const data: *PyFloat = @ptrCast(@alignCast(obj.data));
-        return data.value;
+        std.debug.assert(runtime.PyFloat_Check(obj));
+        const float_obj: *PyFloatObject = @ptrCast(@alignCast(obj));
+        return float_obj.ob_fval;
     }
 
+    /// Convert float to string representation
     pub fn toString(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
-        const runtime = @import("runtime.zig");
         const val = getValue(obj);
         const str = try std.fmt.allocPrint(allocator, "{d}", .{val});
         return try runtime.PyString.create(allocator, str);
     }
 };
+
+// CPython-compatible C API functions
+pub fn PyFloat_FromDouble(val: f64) callconv(.C) *PyObject {
+    const allocator = std.heap.page_allocator;
+    return PyFloat.create(allocator, val) catch @panic("PyFloat_FromDouble allocation failed");
+}
+
+pub fn PyFloat_AsDouble(obj: *PyObject) callconv(.C) f64 {
+    return PyFloat.getValue(obj);
+}

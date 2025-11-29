@@ -68,7 +68,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     try self.emit("fn ");
                     try self.emit(symbol_name);
                     try self.emit("(json_str: []const u8, allocator: std.mem.Allocator) !*runtime.PyObject {\n");
-                    try self.emit("    const json_str_obj = try runtime.PyString.create(allocator, json_str);\n");
+                    try self.emit("    const json_str_obj = try runtime.PyString.create(__global_allocator, json_str);\n");
                     try self.emit("    defer runtime.decref(json_str_obj, allocator);\n");
                     try self.emit("    return try runtime.json.loads(json_str_obj, allocator);\n");
                     try self.emit("}\n");

@@ -186,6 +186,19 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         if (target == .name) {
             const var_name = target.name.id;
 
+            // Track nested class instances: obj = Inner() -> obj is instance of Inner
+            // This is used to pass allocator to method calls on nested class instances
+            if (assign.value.* == .call) {
+                const call_value = assign.value.call;
+                if (call_value.func.* == .name) {
+                    const class_name = call_value.func.name.id;
+                    if (self.nested_class_captures.contains(class_name)) {
+                        // This is a nested class constructor call
+                        try self.nested_class_instances.put(var_name, class_name);
+                    }
+                }
+            }
+
             // Special case: ellipsis assignment (x = ...)
             // Emit as explicit discard to avoid "unused variable" error
             if (assign.value.* == .ellipsis_literal) {
@@ -407,6 +420,32 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
             }
 
+            // Check if the value being assigned to is a call expression (e.g., B().x = 0)
+            // In this case we need to create a temp variable since Zig doesn't allow
+            // assigning to fields of block expressions
+            if (attr.value.* == .call) {
+                // Generate: { var __tmp_N = B.init(...); __tmp_N.x = value; }
+                const tmp_id = self.unpack_counter;
+                self.unpack_counter += 1;
+                try self.emitIndent();
+                try self.emit("{\n");
+                self.indent_level += 1;
+                try self.emitIndent();
+                try self.emitFmt("var __attr_tmp_{d} = ", .{tmp_id});
+                try self.genExpr(attr.value.*);
+                try self.emit(";\n");
+                try self.emitIndent();
+                try self.emitFmt("__attr_tmp_{d}.", .{tmp_id});
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+                try self.emit(" = ");
+                try self.genExpr(assign.value.*);
+                try self.emit(";\n");
+                self.indent_level -= 1;
+                try self.emitIndent();
+                try self.emit("}\n");
+                return;
+            }
+
             // Check if this is a dynamic attribute
             const is_dynamic = try isDynamicAttrAssign(self, attr);
 
@@ -484,9 +523,102 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // This is a complex operation that modifies the list in place
     if (aug.target.* == .subscript and aug.target.subscript.slice == .slice) {
         // For slice augmented assignment, we need runtime support
-        // For now, emit a comment placeholder - this feature is not yet supported
-        try self.emit("// TODO: slice augmented assignment not yet supported\n");
+        // For now, emit a self-assignment as placeholder to suppress "never mutated" warning
+        // The mutation analyzer marks this variable as mutated, so codegen uses var
+        try self.genExpr(aug.target.subscript.value.*);
+        try self.emit(" = ");
+        try self.genExpr(aug.target.subscript.value.*);
+        try self.emit("; // TODO: slice augmented assignment not yet supported\n");
         return;
+    }
+
+    // Handle subscript augmented assignment on dicts: x[key] += value
+    // Dicts use .get()/.put() instead of direct indexing
+    if (aug.target.* == .subscript) {
+        const subscript = aug.target.subscript;
+        if (subscript.slice == .index) {
+            // Check if base is a dict: either by type inference or by tracking
+            const base_type = try self.type_inferrer.inferExpr(subscript.value.*);
+            const is_tracked_dict = if (subscript.value.* == .name)
+                self.isDictVar(subscript.value.name.id)
+            else
+                false;
+            if (base_type == .dict or is_tracked_dict) {
+                // Dict subscript aug assign: x[key] += value
+                // Generates: try base.put(key, (base.get(key).? OP value));
+                try self.emit("try ");
+                try self.genExpr(subscript.value.*);
+                try self.emit(".put(");
+                try self.genExpr(subscript.slice.index.*);
+                try self.emit(", ");
+
+                // Special cases for operators that need function calls
+                if (aug.op == .FloorDiv) {
+                    try self.emit("@divFloor(");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".get(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit(").?, ");
+                    try self.genExpr(aug.value.*);
+                    try self.emit("));\n");
+                    return;
+                }
+                if (aug.op == .Pow) {
+                    try self.emit("std.math.pow(i64, ");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".get(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit(").?, ");
+                    try self.genExpr(aug.value.*);
+                    try self.emit("));\n");
+                    return;
+                }
+                if (aug.op == .Mod) {
+                    try self.emit("@rem(");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".get(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit(").?, ");
+                    try self.genExpr(aug.value.*);
+                    try self.emit("));\n");
+                    return;
+                }
+                if (aug.op == .Div) {
+                    try self.emit("@divTrunc(");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".get(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit(").?, ");
+                    try self.genExpr(aug.value.*);
+                    try self.emit("));\n");
+                    return;
+                }
+
+                // Generate the value expression with operation
+                try self.emit("(");
+                try self.genExpr(subscript.value.*);
+                try self.emit(".get(");
+                try self.genExpr(subscript.slice.index.*);
+                try self.emit(").?");
+                try self.emit(") ");
+
+                // Emit simple binary operation
+                const op_str = switch (aug.op) {
+                    .Add => "+",
+                    .Sub => "-",
+                    .Mult => "*",
+                    .BitAnd => "&",
+                    .BitOr => "|",
+                    .BitXor => "^",
+                    else => "?",
+                };
+                try self.emit(op_str);
+                try self.emit(" ");
+                try self.genExpr(aug.value.*);
+                try self.emit(");\n");
+                return;
+            }
+        }
     }
 
     // Emit target (variable name)
@@ -521,6 +653,17 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         return;
     }
 
+    // Handle true division - Python's /= on integers returns float but we're in-place
+    // For integer division assignment, use @divTrunc to truncate to integer
+    if (aug.op == .Div) {
+        try self.emit("@divTrunc(");
+        try self.genExpr(aug.target.*);
+        try self.emit(", ");
+        try self.genExpr(aug.value.*);
+        try self.emit(");\n");
+        return;
+    }
+
     // Handle bitwise shift operators separately due to RHS type casting
     if (aug.op == .LShift or aug.op == .RShift) {
         const shift_fn = if (aug.op == .LShift) "std.math.shl" else "std.math.shr";
@@ -535,14 +678,50 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Regular operators: +=, -=, *=, /=, &=, |=, ^=
     // Handle matrix multiplication separately
     if (aug.op == .MatMul) {
-        // MatMul: target @= value => target = numpy.matmulAuto(target, value)
-        // Note: we already emitted "target = " above, so just emit the matmul call
-        try self.emit("try numpy.matmulAuto(");
+        // MatMul: target @= value => call __imatmul__ if available, else numpy.matmulAuto
+        const target_type = try self.type_inferrer.inferExpr(aug.target.*);
+        if (target_type == .class_instance or target_type == .unknown) {
+            // User class with __imatmul__: try target.__imatmul__(allocator, value)
+            try self.emit("try ");
+            try self.genExpr(aug.target.*);
+            try self.emit(".__imatmul__(__global_allocator, ");
+            try self.genExpr(aug.value.*);
+            try self.emit(");\n");
+        } else {
+            // numpy arrays: numpy.matmulAuto(target, value, allocator)
+            try self.emit("try numpy.matmulAuto(");
+            try self.genExpr(aug.target.*);
+            try self.emit(", ");
+            try self.genExpr(aug.value.*);
+            try self.emit(", allocator);\n");
+        }
+        return;
+    }
+
+    // Special handling for list/array concatenation: x += [1, 2]
+    // Check if RHS is a list literal
+    if (aug.op == .Add and aug.value.* == .list) {
+        try self.emit("runtime.concat(");
         try self.genExpr(aug.target.*);
         try self.emit(", ");
         try self.genExpr(aug.value.*);
-        try self.emit(", allocator);\n");
+        try self.emit(");\n");
         return;
+    }
+
+    // Special handling for list/array multiplication: x *= 2
+    // Check if LHS is a list type
+    if (aug.op == .Mult) {
+        const target_type = try self.type_inferrer.inferExpr(aug.target.*);
+        if (target_type == .list or aug.target.* == .list) {
+            // List repeat: x *= n => runtime.listRepeat(x, n)
+            try self.emit("runtime.listRepeat(");
+            try self.genExpr(aug.target.*);
+            try self.emit(", ");
+            try self.genExpr(aug.value.*);
+            try self.emit(");\n");
+            return;
+        }
     }
 
     try self.genExpr(aug.target.*);
@@ -645,6 +824,49 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         }
     }
 
+    // Discard return values from module function calls (e.g., secrets.token_bytes())
+    // These generate labeled blocks that return values
+    if (expr == .call and expr.call.func.* == .attribute) {
+        const attr = expr.call.func.attribute;
+        if (attr.value.* == .name) {
+            const module_name = attr.value.name.id;
+            const func_name = attr.attr;
+
+            // Modules with value-returning functions
+            const value_returning_modules = [_][]const u8{
+                "secrets", "base64", "hashlib", "json", "pickle",
+                "zlib", "gzip", "binascii", "struct", "math",
+                "random", "re", "os", "sys", "io", "string",
+            };
+
+            var is_value_module = false;
+            for (value_returning_modules) |mod| {
+                if (std.mem.eql(u8, module_name, mod)) {
+                    is_value_module = true;
+                    break;
+                }
+            }
+
+            // Exclude known void-returning functions
+            const void_functions = [_][]const u8{
+                "main", "exit", "seed",
+            };
+
+            var is_void_func = false;
+            for (void_functions) |vf| {
+                if (std.mem.eql(u8, func_name, vf)) {
+                    is_void_func = true;
+                    break;
+                }
+            }
+
+            if (is_value_module and !is_void_func) {
+                try self.emit("_ = ");
+                added_discard_prefix = true;
+            }
+        }
+    }
+
     const before_len = self.output.items.len;
     try self.genExpr(expr);
 
@@ -706,6 +928,10 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         };
 
         if (is_labeled_block) {
+            needs_semicolon = false;
+        }
+        // Check for comptime blocks - "comptime { ... }"
+        else if (std.mem.startsWith(u8, generated, "comptime ")) {
             needs_semicolon = false;
         }
         // Check for anonymous statement blocks - starts with "{ " (not "Type{")

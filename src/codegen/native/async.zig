@@ -59,7 +59,7 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
 }
 
 /// Generate code for asyncio.create_task(coro)
-/// Maps to: runtime.asyncio.createTask(allocator, coro)
+/// Maps to: runtime.asyncio.createTask(__global_allocator, coro)
 pub const genAsyncioCreateTask = bridge.genSimpleCall(.{ .runtime_path = "runtime.asyncio.createTask", .arg_count = 1 });
 
 /// Generate code for asyncio.sleep(seconds)
@@ -80,11 +80,11 @@ pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 }
 
 /// Generate code for asyncio.Queue(maxsize)
-/// Maps to: runtime.asyncio.Queue(i64).init(allocator, maxsize)
+/// Maps to: runtime.asyncio.Queue(i64).init(__global_allocator, maxsize)
 pub fn genAsyncioQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate Queue instantiation
     // TODO: Infer element type from usage; for now use i64
-    try self.emit("try runtime.asyncio.Queue(i64).init(allocator, ");
+    try self.emit("try runtime.asyncio.Queue(i64).init(__global_allocator, ");
 
     if (args.len > 0) {
         try self.genExpr(args[0]);

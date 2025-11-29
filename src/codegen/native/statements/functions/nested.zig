@@ -69,6 +69,14 @@ fn isParamUsedInStmts(param_name: []const u8, stmts: []ast.Node) bool {
     return false;
 }
 
+/// Check if any of the captured variables are actually used in the function body
+fn areCapturedVarsUsed(captured_vars: [][]const u8, stmts: []ast.Node) bool {
+    for (captured_vars) |var_name| {
+        if (isParamUsedInStmts(var_name, stmts)) return true;
+    }
+    return false;
+}
+
 /// Check if a parameter name is used in a single node
 fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
     return switch (node) {
@@ -254,8 +262,16 @@ pub fn genNestedFunctionDef(
     );
     defer self.allocator.free(capture_param_name);
 
+    // Check if captured vars are actually used in the function body
+    const captures_used = areCapturedVarsUsed(captured_vars, func.body);
+
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("fn {s}({s}: {s}", .{ impl_fn_name, capture_param_name, capture_type_name });
+    if (captures_used) {
+        try self.output.writer(self.allocator).print("fn {s}({s}: {s}", .{ impl_fn_name, capture_param_name, capture_type_name });
+    } else {
+        // Captures not used, use _ to avoid unused parameter error
+        try self.output.writer(self.allocator).print("fn {s}(_: {s}", .{ impl_fn_name, capture_type_name });
+    }
 
     for (func.args) |arg| {
         // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
@@ -444,8 +460,16 @@ fn genNestedFunctionWithOuterCapture(
     );
     defer self.allocator.free(capture_param_name);
 
+    // Check if captured vars are actually used in the function body
+    const captures_used = areCapturedVarsUsed(captured_vars, func.body);
+
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("fn {s}({s}: {s}", .{ impl_fn_name, capture_param_name, capture_type_name });
+    if (captures_used) {
+        try self.output.writer(self.allocator).print("fn {s}({s}: {s}", .{ impl_fn_name, capture_param_name, capture_type_name });
+    } else {
+        // Captures not used, use _ to avoid unused parameter error
+        try self.output.writer(self.allocator).print("fn {s}(_: {s}", .{ impl_fn_name, capture_type_name });
+    }
 
     for (func.args) |arg| {
         // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
@@ -637,18 +661,14 @@ fn genZeroCaptureClosure(
     try self.emit("};\n");
 
     // Use ZeroClosure for single arg, or struct wrapper for multiple
+    // Use the original function name so that references resolve correctly
     try self.emitIndent();
+    try self.emit("const ");
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
     if (func.args.len == 1) {
-        try self.emit("const ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
-        try self.output.writer(self.allocator).print(
-            " = runtime.ZeroClosure(i64, i64, {s}.{s}){{}};\n",
-            .{ impl_name, inner_fn_name },
-        );
+        try self.output.writer(self.allocator).print(" = runtime.ZeroClosure(i64, i64, {s}.{s}){{}};\n", .{ impl_name, inner_fn_name });
     } else {
         // Multiple args - create wrapper struct
-        try self.emit("const ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
         try self.emit(" = struct {\n");
         self.indent();
         try self.emitIndent();
@@ -702,9 +722,17 @@ fn genStmtWithCaptureStruct(
         .assign => |assign| {
             // For simple name target (single target), emit the name with const
             if (assign.targets.len == 1 and assign.targets[0] == .name) {
+                const var_name = assign.targets[0].name.id;
+                const is_already_declared = self.isDeclared(var_name);
                 try self.emitIndent();
-                try self.emit("const ");
-                try self.emit(assign.targets[0].name.id);
+                if (is_already_declared) {
+                    // Variable already exists (e.g., function parameter being reassigned)
+                    // Just emit assignment without declaration
+                    try self.emit(var_name);
+                } else {
+                    try self.emit("const ");
+                    try self.emit(var_name);
+                }
                 try self.emit(" = ");
                 try genExprWithCaptureStruct(self, assign.value.*, captured_vars, capture_param_name);
                 try self.emit(";\n");
@@ -790,6 +818,27 @@ fn genExprWithCaptureStruct(
                 try genExprWithCaptureStruct(self, arg, captured_vars, capture_param_name);
             }
             try self.emit(")");
+        },
+        .attribute => |attr| {
+            // Handle attribute access like self.foo, rewriting captured var prefix
+            try genExprWithCaptureStruct(self, attr.value.*, captured_vars, capture_param_name);
+            try self.emit(".");
+            try self.emit(attr.attr);
+        },
+        .subscript => |sub| {
+            // Handle subscript like foo[bar], rewriting captured vars in both parts
+            try genExprWithCaptureStruct(self, sub.value.*, captured_vars, capture_param_name);
+            try self.emit("[");
+            switch (sub.slice) {
+                .index => |idx| try genExprWithCaptureStruct(self, idx.*, captured_vars, capture_param_name),
+                else => {
+                    // For slice expressions, fall back to regular generation
+                    const expressions = @import("../../expressions.zig");
+                    try expressions.genExpr(self, node);
+                    return;
+                },
+            }
+            try self.emit("]");
         },
         else => {
             const expressions = @import("../../expressions.zig");

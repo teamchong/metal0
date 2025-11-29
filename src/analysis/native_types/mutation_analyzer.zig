@@ -135,6 +135,14 @@ fn collectMutations(
                     try collectMutations(s, mutations, allocator);
                 }
             }
+            // Check else body
+            for (t.else_body) |s| {
+                try collectMutations(s, mutations, allocator);
+            }
+            // Check finally body
+            for (t.finalbody) |s| {
+                try collectMutations(s, mutations, allocator);
+            }
         },
         else => {},
     }

@@ -13,12 +13,11 @@ pub const JsonValue = @import("json/value.zig").JsonValue;
 /// Uses arena allocation: single malloc for entire parse, single free on cleanup
 pub fn loads(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
     // Validate input is a string
-    if (json_str.type_id != .string) {
+    if (!runtime.PyUnicode_Check(json_str)) {
         return error.TypeError;
     }
 
-    const str_data: *runtime.PyString = @ptrCast(@alignCast(json_str.data));
-    const json_bytes = str_data.data;
+    const json_bytes = runtime.PyString.getValue(json_str);
 
     // Use arena-based parser for maximum performance
     // Arena is attached to root object and freed when root is decref'd to 0
@@ -31,12 +30,11 @@ pub fn loads(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtim
 /// Use this when you need objects to outlive the parse scope independently
 pub fn loadsLegacy(json_str: *runtime.PyObject, allocator: std.mem.Allocator) !*runtime.PyObject {
     // Validate input is a string
-    if (json_str.type_id != .string) {
+    if (!runtime.PyUnicode_Check(json_str)) {
         return error.TypeError;
     }
 
-    const str_data: *runtime.PyString = @ptrCast(@alignCast(json_str.data));
-    const json_bytes = str_data.data;
+    const json_bytes = runtime.PyString.getValue(json_str);
 
     // Parse with lazy mode - strings borrow from source (zero-copy!)
     // Source is kept alive because borrowed strings hold refcount to it
@@ -236,76 +234,85 @@ const ESCAPE_SEQUENCES: [256][]const u8 = blk: {
 fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     @setRuntimeSafety(false); // Disable ALL safety checks in hot path
 
-    // Direct switch without caching - let compiler optimize
-    switch (obj.type_id) {
+    // Use the type checking functions for CPython-compatible layout
+    const type_id = runtime.getTypeId(obj);
+    switch (type_id) {
         .none => try buffer.appendSlice(allocator, JSON_NULL),
         .bool => {
-            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
-            try buffer.appendSlice(allocator, if (data.value != 0) JSON_TRUE else JSON_FALSE);
+            const bool_obj: *runtime.PyBoolObject = @ptrCast(@alignCast(obj));
+            try buffer.appendSlice(allocator, if (bool_obj.ob_digit != 0) JSON_TRUE else JSON_FALSE);
         },
         .int => {
-            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
+            const long_obj: *runtime.PyLongObject = @ptrCast(@alignCast(obj));
             var buf: [32]u8 = undefined;
-            const formatted = std.fmt.bufPrint(&buf, "{d}", .{data.value}) catch unreachable;
+            const formatted = std.fmt.bufPrint(&buf, "{d}", .{long_obj.ob_digit}) catch unreachable;
             try buffer.appendSlice(allocator, formatted);
         },
-        .float => try buffer.appendSlice(allocator, JSON_ZERO),
+        .float => {
+            const float_obj: *runtime.PyFloatObject = @ptrCast(@alignCast(obj));
+            var buf: [32]u8 = undefined;
+            const formatted = std.fmt.bufPrint(&buf, "{d}", .{float_obj.ob_fval}) catch unreachable;
+            try buffer.appendSlice(allocator, formatted);
+        },
         .string => {
-            const data: *runtime.PyString = @ptrCast(@alignCast(obj.data));
+            const str_data = runtime.PyString.getValue(obj);
             try buffer.append(allocator, '"');
-            try writeEscapedStringDirect(data.data, buffer, allocator);
+            try writeEscapedStringDirect(str_data, buffer, allocator);
             try buffer.append(allocator, '"');
         },
         .list => {
-            const data: *runtime.PyList = @ptrCast(@alignCast(obj.data));
-            const items = data.items.items;
+            const list_obj: *runtime.PyListObject = @ptrCast(@alignCast(obj));
+            const size: usize = @intCast(list_obj.ob_base.ob_size);
             try buffer.append(allocator, '[');
-            if (items.len > 0) {
-                try stringifyPyObjectDirect(items[0], buffer, allocator);
-                for (items[1..]) |item| {
+            if (size > 0) {
+                try stringifyPyObjectDirect(list_obj.ob_item[0], buffer, allocator);
+                for (1..size) |i| {
                     try buffer.append(allocator, ',');
-                    try stringifyPyObjectDirect(item, buffer, allocator);
+                    try stringifyPyObjectDirect(list_obj.ob_item[i], buffer, allocator);
                 }
             }
             try buffer.append(allocator, ']');
         },
         .tuple => {
-            const data: *runtime.PyTuple = @ptrCast(@alignCast(obj.data));
-            const items = data.items;
+            const tuple_obj: *runtime.PyTupleObject = @ptrCast(@alignCast(obj));
+            const size: usize = @intCast(tuple_obj.ob_base.ob_size);
             try buffer.append(allocator, '[');
-            if (items.len > 0) {
-                try stringifyPyObjectDirect(items[0], buffer, allocator);
-                for (items[1..]) |item| {
+            if (size > 0) {
+                try stringifyPyObjectDirect(tuple_obj.ob_item[0], buffer, allocator);
+                for (1..size) |i| {
                     try buffer.append(allocator, ',');
-                    try stringifyPyObjectDirect(item, buffer, allocator);
+                    try stringifyPyObjectDirect(tuple_obj.ob_item[i], buffer, allocator);
                 }
             }
             try buffer.append(allocator, ']');
         },
         .dict => {
-            const data: *runtime.PyDict = @ptrCast(@alignCast(obj.data));
+            const dict_obj: *runtime.PyDictObject = @ptrCast(@alignCast(obj));
             try buffer.append(allocator, '{');
 
-            // Fast path: process first entry without comma check
-            var it = data.map.iterator();
-            if (it.next()) |entry| {
-                try buffer.appendSlice(allocator, "\"");
-                try writeEscapedStringDirect(entry.key_ptr.*, buffer, allocator);
-                try buffer.appendSlice(allocator, "\":");
-                try stringifyPyObjectDirect(entry.value_ptr.*, buffer, allocator);
-
-                // Rest of entries always have comma
-                while (it.next()) |next_entry| {
-                    try buffer.appendSlice(allocator, ",\"");
-                    try writeEscapedStringDirect(next_entry.key_ptr.*, buffer, allocator);
+            if (dict_obj.ma_keys) |keys_ptr| {
+                const map: *@import("hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
+                // Fast path: process first entry without comma check
+                var it = map.iterator();
+                if (it.next()) |entry| {
+                    try buffer.appendSlice(allocator, "\"");
+                    try writeEscapedStringDirect(entry.key_ptr.*, buffer, allocator);
                     try buffer.appendSlice(allocator, "\":");
-                    try stringifyPyObjectDirect(next_entry.value_ptr.*, buffer, allocator);
+                    try stringifyPyObjectDirect(entry.value_ptr.*, buffer, allocator);
+
+                    // Rest of entries always have comma
+                    while (it.next()) |next_entry| {
+                        try buffer.appendSlice(allocator, ",\"");
+                        try writeEscapedStringDirect(next_entry.key_ptr.*, buffer, allocator);
+                        try buffer.appendSlice(allocator, "\":");
+                        try stringifyPyObjectDirect(next_entry.value_ptr.*, buffer, allocator);
+                    }
                 }
             }
 
             try buffer.append(allocator, '}');
         },
-        .numpy_array, .bool_array, .regex, .file => {
+        .numpy_array, .bool_array, .regex, .file, .bytes => {
             // Not JSON serializable - output null
             try buffer.appendSlice(allocator, JSON_NULL);
         },
@@ -386,125 +393,140 @@ inline fn writeEscapedStringDirect(str: []const u8, buffer: *std.ArrayList(u8), 
 
 /// Estimate JSON size for buffer pre-allocation (avoids ArrayList growth)
 fn estimateJsonSize(obj: *runtime.PyObject) usize {
-    switch (obj.type_id) {
+    const type_id = runtime.getTypeId(obj);
+    switch (type_id) {
         .none => return 4, // "null"
         .bool => return 5, // "true" or "false"
         .int => return 20, // "-9223372036854775808" max
         .float => return 24, // Scientific notation
         .string => {
-            const data: *runtime.PyString = @ptrCast(@alignCast(obj.data));
-            return data.data.len + 2 + (data.data.len / 10); // +quotes +10% escapes
+            const str_data = runtime.PyString.getValue(obj);
+            return str_data.len + 2 + (str_data.len / 10); // +quotes +10% escapes
         },
         .list => {
-            const data: *runtime.PyList = @ptrCast(@alignCast(obj.data));
+            const list_obj: *runtime.PyListObject = @ptrCast(@alignCast(obj));
+            const len: usize = @intCast(list_obj.ob_base.ob_size);
             var size: usize = 2; // []
-            for (data.items.items) |item| {
-                size += estimateJsonSize(item) + 1; // +comma
+            for (0..len) |i| {
+                size += estimateJsonSize(list_obj.ob_item[i]) + 1; // +comma
             }
             return size;
         },
         .tuple => {
-            const data: *runtime.PyTuple = @ptrCast(@alignCast(obj.data));
+            const tuple_obj: *runtime.PyTupleObject = @ptrCast(@alignCast(obj));
+            const len: usize = @intCast(tuple_obj.ob_base.ob_size);
             var size: usize = 2; // []
-            for (data.items) |item| {
-                size += estimateJsonSize(item) + 1; // +comma
+            for (0..len) |i| {
+                size += estimateJsonSize(tuple_obj.ob_item[i]) + 1; // +comma
             }
             return size;
         },
         .dict => {
-            const data: *runtime.PyDict = @ptrCast(@alignCast(obj.data));
+            const dict_obj: *runtime.PyDictObject = @ptrCast(@alignCast(obj));
             var size: usize = 2; // {}
-            var it = data.map.iterator();
-            while (it.next()) |entry| {
-                size += entry.key_ptr.*.len + 3; // "key":
-                size += estimateJsonSize(entry.value_ptr.*) + 1; // value,
+            if (dict_obj.ma_keys) |keys_ptr| {
+                const map: *@import("hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
+                var it = map.iterator();
+                while (it.next()) |entry| {
+                    size += entry.key_ptr.*.len + 3; // "key":
+                    size += estimateJsonSize(entry.value_ptr.*) + 1; // value,
+                }
             }
             return size;
         },
+        else => return 4, // "null" for unsupported types
     }
 }
 
 /// Stringify a PyObject to JSON format
 fn stringifyPyObject(obj: *runtime.PyObject, writer: anytype) !void {
-    switch (obj.type_id) {
+    const type_id = runtime.getTypeId(obj);
+    switch (type_id) {
         .none => {
             try writer.writeAll("null");
         },
         .bool => {
-            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
-            if (data.value != 0) {
+            const bool_obj: *runtime.PyBoolObject = @ptrCast(@alignCast(obj));
+            if (bool_obj.ob_digit != 0) {
                 try writer.writeAll("true");
             } else {
                 try writer.writeAll("false");
             }
         },
         .int => {
-            const data: *runtime.PyInt = @ptrCast(@alignCast(obj.data));
-            try writer.print("{}", .{data.value});
+            const long_obj: *runtime.PyLongObject = @ptrCast(@alignCast(obj));
+            try writer.print("{}", .{long_obj.ob_digit});
         },
         .float => {
-            // TODO: Add proper float support when PyFloat is implemented
-            try writer.writeAll("0.0");
+            const float_obj: *runtime.PyFloatObject = @ptrCast(@alignCast(obj));
+            try writer.print("{d}", .{float_obj.ob_fval});
         },
         .string => {
-            const data: *runtime.PyString = @ptrCast(@alignCast(obj.data));
+            const str_data = runtime.PyString.getValue(obj);
             try writer.writeByte('"');
-            try writeEscapedString(data.data, writer);
+            try writeEscapedString(str_data, writer);
             try writer.writeByte('"');
         },
         .list => {
-            const data: *runtime.PyList = @ptrCast(@alignCast(obj.data));
+            const list_obj: *runtime.PyListObject = @ptrCast(@alignCast(obj));
+            const size: usize = @intCast(list_obj.ob_base.ob_size);
             try writer.writeByte('[');
 
-            for (data.items.items, 0..) |item, i| {
+            for (0..size) |i| {
                 if (i > 0) try writer.writeByte(',');
 
                 // Prefetch next item while processing current (cache optimization!)
-                if (i + 1 < data.items.items.len) {
-                    const next_item = data.items.items[i + 1];
+                if (i + 1 < size) {
+                    const next_item = list_obj.ob_item[i + 1];
                     @prefetch(next_item, .{});
-                    @prefetch(next_item.data, .{});
                 }
 
-                try stringifyPyObject(item, writer);
+                try stringifyPyObject(list_obj.ob_item[i], writer);
             }
 
             try writer.writeByte(']');
         },
         .tuple => {
-            const data: *runtime.PyTuple = @ptrCast(@alignCast(obj.data));
+            const tuple_obj: *runtime.PyTupleObject = @ptrCast(@alignCast(obj));
+            const size: usize = @intCast(tuple_obj.ob_base.ob_size);
             try writer.writeByte('[');
 
-            for (data.items, 0..) |item, i| {
+            for (0..size) |i| {
                 if (i > 0) try writer.writeByte(',');
-                try stringifyPyObject(item, writer);
+                try stringifyPyObject(tuple_obj.ob_item[i], writer);
             }
 
             try writer.writeByte(']');
         },
         .dict => {
-            const data: *runtime.PyDict = @ptrCast(@alignCast(obj.data));
+            const dict_obj: *runtime.PyDictObject = @ptrCast(@alignCast(obj));
             try writer.writeByte('{');
 
             // Fast path: don't sort keys (Python json.dumps sort_keys=False default)
             // This is 2-3x faster than sorting for large dicts
-            var it = data.map.iterator();
-            var first = true;
-            while (it.next()) |entry| {
-                if (!first) try writer.writeByte(',');
-                first = false;
+            if (dict_obj.ma_keys) |keys_ptr| {
+                const map: *@import("hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
+                var it = map.iterator();
+                var first = true;
+                while (it.next()) |entry| {
+                    if (!first) try writer.writeByte(',');
+                    first = false;
 
-                // Key
-                try writer.writeByte('"');
-                try writeEscapedString(entry.key_ptr.*, writer);
-                try writer.writeByte('"');
-                try writer.writeByte(':');
+                    // Key
+                    try writer.writeByte('"');
+                    try writeEscapedString(entry.key_ptr.*, writer);
+                    try writer.writeByte('"');
+                    try writer.writeByte(':');
 
-                // Value
-                try stringifyPyObject(entry.value_ptr.*, writer);
+                    // Value
+                    try stringifyPyObject(entry.value_ptr.*, writer);
+                }
             }
 
             try writer.writeByte('}');
+        },
+        else => {
+            try writer.writeAll("null");
         },
     }
 }

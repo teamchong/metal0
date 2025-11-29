@@ -35,10 +35,85 @@ pub fn isNameUsedInBody(body: []ast.Node, name: []const u8) bool {
     return false;
 }
 
+/// Check if a name is used in init body, excluding parent __init__ calls
+/// Parent calls like Exception.__init__(self, ...) or super().__init__(...) are skipped
+/// in code generation, so params only used there are effectively unused
+pub fn isNameUsedInInitBody(body: []ast.Node, name: []const u8) bool {
+    for (body) |stmt| {
+        if (isNameUsedInStmtExcludingParentInit(stmt, name)) return true;
+    }
+    return false;
+}
+
+fn isNameUsedInStmtExcludingParentInit(stmt: ast.Node, name: []const u8) bool {
+    return switch (stmt) {
+        .expr_stmt => |expr| {
+            // Check if this is a parent __init__ call - if so, skip it
+            if (isParentInitCall(expr.value.*)) return false;
+            return isNameUsedInExpr(expr.value.*, name);
+        },
+        .assign => |assign| {
+            // Check target first - if it's self.field = ..., params in value are used
+            for (assign.targets) |target| {
+                if (target == .attribute) {
+                    const attr = target.attribute;
+                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        // This is self.field = value - check if name is in value
+                        return isNameUsedInExpr(assign.value.*, name);
+                    }
+                }
+            }
+            return isNameUsedInExpr(assign.value.*, name);
+        },
+        .return_stmt => |ret| if (ret.value) |val| isNameUsedInExpr(val.*, name) else false,
+        .if_stmt => |if_stmt| {
+            if (isNameUsedInExpr(if_stmt.condition.*, name)) return true;
+            if (isNameUsedInInitBody(if_stmt.body, name)) return true;
+            if (isNameUsedInInitBody(if_stmt.else_body, name)) return true;
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            if (isNameUsedInExpr(while_stmt.condition.*, name)) return true;
+            if (isNameUsedInInitBody(while_stmt.body, name)) return true;
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            if (isNameUsedInExpr(for_stmt.iter.*, name)) return true;
+            if (isNameUsedInInitBody(for_stmt.body, name)) return true;
+            return false;
+        },
+        else => false,
+    };
+}
+
+/// Check if an expression is a parent __init__ call
+/// Matches: Parent.__init__(self, ...) or super().__init__(...)
+fn isParentInitCall(expr: ast.Node) bool {
+    if (expr != .call) return false;
+    const call = expr.call;
+
+    // Check for Parent.__init__ pattern
+    if (call.func.* == .attribute) {
+        const attr = call.func.attribute;
+        if (std.mem.eql(u8, attr.attr, "__init__")) {
+            // Could be Parent.__init__ or super().__init__
+            return true;
+        }
+    }
+    return false;
+}
+
 fn isNameUsedInStmt(stmt: ast.Node, name: []const u8) bool {
     return switch (stmt) {
         .expr_stmt => |expr| isNameUsedInExpr(expr.value.*, name),
-        .assign => |assign| isNameUsedInExpr(assign.value.*, name),
+        .assign => |assign| {
+            // Check targets for attribute assignments like: param.attr = value
+            for (assign.targets) |target| {
+                if (isNameUsedInExpr(target, name)) return true;
+            }
+            // Check the value
+            return isNameUsedInExpr(assign.value.*, name);
+        },
         .return_stmt => |ret| if (ret.value) |val| isNameUsedInExpr(val.*, name) else false,
         .if_stmt => |if_stmt| {
             if (isNameUsedInExpr(if_stmt.condition.*, name)) return true;
@@ -60,6 +135,26 @@ fn isNameUsedInStmt(stmt: ast.Node, name: []const u8) bool {
         .function_def => |func_def| {
             // Recursively check nested functions
             if (isNameUsedInBody(func_def.body, name)) return true;
+            return false;
+        },
+        .with_stmt => |with_stmt| {
+            // Check the context expression
+            if (isNameUsedInExpr(with_stmt.context_expr.*, name)) return true;
+            // Check the body of the with statement
+            if (isNameUsedInBody(with_stmt.body, name)) return true;
+            return false;
+        },
+        .try_stmt => |try_stmt| {
+            // Check try body
+            if (isNameUsedInBody(try_stmt.body, name)) return true;
+            // Check exception handlers
+            for (try_stmt.handlers) |handler| {
+                if (isNameUsedInBody(handler.body, name)) return true;
+            }
+            // Check else body
+            if (isNameUsedInBody(try_stmt.else_body, name)) return true;
+            // Check finally body
+            if (isNameUsedInBody(try_stmt.finalbody, name)) return true;
             return false;
         },
         else => false,

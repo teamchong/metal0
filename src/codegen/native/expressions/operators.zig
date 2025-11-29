@@ -7,6 +7,14 @@ const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
 
+/// Check if an expression is a call to eval()
+fn isEvalCall(expr: ast.Node) bool {
+    if (expr != .call) return false;
+    const call = expr.call;
+    if (call.func.* != .name) return false;
+    return std.mem.eql(u8, call.func.name.id, "eval");
+}
+
 /// Check if an expression produces a Zig block expression that needs parentheses
 fn producesBlockExpression(expr: ast.Node) bool {
     return switch (expr) {
@@ -79,6 +87,20 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
                 try genExpr(self, part);
             }
             try self.emit(" })");
+            return;
+        }
+
+        // Check for list concatenation: list + list or array + array
+        // Also check AST nodes for list literals since type inference may return .unknown
+        if (left_type == .list or right_type == .list or
+            binop.left.* == .list or binop.right.* == .list)
+        {
+            // List/array concatenation: use runtime.concat which handles both
+            try self.emit("runtime.concat(");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
             return;
         }
     }
@@ -229,13 +251,33 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         return;
     }
 
-    // Matrix multiplication is handled separately via numpy - check early before emitting anything
+    // Matrix multiplication (@) - call __matmul__ or __rmatmul__ method on object
     if (binop.op == .MatMul) {
-        try self.emit("try numpy.matmulAuto(");
-        try genExpr(self, binop.left.*);
-        try self.emit(", ");
-        try genExpr(self, binop.right.*);
-        try self.emit(", allocator)");
+        const left_type = try self.type_inferrer.inferExpr(binop.left.*);
+        const right_type = try self.type_inferrer.inferExpr(binop.right.*);
+
+        if (left_type == .class_instance or left_type == .unknown) {
+            // Left is a class, call __matmul__: try left.__matmul__(allocator, right)
+            try self.emit("try ");
+            try genExpr(self, binop.left.*);
+            try self.emit(".__matmul__(__global_allocator, ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+        } else if (right_type == .class_instance or right_type == .unknown) {
+            // Right is a class, call __rmatmul__: try right.__rmatmul__(allocator, left)
+            try self.emit("try ");
+            try genExpr(self, binop.right.*);
+            try self.emit(".__rmatmul__(__global_allocator, ");
+            try genExpr(self, binop.left.*);
+            try self.emit(")");
+        } else {
+            // For numpy arrays, use numpy.matmulAuto
+            try self.emit("try numpy.matmulAuto(");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(", allocator)");
+        }
         return;
     }
 
@@ -446,6 +488,30 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try genExpr(self, current_left); // needle
                     try self.emit(") == null)");
                 },
+                .Is => {
+                    // Identity comparison for strings: compare pointer/length
+                    try self.emit("(");
+                    try genExpr(self, current_left);
+                    try self.emit(".ptr == ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(".ptr and ");
+                    try genExpr(self, current_left);
+                    try self.emit(".len == ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(".len)");
+                },
+                .IsNot => {
+                    // Negated identity comparison for strings
+                    try self.emit("(");
+                    try genExpr(self, current_left);
+                    try self.emit(".ptr != ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(".ptr or ");
+                    try genExpr(self, current_left);
+                    try self.emit(".len != ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(".len)");
+                },
                 else => {
                     // String comparison operators other than == and != not supported
                     try genExpr(self, current_left);
@@ -454,7 +520,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         .LtEq => " <= ",
                         .Gt => " > ",
                         .GtEq => " >= ",
-                        else => " ? ",
+                        else => " == ", // Fallback to == for any unknown ops
                     };
                     try self.emit(op_str);
                     try genExpr(self, compare.comparators[i]);
@@ -515,6 +581,10 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // String arrays need special handling - can't use indexOfScalar
                 // because strings require std.mem.eql for comparison, not ==
                 if (current_left_type == .string) {
+                    // For 'not in', wrap in negation by emitting ! first
+                    if (op == .NotIn) {
+                        try self.emit("!");
+                    }
                     // Generate inline block expression that loops through array
                     try self.emit("(blk: {\n");
                     try self.emit("for (");
@@ -526,14 +596,6 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try self.emit("}\n");
                     try self.emit("break :blk false;\n");
                     try self.emit("})");
-
-                    // Handle 'not in' by negating the result
-                    if (op == .NotIn) {
-                        // Wrap in negation
-                        const current_output = try self.output.toOwnedSlice(self.allocator);
-                        try self.emit("!");
-                        try self.emit(current_output);
-                    }
                 } else {
                     // Integer and float arrays use indexOfScalar
                     // Use Zig's @typeInfo to get the actual array element type at comptime
@@ -578,6 +640,61 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 };
                 try self.emit(op_str);
                 try genExpr(self, compare.comparators[i]);
+            }
+        }
+        // Handle comparisons involving eval() - returns *PyObject which needs special comparison
+        else if (isEvalCall(current_left) or isEvalCall(compare.comparators[i])) {
+            // eval() returns *PyObject, need to use runtime comparison functions
+            const left_is_eval = isEvalCall(current_left);
+            const right_is_eval = isEvalCall(compare.comparators[i]);
+
+            // For == and != with eval() result and integer, use pyObjEqInt
+            if (op == .Eq or op == .NotEq) {
+                if (op == .NotEq) {
+                    try self.emit("!");
+                }
+                if (left_is_eval and !right_is_eval) {
+                    // eval(...) == value
+                    try self.emit("runtime.pyObjEqInt(");
+                    try genExpr(self, current_left);
+                    try self.emit(", ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(")");
+                } else if (right_is_eval and !left_is_eval) {
+                    // value == eval(...)
+                    try self.emit("runtime.pyObjEqInt(");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(", ");
+                    try genExpr(self, current_left);
+                    try self.emit(")");
+                } else {
+                    // Both are eval() calls - compare as PyObject pointers
+                    try genExpr(self, current_left);
+                    try self.emit(" == ");
+                    try genExpr(self, compare.comparators[i]);
+                }
+            } else {
+                // For <, >, <=, >= with eval(), extract int value then compare
+                // This is a simplification - full Python would handle more types
+                try self.emit("(runtime.pyObjToInt(");
+                try genExpr(self, current_left);
+                try self.emit(")");
+                const op_str = switch (op) {
+                    .Lt => " < ",
+                    .LtEq => " <= ",
+                    .Gt => " > ",
+                    .GtEq => " >= ",
+                    else => " == ",
+                };
+                try self.emit(op_str);
+                if (right_is_eval) {
+                    try self.emit("runtime.pyObjToInt(");
+                }
+                try genExpr(self, compare.comparators[i]);
+                if (right_is_eval) {
+                    try self.emit(")");
+                }
+                try self.emit(")");
             }
         }
         // Handle 'is' and 'is not' identity operators
@@ -625,6 +742,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 .LtEq => " <= ",
                 .Gt => " > ",
                 .GtEq => " >= ",
+                .Is => " == ",
+                .IsNot => " != ",
                 else => " ? ",
             };
             try self.emit(op_str);

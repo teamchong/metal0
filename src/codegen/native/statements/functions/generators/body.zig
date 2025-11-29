@@ -81,6 +81,14 @@ fn countAssignmentsInStmt(counts: *hashmap_helper.StringHashMap(usize), stmt: as
                     const name = target.name.id;
                     const current = counts.get(name) orelse 0;
                     try counts.put(name, current + 1);
+                } else if (target == .subscript) {
+                    // Subscript assignment: x[0] = value mutates x
+                    const subscript = target.subscript;
+                    if (subscript.value.* == .name) {
+                        const name = subscript.value.name.id;
+                        const current = counts.get(name) orelse 0;
+                        try counts.put(name, current + 2); // Mark as mutated
+                    }
                 }
             }
         },
@@ -91,6 +99,14 @@ fn countAssignmentsInStmt(counts: *hashmap_helper.StringHashMap(usize), stmt: as
                 const current = counts.get(name) orelse 0;
                 // Count as 2 (initial + mutation) to ensure it's marked as mutated
                 try counts.put(name, current + 2);
+            } else if (aug.target.* == .subscript) {
+                // Subscript mutation: x[0] += 1 mutates x
+                const subscript = aug.target.subscript;
+                if (subscript.value.* == .name) {
+                    const name = subscript.value.name.id;
+                    const current = counts.get(name) orelse 0;
+                    try counts.put(name, current + 2);
+                }
             }
         },
         .if_stmt => |if_stmt| {
@@ -125,9 +141,314 @@ fn countAssignmentsInStmt(counts: *hashmap_helper.StringHashMap(usize), stmt: as
                     try countAssignmentsInStmt(counts, body_stmt, allocator);
                 }
             }
+            for (try_stmt.else_body) |body_stmt| {
+                try countAssignmentsInStmt(counts, body_stmt, allocator);
+            }
+            for (try_stmt.finalbody) |body_stmt| {
+                try countAssignmentsInStmt(counts, body_stmt, allocator);
+            }
         },
         else => {},
     }
+}
+
+/// Analyze nested classes for captured outer variables
+/// Populates func_local_vars with variables defined in function scope
+/// Populates nested_class_captures with outer variables referenced by each nested class
+fn analyzeNestedClassCaptures(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
+    // First, collect all local variables defined in the function
+    for (func.args) |arg| {
+        try self.func_local_vars.put(arg.name, {});
+    }
+    try collectLocalVarsInStmts(self, func.body);
+
+    // Then, for each nested class, find which local variables it references
+    try findNestedClassCaptures(self, func.body);
+}
+
+/// Collect all local variables defined in statements
+fn collectLocalVarsInStmts(self: *NativeCodegen, stmts: []ast.Node) CodegenError!void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .assign => |assign| {
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        try self.func_local_vars.put(target.name.id, {});
+                    }
+                }
+            },
+            .aug_assign => |aug| {
+                if (aug.target.* == .name) {
+                    try self.func_local_vars.put(aug.target.name.id, {});
+                }
+            },
+            .if_stmt => |if_stmt| {
+                try collectLocalVarsInStmts(self, if_stmt.body);
+                try collectLocalVarsInStmts(self, if_stmt.else_body);
+            },
+            .for_stmt => |for_stmt| {
+                // For loop target is a local var
+                if (for_stmt.target.* == .name) {
+                    try self.func_local_vars.put(for_stmt.target.name.id, {});
+                }
+                try collectLocalVarsInStmts(self, for_stmt.body);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    try collectLocalVarsInStmts(self, orelse_body);
+                }
+            },
+            .while_stmt => |while_stmt| {
+                try collectLocalVarsInStmts(self, while_stmt.body);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    try collectLocalVarsInStmts(self, orelse_body);
+                }
+            },
+            .try_stmt => |try_stmt| {
+                try collectLocalVarsInStmts(self, try_stmt.body);
+                for (try_stmt.handlers) |handler| {
+                    if (handler.name) |exc_name| {
+                        try self.func_local_vars.put(exc_name, {});
+                    }
+                    try collectLocalVarsInStmts(self, handler.body);
+                }
+                try collectLocalVarsInStmts(self, try_stmt.else_body);
+                try collectLocalVarsInStmts(self, try_stmt.finalbody);
+            },
+            .with_stmt => |with_stmt| {
+                // with_stmt.optional_vars is ?[]const u8 - just a string var name
+                if (with_stmt.optional_vars) |var_name| {
+                    try self.func_local_vars.put(var_name, {});
+                }
+                try collectLocalVarsInStmts(self, with_stmt.body);
+            },
+            else => {},
+        }
+    }
+}
+
+/// Find nested classes and their captured variables
+fn findNestedClassCaptures(self: *NativeCodegen, stmts: []ast.Node) CodegenError!void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .class_def => |class| {
+                // Track all nested class names for constructor detection
+                try self.nested_class_names.put(class.name, {});
+
+                // Find outer variables referenced by this class
+                var captured = std.ArrayList([]const u8){};
+                try findCapturedVarsInClass(self, class, &captured);
+
+                if (captured.items.len > 0) {
+                    // Store captured vars for this class
+                    const slice = try captured.toOwnedSlice(self.allocator);
+                    try self.nested_class_captures.put(class.name, slice);
+                } else {
+                    captured.deinit(self.allocator);
+                }
+            },
+            .if_stmt => |if_stmt| {
+                try findNestedClassCaptures(self, if_stmt.body);
+                try findNestedClassCaptures(self, if_stmt.else_body);
+            },
+            .for_stmt => |for_stmt| {
+                try findNestedClassCaptures(self, for_stmt.body);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    try findNestedClassCaptures(self, orelse_body);
+                }
+            },
+            .while_stmt => |while_stmt| {
+                try findNestedClassCaptures(self, while_stmt.body);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    try findNestedClassCaptures(self, orelse_body);
+                }
+            },
+            .try_stmt => |try_stmt| {
+                try findNestedClassCaptures(self, try_stmt.body);
+                for (try_stmt.handlers) |handler| {
+                    try findNestedClassCaptures(self, handler.body);
+                }
+                try findNestedClassCaptures(self, try_stmt.else_body);
+                try findNestedClassCaptures(self, try_stmt.finalbody);
+            },
+            else => {},
+        }
+    }
+}
+
+/// Find variables from outer scope referenced by a class's methods
+fn findCapturedVarsInClass(
+    self: *NativeCodegen,
+    class: ast.Node.ClassDef,
+    captured: *std.ArrayList([]const u8),
+) CodegenError!void {
+    // Collect variables referenced in class methods (excluding self)
+    for (class.body) |stmt| {
+        if (stmt == .function_def) {
+            const method = stmt.function_def;
+            // Collect all variable names referenced in method body
+            try findOuterRefsInStmts(self, method.body, method.args, captured);
+        }
+    }
+}
+
+/// Find references to outer scope variables in statements
+fn findOuterRefsInStmts(
+    self: *NativeCodegen,
+    stmts: []ast.Node,
+    method_params: []ast.Arg,
+    captured: *std.ArrayList([]const u8),
+) error{OutOfMemory}!void {
+    for (stmts) |stmt| {
+        try findOuterRefsInNode(self, stmt, method_params, captured);
+    }
+}
+
+/// Find references to outer scope variables in a single node
+fn findOuterRefsInNode(
+    self: *NativeCodegen,
+    node: ast.Node,
+    method_params: []ast.Arg,
+    captured: *std.ArrayList([]const u8),
+) error{OutOfMemory}!void {
+    switch (node) {
+        .name => |n| {
+            // Skip if it's a method parameter
+            for (method_params) |param| {
+                if (std.mem.eql(u8, param.name, n.id)) return;
+            }
+            // Skip built-in names
+            if (isBuiltinName(n.id)) return;
+            // Check if it's a local variable from outer function scope
+            // Capture ALL referenced outer variables (not just mutable ones)
+            // because Zig doesn't allow any access across struct namespace boundary
+            if (self.func_local_vars.contains(n.id)) {
+                // Add to captured list (avoid duplicates)
+                for (captured.items) |existing| {
+                    if (std.mem.eql(u8, existing, n.id)) return;
+                }
+                try captured.append(self.allocator, n.id);
+            }
+        },
+        .binop => |b| {
+            try findOuterRefsInNode(self, b.left.*, method_params, captured);
+            try findOuterRefsInNode(self, b.right.*, method_params, captured);
+        },
+        .unaryop => |u| {
+            try findOuterRefsInNode(self, u.operand.*, method_params, captured);
+        },
+        .call => |c| {
+            try findOuterRefsInNode(self, c.func.*, method_params, captured);
+            for (c.args) |arg| {
+                try findOuterRefsInNode(self, arg, method_params, captured);
+            }
+            for (c.keyword_args) |kw| {
+                try findOuterRefsInNode(self, kw.value, method_params, captured);
+            }
+        },
+        .compare => |cmp| {
+            try findOuterRefsInNode(self, cmp.left.*, method_params, captured);
+            for (cmp.comparators) |comp| {
+                try findOuterRefsInNode(self, comp, method_params, captured);
+            }
+        },
+        .attribute => |attr| {
+            try findOuterRefsInNode(self, attr.value.*, method_params, captured);
+        },
+        .subscript => |sub| {
+            try findOuterRefsInNode(self, sub.value.*, method_params, captured);
+            if (sub.slice == .index) {
+                try findOuterRefsInNode(self, sub.slice.index.*, method_params, captured);
+            }
+        },
+        .list => |l| {
+            for (l.elts) |elem| {
+                try findOuterRefsInNode(self, elem, method_params, captured);
+            }
+        },
+        .tuple => |t| {
+            for (t.elts) |elem| {
+                try findOuterRefsInNode(self, elem, method_params, captured);
+            }
+        },
+        .dict => |d| {
+            // Dict keys are not optional in the AST
+            for (d.keys) |dict_key| {
+                try findOuterRefsInNode(self, dict_key, method_params, captured);
+            }
+            for (d.values) |val| {
+                try findOuterRefsInNode(self, val, method_params, captured);
+            }
+        },
+        .boolop => |b| {
+            for (b.values) |val| {
+                try findOuterRefsInNode(self, val, method_params, captured);
+            }
+        },
+        .if_expr => |ie| {
+            try findOuterRefsInNode(self, ie.condition.*, method_params, captured);
+            try findOuterRefsInNode(self, ie.body.*, method_params, captured);
+            try findOuterRefsInNode(self, ie.orelse_value.*, method_params, captured);
+        },
+        // Statements
+        .assign => |assign| {
+            try findOuterRefsInNode(self, assign.value.*, method_params, captured);
+        },
+        .aug_assign => |aug| {
+            try findOuterRefsInNode(self, aug.target.*, method_params, captured);
+            try findOuterRefsInNode(self, aug.value.*, method_params, captured);
+        },
+        .return_stmt => |ret| {
+            if (ret.value) |val| try findOuterRefsInNode(self, val.*, method_params, captured);
+        },
+        .expr_stmt => |es| {
+            try findOuterRefsInNode(self, es.value.*, method_params, captured);
+        },
+        .if_stmt => |if_stmt| {
+            try findOuterRefsInNode(self, if_stmt.condition.*, method_params, captured);
+            try findOuterRefsInStmts(self, if_stmt.body, method_params, captured);
+            try findOuterRefsInStmts(self, if_stmt.else_body, method_params, captured);
+        },
+        .for_stmt => |for_stmt| {
+            try findOuterRefsInNode(self, for_stmt.iter.*, method_params, captured);
+            try findOuterRefsInStmts(self, for_stmt.body, method_params, captured);
+            if (for_stmt.orelse_body) |orelse_body| {
+                try findOuterRefsInStmts(self, orelse_body, method_params, captured);
+            }
+        },
+        .while_stmt => |while_stmt| {
+            try findOuterRefsInNode(self, while_stmt.condition.*, method_params, captured);
+            try findOuterRefsInStmts(self, while_stmt.body, method_params, captured);
+            if (while_stmt.orelse_body) |orelse_body| {
+                try findOuterRefsInStmts(self, orelse_body, method_params, captured);
+            }
+        },
+        .try_stmt => |try_stmt| {
+            try findOuterRefsInStmts(self, try_stmt.body, method_params, captured);
+            for (try_stmt.handlers) |handler| {
+                try findOuterRefsInStmts(self, handler.body, method_params, captured);
+            }
+            try findOuterRefsInStmts(self, try_stmt.else_body, method_params, captured);
+            try findOuterRefsInStmts(self, try_stmt.finalbody, method_params, captured);
+        },
+        else => {},
+    }
+}
+
+/// Check if a name is a Python builtin
+fn isBuiltinName(name: []const u8) bool {
+    const builtins = [_][]const u8{
+        "True", "False", "None", "int", "float", "str", "bool", "list", "dict",
+        "set", "tuple", "len", "print", "range", "type", "isinstance", "hasattr",
+        "getattr", "setattr", "delattr", "callable", "iter", "next", "enumerate",
+        "zip", "map", "filter", "sorted", "reversed", "min", "max", "sum", "abs",
+        "round", "pow", "divmod", "hex", "oct", "bin", "ord", "chr", "repr",
+        "NotImplemented", "Exception", "ValueError", "TypeError", "KeyError",
+        "IndexError", "AttributeError", "RuntimeError", "AssertionError",
+        "StopIteration", "object", "super", "self", "__name__", "__file__",
+    };
+    for (builtins) |b| {
+        if (std.mem.eql(u8, name, b)) return true;
+    }
+    return false;
 }
 
 /// Generate function body with scope management
@@ -149,23 +470,19 @@ pub fn genFunctionBody(
     self.hoisted_vars.clearRetainingCapacity();
     try analyzeFunctionLocalMutations(self, func);
 
+    // Track local variables and analyze nested class captures for closure support
+    self.func_local_vars.clearRetainingCapacity();
+    self.nested_class_captures.clearRetainingCapacity();
+    try analyzeNestedClassCaptures(self, func);
+
     self.indent();
 
     // Push new scope for function body
     try self.pushScope();
 
-    // Note: Unused allocator param is handled in signature.zig with "_:" prefix
-    // No need to emit "_ = allocator;" here
-
-    // Suppress warnings for unused function parameters (skip params with defaults - they get renamed)
-    for (func.args) |arg| {
-        if (arg.default == null and !param_analyzer.isNameUsedInBody(func.body, arg.name)) {
-            try self.emitIndent();
-            try self.emit("_ = ");
-            try self.emit(arg.name);
-            try self.emit(";\n");
-        }
-    }
+    // Note: Unused parameters are handled in signature.zig with "_" prefix
+    // (e.g., unused param "op" becomes "_op" in signature)
+    // No need to emit "_ = param;" here since "_" prefix already suppresses the warning
 
     // Generate default parameter initialization (before declaring them in scope)
     // When default value references the same name as the parameter (e.g., def foo(x=x):),
@@ -222,8 +539,15 @@ pub fn genFunctionBody(
     // Pop scope when exiting function
     self.popScope();
 
-    // Clear function-local mutations after exiting function
+    // Clear function-local state after exiting function
     self.func_local_mutations.clearRetainingCapacity();
+    self.func_local_vars.clearRetainingCapacity();
+    // Clear nested_class_captures (free the slices first)
+    var cap_iter = self.nested_class_captures.iterator();
+    while (cap_iter.next()) |entry| {
+        self.allocator.free(entry.value_ptr.*);
+    }
+    self.nested_class_captures.clearRetainingCapacity();
 
     var builder = CodeBuilder.init(self);
     _ = try builder.endBlock();
@@ -270,6 +594,62 @@ pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) Codegen
     try genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses);
 }
 
+/// Check if method body contains a super() call
+fn hasSuperCall(stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        if (stmtHasSuperCall(stmt)) return true;
+    }
+    return false;
+}
+
+fn stmtHasSuperCall(stmt: ast.Node) bool {
+    return switch (stmt) {
+        .expr_stmt => |e| exprHasSuperCall(e.value.*),
+        .assign => |a| exprHasSuperCall(a.value.*),
+        .return_stmt => |r| if (r.value) |v| exprHasSuperCall(v.*) else false,
+        .if_stmt => |i| hasSuperCall(i.body) or hasSuperCall(i.else_body),
+        .while_stmt => |w| hasSuperCall(w.body),
+        .for_stmt => |f| hasSuperCall(f.body),
+        .try_stmt => |t| blk: {
+            if (hasSuperCall(t.body)) break :blk true;
+            for (t.handlers) |h| {
+                if (hasSuperCall(h.body)) break :blk true;
+            }
+            break :blk hasSuperCall(t.finalbody);
+        },
+        else => false,
+    };
+}
+
+fn exprHasSuperCall(expr: ast.Node) bool {
+    return switch (expr) {
+        .call => |c| blk: {
+            // Check if this is super() or super().method()
+            if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "super")) {
+                break :blk true;
+            }
+            // Check if func is attr access on super() call: super().method()
+            if (c.func.* == .attribute) {
+                const attr = c.func.attribute;
+                if (attr.value.* == .call) {
+                    const inner_call = attr.value.call;
+                    if (inner_call.func.* == .name and std.mem.eql(u8, inner_call.func.name.id, "super")) {
+                        break :blk true;
+                    }
+                }
+            }
+            // Check arguments
+            for (c.args) |arg| {
+                if (exprHasSuperCall(arg)) break :blk true;
+            }
+            break :blk false;
+        },
+        .binop => |b| exprHasSuperCall(b.left.*) or exprHasSuperCall(b.right.*),
+        .attribute => |a| exprHasSuperCall(a.value.*),
+        else => false,
+    };
+}
+
 /// Generate method body with explicit allocator info
 pub fn genMethodBodyWithAllocatorInfo(
     self: *NativeCodegen,
@@ -292,10 +672,22 @@ pub fn genMethodBodyWithAllocatorInfo(
     self.hoisted_vars.clearRetainingCapacity();
     try analyzeFunctionLocalMutations(self, method);
 
+    // Track local variables and analyze nested class captures for closure support
+    // Note: We only clear func_local_vars here, not nested_class_captures
+    // because nested_class_captures may already contain info from parent scope
+    // that we need for class instantiation code
+    self.func_local_vars.clearRetainingCapacity();
+    try analyzeNestedClassCaptures(self, method);
+
     self.indent();
 
     // Push new scope for method body
     try self.pushScope();
+
+    // Note: We removed the "_ = self;" emission for super() calls
+    // This was causing "pointless discard of function parameter" errors when
+    // self IS actually used in the method body beyond super() calls.
+    // If self is truly unused, signature.zig should handle it with "_" prefix.
 
     // Note: Unused allocator param is handled in signature.zig with "_:" prefix
     // No need to emit "_ = allocator;" here

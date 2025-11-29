@@ -354,7 +354,8 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 
     // For other callables, generate a comptime-conditional try-catch
     // Using inline block to check if return type is error union
-    try self.emit("blk: { const __ar_call = ");
+    // Use __ar_blk to avoid conflicts with nested blk: labels from genAttribute
+    try self.emit("__ar_blk: { const __ar_call = ");
 
     // Check if callable is an attribute on an IMPORTED module (e.g., copy.replace)
     // vs a local variable attribute (e.g., operator.lt where operator = self.module)
@@ -384,10 +385,46 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
                 .keyword_args = @constCast(&[_]ast.Node.KeywordArg{}),
             };
             try parent.genCall(self, call);
+        } else if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+            // self.method pattern - generate method call on self
+            try self.emit("self.@\"");
+            try self.emit(attr.attr);
+            try self.emit("\"(");
+            if (args.len > 2) {
+                for (args[2..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit(")");
+        } else if (attr.value.* == .call) {
+            // Attribute on a call result (e.g., zlib.decompressobj().flush)
+            // Need to store the call result first, then access the method
+            // Generate: __ar_obj_blk: { const __ar_obj = <call>; break :__ar_obj_blk __ar_obj.<method>(<args>); }
+            try self.emit("__ar_obj_blk: { const __ar_obj = ");
+            try parent.genExpr(self, attr.value.*);
+            try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
+            try self.emit(attr.attr);
+            try self.emit("\"(");
+            if (args.len > 2) {
+                for (args[2..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("); }");
         } else {
             // Local variable attribute - dynamic object method
-            // Cannot statically call, emit a void placeholder
-            try self.emit("void{}");
+            // Generate the call expression
+            try parent.genExpr(self, args[1]);
+            try self.emit("(");
+            if (args.len > 2) {
+                for (args[2..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit(")");
         }
     } else if (args[1] == .lambda) {
         // Lambda expression - generates a closure struct that needs .call() method
@@ -409,7 +446,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     }
     // Check if result type is error union at comptime to use catch, otherwise silently pass
     // For non-error types, assertRaises can't verify exception behavior statically
-    try self.emit("; if (@typeInfo(@TypeOf(__ar_call)) == .error_union) { _ = __ar_call catch break :blk {}; @panic(\"assertRaises: expected exception\"); } }");
+    try self.emit("; if (@typeInfo(@TypeOf(__ar_call)) == .error_union) { _ = __ar_call catch break :__ar_blk {}; @panic(\"assertRaises: expected exception\"); } }");
 }
 
 /// Generate code for self.assertRaisesRegex(exception, regex, callable, *args)
@@ -421,7 +458,11 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
     }
     // Similar to assertRaises but with regex check on error message
     // For AOT, we just check that an error is raised
-    try self.emit("blk: { const __ar_call = ");
+    // Reference the regex parameter to avoid unused variable warning
+    // Use __ar_blk to avoid conflicts with nested blk: labels
+    try self.emit("__ar_blk: { _ = ");
+    try parent.genExpr(self, args[1]); // regex parameter
+    try self.emit("; const __ar_call = ");
     try parent.genExpr(self, args[2]);
     try self.emit("(");
     if (args.len > 3) {
@@ -430,7 +471,7 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
             try parent.genExpr(self, arg);
         }
     }
-    try self.emit("); if (@typeInfo(@TypeOf(__ar_call)) == .error_union) { _ = __ar_call catch break :blk {}; @panic(\"assertRaisesRegex: expected exception\"); } }");
+    try self.emit("); if (@typeInfo(@TypeOf(__ar_call)) == .error_union) { _ = __ar_call catch break :__ar_blk {}; @panic(\"assertRaisesRegex: expected exception\"); } }");
 }
 
 /// Generate code for self.assertWarns(warning, callable, *args)
@@ -532,9 +573,11 @@ pub fn genAssertHasAttr(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) C
         try self.emit("@compileError(\"assertHasAttr requires 2 arguments\")");
         return;
     }
-    // For module attribute checking, just verify the module has the field at comptime if possible
-    // Otherwise emit a runtime no-op (attribute access would fail at compile time if missing)
-    try self.emit("{}"); // No-op - attributes are checked at compile time via Zig's type system
+    // For module attribute checking, verify at comptime using @hasField (if struct)
+    // Use a no-op that references the arguments to avoid "unused variable" errors
+    try self.emit("{ _ = ");
+    try parent.genExpr(self, args[1]);
+    try self.emit("; }"); // Reference the attr name to mark it as used
 }
 
 /// Generate code for self.assertNotHasAttr(obj, name)

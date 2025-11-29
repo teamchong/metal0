@@ -21,7 +21,7 @@ pub fn genPoll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn register(self: *@This(), fd: i64, eventmask: ?i16) void {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("self.fds.append(allocator, .{ .fd = fd, .events = eventmask orelse (POLLIN | POLLPRI), .revents = 0 }) catch {};\n");
+    try self.emit("self.fds.append(__global_allocator, .{ .fd = fd, .events = eventmask orelse (POLLIN | POLLPRI), .revents = 0 }) catch {};\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -64,7 +64,7 @@ pub fn genPoll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("for (self.fds.items) |item| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("if (item.revents != 0) result.append(allocator, .{ item.fd, item.revents }) catch {};\n");
+    try self.emit("if (item.revents != 0) result.append(__global_allocator, .{ item.fd, item.revents }) catch {};\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

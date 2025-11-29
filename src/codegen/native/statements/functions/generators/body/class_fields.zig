@@ -39,6 +39,25 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
     // Get constructor arg types from type inferrer (collected from call sites)
     const constructor_arg_types = self.type_inferrer.class_constructor_args.get(class_name);
 
+    // Temporarily register constructor parameter types so expressions like `x + y` can be inferred
+    for (init.args, 0..) |arg, param_idx| {
+        if (std.mem.eql(u8, arg.name, "self")) continue;
+
+        // Determine param type from annotation or constructor call site
+        var param_type = signature.pythonTypeToNativeType(arg.type_annotation);
+        if (param_type == .unknown) {
+            if (constructor_arg_types) |arg_types| {
+                const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
+                if (arg_idx < arg_types.len) {
+                    param_type = arg_types[arg_idx];
+                }
+            }
+        }
+        if (param_type != .unknown) {
+            self.type_inferrer.var_types.put(arg.name, param_type) catch {};
+        }
+    }
+
     for (init.body) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;

@@ -33,7 +33,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("defer file.close();\n");
     try self.emitIndent();
-    try self.emit("const content = file.readToEndAlloc(allocator, 1024 * 1024) catch return;\n");
+    try self.emit("const content = file.readToEndAlloc(__global_allocator, 1024 * 1024) catch return;\n");
     try self.emitIndent();
     try self.emit("var current_section: ?[]const u8 = null;\n");
     try self.emitIndent();
@@ -143,7 +143,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("var iter = self.sections_map.keyIterator();\n");
     try self.emitIndent();
-    try self.emit("while (iter.next()) |key| result.append(allocator, key.*) catch continue;\n");
+    try self.emit("while (iter.next()) |key| result.append(__global_allocator, key.*) catch continue;\n");
     try self.emitIndent();
     try self.emit("return result.items;\n");
     self.dedent();
@@ -238,7 +238,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("var iter = sec.keyIterator();\n");
     try self.emitIndent();
-    try self.emit("while (iter.next()) |key| result.append(allocator, key.*) catch continue;\n");
+    try self.emit("while (iter.next()) |key| result.append(__global_allocator, key.*) catch continue;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

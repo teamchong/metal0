@@ -345,6 +345,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Skip built-in functions
             if (BuiltinFuncs.has(name)) continue;
 
+            // Skip 'self' and '__self' - these are method parameters that may or may not
+            // be named/available depending on self_analyzer.usesSelf(). If self is needed
+            // in the try block, the method signature should already have it available.
+            // Don't try to capture it as an outer variable.
+            if (std.mem.eql(u8, name, "self") or std.mem.eql(u8, name, "__self")) continue;
+
             // Skip user-defined functions (they're module-level, accessible directly)
             if (self.function_signatures.contains(name)) continue;
             if (self.functions_needing_allocator.contains(name)) continue;
@@ -426,6 +432,15 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.emit(") = p_");
             try self.emit(var_name);
             try self.emit(";\n");
+
+            // Only emit discard if variable is truly unused (checked via semantic analysis)
+            // Otherwise we get "pointless discard of local constant" errors
+            if (self.isVarUnused(var_name)) {
+                try self.emitIndent();
+                try self.emit("_ = __local_");
+                try self.emit(var_name);
+                try self.emit(";\n");
+            }
 
             // Add to rename map
             var buf = std.ArrayList(u8){};

@@ -83,10 +83,10 @@ fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: Nativ
     try self.emit(";\n");
 
     try self.emitIndent();
-    try self.emit("const _py_dict = try runtime.PyDict.create(allocator);\n");
+    try self.emit("const _py_dict = try runtime.PyDict.create(__global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("errdefer runtime.decref(_py_dict, allocator);\n");
+    try self.emit("errdefer runtime.decref(_py_dict, __global_allocator);\n");
 
     // Iterate and convert each entry
     try self.emitIndent();
@@ -108,10 +108,10 @@ fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: Nativ
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit("const _result = try runtime.json.dumpsDirect(_py_dict, allocator);\n");
+    try self.emit("const _result = try runtime.json.dumpsDirect(_py_dict, __global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("runtime.decref(_py_dict, allocator);\n");
+    try self.emit("runtime.decref(_py_dict, __global_allocator);\n");
 
     try self.emitIndent();
     try self.emit("break :json_blk _result;\n");
@@ -133,10 +133,10 @@ fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: Native
     try self.emit(";\n");
 
     try self.emitIndent();
-    try self.emit("const _py_list = try runtime.PyList.create(allocator);\n");
+    try self.emit("const _py_list = try runtime.PyList.create(__global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("errdefer runtime.decref(_py_list, allocator);\n");
+    try self.emit("errdefer runtime.decref(_py_list, __global_allocator);\n");
 
     // Iterate and convert each element
     try self.emitIndent();
@@ -155,10 +155,10 @@ fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: Native
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit("const _result = try runtime.json.dumpsDirect(_py_list, allocator);\n");
+    try self.emit("const _result = try runtime.json.dumpsDirect(_py_list, __global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("runtime.decref(_py_list, allocator);\n");
+    try self.emit("runtime.decref(_py_list, __global_allocator);\n");
 
     try self.emitIndent();
     try self.emit("break :json_blk _result;\n");
@@ -172,30 +172,30 @@ fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: Native
 fn genValueToPyObject(self: *NativeCodegen, value_expr: []const u8, value_type: NativeType) CodegenError!void {
     switch (value_type) {
         .int => {
-            try self.emit("const _py_val = try runtime.PyInt.create(allocator, ");
+            try self.emit("const _py_val = try runtime.PyInt.create(__global_allocator, ");
             try self.emit(value_expr);
             try self.emit(");\n");
         },
         .float => {
-            try self.emit("const _py_val = try runtime.PyFloat.create(allocator, ");
+            try self.emit("const _py_val = try runtime.PyFloat.create(__global_allocator, ");
             try self.emit(value_expr);
             try self.emit(");\n");
         },
         .bool => {
-            try self.emit("const _py_val = try runtime.PyInt.create(allocator, if (");
+            try self.emit("const _py_val = try runtime.PyInt.create(__global_allocator, if (");
             try self.emit(value_expr);
             try self.emit(") @as(i64, 1) else @as(i64, 0));\n");
             try self.emitIndent();
             try self.emit("_py_val.type_id = .bool;\n");
         },
         .string => {
-            try self.emit("const _py_val = try runtime.PyString.create(allocator, ");
+            try self.emit("const _py_val = try runtime.PyString.create(__global_allocator, ");
             try self.emit(value_expr);
             try self.emit(");\n");
         },
         else => {
             // Fallback: assume it's already a PyObject or use string conversion
-            try self.emit("const _py_val = try runtime.PyString.create(allocator, ");
+            try self.emit("const _py_val = try runtime.PyString.create(__global_allocator, ");
             try self.emit(value_expr);
             try self.emit(");\n");
         },
@@ -216,7 +216,7 @@ pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _content = _file.read() catch break :json_load_blk null;\n");
     try self.emitIndent();
-    try self.emit("break :json_load_blk try runtime.json.loads(_content, allocator);\n");
+    try self.emit("break :json_load_blk try runtime.json.loads(_content, __global_allocator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
@@ -238,7 +238,7 @@ pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[1]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("const _json_str = try runtime.json.dumpsValue(_obj, allocator);\n");
+    try self.emit("const _json_str = try runtime.json.dumpsValue(_obj, __global_allocator);\n");
     try self.emitIndent();
     try self.emit("_file.write(_json_str) catch {};\n");
     try self.emitIndent();
@@ -281,7 +281,7 @@ pub fn genJSONDecoder(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.emitIndent();
     try self.emit("_ = self;\n");
     try self.emitIndent();
-    try self.emit("const str_obj = try runtime.PyString.create(allocator, s);\n");
+    try self.emit("const str_obj = try runtime.PyString.create(__global_allocator, s);\n");
     try self.emitIndent();
     try self.emit("defer runtime.decref(str_obj, allocator);\n");
     try self.emitIndent();

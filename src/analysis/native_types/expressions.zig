@@ -374,9 +374,17 @@ pub fn inferExpr(
             const val_ptr = try allocator.create(NativeType);
             val_ptr.* = val_type;
 
-            // Allocate key type (always string for Python dicts)
+            // Infer key type from first non-unpacking key
+            var key_type: NativeType = .{ .string = .runtime };
+            for (d.keys) |key| {
+                if (key != .constant or key.constant.value != .none) {
+                    key_type = try inferExpr(allocator, var_types, class_fields, func_return_types, key);
+                    break;
+                }
+            }
+
             const key_ptr = try allocator.create(NativeType);
-            key_ptr.* = .{ .string = .runtime };
+            key_ptr.* = key_type;
 
             break :blk .{ .dict = .{
                 .key = key_ptr,

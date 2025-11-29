@@ -121,11 +121,11 @@ pub fn genCopytree(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("while (_iter.next() catch null) |entry| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _src_path = std.fmt.allocPrint(allocator, \"{s}/{s}\", .{_src, entry.name}) catch continue;\n");
+    try self.emit("const _src_path = std.fmt.allocPrint(__global_allocator, \"{s}/{s}\", .{_src, entry.name}) catch continue;\n");
     try self.emitIndent();
     try self.emit("defer __global_allocator.free(_src_path);\n");
     try self.emitIndent();
-    try self.emit("const _dst_path = std.fmt.allocPrint(allocator, \"{s}/{s}\", .{_dst, entry.name}) catch continue;\n");
+    try self.emit("const _dst_path = std.fmt.allocPrint(__global_allocator, \"{s}/{s}\", .{_dst, entry.name}) catch continue;\n");
     try self.emitIndent();
     try self.emit("defer __global_allocator.free(_dst_path);\n");
     try self.emitIndent();
@@ -165,7 +165,7 @@ pub fn genWhich(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("while (_iter.next()) |dir| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const _full_path = std.fmt.allocPrint(allocator, \"{s}/{s}\", .{dir, _cmd}) catch continue;\n");
+    try self.emit("const _full_path = std.fmt.allocPrint(__global_allocator, \"{s}/{s}\", .{dir, _cmd}) catch continue;\n");
     try self.emitIndent();
     try self.emit("const _stat = std.fs.cwd().statFile(_full_path) catch continue;\n");
     try self.emitIndent();

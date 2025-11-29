@@ -15,6 +15,7 @@ const struct_mod = @import("../struct_mod.zig");
 const base64_mod = @import("../base64_mod.zig");
 const random_mod = @import("../random_mod.zig");
 const string_mod = @import("../string_mod.zig");
+const inspect_mod = @import("../inspect_mod.zig");
 
 /// Handler function type for builtin dispatchers
 const BuiltinHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -81,6 +82,7 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     // I/O
     .{ "open", builtins.genOpen },
     // Other builtins
+    .{ "super", builtins_mod.genSuper },
     .{ "slice", builtins_mod.genSlice },
     // io module (from io import StringIO, BytesIO)
     .{ "StringIO", io_mod.genStringIO },
@@ -124,6 +126,8 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "digits", string_mod.genDigits },
     .{ "punctuation", string_mod.genPunctuation },
     .{ "capwords", string_mod.genCapwords },
+    // inspect module (from inspect import isabstract)
+    .{ "isabstract", inspect_mod.genIsabstract },
 });
 
 /// Try to dispatch built-in function call
@@ -148,7 +152,11 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
     // __import__() needs special inline codegen
     if (std.mem.eql(u8, func_name, "__import__")) {
-        try self.emit("try runtime.dynamic_import(allocator, ");
+        if (call.args.len == 0) {
+            try self.emit("@compileError(\"__import__() requires module name argument\")");
+            return true;
+        }
+        try self.emit("try runtime.dynamic_import(__global_allocator, ");
         try self.genExpr(call.args[0]);
         try self.emit(")");
         return true;

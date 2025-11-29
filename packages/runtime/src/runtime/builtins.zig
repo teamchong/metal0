@@ -540,3 +540,20 @@ fn isSlice(comptime T: type) bool {
         else => false,
     };
 }
+
+/// compile() builtin - compile source code
+/// In AOT context, this raises an error since we can't compile at runtime
+pub fn compile(source: []const u8, filename: []const u8, mode: []const u8) PythonError!void {
+    _ = source;
+    _ = filename;
+    _ = mode;
+    // In AOT context, compile() is not supported - it requires runtime compilation
+    return PythonError.ValueError;
+}
+
+/// exec() builtin - execute compiled code
+/// In AOT context, this raises an error
+pub fn exec(code: anytype) PythonError!void {
+    _ = code;
+    return PythonError.ValueError;
+}

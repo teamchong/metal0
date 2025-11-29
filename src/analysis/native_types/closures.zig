@@ -3,6 +3,50 @@ const std = @import("std");
 const hashmap_helper = @import("hashmap_helper");
 const ast = @import("ast");
 
+/// unittest assertion methods that dispatch to runtime (self isn't used in generated code)
+const UnittestMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "assertEqual", {} },
+    .{ "assertTrue", {} },
+    .{ "assertFalse", {} },
+    .{ "assertIsNone", {} },
+    .{ "assertGreater", {} },
+    .{ "assertLess", {} },
+    .{ "assertGreaterEqual", {} },
+    .{ "assertLessEqual", {} },
+    .{ "assertNotEqual", {} },
+    .{ "assertIs", {} },
+    .{ "assertIsNot", {} },
+    .{ "assertIsNotNone", {} },
+    .{ "assertIn", {} },
+    .{ "assertNotIn", {} },
+    .{ "assertAlmostEqual", {} },
+    .{ "assertNotAlmostEqual", {} },
+    .{ "assertCountEqual", {} },
+    .{ "assertRaises", {} },
+    .{ "assertRaisesRegex", {} },
+    .{ "assertWarns", {} },
+    .{ "assertWarnsRegex", {} },
+    .{ "assertLogs", {} },
+    .{ "assertNoLogs", {} },
+    .{ "assertRegex", {} },
+    .{ "assertNotRegex", {} },
+    .{ "assertIsInstance", {} },
+    .{ "assertNotIsInstance", {} },
+    .{ "assertIsSubclass", {} },
+    .{ "assertMultiLineEqual", {} },
+    .{ "assertSequenceEqual", {} },
+    .{ "assertListEqual", {} },
+    .{ "assertTupleEqual", {} },
+    .{ "assertSetEqual", {} },
+    .{ "assertDictEqual", {} },
+    .{ "assertHasAttr", {} },
+    .{ "assertNotHasAttr", {} },
+    .{ "addCleanup", {} },
+    .{ "subTest", {} },
+    .{ "fail", {} },
+    .{ "skipTest", {} },
+});
+
 /// Find all variables used in an expression
 fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), allocator: std.mem.Allocator) !void {
     switch (node) {
@@ -28,7 +72,24 @@ fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), alloc
             }
         },
         .call => |c| {
-            try findUsedVars(c.func.*, vars, allocator);
+            // Check for unittest assertion methods (self.assertEqual, etc.)
+            // These are dispatched to runtime.unittest and don't actually use self
+            const is_unittest_call = blk: {
+                if (c.func.* == .attribute) {
+                    const func_attr = c.func.attribute;
+                    if (func_attr.value.* == .name and
+                        std.mem.eql(u8, func_attr.value.name.id, "self") and
+                        UnittestMethods.has(func_attr.attr))
+                    {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+            if (!is_unittest_call) {
+                try findUsedVars(c.func.*, vars, allocator);
+            }
+            // Still check arguments even for unittest calls (they might use other captured vars)
             for (c.args) |arg| {
                 try findUsedVars(arg, vars, allocator);
             }

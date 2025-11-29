@@ -51,7 +51,7 @@ pub fn genWeakSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn add(self: *@This(), item: anytype) void {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("self.items.append(allocator, @ptrCast(&item)) catch {};\n");
+    try self.emit("self.items.append(__global_allocator, @ptrCast(&item)) catch {};\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

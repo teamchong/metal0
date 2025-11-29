@@ -143,7 +143,7 @@ pub fn genChoices(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _idx = _prng.random().int(usize) % _seq.len;\n");
     try self.emitIndent();
-    try self.emit("_result.append(allocator, _seq[_idx]) catch continue;\n");
+    try self.emit("_result.append(__global_allocator, _seq[_idx]) catch continue;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -197,11 +197,11 @@ pub fn genSample(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Simple reservoir sampling (without replacement)
     try self.emit("var _indices = std.ArrayList(usize).init(__global_allocator);\n");
     try self.emitIndent();
-    try self.emit("for (_seq, 0..) |_, idx| _indices.append(allocator, idx) catch continue;\n");
+    try self.emit("for (_seq, 0..) |_, idx| _indices.append(__global_allocator, idx) catch continue;\n");
     try self.emitIndent();
     try self.emit("_prng.random().shuffle(usize, _indices.items);\n");
     try self.emitIndent();
-    try self.emit("for (_indices.items[0..@min(_k, _indices.items.len)]) |idx| _result.append(allocator, _seq[idx]) catch continue;\n");
+    try self.emit("for (_indices.items[0..@min(_k, _indices.items.len)]) |idx| _result.append(__global_allocator, _seq[idx]) catch continue;\n");
     try self.emitIndent();
     try self.emit("break :sample_blk _result.items;\n");
     self.dedent();

@@ -462,7 +462,9 @@ pub fn genMethodSignatureWithSkip(
 
     // Check if self is actually used in the method body
     // If method is skipped, self is never used since body is replaced with empty stub
-    const uses_self = if (is_skipped) false else self_analyzer.usesSelf(method.body);
+    // Also, if this class has captured variables, methods need self to access them
+    const class_has_captures = self.current_class_captures != null;
+    const uses_self = if (is_skipped) false else (class_has_captures or self_analyzer.usesSelf(method.body));
 
     // For __new__ methods, the first Python parameter is 'cls' not 'self', and the body often
     // does 'self = super().__new__(cls)' which would shadow a 'self' parameter.
@@ -472,7 +474,8 @@ pub fn genMethodSignatureWithSkip(
     // Use *const for methods that don't mutate self (read-only methods)
     // Use _ for self param if it's not actually used in the body, or if it's __new__
     // Use __self for nested classes inside methods to avoid shadowing outer self parameter
-    const self_param_name = if (is_new_method) "_" else if (!uses_self) "_" else if (self.method_nesting_depth > 0) "__self" else "self";
+    // IMPORTANT: Check uses_self BEFORE checking nesting depth - unused self should be _
+    const self_param_name = if (is_new_method or !uses_self) "_" else if (self.method_nesting_depth > 0) "__self" else "self";
 
     // Generate "pub fn methodname(self_param: *[const] @This()"
     // Use @This() instead of class name to handle nested classes and forward references
@@ -504,17 +507,20 @@ pub fn genMethodSignatureWithSkip(
     }
 
     // Add other parameters (skip 'self')
-    // For skipped methods, use "_" prefix to suppress unused parameter warnings
+    // For skipped methods or unused parameters, use "_:" to suppress unused warnings
     for (method.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
         try self.emit(", ");
-        if (is_skipped) {
-            try self.emit("_");
+        // Check if parameter is used in method body
+        const is_param_used = param_analyzer.isNameUsedInBody(method.body, arg.name);
+        if (is_skipped or !is_param_used) {
+            // Use anonymous parameter for unused
+            try self.emit("_: ");
         } else {
             // Use writeParamName to handle Zig keywords AND method shadowing (e.g., "init" -> "init_arg")
             try zig_keywords.writeParamName(self.output.writer(self.allocator), arg.name);
+            try self.emit(": ");
         }
-        try self.emit(": ");
         // Use anytype for method params without type annotation to support string literals
         // This lets Zig infer the type from the call site
         if (arg.type_annotation) |_| {
@@ -538,23 +544,25 @@ pub fn genMethodSignatureWithSkip(
     // Add *args parameter as a slice if present
     if (method.vararg) |vararg_name| {
         try self.emit(", ");
-        if (is_skipped) {
-            try self.emit("_");
+        const is_vararg_used = param_analyzer.isNameUsedInBody(method.body, vararg_name);
+        if (is_skipped or !is_vararg_used) {
+            try self.emit("_: anytype"); // Use anonymous for unused
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
+            try self.emit(": anytype"); // Use anytype for flexibility
         }
-        try self.emit(": anytype"); // Use anytype for flexibility
     }
 
     // Add **kwargs parameter if present
     if (method.kwarg) |kwarg_name| {
         try self.emit(", ");
-        if (is_skipped) {
-            try self.emit("_");
+        const is_kwarg_used = param_analyzer.isNameUsedInBody(method.body, kwarg_name);
+        if (is_skipped or !is_kwarg_used) {
+            try self.emit("_: anytype"); // Use anonymous for unused
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
+            try self.emit(": anytype");
         }
-        try self.emit(": anytype");
     }
 
     try self.emit(") ");

@@ -121,44 +121,106 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate builtins.isinstance
 pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
+    // isinstance returns true unconditionally in metal0's stub implementation
+    // We only need to consume args that have side effects (like calls)
+    // Simple names don't need discarding - that causes "pointless discard" errors
+    if (args.len >= 2) {
+        const has_side_effects = args[0] == .call or args[1] == .call;
+        if (has_side_effects) {
+            try self.emit("blk: { ");
+            if (args[0] == .call) {
+                try self.emit("_ = ");
+                try self.genExpr(args[0]);
+                try self.emit("; ");
+            }
+            if (args[1] == .call) {
+                try self.emit("_ = ");
+                try self.genExpr(args[1]);
+                try self.emit("; ");
+            }
+            try self.emit("break :blk true; }");
+        } else {
+            try self.emit("true");
+        }
+    } else if (args.len >= 1 and args[0] == .call) {
+        try self.emit("blk: { _ = ");
+        try self.genExpr(args[0]);
+        try self.emit("; break :blk true; }");
+    } else {
+        try self.emit("true");
+    }
 }
 
 /// Generate builtins.issubclass
 pub fn genIssubclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
+    // Only consume args with side effects (like calls)
+    if (args.len >= 1 and args[0] == .call) {
+        try self.emit("blk: { _ = ");
+        try self.genExpr(args[0]);
+        try self.emit("; break :blk true; }");
+    } else {
+        try self.emit("true");
+    }
 }
 
 /// Generate builtins.hasattr
 pub fn genHasattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
+    // Only consume args with side effects (like calls)
+    if (args.len >= 1 and args[0] == .call) {
+        try self.emit("blk: { _ = ");
+        try self.genExpr(args[0]);
+        try self.emit("; break :blk true; }");
+    } else {
+        try self.emit("true");
+    }
 }
 
 /// Generate builtins.getattr
 pub fn genGetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?*anyopaque, null)");
+    // Only consume args with side effects (like calls)
+    if (args.len >= 1 and args[0] == .call) {
+        try self.emit("blk: { _ = ");
+        try self.genExpr(args[0]);
+        try self.emit("; break :blk @as(?*anyopaque, null); }");
+    } else {
+        try self.emit("@as(?*anyopaque, null)");
+    }
 }
 
 /// Generate builtins.setattr
 pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
+    // Only consume args with side effects (like calls)
+    if (args.len >= 1 and args[0] == .call) {
+        try self.emit("blk: { _ = ");
+        try self.genExpr(args[0]);
+        try self.emit("; break :blk {}; }");
+    } else {
+        try self.emit("{}");
+    }
 }
 
 /// Generate builtins.delattr
 pub fn genDelattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
+    // Only consume args with side effects (like calls)
+    if (args.len >= 1 and args[0] == .call) {
+        try self.emit("blk: { _ = ");
+        try self.genExpr(args[0]);
+        try self.emit("; break :blk {}; }");
+    } else {
+        try self.emit("{}");
+    }
 }
 
 /// Generate builtins.callable
 pub fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
+    // Only consume args with side effects (like calls)
+    if (args.len >= 1 and args[0] == .call) {
+        try self.emit("blk: { _ = ");
+        try self.genExpr(args[0]);
+        try self.emit("; break :blk true; }");
+    } else {
+        try self.emit("true");
+    }
 }
 
 /// Generate builtins.repr
@@ -345,9 +407,29 @@ pub fn genProperty(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate builtins.super
+/// When called as super() inside a class method, returns a proxy for the parent class
+/// super() -> parent class reference that can call parent methods
 pub fn genSuper(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("@as(?*anyopaque, null)");
+    // Get current class and its parent
+    if (self.current_class_name) |current_class| {
+        if (self.getParentClassName(current_class)) |parent_class| {
+            // Generate a struct that wraps the parent class reference
+            // This allows super().method() to work
+            try self.emit("@as(*const ");
+            try self.emit(parent_class);
+            try self.emit(", @ptrCast(__self))");
+            return;
+        }
+    }
+    // Fallback if not inside a class or no parent
+    // Returns an empty struct for method dispatch
+    // Note: We don't emit "_ = self" anymore - that causes "pointless discard" errors
+    // when self IS actually used in the method body.
+    // Note: We use a unique label to avoid conflicts with other blk labels
+    const super_label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.output.writer(self.allocator).print("super_{d}: {{ break :super_{d} .{{}}; }}", .{ super_label_id, super_label_id });
 }
 
 /// Generate builtins.object

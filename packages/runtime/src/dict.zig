@@ -1,96 +1,130 @@
-/// Python dict type implementation
-/// Separated from runtime.zig for better code organization
+/// Python dict type implementation (CPython ABI compatible)
 const std = @import("std");
 const runtime = @import("runtime.zig");
 const hashmap_helper = @import("hashmap_helper");
 
-/// Python dict type (simplified - using StringHashMap)
+// Re-export CPython-compatible types
+pub const PyObject = runtime.PyObject;
+pub const PyDictObject = runtime.PyDictObject;
+pub const PyDict_Type = &runtime.PyDict_Type;
+
+/// Python dict type - wrapper around CPython-compatible PyDictObject
 pub const PyDict = struct {
-    map: hashmap_helper.StringHashMap(*runtime.PyObject),
+    // Legacy field for backwards compatibility
+    map: hashmap_helper.StringHashMap(*PyObject) = undefined,
 
-    pub fn create(allocator: std.mem.Allocator) !*runtime.PyObject {
-        const obj = try allocator.create(runtime.PyObject);
-        const dict_data = try allocator.create(PyDict);
-        dict_data.map = hashmap_helper.StringHashMap(*runtime.PyObject).init(allocator);
+    pub fn create(allocator: std.mem.Allocator) !*PyObject {
+        const dict_obj = try allocator.create(PyDictObject);
 
-        obj.* = runtime.PyObject{
-            .ref_count = 1,
-            .type_id = .dict,
-            .data = dict_data,
+        // Create internal hashmap
+        const map = try allocator.create(hashmap_helper.StringHashMap(*PyObject));
+        map.* = hashmap_helper.StringHashMap(*PyObject).init(allocator);
+
+        dict_obj.* = PyDictObject{
+            .ob_base = .{
+                .ob_refcnt = 1,
+                .ob_type = PyDict_Type,
+            },
+            .ma_used = 0,
+            .ma_keys = map,
+            .ma_values = null,
         };
-        return obj;
+        return @ptrCast(dict_obj);
     }
 
-    pub fn set(obj: *runtime.PyObject, key: []const u8, value: *runtime.PyObject) !void {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+    pub fn set(obj: *PyObject, key: []const u8, value: *PyObject) !void {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
 
         // Duplicate the key since dict needs to own it
-        const owned_key = try data.map.allocator.dupe(u8, key);
-        try data.map.put(owned_key, value);
-        // Note: Caller transfers ownership of value, no incref needed
+        const owned_key = try map.allocator.dupe(u8, key);
+
+        // Check if key already exists (to maintain correct count)
+        const existed = map.contains(key);
+
+        try map.put(owned_key, value);
+
+        if (!existed) {
+            dict_obj.ma_used += 1;
+        }
+
+        runtime.incref(value);
     }
 
     /// Set key-value pair with owned key (takes ownership, no duplication)
-    /// IMPORTANT: Caller must ensure owned_key is allocated with dict's allocator
-    pub fn setOwned(obj: *runtime.PyObject, owned_key: []const u8, value: *runtime.PyObject) !void {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+    pub fn setOwned(obj: *PyObject, owned_key: []const u8, value: *PyObject) !void {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
 
-        // Take ownership of key without duplication (zero-copy!)
-        try data.map.put(owned_key, value);
-        // Note: Caller transfers ownership of both key and value
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
+
+        const existed = map.contains(owned_key);
+        try map.put(owned_key, value);
+
+        if (!existed) {
+            dict_obj.ma_used += 1;
+        }
+
+        runtime.incref(value);
     }
 
-    pub fn get(obj: *runtime.PyObject, key: []const u8) ?*runtime.PyObject {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
-        if (data.map.get(key)) |value| {
-            runtime.incref(value); // Incref before returning - caller owns reference
+    pub fn get(obj: *PyObject, key: []const u8) ?*PyObject {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
+
+        if (map.get(key)) |value| {
+            runtime.incref(value);
             return value;
         }
         return null;
     }
 
-    pub fn contains(obj: *runtime.PyObject, key: []const u8) bool {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
-        return data.map.contains(key);
+    pub fn contains(obj: *PyObject, key: []const u8) bool {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
+        return map.contains(key);
     }
 
-    pub fn len(obj: *runtime.PyObject) usize {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
-        return data.map.count();
+    pub fn len(obj: *PyObject) usize {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+        return @intCast(dict_obj.ma_used);
     }
 
-    pub fn keys(allocator: std.mem.Allocator, obj: *runtime.PyObject) !*runtime.PyObject {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+    pub fn keys(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
 
         // Create list to hold keys
         const result = try runtime.PyList.create(allocator);
 
-        // Add all keys as PyString objects
-        var iterator = data.map.keyIterator();
+        var iterator = map.keyIterator();
         while (iterator.next()) |key| {
             const key_obj = try runtime.PyString.create(allocator, key.*);
             try runtime.PyList.append(result, key_obj);
-            // Note: Ownership transferred to list, no decref needed
         }
 
         return result;
     }
 
-    pub fn values(allocator: std.mem.Allocator, obj: *runtime.PyObject) !*runtime.PyObject {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+    pub fn values(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
 
         // Create list to hold values
         const result = try runtime.PyList.create(allocator);
 
-        // Add all values (incref since we're sharing between containers)
-        var iterator = data.map.valueIterator();
+        var iterator = map.valueIterator();
         while (iterator.next()) |value| {
             runtime.incref(value.*);
             try runtime.PyList.append(result, value.*);
@@ -99,118 +133,171 @@ pub const PyDict = struct {
         return result;
     }
 
-    pub fn getWithDefault(allocator: std.mem.Allocator, obj: *runtime.PyObject, key: []const u8, default: *runtime.PyObject) *runtime.PyObject {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+    pub fn getWithDefault(allocator: std.mem.Allocator, obj: *PyObject, key: []const u8, default: *PyObject) *PyObject {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
         _ = allocator;
-        if (data.map.get(key)) |found| {
-            // Found in dict - incref and return (caller must decref)
+
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
+
+        if (map.get(key)) |found| {
             runtime.incref(found);
             return found;
         } else {
-            // Not found - incref default before returning (caller must decref)
             runtime.incref(default);
             return default;
         }
     }
 
-    pub fn get_method(allocator: std.mem.Allocator, obj: *runtime.PyObject, key: *runtime.PyObject, default: *runtime.PyObject) *runtime.PyObject {
-        std.debug.assert(obj.type_id == .dict);
-        std.debug.assert(key.type_id == .string);
-        const key_data: *runtime.PyString = @ptrCast(@alignCast(key.data));
-        const result = getWithDefault(allocator, obj, key_data.data, default);
-        // Note: Don't decref key here - caller owns it and will decref via defer
-        return result;
+    pub fn get_method(allocator: std.mem.Allocator, obj: *PyObject, key: *PyObject, default: *PyObject) *PyObject {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        std.debug.assert(runtime.PyUnicode_Check(key));
+
+        const str_obj: *runtime.PyUnicodeObject = @ptrCast(@alignCast(key));
+        const key_len: usize = @intCast(str_obj.length);
+        const key_str = str_obj.data[0..key_len];
+
+        return getWithDefault(allocator, obj, key_str, default);
     }
 
-    pub fn pop(allocator: std.mem.Allocator, obj: *runtime.PyObject, key: []const u8) ?*runtime.PyObject {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+    pub fn pop(allocator: std.mem.Allocator, obj: *PyObject, key: []const u8) ?*PyObject {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
 
-        // Get value and key before removing
-        if (data.map.fetchRemove(key)) |entry| {
-            allocator.free(entry.key); // Free the duplicated key
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
+
+        if (map.fetchRemove(key)) |entry| {
+            allocator.free(entry.key);
+            dict_obj.ma_used -= 1;
             return entry.value;
         }
         return null;
     }
 
-    pub fn pop_method(allocator: std.mem.Allocator, obj: *runtime.PyObject, key: *runtime.PyObject) ?*runtime.PyObject {
-        std.debug.assert(obj.type_id == .dict);
-        std.debug.assert(key.type_id == .string);
-        const key_data: *runtime.PyString = @ptrCast(@alignCast(key.data));
-        return pop(allocator, obj, key_data.data);
+    pub fn pop_method(allocator: std.mem.Allocator, obj: *PyObject, key: *PyObject) ?*PyObject {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        std.debug.assert(runtime.PyUnicode_Check(key));
+
+        const str_obj: *runtime.PyUnicodeObject = @ptrCast(@alignCast(key));
+        const key_len: usize = @intCast(str_obj.length);
+        const key_str = str_obj.data[0..key_len];
+
+        return pop(allocator, obj, key_str);
     }
 
-    pub fn clear(allocator: std.mem.Allocator, obj: *runtime.PyObject) void {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
-        const alloc = allocator; // Use passed allocator for consistency
-        _ = alloc;
+    pub fn clear(allocator: std.mem.Allocator, obj: *PyObject) void {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
 
-        // Free keys and decref values before clearing
-        var iterator = data.map.iterator();
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
+
+        var iterator = map.iterator();
         while (iterator.next()) |entry| {
-            data.map.allocator.free(entry.key_ptr.*); // Free the duplicated key
-            runtime.decref(entry.value_ptr.*, data.map.allocator); // Decref the value
+            map.allocator.free(entry.key_ptr.*);
+            runtime.decref(entry.value_ptr.*, allocator);
         }
 
-        data.map.clearRetainingCapacity();
+        map.clearRetainingCapacity();
+        dict_obj.ma_used = 0;
     }
 
-    pub fn items(allocator: std.mem.Allocator, obj: *runtime.PyObject) !*runtime.PyObject {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+    pub fn items(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
 
         // Create list to hold items
         const result = try runtime.PyList.create(allocator);
 
-        // Add all (key, value) pairs as 2-element tuples
-        var iterator = data.map.iterator();
+        var iterator = map.iterator();
         while (iterator.next()) |entry| {
             const pair = try runtime.PyTuple.create(allocator, 2);
             const key_obj = try runtime.PyString.create(allocator, entry.key_ptr.*);
             runtime.PyTuple.setItem(pair, 0, key_obj);
-            // Note: Ownership transferred to tuple, no decref needed
-            runtime.incref(entry.value_ptr.*); // Incref value since we're sharing it
+            runtime.incref(entry.value_ptr.*);
             runtime.PyTuple.setItem(pair, 1, entry.value_ptr.*);
             try runtime.PyList.append(result, pair);
-            // Note: Ownership transferred to list, no decref needed
         }
 
         return result;
     }
 
-    pub fn update(obj: *runtime.PyObject, other: *runtime.PyObject) !void {
-        std.debug.assert(obj.type_id == .dict);
-        std.debug.assert(other.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
-        const other_data: *PyDict = @ptrCast(@alignCast(other.data));
+    pub fn update(obj: *PyObject, other: *PyObject) !void {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        std.debug.assert(runtime.PyDict_Check(other));
 
-        // Copy all entries from other dict
-        var iterator = other_data.map.iterator();
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+        const other_dict: *PyDictObject = @ptrCast(@alignCast(other));
+
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
+        const other_map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(other_dict.ma_keys.?));
+
+        var iterator = other_map.iterator();
         while (iterator.next()) |entry| {
-            const owned_key = try data.map.allocator.dupe(u8, entry.key_ptr.*);
-            try data.map.put(owned_key, entry.value_ptr.*);
+            const owned_key = try map.allocator.dupe(u8, entry.key_ptr.*);
+            const existed = map.contains(entry.key_ptr.*);
+            try map.put(owned_key, entry.value_ptr.*);
             runtime.incref(entry.value_ptr.*);
+            if (!existed) {
+                dict_obj.ma_used += 1;
+            }
         }
     }
 
-    pub fn copy(allocator: std.mem.Allocator, obj: *runtime.PyObject) !*runtime.PyObject {
-        std.debug.assert(obj.type_id == .dict);
-        const data: *PyDict = @ptrCast(@alignCast(obj.data));
+    pub fn copy(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
+        std.debug.assert(runtime.PyDict_Check(obj));
+        const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
 
         const new_dict = try create(allocator);
-        const new_data: *PyDict = @ptrCast(@alignCast(new_dict.data));
+        const new_dict_obj: *PyDictObject = @ptrCast(@alignCast(new_dict));
+        const new_map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(new_dict_obj.ma_keys.?));
 
-        // Copy all entries
-        var iterator = data.map.iterator();
+        var iterator = map.iterator();
         while (iterator.next()) |entry| {
-            const owned_key = try new_data.map.allocator.dupe(u8, entry.key_ptr.*);
-            try new_data.map.put(owned_key, entry.value_ptr.*);
+            const owned_key = try new_map.allocator.dupe(u8, entry.key_ptr.*);
+            try new_map.put(owned_key, entry.value_ptr.*);
             runtime.incref(entry.value_ptr.*);
+            new_dict_obj.ma_used += 1;
         }
 
         return new_dict;
     }
 };
+
+// CPython-compatible C API functions
+pub fn PyDict_New() callconv(.C) *PyObject {
+    const allocator = std.heap.page_allocator;
+    return PyDict.create(allocator) catch @panic("PyDict_New allocation failed");
+}
+
+pub fn PyDict_Size(obj: *PyObject) callconv(.C) runtime.Py_ssize_t {
+    const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+    return dict_obj.ma_used;
+}
+
+pub fn PyDict_GetItem(obj: *PyObject, key: *PyObject) callconv(.C) ?*PyObject {
+    if (!runtime.PyUnicode_Check(key)) return null;
+
+    const str_obj: *runtime.PyUnicodeObject = @ptrCast(@alignCast(key));
+    const key_len: usize = @intCast(str_obj.length);
+    const key_str = str_obj.data[0..key_len];
+
+    const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+    const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
+
+    return map.get(key_str);
+}
+
+pub fn PyDict_SetItem(obj: *PyObject, key: *PyObject, value: *PyObject) callconv(.C) c_int {
+    if (!runtime.PyUnicode_Check(key)) return -1;
+
+    const str_obj: *runtime.PyUnicodeObject = @ptrCast(@alignCast(key));
+    const key_len: usize = @intCast(str_obj.length);
+    const key_str = str_obj.data[0..key_len];
+
+    PyDict.set(obj, key_str, value) catch return -1;
+    return 0;
+}

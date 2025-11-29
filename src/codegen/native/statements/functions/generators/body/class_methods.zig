@@ -53,7 +53,7 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!vo
 }
 
 /// Generate default init() method with builtin/complex parent type support
-pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, builtin_base: ?BuiltinBaseInfo, complex_parent: ?generators.ComplexParentInfo) CodegenError!void {
+pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, builtin_base: ?BuiltinBaseInfo, complex_parent: ?generators.ComplexParentInfo, captured_vars: ?[][]const u8) CodegenError!void {
     // Default __dict__ field for dynamic attributes
     try self.emitIndent();
     try self.emit("// Dynamic attributes dictionary\n");
@@ -68,6 +68,14 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
 
     // Generate function signature with builtin base args if present
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
+
+    // Add captured variable pointer parameters
+    if (captured_vars) |vars| {
+        for (vars) |var_name| {
+            try self.emit(", ");
+            try self.output.writer(self.allocator).print("__cap_{s}: *std.ArrayList(i64)", .{var_name});
+        }
+    }
 
     // Add builtin base constructor args
     if (builtin_base) |base_info| {
@@ -91,6 +99,14 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
     try self.emitIndent();
     try self.emit("return @This(){\n");
     self.indent();
+
+    // Initialize captured variable pointers first
+    if (captured_vars) |vars| {
+        for (vars) |var_name| {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print(".__captured_{s} = __cap_{s},\n", .{ var_name, var_name });
+        }
+    }
 
     // Initialize builtin base value first
     if (builtin_base) |base_info| {
@@ -148,12 +164,22 @@ pub fn genInitMethod(
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
 
     // Parameters (skip 'self')
+    const param_analyzer = @import("../../param_analyzer.zig");
     for (init.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
 
         try self.emit(", ");
 
-        try self.output.writer(self.allocator).print("{s}: ", .{arg.name});
+        // Check if parameter is used in init body (excluding parent __init__ calls)
+        // Parent calls are skipped in codegen, so params only used there are unused
+        const is_used = param_analyzer.isNameUsedInInitBody(init.body, arg.name);
+        if (!is_used) {
+            // Zig requires unused params to be named just "_", not "_name"
+            try self.emit("_: ");
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(": ");
+        }
 
         // Type annotation: prefer type hints, fallback to inference
         if (arg.type_annotation) |_| {
@@ -240,6 +266,7 @@ pub fn genInitMethodWithBuiltinBase(
     init: ast.Node.FunctionDef,
     builtin_base: ?BuiltinBaseInfo,
     complex_parent: ?generators.ComplexParentInfo,
+    captured_vars: ?[][]const u8,
 ) CodegenError!void {
     // Use __alloc for nested classes to avoid shadowing outer allocator
     const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
@@ -247,6 +274,14 @@ pub fn genInitMethodWithBuiltinBase(
     try self.emit("\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
+
+    // Add captured variable pointer parameters
+    if (captured_vars) |vars| {
+        for (vars) |var_name| {
+            try self.emit(", ");
+            try self.output.writer(self.allocator).print("__cap_{s}: *std.ArrayList(i64)", .{var_name});
+        }
+    }
 
     // For builtin bases without __init__ body, add the builtin's constructor args
     // Otherwise, use the __init__ parameters
@@ -263,11 +298,20 @@ pub fn genInitMethodWithBuiltinBase(
         }
     } else {
         // Use user-defined __init__ parameters (skip 'self')
+        const param_analyzer = @import("../../param_analyzer.zig");
         for (init.args) |arg| {
             if (std.mem.eql(u8, arg.name, "self")) continue;
 
             try self.emit(", ");
-            try self.output.writer(self.allocator).print("{s}: ", .{arg.name});
+
+            // Check if parameter is used in init body (excluding parent __init__ calls)
+            // Parent calls are skipped in codegen, so params only used there are unused
+            const is_used = param_analyzer.isNameUsedInInitBody(init.body, arg.name);
+            if (!is_used) {
+                try self.emit("_");
+            }
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(": ");
 
             // Type annotation: prefer type hints, fallback to inference
             if (arg.type_annotation) |_| {
@@ -283,6 +327,13 @@ pub fn genInitMethodWithBuiltinBase(
     // Use @This() for self-referential return type
     try self.emit(") @This() {\n");
     self.indent();
+
+    // Set captured vars context for expression generation
+    // In init, captured vars are accessed via __cap_* params, not self.__captured_*
+    self.current_class_captures = captured_vars;
+    self.inside_init_method = true;
+    defer self.current_class_captures = null;
+    defer self.inside_init_method = false;
 
     // First pass: generate non-field assignments (local variables, control flow, etc.)
     // These need to be executed BEFORE the struct is created
@@ -310,6 +361,14 @@ pub fn genInitMethodWithBuiltinBase(
     try self.emitIndent();
     try self.emit("return @This(){\n");
     self.indent();
+
+    // Initialize captured variable pointers first
+    if (captured_vars) |vars| {
+        for (vars) |var_name| {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print(".__captured_{s} = __cap_{s},\n", .{ var_name, var_name });
+        }
+    }
 
     // Initialize builtin base value first if present
     if (builtin_base) |base_info| {
@@ -380,10 +439,16 @@ pub fn genInitMethodWithBuiltinBase(
 pub fn genClassMethods(
     self: *NativeCodegen,
     class: ast.Node.ClassDef,
+    captured_vars: ?[][]const u8,
 ) CodegenError!void {
     // Set current class name for super() support
     self.current_class_name = class.name;
     defer self.current_class_name = null;
+
+    // Set current class's captured variables for expression generation
+    // This allows the expression generator to convert `var_name` to `self.__captured_var_name.*`
+    self.current_class_captures = captured_vars;
+    defer self.current_class_captures = null;
 
     // Set current class parent for parent method call resolution (e.g., array.array.__getitem__(self, i))
     if (class.bases.len > 0) {

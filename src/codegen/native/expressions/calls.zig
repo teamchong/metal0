@@ -9,6 +9,18 @@ const zig_keywords = @import("zig_keywords");
 const allocator_analyzer = @import("../statements/functions/allocator_analyzer.zig");
 const import_registry = @import("../import_registry.zig");
 
+/// Check if name is a runtime exception type that has init methods
+fn isRuntimeExceptionType(name: []const u8) bool {
+    const runtime_exceptions = [_][]const u8{
+        "Exception",
+        "BaseException",
+    };
+    for (runtime_exceptions) |e| {
+        if (std.mem.eql(u8, name, e)) return true;
+    }
+    return false;
+}
+
 /// Check if an expression will generate a Zig block expression (blk: {...})
 /// Block expressions cannot have methods called on them directly in Zig
 fn producesBlockExpression(expr: ast.Node) bool {
@@ -178,6 +190,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Check if this is a user-defined class method call (f.run() where f is a Foo instance)
         var is_class_method_call = false;
         var class_method_needs_alloc = false;
+        var is_nested_class_method_call = false;
         {
             const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch .unknown;
             if (obj_type == .class_instance) {
@@ -196,6 +209,16 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     }
                 }
             }
+            // Check if this is a nested class instance method call (obj.method() where obj = Inner())
+            // Nested classes aren't in class_registry, so check nested_class_instances
+            if (!is_class_method_call and attr.value.* == .name) {
+                const obj_name = attr.value.name.id;
+                if (self.nested_class_instances.contains(obj_name)) {
+                    // This is a method call on a nested class instance - always pass allocator
+                    is_nested_class_method_call = true;
+                    class_method_needs_alloc = true;
+                }
+            }
         }
 
         // Determine allocator/try requirements from registry or class method analysis
@@ -211,24 +234,26 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // No metadata - assume needs allocator (conservative)
                 needs_alloc = true;
             }
-        } else if (is_class_method_call) {
+        } else if (is_class_method_call or is_nested_class_method_call) {
             needs_alloc = class_method_needs_alloc;
         }
         // else: other method calls (string, list, etc.) don't need allocator
 
         // Add 'try' for calls that need allocator (they can error) OR explicitly return errors
-        const emit_try = (is_module_call or is_class_method_call) and (needs_alloc or needs_try);
+        const emit_try = (is_module_call or is_class_method_call or is_nested_class_method_call) and (needs_alloc or needs_try);
 
         // Check if the object expression produces a block expression (e.g., subscript, list literal)
         // Block expressions cannot have methods called on them directly in Zig
         const needs_temp_var = producesBlockExpression(attr.value.*);
 
         if (needs_temp_var) {
-            // Wrap in block with intermediate variable:
-            // blk: { const __obj = <expr>; break :blk __obj.method(args); }
-            try self.emit("blk: { const __obj = ");
+            // Wrap in block with intermediate variable using unique label:
+            // mcall_{id}: { const __obj = <expr>; break :mcall_{id} __obj.method(args); }
+            const mcall_label_id = self.block_label_counter;
+            self.block_label_counter += 1;
+            try self.emitFmt("mcall_{d}: {{ const __obj = ", .{mcall_label_id});
             try genExpr(self, attr.value.*);
-            try self.emit("; break :blk ");
+            try self.emitFmt("; break :mcall_{d} ", .{mcall_label_id});
             if (emit_try) {
                 try self.emit("try ");
             }
@@ -237,7 +262,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try self.emit("(");
 
             // For module calls or class method calls, add allocator as first argument only if needed
-            if ((is_module_call or is_class_method_call) and needs_alloc) {
+            if ((is_module_call or is_class_method_call or is_nested_class_method_call) and needs_alloc) {
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
                 try self.emit(alloc_name);
                 if (call.args.len > 0 or call.keyword_args.len > 0) {
@@ -271,7 +296,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try self.emit("(");
 
             // For module calls or class method calls, add allocator as first argument only if needed
-            if ((is_module_call or is_class_method_call) and needs_alloc) {
+            if ((is_module_call or is_class_method_call or is_nested_class_method_call) and needs_alloc) {
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
                 try self.emit(alloc_name);
                 if (call.args.len > 0 or call.keyword_args.len > 0) {
@@ -325,7 +350,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Check if this is a closure variable
         if (self.closure_vars.contains(raw_func_name)) {
             // Closure call: add_five(3) -> add_five.call(3)
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+            // Use the variable name which was already assigned the closure
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
             try self.emit(".call(");
 
             for (call.args, 0..) |arg, i| {
@@ -342,32 +368,80 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             return;
         }
 
-        // If name starts with uppercase, it's a class constructor
+        // Check if this is a class constructor:
+        // 1. Name starts with uppercase (Python convention), OR
+        // 2. Name is in class registry (handles lowercase class names like "base_set")
         // Use raw_func_name for checking class registry (original Python name)
-        if (raw_func_name.len > 0 and std.ascii.isUpper(raw_func_name[0])) {
-            // Class instantiation: Counter(10) -> Counter.init(allocator, 10)
-            // User-defined classes return the struct directly, library classes like Path may return error unions
-            const is_user_class = self.class_registry.getClass(raw_func_name) != null;
+        // Also check nested_class_names - nested classes inside functions won't be in class_registry
+        const is_user_class = self.class_registry.getClass(raw_func_name) != null or
+            self.nested_class_names.contains(raw_func_name);
+        const is_class_constructor = is_user_class or (raw_func_name.len > 0 and std.ascii.isUpper(raw_func_name[0]));
 
-            if (is_user_class) {
+        // Check if this is a runtime exception type that needs runtime. prefix
+        const is_runtime_exception = isRuntimeExceptionType(raw_func_name);
+
+        if (is_class_constructor) {
+            // Class instantiation: Counter(10) -> Counter.init(__global_allocator, 10)
+            // User-defined classes return the struct directly, library classes like Path may return error unions
+
+            // Check if we're instantiating the current class from within itself
+            // e.g., `return aug_test(self.val + val)` inside aug_test.__add__
+            // In this case, use @This() instead of the class name
+            const is_self_reference = if (self.current_class_name) |cn|
+                std.mem.eql(u8, cn, raw_func_name)
+            else
+                false;
+
+            if (is_user_class or is_self_reference) {
                 // User-defined class: init returns struct directly, no try needed
                 // Always use __global_allocator since the method may not have allocator param
-                try self.emit(func_name);
+                if (is_self_reference) {
+                    try self.emit("@This()");
+                } else {
+                    try self.emit(func_name);
+                }
                 try self.emit(".init(__global_allocator");
+            } else if (is_runtime_exception) {
+                // Runtime exception type: Exception(arg) -> runtime.Exception.initWithArg(__global_allocator, arg)
+                try self.emit("(try runtime.");
+                try self.emit(func_name);
+                // Use initWithArg for single arg, initWithArgs for multiple, init for no args
+                if (call.args.len == 0 and call.keyword_args.len == 0) {
+                    try self.emit(".init(__global_allocator))");
+                    return;
+                } else if (call.args.len == 1 and call.keyword_args.len == 0) {
+                    try self.emit(".initWithArg(__global_allocator, ");
+                    try genExpr(self, call.args[0]);
+                    try self.emit("))");
+                    return;
+                } else {
+                    // Multiple args - build PyValue array
+                    try self.emit(".initWithArgs(__global_allocator, &[_]runtime.PyValue{");
+                    for (call.args, 0..) |arg, i| {
+                        if (i > 0) try self.emit(", ");
+                        try self.emit("runtime.PyValue.from(");
+                        try genExpr(self, arg);
+                        try self.emit(")");
+                    }
+                    try self.emit("}))");
+                    return;
+                }
             } else {
                 // Library class (e.g. Path): may return error union, wrap in (try ...)
-                // Use __alloc for nested class methods to avoid shadowing outer allocator
-                // class_nesting_depth: 1 = top-level class, 2+ = nested class
-                // Use __global_allocator at module level (when not in a function)
-                const alloc_name = if (self.current_function_name == null)
-                    "__global_allocator"
-                else if (self.class_nesting_depth > 1)
-                    "__alloc"
-                else
-                    "allocator";
+                // Always use __global_allocator for reliability - allocator param might be
+                // named "_" (unused) or we might be in nested classes where allocator scope
+                // is complicated
                 try self.emit("(try ");
                 try self.emit(func_name);
-                try self.output.writer(self.allocator).print(".init({s}", .{alloc_name});
+                try self.emit(".init(__global_allocator");
+            }
+
+            // Check if this class has captured variables - pass pointers to them
+            if (self.nested_class_captures.get(raw_func_name)) |captured_vars| {
+                for (captured_vars) |var_name| {
+                    try self.emit(", &");
+                    try self.emit(var_name);
+                }
             }
 
             // Add comma if there are args
@@ -385,7 +459,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, kwarg.value);
             }
 
-            if (is_user_class) {
+            if (is_user_class or is_self_reference) {
                 try self.emit(")");
             } else {
                 try self.emit("))");
@@ -492,7 +566,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try self.emit("blk: {\n");
                 self.indent_level += 1;
                 try self.emitIndent();
-                try self.emit("const __kwargs = try runtime.PyDict.create(allocator);\n");
+                try self.emit("const __kwargs = try runtime.PyDict.create(__global_allocator);\n");
 
                 // Add each keyword argument to the dict
                 for (call.keyword_args) |kwarg| {
@@ -503,7 +577,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
                     // Wrap the value in a PyObject - for now assume int
                     // TODO: Handle other types
-                    try self.emit("try runtime.PyInt.create(allocator, ");
+                    try self.emit("try runtime.PyInt.create(__global_allocator, ");
                     try genExpr(self, kwarg.value);
                     try self.emit("));\n");
                 }

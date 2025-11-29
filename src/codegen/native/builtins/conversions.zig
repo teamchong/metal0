@@ -123,11 +123,13 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // All results are cast to i64 since Python len() returns int
     try self.emit("@as(i64, @intCast(");
 
-    // Wrap block expressions in temp variable
+    // Wrap block expressions in temp variable with unique label
+    const len_label_id = self.block_label_counter;
     if (needs_wrap) {
-        try self.emit("blk: { const __obj = ");
+        self.block_label_counter += 1;
+        try self.emitFmt("len_{d}: {{ const __obj = ", .{len_label_id});
         try self.genExpr(args[0]);
-        try self.emit("; break :blk ");
+        try self.emitFmt("; break :len_{d} ", .{len_label_id});
     }
 
     if (is_pyobject) {
@@ -136,9 +138,11 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (needs_wrap) {
             try self.emit("if (@typeInfo(@TypeOf(__obj)) == .@\"struct\" and @hasField(@TypeOf(__obj), \"items\")) __obj.items.len else runtime.pyLen(__obj)");
         } else {
-            try self.emit("blk: { const __tmp = ");
+            const pyobj_label_id = self.block_label_counter;
+            self.block_label_counter += 1;
+            try self.emitFmt("len_{d}: {{ const __tmp = ", .{pyobj_label_id});
             try self.genExpr(args[0]);
-            try self.emit("; break :blk if (@typeInfo(@TypeOf(__tmp)) == .@\"struct\" and @hasField(@TypeOf(__tmp), \"items\")) __tmp.items.len else runtime.pyLen(__tmp); }");
+            try self.emitFmt("; break :len_{d} if (@typeInfo(@TypeOf(__tmp)) == .@\"struct\" and @hasField(@TypeOf(__tmp), \"items\")) __tmp.items.len else runtime.pyLen(__tmp); }}", .{pyobj_label_id});
         }
     } else if (is_kwarg_param) {
         // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()
@@ -183,7 +187,7 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     if (needs_wrap) {
-        try self.emit("; }");
+        try self.emitFmt("; }}", .{});
     }
     try self.emit("))");
 }
@@ -218,7 +222,9 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Use scope-aware allocator: __global_allocator in functions, allocator in main()
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
-    try self.emit("blk: {\n");
+    const str_label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("str_{d}: {{\n", .{str_label_id});
     try self.emit("var buf = std.ArrayList(u8){};\n");
 
     if (arg_type == .int) {
@@ -230,7 +236,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitFmt("try buf.writer({s}).print(\"{{s}}\", .{{if (", .{alloc_name});
         try self.genExpr(args[0]);
         try self.emit(") \"True\" else \"False\"});\n");
-        try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
+        try self.emitFmt("break :str_{d} try buf.toOwnedSlice({s});\n", .{ str_label_id, alloc_name });
         try self.emit("}");
         return;
     } else {
@@ -239,7 +245,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     try self.genExpr(args[0]);
     try self.emit("});\n");
-    try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
+    try self.emitFmt("break :str_{d} try buf.toOwnedSlice({s});\n", .{ str_label_id, alloc_name });
     try self.emit("}");
 }
 
@@ -542,12 +548,33 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Checks if object matches expected type at compile time
 /// For native codegen, this is a compile-time type check
 pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // For native codegen, check if types match at compile time
-    // Since Zig is strongly typed, isinstance is always true at runtime
-    // if the code compiled - just return true without consuming the value
-    // (consuming with _ = causes "pointless discard" if the value is used later)
-    _ = args;
-    try self.emit("true");
+    // isinstance returns true at compile time - only consume args with side effects (calls)
+    // Simple names don't need discarding - that causes "pointless discard" errors
+    if (args.len >= 2) {
+        const has_side_effects = args[0] == .call or args[1] == .call;
+        if (has_side_effects) {
+            try self.emit("blk: { ");
+            if (args[0] == .call) {
+                try self.emit("_ = ");
+                try self.genExpr(args[0]);
+                try self.emit("; ");
+            }
+            if (args[1] == .call) {
+                try self.emit("_ = ");
+                try self.genExpr(args[1]);
+                try self.emit("; ");
+            }
+            try self.emit("break :blk true; }");
+        } else {
+            try self.emit("true");
+        }
+    } else if (args.len >= 1 and args[0] == .call) {
+        try self.emit("blk: { _ = ");
+        try self.genExpr(args[0]);
+        try self.emit("; break :blk true; }");
+    } else {
+        try self.emit("true");
+    }
 }
 
 /// Generate code for list(iterable)
@@ -671,7 +698,7 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // set() with no args returns empty set
     // Default to i64 key type since it's the most common case
     if (args.len == 0) {
-        try self.emit("std.AutoHashMap(i64, void){}");
+        try self.emitFmt("std.AutoHashMap(i64, void).init({s})", .{alloc_name});
         return;
     }
 
@@ -688,6 +715,29 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         else => {},
     }
 
+    // Check if the iterable contains strings (e.g., list of strings or string itself)
+    // In that case we need StringHashMap instead of AutoHashMap
+    // Check for: string type (iterating chars), or list/set containing strings
+    const is_string_set = blk: {
+        if (arg_type == .string) break :blk true;
+        // Check if it's a list/tuple of string literals
+        if (args[0] == .list) {
+            const list = args[0].list;
+            if (list.elts.len > 0) {
+                const first_type = self.type_inferrer.inferExpr(list.elts[0]) catch .unknown;
+                if (first_type == .string) break :blk true;
+            }
+        }
+        if (args[0] == .tuple) {
+            const tup = args[0].tuple;
+            if (tup.elts.len > 0) {
+                const first_type = self.type_inferrer.inferExpr(tup.elts[0]) catch .unknown;
+                if (first_type == .string) break :blk true;
+            }
+        }
+        break :blk false;
+    };
+
     // Convert iterable to set
     // Check if arg produces a block expression that needs to be stored in temp variable
     const needs_temp = producesBlockExpression(args[0]);
@@ -699,17 +749,25 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("const __iterable = ");
         try self.genExpr(args[0]);
         try self.emit(";\n");
-        try self.emit("var _set = std.AutoHashMap(@TypeOf(__iterable[0]), void){};\n");
+        if (is_string_set) {
+            try self.emitFmt("var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
+        } else {
+            try self.emitFmt("var _set = std.AutoHashMap(@TypeOf(__iterable[0]), void).init({s});\n", .{alloc_name});
+        }
         try self.emit("for (__iterable) |_item| {\n");
     } else {
-        try self.emitFmt("var _set = std.AutoHashMap(@TypeOf(", .{});
-        try self.genExpr(args[0]);
-        try self.emit("[0]), void){};\n");
+        if (is_string_set) {
+            try self.emitFmt("var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
+        } else {
+            try self.emit("var _set = std.AutoHashMap(@TypeOf(");
+            try self.genExpr(args[0]);
+            try self.emitFmt("[0]), void).init({s});\n", .{alloc_name});
+        }
         try self.emit("for (");
         try self.genExpr(args[0]);
         try self.emit(") |_item| {\n");
     }
-    try self.emitFmt("try _set.put({s}, _item, {{}});\n", .{alloc_name});
+    try self.emit("try _set.put(_item, {});\n");
     try self.emit("}\n");
     try self.emit("break :set_blk _set;\n");
     try self.emit("}");

@@ -14,11 +14,11 @@ pub fn genArray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("items: std.ArrayList(i64) = std.ArrayList(i64).init(__global_allocator),\n");
     try self.emitIndent();
-    try self.emit("pub fn append(self: *@This(), x: i64) void { self.items.append(allocator, x) catch {}; }\n");
+    try self.emit("pub fn append(self: *@This(), x: i64) void { self.items.append(__global_allocator, x) catch {}; }\n");
     try self.emitIndent();
     try self.emit("pub fn extend(self: *@This(), iterable: anytype) void { for (iterable) |x| self.append(x); }\n");
     try self.emitIndent();
-    try self.emit("pub fn insert(self: *@This(), i: usize, x: i64) void { self.items.insert(allocator, i, x) catch {}; }\n");
+    try self.emit("pub fn insert(self: *@This(), i: usize, x: i64) void { self.items.insert(__global_allocator, i, x) catch {}; }\n");
     try self.emitIndent();
     try self.emit("pub fn remove(self: *@This(), x: i64) void { for (self.items.items, 0..) |v, i| { if (v == x) { _ = self.items.orderedRemove(i); return; } } }\n");
     try self.emitIndent();

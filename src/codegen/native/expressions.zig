@@ -32,6 +32,19 @@ pub const genTuple = misc.genTuple;
 pub const genSubscript = misc.genSubscript;
 pub const genAttribute = misc.genAttribute;
 
+/// Check if a variable is captured by the current class from outer scope
+fn isCapturedByCurrentClass(self: *NativeCodegen, var_name: []const u8) bool {
+    // Check if we have captured variables for the current class
+    // This is set by genClassMethods when entering a class with captures
+    const captured_vars = self.current_class_captures orelse return false;
+
+    // Check if this variable is in the captured list
+    for (captured_vars) |captured| {
+        if (std.mem.eql(u8, captured, var_name)) return true;
+    }
+    return false;
+}
+
 /// Main expression dispatcher
 pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     switch (node) {
@@ -62,6 +75,10 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             } else if (std.mem.eql(u8, name_to_use, "NotImplemented")) {
                 // Python's NotImplemented singleton - used by binary operations
                 try self.emit("runtime.NotImplemented");
+            } else if (isPythonExceptionType(name_to_use)) {
+                // Python exception types - reference from runtime
+                try self.emit("runtime.");
+                try self.emit(name_to_use);
             } else if (std.mem.eql(u8, name_to_use, "object")) {
                 try self.emit("*runtime.PyObject");
             } else if (isBuiltinFunction(name_to_use)) {
@@ -69,6 +86,21 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 // Emit a function reference that can be passed around
                 try self.emit("runtime.builtins.");
                 try self.emit(name_to_use);
+            } else if (self.closure_vars.contains(name_to_use)) {
+                // Closure variable - the variable already has the closure assigned to it
+                // Just use the variable name (e.g., "decorate" which was assigned __closure_decorate_1)
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
+            } else if (isCapturedByCurrentClass(self, name_to_use)) {
+                // Variable captured from outer scope by current nested class
+                if (self.inside_init_method) {
+                    // In __init__, access via __cap_* parameter (pointer dereference, no self yet)
+                    try self.output.writer(self.allocator).print("__cap_{s}.*", .{name_to_use});
+                } else {
+                    // In regular method, access via self.__captured_* field (pointer dereference)
+                    // Use __self when in nested class methods (method_nesting_depth > 0)
+                    const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
+                    try self.output.writer(self.allocator).print("{s}.__captured_{s}.*", .{ self_name, name_to_use });
+                }
             } else {
                 // Use writeLocalVarName to handle keywords AND method shadowing
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
@@ -474,6 +506,51 @@ fn isBuiltinFunction(name: []const u8) bool {
     };
     for (builtins) |b| {
         if (std.mem.eql(u8, name, b)) return true;
+    }
+    return false;
+}
+
+/// Check if a name is a Python exception type
+fn isPythonExceptionType(name: []const u8) bool {
+    const exceptions = [_][]const u8{
+        "TypeError",
+        "ValueError",
+        "KeyError",
+        "IndexError",
+        "ZeroDivisionError",
+        "AttributeError",
+        "NameError",
+        "FileNotFoundError",
+        "IOError",
+        "RuntimeError",
+        "StopIteration",
+        "NotImplementedError",
+        "AssertionError",
+        "OverflowError",
+        "ImportError",
+        "ModuleNotFoundError",
+        "OSError",
+        "PermissionError",
+        "TimeoutError",
+        "ConnectionError",
+        "RecursionError",
+        "MemoryError",
+        "LookupError",
+        "ArithmeticError",
+        "BufferError",
+        "EOFError",
+        "GeneratorExit",
+        "SystemExit",
+        "KeyboardInterrupt",
+        "Exception",
+        "BaseException",
+        "SyntaxError",
+        "UnicodeError",
+        "UnicodeDecodeError",
+        "UnicodeEncodeError",
+    };
+    for (exceptions) |e| {
+        if (std.mem.eql(u8, name, e)) return true;
     }
     return false;
 }

@@ -25,9 +25,9 @@ pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.emit("const _py_dict = try runtime.PyDict.create(allocator);\n");
+        try self.emit("const _py_dict = try runtime.PyDict.create(__global_allocator);\n");
         try self.emitIndent();
-        try self.emit("defer runtime.decref(_py_dict, allocator);\n");
+        try self.emit("defer runtime.decref(_py_dict, __global_allocator);\n");
         try self.emitIndent();
         try self.emit("var _it = _dict_map.iterator();\n");
         try self.emitIndent();
@@ -37,11 +37,11 @@ pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Convert value based on inferred value type
         const value_type = arg_type.dict.value.*;
         if (value_type == .int) {
-            try self.emit("const _py_val = try runtime.PyInt.create(allocator, _entry.value_ptr.*);\n");
+            try self.emit("const _py_val = try runtime.PyInt.create(__global_allocator, _entry.value_ptr.*);\n");
         } else if (value_type == .float) {
-            try self.emit("const _py_val = try runtime.PyFloat.create(allocator, _entry.value_ptr.*);\n");
+            try self.emit("const _py_val = try runtime.PyFloat.create(__global_allocator, _entry.value_ptr.*);\n");
         } else {
-            try self.emit("const _py_val = try runtime.PyString.create(allocator, _entry.value_ptr.*);\n");
+            try self.emit("const _py_val = try runtime.PyString.create(__global_allocator, _entry.value_ptr.*);\n");
         }
         try self.emitIndent();
         try self.emit("try runtime.PyDict.set(_py_dict, _entry.key_ptr.*, _py_val);\n");
@@ -49,7 +49,7 @@ pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitIndent();
         try self.emit("}\n");
         try self.emitIndent();
-        try self.emit("break :pickle_blk try runtime.json.dumpsDirect(_py_dict, allocator);\n");
+        try self.emit("break :pickle_blk try runtime.json.dumpsDirect(_py_dict, __global_allocator);\n");
         self.dedent();
         try self.emitIndent();
         try self.emit("}");
@@ -57,12 +57,12 @@ pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // List needs conversion then dumpsDirect
         try self.emit("try runtime.json.dumpsDirect(try runtime.PyList.fromArrayList(");
         try self.genExpr(args[0]);
-        try self.emit(", allocator), allocator)");
+        try self.emit(", __global_allocator), __global_allocator)");
     } else {
         // Already a PyObject - use dumpsDirect
         try self.emit("try runtime.json.dumpsDirect(");
         try self.genExpr(args[0]);
-        try self.emit(", allocator)");
+        try self.emit(", __global_allocator)");
     }
 }
 
@@ -112,13 +112,13 @@ pub fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("const _content = _file.reader().readAllAlloc(allocator, 10 * 1024 * 1024) catch break :pickle_load_blk @as(*runtime.PyObject, undefined);\n");
+    try self.emit("const _content = _file.reader().readAllAlloc(__global_allocator, 10 * 1024 * 1024) catch break :pickle_load_blk @as(*runtime.PyObject, undefined);\n");
     try self.emitIndent();
-    try self.emit("const _json_str_obj = try runtime.PyString.create(allocator, _content);\n");
+    try self.emit("const _json_str_obj = try runtime.PyString.create(__global_allocator, _content);\n");
     try self.emitIndent();
-    try self.emit("defer runtime.decref(_json_str_obj, allocator);\n");
+    try self.emit("defer runtime.decref(_json_str_obj, __global_allocator);\n");
     try self.emitIndent();
-    try self.emit("break :pickle_load_blk try runtime.json.loads(_json_str_obj, allocator);\n");
+    try self.emit("break :pickle_load_blk try runtime.json.loads(_json_str_obj, __global_allocator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
@@ -155,7 +155,7 @@ pub fn genPickler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
     // For now, just store the file reference
-    try self.emit("try runtime.io.BytesIO.create(allocator)");
+    try self.emit("try runtime.io.BytesIO.create(__global_allocator)");
 }
 
 /// Generate pickle.Unpickler(file) class
@@ -164,5 +164,5 @@ pub fn genUnpickler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("undefined");
         return;
     }
-    try self.emit("try runtime.io.BytesIO.create(allocator)");
+    try self.emit("try runtime.io.BytesIO.create(__global_allocator)");
 }

@@ -60,6 +60,18 @@ pub const assertNotIsSubclass = assertions_type.assertNotIsSubclass;
 pub const subTest = subtest.subTest;
 pub const subTestInt = subtest.subTestInt;
 
+/// Context manager for unittest assertions (e.g., with self.assertRaises(...) as cm)
+/// This provides a dummy implementation for cm.exception.args[0] etc.
+pub const ContextManager = struct {
+    /// Exception info captured by the context manager
+    pub const Exception = struct {
+        /// Exception arguments (like args[0])
+        args: [8][]const u8 = .{""} ** 8,
+    };
+
+    exception: Exception = .{},
+};
+
 // Tests
 test "assertEqual: integers" {
     assertEqual(@as(i64, 2 + 2), @as(i64, 4));

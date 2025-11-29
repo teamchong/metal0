@@ -40,14 +40,16 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 
     if (is_dict_literal) {
         // Wrap in block with intermediate variable
-        try self.emit("blk: {\n");
+        const label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.output.writer(self.allocator).print("dget_{d}: {{\n", .{label_id});
         self.indent();
         try self.emitIndent();
         try self.emit("const __dict_temp = ");
         try self.genExpr(obj);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.emit("break :blk ");
+        try self.output.writer(self.allocator).print("break :dget_{d} ", .{label_id});
 
         if (default_val) |def| {
             try self.emit("__dict_temp.get(");
@@ -90,8 +92,12 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 
     const needs_temp = producesBlockExpression(obj);
 
+    // Generate unique label for block
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
     // Generate block that builds list of keys using .keys() slice
-    try self.emit("blk: {\n");
+    try self.output.writer(self.allocator).print("dkeys_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store block expression in temp variable if needed
@@ -123,7 +129,7 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit("break :blk _keys_list;\n");
+    try self.output.writer(self.allocator).print("break :dkeys_{d} _keys_list;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -141,8 +147,12 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     const needs_temp = producesBlockExpression(obj);
 
+    // Generate unique label for block
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
     // Generate block that builds list of values
-    try self.emit("blk: {\n");
+    try self.output.writer(self.allocator).print("dvals_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store block expression in temp variable if needed
@@ -179,7 +189,7 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit("break :blk _values_list;\n");
+    try self.output.writer(self.allocator).print("break :dvals_{d} _values_list;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -197,8 +207,12 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     const needs_temp = producesBlockExpression(obj);
 
+    // Generate unique label for block
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
     // Generate block that builds list of tuples
-    try self.emit("blk: {\n");
+    try self.output.writer(self.allocator).print("ditems_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store block expression in temp variable if needed
@@ -240,7 +254,7 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit("break :blk _items_list;\n");
+    try self.output.writer(self.allocator).print("break :ditems_{d} _items_list;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
