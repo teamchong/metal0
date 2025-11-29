@@ -407,9 +407,14 @@ pub fn genMethodSignature(
     // Check if self is actually used in the method body
     const uses_self = self_analyzer.usesSelf(method.body);
 
+    // For __new__ methods, the first Python parameter is 'cls' not 'self', and the body often
+    // does 'self = super().__new__(cls)' which would shadow a 'self' parameter.
+    // Use '_' to avoid shadowing.
+    const is_new_method = std.mem.eql(u8, method.name, "__new__");
+
     // Use *const for methods that don't mutate self (read-only methods)
-    // Use _ for self param if it's not actually used in the body
-    const self_param_name = if (uses_self) "self" else "_";
+    // Use _ for self param if it's not actually used in the body, or if it's __new__
+    const self_param_name = if (is_new_method) "_" else if (uses_self) "self" else "_";
 
     // Generate "pub fn methodname(self_param: *[const] @This()"
     // Use @This() instead of class name to handle nested classes and forward references
