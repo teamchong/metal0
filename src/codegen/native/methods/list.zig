@@ -68,8 +68,9 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.emit(")");
     } else if (producesBlockExpression(arg)) {
         // Block expression (list comprehension, call, etc.) - wrap in temp variable
-        // Generate: blk: { const __temp = expr; try list.appendSlice(__global_allocator, __temp.items); break :blk {}; }
-        try self.emit("blk: { const __list_temp = ");
+        // Use a plain block (not labeled) since we're just creating a scope for the temp variable
+        // Generate: { const __temp = expr; try list.appendSlice(__global_allocator, __temp.items); }
+        try self.emit("{ const __list_temp = ");
         try self.genExpr(arg);
         try self.emit("; try ");
         try self.genExpr(obj);

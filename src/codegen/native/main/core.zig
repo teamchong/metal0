@@ -96,6 +96,9 @@ pub const NativeCodegen = struct {
     lambda_counter: usize,
     lambda_functions: std.ArrayList([]const u8),
 
+    // Counter for unique block labels (avoids nested blk: redefinition)
+    block_label_counter: usize,
+
     // Track which variables hold closures (for .call() generation)
     closure_vars: FnvVoidMap,
 
@@ -260,6 +263,7 @@ pub const NativeCodegen = struct {
             .try_helper_counter = 0,
             .lambda_counter = 0,
             .lambda_functions = std.ArrayList([]const u8){},
+            .block_label_counter = 0,
             .closure_vars = FnvVoidMap.init(allocator),
             .closure_factories = FnvVoidMap.init(allocator),
             .lambda_vars = FnvVoidMap.init(allocator),

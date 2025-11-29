@@ -6,6 +6,7 @@ const CodegenError = @import("../../../main.zig").CodegenError;
 const for_special = @import("for_special.zig");
 const genEnumerateLoop = for_special.genEnumerateLoop;
 const genZipLoop = for_special.genZipLoop;
+const zig_keywords = @import("zig_keywords");
 
 /// Sanitize Python variable name for Zig (e.g., "_" -> "_unused")
 fn sanitizeVarName(name: []const u8) []const u8 {
@@ -102,9 +103,12 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     try self.pushScope();
 
     // Unpack tuple elements using struct field access: const x = __tuple__.@"0"; const y = __tuple__.@"1";
+    // Escape variable names if they're Zig keywords (e.g., "fn" -> @"fn")
     for (var_names, 0..) |var_name, i| {
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ var_name, unique_id, i });
+        try self.emit("const ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try self.output.writer(self.allocator).print(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
     }
 
     // Generate body statements

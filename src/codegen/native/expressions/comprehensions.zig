@@ -78,12 +78,16 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     // Generate unique ID for this comprehension to avoid variable shadowing
     const comp_id = self.output.items.len;
 
+    // Get unique block label to avoid nested block conflicts
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
     // Build variable substitution map for this comprehension
     var subs = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer subs.deinit();
 
-    // Generate: blk: { ... }
-    try self.emit("blk: {\n");
+    // Generate: comp_N: { ... }
+    try self.emit(try std.fmt.allocPrint(self.allocator, "comp_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Generate: var __comp_result = std.ArrayList(i64){};
@@ -230,10 +234,10 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         try self.emit("}\n");
     }
 
-    // Generate: break :blk __comp_result;
+    // Generate: break :comp_N __comp_result;
     // Return the ArrayList itself (not a slice) so caller can use .items or .append
     try self.emitIndent();
-    try self.emit("break :blk __comp_result;\n");
+    try self.emit(try std.fmt.allocPrint(self.allocator, "break :comp_{d} __comp_result;\n", .{label_id}));
 
     self.dedent();
     try self.emitIndent();
@@ -248,8 +252,12 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     // Determine if key is an integer expression
     const key_is_int = isIntExpr(dictcomp.key.*);
 
-    // Generate: blk: { ... }
-    try self.emit("blk: {\n");
+    // Get unique block label to avoid nested block conflicts
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    // Generate: dict_N: { ... }
+    try self.emit(try std.fmt.allocPrint(self.allocator, "dict_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Generate HashMap instead of ArrayList for compatibility with print(dict)
@@ -397,9 +405,9 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
         try self.emit("}\n");
     }
 
-    // Generate: break :blk __dict_result;
+    // Generate: break :dict_N __dict_result;
     try self.emitIndent();
-    try self.emit("break :blk __dict_result;\n");
+    try self.emit(try std.fmt.allocPrint(self.allocator, "break :dict_{d} __dict_result;\n", .{label_id}));
 
     self.dedent();
     try self.emitIndent();
@@ -414,8 +422,12 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
     const parent = @import("../expressions.zig");
     const genExpr = parent.genExpr;
 
-    // Generate: blk: { ... }
-    try self.emit("blk: {\n");
+    // Get unique block label to avoid nested block conflicts
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    // Generate: gen_N: { ... }
+    try self.emit(try std.fmt.allocPrint(self.allocator, "gen_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Generate: var __comp_result = std.ArrayList(i64){};
@@ -538,9 +550,9 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
         try self.emit("}\n");
     }
 
-    // Generate: break :blk __comp_result;
+    // Generate: break :gen_N __comp_result;
     try self.emitIndent();
-    try self.emit("break :blk __comp_result;\n");
+    try self.emit(try std.fmt.allocPrint(self.allocator, "break :gen_{d} __comp_result;\n", .{label_id}));
 
     self.dedent();
     try self.emitIndent();

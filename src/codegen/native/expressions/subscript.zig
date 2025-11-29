@@ -36,6 +36,18 @@ pub fn isNegativeConstant(node: ast.Node) bool {
     return false;
 }
 
+/// Check if a node is a single-character string constant
+/// Used to convert "a" to 'a' for Counter access when Counter has u8 keys
+/// Note: String constants in AST include quotes, so "a" has len=3
+fn isSingleCharString(node: ast.Node) bool {
+    if (node == .constant and node.constant.value == .string) {
+        const s = node.constant.value.string;
+        // String includes quotes: "a" has len 3, 'a' has len 3
+        return s.len == 3 and (s[0] == '"' or s[0] == '\'');
+    }
+    return false;
+}
+
 /// Generate a slice index, handling negative indices
 /// If in_slice_context is true and we have __s available, convert negatives to __s.items.len - abs(index) for lists
 /// Note: This assumes __s is available in the current scope (from the enclosing blk: { const __s = ... })
@@ -258,7 +270,19 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 // Counter returns 0 for missing keys in Python
                 try genExpr(self, subscript.value.*);
                 try self.emit(".get(");
-                try genExpr(self, subscript.slice.index.*);
+
+                // For Counter created from string, keys are u8 (chars)
+                // If index is single-char string like "a", convert to 'a'
+                const is_single_char_key = is_counter and isSingleCharString(subscript.slice.index.*);
+                if (is_single_char_key) {
+                    // Convert "a" to 'a' for u8-keyed Counter
+                    // String includes quotes, so "a" -> str[1] is 'a'
+                    const str = subscript.slice.index.constant.value.string;
+                    try self.output.writer(self.allocator).print("'{c}'", .{str[1]});
+                } else {
+                    try genExpr(self, subscript.slice.index.*);
+                }
+
                 if (is_counter) {
                     // Counter returns 0 for missing keys, not None
                     try self.emit(") orelse 0");
