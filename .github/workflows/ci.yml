@@ -7,51 +7,34 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: uv sync --all-extras
-
-      - name: Run tests
-        run: uv run pytest packages/*/tests -v
-
-      - name: Type check
-        run: uv run mypy packages/
-
-      - name: Lint
-        run: uv run ruff check packages/
-
-  zig:
+  cpython-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+        uses: mlugg/setup-zig@v1
         with:
-          version: 0.13.0
+          version: 0.15.0
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
+      - name: Build compiler
+        run: zig build
 
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Test compilation
-        run: uv run metal0 examples/fibonacci.py -o test_output
-
-      - name: Run compiled binary
-        run: ./test_output
+      - name: Run CPython unit tests (390 tests)
+        run: |
+          passed=0
+          failed=0
+          failed_tests=""
+          for f in tests/cpython/test_*.py; do
+            if timeout 30 ./zig-out/bin/metal0 "$f" --force >/dev/null 2>&1; then
+              passed=$((passed + 1))
+            else
+              failed=$((failed + 1))
+              failed_tests="$failed_tests\n  - $f"
+            fi
+          done
+          echo "CPython tests: $passed passed, $failed failed"
+          if [ $failed -gt 0 ]; then
+            echo -e "Failed tests:$failed_tests"
+            exit 1
+          fi
