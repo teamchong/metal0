@@ -108,6 +108,26 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             var var_name = target.name.id;
             const original_var_name = var_name; // Keep for usage checks (before any renaming)
 
+            // Rename 'self' to '__self' inside nested class methods to avoid
+            // shadowing the outer function's 'self' parameter
+            // e.g., inside StrWithStr.__new__: self = str.__new__(cls, "") -> __self = ...
+            if (std.mem.eql(u8, var_name, "self") and self.method_nesting_depth > 0) {
+                var_name = "__self";
+            }
+
+            // Check if assigning to a for-loop capture variable
+            // In Zig, loop captures are immutable, so we need to rename: line = line.strip()
+            // becomes __loop_line = line.strip() and subsequent refs use __loop_line
+            // NOTE: We set the rename AFTER generating the value, so the RHS uses the original capture
+            const is_loop_capture_reassign = self.loop_capture_vars.contains(var_name);
+            const loop_renamed_name = if (is_loop_capture_reassign)
+                std.fmt.allocPrint(self.allocator, "__loop_{s}", .{var_name}) catch var_name
+            else
+                var_name;
+            if (is_loop_capture_reassign) {
+                var_name = loop_renamed_name;
+            }
+
             // Check if this is assigning a type attribute to a variable with the same name
             // e.g., int_class = self.int_class -> would shadow the int_class function
             // In this case, rename the local variable to avoid shadowing
@@ -154,6 +174,60 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 return;
             }
 
+            // Track operator module callable structs: mod = operator.mod, pow_op = operator.pow
+            // These become callable structs that need .call() syntax when invoked
+            if (assign.value.* == .attribute) {
+                const attr_val = assign.value.attribute;
+                if (attr_val.value.* == .name) {
+                    const module_name = attr_val.value.name.id;
+                    if (std.mem.eql(u8, module_name, "operator")) {
+                        if (std.mem.eql(u8, attr_val.attr, "mod") or std.mem.eql(u8, attr_val.attr, "pow")) {
+                            // Register as callable variable so calls use .call() syntax
+                            const owned_name = try self.allocator.dupe(u8, var_name);
+                            try self.callable_vars.put(owned_name, {});
+                        }
+                    }
+                }
+            }
+
+            // Special case: float.fromhex and float.hex are function references
+            // Generate as assignment without type (works for both new vars and reassignment)
+            if (assign.value.* == .attribute) {
+                const attr_val = assign.value.attribute;
+                if (attr_val.value.* == .name) {
+                    const name = attr_val.value.name.id;
+                    if (std.mem.eql(u8, name, "float")) {
+                        if (std.mem.eql(u8, attr_val.attr, "fromhex") or std.mem.eql(u8, attr_val.attr, "hex")) {
+                            // Callable globals are already emitted at module level in generator.zig
+                            // Skip if this is a callable global that's already been handled
+                            if (self.callable_global_vars.contains(var_name) and self.isDeclared(var_name)) {
+                                return; // Already emitted at module level
+                            }
+                            // Check if already declared (local scope only for functions)
+                            // Global callable vars are NOT pre-declared (skipped in generator.zig)
+                            // so first assignment of a global callable needs 'var' keyword
+                            const is_local_declared = self.isDeclared(var_name);
+                            const is_global = self.isGlobalVar(var_name);
+                            const needs_declaration = !is_local_declared;
+                            try self.emitIndent();
+                            if (needs_declaration) {
+                                // Use 'var' for global callables (can be reassigned)
+                                // Use 'const' for local callables
+                                try self.emit(if (is_global) "var " else "const ");
+                            }
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                            try self.emit(" = ");
+                            try self.genExpr(assign.value.*);
+                            try self.emit(";\n");
+                            if (needs_declaration) {
+                                try self.declareVar(var_name);
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+
             // Check collection types and allocation behavior
             const is_constant_array = typeHandling.isConstantArray(self, assign, var_name);
             const is_arraylist = typeHandling.isArrayList(self, assign, var_name);
@@ -162,6 +236,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             _ = assign.value.* == .dictcomp; // is_dictcomp - reserved for future use
             const is_allocated_string = typeHandling.isAllocatedString(self, assign.value.*);
             const is_mutable_class_instance = typeHandling.isMutableClassInstance(self, assign.value.*);
+
+            // Check if value is an iter() call - iterators need to be mutable for next() to work
+            const is_iterator = typeHandling.isIteratorCall(assign.value.*);
 
             // Check if this is first assignment or reassignment
             // Hoisted variables should skip declaration (already declared before try block)
@@ -244,6 +321,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     is_dict,
                     is_mutable_class_instance,
                     is_listcomp,
+                    is_iterator,
                 );
 
                 // Mark as declared with proper type for scope-aware type lookup
@@ -255,14 +333,104 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     const var_name_copy = try self.allocator.dupe(u8, var_name);
                     try self.array_slice_vars.put(var_name_copy, {});
                 }
+
             } else {
                 // Reassignment: x = value (no var/const keyword!)
-                // Use renamed version if in var_renames map (for exception handling)
-                const actual_name = self.var_renames.get(var_name) orelse var_name;
-                // Use writeEscapedIdent to handle Zig keywords (e.g., "packed" -> @"packed")
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
-                try self.emit(" = ");
-                // No type annotation on reassignment
+                // EXCEPTION: If the new type differs from the declared type (e.g., different struct),
+                // we need to shadow the variable with a new const declaration
+                const declared_type = self.getLocalVarType(var_name) orelse .unknown;
+                const new_type = value_type;
+
+                // Check if we're assigning a different class type (needs variable shadowing)
+                // This handles reassignments like: u = Class1(); u = Class2()
+                // In Zig, we can't change a variable's type, so we shadow with a new const
+                const needs_shadow = blk: {
+                    if (declared_type == .class_instance and new_type == .class_instance) {
+                        // Different class instances - need shadow
+                        if (!std.mem.eql(u8, declared_type.class_instance, new_type.class_instance)) {
+                            break :blk true;
+                        }
+                    }
+                    // Primitive type being reassigned to class instance
+                    // e.g., value = float('nan'); value = F('nan') where F(float, H)
+                    // In Python, F inherits from float but in Zig they're different types
+                    if (new_type == .class_instance) {
+                        // Was a primitive type (int, float, bool, string) but now is class instance
+                        if (declared_type == .int or declared_type == .float or
+                            declared_type == .bool or declared_type == .string)
+                        {
+                            break :blk true;
+                        }
+                    }
+                    // Struct-typed variable being reassigned a different struct
+                    if (assign.value.* == .call and assign.value.call.func.* == .name) {
+                        const call_name = assign.value.call.func.name.id;
+
+                        // Check if this is a nested class (lowercase names like 'subclass')
+                        // or a regular class (uppercase names like 'Foo')
+                        const is_nested_class = self.nested_class_names.contains(call_name);
+                        const is_uppercase_class = call_name.len > 0 and std.ascii.isUpper(call_name[0]);
+
+                        if (is_nested_class or is_uppercase_class) {
+                            // Class constructor call - check if different from original
+                            if (declared_type == .class_instance) {
+                                if (!std.mem.eql(u8, declared_type.class_instance, call_name)) {
+                                    break :blk true;
+                                }
+                            } else if (is_nested_class) {
+                                // First assignment was also a nested class but type wasn't tracked
+                                // as class_instance. Check if call names differ.
+                                // This handles: u = subclass(); u = subclass_with_init()
+                                // where declared_type might be .unknown
+                                if (declared_type == .unknown) {
+                                    break :blk true; // Different nested class, need shadow
+                                }
+                            }
+                            // Also shadow if declared as primitive but now assigning nested class
+                            if (declared_type == .int or declared_type == .float or
+                                declared_type == .bool or declared_type == .string)
+                            {
+                                break :blk true;
+                            }
+                        }
+                    }
+                    break :blk false;
+                };
+
+                if (needs_shadow) {
+                    // Generate a unique name for this new type
+                    // Use the output buffer length as a unique suffix
+                    const unique_suffix = self.output.items.len;
+                    const unique_name = std.fmt.allocPrint(self.allocator, "{s}__{d}", .{ var_name, unique_suffix }) catch var_name;
+
+                    // Mark the original variable as used to prevent "var never mutated" warning
+                    // The original var was declared as mutable because we detected a reassignment,
+                    // but since this reassignment creates a shadow (type change), the original
+                    // is never actually mutated. Use _ = &var; to suppress the warning.
+                    try self.emit("_ = &");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                    try self.emit(";\n");
+                    try self.emitIndent();
+
+                    // Emit new const declaration with unique name
+                    try self.emit("const ");
+                    try self.emit(unique_name);
+                    try self.emit(" = ");
+
+                    // Register the rename so future references use the new name
+                    try self.var_renames.put(var_name, unique_name);
+
+                    // Update declared type for the ORIGINAL name (for tracking)
+                    try self.declareVarWithType(var_name, new_type);
+                } else {
+                    // Normal reassignment
+                    // Use renamed version if in var_renames map (for exception handling)
+                    const actual_name = self.var_renames.get(var_name) orelse var_name;
+                    // Use writeEscapedIdent to handle Zig keywords (e.g., "packed" -> @"packed")
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                    try self.emit(" = ");
+                    // No type annotation on reassignment
+                }
             }
 
             // Special handling for string concatenation with nested operations
@@ -398,6 +566,15 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emit(";\n");
             }
 
+            // For iterators, add pointer discard to suppress "never mutated" warnings
+            // Some iterator uses pass by value (json.dumps) vs by pointer (next())
+            if (is_iterator and is_first_assignment) {
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                try self.emit(";\n");
+            }
+
             // Track variable metadata (ArrayList vars, closures, etc.)
             try valueGen.trackVariableMetadata(
                 self,
@@ -419,6 +596,15 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 is_allocated_string,
                 assign.value.*,
             );
+
+            // Register loop capture rename AFTER value is generated
+            // This ensures the RHS uses the original capture, but subsequent reads use the new var
+            if (is_loop_capture_reassign) {
+                try self.var_renames.put(original_var_name, loop_renamed_name);
+                // Also register the type for the renamed variable so type inference works
+                // e.g., when checking `not __loop_line` we need to know it's a string
+                try self.type_inferrer.var_types.put(loop_renamed_name, value_type);
+            }
         } else if (target == .attribute) {
             // Handle attribute assignment (self.x = value or obj.y = value)
             const attr = target.attribute;
@@ -468,6 +654,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             try self.emitIndent();
             if (is_dynamic) {
                 // Dynamic attribute: use __dict__.put() with type wrapping
+                // Use @constCast since the object may be declared as const (HashMap stores data via pointers,
+                // so @constCast works correctly - the internal data is heap-allocated)
                 const dyn_value_type = try self.inferExprScoped(assign.value.*);
                 const py_value_tag = switch (dyn_value_type) {
                     .int => "int",
@@ -477,9 +665,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     else => "int", // Default fallback
                 };
 
-                try self.emit("try ");
+                try self.emit("try @constCast(&");
                 try self.genExpr(attr.value.*);
-                try self.emitFmt(".__dict__.put(\"{s}\", runtime.PyValue{{ .{s} = ", .{ attr.attr, py_value_tag });
+                try self.emitFmt(".__dict__).put(\"{s}\", runtime.PyValue{{ .{s} = ", .{ attr.attr, py_value_tag });
                 try self.genExpr(assign.value.*);
                 try self.emit(" })");
             } else {
@@ -825,6 +1013,16 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         if (is_value_returning_builtin) {
             try self.emit("_ = ");
             added_discard_prefix = true;
+        } else if (self.closure_vars.contains(func_name)) {
+            // Closure calls return error unions - discard both value and error
+            // Generate: _ = call(...) catch {}
+            try self.emit("_ = ");
+            added_discard_prefix = true;
+            // Mark that we need to append " catch {}" after the expression
+            // We'll use a simple approach: generate expr then append
+            try self.genExpr(expr);
+            try self.emit(" catch {};\n");
+            return;
         } else if (self.type_inferrer.func_return_types.get(func_name)) |return_type| {
             // Check if function returns non-void type
             // Skip void returns

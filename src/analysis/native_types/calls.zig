@@ -9,20 +9,28 @@ pub const InferError = core.InferError;
 pub const ClassInfo = core.ClassInfo;
 
 // Static string maps for DCE optimization
+// Note: int types here use .bounded because these are bounded operations:
+// - len() is always ≤ max array size
+// - ord() is always 0-1114111 (Unicode range)
+// - hash() is bounded to i64 range by design
+// Functions like int(), min(), max(), sum() need special handling based on args
 const BuiltinFuncMap = std.StaticStringMap(NativeType).initComptime(.{
-    .{ "len", NativeType.int },
+    .{ "len", NativeType{ .int = .bounded } }, // len() is always bounded
     .{ "str", NativeType{ .string = .runtime } },
     .{ "repr", NativeType{ .string = .runtime } },
-    .{ "int", NativeType.int },
+    .{ "bytes", NativeType{ .string = .runtime } }, // bytes() returns byte string
+    .{ "bytearray", NativeType{ .string = .runtime } }, // bytearray() returns byte array (treated as string)
+    // int() is handled specially below - depends on argument source
     .{ "float", NativeType.float },
     .{ "bool", NativeType.bool },
-    .{ "round", NativeType.int },
+    .{ "round", NativeType{ .int = .bounded } }, // round() on float is bounded
     .{ "chr", NativeType{ .string = .runtime } },
-    .{ "ord", NativeType.int },
-    .{ "min", NativeType.int },
-    .{ "max", NativeType.int },
-    .{ "sum", NativeType.int },
-    .{ "hash", NativeType.int },
+    .{ "ord", NativeType{ .int = .bounded } }, // ord() is always 0-1114111
+    // min/max/sum need special handling based on args - default to bounded
+    .{ "min", NativeType{ .int = .bounded } },
+    .{ "max", NativeType{ .int = .bounded } },
+    .{ "sum", NativeType{ .int = .bounded } },
+    .{ "hash", NativeType{ .int = .bounded } }, // hash() is bounded to i64
     // Boolean return functions
     .{ "any", NativeType.bool },
     .{ "all", NativeType.bool },
@@ -33,6 +41,8 @@ const BuiltinFuncMap = std.StaticStringMap(NativeType).initComptime(.{
     // io module (from io import StringIO, BytesIO)
     .{ "StringIO", NativeType.stringio },
     .{ "BytesIO", NativeType.bytesio },
+    // File I/O
+    .{ "open", NativeType.file },
 });
 
 const StringMethods = std.StaticStringMap(NativeType).initComptime(.{
@@ -317,9 +327,13 @@ pub fn inferCall(
             return try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
         }
 
-        // Special case: int() with large float literal → bigint
+        // Special case: int() - check argument source for boundedness
         const INT_HASH = comptime fnv_hash.hash("int");
-        if (fnv_hash.hash(func_name) == INT_HASH and call.args.len > 0) {
+        if (fnv_hash.hash(func_name) == INT_HASH) {
+            if (call.args.len == 0) {
+                // int() with no args returns 0 - bounded
+                return .{ .int = .bounded };
+            }
             const arg = call.args[0];
             // Check if argument is a large float literal (e.g., 1e100)
             if (arg == .constant and arg.constant.value == .float) {
@@ -341,12 +355,74 @@ pub fn inferCall(
                     }
                 }
             }
-            return .int;
+            // Check if argument is an int/float literal - bounded
+            if (arg == .constant) {
+                return .{ .int = .bounded };
+            }
+            // Check if argument comes from unbounded source (input(), file.read(), etc.)
+            // by inferring the arg type and checking if it's a string (from external source)
+            const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, arg);
+            const arg_tag = @as(std.meta.Tag(NativeType), arg_type);
+            // If arg is a RUNTIME string (not literal), it could be from input() - unbounded
+            // Literal strings like "123" are bounded because we can verify the value at compile time
+            if (arg_tag == .string and arg_type.string != .literal) {
+                // String from file/input/network - unbounded
+                return .{ .int = .unbounded };
+            }
+            // If arg is already an unbounded int, propagate
+            if (arg_tag == .int and arg_type.int == .unbounded) {
+                return .{ .int = .unbounded };
+            }
+            // Default: bounded (e.g., int(float_literal), int(int_var), int("123"))
+            return .{ .int = .bounded };
+        }
+
+        // list() builtin - returns list with inferred element type from argument
+        const LIST_BUILTIN_HASH = comptime fnv_hash.hash("list");
+        if (fnv_hash.hash(func_name) == LIST_BUILTIN_HASH) {
+            if (call.args.len > 0) {
+                // Infer element type from the iterable argument
+                const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+                // If arg is already a list, return its type
+                if (@as(std.meta.Tag(NativeType), arg_type) == .list) {
+                    return arg_type;
+                }
+                // If arg is a string, list() returns list of single chars (strings)
+                if (@as(std.meta.Tag(NativeType), arg_type) == .string) {
+                    const elem_ptr = try allocator.create(NativeType);
+                    elem_ptr.* = .{ .string = .runtime };
+                    return .{ .list = elem_ptr };
+                }
+                // If arg is a tuple, list() returns list of PyValue (heterogeneous)
+                if (@as(std.meta.Tag(NativeType), arg_type) == .tuple) {
+                    const elem_ptr = try allocator.create(NativeType);
+                    elem_ptr.* = .pyvalue;
+                    return .{ .list = elem_ptr };
+                }
+                // For iterables, return list of unknown element type
+                const elem_ptr = try allocator.create(NativeType);
+                elem_ptr.* = .unknown;
+                return .{ .list = elem_ptr };
+            }
+            // Empty list() call returns list of unknown type
+            const elem_ptr = try allocator.create(NativeType);
+            elem_ptr.* = .unknown;
+            return .{ .list = elem_ptr };
         }
 
         // Look up in static map for other builtins
         if (BuiltinFuncMap.get(func_name)) |return_type| {
             return return_type;
+        }
+
+        // map() builtin - returns list (slice from .items)
+        const MAP_BUILTIN_HASH = comptime fnv_hash.hash("map");
+        if (fnv_hash.hash(func_name) == MAP_BUILTIN_HASH) {
+            // map() always returns a list of strings when using str.strip, etc.
+            // For now, we just mark it as list of unknown, which will use [N] indexing
+            const elem_ptr = try allocator.create(NativeType);
+            elem_ptr.* = .{ .string = .runtime };
+            return .{ .list = elem_ptr };
         }
 
         // Path() constructor from pathlib
@@ -395,7 +471,7 @@ pub fn inferCall(
         if (func_hash == REDUCE_HASH) {
             // reduce(func, iterable) -> element type of iterable
             // Most common use case is numeric reduction, so default to int
-            return .int;
+            return .{ .int = .bounded };
         }
 
         // Exception constructors - RuntimeError, ValueError, TypeError, etc.
@@ -496,21 +572,29 @@ pub fn inferCall(
                 }
                 // Check for os.path module
                 if (std.mem.eql(u8, prefix, "os.path") or std.mem.eql(u8, prefix, "path")) {
-                    const func_name = attr.attr;
-                    if (std.mem.eql(u8, func_name, "exists") or
-                        std.mem.eql(u8, func_name, "isfile") or
-                        std.mem.eql(u8, func_name, "isdir"))
+                    const func_name_os = attr.attr;
+                    if (std.mem.eql(u8, func_name_os, "exists") or
+                        std.mem.eql(u8, func_name_os, "isfile") or
+                        std.mem.eql(u8, func_name_os, "isdir"))
                     {
                         return .bool;
                     }
-                    if (std.mem.eql(u8, func_name, "join") or
-                        std.mem.eql(u8, func_name, "dirname") or
-                        std.mem.eql(u8, func_name, "basename") or
-                        std.mem.eql(u8, func_name, "abspath") or
-                        std.mem.eql(u8, func_name, "realpath") or
-                        std.mem.eql(u8, func_name, "splitext"))
+                    if (std.mem.eql(u8, func_name_os, "join") or
+                        std.mem.eql(u8, func_name_os, "dirname") or
+                        std.mem.eql(u8, func_name_os, "basename") or
+                        std.mem.eql(u8, func_name_os, "abspath") or
+                        std.mem.eql(u8, func_name_os, "realpath"))
                     {
                         return .{ .string = .runtime };
+                    }
+                    // os.path.split() and splitext() return tuple of (string, string)
+                    if (std.mem.eql(u8, func_name_os, "split") or
+                        std.mem.eql(u8, func_name_os, "splitext"))
+                    {
+                        const tuple_elems = try allocator.alloc(NativeType, 2);
+                        tuple_elems[0] = .{ .string = .runtime };
+                        tuple_elems[1] = .{ .string = .runtime };
+                        return .{ .tuple = tuple_elems };
                     }
                 }
             }
@@ -547,6 +631,7 @@ pub fn inferCall(
             const ZLIB_HASH = comptime fnv_hash.hash("zlib");
             const GZIP_HASH = comptime fnv_hash.hash("gzip");
             const RE_HASH = comptime fnv_hash.hash("re");
+            const _STRING_HASH = comptime fnv_hash.hash("_string");
 
             switch (module_hash) {
                 SQLITE3_HASH => {
@@ -567,7 +652,7 @@ pub fn inferCall(
                         return .{ .string = .runtime };
                     }
                     if (func_hash == CRC32_HASH or func_hash == ADLER32_HASH) {
-                        return .int;
+                        return .{ .int = .bounded };
                     }
                     return .unknown;
                 },
@@ -622,7 +707,7 @@ pub fn inferCall(
                         func_hash == NTOHS_HASH or
                         func_hash == NTOHL_HASH)
                     {
-                        return .int;
+                        return .{ .int = .bounded };
                     }
                     return .none; // setdefaulttimeout, etc.
                 },
@@ -649,11 +734,20 @@ pub fn inferCall(
                     const JOIN_HASH = comptime fnv_hash.hash("join");
                     const DIRNAME_HASH = comptime fnv_hash.hash("dirname");
                     const BASENAME_HASH = comptime fnv_hash.hash("basename");
+                    const SPLIT_HASH_OS = comptime fnv_hash.hash("split");
+                    const SPLITEXT_HASH = comptime fnv_hash.hash("splitext");
                     if (func_hash == EXISTS_HASH or func_hash == ISFILE_HASH or func_hash == ISDIR_HASH) {
                         return .bool;
                     }
                     if (func_hash == JOIN_HASH or func_hash == DIRNAME_HASH or func_hash == BASENAME_HASH) {
                         return .{ .string = .runtime };
+                    }
+                    // os.path.split() and splitext() return tuple of (string, string)
+                    if (func_hash == SPLIT_HASH_OS or func_hash == SPLITEXT_HASH) {
+                        const tuple_elems = try allocator.alloc(NativeType, 2);
+                        tuple_elems[0] = .{ .string = .runtime };
+                        tuple_elems[1] = .{ .string = .runtime };
+                        return .{ .tuple = tuple_elems };
                     }
                     return .unknown;
                 },
@@ -677,7 +771,7 @@ pub fn inferCall(
                     }
                     // Int-returning functions
                     if (func_hash == RANDINT_HASH or func_hash == RANDRANGE_HASH or func_hash == GETRANDBITS_HASH) {
-                        return .int;
+                        return .{ .int = .bounded };
                     }
                     // Void-returning functions
                     if (func_hash == SEED_HASH or func_hash == SHUFFLE_HASH) {
@@ -685,7 +779,7 @@ pub fn inferCall(
                     }
                     // choice returns element type (assume int for common case)
                     if (func_hash == CHOICE_HASH) {
-                        return .int;
+                        return .{ .int = .bounded };
                     }
                     // sample/choices return list (unknown for now)
                     if (func_hash == SAMPLE_HASH or func_hash == CHOICES_HASH) {
@@ -731,7 +825,7 @@ pub fn inferCall(
                     const func_hash = fnv_hash.hash(func_name);
                     const ACTIVE_COUNT_HASH = comptime fnv_hash.hash("active_count");
                     if (func_hash == ACTIVE_COUNT_HASH) {
-                        return .int;
+                        return .{ .int = .bounded };
                     }
                     return .unknown; // Thread, Lock, Event etc. are structs
                 },
@@ -770,7 +864,7 @@ pub fn inferCall(
                         func_hash == BISECT_RIGHT_HASH or
                         func_hash == BISECT_HASH)
                     {
-                        return .int;
+                        return .{ .int = .bounded };
                     }
                     if (func_hash == INSORT_LEFT_HASH or
                         func_hash == INSORT_RIGHT_HASH or
@@ -813,7 +907,7 @@ pub fn inferCall(
                     if (func_hash == HEAPPOP_HASH or func_hash == HEAPREPLACE_HASH or
                         func_hash == HEAPPUSHPOP_HASH)
                     {
-                        return .int; // Returns element from heap
+                        return .{ .int = .bounded }; // Returns element from heap
                     }
                     return .unknown; // nlargest/nsmallest returns list
                 },
@@ -825,7 +919,7 @@ pub fn inferCall(
                     const CACHE_HASH = comptime fnv_hash.hash("cache");
                     const LRU_CACHE_HASH = comptime fnv_hash.hash("lru_cache");
                     if (func_hash == REDUCE_HASH) {
-                        return .int; // Most common use is numeric reduction
+                        return .{ .int = .bounded }; // Most common use is numeric reduction
                     }
                     if (func_hash == PARTIAL_HASH or func_hash == CACHE_HASH or
                         func_hash == LRU_CACHE_HASH)
@@ -851,7 +945,7 @@ pub fn inferCall(
                         func_hash == MOD_HASH or func_hash == POW_HASH or
                         func_hash == NEG_HASH or func_hash == ABS_HASH)
                     {
-                        return .int;
+                        return .{ .int = .bounded };
                     }
                     if (func_hash == TRUEDIV_HASH) {
                         return .float;
@@ -911,11 +1005,11 @@ pub fn inferCall(
                         return .bool;
                     }
                     if (func_hash == LEAPDAYS_HASH or func_hash == WEEKDAY_HASH) {
-                        return .int;
+                        return .{ .int = .bounded };
                     }
                     if (func_hash == MONTHRANGE_HASH) {
                         // Returns (first_weekday, num_days) tuple
-                        return .{ .tuple = &[_]NativeType{ .int, .int } };
+                        return .{ .tuple = &[_]NativeType{ .{ .int = .bounded }, .{ .int = .bounded } } };
                     }
                     if (func_hash == MONTH_HASH or func_hash == CALENDAR_HASH) {
                         return .{ .string = .runtime };
@@ -935,7 +1029,7 @@ pub fn inferCall(
                         return .{ .string = .runtime };
                     }
                     if (func_hash == MKSTEMP_HASH) {
-                        return .{ .tuple = &[_]NativeType{ .int, .{ .string = .runtime } } }; // Returns (fd, name) tuple
+                        return .{ .tuple = &[_]NativeType{ .{ .int = .bounded }, .{ .string = .runtime } } }; // Returns (fd, name) tuple
                     }
                     return .unknown;
                 },
@@ -947,7 +1041,7 @@ pub fn inferCall(
                     const ENABLE_HASH = comptime fnv_hash.hash("enable");
                     const DISABLE_HASH = comptime fnv_hash.hash("disable");
                     if (func_hash == COLLECT_HASH) {
-                        return .int;
+                        return .{ .int = .bounded };
                     }
                     if (func_hash == ISENABLED_HASH) {
                         return .bool;
@@ -981,7 +1075,7 @@ pub fn inferCall(
                     const CALCSIZE_HASH = comptime fnv_hash.hash("calcsize");
                     const PACK_HASH = comptime fnv_hash.hash("pack");
                     const UNPACK_HASH = comptime fnv_hash.hash("unpack");
-                    if (func_hash == CALCSIZE_HASH) return .int;
+                    if (func_hash == CALCSIZE_HASH) return .{ .int = .bounded };
                     if (func_hash == PACK_HASH) return .{ .string = .runtime }; // bytes
                     if (func_hash == UNPACK_HASH) return .unknown; // tuple of values (dynamic)
                 },
@@ -1025,8 +1119,39 @@ pub fn inferCall(
                     // sub returns PyString - all are PyObject pointers
                     return .unknown; // All re funcs return *runtime.PyObject
                 },
+                _STRING_HASH => {
+                    // _string module (internal string formatting)
+                    const func_hash = fnv_hash.hash(func_name);
+                    if (func_hash == comptime fnv_hash.hash("formatter_parser")) {
+                        // Returns list of tuples: [(literal, field_name, format_spec, conversion), ...]
+                        // Each tuple element is optional string
+                        const inner = allocator.create(NativeType) catch return .unknown;
+                        inner.* = .{ .string = .runtime };
+                        const opt_str = allocator.create(NativeType) catch return .unknown;
+                        opt_str.* = .{ .optional = inner };
+                        const tuple_types = allocator.alloc(NativeType, 4) catch return .unknown;
+                        tuple_types[0] = .{ .string = .runtime };
+                        tuple_types[1] = .{ .optional = inner };
+                        tuple_types[2] = .{ .optional = inner };
+                        tuple_types[3] = .{ .optional = inner };
+                        const tuple_ptr = allocator.create(NativeType) catch return .unknown;
+                        tuple_ptr.* = .{ .tuple = tuple_types };
+                        return .{ .list = tuple_ptr };
+                    }
+                    if (func_hash == comptime fnv_hash.hash("formatter_field_name_split")) {
+                        // Returns (first: str, rest: list) tuple
+                        // Using tuple type so list() conversion will use PyValue
+                        var tuple_types = allocator.alloc(NativeType, 2) catch return .unknown;
+                        tuple_types[0] = .{ .string = .runtime };
+                        const elem_ptr = allocator.create(NativeType) catch return .unknown;
+                        elem_ptr.* = .{ .tuple = &[_]NativeType{ .bool, .{ .string = .runtime } } };
+                        tuple_types[1] = .{ .list = elem_ptr };
+                        return .{ .tuple = tuple_types };
+                    }
+                    return .unknown;
+                },
                 MATH_HASH => {
-                    if (MathIntFuncs.has(func_name)) return .int;
+                    if (MathIntFuncs.has(func_name)) return .{ .int = .bounded };
                     if (MathBoolFuncs.has(func_name)) return .bool;
                     return .float; // All other math functions return float
                 },
@@ -1035,7 +1160,7 @@ pub fn inferCall(
                     // NumPy function type inference
                     if (NumpyArrayFuncs.has(func_name)) return .numpy_array;
                     if (NumpyScalarFuncs.has(func_name)) return .float;
-                    if (NumpyIntFuncs.has(func_name)) return .int;
+                    if (NumpyIntFuncs.has(func_name)) return .{ .int = .bounded };
                     if (NumpyBoolFuncs.has(func_name)) return .bool;
                 },
                 else => {},
@@ -1071,7 +1196,7 @@ pub fn inferCall(
                 return return_type;
             }
             if (StringBoolMethods.has(attr.attr)) return .bool;
-            if (StringIntMethods.has(attr.attr)) return .int;
+            if (StringIntMethods.has(attr.attr)) return .{ .int = .bounded };
 
             // split() returns list of runtime strings
             if (fnv_hash.hash(attr.attr) == comptime fnv_hash.hash("split")) {
@@ -1105,7 +1230,7 @@ pub fn inferCall(
             }
             // index() and count() return int
             if (method_hash == INDEX_HASH or method_hash == COUNT_HASH) {
-                return .int;
+                return .{ .int = .bounded };
             }
             // copy() returns list of same type
             if (method_hash == COPY_HASH) {
@@ -1278,9 +1403,9 @@ pub fn inferCall(
                 return .{ .string = .runtime };
             }
             // write returns int (bytes written)
-            if (method_hash == WRITE_HASH) return .int;
+            if (method_hash == WRITE_HASH) return .{ .int = .bounded };
             // seek/tell return int
-            if (method_hash == SEEK_HASH or method_hash == TELL_HASH) return .int;
+            if (method_hash == SEEK_HASH or method_hash == TELL_HASH) return .{ .int = .bounded };
             // close returns None
             if (method_hash == CLOSE_HASH) return .none;
         }
@@ -1299,9 +1424,9 @@ pub fn inferCall(
                 return .{ .string = .runtime };
             }
             // write returns int (bytes written)
-            if (method_hash == WRITE_HASH) return .int;
+            if (method_hash == WRITE_HASH) return .{ .int = .bounded };
             // seek/tell return int
-            if (method_hash == SEEK_HASH or method_hash == TELL_HASH) return .int;
+            if (method_hash == SEEK_HASH or method_hash == TELL_HASH) return .{ .int = .bounded };
             // close returns None
             if (method_hash == CLOSE_HASH) return .none;
         }

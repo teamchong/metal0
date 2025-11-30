@@ -29,12 +29,37 @@ pub const StringKind = enum {
     }
 };
 
+/// Integer boundedness for overflow safety
+/// Tracks whether an integer's range is known at compile time
+pub const IntKind = enum {
+    /// Bounded integer - proven to fit in i64 (constants, range() indices, etc.)
+    /// Safe to use native i64 operations without overflow checking
+    bounded,
+
+    /// Unbounded integer - could be any value (user input, file read, network, etc.)
+    /// Must use BigInt to prevent silent overflow
+    unbounded,
+
+    /// Check if this integer kind requires BigInt representation
+    pub fn needsBigInt(self: IntKind) bool {
+        return self == .unbounded;
+    }
+
+    /// Combine two int kinds - unbounded "taints" the result
+    pub fn combine(self: IntKind, other: IntKind) IntKind {
+        if (self == .unbounded or other == .unbounded) {
+            return .unbounded;
+        }
+        return .bounded;
+    }
+};
+
 /// Native Zig types inferred from Python code
 pub const NativeType = union(enum) {
     // Primitives - stack allocated, zero overhead
-    int: void, // i64
-    bigint: void, // runtime.BigInt - arbitrary precision integer
-    usize: void, // usize (for array indices)
+    int: IntKind, // i64 (bounded) or BigInt (unbounded)
+    bigint: void, // runtime.BigInt - arbitrary precision integer (always)
+    usize: void, // usize (for array indices, always bounded)
     float: void, // f64
     bool: void, // bool
     string: StringKind, // []const u8 - tracks allocation/optimization hint
@@ -69,6 +94,7 @@ pub const NativeType = union(enum) {
     // Special
     optional: *const NativeType, // Optional[T] - Zig optional (?T)
     none: void, // void or ?T
+    pyvalue: void, // runtime.PyValue - heterogeneous value (for tuple->list conversion)
     unknown: void, // Fallback to PyObject* (should be rare)
     path: void, // pathlib.Path
     flask_app: void, // flask.Flask application instance
@@ -92,7 +118,8 @@ pub const NativeType = union(enum) {
     /// (workaround for semantic analyzer false positives)
     pub fn isSimpleType(self: NativeType) bool {
         return switch (self) {
-            .int, .bigint, .usize, .float, .bool, .string, .class_instance, .optional, .none => true,
+            .int => true,
+            .bigint, .usize, .float, .bool, .string, .class_instance, .optional, .none => true,
             else => false,
         };
     }
@@ -100,8 +127,26 @@ pub const NativeType = union(enum) {
     /// Comptime check if type is a native primitive (not PyObject)
     pub fn isNativePrimitive(self: NativeType) bool {
         return switch (self) {
-            .int, .bigint, .usize, .float, .bool, .string => true,
+            .int => |kind| !kind.needsBigInt(), // Only bounded ints are native primitives
+            .usize, .float, .bool, .string => true,
+            .bigint => false, // BigInt is heap-allocated
             else => false,
+        };
+    }
+
+    /// Check if this is an unbounded integer that needs BigInt
+    pub fn isUnboundedInt(self: NativeType) bool {
+        return switch (self) {
+            .int => |kind| kind.needsBigInt(),
+            else => false,
+        };
+    }
+
+    /// Get the IntKind if this is an int type
+    pub fn getIntKind(self: NativeType) ?IntKind {
+        return switch (self) {
+            .int => |kind| kind,
+            else => null,
         };
     }
 
@@ -116,7 +161,8 @@ pub const NativeType = union(enum) {
     /// Get format specifier for std.debug.print
     pub fn getPrintFormat(self: NativeType) []const u8 {
         return switch (self) {
-            .int, .bigint, .usize => "{d}",
+            .int => "{d}",
+            .bigint, .usize => "{d}",
             .float => "{d}",
             .bool => "{}",
             .string => "{s}",
@@ -127,7 +173,7 @@ pub const NativeType = union(enum) {
     /// Returns Zig type string for simple/primitive types (no allocation needed)
     pub fn toSimpleZigType(self: NativeType) []const u8 {
         return switch (self) {
-            .int => "i64",
+            .int => |kind| if (kind.needsBigInt()) "runtime.BigInt" else "i64",
             .bigint => "runtime.BigInt",
             .float => "f64",
             .bool => "bool",
@@ -144,7 +190,13 @@ pub const NativeType = union(enum) {
         _ = hashmap_helper;
 
         switch (self) {
-            .int => try buf.appendSlice(allocator, "i64"),
+            .int => |kind| {
+                if (kind.needsBigInt()) {
+                    try buf.appendSlice(allocator, "runtime.BigInt");
+                } else {
+                    try buf.appendSlice(allocator, "i64");
+                }
+            },
             .bigint => try buf.appendSlice(allocator, "runtime.BigInt"),
             .usize => try buf.appendSlice(allocator, "usize"),
             .float => try buf.appendSlice(allocator, "f64"),
@@ -163,11 +215,12 @@ pub const NativeType = union(enum) {
             },
             .dict => |kv| {
                 // Use StringHashMap for string keys, AutoHashMap for int keys
-                if (kv.key.* == .string) {
+                const key_tag = @as(std.meta.Tag(NativeType), kv.key.*);
+                if (key_tag == .string) {
                     try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(");
                     try kv.value.toZigType(allocator, buf);
                     try buf.appendSlice(allocator, ")");
-                } else if (kv.key.* == .int) {
+                } else if (key_tag == .int) {
                     try buf.appendSlice(allocator, "std.AutoHashMap(i64, ");
                     try kv.value.toZigType(allocator, buf);
                     try buf.appendSlice(allocator, ")");
@@ -189,11 +242,10 @@ pub const NativeType = union(enum) {
                 }
             },
             .tuple => |types| {
+                // Generate Zig tuple type with positional fields (no names)
+                // This matches the anonymous struct literal syntax: .{ val0, val1, ... }
                 try buf.appendSlice(allocator, "struct { ");
-                for (types, 0..) |t, i| {
-                    const field_buf = try std.fmt.allocPrint(allocator, "@\"{d}\": ", .{i});
-                    defer allocator.free(field_buf);
-                    try buf.appendSlice(allocator, field_buf);
+                for (types) |t| {
                     try t.toZigType(allocator, buf);
                     try buf.appendSlice(allocator, ", ");
                 }
@@ -219,6 +271,7 @@ pub const NativeType = union(enum) {
                 try inner_type.toZigType(allocator, buf);
             },
             .none => try buf.appendSlice(allocator, "?void"),
+            .pyvalue => try buf.appendSlice(allocator, "runtime.PyValue"),
             .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .path => try buf.appendSlice(allocator, "*pathlib.Path"),
             .flask_app => try buf.appendSlice(allocator, "*runtime.flask.Flask"),
@@ -256,9 +309,34 @@ pub const NativeType = union(enum) {
         if (other_tag == .unknown and self_tag != .unknown) return self;
         if (self_tag == .unknown and other_tag == .unknown) return .unknown;
 
-        // If types match, no widening needed
+        // If types match, no widening needed (except for tuples and ints which need special handling)
         if (self_tag == other_tag) {
+            // Special handling for tuple types - widen element-wise
+            if (self_tag == .tuple) {
+                // Tuples: same length required for widening
+                if (self.tuple.len != other.tuple.len) return .unknown;
+                // Note: Can't allocate here, so we return self if all elements match
+                // Element-wise widening would need an allocator
+                // For now, return self if same length (codegen will handle it)
+                return self;
+            }
+            // Special handling for int types - combine boundedness
+            // unbounded + anything = unbounded (taint propagation)
+            if (self_tag == .int) {
+                const combined_kind = self.int.combine(other.int);
+                return .{ .int = combined_kind };
+            }
             return self;
+        }
+
+        // Handle None/optional widening: None + T = ?T
+        if (self_tag == .none and other_tag != .none) {
+            // Return optional version of other
+            return .{ .optional = @constCast(&other) };
+        }
+        if (other_tag == .none and self_tag != .none) {
+            // Return optional version of self
+            return .{ .optional = @constCast(&self) };
         }
 
         // String "wins" over everything (str() is universal)
@@ -278,8 +356,13 @@ pub const NativeType = union(enum) {
             (self_tag == .bigint and other_tag == .float)) return .float;
 
         // usize and int mix → promote to int (i64 can represent both)
-        if ((self_tag == .usize and other_tag == .int) or
-            (self_tag == .int and other_tag == .usize)) return .int;
+        // Preserve the int's boundedness
+        if (self_tag == .usize and other_tag == .int) {
+            return other; // Keep int's boundedness
+        }
+        if (self_tag == .int and other_tag == .usize) {
+            return self; // Keep int's boundedness
+        }
 
         // usize and float → promote to float
         if ((self_tag == .usize and other_tag == .float) or

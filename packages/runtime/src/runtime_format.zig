@@ -209,3 +209,121 @@ pub fn printValue(value: anytype) void {
         else => std.debug.print("{any}", .{value}),
     }
 }
+
+/// Python format(value, format_spec) builtin
+/// Applies format_spec to value and returns formatted string
+/// For now, this is a basic implementation that ignores most format specs
+/// and just returns a string representation of the value
+pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anytype) ![]const u8 {
+    // Ensure format_spec is used to avoid unused variable warnings
+    _ = format_spec;
+
+    // Basic formatting - convert value to string
+    const T = @TypeOf(value);
+    if (T == []const u8 or T == [:0]const u8) {
+        return allocator.dupe(u8, value);
+    } else if (T == f64 or T == f32) {
+        return formatFloat(value, allocator);
+    } else if (T == bool) {
+        return if (value) "True" else "False";
+    } else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+        var buf = std.ArrayList(u8){};
+        try buf.writer(allocator).print("{d}", .{value});
+        return buf.toOwnedSlice(allocator);
+    } else {
+        // Default: use {any} format
+        var buf = std.ArrayList(u8){};
+        try buf.writer(allocator).print("{any}", .{value});
+        return buf.toOwnedSlice(allocator);
+    }
+}
+
+/// Python % operator - runtime dispatch for string formatting vs numeric modulo
+/// When left operand type is unknown at compile time, this function decides at runtime
+pub fn pyMod(allocator: std.mem.Allocator, left: anytype, right: anytype) ![]const u8 {
+    const L = @TypeOf(left);
+
+    // Check if left is a string type
+    if (L == []const u8 or L == [:0]const u8) {
+        // String formatting: "format" % value
+        return pyStringFormat(allocator, left, right);
+    } else if (@typeInfo(L) == .pointer and @typeInfo(std.meta.Child(L)) == .array) {
+        // String literal type [N:0]u8
+        return pyStringFormat(allocator, left, right);
+    } else if (@typeInfo(L) == .int or @typeInfo(L) == .comptime_int) {
+        // Numeric modulo - return result as string for consistency
+        const result = @rem(left, right);
+        var buf = std.ArrayList(u8){};
+        try buf.writer(allocator).print("{d}", .{result});
+        return buf.toOwnedSlice(allocator);
+    } else if (@typeInfo(L) == .float or @typeInfo(L) == .comptime_float) {
+        // Float modulo
+        const result = @rem(left, right);
+        return formatFloat(result, allocator);
+    } else {
+        // Unknown type - try string formatting as fallback
+        return pyStringFormat(allocator, left, right);
+    }
+}
+
+/// Python string formatting helper - "format" % value
+fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anytype) ![]const u8 {
+    const F = @TypeOf(format);
+    const V = @TypeOf(value);
+
+    // Get format string as slice
+    const format_str: []const u8 = if (F == []const u8 or F == [:0]const u8) format else @as([]const u8, format);
+
+    // Simple implementation - just substitute %s, %d, %f patterns
+    var result = std.ArrayList(u8){};
+    var i: usize = 0;
+    while (i < format_str.len) {
+        if (format_str[i] == '%' and i + 1 < format_str.len) {
+            const spec = format_str[i + 1];
+            if (spec == 's') {
+                // String format
+                if (V == []const u8 or V == [:0]const u8) {
+                    try result.appendSlice(allocator, value);
+                } else {
+                    try result.writer(allocator).print("{any}", .{value});
+                }
+                i += 2;
+            } else if (spec == 'd' or spec == 'i') {
+                // Integer format
+                if (@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) {
+                    try result.writer(allocator).print("{d}", .{value});
+                } else if (@typeInfo(V) == .float or @typeInfo(V) == .comptime_float) {
+                    try result.writer(allocator).print("{d}", .{@as(i64, @intFromFloat(value))});
+                } else {
+                    try result.writer(allocator).print("{any}", .{value});
+                }
+                i += 2;
+            } else if (spec == 'f' or spec == 'e' or spec == 'g') {
+                // Float format
+                if (@typeInfo(V) == .float or @typeInfo(V) == .comptime_float) {
+                    const val_str = try formatFloat(value, allocator);
+                    defer allocator.free(val_str);
+                    try result.appendSlice(allocator, val_str);
+                } else if (@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) {
+                    try result.writer(allocator).print("{d}.0", .{value});
+                } else {
+                    try result.writer(allocator).print("{any}", .{value});
+                }
+                i += 2;
+            } else if (spec == '%') {
+                // Escaped %
+                try result.append(allocator, '%');
+                i += 2;
+            } else {
+                // Unknown spec - just copy
+                try result.append(allocator, format_str[i]);
+                i += 1;
+            }
+        } else {
+            try result.append(allocator, format_str[i]);
+            i += 1;
+        }
+    }
+
+    return result.toOwnedSlice(allocator);
+}

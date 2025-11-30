@@ -146,7 +146,7 @@ fn checkExprForBigIntMethodCall(expr: ast.Node, method_name: []const u8, param_i
 /// Convert Python type hint to NativeType (for type inference)
 pub fn pythonTypeToNativeType(type_hint: ?[]const u8) NativeType {
     if (type_hint) |hint| {
-        if (std.mem.eql(u8, hint, "int")) return .int;
+        if (std.mem.eql(u8, hint, "int")) return .{ .int = .bounded };
         if (std.mem.eql(u8, hint, "float")) return .float;
         if (std.mem.eql(u8, hint, "bool")) return .bool;
         if (std.mem.eql(u8, hint, "str")) return .{ .string = .runtime };
@@ -474,12 +474,18 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
             // Complex type (like tuple[str, str]) - use inferred type from type inferrer
             const inferred_type = self.type_inferrer.func_return_types.get(func.name);
             const return_type_str = if (inferred_type) |inf_type| blk: {
-                if (inf_type == .int or inf_type == .unknown) {
+                const inf_tag = @as(std.meta.Tag(NativeType), inf_type);
+                // For int types, use toSimpleZigType which checks IntKind for bounded/unbounded
+                if (inf_tag == .int) {
+                    break :blk inf_type.toSimpleZigType();
+                }
+                if (inf_tag == .unknown) {
                     break :blk "i64";
                 }
                 break :blk try self.nativeTypeToZigType(inf_type);
             } else "i64";
-            defer if (inferred_type != null and inferred_type.? != .int and inferred_type.? != .unknown) {
+            const inf_tag = if (inferred_type) |t| @as(std.meta.Tag(NativeType), t) else null;
+            defer if (inf_tag != null and inf_tag.? != .int and inf_tag.? != .unknown) {
                 self.allocator.free(return_type_str);
             };
 
@@ -524,13 +530,18 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
             // Try to infer return type from func_return_types
             const inferred_type = self.type_inferrer.func_return_types.get(func.name);
             const return_type_str = if (inferred_type) |inf_type| blk: {
-                // Don't use .int or .unknown - those are defaults
-                if (inf_type == .int or inf_type == .unknown) {
+                const inf_tag = @as(std.meta.Tag(NativeType), inf_type);
+                // For int types, use toSimpleZigType which checks IntKind for bounded/unbounded
+                if (inf_tag == .int) {
+                    break :blk inf_type.toSimpleZigType();
+                }
+                if (inf_tag == .unknown) {
                     break :blk "i64";
                 }
                 break :blk try self.nativeTypeToZigType(inf_type);
             } else "i64";
-            defer if (inferred_type != null and inferred_type.? != .int and inferred_type.? != .unknown) {
+            const inf_tag2 = if (inferred_type) |t| @as(std.meta.Tag(NativeType), t) else null;
+            defer if (inf_tag2 != null and inf_tag2.? != .int and inf_tag2.? != .unknown) {
                 self.allocator.free(return_type_str);
             };
 
@@ -579,7 +590,9 @@ pub fn genMethodSignatureWithSkip(
     // If method is skipped, self is never used since body is replaced with empty stub
     // Also, if this class has captured variables, methods need self to access them
     const class_has_captures = self.current_class_captures != null;
-    const uses_self = if (is_skipped) false else (class_has_captures or self_analyzer.usesSelf(method.body));
+    // Check if class has a known parent - if not, super() calls compile to no-ops and don't use self
+    const has_known_parent = self.getParentClassName(class_name) != null;
+    const uses_self = if (is_skipped) false else (class_has_captures or self_analyzer.usesSelfWithContext(method.body, has_known_parent));
 
     // For __new__ methods, the first Python parameter is 'cls' not 'self', and the body often
     // does 'self = super().__new__(cls)' which would shadow a 'self' parameter.
@@ -633,7 +646,19 @@ pub fn genMethodSignatureWithSkip(
 
         try self.emit(", ");
         // Check if parameter is used in method body
-        const is_param_used = param_analyzer.isNameUsedInBody(method.body, arg.name);
+        // For __init__ and __new__ methods, exclude parent calls (they're skipped in codegen)
+        const is_init_or_new = std.mem.eql(u8, method.name, "__init__") or std.mem.eql(u8, method.name, "__new__");
+
+        // In __new__ methods, 'cls' is never used in Zig (we don't use class references)
+        // The generated code returns the value directly, not cls()
+        const is_cls_in_new = is_new_method and std.mem.eql(u8, arg.name, "cls");
+
+        const is_param_used = if (is_cls_in_new)
+            false // cls is never used in __new__ - we return value directly
+        else if (is_init_or_new)
+            param_analyzer.isNameUsedInInitBody(method.body, arg.name)
+        else
+            param_analyzer.isNameUsedInBody(method.body, arg.name);
         if (is_skipped or !is_param_used) {
             // Use anonymous parameter for unused
             try self.emit("_: ");
@@ -665,12 +690,30 @@ pub fn genMethodSignatureWithSkip(
             // Try inferred type from type inferrer
             const var_type_tag = @as(std.meta.Tag(@TypeOf(var_type)), var_type);
             if (var_type_tag != .unknown) {
-                if (arg.default != null) {
-                    try self.emit("?");
+                // Check for class_instance type - if the class isn't in the registry,
+                // it's probably a locally-defined class inside the function and we can't
+                // use it as a parameter type (it would be undefined at function signature scope)
+                if (var_type_tag == .class_instance) {
+                    const inferred_class_name = var_type.class_instance;
+                    if (!self.class_registry.classes.contains(inferred_class_name)) {
+                        // Class not in registry - use anytype instead
+                        try self.emit("anytype");
+                    } else {
+                        if (arg.default != null) {
+                            try self.emit("?");
+                        }
+                        const zig_type = try self.nativeTypeToZigType(var_type);
+                        defer self.allocator.free(zig_type);
+                        try self.emit(zig_type);
+                    }
+                } else {
+                    if (arg.default != null) {
+                        try self.emit("?");
+                    }
+                    const zig_type = try self.nativeTypeToZigType(var_type);
+                    defer self.allocator.free(zig_type);
+                    try self.emit(zig_type);
                 }
-                const zig_type = try self.nativeTypeToZigType(var_type);
-                defer self.allocator.free(zig_type);
-                try self.emit(zig_type);
             } else {
                 // For anytype, we can't use ? prefix, so use anytype as-is
                 // The caller must handle the optionality

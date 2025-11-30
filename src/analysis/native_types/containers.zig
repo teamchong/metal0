@@ -108,7 +108,9 @@ pub fn pythonTypeHintToNative(type_hint: ?[]const u8, allocator: std.mem.Allocat
         // Check for simple type first
         if (simple_type_map.get(hint)) |simple| {
             return switch (simple) {
-                .int => .int,
+                // Type hint `int` means bounded (i64) for performance
+                // Unbounded is inferred from operations that could overflow
+                .int => .{ .int = .bounded },
                 .float => .float,
                 .bool => .bool,
                 .str => .{ .string = .runtime },

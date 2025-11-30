@@ -138,7 +138,7 @@ pub fn inferExpr(
             // Check if name is in var_types
             if (var_types.get(n.id)) |vt| break :blk vt;
             // Check if name is a Python exception type - treat as int (ExceptionTypeId)
-            if (isExceptionTypeName(n.id)) break :blk .int;
+            if (isExceptionTypeName(n.id)) break :blk .{ .int = .bounded };
             // Check if name is a type constructor used as a callable (bytes, str, etc.)
             if (isCallableTypeName(n.id)) break :blk .callable;
             break :blk .unknown;
@@ -170,7 +170,7 @@ pub fn inferExpr(
                         break :blk obj_type.dict.value.*;
                     } else if (obj_type == .counter) {
                         // Counter subscript returns int (the count)
-                        break :blk .int;
+                        break :blk .{ .int = .bounded };
                     } else if (obj_type == .tuple) {
                         // Try to get constant index
                         if (idx.* == .constant and idx.constant.value == .int) {
@@ -232,6 +232,17 @@ pub fn inferExpr(
         },
         .attribute => |a| blk: {
             // Infer attribute type: obj.attr
+            // Handle builtin type class methods first (float.fromhex, float.hex, etc.)
+            if (a.value.* == .name) {
+                const name = a.value.name.id;
+                if (std.mem.eql(u8, name, "float")) {
+                    // float.fromhex and float.hex are callable functions
+                    if (std.mem.eql(u8, a.attr, "fromhex") or std.mem.eql(u8, a.attr, "hex")) {
+                        break :blk .callable;
+                    }
+                }
+            }
+
             // Special case: module attributes (sys.platform, math.pi, etc.)
             if (a.value.* == .name) {
                 const module_name = a.value.name.id;
@@ -241,8 +252,8 @@ pub fn inferExpr(
                             if (SysAttrMap.get(a.attr)) |attr| {
                                 switch (attr) {
                                     .platform, .version => break :blk .{ .string = .literal },
-                                    .version_info => break :blk .int, // Access like int
-                                    .maxsize => break :blk .int, // sys.maxsize is an integer
+                                    .version_info => break :blk .{ .int = .bounded }, // Access like int
+                                    .maxsize => break :blk .{ .int = .bounded }, // sys.maxsize is bounded to i64
                                     .argv => {
                                         // sys.argv is [][]const u8 - return as string array
                                         const str_type = try allocator.create(NativeType);
@@ -305,7 +316,7 @@ pub fn inferExpr(
                     {
                         // sys.version_info.major/minor/micro are all i32
                         if (VersionInfoAttrMap.has(a.attr)) {
-                            break :blk .int;
+                            break :blk .{ .int = .bounded };
                         }
                     }
                 }
@@ -389,9 +400,11 @@ pub fn inferExpr(
                 .unknown;
 
             // Widen type to accommodate all elements
-            for (l.elts[1..]) |elem| {
-                const this_type = try inferExpr(allocator, var_types, class_fields, func_return_types, elem);
-                elem_type = elem_type.widen(this_type);
+            if (l.elts.len > 1) {
+                for (l.elts[1..]) |elem| {
+                    const this_type = try inferExpr(allocator, var_types, class_fields, func_return_types, elem);
+                    elem_type = elem_type.widen(this_type);
+                }
             }
 
             const elem_ptr = try allocator.create(NativeType);
@@ -475,7 +488,7 @@ pub fn inferExpr(
                     if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
                         const func_name = gen.iter.call.func.name.id;
                         if (std.mem.eql(u8, func_name, "range")) {
-                            try var_types.put(gen.target.name.id, .int);
+                            try var_types.put(gen.target.name.id, .{ .int = .bounded });
                         }
                     }
                 }
@@ -497,7 +510,7 @@ pub fn inferExpr(
                     if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
                         const func_name = gen.iter.call.func.name.id;
                         if (std.mem.eql(u8, func_name, "range")) {
-                            try var_types.put(gen.target.name.id, .int);
+                            try var_types.put(gen.target.name.id, .{ .int = .bounded });
                         }
                     }
                 }
@@ -563,10 +576,10 @@ pub fn inferExpr(
             // TODO: Better type inference based on usage
             const param_types = try allocator.alloc(NativeType, lam.args.len);
             for (param_types) |*pt| {
-                pt.* = .int; // Default to i64
+                pt.* = .{ .int = .bounded }; // Default to i64
             }
             const return_ptr = try allocator.create(NativeType);
-            return_ptr.* = .int; // Default to i64
+            return_ptr.* = .{ .int = .bounded }; // Default to i64
             break :blk .{ .function = .{
                 .params = param_types,
                 .return_type = return_ptr,
@@ -578,15 +591,29 @@ pub fn inferExpr(
             switch (u.op) {
                 .UAdd, .USub => {
                     if (operand_type == .bool) {
-                        break :blk .int;
+                        break :blk .{ .int = .bounded };
                     }
                     break :blk operand_type;
                 },
                 .Not => break :blk .bool, // not x always returns bool
-                .Invert => break :blk .int, // ~x always returns int
+                .Invert => {
+                    // ~x always returns int - preserve operand's boundedness
+                    if (@as(std.meta.Tag(NativeType), operand_type) == .int) {
+                        break :blk operand_type; // Preserve boundedness
+                    }
+                    break :blk .{ .int = .bounded }; // Default to bounded
+                },
             }
         },
-        .boolop => .bool, // and/or expressions return bool
+        .boolop => |boolop| blk: {
+            // Python's `a or b` and `a and b` return one of the operands, not a bool
+            // Type is the type of the first operand (simplified inference)
+            if (boolop.values.len > 0) {
+                const first_type = inferExpr(allocator, var_types, class_fields, func_return_types, boolop.values[0]) catch .unknown;
+                break :blk first_type;
+            }
+            break :blk .unknown;
+        },
         else => .unknown,
     };
 }
@@ -594,7 +621,7 @@ pub fn inferExpr(
 /// Infer type from constant literal
 fn inferConstant(value: ast.Value) InferError!NativeType {
     return switch (value) {
-        .int => .int,
+        .int => .{ .int = .bounded }, // Integer literals are bounded
         .bigint => .bigint, // Large integers are BigInt
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants
@@ -671,16 +698,21 @@ fn inferBinOp(
         if (binop.op == .Div) {
             return .float; // Division always produces float
         }
-        // usize mixed with int → result is int (codegen casts both to i64)
-        if ((left_tag == .usize and right_tag == .int) or (left_tag == .int and right_tag == .usize)) {
-            return .int;
+        // usize mixed with int → result is int, preserving int's boundedness
+        if (left_tag == .usize and right_tag == .int) {
+            return right_type; // Preserve int's boundedness
+        }
+        if (left_tag == .int and right_tag == .usize) {
+            return left_type; // Preserve int's boundedness
         }
         // usize op usize → usize
         if (left_tag == .usize and right_tag == .usize) {
             return .usize;
         }
+        // int op int → combine boundedness (unbounded taints result)
         if (left_tag == .int and right_tag == .int) {
-            return .int; // int op int produces int
+            const combined_kind = left_type.int.combine(right_type.int);
+            return .{ .int = combined_kind };
         }
     }
 

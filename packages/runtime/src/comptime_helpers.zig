@@ -18,8 +18,110 @@ fn isStringLiteral(comptime T: type) bool {
     return false;
 }
 
+/// Check if a type is a tuple (anonymous struct with no named fields)
+fn isTupleType(comptime T: type) bool {
+    const info = @typeInfo(T);
+    if (info != .@"struct") return false;
+    const fields = info.@"struct".fields;
+    if (fields.len == 0) return false;
+    // Check if first field has a generated name (starts with digit)
+    return fields[0].name[0] >= '0' and fields[0].name[0] <= '9';
+}
+
+/// Widen a single type position across multiple tuple elements
+/// Returns ?T if any element has null/void at this position
+fn widenTuplePosition(comptime T1: type, comptime T2: type) type {
+    // Same types - no change needed
+    if (T1 == T2) return T1;
+
+    // Handle null (@TypeOf(null)) and void types - make optional
+    if (T2 == @TypeOf(null) or T2 == void or T2 == ?void) {
+        // T1 + null = ?T1
+        if (@typeInfo(T1) == .optional) return T1; // Already optional
+        return ?T1;
+    }
+    if (T1 == @TypeOf(null) or T1 == void or T1 == ?void) {
+        // null + T2 = ?T2
+        if (@typeInfo(T2) == .optional) return T2; // Already optional
+        return ?T2;
+    }
+
+    // String literal + []const u8 = []const u8
+    if (isStringLiteral(T1) and T2 == []const u8) return []const u8;
+    if (isStringLiteral(T2) and T1 == []const u8) return []const u8;
+    if (isStringLiteral(T1) and isStringLiteral(T2)) return []const u8;
+
+    // Default: keep first type
+    return T1;
+}
+
+/// Infer element type for a list of tuples with element-wise widening
+fn InferTupleListType(comptime TupleType: type) type {
+    const outer_info = @typeInfo(TupleType);
+    const outer_fields = outer_info.@"struct".fields;
+    if (outer_fields.len == 0) return struct {};
+
+    // Get the first tuple to determine structure
+    const FirstTuple = outer_fields[0].type;
+    const first_info = @typeInfo(FirstTuple);
+    if (first_info != .@"struct") return FirstTuple;
+
+    const tuple_len = first_info.@"struct".fields.len;
+    if (tuple_len == 0) return struct {};
+
+    // Build widened tuple type by examining all tuples at each position
+    comptime var widened_types: [tuple_len]type = undefined;
+
+    inline for (0..tuple_len) |pos_idx| {
+        // Start with first tuple's type at this position
+        comptime var pos_type: type = first_info.@"struct".fields[pos_idx].type;
+
+        // Widen with remaining tuples
+        inline for (outer_fields[1..]) |outer_field| {
+            const inner_info = @typeInfo(outer_field.type);
+            if (inner_info == .@"struct" and inner_info.@"struct".fields.len > pos_idx) {
+                pos_type = widenTuplePosition(pos_type, inner_info.@"struct".fields[pos_idx].type);
+            }
+        }
+
+        // Normalize string literals to []const u8
+        if (isStringLiteral(pos_type)) {
+            pos_type = []const u8;
+        } else if (@typeInfo(pos_type) == .optional) {
+            const child = @typeInfo(pos_type).optional.child;
+            if (isStringLiteral(child)) {
+                pos_type = ?[]const u8;
+            }
+        }
+
+        widened_types[pos_idx] = pos_type;
+    }
+
+    // Generate the struct type
+    comptime var struct_fields: [tuple_len]std.builtin.Type.StructField = undefined;
+    inline for (0..tuple_len) |i| {
+        struct_fields[i] = .{
+            .name = std.fmt.comptimePrint("{d}", .{i}),
+            .type = widened_types[i],
+            .default_value_ptr = null,
+            .is_comptime = false,
+            .alignment = 0,
+        };
+    }
+
+    return @Type(.{
+        .@"struct" = .{
+            .layout = .auto,
+            .fields = &struct_fields,
+            .decls = &.{},
+            .is_tuple = true,
+        },
+    });
+}
+
 /// Infer the best ArrayList element type from a comptime-known tuple of values
 /// Follows Python's type promotion hierarchy: int < float < string
+/// For lists of tuples, performs element-wise widening across all positions
 pub fn InferListType(comptime TupleType: type) type {
     const type_info = @typeInfo(TupleType);
 
@@ -33,16 +135,26 @@ pub fn InferListType(comptime TupleType: type) type {
         return i64; // Default empty list type
     }
 
+    // Check if first element is a tuple - if so, do element-wise widening
+    if (isTupleType(fields[0].type)) {
+        return InferTupleListType(TupleType);
+    }
+
     // Type promotion: start with narrowest, widen as needed
-    comptime var result_type: type = i64;
+    comptime var has_int = false;
     comptime var has_float = false;
     comptime var has_string = false;
+    comptime var has_other = false; // ArrayList, PyValue, etc.
 
     inline for (fields) |field| {
         const T = field.type;
 
+        // Check for int types
+        if (T == i64 or T == i32 or T == comptime_int or T == usize or T == isize) {
+            has_int = true;
+        }
         // Check for float types (including comptime_float!)
-        if (T == f64 or T == f32 or T == f16 or T == comptime_float) {
+        else if (T == f64 or T == f32 or T == f16 or T == comptime_float) {
             has_float = true;
         }
         // Check for string types (both slices and string literals)
@@ -58,27 +170,48 @@ pub fn InferListType(comptime TupleType: type) type {
                     const array_info = @typeInfo(ptr_info.child).array;
                     if (array_info.child == u8 and array_info.sentinel_ptr != null) {
                         has_string = true;
+                    } else {
+                        has_other = true;
                     }
+                } else {
+                    has_other = true;
                 }
+            } else {
+                has_other = true;
             }
+        }
+        // Check for PyValue
+        else if (T == @import("py_value.zig").PyValue) {
+            // PyValue stays as PyValue
+            has_other = true;
+        }
+        // Other types (ArrayList, custom structs, etc.)
+        else {
+            has_other = true;
         }
     }
 
-    // Type promotion hierarchy
-    if (has_string) {
-        result_type = []const u8; // String is most general
-    } else if (has_float) {
-        result_type = f64; // Float can hold integers
-    } else {
-        result_type = i64; // All integers
-    }
+    // Type promotion hierarchy - if mixed incompatible types, use PyValue
+    const num_categories = @as(u8, if (has_int or has_float) 1 else 0) +
+        @as(u8, if (has_string) 1 else 0) +
+        @as(u8, if (has_other) 1 else 0);
 
-    return result_type;
+    if (num_categories > 1 or has_other) {
+        // Heterogeneous list - use PyValue as common type
+        return @import("py_value.zig").PyValue;
+    } else if (has_string) {
+        return []const u8;
+    } else if (has_float) {
+        return f64;
+    } else {
+        return i64;
+    }
 }
 
 /// Create an ArrayList from a comptime-known tuple with automatic type inference
 /// This runs at Zig compile time and generates optimal code
 pub fn createListComptime(comptime values: anytype, allocator: std.mem.Allocator) !std.ArrayList(InferListType(@TypeOf(values))) {
+    const PyValue = @import("py_value.zig").PyValue;
     const T = comptime InferListType(@TypeOf(values));
     var list = std.ArrayList(T){};
 
@@ -86,11 +219,14 @@ pub fn createListComptime(comptime values: anytype, allocator: std.mem.Allocator
     inline for (values) |val| {
         // Auto-cast if needed
         const cast_val = if (@TypeOf(val) != T) blk: {
+            // PyValue conversion for heterogeneous lists
+            if (T == PyValue) {
+                break :blk try PyValue.fromAlloc(allocator, val);
+            }
             // int → float conversion
             if (T == f64 and (@TypeOf(val) == i64 or @TypeOf(val) == comptime_int)) {
                 break :blk @as(f64, @floatFromInt(val));
             }
-            // TODO: Add string conversion when T == []const u8
             break :blk val;
         } else val;
 

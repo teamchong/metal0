@@ -32,6 +32,7 @@ pub const assertIn = assertions_basic.assertIn;
 pub const assertNotIn = assertions_basic.assertNotIn;
 pub const assertAlmostEqual = assertions_basic.assertAlmostEqual;
 pub const assertNotAlmostEqual = assertions_basic.assertNotAlmostEqual;
+pub const assertFloatsAreIdentical = assertions_basic.assertFloatsAreIdentical;
 pub const assertHasAttr = assertions_basic.assertHasAttr;
 pub const assertNotHasAttr = assertions_basic.assertNotHasAttr;
 pub const assertStartsWith = assertions_basic.assertStartsWith;

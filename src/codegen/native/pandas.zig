@@ -22,6 +22,7 @@ const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
+const NativeType = @import("../../analysis/native_types.zig").NativeType;
 
 /// Generate pd.DataFrame() call
 /// Creates DataFrame from dict literal: pd.DataFrame({'A': [1,2,3], 'B': [4,5,6]})
@@ -56,10 +57,10 @@ pub fn genDataFrame(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                     const elements = value_node.list.elts;
 
                     // Determine type from first element
-                    const elem_type = if (elements.len > 0)
+                    const elem_type: NativeType = if (elements.len > 0)
                         try self.type_inferrer.inferExpr(elements[0])
                     else
-                        .int;
+                        .{ .int = .bounded };
 
                     if (elem_type == .float) {
                         try self.emit("[_]f64{");

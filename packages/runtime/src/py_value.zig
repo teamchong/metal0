@@ -10,6 +10,9 @@ pub const PyValue = union(enum) {
     string: []const u8,
     bool: bool,
     none: void,
+    list: []const PyValue,
+    tuple: []const PyValue,
+    ptr: *anyopaque, // For types that can't be represented
 
     /// Format value for printing
     pub fn format(
@@ -18,14 +21,30 @@ pub const PyValue = union(enum) {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
-        _ = options;
         switch (self) {
             .int => |v| try writer.print("{d}", .{v}),
             .float => |v| try writer.print("{d}", .{v}),
             .string => |v| try writer.print("{s}", .{v}),
             .bool => |v| try writer.print("{}", .{v}),
             .none => try writer.writeAll("None"),
+            .list => |items| {
+                try writer.writeAll("[");
+                for (items, 0..) |item, i| {
+                    if (i > 0) try writer.writeAll(", ");
+                    try item.format(fmt, options, writer);
+                }
+                try writer.writeAll("]");
+            },
+            .tuple => |items| {
+                try writer.writeAll("(");
+                for (items, 0..) |item, i| {
+                    if (i > 0) try writer.writeAll(", ");
+                    try item.format(fmt, options, writer);
+                }
+                if (items.len == 1) try writer.writeAll(",");
+                try writer.writeAll(")");
+            },
+            .ptr => try writer.writeAll("<ptr>"),
         }
     }
 
@@ -56,10 +75,15 @@ pub const PyValue = union(enum) {
             .float => |v| v != 0.0,
             .string => |v| v.len > 0,
             .none => false,
+            .list => |v| v.len > 0,
+            .tuple => |v| v.len > 0,
+            .ptr => true,
         };
     }
 
-    /// Create PyValue from any type
+    /// Create PyValue from any type (runtime version)
+    /// Only supports simple types that don't need allocation for tuples/structs
+    /// For tuples/structs, use fromAlloc() which properly allocates
     pub fn from(value: anytype) PyValue {
         const T = @TypeOf(value);
         if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize or T == comptime_int) {
@@ -70,12 +94,93 @@ pub const PyValue = union(enum) {
             return .{ .bool = value };
         } else if (T == []const u8 or T == []u8) {
             return .{ .string = value };
+        } else if (T == PyValue) {
+            return value;
+        } else if (T == []const PyValue or T == []PyValue) {
+            return .{ .list = value };
         } else if (@typeInfo(T) == .pointer) {
-            const child = @typeInfo(T).pointer.child;
-            if (child == u8) {
+            const ptr_info = @typeInfo(T).pointer;
+            if (ptr_info.child == u8) {
                 return .{ .string = std.mem.span(value) };
             }
+            // Handle pointer to fixed-size array of u8 (string literals)
+            if (@typeInfo(ptr_info.child) == .array) {
+                const arr_info = @typeInfo(ptr_info.child).array;
+                if (arr_info.child == u8) {
+                    // Convert array pointer to slice
+                    return .{ .string = value[0..arr_info.len] };
+                }
+            }
+            // Store as ptr for unknown pointer types
+            return .{ .ptr = @ptrCast(@constCast(value)) };
+        } else {
             return .{ .none = {} };
+        }
+    }
+
+    /// Allocating version of from() for runtime tuples/structs
+    /// Use this when you need to convert runtime values to PyValue
+    pub fn fromAlloc(allocator: std.mem.Allocator, value: anytype) !PyValue {
+        const T = @TypeOf(value);
+        if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize) {
+            return .{ .int = @intCast(value) };
+        } else if (T == f64 or T == f32) {
+            return .{ .float = @floatCast(value) };
+        } else if (T == bool) {
+            return .{ .bool = value };
+        } else if (T == []const u8 or T == []u8) {
+            return .{ .string = value };
+        } else if (T == PyValue) {
+            return value;
+        } else if (T == []const PyValue or T == []PyValue) {
+            return .{ .list = value };
+        } else if (@typeInfo(T) == .pointer) {
+            const ptr_info = @typeInfo(T).pointer;
+            if (ptr_info.child == u8) {
+                return .{ .string = std.mem.span(value) };
+            }
+            // Handle pointer to fixed-size array of u8 (string literals)
+            if (@typeInfo(ptr_info.child) == .array) {
+                const arr_info = @typeInfo(ptr_info.child).array;
+                if (arr_info.child == u8) {
+                    // Convert array pointer to slice
+                    return .{ .string = value[0..arr_info.len] };
+                }
+            }
+            if (ptr_info.size == .slice) {
+                // Allocate and convert slice elements
+                const result = try allocator.alloc(PyValue, value.len);
+                for (value, 0..) |item, i| {
+                    result[i] = try fromAlloc(allocator, item);
+                }
+                return .{ .list = result };
+            }
+            return .{ .ptr = @ptrCast(@constCast(value)) };
+        } else if (@typeInfo(T) == .@"struct") {
+            const info = @typeInfo(T).@"struct";
+            // Handle ArrayList - convert to list using items
+            if (@hasField(T, "items") and @hasField(T, "capacity")) {
+                const items_slice = value.items;
+                const result = try allocator.alloc(PyValue, items_slice.len);
+                for (items_slice, 0..) |item, i| {
+                    result[i] = try fromAlloc(allocator, item);
+                }
+                return .{ .list = result };
+            }
+            // Handle tuples
+            if (info.is_tuple) {
+                const result = try allocator.alloc(PyValue, info.fields.len);
+                inline for (0..info.fields.len) |i| {
+                    result[i] = try fromAlloc(allocator, value[i]);
+                }
+                return .{ .tuple = result };
+            }
+            // Non-tuple struct - convert to tuple of fields
+            const result = try allocator.alloc(PyValue, info.fields.len);
+            inline for (0..info.fields.len) |i| {
+                result[i] = try fromAlloc(allocator, @field(value, info.fields[i].name));
+            }
+            return .{ .tuple = result };
         } else {
             return .{ .none = {} };
         }
@@ -89,6 +194,7 @@ pub const PyValue = union(enum) {
             .string => |v| v,
             .bool => |v| if (v) "True" else "False",
             .none => "None",
+            .list, .tuple, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
         };
     }
 
@@ -100,6 +206,7 @@ pub const PyValue = union(enum) {
             .string => |v| try std.fmt.allocPrint(allocator, "'{s}'", .{v}),
             .bool => |v| if (v) "True" else "False",
             .none => "None",
+            .list, .tuple, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
         };
     }
 };
