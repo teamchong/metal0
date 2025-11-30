@@ -380,6 +380,7 @@ pub const UnaryOperator = enum {
 
 pub const Value = union(enum) {
     int: i64,
+    bigint: []const u8, // String representation for integers > i64
     float: f64,
     string: []const u8,
     bool: bool,

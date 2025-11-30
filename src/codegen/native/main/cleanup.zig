@@ -22,6 +22,13 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.closure_vars);
     self.closure_vars.deinit();
 
+    // Clean up callable vars tracking (for loop variables over PyCallable lists)
+    freeMapKeys(self.allocator, &self.callable_vars);
+    self.callable_vars.deinit();
+
+    freeMapKeys(self.allocator, &self.recursive_closure_vars);
+    self.recursive_closure_vars.deinit();
+
     freeMapKeys(self.allocator, &self.closure_factories);
     self.closure_factories.deinit();
 
@@ -139,6 +146,9 @@ pub fn deinit(self: *NativeCodegen) void {
 
     // Clean up nested_class_instances tracking (keys are AST refs, values are AST refs)
     self.nested_class_instances.deinit();
+
+    // Clean up nested_class_bases tracking (keys/values are AST refs)
+    self.nested_class_bases.deinit();
 
     // Clean up comptime_evals tracking
     freeMapKeys(self.allocator, &self.comptime_evals);

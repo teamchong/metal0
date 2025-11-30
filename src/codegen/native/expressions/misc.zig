@@ -239,6 +239,20 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
                 return;
             }
         }
+
+        // Check if this is a class-level type attribute reference (e.g., int_class = self.int_class)
+        // Type attributes are static functions, so we return a function pointer via @This()
+        if (self.current_class_name) |class_name| {
+            const type_attr_key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, attr.attr }) catch null;
+            if (type_attr_key) |key| {
+                if (self.class_type_attrs.get(key)) |_| {
+                    // Return a reference to the static function: @This().attr_name
+                    try self.emit("@This().");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+                    return;
+                }
+            }
+        }
     }
 
     if (is_property) {
@@ -329,6 +343,12 @@ fn isDynamicAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
         if (info.fields.get(attr.attr)) |_| {
             return false; // Known field
         }
+    }
+
+    // Check if this is a class-level type attribute (e.g., int_class = int)
+    const type_attr_key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, attr.attr }) catch return true;
+    if (self.class_type_attrs.get(type_attr_key)) |_| {
+        return false; // Known type attribute (a method)
     }
 
     // Check for special module attributes (sys.platform, etc.)

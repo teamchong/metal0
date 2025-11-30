@@ -97,7 +97,11 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     }
 
                     // Use nativeTypeToZigType for proper type conversion (handles dict, list, etc.)
-                    const field_type_str = try self.nativeTypeToZigType(inferred);
+                    // For unknown types, default to i64 (consistent with inferParamType fallback)
+                    const field_type_str = if (inferred == .unknown)
+                        try self.allocator.dupe(u8, "i64")
+                    else
+                        try self.nativeTypeToZigType(inferred);
                     defer self.allocator.free(field_type_str);
 
                     try self.emitIndent();
@@ -143,6 +147,10 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
     if (constructor_arg_types) |arg_types| {
         if (param_idx < arg_types.len) {
             const inferred = arg_types[param_idx];
+            // For unknown types, default to i64 (consistent with fallback)
+            if (inferred == .unknown) {
+                return try self.allocator.dupe(u8, "i64");
+            }
             return try self.nativeTypeToZigType(inferred);
         }
     }
@@ -154,6 +162,10 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
             if (assign.value.* == .name and std.mem.eql(u8, assign.value.name.id, param_name)) {
                 // Found usage - infer type from the value
                 const inferred = try self.type_inferrer.inferExpr(assign.value.*);
+                // For unknown types, default to i64 (consistent with fallback)
+                if (inferred == .unknown) {
+                    return try self.allocator.dupe(u8, "i64");
+                }
                 return try self.nativeTypeToZigType(inferred);
             }
         }

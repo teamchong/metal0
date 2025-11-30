@@ -31,6 +31,8 @@ pub const TestMethodInfo = struct {
     name: []const u8,
     skip_reason: ?[]const u8 = null, // null = not skipped, otherwise the reason
     needs_allocator: bool = false, // true if method needs allocator param (has fallible ops)
+    is_skipped: bool = false, // true if method is skipped for any reason (docstring, refs skipped module, decorator)
+    mock_patch_count: usize = 0, // number of @mock.patch.object decorators (each injects a mock param)
 };
 
 /// Unittest TestCase class info
@@ -101,6 +103,12 @@ pub const NativeCodegen = struct {
 
     // Track which variables hold closures (for .call() generation)
     closure_vars: FnvVoidMap,
+
+    // Track which variables hold callables (PyCallable - for .call() generation)
+    callable_vars: FnvVoidMap,
+
+    // Track recursive closures and their captured variables (for passing captures in calls)
+    recursive_closure_vars: hashmap_helper.StringHashMap([][]const u8),
 
     // Track which variables are closure factories (return closures)
     closure_factories: FnvVoidMap,
@@ -202,6 +210,10 @@ pub const NativeCodegen = struct {
     // Maps variable name -> mutation info
     mutation_info: ?*const @import("../../../analysis/native_types/mutation_analyzer.zig").MutationMap,
 
+    // Track if we're inside a 'with self.assertRaises' context
+    // When true, error-producing operations should use catch instead of try
+    in_assert_raises_context: bool,
+
     // Track C libraries needed for linking (from C extension imports)
     c_libraries: std.ArrayList([]const u8),
 
@@ -240,6 +252,18 @@ pub const NativeCodegen = struct {
     // Track all nested class names defined in current function/method scope
     // Used to detect class constructor calls for nested classes without captures
     nested_class_names: FnvVoidMap,
+
+    // Track variables assigned from BigInt expressions
+    // Used to detect when a variable's type is BigInt for subsequent operations
+    bigint_vars: FnvVoidMap,
+
+    // Track base class for nested classes (maps class name -> base class name)
+    // Used to provide default args when calling BadIndex() where BadIndex(int)
+    nested_class_bases: FnvStringMap,
+
+    // Track class-level type attributes (e.g., int_class = int)
+    // Maps "ClassName.attr_name" -> type_name (e.g., "IntStrDigitLimitsTests.int_class" -> "int")
+    class_type_attrs: FnvStringMap,
 
     // Current class being generated (for super() support)
     // Set during class method generation, null otherwise
@@ -325,6 +349,8 @@ pub const NativeCodegen = struct {
             .lambda_functions = std.ArrayList([]const u8){},
             .block_label_counter = 0,
             .closure_vars = FnvVoidMap.init(allocator),
+            .callable_vars = FnvVoidMap.init(allocator),
+            .recursive_closure_vars = hashmap_helper.StringHashMap([][]const u8).init(allocator),
             .closure_factories = FnvVoidMap.init(allocator),
             .closure_returning_methods = FnvVoidMap.init(allocator),
             .lambda_vars = FnvVoidMap.init(allocator),
@@ -354,6 +380,7 @@ pub const NativeCodegen = struct {
             .function_signatures = FnvFuncSigMap.init(allocator),
             .imported_modules = FnvVoidMap.init(allocator),
             .mutation_info = null,
+            .in_assert_raises_context = false,
             .c_libraries = std.ArrayList([]const u8){},
             .comptime_evals = FnvVoidMap.init(allocator),
             .func_local_mutations = FnvVoidMap.init(allocator),
@@ -363,6 +390,9 @@ pub const NativeCodegen = struct {
             .nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(allocator),
             .nested_class_instances = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .nested_class_names = FnvVoidMap.init(allocator),
+            .bigint_vars = FnvVoidMap.init(allocator),
+            .nested_class_bases = FnvStringMap.init(allocator),
+            .class_type_attrs = FnvStringMap.init(allocator),
             .current_class_name = null,
             .current_class_captures = null,
             .inside_init_method = false,
@@ -406,10 +436,74 @@ pub const NativeCodegen = struct {
         return self.symbol_table.lookup(name) != null;
     }
 
-    /// Declare variable in current (innermost) scope
+    /// Declare variable in current (innermost) scope with a specific type
+    pub fn declareVarWithType(self: *NativeCodegen, name: []const u8, var_type: NativeType) !void {
+        try self.symbol_table.declare(name, var_type, true);
+    }
+
+    /// Declare variable in current (innermost) scope (legacy - uses unknown type)
     pub fn declareVar(self: *NativeCodegen, name: []const u8) !void {
-        // Use unknown type for now - type inference happens separately
-        try self.symbol_table.declare(name, NativeType.int, true);
+        try self.symbol_table.declare(name, NativeType.unknown, true);
+    }
+
+    /// Get the locally-declared type for a variable (scope-aware)
+    /// Returns null if variable not declared in any scope
+    pub fn getLocalVarType(self: *NativeCodegen, name: []const u8) ?NativeType {
+        return self.symbol_table.getType(name);
+    }
+
+    /// Infer expression type with scope-aware variable type lookup
+    /// For variables, prefers local scope type over global type inferrer
+    /// This prevents cross-function type pollution from widened types
+    pub fn inferExprScoped(self: *NativeCodegen, node: ast.Node) !NativeType {
+        // For name nodes, check local scope first
+        if (node == .name) {
+            const name = node.name.id;
+            // Check if this variable was assigned from a BigInt expression
+            if (self.bigint_vars.contains(name)) {
+                return .bigint;
+            }
+            // Check if we have a locally-declared type (from current function scope)
+            // This uses the symbol table which tracks declarations per scope
+            if (self.symbol_table.getType(name)) |local_type| {
+                // Only use local type if it's not unknown
+                if (local_type != .unknown) {
+                    return local_type;
+                }
+            }
+            // Also check type inferrer's scoped map (for analysis-time types)
+            if (self.type_inferrer.getScopedVar(name)) |scoped_type| {
+                if (scoped_type != .unknown) {
+                    return scoped_type;
+                }
+            }
+            // If name wasn't found in local scope with a known type, it might be
+            // a function parameter generated as anytype - return unknown to be safe
+            // This covers both null and .unknown returns from getType()
+            return .unknown;
+        }
+
+        // For unary ops, recursively check the operand
+        if (node == .unaryop) {
+            const operand_type = try self.inferExprScoped(node.unaryop.operand.*);
+            // If operand is unknown, result is unknown
+            if (operand_type == .unknown) return .unknown;
+            // If operand is bigint, result is bigint (for USub/UAdd)
+            if (operand_type == .bigint) return .bigint;
+        }
+
+        // For binops, check both operands
+        if (node == .binop) {
+            const left_type = try self.inferExprScoped(node.binop.left.*);
+            const right_type = try self.inferExprScoped(node.binop.right.*);
+            // If either is unknown, result is unknown
+            if (left_type == .unknown or right_type == .unknown) return .unknown;
+            // If either is bigint, result is bigint
+            if (left_type == .bigint or right_type == .bigint) return .bigint;
+        }
+
+        // Fall back to global type inferrer
+        return self.type_inferrer.inferExpr(node);
     }
 
     /// Check if variable holds a constant array (vs ArrayList)

@@ -3,7 +3,8 @@ const std = @import("std");
 const ast = @import("ast");
 
 /// unittest assertion methods that dispatch to runtime (self isn't used in generated code)
-const UnittestMethods = std.StaticStringMap(void).initComptime(.{
+/// Public so other modules can check against this list
+pub const unittest_assertion_methods = std.StaticStringMap(void).initComptime(.{
     .{ "assertEqual", {} },
     .{ "assertTrue", {} },
     .{ "assertFalse", {} },
@@ -32,6 +33,7 @@ const UnittestMethods = std.StaticStringMap(void).initComptime(.{
     .{ "assertIsInstance", {} },
     .{ "assertNotIsInstance", {} },
     .{ "assertIsSubclass", {} },
+    .{ "assertNotIsSubclass", {} },
     .{ "assertMultiLineEqual", {} },
     .{ "assertSequenceEqual", {} },
     .{ "assertListEqual", {} },
@@ -40,6 +42,10 @@ const UnittestMethods = std.StaticStringMap(void).initComptime(.{
     .{ "assertDictEqual", {} },
     .{ "assertHasAttr", {} },
     .{ "assertNotHasAttr", {} },
+    .{ "assertStartsWith", {} },
+    .{ "assertNotStartsWith", {} },
+    .{ "assertEndsWith", {} },
+    .{ "assertNotEndsWith", {} },
     .{ "addCleanup", {} },
     .{ "subTest", {} },
     .{ "fail", {} },
@@ -116,7 +122,7 @@ fn stmtUsesSelf(node: ast.Node) bool {
                         const func_attr = call.func.attribute;
                         if (func_attr.value.* == .name and
                             std.mem.eql(u8, func_attr.value.name.id, "self") and
-                            UnittestMethods.has(func_attr.attr))
+                            unittest_assertion_methods.has(func_attr.attr))
                         {
                             break :blk true;
                         }
@@ -159,7 +165,7 @@ fn exprUsesSelf(node: ast.Node) bool {
             // These are dispatched to runtime.unittest and don't actually use self
             if (attr.value.* == .name and
                 std.mem.eql(u8, attr.value.name.id, "self") and
-                UnittestMethods.has(attr.attr))
+                unittest_assertion_methods.has(attr.attr))
             {
                 return false;
             }
@@ -185,7 +191,7 @@ fn exprUsesSelf(node: ast.Node) bool {
                 // These are dispatched to runtime.unittest and don't actually use self
                 if (func_attr.value.* == .name and
                     std.mem.eql(u8, func_attr.value.name.id, "self") and
-                    UnittestMethods.has(func_attr.attr))
+                    unittest_assertion_methods.has(func_attr.attr))
                 {
                     // This is a unittest assertion - self isn't actually used
                     // But still check the arguments

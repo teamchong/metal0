@@ -12,12 +12,13 @@ const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 
 // ComptimeStringMaps for module attribute lookups (DCE-friendly)
-const SysAttrType = enum { platform, version_info, argv, version };
+const SysAttrType = enum { platform, version_info, argv, version, maxsize };
 const SysAttrMap = std.StaticStringMap(SysAttrType).initComptime(.{
     .{ "platform", .platform },
     .{ "version_info", .version_info },
     .{ "argv", .argv },
     .{ "version", .version },
+    .{ "maxsize", .maxsize },
 });
 
 const VersionInfoAttrMap = std.StaticStringMap(void).initComptime(.{
@@ -99,6 +100,29 @@ fn isExceptionTypeName(name: []const u8) bool {
     return ExceptionTypeNames.has(name);
 }
 
+/// Type names that represent callable type constructors (bytes, str, etc.)
+/// When used as values (not called), these are PyCallable instances
+const CallableTypeNames = std.StaticStringMap(void).initComptime(.{
+    .{ "bytes", {} },
+    .{ "bytearray", {} },
+    .{ "str", {} },
+    .{ "memoryview", {} },
+    .{ "int", {} },
+    .{ "float", {} },
+    .{ "bool", {} },
+    .{ "list", {} },
+    .{ "dict", {} },
+    .{ "set", {} },
+    .{ "tuple", {} },
+    .{ "frozenset", {} },
+    .{ "type", {} },
+    .{ "object", {} },
+});
+
+fn isCallableTypeName(name: []const u8) bool {
+    return CallableTypeNames.has(name);
+}
+
 /// Infer the native type of an expression node
 pub fn inferExpr(
     allocator: std.mem.Allocator,
@@ -115,6 +139,8 @@ pub fn inferExpr(
             if (var_types.get(n.id)) |vt| break :blk vt;
             // Check if name is a Python exception type - treat as int (ExceptionTypeId)
             if (isExceptionTypeName(n.id)) break :blk .int;
+            // Check if name is a type constructor used as a callable (bytes, str, etc.)
+            if (isCallableTypeName(n.id)) break :blk .callable;
             break :blk .unknown;
         },
         .binop => |b| try inferBinOp(allocator, var_types, class_fields, func_return_types, b),
@@ -216,6 +242,7 @@ pub fn inferExpr(
                                 switch (attr) {
                                     .platform, .version => break :blk .{ .string = .literal },
                                     .version_info => break :blk .int, // Access like int
+                                    .maxsize => break :blk .int, // sys.maxsize is an integer
                                     .argv => {
                                         // sys.argv is [][]const u8 - return as string array
                                         const str_type = try allocator.create(NativeType);
@@ -568,6 +595,7 @@ pub fn inferExpr(
 fn inferConstant(value: ast.Value) InferError!NativeType {
     return switch (value) {
         .int => .int,
+        .bigint => .bigint, // Large integers are BigInt
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants
         .bool => .bool,
@@ -589,6 +617,40 @@ fn inferBinOp(
     // Get type tags for analysis
     const left_tag = @as(std.meta.Tag(NativeType), left_type);
     const right_tag = @as(std.meta.Tag(NativeType), right_type);
+
+    // Large left shift produces BigInt (e.g., 1 << 100000)
+    if (binop.op == .LShift) {
+        if (binop.right.* == .constant and binop.right.constant.value == .int) {
+            const shift_amount = binop.right.constant.value.int;
+            if (shift_amount >= 63) {
+                return .bigint;
+            }
+        }
+    }
+
+    // Large power produces BigInt (e.g., 10 ** 30000, 2 ** 1000000)
+    if (binop.op == .Pow) {
+        if (binop.right.* == .constant and binop.right.constant.value == .int) {
+            const exp = binop.right.constant.value.int;
+            // If exponent is large enough to potentially overflow i64, use bigint
+            // log2(i64_max) ≈ 63, so base^exp > 2^63 when exp * log2(base) > 63
+            // For simplicity, use bigint if exp >= 20 for any base >= 2
+            if (exp >= 20) {
+                return .bigint;
+            }
+        }
+    }
+
+    // If either operand is bigint, result is bigint (for arithmetic ops)
+    if (left_tag == .bigint or right_tag == .bigint) {
+        if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or
+            binop.op == .FloorDiv or binop.op == .Mod or binop.op == .Pow or
+            binop.op == .LShift or binop.op == .RShift or
+            binop.op == .BitAnd or binop.op == .BitOr or binop.op == .BitXor)
+        {
+            return .bigint;
+        }
+    }
 
     // Path join: Path / string → Path
     if (binop.op == .Div and left_tag == .path) {

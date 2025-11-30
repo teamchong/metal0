@@ -432,6 +432,44 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         try self.emit("ar_closure_blk: { const __ar_closure = ");
         try parent.genExpr(self, args[1]);
         try self.emit("; break :ar_closure_blk __ar_closure.call(); }");
+    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "int")) {
+        // Handle int() builtin specially - it needs to validate args and raise TypeError
+        // intBuiltinCall(allocator, first_arg, .{ rest_args... })
+        try self.emit("runtime.intBuiltinCall(__global_allocator, ");
+        if (args.len > 2) {
+            try parent.genExpr(self, args[2]); // first arg
+            try self.emit(", .{");
+            // Remaining args as tuple
+            if (args.len > 3) {
+                for (args[3..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            // No args to int() - pass void for both
+            try self.emit("{}, .{}");
+        }
+        try self.emit(")");
+    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "float")) {
+        // Handle float() builtin specially
+        try self.emit("runtime.floatBuiltinCall(");
+        if (args.len > 2) {
+            try parent.genExpr(self, args[2]); // first arg
+            try self.emit(", .{");
+            // Remaining args as tuple
+            if (args.len > 3) {
+                for (args[3..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            try self.emit("{}, .{}");
+        }
+        try self.emit(")");
     } else {
         // Simple name or other callable
         try parent.genExpr(self, args[1]);
@@ -546,6 +584,20 @@ pub fn genAssertStartsWith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         return;
     }
     try self.emit("runtime.unittest.assertTrue(std.mem.startsWith(u8, ");
+    try parent.genExpr(self, args[0]);
+    try self.emit(", ");
+    try parent.genExpr(self, args[1]);
+    try self.emit("))");
+}
+
+/// Generate code for self.assertNotStartsWith(s, prefix)
+pub fn genAssertNotStartsWith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertNotStartsWith requires 2 arguments\")");
+        return;
+    }
+    try self.emit("runtime.unittest.assertFalse(std.mem.startsWith(u8, ");
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     try parent.genExpr(self, args[1]);

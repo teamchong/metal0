@@ -8,12 +8,41 @@ const lambda_mod = @import("lambda.zig");
 const zig_keywords = @import("zig_keywords");
 const allocator_analyzer = @import("../statements/functions/allocator_analyzer.zig");
 const import_registry = @import("../import_registry.zig");
+const generators = @import("../statements/functions/generators.zig");
 
 /// Check if name is a runtime exception type that has init methods
 fn isRuntimeExceptionType(name: []const u8) bool {
     const runtime_exceptions = [_][]const u8{
         "Exception",
         "BaseException",
+        "RuntimeError",
+        "ValueError",
+        "TypeError",
+        "KeyError",
+        "IndexError",
+        "AttributeError",
+        "NameError",
+        "IOError",
+        "OSError",
+        "FileNotFoundError",
+        "PermissionError",
+        "ZeroDivisionError",
+        "OverflowError",
+        "NotImplementedError",
+        "StopIteration",
+        "AssertionError",
+        "ImportError",
+        "ModuleNotFoundError",
+        "LookupError",
+        "UnicodeError",
+        "UnicodeDecodeError",
+        "UnicodeEncodeError",
+        "SystemError",
+        "RecursionError",
+        "MemoryError",
+        "BufferError",
+        "ConnectionError",
+        "TimeoutError",
     };
     for (runtime_exceptions) |e| {
         if (std.mem.eql(u8, name, e)) return true;
@@ -161,6 +190,33 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     if (call.func.* == .attribute) {
         const attr = call.func.attribute;
 
+        // Check if this is a class-level type attribute call (e.g., self.int_class(...))
+        // Type attributes are static functions, not methods, so we call them via @This()
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+            // Check if current_class_name is set and if this attr is a type attribute
+            if (self.current_class_name) |class_name| {
+                const type_attr_key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, attr.attr }) catch null;
+                if (type_attr_key) |key| {
+                    if (self.class_type_attrs.get(key)) |type_value| {
+                        // This is a type attribute - call as @This().attr_name(args)
+                        try self.emit("@This().");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+                        try self.emit("(");
+                        for (call.args, 0..) |arg, i| {
+                            if (i > 0) try self.emit(", ");
+                            try genExpr(self, arg);
+                        }
+                        // For int type attributes with optional base param, add null if not provided
+                        if (std.mem.eql(u8, type_value, "int") and call.args.len == 1) {
+                            try self.emit(", null");
+                        }
+                        try self.emit(")");
+                        return;
+                    }
+                }
+            }
+        }
+
         // Helper to check if attribute chain starts with imported module
         // Track module name and function name for registry lookup
         var is_module_call = false;
@@ -217,6 +273,24 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     // This is a method call on a nested class instance - always pass allocator
                     is_nested_class_method_call = true;
                     class_method_needs_alloc = true;
+                }
+            }
+            // Check if this is a self.method() call within the current class
+            // These need allocator if the method signature requires it
+            if (!is_class_method_call and attr.value.* == .name and
+                std.mem.eql(u8, attr.value.name.id, "self"))
+            {
+                if (self.current_class_name) |class_name| {
+                    // Look up method in class registry for current class
+                    if (self.class_registry.getClass(class_name)) |class_def| {
+                        for (class_def.body) |stmt| {
+                            if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
+                                is_class_method_call = true;
+                                class_method_needs_alloc = allocator_analyzer.functionNeedsAllocator(stmt.function_def);
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -321,6 +395,25 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, kwarg.value);
             }
 
+            // Add null for missing optional parameters when calling self.method()
+            // Look up method signature to check if we need to fill in defaults
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                if (self.current_class_name) |class_name| {
+                    var method_key_buf: [512]u8 = undefined;
+                    const method_key = std.fmt.bufPrint(&method_key_buf, "{s}.{s}", .{ class_name, attr.attr }) catch null;
+                    if (method_key) |key| {
+                        if (self.function_signatures.get(key)) |sig| {
+                            const provided_args = call.args.len + call.keyword_args.len;
+                            const missing_args = if (sig.total_params > provided_args) sig.total_params - provided_args else 0;
+                            for (0..missing_args) |j| {
+                                if (provided_args > 0 or j > 0) try self.emit(", ");
+                                try self.emit("null");
+                            }
+                        }
+                    }
+                }
+            }
+
             try self.emit(")");
         }
         return;
@@ -360,6 +453,31 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
             try self.emit(".call(");
 
+            // Wrap args in runtime.pyIntFromAny() to handle type coercion from usize/comptime_int/bool
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try self.emit("runtime.pyIntFromAny(");
+                try genExpr(self, arg);
+                try self.emit(")");
+            }
+
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try self.emit(", ");
+                try self.emit("runtime.pyIntFromAny(");
+                try genExpr(self, kwarg.value);
+                try self.emit(")");
+            }
+
+            try self.emit(")");
+            return;
+        }
+
+        // Check if this is a callable variable (PyCallable - from iterating over callable list)
+        if (self.callable_vars.contains(raw_func_name)) {
+            // Callable call: f("100") -> f.call("100")
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
+            try self.emit(".call(");
+
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
                 try genExpr(self, arg);
@@ -379,8 +497,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // 2. Name is in class registry (handles lowercase class names like "base_set")
         // Use raw_func_name for checking class registry (original Python name)
         // Also check nested_class_names - nested classes inside functions won't be in class_registry
-        const is_user_class = self.class_registry.getClass(raw_func_name) != null or
-            self.nested_class_names.contains(raw_func_name);
+        // Also check symbol_table for locally defined classes (const MyClass = struct{...})
+        const in_class_registry = self.class_registry.getClass(raw_func_name) != null;
+        const in_nested_names = self.nested_class_names.contains(raw_func_name);
+        const in_local_scope = self.symbol_table.lookup(raw_func_name) != null;
+        const is_user_class = in_class_registry or in_nested_names or in_local_scope;
         const is_class_constructor = is_user_class or (raw_func_name.len > 0 and std.ascii.isUpper(raw_func_name[0]));
 
         // Check if this is a runtime exception type that needs runtime. prefix
@@ -433,11 +554,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     return;
                 }
             } else {
-                // Library class (e.g. Path): may return error union, wrap in (try ...)
-                // Always use __global_allocator for reliability - allocator param might be
-                // named "_" (unused) or we might be in nested classes where allocator scope
-                // is complicated
-                try self.emit("(try ");
+                // Unknown class: assume user-defined class with non-error init
+                // Library classes like Path are dispatched separately, so if we reach here
+                // it's likely a local class that wasn't tracked in nested_class_names
+                // (e.g., due to scoping issues). User-defined init() returns struct directly.
                 try self.emit(func_name);
                 try self.emit(".init(__global_allocator");
             }
@@ -450,19 +570,52 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             }
 
-            // Add comma if there are args
-            if (call.args.len > 0 or call.keyword_args.len > 0) {
-                try self.emit(", ");
-            }
+            // Check if class inherits from builtin type and needs default args
+            // e.g., BadIndex(int) called as BadIndex() should supply default 0
+            const builtin_base_info: ?generators.BuiltinBaseInfo = blk: {
+                if (call.args.len == 0 and call.keyword_args.len == 0) {
+                    // No args provided - check if class has builtin base with defaults
+                    // First check class_registry (for top-level classes)
+                    if (self.class_registry.getClass(raw_func_name)) |class_def| {
+                        if (class_def.bases.len > 0) {
+                            break :blk generators.getBuiltinBaseInfo(class_def.bases[0]);
+                        }
+                    }
+                    // Then check nested_class_bases (for nested classes inside methods)
+                    if (self.nested_class_bases.get(raw_func_name)) |base_name| {
+                        break :blk generators.getBuiltinBaseInfo(base_name);
+                    }
+                }
+                break :blk null;
+            };
 
-            for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try genExpr(self, arg);
-            }
+            // Add args: either user-provided or defaults from builtin base
+            if (builtin_base_info) |base_info| {
+                // No user args but class inherits from builtin - use defaults
+                for (base_info.init_args) |arg| {
+                    try self.emit(", ");
+                    if (arg.default) |default_val| {
+                        try self.emit(default_val);
+                    } else {
+                        // Required arg with no default - shouldn't happen for proper Python code
+                        try self.emit("undefined");
+                    }
+                }
+            } else {
+                // User-provided args
+                if (call.args.len > 0 or call.keyword_args.len > 0) {
+                    try self.emit(", ");
+                }
 
-            for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
-                try genExpr(self, kwarg.value);
+                for (call.args, 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try genExpr(self, arg);
+                }
+
+                for (call.keyword_args, 0..) |kwarg, i| {
+                    if (i > 0 or call.args.len > 0) try self.emit(", ");
+                    try genExpr(self, kwarg.value);
+                }
             }
 
             if (is_user_class or is_self_reference) {
@@ -610,6 +763,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             while (i < sig.total_params) : (i += 1) {
                                 if (i > 0) try self.emit(", ");
                                 try self.emit("null");
+                            }
+                        }
+                    }
+                }
+
+                // Special case: calling a variable that's a renamed type attribute (e.g., int_class -> _local_int_class)
+                // If this is an int type attribute, it needs a second null arg for the base parameter
+                if (self.var_renames.get(raw_func_name)) |_| {
+                    // Check if this is a type attribute of int type
+                    if (self.current_class_name) |class_name| {
+                        var type_attr_key_buf: [512]u8 = undefined;
+                        const type_attr_key = std.fmt.bufPrint(&type_attr_key_buf, "{s}.{s}", .{ class_name, raw_func_name }) catch null;
+                        if (type_attr_key) |key| {
+                            if (self.class_type_attrs.get(key)) |type_value| {
+                                if (std.mem.eql(u8, type_value, "int") and call.args.len == 1) {
+                                    try self.emit(", null");
+                                }
                             }
                         }
                     }

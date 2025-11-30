@@ -61,7 +61,7 @@ const UnittestAssertions = std.StaticStringMap(void).initComptime(.{
     .{ "subTest", {} },
 });
 
-/// Built-in functions that use allocator param
+/// Built-in functions that use allocator param or are fallible (need error union return)
 const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "str", {} },
     .{ "list", {} },
@@ -70,6 +70,9 @@ const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "input", {} },
     .{ "StringIO", {} },
     .{ "BytesIO", {} },
+    // Fallible conversion builtins - int("string") and float("string") can fail
+    .{ "int", {} },
+    .{ "float", {} },
     // collections module
     .{ "Counter", {} },
     .{ "deque", {} },
@@ -801,11 +804,12 @@ fn callNeedsAllocator(call: ast.Node.Call) bool {
 
         // Module function call (e.g., test_utils.double(x))
         // Codegen passes allocator to imported module functions
-        // But NOT self.method() calls - those are instance method calls
         if (call.func.attribute.value.* == .name) {
             const obj_name = call.func.attribute.value.name.id;
-            // Skip self.method() calls (but args were already checked above)
-            if (std.mem.eql(u8, obj_name, "self")) return false;
+            // self.method() calls - conservative: may need allocator since the called method
+            // might need allocator. We can't easily determine this statically without inter-procedural analysis.
+            // Better to be conservative and return true than to cause type mismatches.
+            if (std.mem.eql(u8, obj_name, "self")) return true;
 
             // Check if this is an inline module function that doesn't need allocator
             if (isInlineModuleFunction(obj_name, method_name)) {

@@ -192,6 +192,7 @@ const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "assertWarns", unittest_mod.genAssertWarns },
     .{ "assertWarnsRegex", unittest_mod.genAssertWarnsRegex },
     .{ "assertStartsWith", unittest_mod.genAssertStartsWith },
+    .{ "assertNotStartsWith", unittest_mod.genAssertNotStartsWith },
     .{ "assertEndsWith", unittest_mod.genAssertEndsWith },
     .{ "assertHasAttr", unittest_mod.genAssertHasAttr },
     .{ "assertNotHasAttr", unittest_mod.genAssertNotHasAttr },
@@ -511,13 +512,14 @@ fn handleSuperCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []con
 
     const parent = @import("../expressions.zig");
 
-    // Generate: ParentClass.method(@ptrCast(self), args)
-    // Need @ptrCast because self is *const Child but parent method expects *const Parent
+    // Generate: ParentClass.method(@ptrCast(@constCast(self)), args)
+    // Need @constCast because self is *const Child, and parent method may expect mutable pointer
+    // Need @ptrCast because self is *Child but parent method expects *Parent
     // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
     try self.emit(parent_class);
     try self.emit(".");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_name);
-    try self.emit("(@ptrCast(self)");
+    try self.emit("(@ptrCast(@constCast(self))");
 
     // Add remaining arguments
     for (call.args) |arg| {

@@ -2,6 +2,7 @@ const std = @import("std");
 const ast = @import("ast");
 const core = @import("core.zig");
 const hashmap_helper = @import("hashmap_helper");
+const inferrer_mod = @import("inferrer.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -12,6 +13,7 @@ const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 const FnvArgsMap = hashmap_helper.StringHashMap([]const NativeType);
 
 /// Visit and analyze statement nodes to infer variable types
+/// Uses function-scoped variable tracking to prevent cross-function type pollution
 pub fn visitStmt(
     allocator: std.mem.Allocator,
     var_types: *FnvHashMap,
@@ -21,12 +23,53 @@ pub fn visitStmt(
     inferExprFn: *const fn (allocator: std.mem.Allocator, var_types: *FnvHashMap, class_fields: *FnvClassMap, func_return_types: *FnvHashMap, node: ast.Node) InferError!NativeType,
     node: ast.Node,
 ) InferError!void {
+    // Call the scoped version with null inferrer (legacy mode - uses global var_types)
+    return visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, node, null);
+}
+
+/// Visit statement with optional TypeInferrer for scoped variable tracking
+pub fn visitStmtScoped(
+    allocator: std.mem.Allocator,
+    var_types: *FnvHashMap,
+    class_fields: *FnvClassMap,
+    func_return_types: *FnvHashMap,
+    class_constructor_args: *FnvArgsMap,
+    inferExprFn: *const fn (allocator: std.mem.Allocator, var_types: *FnvHashMap, class_fields: *FnvClassMap, func_return_types: *FnvHashMap, node: ast.Node) InferError!NativeType,
+    node: ast.Node,
+    type_inferrer: ?*inferrer_mod.TypeInferrer,
+) InferError!void {
     switch (node) {
         .assign => |assign| {
             const value_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
             for (assign.targets) |target| {
                 if (target == .name) {
-                    try var_types.put(target.name.id, value_type);
+                    const var_name = target.name.id;
+
+                    // Use scoped variable tracking if available
+                    if (type_inferrer) |ti| {
+                        // Check if variable exists in CURRENT scope
+                        if (ti.getScopedVar(var_name)) |_| {
+                            // Widen type in current scope
+                            try ti.widenScopedVar(var_name, value_type);
+                        } else {
+                            // First assignment in this scope
+                            try ti.putScopedVar(var_name, value_type);
+                        }
+                    } else {
+                        // Legacy mode: use global var_types with widening
+                        if (var_types.get(var_name)) |existing_type| {
+                            if (existing_type == .unknown and value_type != .unknown) {
+                                try var_types.put(var_name, value_type);
+                            } else if (existing_type != .unknown and value_type == .unknown) {
+                                // Keep existing specific type over unknown
+                            } else {
+                                const widened = existing_type.widen(value_type);
+                                try var_types.put(var_name, widened);
+                            }
+                        } else {
+                            try var_types.put(var_name, value_type);
+                        }
+                    }
                 }
             }
         },
@@ -159,32 +202,48 @@ pub fn visitStmt(
             try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods, .property_methods = property_methods });
 
             // Visit method bodies to register local variable types
+            // Each method gets its own named scope to prevent cross-method type pollution
             for (class_def.body) |stmt| {
                 if (stmt == .function_def) {
                     const method = stmt.function_def;
+
+                    // Create named scope: "ClassName.method_name"
+                    var scope_name_buf: [256]u8 = undefined;
+                    const scope_name = std.fmt.bufPrint(&scope_name_buf, "{s}.{s}", .{ class_def.name, method.name }) catch class_def.name;
+                    const old_scope = if (type_inferrer) |ti| ti.enterScope(scope_name) else null;
+                    defer if (type_inferrer) |ti| ti.exitScope(old_scope);
+
                     // Register method parameter types
                     for (method.args) |arg| {
                         // Register 'self' as a class instance type
                         if (std.mem.eql(u8, arg.name, "self")) {
-                            try var_types.put("self", .{ .class_instance = class_def.name });
+                            if (type_inferrer) |ti| {
+                                try ti.putScopedVar("self", .{ .class_instance = class_def.name });
+                            } else {
+                                try var_types.put("self", .{ .class_instance = class_def.name });
+                            }
                         } else {
                             const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
-                            try var_types.put(arg.name, param_type);
+                            if (type_inferrer) |ti| {
+                                try ti.putScopedVar(arg.name, param_type);
+                            } else {
+                                try var_types.put(arg.name, param_type);
+                            }
                         }
                     }
-                    // Visit method body statements
+                    // Visit method body statements with scoped tracking
                     for (method.body) |body_stmt| {
-                        try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, body_stmt);
+                        try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, body_stmt, type_inferrer);
                     }
                 }
             }
         },
         .if_stmt => |if_stmt| {
-            for (if_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
-            for (if_stmt.else_body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            for (if_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+            for (if_stmt.else_body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
         },
         .while_stmt => |while_stmt| {
-            for (while_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            for (while_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
         },
         .for_stmt => |for_stmt| {
             // Register loop variables before visiting body
@@ -321,9 +380,13 @@ pub fn visitStmt(
                 }
             }
 
-            for (for_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            for (for_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
         },
         .function_def => |func_def| {
+            // Enter named scope for this function
+            const old_scope = if (type_inferrer) |ti| ti.enterScope(func_def.name) else null;
+            defer if (type_inferrer) |ti| ti.exitScope(old_scope);
+
             // Register function return type from annotation
             // BUT don't overwrite if we already have a better inferred type from 4th pass
             var return_type = try core.pythonTypeHintToNative(func_def.return_type, allocator);
@@ -332,11 +395,15 @@ pub fn visitStmt(
             // This allows return type inference to see parameter types
             for (func_def.args) |arg| {
                 const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
-                try var_types.put(arg.name, param_type);
+                if (type_inferrer) |ti| {
+                    try ti.putScopedVar(arg.name, param_type);
+                } else {
+                    try var_types.put(arg.name, param_type);
+                }
             }
 
-            // Visit function body FIRST to register local variable types
-            for (func_def.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            // Visit function body FIRST to register local variable types with scoping
+            for (func_def.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
 
             // If no annotation (unknown), infer from return statements AFTER visiting body
             if (return_type == .unknown) {
@@ -356,15 +423,15 @@ pub fn visitStmt(
         },
         .try_stmt => |try_stmt| {
             // Visit try body
-            for (try_stmt.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            for (try_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
             // Visit except handlers
             for (try_stmt.handlers) |handler| {
-                for (handler.body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+                for (handler.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
             }
             // Visit else body
-            for (try_stmt.else_body) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            for (try_stmt.else_body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
             // Visit finally body
-            for (try_stmt.finalbody) |s| try visitStmt(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s);
+            for (try_stmt.finalbody) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
         },
         else => {},
     }
@@ -374,6 +441,7 @@ pub fn visitStmt(
 fn inferConstant(value: ast.Value) InferError!NativeType {
     return switch (value) {
         .int => .int,
+        .bigint => .bigint, // Large integers are BigInt
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants
         .bool => .bool,

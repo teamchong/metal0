@@ -64,8 +64,32 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             try self.output.writer(self.allocator).print("std.debug.print(\"test_{s}_{s} ... \", .{{}});\n", .{ class_info.class_name, method_name });
             try self.emitIndent();
             // Generate method call with try and allocator if needed
-            if (method_info.needs_allocator) {
-                try self.output.writer(self.allocator).print("try _test_instance_{s}.{s}(__global_allocator);\n", .{ class_info.class_name, method_name });
+            // Note: Skipped methods don't have allocator param even if original body needed it
+            if (method_info.needs_allocator and !method_info.is_skipped) {
+                // Create mock variables before the call for @mock.patch.object decorators
+                // Use unique names per method to avoid redeclaration errors
+                for (0..method_info.mock_patch_count) |i| {
+                    try self.output.writer(self.allocator).print("var __mock_{s}_{s}_{d} = runtime.unittest.Mock.init();\n", .{ class_info.class_name, method_name, i });
+                    try self.emitIndent();
+                }
+                try self.output.writer(self.allocator).print("try _test_instance_{s}.{s}(__global_allocator", .{ class_info.class_name, method_name });
+                // Pass mock pointers for @mock.patch.object decorators
+                for (0..method_info.mock_patch_count) |i| {
+                    try self.output.writer(self.allocator).print(", &__mock_{s}_{s}_{d}", .{ class_info.class_name, method_name, i });
+                }
+                try self.emit(");\n");
+            } else if (method_info.mock_patch_count > 0) {
+                // Method has mock params but no allocator
+                for (0..method_info.mock_patch_count) |i| {
+                    try self.output.writer(self.allocator).print("var __mock_{s}_{s}_{d} = runtime.unittest.Mock.init();\n", .{ class_info.class_name, method_name, i });
+                    try self.emitIndent();
+                }
+                try self.output.writer(self.allocator).print("_test_instance_{s}.{s}(", .{ class_info.class_name, method_name });
+                for (0..method_info.mock_patch_count) |i| {
+                    if (i > 0) try self.emit(", ");
+                    try self.output.writer(self.allocator).print("&__mock_{s}_{s}_{d}", .{ class_info.class_name, method_name, i });
+                }
+                try self.emit(");\n");
             } else {
                 try self.output.writer(self.allocator).print("_test_instance_{s}.{s}();\n", .{ class_info.class_name, method_name });
             }

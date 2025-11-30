@@ -324,6 +324,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("test.support.socket_helper", .zig_runtime, "runtime.test_support.socket_helper", null);
     try registry.register("test.support.script_helper", .zig_runtime, "runtime.test_support.script_helper", null);
     try registry.register("test.support.hashlib_helper", .zig_runtime, "runtime.test_support.hashlib_helper", null);
+    try registry.register("test.support.numbers", .zig_runtime, "runtime.test_support.numbers", null);
 
     return registry;
 }

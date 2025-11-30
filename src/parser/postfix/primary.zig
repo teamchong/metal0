@@ -85,10 +85,16 @@ fn parseNumber(self: *Parser) ParseError!ast.Node {
     // Strip underscores for decimal parsing
     const clean = stripUnderscores(lexeme, &buf);
 
-    // Try to parse as decimal int, fall back to float
+    // Try to parse as decimal int, fall back to bigint or float
     if (std.fmt.parseInt(i64, clean, 10)) |int_val| {
         return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
-    } else |_| {
+    } else |err| {
+        // Overflow means it's a big integer - check if it's actually an int (no decimal point)
+        if (err == error.Overflow and std.mem.indexOfScalar(u8, clean, '.') == null) {
+            // Store as bigint string representation
+            const bigint_str = self.allocator.dupe(u8, clean) catch return error.OutOfMemory;
+            return ast.Node{ .constant = .{ .value = .{ .bigint = bigint_str } } };
+        }
         const float_val = try std.fmt.parseFloat(f64, clean);
         return ast.Node{ .constant = .{ .value = .{ .float = float_val } } };
     }

@@ -66,10 +66,16 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("packages/regex/src/pyregex/regex.zig"),
     });
 
+    // BigInt module for arbitrary precision integers
+    const bigint_mod = b.addModule("bigint", .{
+        .root_source_file = b.path("packages/bigint/src/bigint.zig"),
+    });
+
     // Module dependencies
     runtime.addImport("hashmap_helper", hashmap_helper);
     runtime.addImport("json_simd", json_simd);
     runtime.addImport("regex", regex_mod);
+    runtime.addImport("bigint", bigint_mod);
     collections.addImport("runtime", runtime);
 
     // C interop module

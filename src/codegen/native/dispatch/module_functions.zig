@@ -901,6 +901,8 @@ const SysFuncs = FuncMap.initComptime(.{
     .{ "gettrace", sys_mod.genGettrace },
     .{ "setprofile", sys_mod.genSetprofile },
     .{ "getprofile", sys_mod.genGetprofile },
+    .{ "get_int_max_str_digits", sys_mod.genGetIntMaxStrDigits },
+    .{ "set_int_max_str_digits", sys_mod.genSetIntMaxStrDigits },
 });
 
 /// uuid module functions
@@ -5808,6 +5810,10 @@ const PyioInternalFuncs = FuncMap.initComptime(.{
 const PylongInternalFuncs = FuncMap.initComptime(.{
     .{ "int_to_decimal_string", _pylong_mod.genIntToDecimalString },
     .{ "int_from_string", _pylong_mod.genIntFromString },
+    .{ "_LOG_10_BASE_256", _pylong_mod.genLog10Base256 },
+    .{ "_spread", _pylong_mod.genSpread },
+    .{ "_dec_str_to_int_inner", _pylong_mod.genDecStrToIntInner },
+    .{ "compute_powers", _pylong_mod.genComputePowers },
 });
 
 /// _compat_pickle internal module functions
@@ -6929,6 +6935,63 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
         std.debug.print("   = Dynamic runtime module loading not supported\n", .{});
         std.debug.print("   = Suggestion: Use static imports (import json) instead\n", .{});
         return error.OutOfMemory;
+    }
+
+    // Handle test.support module context managers
+    // These are Zig structs that need .init() to be instantiated
+    if (std.mem.eql(u8, module_name, "support")) {
+        if (std.mem.eql(u8, func_name, "Stopwatch")) {
+            // support.Stopwatch() -> support.Stopwatch.init()
+            try self.emit("support.Stopwatch.init()");
+            return true;
+        }
+        if (std.mem.eql(u8, func_name, "adjust_int_max_str_digits")) {
+            // support.adjust_int_max_str_digits(n) -> support.adjust_int_max_str_digits(n)
+            // This is a function, not a struct, so it works normally
+            try self.emit("support.adjust_int_max_str_digits(");
+            if (call.args.len > 0) {
+                try self.genExpr(call.args[0]);
+            }
+            try self.emit(")");
+            return true;
+        }
+    }
+
+    // Handle _pylong.compute_powers with kwargs support
+    if (std.mem.eql(u8, module_name, "_pylong") and std.mem.eql(u8, func_name, "compute_powers")) {
+        if (call.args.len < 3) {
+            try self.emit("(runtime.pylong.computePowers(__global_allocator, 0, 2, 0, false))");
+            return true;
+        }
+        try self.emit("(runtime.pylong.computePowers(__global_allocator, @intCast(");
+        try self.genExpr(call.args[0]);
+        try self.emit("), @intCast(");
+        try self.genExpr(call.args[1]);
+        try self.emit("), @intCast(");
+        try self.genExpr(call.args[2]);
+        try self.emit("), ");
+        // Handle need_hi kwarg - convert to bool with != 0 in case it's i64
+        var found_need_hi = false;
+        for (call.keyword_args) |kw| {
+            if (std.mem.eql(u8, kw.name, "need_hi")) {
+                try self.emit("(");
+                try self.genExpr(kw.value);
+                try self.emit(" != 0)");
+                found_need_hi = true;
+                break;
+            }
+        }
+        if (!found_need_hi) {
+            if (call.args.len > 3) {
+                try self.emit("(");
+                try self.genExpr(call.args[3]);
+                try self.emit(" != 0)");
+            } else {
+                try self.emit("false");
+            }
+        }
+        try self.emit("))");
+        return true;
     }
 
     // O(1) module lookup, then O(1) function lookup

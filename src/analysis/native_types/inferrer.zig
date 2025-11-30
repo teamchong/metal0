@@ -19,7 +19,9 @@ const FnvArgsMap = hashmap_helper.StringHashMap([]const NativeType);
 pub const TypeInferrer = struct {
     allocator: std.mem.Allocator,
     arena: *std.heap.ArenaAllocator, // Heap-allocated arena for type allocations
-    var_types: FnvHashMap,
+    var_types: FnvHashMap, // Legacy: global var types (still needed for some lookups)
+    scoped_var_types: FnvHashMap, // Function-scoped variable types (key: "class.method:varname" or "func:varname")
+    current_scope_name: ?[]const u8, // Current function/method scope name (null = global)
     class_fields: FnvClassMap, // class_name -> field types
     func_return_types: FnvHashMap, // function_name -> return type
     class_constructor_args: FnvArgsMap, // class_name -> constructor arg types
@@ -33,6 +35,8 @@ pub const TypeInferrer = struct {
             .allocator = allocator,
             .arena = arena,
             .var_types = FnvHashMap.init(allocator),
+            .scoped_var_types = FnvHashMap.init(allocator),
+            .current_scope_name = null,
             .class_fields = FnvClassMap.init(allocator),
             .func_return_types = FnvHashMap.init(allocator),
             .class_constructor_args = FnvArgsMap.init(allocator),
@@ -48,6 +52,7 @@ pub const TypeInferrer = struct {
         }
         self.class_fields.deinit();
         self.var_types.deinit();
+        self.scoped_var_types.deinit();
         self.func_return_types.deinit();
         self.class_constructor_args.deinit();
 
@@ -55,6 +60,71 @@ pub const TypeInferrer = struct {
         const alloc = self.allocator;
         self.arena.deinit();
         alloc.destroy(self.arena);
+    }
+
+    /// Enter a named scope (returns old scope name for restoration)
+    pub fn enterScope(self: *TypeInferrer, scope_name: []const u8) ?[]const u8 {
+        const old = self.current_scope_name;
+        self.current_scope_name = scope_name;
+        return old;
+    }
+
+    /// Exit named scope and restore previous
+    pub fn exitScope(self: *TypeInferrer, old_scope: ?[]const u8) void {
+        self.current_scope_name = old_scope;
+    }
+
+    /// Legacy compatibility shims (for statements.zig that uses old interface)
+    pub fn pushScope(_: *TypeInferrer) u32 {
+        return 0;
+    }
+    pub fn popScope(_: *TypeInferrer, _: u32) void {}
+
+    /// Put a variable type in the current scope
+    pub fn putScopedVar(self: *TypeInferrer, name: []const u8, var_type: NativeType) !void {
+        if (self.current_scope_name) |scope| {
+            // Create scoped key: "scope_name:var_name"
+            const scoped_key = try std.fmt.allocPrint(self.arena.allocator(), "{s}:{s}", .{ scope, name });
+            try self.scoped_var_types.put(scoped_key, var_type);
+        }
+        // Also update legacy var_types for compatibility
+        try self.var_types.put(name, var_type);
+    }
+
+    /// Get a variable type from current scope (does NOT fall back to other scopes)
+    pub fn getScopedVar(self: *TypeInferrer, name: []const u8) ?NativeType {
+        if (self.current_scope_name) |scope| {
+            // Create scoped key for current scope
+            const scoped_key = std.fmt.allocPrint(self.arena.allocator(), "{s}:{s}", .{ scope, name }) catch return null;
+            if (self.scoped_var_types.get(scoped_key)) |var_type| {
+                return var_type;
+            }
+        }
+        return null;
+    }
+
+    /// Widen a variable type in current scope (for reassignments)
+    pub fn widenScopedVar(self: *TypeInferrer, name: []const u8, new_type: NativeType) !void {
+        if (self.current_scope_name) |scope| {
+            const scoped_key = try std.fmt.allocPrint(self.arena.allocator(), "{s}:{s}", .{ scope, name });
+            if (self.scoped_var_types.get(scoped_key)) |existing| {
+                const widened = existing.widen(new_type);
+                try self.scoped_var_types.put(scoped_key, widened);
+                // Also update legacy var_types
+                try self.var_types.put(name, widened);
+            } else {
+                // First assignment in this scope
+                try self.putScopedVar(name, new_type);
+            }
+        } else {
+            // Global scope - use legacy var_types with widening
+            if (self.var_types.get(name)) |existing| {
+                const widened = existing.widen(new_type);
+                try self.var_types.put(name, widened);
+            } else {
+                try self.var_types.put(name, new_type);
+            }
+        }
     }
 
     /// Analyze a module to infer all variable types
@@ -181,11 +251,12 @@ pub const TypeInferrer = struct {
         }
     }
 
-    /// Visit and analyze a statement node
+    /// Visit and analyze a statement node with scoped variable tracking
     fn visitStmt(self: *TypeInferrer, node: ast.Node) InferError!void {
         // Use arena allocator for type allocations
         const arena_alloc = self.arena.allocator();
-        try statements.visitStmt(
+        // Pass self to enable scoped variable tracking
+        try statements.visitStmtScoped(
             arena_alloc,
             &self.var_types,
             &self.class_fields,
@@ -193,6 +264,7 @@ pub const TypeInferrer = struct {
             &self.class_constructor_args,
             &inferExprWrapper,
             node,
+            self, // Pass type inferrer for scoped tracking
         );
     }
 
@@ -214,14 +286,18 @@ pub const TypeInferrer = struct {
     fn inferFunctionReturnTypes(self: *TypeInferrer, func_def: ast.Node.FunctionDef) InferError!void {
         const arena_alloc = self.arena.allocator();
 
-        // First, register this function's parameters in var_types so nested functions can reference them
+        // Enter named scope for this function
+        const old_scope = self.enterScope(func_def.name);
+        defer self.exitScope(old_scope);
+
+        // Register function parameters in scoped var_types
         for (func_def.args) |arg| {
             var param_type = try core.pythonTypeHintToNative(arg.type_annotation, arena_alloc);
             // Default to int if no type annotation (most common Python numeric type)
             if (param_type == .unknown) {
                 param_type = .int;
             }
-            try self.var_types.put(arg.name, param_type);
+            try self.putScopedVar(arg.name, param_type);
         }
 
         // Visit function body to register local variables BEFORE inferring return types

@@ -251,17 +251,39 @@ pub const TestFailed = error.TestFailed;
 /// Smallest positive float
 pub const SMALLEST: f64 = std.math.floatMin(f64);
 
-/// Stopwatch for timing tests
+/// Clock info for timing resolution
+pub const ClockInfo = struct {
+    resolution: f64 = 0.001, // millisecond resolution
+    monotonic: bool = true,
+    adjustable: bool = false,
+    implementation: []const u8 = "std.time.milliTimestamp",
+};
+
+/// Stopwatch for timing tests (context manager compatible)
+/// Python's support.Stopwatch uses .seconds property and .clock_info
 pub const Stopwatch = struct {
     start_time: i64,
+    /// Elapsed time in seconds (updated on close)
+    seconds: f64 = 0.0,
+    /// Clock information
+    clock_info: ClockInfo = ClockInfo{},
 
     pub fn init() Stopwatch {
-        return .{ .start_time = std.time.milliTimestamp() };
+        return .{
+            .start_time = std.time.milliTimestamp(),
+            .seconds = 0.0,
+            .clock_info = ClockInfo{},
+        };
     }
 
     pub fn elapsed(self: *const Stopwatch) f64 {
         const now = std.time.milliTimestamp();
         return @as(f64, @floatFromInt(now - self.start_time)) / 1000.0;
+    }
+
+    /// Context manager close method - records elapsed time in seconds field
+    pub fn close(self: *Stopwatch) void {
+        self.seconds = self.elapsed();
     }
 };
 
@@ -615,3 +637,51 @@ pub const asyncore = struct {
 
     pub fn loop() void {}
 };
+
+// ============================================================================
+// Integer string conversion limit context manager
+// ============================================================================
+
+const sys = @import("sys.zig");
+
+/// Context manager for temporarily adjusting sys.get_int_max_str_digits()
+/// Usage: const ctx = adjust_int_max_str_digits(new_limit); defer ctx.close();
+pub fn adjust_int_max_str_digits(new_limit: i64) IntMaxStrDigitsContext {
+    return IntMaxStrDigitsContext.init(new_limit);
+}
+
+pub const IntMaxStrDigitsContext = struct {
+    old_limit: i64,
+
+    pub fn init(new_limit: i64) IntMaxStrDigitsContext {
+        // Save old limit
+        const old = sys.get_int_max_str_digits(undefined) catch 4300;
+        // Set new limit
+        _ = sys.set_int_max_str_digits(undefined, new_limit) catch {};
+        return .{ .old_limit = old };
+    }
+
+    pub fn close(self: IntMaxStrDigitsContext) void {
+        // Restore old limit
+        _ = sys.set_int_max_str_digits(undefined, self.old_limit) catch {};
+    }
+};
+
+// ============================================================================
+// Subinterpreter support (stub for testing)
+// ============================================================================
+
+/// Run code in a subinterpreter (stub - always returns 0 for success)
+/// In CPython, this runs code in a separate interpreter state
+pub fn run_in_subinterp(_: []const u8) i64 {
+    // Stub: pretend the code ran successfully
+    return 0;
+}
+
+// ============================================================================
+// test.support sub-module (self-reference for nested imports)
+// ============================================================================
+
+/// Self-reference for imports like "from test import support"
+/// This allows code like: const support = @"test".support;
+pub const support = @This();

@@ -87,3 +87,44 @@ pub fn finalize() void {
     printResults();
     deinitRunner();
 }
+
+/// Mock value - can be null, string, int, bool, or error
+pub const MockValue = union(enum) {
+    none: void,
+    string: []const u8,
+    bytes: []const u8,
+    int: i64,
+    boolean: bool,
+    err: []const u8, // Error type name for side_effect
+};
+
+/// Mock object for unittest.mock support
+/// Used by @mock.patch.object decorator
+pub const Mock = struct {
+    return_value: MockValue = .{ .none = {} },
+    side_effect: ?MockValue = null,
+    called: bool = false,
+    call_count: i64 = 0,
+
+    pub fn init() Mock {
+        return .{};
+    }
+
+    /// Call the mock - increments call_count and returns return_value
+    pub fn call(self: *Mock, _: anytype) MockValue {
+        self.called = true;
+        self.call_count += 1;
+        if (self.side_effect) |effect| {
+            // For side_effect errors, we'd normally throw an error here
+            // For now just return the effect
+            return effect;
+        }
+        return self.return_value;
+    }
+
+    /// Reset mock state
+    pub fn reset(self: *Mock) void {
+        self.called = false;
+        self.call_count = 0;
+    }
+};

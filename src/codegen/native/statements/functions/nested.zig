@@ -5,6 +5,7 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const body = @import("generators/body.zig");
 const zig_keywords = @import("zig_keywords");
+const hashmap_helper = @import("hashmap_helper");
 
 /// Find variables captured from outer scope by nested function
 fn findCapturedVars(
@@ -75,6 +76,67 @@ fn areCapturedVarsUsed(captured_vars: [][]const u8, stmts: []ast.Node) bool {
         if (isParamUsedInStmts(var_name, stmts)) return true;
     }
     return false;
+}
+
+/// Check if a function is recursive (calls itself by name)
+fn isRecursiveFunction(func_name: []const u8, stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        if (isRecursiveCall(func_name, stmt)) return true;
+    }
+    return false;
+}
+
+/// Check if a node contains a recursive call to func_name
+fn isRecursiveCall(func_name: []const u8, node: ast.Node) bool {
+    return switch (node) {
+        .call => |c| blk: {
+            // Check if the function being called is the recursive function
+            if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, func_name)) {
+                break :blk true;
+            }
+            // Also check arguments for nested recursive calls
+            for (c.args) |arg| {
+                if (isRecursiveCall(func_name, arg)) break :blk true;
+            }
+            break :blk false;
+        },
+        .if_stmt => |i| blk: {
+            for (i.body) |s| {
+                if (isRecursiveCall(func_name, s)) break :blk true;
+            }
+            for (i.else_body) |s| {
+                if (isRecursiveCall(func_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            for (f.body) |s| {
+                if (isRecursiveCall(func_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (isRecursiveCall(func_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .expr_stmt => |e| isRecursiveCall(func_name, e.value.*),
+        .return_stmt => |r| if (r.value) |v| isRecursiveCall(func_name, v.*) else false,
+        .assign => |a| isRecursiveCall(func_name, a.value.*),
+        .binop => |b| isRecursiveCall(func_name, b.left.*) or isRecursiveCall(func_name, b.right.*),
+        .unaryop => |u| isRecursiveCall(func_name, u.operand.*),
+        .if_expr => |ie| isRecursiveCall(func_name, ie.condition.*) or
+            isRecursiveCall(func_name, ie.body.*) or
+            isRecursiveCall(func_name, ie.orelse_value.*),
+        .list => |l| blk: {
+            for (l.elts) |elt| {
+                if (isRecursiveCall(func_name, elt)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
 }
 
 /// Check if a parameter name is used in a single node
@@ -197,6 +259,173 @@ fn collectReferencedVarsInNode(
     }
 }
 
+/// Generate a recursive closure using Y-combinator style pattern
+/// For recursive closures, we use a struct with a function that receives itself via @This()
+fn genRecursiveClosure(
+    self: *NativeCodegen,
+    func: ast.Node.FunctionDef,
+    captured_vars: [][]const u8,
+) CodegenError!void {
+    const saved_counter = self.lambda_counter;
+    self.lambda_counter += 1;
+
+    // For recursive closures, we generate:
+    // const inner = struct {
+    //     var limit: i64 = undefined;  // captures as static vars
+    //     var seen: ... = undefined;
+    //     pub fn call(w: i64) void {
+    //         // body can reference limit, seen, and call itself via call(...)
+    //     }
+    // };
+    // inner.limit = limit;  // initialize captures
+    // inner.seen = seen;
+    // inner.call(w);  // initial call
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{func.name});
+    self.indent();
+
+    // Static capture variables (prefixed with __c_ to avoid shadowing)
+    for (captured_vars) |var_name| {
+        try self.emitIndent();
+        // Use @TypeOf to get the correct type from the outer variable
+        const outer_var_name = blk: {
+            if (self.var_renames.get(var_name)) |renamed| {
+                break :blk renamed;
+            }
+            break :blk var_name;
+        };
+        try self.output.writer(self.allocator).print("var __c_{s}: @TypeOf({s}) = undefined;\n", .{ var_name, outer_var_name });
+    }
+
+    // The recursive function
+    // Use anytype for parameters to accept any type (int, bool, etc.)
+    try self.emitIndent();
+    try self.emit("pub fn call(");
+    for (func.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        const is_used = isParamUsedInStmts(arg.name, func.body);
+        if (is_used) {
+            try self.output.writer(self.allocator).print("__p_{s}_{d}: anytype", .{ arg.name, saved_counter });
+        } else {
+            try self.emit("_: anytype");
+        }
+    }
+    try self.emit(") void {\n");
+    self.indent();
+
+    // Generate body
+    try self.pushScope();
+
+    // Save and restore func_local_uses
+    const saved_func_local_uses = self.func_local_uses;
+    self.func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_uses.deinit();
+        self.func_local_uses = saved_func_local_uses;
+    }
+    try collectUsedNames(func.body, &self.func_local_uses);
+
+    // Save outer scope renames for captured variables (to restore later)
+    var saved_outer_renames = std.ArrayList(?[]const u8){};
+    defer saved_outer_renames.deinit(self.allocator);
+
+    for (captured_vars) |var_name| {
+        try saved_outer_renames.append(self.allocator, self.var_renames.get(var_name));
+    }
+
+    // Capture variable renames (use __c_ prefix to reference struct fields)
+    var capture_renames = std.ArrayList([]const u8){};
+    defer capture_renames.deinit(self.allocator);
+
+    for (captured_vars) |var_name| {
+        const rename = try std.fmt.allocPrint(self.allocator, "__c_{s}", .{var_name});
+        try capture_renames.append(self.allocator, rename);
+        try self.var_renames.put(var_name, rename);
+    }
+
+    // Save outer scope param renames (to restore later)
+    var saved_param_renames = std.ArrayList(?[]const u8){};
+    defer saved_param_renames.deinit(self.allocator);
+
+    for (func.args) |arg| {
+        try saved_param_renames.append(self.allocator, self.var_renames.get(arg.name));
+    }
+
+    // Param renames
+    var param_renames = std.ArrayList([]const u8){};
+    defer param_renames.deinit(self.allocator);
+
+    for (func.args) |arg| {
+        try self.declareVar(arg.name);
+        const is_used = isParamUsedInStmts(arg.name, func.body);
+        if (is_used) {
+            const rename = try std.fmt.allocPrint(self.allocator, "__p_{s}_{d}", .{ arg.name, saved_counter });
+            try param_renames.append(self.allocator, rename);
+            try self.var_renames.put(arg.name, rename);
+        }
+    }
+
+    // Rename the function name itself to just 'call' for recursive calls
+    try self.var_renames.put(func.name, "call");
+
+    for (func.body) |stmt| {
+        try self.generateStmt(stmt);
+    }
+
+    // Clean up renames
+    _ = self.var_renames.swapRemove(func.name);
+
+    for (func.args, 0..) |arg, i| {
+        // Restore outer scope param rename if there was one
+        if (saved_param_renames.items[i]) |outer_rename| {
+            try self.var_renames.put(arg.name, outer_rename);
+        } else {
+            _ = self.var_renames.swapRemove(arg.name);
+        }
+        if (i < param_renames.items.len) {
+            self.allocator.free(param_renames.items[i]);
+        }
+    }
+
+    for (captured_vars, 0..) |var_name, i| {
+        // Restore outer scope rename if there was one
+        if (saved_outer_renames.items[i]) |outer_rename| {
+            try self.var_renames.put(var_name, outer_rename);
+        } else {
+            _ = self.var_renames.swapRemove(var_name);
+        }
+        self.allocator.free(capture_renames.items[i]);
+    }
+
+    self.popScope();
+    self.dedent();
+
+    try self.emitIndent();
+    try self.emit("}\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+
+    // Initialize the capture variables (use __c_ prefix)
+    // Now var_renames has been restored so outer scope renames work
+    for (captured_vars) |var_name| {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("{s}.__c_{s} = ", .{ func.name, var_name });
+        if (self.var_renames.get(var_name)) |renamed| {
+            try self.emit(renamed);
+        } else {
+            try self.emit(var_name);
+        }
+        try self.emit(";\n");
+    }
+
+    // Mark inner as a closure for .call() syntax
+    const inner_name_copy = try self.allocator.dupe(u8, func.name);
+    try self.closure_vars.put(inner_name_copy, {});
+}
+
 /// Generate nested function with closure support (immediate call only)
 pub fn genNestedFunctionDef(
     self: *NativeCodegen,
@@ -205,10 +434,20 @@ pub fn genNestedFunctionDef(
     // Use captured variables from AST (pre-computed by closure analyzer)
     const captured_vars = func.captured_vars;
 
+    // Check if this is a recursive function
+    const is_recursive = isRecursiveFunction(func.name, func.body);
+
     if (captured_vars.len == 0) {
         // No captures - use ZeroClosure comptime pattern
         try self.emitIndent();
         try genZeroCaptureClosure(self, func);
+        return;
+    }
+
+    if (is_recursive) {
+        // Recursive closures need special handling - generate as a regular function
+        // with captures passed as parameters, avoiding the closure struct pattern
+        try genRecursiveClosure(self, func, captured_vars);
         return;
     }
 
@@ -273,28 +512,80 @@ pub fn genNestedFunctionDef(
         try self.output.writer(self.allocator).print("fn {s}(_: {s}", .{ impl_fn_name, capture_type_name });
     }
 
+    // Generate renamed parameters to avoid shadowing outer scope
+    // Build a mapping from original param names to renamed versions
+    var param_renames = std.StringHashMap([]const u8).init(self.allocator);
+    defer param_renames.deinit();
+
     for (func.args) |arg| {
         // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
         const is_used = isParamUsedInStmts(arg.name, func.body);
         if (is_used) {
-            try self.output.writer(self.allocator).print(", ", .{});
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            try self.output.writer(self.allocator).print(": i64", .{});
+            // Create a unique parameter name to avoid shadowing: __p_name_counter
+            const unique_param_name = try std.fmt.allocPrint(
+                self.allocator,
+                "__p_{s}_{d}",
+                .{ arg.name, saved_counter },
+            );
+            try param_renames.put(arg.name, unique_param_name);
+            try self.output.writer(self.allocator).print(", {s}: i64", .{unique_param_name});
         } else {
             try self.output.writer(self.allocator).print(", _: i64", .{});
         }
     }
     try self.emit(") i64 {\n");
 
-    // Generate body with captures. prefix for captured vars
+    // Generate body with captured vars renamed to capture_param.varname
     self.indent();
     try self.pushScope();
+
+    // Save and populate func_local_uses for this nested function
+    // This prevents incorrect "unused variable" detection for local vars
+    const saved_func_local_uses = self.func_local_uses;
+    self.func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_uses.deinit();
+        self.func_local_uses = saved_func_local_uses;
+    }
+
+    // Populate func_local_uses with variables used in this function body
+    try collectUsedNames(func.body, &self.func_local_uses);
+
+    // Add captured variable renames so they get prefixed with capture struct access
+    var capture_renames = std.ArrayList([]const u8){};
+    defer capture_renames.deinit(self.allocator);
+
+    for (captured_vars) |var_name| {
+        const rename = try std.fmt.allocPrint(
+            self.allocator,
+            "{s}.{s}",
+            .{ capture_param_name, var_name },
+        );
+        try capture_renames.append(self.allocator, rename);
+        try self.var_renames.put(var_name, rename);
+    }
+
     for (func.args) |arg| {
         try self.declareVar(arg.name);
+        // Add rename mapping for parameter access in body
+        if (param_renames.get(arg.name)) |renamed| {
+            try self.var_renames.put(arg.name, renamed);
+        }
     }
 
     for (func.body) |stmt| {
-        try genStmtWithCaptureStruct(self, stmt, captured_vars, capture_param_name);
+        try self.generateStmt(stmt);
+    }
+
+    // Remove param renames after body generation
+    for (func.args) |arg| {
+        _ = self.var_renames.swapRemove(arg.name);
+    }
+
+    // Remove capture renames and free memory
+    for (captured_vars, 0..) |var_name, i| {
+        _ = self.var_renames.swapRemove(var_name);
+        self.allocator.free(capture_renames.items[i]);
     }
 
     self.popScope();
@@ -368,10 +659,12 @@ pub fn genNestedFunctionDef(
         .{ closure_impl_name, impl_fn_ref },
     );
 
-    // Initialize captures
+    // Initialize captures - use renamed variable names if applicable
     for (captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.emit(", ");
-        try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, var_name });
+        // Check if this var was renamed (e.g., function parameter renamed to avoid shadowing)
+        const actual_name = self.var_renames.get(var_name) orelse var_name;
+        try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, actual_name });
     }
     try self.emit(" } };\n");
 
@@ -471,28 +764,78 @@ fn genNestedFunctionWithOuterCapture(
         try self.output.writer(self.allocator).print("fn {s}(_: {s}", .{ impl_fn_name, capture_type_name });
     }
 
+    // Generate renamed parameters to avoid shadowing outer scope (duplicate of above section)
+    var param_renames2 = std.StringHashMap([]const u8).init(self.allocator);
+    defer param_renames2.deinit();
+
     for (func.args) |arg| {
         // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
         const is_used = isParamUsedInStmts(arg.name, func.body);
         if (is_used) {
-            try self.output.writer(self.allocator).print(", ", .{});
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            try self.output.writer(self.allocator).print(": i64", .{});
+            // Create a unique parameter name to avoid shadowing: __p_name_counter
+            const unique_param_name = try std.fmt.allocPrint(
+                self.allocator,
+                "__p_{s}_{d}",
+                .{ arg.name, saved_counter },
+            );
+            try param_renames2.put(arg.name, unique_param_name);
+            try self.output.writer(self.allocator).print(", {s}: i64", .{unique_param_name});
         } else {
             try self.output.writer(self.allocator).print(", _: i64", .{});
         }
     }
     try self.emit(") i64 {\n");
 
-    // Generate body with captures. prefix for captured vars
+    // Generate body with captured vars renamed to capture_param.varname
     self.indent();
     try self.pushScope();
+
+    // Save and populate func_local_uses for this nested function
+    const saved_func_local_uses2 = self.func_local_uses;
+    self.func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_uses.deinit();
+        self.func_local_uses = saved_func_local_uses2;
+    }
+
+    // Populate func_local_uses with variables used in this function body
+    try collectUsedNames(func.body, &self.func_local_uses);
+
+    // Add captured variable renames so they get prefixed with capture struct access
+    var capture_renames2 = std.ArrayList([]const u8){};
+    defer capture_renames2.deinit(self.allocator);
+
+    for (captured_vars) |var_name| {
+        const rename = try std.fmt.allocPrint(
+            self.allocator,
+            "{s}.{s}",
+            .{ capture_param_name, var_name },
+        );
+        try capture_renames2.append(self.allocator, rename);
+        try self.var_renames.put(var_name, rename);
+    }
+
     for (func.args) |arg| {
         try self.declareVar(arg.name);
+        // Add rename mapping for parameter access in body
+        if (param_renames2.get(arg.name)) |renamed| {
+            try self.var_renames.put(arg.name, renamed);
+        }
     }
 
     for (func.body) |stmt| {
-        try genStmtWithCaptureStruct(self, stmt, captured_vars, capture_param_name);
+        try self.generateStmt(stmt);
+    }
+
+    // Remove param renames after body generation
+    for (func.args) |arg| {
+        _ = self.var_renames.swapRemove(arg.name);
+    }
+
+    // Remove capture renames and free memory
+    for (captured_vars, 0..) |var_name, i| {
+        _ = self.var_renames.swapRemove(var_name);
+        self.allocator.free(capture_renames2.items[i]);
     }
 
     self.popScope();
@@ -564,6 +907,7 @@ fn genNestedFunctionWithOuterCapture(
     );
 
     // Initialize captures - reference outer captured vars through outer capture struct
+    // or use renamed variable names if applicable
     for (captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.emit(", ");
         // Check if this var is from outer closure's captures
@@ -577,7 +921,9 @@ fn genNestedFunctionWithOuterCapture(
         if (is_outer_capture) {
             try self.output.writer(self.allocator).print(" .{s} = {s}.{s}", .{ var_name, outer_capture_param, var_name });
         } else {
-            try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, var_name });
+            // Check if this var was renamed (e.g., function parameter renamed to avoid shadowing)
+            const actual_name = self.var_renames.get(var_name) orelse var_name;
+            try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, actual_name });
         }
     }
     try self.emit(" } };\n");
@@ -605,11 +951,14 @@ fn genZeroCaptureClosure(
     self: *NativeCodegen,
     func: ast.Node.FunctionDef,
 ) CodegenError!void {
+    // Save counter for unique naming
+    const saved_counter = self.lambda_counter;
+
     // Generate the inner function
     const impl_name = try std.fmt.allocPrint(
         self.allocator,
         "__ZeroImpl_{s}_{d}",
-        .{ func.name, self.lambda_counter },
+        .{ func.name, saved_counter },
     );
     defer self.allocator.free(impl_name);
 
@@ -617,10 +966,14 @@ fn genZeroCaptureClosure(
     const inner_fn_name = try std.fmt.allocPrint(
         self.allocator,
         "__fn_{s}_{d}",
-        .{ func.name, self.lambda_counter },
+        .{ func.name, saved_counter },
     );
     defer self.allocator.free(inner_fn_name);
     self.lambda_counter += 1;
+
+    // Build param name mappings for unique names to avoid shadowing outer scope
+    var param_renames = std.StringHashMap([]const u8).init(self.allocator);
+    defer param_renames.deinit();
 
     try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{impl_name});
     self.indent();
@@ -632,8 +985,14 @@ fn genZeroCaptureClosure(
         // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
         const is_used = isParamUsedInStmts(arg.name, func.body);
         if (is_used) {
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            try self.output.writer(self.allocator).print(": i64", .{});
+            // Create unique param name to avoid shadowing outer scope
+            const unique_param_name = try std.fmt.allocPrint(
+                self.allocator,
+                "__p_{s}_{d}",
+                .{ arg.name, saved_counter },
+            );
+            try param_renames.put(arg.name, unique_param_name);
+            try self.output.writer(self.allocator).print("{s}: i64", .{unique_param_name});
         } else {
             try self.output.writer(self.allocator).print("_: i64", .{});
         }
@@ -642,12 +1001,39 @@ fn genZeroCaptureClosure(
 
     self.indent();
     try self.pushScope();
+
+    // Save and populate func_local_uses for this nested function
+    const saved_func_local_uses3 = self.func_local_uses;
+    self.func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_uses.deinit();
+        self.func_local_uses = saved_func_local_uses3;
+    }
+
+    // Populate func_local_uses with variables used in this function body
+    try collectUsedNames(func.body, &self.func_local_uses);
+
     for (func.args) |arg| {
         try self.declareVar(arg.name);
+        // Add rename mapping for parameter access in body
+        if (param_renames.get(arg.name)) |renamed| {
+            try self.var_renames.put(arg.name, renamed);
+        }
     }
 
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
+    }
+
+    // Remove param renames after body generation
+    for (func.args) |arg| {
+        _ = self.var_renames.swapRemove(arg.name);
+    }
+
+    // Free renamed param names
+    var rename_iter = param_renames.valueIterator();
+    while (rename_iter.next()) |renamed| {
+        self.allocator.free(renamed.*);
     }
 
     self.popScope();
@@ -668,21 +1054,43 @@ fn genZeroCaptureClosure(
     if (func.args.len == 1) {
         try self.output.writer(self.allocator).print(" = runtime.ZeroClosure(i64, i64, {s}.{s}){{}};\n", .{ impl_name, inner_fn_name });
     } else {
-        // Multiple args - create wrapper struct
+        // Multiple args - create wrapper struct with unique parameter names
+        // Use a different counter for wrapper params (saved_counter is already used above)
+        const wrapper_counter = self.lambda_counter;
+        self.lambda_counter += 1;
+
+        // Build param name mappings for unique names
+        var param_names = std.ArrayList([]const u8){};
+        defer {
+            for (param_names.items) |name| {
+                self.allocator.free(name);
+            }
+            param_names.deinit(self.allocator);
+        }
+
+        for (func.args) |arg| {
+            const unique_name = try std.fmt.allocPrint(
+                self.allocator,
+                "__p_{s}_{d}",
+                .{ arg.name, wrapper_counter },
+            );
+            try param_names.append(self.allocator, unique_name);
+        }
+
         try self.emit(" = struct {\n");
         self.indent();
         try self.emitIndent();
         try self.emit("pub fn call(_: @This()");
-        for (func.args) |arg| {
-            try self.output.writer(self.allocator).print(", {s}: i64", .{arg.name});
+        for (param_names.items) |unique_name| {
+            try self.output.writer(self.allocator).print(", {s}: i64", .{unique_name});
         }
         try self.output.writer(self.allocator).print(") i64 {{\n", .{});
         self.indent();
         try self.emitIndent();
         try self.output.writer(self.allocator).print("return {s}.{s}(", .{ impl_name, inner_fn_name });
-        for (func.args, 0..) |arg, i| {
+        for (param_names.items, 0..) |unique_name, i| {
             if (i > 0) try self.emit(", ");
-            try self.emit(arg.name);
+            try self.emit(unique_name);
         }
         try self.emit(");\n");
         self.dedent();
@@ -843,6 +1251,126 @@ fn genExprWithCaptureStruct(
         else => {
             const expressions = @import("../../expressions.zig");
             try expressions.genExpr(self, node);
+        },
+    }
+}
+
+/// Collect all variable names used in statements (for func_local_uses tracking)
+fn collectUsedNames(stmts: []ast.Node, uses: *hashmap_helper.StringHashMap(void)) error{OutOfMemory}!void {
+    for (stmts) |stmt| {
+        try collectUsedNamesFromNode(stmt, uses);
+    }
+}
+
+fn collectUsedNamesFromNode(node: ast.Node, uses: *hashmap_helper.StringHashMap(void)) error{OutOfMemory}!void {
+    switch (node) {
+        .name => |n| {
+            try uses.put(n.id, {});
+        },
+        .assign => |a| {
+            // Collect target names (assigned variables should be marked as used)
+            for (a.targets) |target| {
+                try collectUsedNamesFromNode(target, uses);
+            }
+            try collectUsedNamesFromNode(a.value.*, uses);
+        },
+        .aug_assign => |a| {
+            try collectUsedNamesFromNode(a.target.*, uses);
+            try collectUsedNamesFromNode(a.value.*, uses);
+        },
+        .binop => |b| {
+            try collectUsedNamesFromNode(b.left.*, uses);
+            try collectUsedNamesFromNode(b.right.*, uses);
+        },
+        .unaryop => |u| {
+            try collectUsedNamesFromNode(u.operand.*, uses);
+        },
+        .call => |c| {
+            try collectUsedNamesFromNode(c.func.*, uses);
+            for (c.args) |arg| {
+                try collectUsedNamesFromNode(arg, uses);
+            }
+        },
+        .attribute => |a| {
+            try collectUsedNamesFromNode(a.value.*, uses);
+        },
+        .subscript => |s| {
+            try collectUsedNamesFromNode(s.value.*, uses);
+            switch (s.slice) {
+                .index => |idx| try collectUsedNamesFromNode(idx.*, uses),
+                .slice => |sl| {
+                    if (sl.lower) |l| try collectUsedNamesFromNode(l.*, uses);
+                    if (sl.upper) |upper| try collectUsedNamesFromNode(upper.*, uses);
+                    if (sl.step) |st| try collectUsedNamesFromNode(st.*, uses);
+                },
+            }
+        },
+        .if_stmt => |i| {
+            try collectUsedNamesFromNode(i.condition.*, uses);
+            try collectUsedNames(i.body, uses);
+            try collectUsedNames(i.else_body, uses);
+        },
+        .if_expr => |ie| {
+            try collectUsedNamesFromNode(ie.condition.*, uses);
+            try collectUsedNamesFromNode(ie.body.*, uses);
+            try collectUsedNamesFromNode(ie.orelse_value.*, uses);
+        },
+        .for_stmt => |f| {
+            try collectUsedNamesFromNode(f.target.*, uses);
+            try collectUsedNamesFromNode(f.iter.*, uses);
+            try collectUsedNames(f.body, uses);
+            if (f.orelse_body) |else_body| {
+                try collectUsedNames(else_body, uses);
+            }
+        },
+        .while_stmt => |w| {
+            try collectUsedNamesFromNode(w.condition.*, uses);
+            try collectUsedNames(w.body, uses);
+            if (w.orelse_body) |else_body| {
+                try collectUsedNames(else_body, uses);
+            }
+        },
+        .return_stmt => |r| {
+            if (r.value) |v| try collectUsedNamesFromNode(v.*, uses);
+        },
+        .expr_stmt => |e| {
+            try collectUsedNamesFromNode(e.value.*, uses);
+        },
+        .compare => |c| {
+            try collectUsedNamesFromNode(c.left.*, uses);
+            for (c.comparators) |cmp| {
+                try collectUsedNamesFromNode(cmp, uses);
+            }
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                try collectUsedNamesFromNode(elt, uses);
+            }
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                try collectUsedNamesFromNode(elt, uses);
+            }
+        },
+        .dict => |d| {
+            for (d.keys) |key| {
+                try collectUsedNamesFromNode(key, uses);
+            }
+            for (d.values) |val| {
+                try collectUsedNamesFromNode(val, uses);
+            }
+        },
+        .boolop => |b| {
+            for (b.values) |val| {
+                try collectUsedNamesFromNode(val, uses);
+            }
+        },
+        .function_def => |f| {
+            // For nested functions, collect names used in the body
+            try collectUsedNames(f.body, uses);
+        },
+        else => {
+            // Other node types don't contain name references we need to track
         },
     }
 }

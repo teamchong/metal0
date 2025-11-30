@@ -10,6 +10,30 @@ const typeHandling = @import("assign/type_handling.zig");
 const valueGen = @import("assign/value_generation.zig");
 const zig_keywords = @import("zig_keywords");
 
+/// Check if an expression results in a BigInt
+/// This detects expressions that produce BigInt values at runtime
+fn isBigIntExpression(expr: ast.Node) bool {
+    // Left shift with non-comptime RHS produces BigInt
+    if (expr == .binop and expr.binop.op == .LShift) {
+        const rhs = expr.binop.right.*;
+        // If RHS is not a constant int, it's not comptime-known
+        // so we generate BigInt for safety
+        if (rhs != .constant or rhs.constant.value != .int) {
+            return true;
+        }
+        // If RHS is a large constant, also needs BigInt
+        if (rhs.constant.value.int >= 63) {
+            return true;
+        }
+    }
+    // Recursively check nested expressions
+    if (expr == .binop) {
+        if (isBigIntExpression(expr.binop.left.*)) return true;
+        if (isBigIntExpression(expr.binop.right.*)) return true;
+    }
+    return false;
+}
+
 /// Generate annotated assignment statement (x: int = 5)
 pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) CodegenError!void {
     // If no value, just a declaration (x: int), skip for now
@@ -31,15 +55,36 @@ pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) Codege
 
 /// Generate assignment statement with automatic defer cleanup
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
-    // Get the widened type from var_types map (accounts for all assignments to this variable)
-    // Fall back to inferring from current value if not found
-    var value_type = try self.type_inferrer.inferExpr(assign.value.*);
+    // Infer type from the current value expression
+    var value_type = try self.inferExprScoped(assign.value.*);
+
+    // For variable declarations and reassignments, use the scoped widened type
+    // from the type inferrer. This ensures the variable can hold all values
+    // that will be assigned to it within the same function scope.
+    // The type inferrer's scoped map contains the widened type from ALL assignments
+    // to this variable in the current function.
     for (assign.targets) |target| {
         if (target == .name) {
-            // Check if type inferrer has a widened type for this variable
-            if (self.type_inferrer.var_types.get(target.name.id)) |widened_type| {
-                value_type = widened_type;
-                break;
+            const var_name = target.name.id;
+            // Look up the scoped widened type (from current function's analysis)
+            // This handles widening like: x = int(s); x = int(1e100)
+            // where x needs to be BigInt to hold both values
+            if (self.type_inferrer.getScopedVar(var_name)) |scoped_type| {
+                if (scoped_type != .unknown) {
+                    value_type = scoped_type;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Track variables assigned from BigInt expressions
+    // This handles cases like: hibit = 1 << (bits - 1) where bits is not comptime
+    // We need to know hibit is BigInt for subsequent operations like hibit | x
+    if (isBigIntExpression(assign.value.*)) {
+        for (assign.targets) |target| {
+            if (target == .name) {
+                try self.bigint_vars.put(target.name.id, {});
             }
         }
     }
@@ -60,7 +105,31 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
     for (assign.targets) |target| {
         if (target == .name) {
-            const var_name = target.name.id;
+            var var_name = target.name.id;
+            const original_var_name = var_name; // Keep for usage checks (before any renaming)
+
+            // Check if this is assigning a type attribute to a variable with the same name
+            // e.g., int_class = self.int_class -> would shadow the int_class function
+            // In this case, rename the local variable to avoid shadowing
+            if (assign.value.* == .attribute) {
+                const attr = assign.value.attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                    if (std.mem.eql(u8, attr.attr, var_name)) {
+                        // Check if this is a type attribute
+                        if (self.current_class_name) |class_name| {
+                            const type_attr_key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, var_name }) catch null;
+                            if (type_attr_key) |key| {
+                                if (self.class_type_attrs.get(key)) |_| {
+                                    // Rename the local variable to avoid shadowing
+                                    const renamed = std.fmt.allocPrint(self.allocator, "_local_{s}", .{var_name}) catch var_name;
+                                    try self.var_renames.put(var_name, renamed);
+                                    var_name = renamed;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // Track nested class instances: obj = Inner() -> obj is instance of Inner
             // This is used to pass allocator to method calls on nested class instances
@@ -123,12 +192,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         // Successfully evaluated at compile time!
                         try comptimeHelpers.emitComptimeAssignment(self, var_name, comptime_val, is_first_assignment, is_mutable);
                         if (is_first_assignment) {
-                            try self.declareVar(var_name);
+                            // Declare with proper type for scope-aware type lookup
+                            try self.declareVarWithType(var_name, value_type);
                         }
 
                         // If variable is used in eval string but nowhere else in actual code,
                         // emit _ = varname; to suppress Zig "unused" warning
-                        if (self.isEvalStringVar(var_name)) {
+                        // Use original_var_name for check, but emit renamed var_name
+                        if (self.isEvalStringVar(original_var_name)) {
                             try self.emitIndent();
                             try self.emit("_ = ");
                             try self.emit(var_name);
@@ -146,13 +217,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             // For unused variables, discard with _ = expr; to avoid Zig errors
             // But PyObjects still need decref to free memory (e.g., json.loads)
-            if (is_first_assignment and self.isVarUnused(var_name)) {
+            // Use original_var_name since usage analysis uses the original Python variable name
+            if (is_first_assignment and self.isVarUnused(original_var_name)) {
                 if (value_type == .unknown) {
                     // PyObject: capture in block and decref immediately
-                    // { const __unused = expr; runtime.decref(__unused, allocator); }
+                    // { const __unused = expr; runtime.decref(__unused, __global_allocator); }
                     try self.emit("{ const __unused = ");
                     try self.genExpr(assign.value.*);
-                    try self.emit("; runtime.decref(__unused, allocator); }\n");
+                    try self.emit("; runtime.decref(__unused, __global_allocator); }\n");
                 } else {
                     try self.emit("_ = ");
                     try self.genExpr(assign.value.*);
@@ -174,8 +246,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     is_listcomp,
                 );
 
-                // Mark as declared
-                try self.declareVar(var_name);
+                // Mark as declared with proper type for scope-aware type lookup
+                try self.declareVarWithType(var_name, value_type);
 
                 // Track array slice vars
                 const is_array_slice = typeHandling.isArraySlice(self, assign.value.*);
@@ -196,8 +268,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Special handling for string concatenation with nested operations
             // s1 + " " + s2 needs intermediate temps
             if (assign.value.* == .binop and assign.value.binop.op == .Add) {
-                const left_type = try self.type_inferrer.inferExpr(assign.value.binop.left.*);
-                const right_type = try self.type_inferrer.inferExpr(assign.value.binop.right.*);
+                const left_type = try self.inferExprScoped(assign.value.binop.left.*);
+                const right_type = try self.inferExprScoped(assign.value.binop.right.*);
                 if (left_type == .string or right_type == .string) {
                     try valueGen.genStringConcat(self, assign, var_name, is_first_assignment);
                     return;
@@ -228,10 +300,43 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // When variable is typed as bigint, we need to convert values to BigInt
             if (value_type == .bigint) {
                 // Infer the type of the current value expression
-                const current_value_type = try self.type_inferrer.inferExpr(assign.value.*);
+                const current_value_type = try self.inferExprScoped(assign.value.*);
 
                 // If current value is int-typed, convert to BigInt
                 if (current_value_type == .int) {
+                    // Check if this is an int() call - use parseIntToBigInt directly
+                    // to avoid overflow when parsing very large strings like int('1' * 600)
+                    if (assign.value.* == .call and assign.value.call.func.* == .name and
+                        std.mem.eql(u8, assign.value.call.func.name.id, "int"))
+                    {
+                        const int_call = assign.value.call;
+                        if (int_call.args.len >= 1) {
+                            // int(string) or int(string, base) -> use parseIntToBigInt
+                            try self.emit("(try runtime.parseIntToBigInt(__global_allocator, ");
+                            try self.genExpr(int_call.args[0]);
+                            try self.emit(", ");
+                            if (int_call.args.len >= 2) {
+                                try self.emit("@intCast(");
+                                try self.genExpr(int_call.args[1]);
+                                try self.emit(")");
+                            } else {
+                                try self.emit("10");
+                            }
+                            try self.emit("));\n");
+
+                            // Track variable metadata
+                            try valueGen.trackVariableMetadata(
+                                self,
+                                var_name,
+                                is_first_assignment,
+                                is_constant_array,
+                                typeHandling.isArraySlice(self, assign.value.*),
+                                assign,
+                            );
+                            return;
+                        }
+                    }
+
                     // Small integer constants can use fromInt (i64)
                     // Other int expressions (arithmetic, int(string), etc.) may produce i128
                     if (assign.value.* == .constant) {
@@ -363,7 +468,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             try self.emitIndent();
             if (is_dynamic) {
                 // Dynamic attribute: use __dict__.put() with type wrapping
-                const dyn_value_type = try self.type_inferrer.inferExpr(assign.value.*);
+                const dyn_value_type = try self.inferExprScoped(assign.value.*);
                 const py_value_tag = switch (dyn_value_type) {
                     .int => "int",
                     .float => "float",
@@ -391,7 +496,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Only handle index subscripts for now (not slices)
             if (subscript.slice == .index) {
                 // Determine the container type to generate appropriate code
-                const container_type = try self.type_inferrer.inferExpr(subscript.value.*);
+                const container_type = try self.inferExprScoped(subscript.value.*);
 
                 try self.emitIndent();
 
@@ -449,7 +554,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         const subscript = aug.target.subscript;
         if (subscript.slice == .index) {
             // Check if base is a dict: either by type inference or by tracking
-            const base_type = try self.type_inferrer.inferExpr(subscript.value.*);
+            const base_type = try self.inferExprScoped(subscript.value.*);
             const is_tracked_dict = if (subscript.value.* == .name)
                 self.isDictVar(subscript.value.name.id)
             else
@@ -590,7 +695,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Handle matrix multiplication separately
     if (aug.op == .MatMul) {
         // MatMul: target @= value => call __imatmul__ if available, else numpy.matmulAuto
-        const target_type = try self.type_inferrer.inferExpr(aug.target.*);
+        const target_type = try self.inferExprScoped(aug.target.*);
         if (target_type == .class_instance or target_type == .unknown) {
             // User class with __imatmul__: try target.__imatmul__(allocator, value)
             try self.emit("try ");
@@ -623,7 +728,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Special handling for list/array multiplication: x *= 2
     // Check if LHS is a list type
     if (aug.op == .Mult) {
-        const target_type = try self.type_inferrer.inferExpr(aug.target.*);
+        const target_type = try self.inferExprScoped(aug.target.*);
         if (target_type == .list or aug.target.* == .list) {
             // List repeat: x *= n => runtime.listRepeat(x, n)
             try self.emit("runtime.listRepeat(");
@@ -726,6 +831,31 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             if (return_type != .unknown) {
                 try self.emit("_ = ");
                 added_discard_prefix = true;
+            }
+        } else if (self.var_renames.get(func_name)) |renamed| {
+            // Variables renamed from type attributes (e.g., int_class -> _local_int_class)
+            // These hold type constructors like int which return values
+            _ = renamed;
+            try self.emit("_ = ");
+            added_discard_prefix = true;
+        }
+    }
+
+    // Handle type attribute calls (e.g., self.int_class(...))
+    // These return values and need _ = prefix
+    if (expr == .call and expr.call.func.* == .attribute) {
+        const attr = expr.call.func.attribute;
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+            if (self.current_class_name) |class_name| {
+                var type_attr_key_buf: [512]u8 = undefined;
+                const type_attr_key = std.fmt.bufPrint(&type_attr_key_buf, "{s}.{s}", .{ class_name, attr.attr }) catch null;
+                if (type_attr_key) |key| {
+                    if (self.class_type_attrs.get(key)) |_| {
+                        // This is a type attribute call - it returns a value
+                        try self.emit("_ = ");
+                        added_discard_prefix = true;
+                    }
+                }
             }
         }
     }
@@ -869,7 +999,7 @@ fn isDynamicAttrAssign(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
     const obj_name = attr.value.name.id;
 
     // Get object type
-    const obj_type = try self.type_inferrer.inferExpr(attr.value.*);
+    const obj_type = try self.inferExprScoped(attr.value.*);
 
     // Check if it's a class instance
     if (obj_type != .class_instance) return false;

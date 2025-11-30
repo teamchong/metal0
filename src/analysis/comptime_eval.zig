@@ -25,6 +25,7 @@ pub const ComptimeEvaluator = struct {
         return switch (node) {
             .constant => |val| switch (val.value) {
                 .int => |i| ComptimeValue{ .int = i },
+                .bigint => null, // BigInt cannot be compile-time evaluated as i64
                 .float => |f| ComptimeValue{ .float = f },
                 .bool => |b| ComptimeValue{ .bool = b },
                 .string => |s| ComptimeValue{ .string = s },

@@ -162,8 +162,8 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
     try self.emitIndent();
 
     if (assert_node.msg) |msg| {
-        // assert x, "message"
-        try self.emit("std.debug.panic(\"AssertionError: {s}\", .{");
+        // assert x, "message" - use {any} to handle any type of message (string, int, etc.)
+        try self.emit("std.debug.panic(\"AssertionError: {any}\", .{");
         try self.genExpr(msg.*);
         try self.emit("});\n");
     } else {
@@ -211,6 +211,41 @@ const ExceptionTypes = std.StaticStringMap(void).initComptime(.{
 });
 
 /// Check if with expression is a unittest context manager that should be skipped
+/// Check if context manager is assertRaises or assertRaisesRegex (needs error handling)
+/// Also handles tuples of context managers (e.g., with (assertRaises(), Stopwatch()) as ...)
+fn isAssertRaisesContext(expr: ast.Node) bool {
+    // Direct call to self.assertRaises or self.assertRaisesRegex
+    if (expr == .call) {
+        const call = expr.call;
+        if (call.func.* == .attribute) {
+            const attr = call.func.attribute;
+            if (attr.value.* == .name) {
+                const obj_name = attr.value.name.id;
+                if (std.mem.eql(u8, obj_name, "self")) {
+                    const method_name = attr.attr;
+                    if (std.mem.eql(u8, method_name, "assertRaises") or
+                        std.mem.eql(u8, method_name, "assertRaisesRegex"))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    // Tuple of context managers - check if any element is assertRaises
+    // e.g., with (self.assertRaises(ValueError) as err, support.Stopwatch() as sw):
+    if (expr == .tuple) {
+        for (expr.tuple.elts) |elt| {
+            // Handle named expression (context manager as var)
+            const actual_expr = if (elt == .named_expr) elt.named_expr.value.* else elt;
+            if (isAssertRaisesContext(actual_expr)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 fn isUnittestContextManager(expr: ast.Node) bool {
     // Check for self.assertWarns(...), self.assertRaises(...), self.assertRaisesRegex(...), etc.
     if (expr == .call) {
@@ -235,6 +270,17 @@ fn isUnittestContextManager(expr: ast.Node) bool {
             }
         }
     }
+    // Tuple of context managers - check if any element is a unittest context manager
+    // e.g., with (self.assertRaises(ValueError) as err, support.Stopwatch() as sw):
+    if (expr == .tuple) {
+        for (expr.tuple.elts) |elt| {
+            // Handle named expression (context manager as var)
+            const actual_expr = if (elt == .named_expr) elt.named_expr.value.* else elt;
+            if (isUnittestContextManager(actual_expr)) {
+                return true;
+            }
+        }
+    }
     return false;
 }
 
@@ -255,12 +301,38 @@ fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!
         } else if (stmt == .with_stmt) {
             // Nested with statement - hoist its variable if it has one
             if (stmt.with_stmt.optional_vars) |var_name| {
-                // For unittest context managers, use ContextManager type
                 if (isUnittestContextManager(stmt.with_stmt.context_expr.*)) {
-                    try hoistVarWithType(self, var_name, "runtime.unittest.ContextManager");
+                    // Unittest context managers need hoisting too - err may be used after with block
+                    // Hoist as ContextManager type - use const since it's only assigned once
+                    try self.emitIndent();
+                    try self.emit("const ");
+                    try self.emit(var_name);
+                    try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
+                    try self.hoisted_vars.put(var_name, {});
                 } else {
                     // Use @TypeOf(context_expr) for comptime type inference
                     try hoistVarWithExpr(self, var_name, stmt.with_stmt.context_expr);
+                }
+            }
+            // Handle tuple context managers with named expressions
+            if (stmt.with_stmt.context_expr.* == .tuple) {
+                for (stmt.with_stmt.context_expr.tuple.elts) |elt| {
+                    if (elt == .named_expr) {
+                        const named = elt.named_expr;
+                        const cm_var_name = named.target.name.id;
+                        const cm_expr = named.value.*;
+                        if (isUnittestContextManager(cm_expr)) {
+                            // Hoist unittest context manager variable - use const since only assigned once
+                            try self.emitIndent();
+                            try self.emit("const ");
+                            try self.emit(cm_var_name);
+                            try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
+                            try self.hoisted_vars.put(cm_var_name, {});
+                        } else {
+                            // Hoist regular context manager variable
+                            try hoistVarWithExpr(self, cm_var_name, &cm_expr);
+                        }
+                    }
                 }
             }
             // Also recursively hoist variables from nested with body
@@ -335,28 +407,101 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             const is_declared = self.isDeclared(var_name);
             const needs_decl = !is_hoisted and !is_declared;
 
-            try self.emitIndent();
+            // Only emit declaration if variable not already declared
+            // For repeated with statements using same variable, the const is already set
             if (needs_decl) {
+                try self.emitIndent();
                 // Use const for context manager variables (they're read-only)
-                // If multiple with statements use the same name, we rely on hoisting/declaration tracking
                 try self.emit("const ");
-            }
-            try self.emit(var_name);
-            try self.emit(" = runtime.unittest.ContextManager{};\n");
-            // Always discard pointer to suppress unused warning
-            // Using pointer avoids "pointless discard" when variable IS used later
-            try self.emitIndent();
-            try self.emit("_ = &");
-            try self.emit(var_name);
-            try self.emit(";\n");
-            if (needs_decl) {
+                try self.emit(var_name);
+                try self.emit(" = runtime.unittest.ContextManager{};\n");
+                // Always discard pointer to suppress unused warning
+                // Using pointer avoids "pointless discard" when variable IS used later
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try self.emit(var_name);
+                try self.emit(";\n");
                 try self.declareVar(var_name);
             }
         }
 
-        // Just generate body without the context manager wrapper
-        for (with_node.body) |stmt| {
-            try self.generateStmt(stmt);
+        // Handle tuple of context managers with named expressions
+        // e.g., with (self.assertRaises(ValueError) as err, support.Stopwatch() as sw):
+        if (with_node.context_expr.* == .tuple) {
+            for (with_node.context_expr.tuple.elts) |elt| {
+                if (elt == .named_expr) {
+                    const named = elt.named_expr;
+                    const var_name = named.target.name.id;
+                    const cm_expr = named.value.*;
+
+                    // Check if variable was hoisted or already declared
+                    const is_hoisted = self.hoisted_vars.contains(var_name);
+                    const is_declared = self.isDeclared(var_name);
+                    const needs_decl = !is_hoisted and !is_declared;
+
+                    // Check if this is a unittest context manager (assertRaises, etc.)
+                    if (isUnittestContextManager(cm_expr)) {
+                        // Emit dummy ContextManager for assertRaises/assertRaisesRegex
+                        try self.emitIndent();
+                        if (needs_decl) {
+                            try self.emit("const ");
+                        }
+                        try self.emit(var_name);
+                        try self.emit(" = runtime.unittest.ContextManager{};\n");
+                        try self.emitIndent();
+                        try self.emit("_ = &");
+                        try self.emit(var_name);
+                        try self.emit(";\n");
+                    } else {
+                        // Emit actual context manager (e.g., support.Stopwatch())
+                        try self.emitIndent();
+                        if (needs_decl) {
+                            try self.emit("var ");
+                        }
+                        try self.emit(var_name);
+                        try self.emit(" = ");
+                        try self.genExpr(cm_expr);
+                        try self.emit(";\n");
+                        try self.emitIndent();
+                        try self.emit("defer ");
+                        try self.emit(var_name);
+                        try self.emit(".close();\n");
+                    }
+                    if (needs_decl) {
+                        try self.declareVar(var_name);
+                    }
+                }
+            }
+        }
+
+        // For assertRaises/assertRaisesRegex, set context flag so builtins use catch instead of try
+        // For assertWarns/assertLogs, just generate body normally
+        const is_raises_context = isAssertRaisesContext(with_node.context_expr.*);
+
+        if (is_raises_context) {
+            const was_in_assert_raises = self.in_assert_raises_context;
+            self.in_assert_raises_context = true;
+
+            for (with_node.body) |stmt| {
+                // For expression statements that might error, wrap the expression in catch
+                // Use comptime check to handle both error unions and non-error types
+                if (stmt == .expr_stmt) {
+                    try self.emitIndent();
+                    try self.emit("{ const __ar_expr = ");
+                    try self.genExpr(stmt.expr_stmt.value.*);
+                    try self.emit("; if (@typeInfo(@TypeOf(__ar_expr)) == .error_union) { _ = __ar_expr catch {}; } }\n");
+                } else {
+                    try self.generateStmt(stmt);
+                }
+            }
+
+            // Restore context flag
+            self.in_assert_raises_context = was_in_assert_raises;
+        } else {
+            // For assertWarns, assertLogs, subTest - just generate body normally
+            for (with_node.body) |stmt| {
+                try self.generateStmt(stmt);
+            }
         }
         return;
     }
@@ -407,8 +552,18 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
     }
 
     // Generate body
+    // If we're inside an assertRaises context (from a parent with statement),
+    // wrap expression statements in error-catching code
     for (with_node.body) |stmt| {
-        try self.generateStmt(stmt);
+        if (self.in_assert_raises_context and stmt == .expr_stmt) {
+            // Wrap expression in error catch for assertRaises context
+            try self.emitIndent();
+            try self.emit("{ const __ar_expr = ");
+            try self.genExpr(stmt.expr_stmt.value.*);
+            try self.emit("; if (@typeInfo(@TypeOf(__ar_expr)) == .error_union) { _ = __ar_expr catch {}; } }\n");
+        } else {
+            try self.generateStmt(stmt);
+        }
     }
 
     // Close block if no variable

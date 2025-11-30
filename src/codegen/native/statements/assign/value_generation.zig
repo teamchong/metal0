@@ -118,7 +118,9 @@ pub fn emitVarDeclaration(
     // For unknown types (json.loads, etc.), let Zig infer
     // For class instances, let Zig infer to avoid cross-method type pollution issues
     // For integers, let Zig infer to handle i64/i128 from int() calls (sys.maxsize + 1 needs i128)
+    // EXCEPTION: bigint requires explicit type annotation because initial value (small int) won't match
     const is_int = (value_type == .int);
+    const is_bigint = (value_type == .bigint);
     const is_list = (value_type == .list);
     const is_tuple = (value_type == .tuple);
     const is_closure = (value_type == .closure);
@@ -127,6 +129,13 @@ pub fn emitVarDeclaration(
     const is_deque = (value_type == .deque);
     const is_class_instance = (value_type == .class_instance);
     const is_dictcomp = false; // Passed separately
+
+    // BigInt needs explicit type annotation to declare variable as BigInt even if first value is a small int
+    if (is_bigint) {
+        try self.emit(": runtime.BigInt = ");
+        return;
+    }
+
     if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_counter and !is_deque and !is_class_instance and !is_int) {
         try self.emit(": ");
         try value_type.toZigType(self.allocator, &self.output);
@@ -137,24 +146,37 @@ pub fn emitVarDeclaration(
 
 /// Generate ArrayList initialization from list literal
 pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.Node.List) CodegenError!void {
-    // Check if variable is already declared (e.g., global variable with type annotation)
-    // If so, use .{} to inherit the declared type instead of creating a new struct type
-    const is_declared = self.isDeclared(var_name) or self.isGlobalVar(var_name);
+    const native_types = @import("../../../../analysis/native_types.zig");
+    const NativeType = native_types.NativeType;
 
-    if (is_declared) {
-        // Variable already has a type - use .{} to avoid type mismatch with anonymous structs
+    // Check if variable was declared BEFORE this current assignment (e.g., global variable with type annotation)
+    // Note: isDeclared returns true even if we just declared in the same statement, so we need
+    // to check isGlobalVar which indicates pre-existing type annotation
+    const has_predeclared_type = self.isGlobalVar(var_name);
+
+    // Infer element type with widening across ALL elements
+    var elem_type: NativeType = if (list.elts.len > 0)
+        try self.type_inferrer.inferExpr(list.elts[0])
+    else
+        .int; // Default to int for empty lists
+
+    // Widen type to accommodate all elements
+    for (list.elts[1..]) |elem| {
+        const this_type = try self.type_inferrer.inferExpr(elem);
+        elem_type = elem_type.widen(this_type);
+    }
+
+    if (has_predeclared_type) {
+        // Variable already has a type - use .{} to inherit the declared type instead of creating a new struct type
         try self.emit(".{};\n");
     } else {
-        // Determine element type
-        const elem_type = if (list.elts.len > 0)
-            try self.type_inferrer.inferExpr(list.elts[0])
-        else
-            .int; // Default to int for empty lists
-
         try self.emit("std.ArrayList(");
         try elem_type.toZigType(self.allocator, &self.output);
         try self.emit("){};\n");
     }
+
+    // Check if this is a list of callables (needs wrapping)
+    const is_callable_list = @as(std.meta.Tag(NativeType), elem_type) == .callable;
 
     // Append elements
     for (list.elts) |elem| {
@@ -166,7 +188,7 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
 
         // For tuples in pre-declared ArrayLists (with struct element type),
         // generate named field syntax: .{ .@"0" = val1, .@"1" = val2 }
-        if (is_declared and elem == .tuple) {
+        if (has_predeclared_type and elem == .tuple) {
             try self.emit(".{ ");
             for (elem.tuple.elts, 0..) |tuple_elem, i| {
                 if (i > 0) try self.emit(", ");
@@ -174,6 +196,10 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
                 try self.genExpr(tuple_elem);
             }
             try self.emit(" }");
+        } else if (is_callable_list) {
+            // Wrap non-PyCallable elements for callable lists
+            const this_type = try self.type_inferrer.inferExpr(elem);
+            try genCallableElement(self, elem, this_type);
         } else {
             try self.genExpr(elem);
         }
@@ -183,6 +209,61 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     // Track this variable as ArrayList for len() generation
     const var_name_copy = try self.allocator.dupe(u8, var_name);
     try self.arraylist_vars.put(var_name_copy, {});
+}
+
+/// Generate an element for a list of callables (PyCallable)
+/// Wraps lambdas, classes, and other callable elements in PyCallable.fromAny
+fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: anytype) CodegenError!void {
+    const native_types = @import("../../../../analysis/native_types.zig");
+    const NativeType = native_types.NativeType;
+
+    const elem_tag = @as(std.meta.Tag(NativeType), elem_type);
+
+    switch (elem_tag) {
+        .callable => {
+            // Already a PyCallable (bytes_factory, etc.) - emit directly
+            try self.genExpr(elem);
+        },
+        .function => {
+            // Lambda or function - wrap using fromAny for type erasure
+            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+            try self.genExpr(elem);
+            try self.emit("), ");
+            try self.genExpr(elem);
+            try self.emit(")");
+        },
+        .class_instance => {
+            // Class used as constructor - wrap in PyCallable
+            const class_name = elem_type.class_instance;
+            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+            try self.emit(class_name);
+            try self.emit(".init), ");
+            try self.emit(class_name);
+            try self.emit(".init)");
+        },
+        else => {
+            // Unknown callable type - try to wrap it generically
+            // Check if it's a name node for a class
+            if (elem == .name) {
+                const name = elem.name.id;
+                // Check if it's a known class in class_fields
+                if (self.type_inferrer.class_fields.contains(name)) {
+                    try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+                    try self.emit(name);
+                    try self.emit(".init), ");
+                    try self.emit(name);
+                    try self.emit(".init)");
+                    return;
+                }
+            }
+            // Fallback - wrap using fromAny for type erasure
+            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+            try self.genExpr(elem);
+            try self.emit("), ");
+            try self.genExpr(elem);
+            try self.emit(")");
+        },
+    }
 }
 
 /// Generate string concatenation with multiple parts

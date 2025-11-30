@@ -6,6 +6,8 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
+const native_types = @import("../../../analysis/native_types.zig");
+const NativeType = native_types.NativeType;
 
 // Re-export dict generation from dict.zig
 const dict = @import("dict.zig");
@@ -56,11 +58,61 @@ fn allSameType(elements: []ast.Node) bool {
     return true;
 }
 
+/// Generate an element for a list of callables (PyCallable)
+/// Wraps lambdas, classes, and other callable elements in PyCallable.fromFn
+fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: NativeType) CodegenError!void {
+    switch (elem_type) {
+        .callable => {
+            // Already a PyCallable (bytes_factory, etc.) - emit directly
+            try genExpr(self, elem);
+        },
+        .function => {
+            // Lambda or function - wrap using fromAny for type erasure
+            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+            try genExpr(self, elem);
+            try self.emit("), ");
+            try genExpr(self, elem);
+            try self.emit(")");
+        },
+        .class_instance => |class_name| {
+            // Class used as constructor - wrap in PyCallable
+            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+            try self.emit(class_name);
+            try self.emit(".init), ");
+            try self.emit(class_name);
+            try self.emit(".init)");
+        },
+        else => {
+            // Unknown callable type - try to wrap it generically
+            // Check if it's a name node for a class
+            if (elem == .name) {
+                const name = elem.name.id;
+                // Check if it's a known class in class_fields
+                if (self.type_inferrer.class_fields.contains(name)) {
+                    try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+                    try self.emit(name);
+                    try self.emit(".init), ");
+                    try self.emit(name);
+                    try self.emit(".init)");
+                    return;
+                }
+            }
+            // Fallback - wrap using fromAny for type erasure
+            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+            try genExpr(self, elem);
+            try self.emit("), ");
+            try genExpr(self, elem);
+            try self.emit(")");
+        },
+    }
+}
+
 /// Generate fixed-size array literal for constant, homogeneous lists
 fn genArrayLiteral(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     // Determine element type from first element
     const elem_type_str = switch (list.elts[0].constant.value) {
         .int => "i64",
+        .bigint => "runtime.BigInt",
         .float => "f64",
         .string => "[]const u8",
         .bool => "bool",
@@ -219,6 +271,9 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
             try self.emit("@as(f64, @floatFromInt(");
             try genExpr(self, elem);
             try self.emit("))");
+        } else if (@as(std.meta.Tag(NativeType), elem_type) == .callable) {
+            // List of callables - wrap non-PyCallable elements
+            try genCallableElement(self, elem, this_type);
         } else {
             try genExpr(self, elem);
         }

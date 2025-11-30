@@ -529,6 +529,19 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.type_inferrer.var_types.put(var_name, .int);
     }
 
+    // If iterating over a list of callables (PyCallable), register loop var as callable
+    // This enables .call() syntax for calls like f(arg) -> f.call(arg)
+    // Also register in var_types for type inference of call return values
+    if (@as(std.meta.Tag(@TypeOf(iter_type)), iter_type) == .list) {
+        if (@as(std.meta.Tag(@TypeOf(iter_type.list.*)), iter_type.list.*) == .callable) {
+            // Register loop variable as callable for .call() generation
+            const owned_name = try self.allocator.dupe(u8, var_name);
+            try self.callable_vars.put(owned_name, {});
+            // Register in var_types for type inference (callable call returns string/bytes)
+            try self.type_inferrer.var_types.put(var_name, .callable);
+        }
+    }
+
     for (for_stmt.body) |stmt| {
         try self.generateStmt(stmt);
     }

@@ -16,6 +16,7 @@ const body = @import("../body.zig");
 // Type alias for builtin base info
 const BuiltinBaseInfo = generators.BuiltinBaseInfo;
 
+
 /// Generate default init() method for classes without __init__
 pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!void {
     // Default __dict__ field for dynamic attributes
@@ -471,6 +472,24 @@ pub fn genClassMethods(
             // It's incremented when we enter a class inside a method body, not when we enter a method itself
             try signature.genMethodSignatureWithSkip(self, class.name, method, mutates_self, needs_allocator, false, actually_uses_allocator);
 
+            // Track method signature for default parameter handling at call sites
+            // Count non-self params and how many have defaults
+            var required_count: usize = 0;
+            var total_count: usize = 0;
+            for (method.args) |arg| {
+                if (std.mem.eql(u8, arg.name, "self")) continue;
+                total_count += 1;
+                if (arg.default == null) required_count += 1;
+            }
+            // Store as "ClassName.method_name" for method call lookup
+            if (total_count > required_count) {
+                const method_key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, method.name });
+                try self.function_signatures.put(method_key, .{
+                    .total_params = total_count,
+                    .required_params = required_count,
+                });
+            }
+
             // Check if this method returns a lambda that captures self (closure)
             // Register it so that callers can mark the variable as a closure
             if (signature.getReturnedLambda(method.body)) |lambda| {
@@ -480,6 +499,12 @@ pub fn genClassMethods(
                     try self.closure_returning_methods.put(key, {});
                 }
             }
+
+            // Set current function name for comparisons in method body
+            // (used for detecting optional parameter comparisons like "base is None")
+            const prev_func_name = self.current_function_name;
+            self.current_function_name = method.name;
+            defer self.current_function_name = prev_func_name;
 
             try body.genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses_allocator);
         }

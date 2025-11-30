@@ -52,6 +52,156 @@ pub fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
     return false;
 }
 
+/// Check if an AST node references a type attribute (e.g., self.int_class where int_class is a type attribute)
+fn usesTypeAttribute(node: ast.Node, class_name: []const u8, class_type_attrs: anytype) bool {
+    switch (node) {
+        .attribute => |attr| {
+            // Check for self.attr_name where attr_name is a type attribute
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                var key_buf: [512]u8 = undefined;
+                const key = std.fmt.bufPrint(&key_buf, "{s}.{s}", .{ class_name, attr.attr }) catch return false;
+                if (class_type_attrs.get(key)) |_| {
+                    return true;
+                }
+            }
+            return usesTypeAttribute(attr.value.*, class_name, class_type_attrs);
+        },
+        .call => |call| {
+            // Check function expression
+            if (usesTypeAttribute(call.func.*, class_name, class_type_attrs)) return true;
+            // Check arguments
+            for (call.args) |arg| {
+                if (usesTypeAttribute(arg, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        .binop => |binop| {
+            return usesTypeAttribute(binop.left.*, class_name, class_type_attrs) or
+                usesTypeAttribute(binop.right.*, class_name, class_type_attrs);
+        },
+        .assign => |assign| {
+            // Check value expression
+            if (usesTypeAttribute(assign.value.*, class_name, class_type_attrs)) return true;
+            // Check targets
+            for (assign.targets) |target| {
+                if (usesTypeAttribute(target, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        .expr_stmt => |expr| {
+            return usesTypeAttribute(expr.value.*, class_name, class_type_attrs);
+        },
+        .if_stmt => |if_stmt| {
+            // Check condition
+            if (usesTypeAttribute(if_stmt.condition.*, class_name, class_type_attrs)) return true;
+            // Check body
+            for (if_stmt.body) |stmt| {
+                if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+            }
+            for (if_stmt.else_body) |stmt| {
+                if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            for (for_stmt.body) |stmt| {
+                if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        .with_stmt => |with_stmt| {
+            // Check context expression
+            if (usesTypeAttribute(with_stmt.context_expr.*, class_name, class_type_attrs)) return true;
+            // Check body
+            for (with_stmt.body) |stmt| {
+                if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        else => return false,
+    }
+}
+
+/// Check if an AST node uses `self` for non-type-attribute access
+/// (e.g., self.check(), self.field where field is NOT a type attribute)
+/// This is used to determine if `_ = self;` is needed
+fn usesRegularSelf(node: ast.Node, class_name: []const u8, class_type_attrs: anytype) bool {
+    switch (node) {
+        .attribute => |attr| {
+            // Check for self.attr_name where attr_name is NOT a type attribute
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                var key_buf: [512]u8 = undefined;
+                const key = std.fmt.bufPrint(&key_buf, "{s}.{s}", .{ class_name, attr.attr }) catch return false;
+                // If it's a type attribute, this is NOT a regular self usage
+                if (class_type_attrs.get(key)) |_| {
+                    return false;
+                }
+                // Skip unittest assertion methods that get transformed to runtime calls
+                // These methods don't actually use `self` in the generated Zig code
+                if (self_analyzer.unittest_assertion_methods.has(attr.attr)) {
+                    return false;
+                }
+                // It's a regular self.something access
+                return true;
+            }
+            return usesRegularSelf(attr.value.*, class_name, class_type_attrs);
+        },
+        .call => |call| {
+            // Check function expression
+            if (usesRegularSelf(call.func.*, class_name, class_type_attrs)) return true;
+            // Check arguments
+            for (call.args) |arg| {
+                if (usesRegularSelf(arg, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        .binop => |binop| {
+            return usesRegularSelf(binop.left.*, class_name, class_type_attrs) or
+                usesRegularSelf(binop.right.*, class_name, class_type_attrs);
+        },
+        .assign => |assign| {
+            // Check value expression
+            if (usesRegularSelf(assign.value.*, class_name, class_type_attrs)) return true;
+            // Check targets
+            for (assign.targets) |target| {
+                if (usesRegularSelf(target, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        .expr_stmt => |expr| {
+            return usesRegularSelf(expr.value.*, class_name, class_type_attrs);
+        },
+        .if_stmt => |if_stmt| {
+            // Check condition
+            if (usesRegularSelf(if_stmt.condition.*, class_name, class_type_attrs)) return true;
+            // Check body
+            for (if_stmt.body) |stmt| {
+                if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+            }
+            for (if_stmt.else_body) |stmt| {
+                if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            for (for_stmt.body) |stmt| {
+                if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        .with_stmt => |with_stmt| {
+            // Check context expression
+            if (usesRegularSelf(with_stmt.context_expr.*, class_name, class_type_attrs)) return true;
+            // Check body
+            for (with_stmt.body) |stmt| {
+                if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        else => return false,
+    }
+}
+
 /// Analyze function body for mutated variables (variables assigned more than once)
 fn analyzeFunctionLocalMutations(self: *NativeCodegen, func: ast.Node.FunctionDef) !void {
     // Track how many times each variable is assigned
@@ -378,6 +528,11 @@ fn countAssignmentsInStmt(counts: *hashmap_helper.StringHashMap(usize), stmt: as
                 try countAssignmentsInStmt(counts, body_stmt, allocator);
             }
         },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |body_stmt| {
+                try countAssignmentsInStmt(counts, body_stmt, allocator);
+            }
+        },
         else => {},
     }
 }
@@ -463,6 +618,11 @@ fn findNestedClassCaptures(self: *NativeCodegen, stmts: []ast.Node) CodegenError
                 // Track all nested class names for constructor detection
                 try self.nested_class_names.put(class.name, {});
 
+                // Track base class for nested classes (for default constructor args)
+                if (class.bases.len > 0) {
+                    try self.nested_class_bases.put(class.name, class.bases[0]);
+                }
+
                 // Find outer variables referenced by this class
                 var captured = std.ArrayList([]const u8){};
                 try findCapturedVarsInClass(self, class, &captured);
@@ -498,6 +658,9 @@ fn findNestedClassCaptures(self: *NativeCodegen, stmts: []ast.Node) CodegenError
                 }
                 try findNestedClassCaptures(self, try_stmt.else_body);
                 try findNestedClassCaptures(self, try_stmt.finalbody);
+            },
+            .with_stmt => |with_stmt| {
+                try findNestedClassCaptures(self, with_stmt.body);
             },
             else => {},
         }
@@ -782,6 +945,15 @@ pub fn genFunctionBody(
     }
     self.nested_class_captures.clearRetainingCapacity();
 
+    // Clear nested class tracking (names and bases) after exiting function
+    // This prevents class name collisions between different functions
+    // BUT: Don't clear if we're inside a nested class (class_nesting_depth > 1)
+    // because the parent scope needs to retain nested class info
+    if (self.class_nesting_depth <= 1) {
+        self.nested_class_names.clearRetainingCapacity();
+        self.nested_class_bases.clearRetainingCapacity();
+    }
+
     var builder = CodeBuilder.init(self);
     _ = try builder.endBlock();
 }
@@ -917,13 +1089,53 @@ pub fn genMethodBodyWithAllocatorInfo(
 
     self.indent();
 
-    // Push new scope for method body
+    // Push new scope for method body (symbol table)
     try self.pushScope();
+
+    // Enter named type inferrer scope to match analysis phase
+    // Use "ClassName.method_name" for methods or "func_name" for standalone functions
+    // This enables scoped variable type lookup during codegen
+    var scope_name_buf: [256]u8 = undefined;
+    const scope_name = if (self.current_class_name) |class_name|
+        std.fmt.bufPrint(&scope_name_buf, "{s}.{s}", .{ class_name, method.name }) catch method.name
+    else
+        method.name;
+    const old_type_scope = self.type_inferrer.enterScope(scope_name);
+    defer self.type_inferrer.exitScope(old_type_scope);
 
     // Note: We removed the "_ = self;" emission for super() calls
     // This was causing "pointless discard of function parameter" errors when
     // self IS actually used in the method body beyond super() calls.
     // If self is truly unused, signature.zig should handle it with "_" prefix.
+
+    // However, if the method uses type attributes (e.g., self.int_class), the generated
+    // code uses @This().int_class which doesn't reference self, causing "unused parameter" error.
+    // Detect this case and emit _ = self; to suppress the warning.
+    // BUT: only emit _ = self; if the method ONLY uses type attributes and not regular self methods.
+    // If the method uses BOTH type attributes AND regular self (e.g., self.check()), then self IS used.
+    if (self.current_class_name) |class_name| {
+        const uses_type_attrs = blk: {
+            for (method.body) |stmt| {
+                if (usesTypeAttribute(stmt, class_name, self.class_type_attrs)) {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        };
+        const uses_regular_self = blk2: {
+            for (method.body) |stmt| {
+                if (usesRegularSelf(stmt, class_name, self.class_type_attrs)) {
+                    break :blk2 true;
+                }
+            }
+            break :blk2 false;
+        };
+        // Only emit _ = self if we use type attrs but DON'T use regular self
+        if (uses_type_attrs and !uses_regular_self) {
+            try self.emitIndent();
+            try self.emit("_ = self;\n");
+        }
+    }
 
     // Note: Unused allocator param is handled in signature.zig with "_:" prefix
     // No need to emit "_ = allocator;" here
@@ -968,6 +1180,17 @@ pub fn genMethodBodyWithAllocatorInfo(
 
     // Clear function-local mutations after exiting method
     self.func_local_mutations.clearRetainingCapacity();
+
+    // Clear nested class tracking (names and bases) after exiting method
+    // This prevents class name collisions between different methods
+    // (e.g., both test_foo and test_bar may have a nested class named BadIndex)
+    // BUT: Don't clear if we're inside a nested class (class_nesting_depth > 1)
+    // because the parent scope needs to retain nested class info for constructor calls
+    // that appear AFTER the nested class definition
+    if (self.class_nesting_depth <= 1) {
+        self.nested_class_names.clearRetainingCapacity();
+        self.nested_class_bases.clearRetainingCapacity();
+    }
 
     self.dedent();
     try self.emitIndent();

@@ -64,6 +64,7 @@ pub const ClassInfo = struct {
 pub fn needsAllocator(self: NativeType) bool {
     return switch (self) {
         .string => true, // String operations allocate
+        .bigint => true, // BigInt operations allocate
         .list, .dict => true, // Collection operations allocate
         .array => |arr| arr.element_type.needsAllocator(), // Recursive
         .tuple => |types| blk: {
@@ -80,7 +81,7 @@ pub fn needsAllocator(self: NativeType) bool {
 /// Comptime check: Is return type error union?
 pub fn isErrorUnion(self: NativeType) bool {
     return switch (self) {
-        .string, .list, .dict, .array => true, // These can fail allocation
+        .string, .bigint, .list, .dict, .array => true, // These can fail allocation
         .function => |f| f.return_type.isErrorUnion(),
         else => false,
     };

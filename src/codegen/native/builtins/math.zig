@@ -4,6 +4,17 @@ const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 
+/// Check if argument is None constant
+fn isNoneArg(arg: ast.Node) bool {
+    if (arg == .constant) {
+        if (arg.constant.value == .none) return true;
+    }
+    if (arg == .name) {
+        if (std.mem.eql(u8, arg.name.id, "None")) return true;
+    }
+    return false;
+}
+
 /// Generate code for abs(n)
 /// Returns absolute value
 pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -73,9 +84,10 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    if (args.len == 1) {
-        // round(n) - round to nearest integer
-        try self.emit("@round(");
+    // round(n) or round(n, None) - round to nearest integer
+    if (args.len == 1 or (args.len == 2 and isNoneArg(args[1]))) {
+        // Use runtime.builtins.pyRound to handle both int and float
+        try self.emit("runtime.builtins.pyRound(");
         try self.genExpr(args[0]);
         try self.emit(")");
         return;
@@ -85,15 +97,15 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For ndigits=0, just use @round
     // Otherwise use: @round(n * 10^ndigits) / 10^ndigits
     try self.emit("round_blk: {\n");
-    try self.emit("const _val = ");
+    try self.emit("const _val = @as(f64, @floatFromInt(");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
+    try self.emit("));\n");
     try self.emit("const _ndigits = ");
     try self.genExpr(args[1]);
     try self.emit(";\n");
-    try self.emit("if (_ndigits == 0) break :round_blk @round(_val);\n");
+    try self.emit("if (_ndigits == 0) break :round_blk @as(i64, @intFromFloat(@round(_val)));\n");
     try self.emit("const _factor = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(_ndigits)));\n");
-    try self.emit("break :round_blk @round(_val * _factor) / _factor;\n");
+    try self.emit("break :round_blk @as(i64, @intFromFloat(@round(_val * _factor) / _factor));\n");
     try self.emit("}");
 }
 
@@ -151,16 +163,32 @@ pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 2) return;
 
-    // Generate: .{ @divFloor(a, b), @rem(a, b) }
-    try self.emit(".{ @divFloor(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit("), @rem(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(") }");
+    // Check if either argument is BigInt or unknown (could be anytype)
+    const left_type = self.inferExprScoped(args[0]) catch .unknown;
+    const right_type = self.inferExprScoped(args[1]) catch .unknown;
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
+    if (left_type == .bigint or right_type == .bigint or left_type == .unknown or right_type == .unknown) {
+        // BigInt or unknown type - use runtime.bigIntDivmod
+        try self.emit("runtime.bigIntDivmod(");
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(", ");
+        try self.emit(alloc_name);
+        try self.emit(")");
+    } else {
+        // Generate: .{ @divFloor(a, b), @rem(a, b) }
+        try self.emit(".{ @divFloor(");
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit("), @rem(");
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(") }");
+    }
 }
 
 /// Generate code for hash(obj)

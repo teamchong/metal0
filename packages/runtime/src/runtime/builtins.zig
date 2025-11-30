@@ -6,6 +6,7 @@ const pylist = @import("../pylist.zig");
 const pystring = @import("../pystring.zig");
 const pytuple = @import("../pytuple.zig");
 const dict_module = @import("../dict.zig");
+const BigInt = @import("bigint").BigInt;
 
 const PyObject = runtime_core.PyObject;
 const PythonError = runtime_core.PythonError;
@@ -383,6 +384,21 @@ pub fn maxIterable(iterable: anytype) i64 {
     return max_val;
 }
 
+/// Python round() - rounds a number to given precision
+/// For integers, returns the integer unchanged
+/// For floats, returns @round result
+pub fn pyRound(value: anytype) i64 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+    if (info == .int or info == .comptime_int) {
+        return @as(i64, @intCast(value));
+    } else if (info == .float or info == .comptime_float) {
+        return @intFromFloat(@round(value));
+    }
+    // For other types (structs with __round__ method), not handled here
+    return 0;
+}
+
 /// Sum of all numeric values in a list
 pub fn sum(iterable: *PyObject) i64 {
     std.debug.assert(iterable.type_id == .list);
@@ -557,3 +573,268 @@ pub fn exec(code: anytype) PythonError!void {
     _ = code;
     return PythonError.ValueError;
 }
+
+/// int(string, base) with runtime base validation
+/// Used in assertRaises context where base might be invalid (negative, > 36, etc.)
+pub fn intWithBase(allocator: std.mem.Allocator, string: anytype, base: anytype) PythonError!i128 {
+    _ = allocator;
+
+    // Get string value
+    const str_val: []const u8 = blk: {
+        const T = @TypeOf(string);
+        if (T == []const u8 or T == []u8) break :blk string;
+        if (@typeInfo(T) == .pointer) {
+            const child = @typeInfo(T).pointer.child;
+            if (@typeInfo(child) == .array) {
+                const arr_info = @typeInfo(child).array;
+                if (arr_info.child == u8) break :blk string;
+            }
+        }
+        // For pointer to array type like *const [N:0]u8
+        break :blk string;
+    };
+
+    // Validate base at runtime
+    const base_int: i64 = switch (@typeInfo(@TypeOf(base))) {
+        .int, .comptime_int => @intCast(base),
+        // Float base is TypeError in Python
+        .float, .comptime_float => return PythonError.TypeError,
+        .@"struct" => blk: {
+            // Check if it's a BigInt - try to convert to i64
+            if (@hasDecl(@TypeOf(base), "toInt64")) {
+                // It's a BigInt - try to get as i64
+                if (base.toInt64()) |val| {
+                    break :blk val;
+                } else {
+                    // BigInt too large for base - definitely out of range
+                    return PythonError.ValueError;
+                }
+            }
+            return PythonError.TypeError;
+        },
+        else => return PythonError.TypeError,
+    };
+
+    // Valid bases are 0 or 2-36
+    if (base_int != 0 and (base_int < 2 or base_int > 36)) {
+        return PythonError.ValueError;
+    }
+
+    // Use the validated base
+    const actual_base: u8 = if (base_int == 0) 10 else @intCast(base_int);
+    return std.fmt.parseInt(i128, str_val, actual_base) catch PythonError.ValueError;
+}
+
+// Type factory functions - callable versions of Python types
+// These allow types like bytes, str to be used as first-class values
+
+/// str() type factory - converts value to string (generic version)
+pub fn str(value: anytype) []const u8 {
+    const T = @TypeOf(value);
+    if (T == []const u8 or T == [:0]const u8) {
+        return value;
+    }
+    // For other types, return empty string (proper implementation would format)
+    return "";
+}
+
+/// bytes() type factory - converts value to bytes (generic version)
+pub fn bytes(value: anytype) []const u8 {
+    const T = @TypeOf(value);
+    if (T == []const u8 or T == [:0]const u8) {
+        return value;
+    }
+    return "";
+}
+
+/// bytearray() type factory - converts value to bytearray (mutable bytes)
+pub fn bytearray(value: anytype) []const u8 {
+    const T = @TypeOf(value);
+    if (T == []const u8 or T == [:0]const u8) {
+        return value;
+    }
+    return "";
+}
+
+/// memoryview() type factory - creates a memoryview of the value (generic version)
+pub fn memoryview(value: anytype) []const u8 {
+    const T = @TypeOf(value);
+    if (T == []const u8 or T == [:0]const u8) {
+        return value;
+    }
+    return "";
+}
+
+/// PyCallable - Type-erased callable wrapper for storing heterogeneous callables in lists
+/// Used when Python code creates lists of mixed callable types (functions, lambdas, type constructors)
+pub const PyCallable = struct {
+    /// Type-erased function pointer that takes bytes and returns bytes
+    call_fn: *const fn ([]const u8) []const u8,
+    /// Optional context for closures (null for simple functions)
+    context: ?*anyopaque,
+
+    /// Call this callable with the given argument
+    pub fn call(self: PyCallable, arg: []const u8) []const u8 {
+        return self.call_fn(arg);
+    }
+
+    /// Create a PyCallable from a function pointer
+    pub fn fromFn(func: *const fn ([]const u8) []const u8) PyCallable {
+        return .{ .call_fn = func, .context = null };
+    }
+
+    /// Create a PyCallable from any callable (type-erased)
+    /// This wraps the callable in a thunk that converts types
+    pub fn fromAny(comptime T: type, func: T) PyCallable {
+        const Wrapper = struct {
+            fn thunk(arg: []const u8) []const u8 {
+                _ = arg;
+                // Call the original function - type erasure means we lose info
+                // For now just return empty bytes
+                return "";
+            }
+        };
+        _ = func;
+        return .{ .call_fn = &Wrapper.thunk, .context = null };
+    }
+};
+
+// Concrete wrapper functions with fixed signatures for use in heterogeneous lists
+// These can be stored as function pointers
+
+/// bytes() as a concrete callable (fixed signature for list storage)
+pub fn bytes_callable(value: []const u8) []const u8 {
+    return value;
+}
+
+/// bytearray() as a concrete callable (fixed signature for list storage)
+pub fn bytearray_callable(value: []const u8) []const u8 {
+    return value;
+}
+
+/// str() as a concrete callable (fixed signature for list storage)
+pub fn str_callable(value: []const u8) []const u8 {
+    return value;
+}
+
+/// memoryview() as a concrete callable (fixed signature for list storage)
+pub fn memoryview_callable(value: []const u8) []const u8 {
+    return value;
+}
+
+/// BigInt-aware divmod - returns tuple of (quotient, remainder)
+/// Handles BigInt, i64, and anytype parameters via comptime dispatch
+pub fn bigIntDivmod(a: anytype, b: anytype, allocator: std.mem.Allocator) struct { @TypeOf(a), @TypeOf(a) } {
+    const AT = @TypeOf(a);
+    const BT = @TypeOf(b);
+
+    // Both are BigInt
+    if (@typeInfo(AT) == .@"struct" and @hasDecl(AT, "floorDiv") and
+        @typeInfo(BT) == .@"struct" and @hasDecl(BT, "floorDiv"))
+    {
+        const q = a.floorDiv(&b, allocator) catch unreachable;
+        const r = a.mod(&b, allocator) catch unreachable;
+        return .{ q, r };
+    }
+    // a is BigInt, b is integer
+    else if (@typeInfo(AT) == .@"struct" and @hasDecl(AT, "floorDiv")) {
+        const b_big = BigInt.fromInt(allocator, @as(i64, @intCast(b))) catch unreachable;
+        const q = a.floorDiv(&b_big, allocator) catch unreachable;
+        const r = a.mod(&b_big, allocator) catch unreachable;
+        return .{ q, r };
+    }
+    // Both are regular integers - use Zig builtins
+    else {
+        return .{ @divFloor(a, b), @rem(a, b) };
+    }
+}
+
+/// Comparison operation enum for bigIntCompare
+pub const CompareOp = enum { eq, ne, lt, le, gt, ge };
+
+/// BigInt-aware comparison - handles BigInt vs BigInt, BigInt vs int, int vs int
+pub fn bigIntCompare(a: anytype, b: anytype, op: CompareOp) bool {
+    const AT = @TypeOf(a);
+    const BT = @TypeOf(b);
+
+    const a_is_bigint = @typeInfo(AT) == .@"struct" and @hasDecl(AT, "compare");
+    const b_is_bigint = @typeInfo(BT) == .@"struct" and @hasDecl(BT, "compare");
+
+    if (a_is_bigint and b_is_bigint) {
+        // Both BigInt - use compare method
+        const cmp = a.compare(&b);
+        return switch (op) {
+            .eq => cmp == 0,
+            .ne => cmp != 0,
+            .lt => cmp < 0,
+            .le => cmp <= 0,
+            .gt => cmp > 0,
+            .ge => cmp >= 0,
+        };
+    } else if (a_is_bigint) {
+        // a is BigInt, b is integer - compare by trying to convert BigInt to i128
+        if (a.toInt128()) |a_val| {
+            const b_val: i128 = @intCast(b);
+            return switch (op) {
+                .eq => a_val == b_val,
+                .ne => a_val != b_val,
+                .lt => a_val < b_val,
+                .le => a_val <= b_val,
+                .gt => a_val > b_val,
+                .ge => a_val >= b_val,
+            };
+        } else {
+            // BigInt too large for i128 - compare by sign
+            // A huge positive is > any i128, huge negative is < any i128
+            const is_neg = a.isNegative();
+            return switch (op) {
+                .eq => false,
+                .ne => true,
+                .lt => is_neg,
+                .le => is_neg,
+                .gt => !is_neg,
+                .ge => !is_neg,
+            };
+        }
+    } else if (b_is_bigint) {
+        // b is BigInt, a is integer
+        if (b.toInt128()) |b_val| {
+            const a_val: i128 = @intCast(a);
+            return switch (op) {
+                .eq => a_val == b_val,
+                .ne => a_val != b_val,
+                .lt => a_val < b_val,
+                .le => a_val <= b_val,
+                .gt => a_val > b_val,
+                .ge => a_val >= b_val,
+            };
+        } else {
+            // BigInt too large for i128
+            const is_neg = b.isNegative();
+            return switch (op) {
+                .eq => false,
+                .ne => true,
+                .lt => !is_neg,
+                .le => !is_neg,
+                .gt => is_neg,
+                .ge => is_neg,
+            };
+        }
+    } else {
+        // Both are regular integers
+        return switch (op) {
+            .eq => a == b,
+            .ne => a != b,
+            .lt => a < b,
+            .le => a <= b,
+            .gt => a > b,
+            .ge => a >= b,
+        };
+    }
+}
+
+// PyCallable instances for built-in type factories
+pub const bytes_factory: PyCallable = PyCallable.fromFn(&bytes_callable);
+pub const bytearray_factory: PyCallable = PyCallable.fromFn(&bytearray_callable);
+pub const str_factory: PyCallable = PyCallable.fromFn(&str_callable);
+pub const memoryview_factory: PyCallable = PyCallable.fromFn(&memoryview_callable);

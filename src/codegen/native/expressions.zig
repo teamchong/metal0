@@ -67,9 +67,17 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             } else if (std.mem.eql(u8, name_to_use, "bool")) {
                 try self.emit("bool");
             } else if (std.mem.eql(u8, name_to_use, "str")) {
-                try self.emit("[]const u8");
+                // str type as value - emit a PyCallable factory for list storage
+                try self.emit("runtime.builtins.str_factory");
             } else if (std.mem.eql(u8, name_to_use, "bytes")) {
-                try self.emit("[]const u8");
+                // bytes type as value - emit a PyCallable factory for list storage
+                try self.emit("runtime.builtins.bytes_factory");
+            } else if (std.mem.eql(u8, name_to_use, "bytearray")) {
+                // bytearray type as value - emit a PyCallable factory for list storage
+                try self.emit("runtime.builtins.bytearray_factory");
+            } else if (std.mem.eql(u8, name_to_use, "memoryview")) {
+                // memoryview type as value - emit a PyCallable factory for list storage
+                try self.emit("runtime.builtins.memoryview_factory");
             } else if (std.mem.eql(u8, name_to_use, "None") or std.mem.eql(u8, name_to_use, "NoneType")) {
                 try self.emit("null");
             } else if (std.mem.eql(u8, name_to_use, "NotImplemented")) {

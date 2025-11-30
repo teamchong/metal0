@@ -23,6 +23,13 @@ const BuiltinFuncMap = std.StaticStringMap(NativeType).initComptime(.{
     .{ "max", NativeType.int },
     .{ "sum", NativeType.int },
     .{ "hash", NativeType.int },
+    // Boolean return functions
+    .{ "any", NativeType.bool },
+    .{ "all", NativeType.bool },
+    .{ "callable", NativeType.bool },
+    .{ "hasattr", NativeType.bool },
+    .{ "isinstance", NativeType.bool },
+    .{ "issubclass", NativeType.bool },
     // io module (from io import StringIO, BytesIO)
     .{ "StringIO", NativeType.stringio },
     .{ "BytesIO", NativeType.bytesio },
@@ -285,6 +292,14 @@ pub fn inferCall(
     if (call.func.* == .name) {
         const func_name = call.func.name.id;
 
+        // Check if the callee is a callable variable (from iterating over callable list)
+        // PyCallable.call() returns []const u8 (bytes)
+        if (var_types.get(func_name)) |var_type| {
+            if (@as(std.meta.Tag(NativeType), var_type) == .callable) {
+                return .{ .string = .runtime };
+            }
+        }
+
         // Check if this is a class constructor (class_name matches a registered class)
         if (class_fields.get(func_name)) |class_info| {
             _ = class_info;
@@ -300,6 +315,33 @@ pub fn inferCall(
         const ABS_HASH = comptime fnv_hash.hash("abs");
         if (fnv_hash.hash(func_name) == ABS_HASH and call.args.len > 0) {
             return try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+        }
+
+        // Special case: int() with large float literal → bigint
+        const INT_HASH = comptime fnv_hash.hash("int");
+        if (fnv_hash.hash(func_name) == INT_HASH and call.args.len > 0) {
+            const arg = call.args[0];
+            // Check if argument is a large float literal (e.g., 1e100)
+            if (arg == .constant and arg.constant.value == .float) {
+                const fval = arg.constant.value.float;
+                // If float exceeds i64 range, use bigint
+                const max_i64: f64 = @as(f64, @floatFromInt(std.math.maxInt(i64)));
+                const min_i64: f64 = @as(f64, @floatFromInt(std.math.minInt(i64)));
+                if (fval > max_i64 or fval < min_i64 or @abs(fval) > max_i64) {
+                    return .bigint;
+                }
+            }
+            // Check for unary minus with float literal: int(-1e100)
+            if (arg == .unaryop and arg.unaryop.op == .USub) {
+                if (arg.unaryop.operand.* == .constant and arg.unaryop.operand.constant.value == .float) {
+                    const fval = arg.unaryop.operand.constant.value.float;
+                    const max_i64: f64 = @as(f64, @floatFromInt(std.math.maxInt(i64)));
+                    if (fval > max_i64) {
+                        return .bigint;
+                    }
+                }
+            }
+            return .int;
         }
 
         // Look up in static map for other builtins
@@ -354,6 +396,45 @@ pub fn inferCall(
             // reduce(func, iterable) -> element type of iterable
             // Most common use case is numeric reduction, so default to int
             return .int;
+        }
+
+        // Exception constructors - RuntimeError, ValueError, TypeError, etc.
+        const exception_types = [_][]const u8{
+            "Exception",
+            "BaseException",
+            "RuntimeError",
+            "ValueError",
+            "TypeError",
+            "KeyError",
+            "IndexError",
+            "AttributeError",
+            "NameError",
+            "IOError",
+            "OSError",
+            "FileNotFoundError",
+            "PermissionError",
+            "ZeroDivisionError",
+            "OverflowError",
+            "NotImplementedError",
+            "StopIteration",
+            "AssertionError",
+            "ImportError",
+            "ModuleNotFoundError",
+            "LookupError",
+            "UnicodeError",
+            "UnicodeDecodeError",
+            "UnicodeEncodeError",
+            "SystemError",
+            "RecursionError",
+            "MemoryError",
+            "BufferError",
+            "ConnectionError",
+            "TimeoutError",
+        };
+        for (exception_types) |exc_name| {
+            if (std.mem.eql(u8, func_name, exc_name)) {
+                return .{ .exception = exc_name };
+            }
         }
     }
 

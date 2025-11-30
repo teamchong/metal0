@@ -45,6 +45,7 @@ fn genExprWithSubs(
         .constant => |c| {
             switch (c.value) {
                 .int => |i| try self.output.writer(self.allocator).print("{d}", .{i}),
+                .bigint => |s| try self.output.writer(self.allocator).print("(try runtime.parseIntToBigInt(__global_allocator, \"{s}\", 10))", .{s}),
                 .float => |f| try self.output.writer(self.allocator).print("{d}", .{f}),
                 .string => |s| {
                     try self.emit("\"");
@@ -145,19 +146,27 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         } else {
             // Regular iteration - check if source is constant array, ArrayList, or anytype param
             const is_direct_iterable = blk: {
+                // String literals are directly iterable (they're Zig arrays)
+                if (gen.iter.* == .constant) {
+                    if (gen.iter.constant.value == .string) break :blk true;
+                }
                 if (gen.iter.* == .name) {
                     const var_name = gen.iter.name.id;
                     // Const array variables can be iterated directly
                     if (self.isArrayVar(var_name)) break :blk true;
                     // anytype parameters should also be iterated directly (no .items)
                     if (self.anytype_params.contains(var_name)) break :blk true;
+                    // String variables are directly iterable
+                    if (self.getVarType(var_name)) |vt| {
+                        if (vt == .string) break :blk true;
+                    }
                 }
                 break :blk false;
             };
 
             try self.emitIndent();
             if (is_direct_iterable) {
-                // Constant array variable or anytype param - iterate directly
+                // Constant array variable, string literal, or anytype param - iterate directly
                 try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
                 try genExpr(self, gen.iter.*);
                 try self.emit(";\n");
@@ -314,19 +323,27 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
         } else {
             // Regular iteration - check if source is constant array, ArrayList, or anytype param
             const is_direct_iterable = blk: {
+                // String literals are directly iterable (they're Zig arrays)
+                if (gen.iter.* == .constant) {
+                    if (gen.iter.constant.value == .string) break :blk true;
+                }
                 if (gen.iter.* == .name) {
-                    const var_name = gen.iter.name.id;
+                    const var_name_inner = gen.iter.name.id;
                     // Const array variables can be iterated directly
-                    if (self.isArrayVar(var_name)) break :blk true;
+                    if (self.isArrayVar(var_name_inner)) break :blk true;
                     // anytype parameters should also be iterated directly (no .items)
-                    if (self.anytype_params.contains(var_name)) break :blk true;
+                    if (self.anytype_params.contains(var_name_inner)) break :blk true;
+                    // String variables are directly iterable
+                    if (self.getVarType(var_name_inner)) |vt| {
+                        if (vt == .string) break :blk true;
+                    }
                 }
                 break :blk false;
             };
 
             try self.emitIndent();
             if (is_direct_iterable) {
-                // Constant array variable or anytype param - iterate directly
+                // Constant array variable, string literal, or anytype param - iterate directly
                 try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
                 try genExpr(self, gen.iter.*);
                 try self.emit(";\n");
@@ -430,9 +447,12 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
     try self.emit(try std.fmt.allocPrint(self.allocator, "gen_{d}: {{\n", .{label_id}));
     self.indent();
 
-    // Generate: var __comp_result = std.ArrayList(i64){};
+    // Determine element type from the expression being yielded
+    const elem_type = getGenExpElementType(genexp.elt.*);
+
+    // Generate: var __comp_result = std.ArrayList(<elem_type>){};
     try self.emitIndent();
-    try self.emit("var __comp_result = std.ArrayList(i64){};\n");
+    try self.output.writer(self.allocator).print("var __comp_result = std.ArrayList({s}){{}};\n", .{elem_type});
 
     // Generate nested loops for each generator
     for (genexp.generators, 0..) |gen, gen_idx| {
@@ -478,14 +498,40 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
             try self.emitIndent();
             try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ var_name, step_val });
         } else {
-            // Regular iteration
+            // Regular iteration - check if source is constant array, ArrayList, or anytype param
+            const is_direct_iterable = blk: {
+                // String literals are directly iterable (they're Zig arrays)
+                if (gen.iter.* == .constant) {
+                    if (gen.iter.constant.value == .string) break :blk true;
+                }
+                if (gen.iter.* == .name) {
+                    const var_name_gen = gen.iter.name.id;
+                    // Const array variables can be iterated directly
+                    if (self.isArrayVar(var_name_gen)) break :blk true;
+                    // anytype parameters should also be iterated directly (no .items)
+                    if (self.anytype_params.contains(var_name_gen)) break :blk true;
+                    // String variables are directly iterable
+                    if (self.getVarType(var_name_gen)) |vt| {
+                        if (vt == .string) break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+
             try self.emitIndent();
-            // First emit the list to an intermediate variable, then access .items
-            try self.output.writer(self.allocator).print("const __list_{d} = ", .{gen_idx});
-            try genExpr(self, gen.iter.*);
-            try self.emit(";\n");
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print("const __iter_{d} = __list_{d}.items;\n", .{ gen_idx, gen_idx });
+            if (is_direct_iterable) {
+                // Constant array variable, string literal, or anytype param - iterate directly
+                try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
+                try genExpr(self, gen.iter.*);
+                try self.emit(";\n");
+            } else {
+                // First emit the list to an intermediate variable, then access .items
+                try self.output.writer(self.allocator).print("const __list_{d} = ", .{gen_idx});
+                try genExpr(self, gen.iter.*);
+                try self.emit(";\n");
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("const __iter_{d} = __list_{d}.items;\n", .{ gen_idx, gen_idx });
+            }
 
             try self.emitIndent();
             // Check if target is a tuple (for tuple unpacking like `for a, b in zip(...)`)
@@ -577,4 +623,34 @@ fn isIntExpr(node: ast.Node) bool {
         },
         else => false,
     };
+}
+
+/// Check if an expression evaluates to a boolean type
+fn isBoolExpr(node: ast.Node) bool {
+    return switch (node) {
+        .compare => true, // Comparisons (including 'in') yield bool
+        .boolop => true, // and/or yield bool
+        .unaryop => |u| u.op == .Not, // not yields bool
+        .constant => |c| c.value == .bool,
+        .call => |c| {
+            // isinstance(), callable(), etc return bool
+            if (c.func.* == .name) {
+                const name = c.func.name.id;
+                return std.mem.eql(u8, name, "isinstance") or
+                    std.mem.eql(u8, name, "callable") or
+                    std.mem.eql(u8, name, "hasattr") or
+                    std.mem.eql(u8, name, "bool");
+            }
+            return false;
+        },
+        else => false,
+    };
+}
+
+/// Get the Zig element type string for a generator expression element
+fn getGenExpElementType(elt: ast.Node) []const u8 {
+    if (isBoolExpr(elt)) return "bool";
+    if (isIntExpr(elt)) return "i64";
+    // Default to i64 for unknown types
+    return "i64";
 }

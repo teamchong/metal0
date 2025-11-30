@@ -280,12 +280,27 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     // Check if method body has fallible operations (needs allocator param)
                     const method_needs_allocator = allocator_analyzer.functionNeedsAllocator(method);
 
-                    // No skip logic - all tests must be compiled and run
+                    // Check for decorators that indicate test should be skipped on non-CPython:
+                    // 1. @support.cpython_only - tests CPython implementation details
+                    // 2. @unittest.skipUnless(_pylong, ...) - requires CPython's _pylong module
+                    // 3. @unittest.skipUnless(_decimal, ...) - requires CPython's _decimal module
+                    // This is NOT us artificially skipping tests - it's respecting Python's own test annotations
+                    const skip_reason: ?[]const u8 = if (hasCPythonOnlyDecorator(method.decorators))
+                        "CPython implementation test (not applicable to metal0)"
+                    else if (hasSkipUnlessCPythonModule(method.decorators))
+                        "Requires CPython-only module (_pylong or _decimal)"
+                    else
+                        null;
+
+                    // Count @mock.patch.object decorators (each injects a mock param)
+                    const mock_count = countMockPatchDecorators(method.decorators);
+
                     try test_methods.append(self.allocator, core.TestMethodInfo{
                         .name = method_name,
-                        .skip_reason = null,
+                        .skip_reason = skip_reason,
                         .needs_allocator = method_needs_allocator,
-                        .is_skipped = false,
+                        .is_skipped = skip_reason != null,
+                        .mock_patch_count = mock_count,
                     });
                 } else if (std.mem.eql(u8, method_name, "setUp")) {
                     has_setUp = true;
@@ -318,11 +333,45 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // to correctly determine if the class itself is used in the enclosing scope
     var saved_func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer saved_func_local_uses.deinit();
+
+    // Also save func_local_mutations - nested class methods will clear it
+    // This prevents parent method's mutation info from being lost
+    var saved_func_local_mutations = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer saved_func_local_mutations.deinit();
+
+    // Also save nested_class_names - nested class methods will clear it
+    // This prevents parent method's nested class tracking from being lost
+    // (e.g., MyIndexable defined in outer scope, used later after nested class's methods are generated)
+    var saved_nested_class_names = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer saved_nested_class_names.deinit();
+
+    // Also save nested_class_bases - for base class default args
+    var saved_nested_class_bases = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
+    defer saved_nested_class_bases.deinit();
+
     if (self.class_nesting_depth > 1) {
         // Copy current func_local_uses
         var it = self.func_local_uses.iterator();
         while (it.next()) |entry| {
             try saved_func_local_uses.put(entry.key_ptr.*, {});
+        }
+
+        // Copy current func_local_mutations
+        var mut_it = self.func_local_mutations.iterator();
+        while (mut_it.next()) |entry| {
+            try saved_func_local_mutations.put(entry.key_ptr.*, {});
+        }
+
+        // Copy current nested_class_names
+        var ncn_it = self.nested_class_names.iterator();
+        while (ncn_it.next()) |entry| {
+            try saved_nested_class_names.put(entry.key_ptr.*, {});
+        }
+
+        // Copy current nested_class_bases
+        var ncb_it = self.nested_class_bases.iterator();
+        while (ncb_it.next()) |entry| {
+            try saved_nested_class_bases.put(entry.key_ptr.*, entry.value_ptr.*);
         }
     }
 
@@ -420,8 +469,76 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         try self.mutable_classes.put(class_name_copy, {});
     }
 
+    // Register class-level type attributes BEFORE generating methods
+    // so that self.int_class(...) can be detected and handled properly
+    for (class.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                const attr_name = assign.targets[0].name.id;
+                if (assign.value.* == .name) {
+                    const type_name = assign.value.name.id;
+                    if (std.mem.eql(u8, type_name, "int") or
+                        std.mem.eql(u8, type_name, "float") or
+                        std.mem.eql(u8, type_name, "str") or
+                        std.mem.eql(u8, type_name, "bool") or
+                        std.mem.eql(u8, type_name, "list") or
+                        std.mem.eql(u8, type_name, "dict"))
+                    {
+                        const key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, attr_name });
+                        try self.class_type_attrs.put(key, type_name);
+                    }
+                }
+            }
+        }
+    }
+
     // Generate regular methods (non-__init__)
     try body.genClassMethods(self, class, captured_vars);
+
+    // Generate code for class-level type attributes (e.g., int_class = int)
+    // Registration already done earlier, now just generate the function code
+    for (class.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                const attr_name = assign.targets[0].name.id;
+                // Check if the value is a type reference (int, float, str, etc.)
+                if (assign.value.* == .name) {
+                    const type_name = assign.value.name.id;
+                    if (std.mem.eql(u8, type_name, "int") or
+                        std.mem.eql(u8, type_name, "float") or
+                        std.mem.eql(u8, type_name, "str") or
+                        std.mem.eql(u8, type_name, "bool") or
+                        std.mem.eql(u8, type_name, "list") or
+                        std.mem.eql(u8, type_name, "dict"))
+                    {
+                        try self.emit("\n");
+                        try self.emitIndent();
+                        try self.emit("// Class-level type attribute\n");
+                        try self.emitIndent();
+                        // For int type, support optional base parameter: int(value, base=None)
+                        if (std.mem.eql(u8, type_name, "int")) {
+                            try self.output.writer(self.allocator).print("pub fn {s}(value: anytype, base: ?i64) i64 {{\n", .{attr_name});
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("_ = base; // TODO: support base conversion\n");
+                            try self.emitIndent();
+                            try self.emit("return runtime.pyIntFromAny(value);\n");
+                        } else {
+                            try self.output.writer(self.allocator).print("pub fn {s}(value: anytype) i64 {{\n", .{attr_name});
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("return runtime.pyIntFromAny(value);\n");
+                        }
+                        self.dedent();
+                        try self.emitIndent();
+                        try self.emit("}\n");
+                    }
+                }
+            }
+        }
+    }
 
     // Restore func_local_uses from saved state (for nested classes)
     // This is critical: nested class methods call analyzeFunctionLocalUses which clears
@@ -431,6 +548,28 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         var restore_it = saved_func_local_uses.iterator();
         while (restore_it.next()) |entry| {
             try self.func_local_uses.put(entry.key_ptr.*, {});
+        }
+
+        // Also restore func_local_mutations so parent method's var/const decisions are correct
+        self.func_local_mutations.clearRetainingCapacity();
+        var restore_mut_it = saved_func_local_mutations.iterator();
+        while (restore_mut_it.next()) |entry| {
+            try self.func_local_mutations.put(entry.key_ptr.*, {});
+        }
+
+        // Also restore nested_class_names so parent method's class tracking works correctly
+        // (e.g., MyIndexable used after this nested class definition completes)
+        self.nested_class_names.clearRetainingCapacity();
+        var restore_ncn_it = saved_nested_class_names.iterator();
+        while (restore_ncn_it.next()) |entry| {
+            try self.nested_class_names.put(entry.key_ptr.*, {});
+        }
+
+        // Also restore nested_class_bases for base class default args
+        self.nested_class_bases.clearRetainingCapacity();
+        var restore_ncb_it = saved_nested_class_bases.iterator();
+        while (restore_ncb_it.next()) |entry| {
+            try self.nested_class_bases.put(entry.key_ptr.*, entry.value_ptr.*);
         }
     }
 
@@ -448,5 +587,110 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         try self.emitIndent();
         try self.output.writer(self.allocator).print("_ = {s};\n", .{class.name});
     }
+}
+
+/// Check if test has @support.cpython_only decorator
+/// These tests are CPython implementation details and should be skipped by non-CPython implementations
+fn hasCPythonOnlyDecorator(decorators: []const ast.Node) bool {
+    for (decorators) |decorator| {
+        if (decorator == .attribute) {
+            const attr = decorator.attribute;
+            // Check for support.cpython_only
+            if (std.mem.eql(u8, attr.attr, "cpython_only")) {
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "support")) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Check if test has @unittest.skipUnless with CPython-only module (_pylong, _decimal)
+/// These modules are C extensions internal to CPython and not available in metal0
+fn hasSkipUnlessCPythonModule(decorators: []const ast.Node) bool {
+    for (decorators) |decorator| {
+        if (decorator == .call) {
+            const call = decorator.call;
+            // Check if it's unittest.skipUnless
+            if (call.func.* == .attribute) {
+                const func_attr = call.func.attribute;
+                if (std.mem.eql(u8, func_attr.attr, "skipUnless")) {
+                    if (func_attr.value.* == .name and std.mem.eql(u8, func_attr.value.name.id, "unittest")) {
+                        // Check first argument for _pylong or _decimal
+                        if (call.args.len > 0) {
+                            if (call.args[0] == .name) {
+                                const arg_name = call.args[0].name.id;
+                                if (std.mem.eql(u8, arg_name, "_pylong") or
+                                    std.mem.eql(u8, arg_name, "_decimal"))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Count @mock.patch.object and @mock.patch decorators (each injects a mock param)
+fn countMockPatchDecorators(decorators: []const ast.Node) usize {
+    var count: usize = 0;
+    for (decorators) |decorator| {
+        if (isMockPatchDecorator(decorator)) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+/// Check if a decorator is @mock.patch.object, @mock.patch, @unittest.mock.patch.object, etc.
+fn isMockPatchDecorator(decorator: ast.Node) bool {
+    // Decorator can be a call like @mock.patch.object(target, attr) or @mock.patch(target)
+    if (decorator == .call) {
+        const call = decorator.call;
+        return isMockPatchFunc(call.func.*);
+    }
+    // Or a bare attribute like @mock.patch (though less common)
+    return isMockPatchFunc(decorator);
+}
+
+/// Check if a node represents mock.patch.object or mock.patch
+fn isMockPatchFunc(node: ast.Node) bool {
+    if (node == .attribute) {
+        const attr = node.attribute;
+        // Check for patterns like:
+        // - mock.patch.object -> attr = "object", value = mock.patch
+        // - mock.patch -> attr = "patch", value = mock
+        // - unittest.mock.patch.object -> attr = "object", value = unittest.mock.patch
+        if (std.mem.eql(u8, attr.attr, "object")) {
+            // Check if it's mock.patch.object or unittest.mock.patch.object
+            if (attr.value.* == .attribute) {
+                const parent = attr.value.attribute;
+                if (std.mem.eql(u8, parent.attr, "patch")) {
+                    // Check if parent is mock or unittest.mock
+                    if (parent.value.* == .name) {
+                        return std.mem.eql(u8, parent.value.name.id, "mock");
+                    } else if (parent.value.* == .attribute) {
+                        // unittest.mock
+                        const grandparent = parent.value.attribute;
+                        return std.mem.eql(u8, grandparent.attr, "mock");
+                    }
+                }
+            }
+        } else if (std.mem.eql(u8, attr.attr, "patch")) {
+            // Check for mock.patch or unittest.mock.patch (without .object)
+            if (attr.value.* == .name) {
+                return std.mem.eql(u8, attr.value.name.id, "mock");
+            } else if (attr.value.* == .attribute) {
+                const parent = attr.value.attribute;
+                return std.mem.eql(u8, parent.attr, "mock");
+            }
+        }
+    }
+    return false;
 }
 

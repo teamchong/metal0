@@ -92,7 +92,8 @@ pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) void {
         if (std.mem.eql(u8, expected_type_name, "int")) {
             break :blk std.mem.startsWith(u8, actual_type_name, "i") or
                 std.mem.startsWith(u8, actual_type_name, "u") or
-                std.mem.eql(u8, actual_type_name, "comptime_int");
+                std.mem.eql(u8, actual_type_name, "comptime_int") or
+                std.mem.indexOf(u8, actual_type_name, "BigInt") != null;
         }
         if (std.mem.eql(u8, expected_type_name, "float")) {
             break :blk std.mem.startsWith(u8, actual_type_name, "f") or

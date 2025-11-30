@@ -349,3 +349,22 @@ pub fn genGetprofile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("null");
 }
+
+/// Generate sys.get_int_max_str_digits() -> int
+/// Returns the current limit for integer string conversion
+pub fn genGetIntMaxStrDigits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("(try sys.get_int_max_str_digits(__global_allocator))");
+}
+
+/// Generate sys.set_int_max_str_digits(n) -> None
+/// Sets the limit for integer string conversion (0 to disable)
+pub fn genSetIntMaxStrDigits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try self.emit("(try sys.set_int_max_str_digits(__global_allocator, ");
+    if (args.len > 0) {
+        try self.genExpr(args[0]);
+    } else {
+        try self.emit("0");
+    }
+    try self.emit("))");
+}

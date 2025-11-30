@@ -4,6 +4,19 @@ const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 
+/// Check if an expression contains a simple name (likely a parameter that could be anytype)
+/// We use this heuristic: if the expression is a simple name or involves a simple name in
+/// a unary/binary op, treat it as potentially anytype
+fn expressionContainsAnytypeParam(expr: ast.Node) bool {
+    switch (expr) {
+        .name => return true, // A simple name could be anytype parameter
+        .unaryop => |u| return expressionContainsAnytypeParam(u.operand.*),
+        .binop => |b| return expressionContainsAnytypeParam(b.left.*) or
+            expressionContainsAnytypeParam(b.right.*),
+        else => return false,
+    }
+}
+
 /// Check if an expression produces a Zig block expression that can't be subscripted/accessed directly
 fn producesBlockExpression(expr: ast.Node) bool {
     return switch (expr) {
@@ -210,7 +223,14 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    // Use scoped type inference for accuracy with anytype parameters
+    var arg_type = self.inferExprScoped(args[0]) catch .unknown;
+
+    // Check if expression contains an anytype parameter reference (e.g., -n where n: anytype)
+    // In this case, use .unknown to generate safe runtime-polymorphic code
+    if (expressionContainsAnytypeParam(args[0])) {
+        arg_type = .unknown;
+    }
 
     // Already a string - just return it
     if (arg_type == .string) {
@@ -227,7 +247,13 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitFmt("str_{d}: {{\n", .{str_label_id});
     try self.emit("var buf = std.ArrayList(u8){};\n");
 
-    if (arg_type == .int) {
+    if (arg_type == .bigint) {
+        // BigInt needs special formatting via toDecimalString
+        try self.emitFmt("break :str_{d} (", .{str_label_id});
+        try self.genExpr(args[0]);
+        try self.emitFmt(").toDecimalString({s}) catch unreachable;\n}}", .{alloc_name});
+        return;
+    } else if (arg_type == .int) {
         try self.emitFmt("try buf.writer({s}).print(\"{{}}\", .{{", .{alloc_name});
     } else if (arg_type == .float) {
         try self.emitFmt("try buf.writer({s}).print(\"{{d}}\", .{{", .{alloc_name});
@@ -239,6 +265,9 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitFmt("break :str_{d} try buf.toOwnedSlice({s});\n", .{ str_label_id, alloc_name });
         try self.emit("}");
         return;
+    } else if (arg_type == .unknown) {
+        // Unknown type (e.g., anytype parameter) - use {any} with comptime type handling
+        try self.emitFmt("try buf.writer({s}).print(\"{{any}}\", .{{", .{alloc_name});
     } else {
         try self.emitFmt("try buf.writer({s}).print(\"{{any}}\", .{{", .{alloc_name});
     }
@@ -261,10 +290,79 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Handle int(string, base) - two argument form
     // Use i128 to handle large integers like sys.maxsize + 1
     if (args.len == 2) {
-        try self.emit("try std.fmt.parseInt(i128, ");
+        // Check if base is a negative constant, float, class call, or potentially out of range - use runtime check
+        const base_needs_runtime_check = blk: {
+            // Negative literal (e.g., int('0', -909))
+            if (args[1] == .unaryop and args[1].unaryop.op == .USub) break :blk true;
+            // Subtraction that could go negative (e.g., int('0', 0 - 2**234))
+            if (args[1] == .binop and args[1].binop.op == .Sub) break :blk true;
+            // Very large positive (e.g., int('0', 2**234))
+            if (args[1] == .binop and args[1].binop.op == .Pow) break :blk true;
+            // Large left shift (e.g., int('0', 1 << 100))
+            if (args[1] == .binop and args[1].binop.op == .LShift) break :blk true;
+            // Float literal (e.g., int('0', 5.5)) - TypeError
+            if (args[1] == .constant and args[1].constant.value == .float) break :blk true;
+            // Class call with __index__ (e.g., int('101', MyIndexable(2))) - needs __index__ call
+            if (args[1] == .call) {
+                if (args[1].call.keyword_args.len > 0) {
+                    // Call with keyword args like base=MyIndexable(2)
+                    break :blk true;
+                }
+                // Any function call that might return an __index__ object
+                if (args[1].call.func.* == .name) {
+                    // Check if it's a known class (starts with uppercase or is a user class)
+                    const fn_name = args[1].call.func.name.id;
+                    if (fn_name.len > 0 and fn_name[0] >= 'A' and fn_name[0] <= 'Z') {
+                        break :blk true;
+                    }
+                }
+            }
+            // Check if base is inferred as BigInt (e.g., from a loop variable)
+            // Use inferExprScoped to correctly handle for loop variables
+            const base_type = self.inferExprScoped(args[1]) catch .unknown;
+            if (base_type == .bigint) break :blk true;
+            // If base is just a variable name (from loop, etc.) and we're in assertRaises,
+            // use runtime check since it could be any type at runtime
+            if (args[1] == .name) break :blk true;
+            break :blk false;
+        };
+
+        if (base_needs_runtime_check and self.in_assert_raises_context) {
+            // In assertRaises with potentially invalid base - use runtime validation
+            try self.emit("runtime.builtins.intWithBase(__global_allocator, ");
+            try self.genExpr(args[0]);
+            try self.emit(", ");
+            try self.genExpr(args[1]);
+            try self.emit(")");
+            return;
+        }
+
+        // Check if base is a class call that needs __index__
+        const base_is_indexable_class = blk: {
+            if (args[1] == .call and args[1].call.func.* == .name) {
+                const fn_name = args[1].call.func.name.id;
+                if (fn_name.len > 0 and fn_name[0] >= 'A' and fn_name[0] <= 'Z') {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        };
+
+        // In assertRaises context, don't emit 'try' - the outer catch will handle errors
+        // Use runtime.parseIntUnicode to handle Unicode whitespace (like Python's int())
+        if (!self.in_assert_raises_context) {
+            try self.emit("try ");
+        }
+        try self.emit("runtime.parseIntUnicode(");
         try self.genExpr(args[0]);
         try self.emit(", @intCast(");
-        try self.genExpr(args[1]);
+        if (base_is_indexable_class) {
+            // For class with __index__, create instance and call __index__()
+            try self.genExpr(args[1]);
+            try self.emit(".__index__()");
+        } else {
+            try self.genExpr(args[1]);
+        }
         try self.emit("))");
         return;
     }
@@ -293,9 +391,35 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Parse string to int
-    // Use i128 to handle large integers like sys.maxsize + 1
     if (arg_type == .string) {
-        try self.emit("try std.fmt.parseInt(i128, ");
+        // Check if literal string is too large for i128 (39+ digits need BigInt)
+        if (args[0] == .constant and args[0].constant.value == .string) {
+            const str_val = args[0].constant.value.string;
+            // i128 max is ~39 digits, use BigInt for anything >= 38 digits to be safe
+            const digit_count = blk: {
+                var count: usize = 0;
+                for (str_val) |c| {
+                    if (c >= '0' and c <= '9') count += 1;
+                }
+                break :blk count;
+            };
+            if (digit_count >= 38) {
+                // Use BigInt for very large numbers
+                // Use catch unreachable since Python doesn't expect allocation to fail
+                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                try self.emitFmt("(runtime.bigint.parseBigInt({s}, ", .{alloc_name});
+                try self.genExpr(args[0]);
+                try self.emit(") catch unreachable)");
+                return;
+            }
+        }
+        // Use i128 to handle large integers like sys.maxsize + 1
+        // In assertRaises context, don't emit 'try' - the outer catch will handle errors
+        // Use runtime.parseIntUnicode to handle Unicode whitespace (like Python's int())
+        if (!self.in_assert_raises_context) {
+            try self.emit("try ");
+        }
+        try self.emit("runtime.parseIntUnicode(");
         try self.genExpr(args[0]);
         try self.emit(", 10)");
         return;
@@ -303,14 +427,38 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Cast float to int
     if (arg_type == .float) {
-        // Check if this is a literal float that exceeds i64 range (needs BigInt)
-        if (args[0] == .constant and args[0].constant.value == .float) {
-            const float_val = args[0].constant.value.float;
+        // Extract float value from literal or negated literal
+        const maybe_float_val: ?f64 = blk: {
+            if (args[0] == .constant and args[0].constant.value == .float) {
+                break :blk args[0].constant.value.float;
+            }
+            // Handle -1e100 which is unary minus on float literal
+            if (args[0] == .unaryop) {
+                const uop = args[0].unaryop;
+                if (uop.op == .USub and uop.operand.* == .constant and uop.operand.*.constant.value == .float) {
+                    break :blk -uop.operand.*.constant.value.float;
+                }
+            }
+            break :blk null;
+        };
+
+        if (maybe_float_val) |float_val| {
+            const max_i128: f64 = 170141183460469231731687303715884105727.0; // 2^127 - 1
+            const min_i128: f64 = -170141183460469231731687303715884105728.0; // -2^127
+            if (float_val > max_i128 or float_val < min_i128) {
+                // Value exceeds i128 range - use BigInt
+                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                try self.emitFmt("(runtime.BigInt.fromFloat({s}, ", .{alloc_name});
+                try self.genExpr(args[0]);
+                try self.emit(") catch unreachable)");
+                return;
+            }
             const max_i64: f64 = 9223372036854775807.0; // 2^63 - 1
-            const min_i64: f64 = -9223372036854775808.0; // -2^63
-            if (float_val > max_i64 or float_val < min_i64) {
-                // BigInt required - emit compile-time error
-                try self.emit("@compileError(\"int() value exceeds i64 range, requires BigInt (not implemented)\")");
+            if (@abs(float_val) > max_i64) {
+                // Use i128 for values between i64 and i128 range
+                try self.emit("@as(i128, @intFromFloat(");
+                try self.genExpr(args[0]);
+                try self.emit("))");
                 return;
             }
         }
@@ -331,6 +479,10 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For unknown types, use runtime.toInt which handles strings and numbers
     // This handles cases where type inference couldn't determine the type
     // (e.g., variables captured by anytype in try/except helper structs)
+    // toInt returns !i64 so we need try (unless in assertRaises context)
+    if (!self.in_assert_raises_context) {
+        try self.emit("try ");
+    }
     try self.emit("runtime.toInt(");
     try self.genExpr(args[0]);
     try self.emit(")");

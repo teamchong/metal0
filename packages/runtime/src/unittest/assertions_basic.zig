@@ -23,12 +23,32 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (a_info == .pointer and a_info.pointer.size == .slice) {
                 break :blk std.mem.eql(u8, a, b);
             }
+            // BigInt comparison - use eql method
+            if (a_info == .@"struct" and @hasDecl(A, "eql")) {
+                break :blk a.eql(&b);
+            }
             break :blk a == b;
         }
 
         // Integer comparisons (handle i64 vs comptime_int)
         if ((a_info == .int or a_info == .comptime_int) and (b_info == .int or b_info == .comptime_int)) {
             break :blk a == b;
+        }
+
+        // BigInt vs int comparisons
+        if (a_info == .@"struct" and @hasDecl(A, "toInt128") and (b_info == .int or b_info == .comptime_int)) {
+            // BigInt compared to int - try to convert BigInt to i128
+            if (a.toInt128()) |a_val| {
+                break :blk a_val == @as(i128, b);
+            }
+            break :blk false; // BigInt too large to compare with int literal
+        }
+        if (b_info == .@"struct" and @hasDecl(B, "toInt128") and (a_info == .int or a_info == .comptime_int)) {
+            // int compared to BigInt
+            if (b.toInt128()) |b_val| {
+                break :blk @as(i128, a) == b_val;
+            }
+            break :blk false;
         }
 
         // Float comparisons
@@ -71,50 +91,51 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             }
             // Check if a is a PyObject* - compare based on type
             if (ptr.size == .one and ptr.child == runtime.PyObject) {
+                const a_type = runtime.getTypeId(a);
                 if (b_info == .int or b_info == .comptime_int) {
                     // Compare PyObject with integer
-                    if (a.type_id == .int) {
+                    if (a_type == .int) {
                         const pyint = runtime.PyInt.getValue(a);
                         break :blk pyint == @as(i64, b);
-                    } else if (a.type_id == .bool) {
+                    } else if (a_type == .bool) {
                         const pybool = runtime.PyBool.getValue(a);
                         break :blk @as(i64, if (pybool) 1 else 0) == @as(i64, b);
                     }
                     break :blk false;
                 } else if (b_info == .bool) {
                     // Compare PyObject with bool
-                    if (a.type_id == .bool) {
+                    if (a_type == .bool) {
                         const pybool = runtime.PyBool.getValue(a);
                         break :blk pybool == b;
                     }
                     break :blk false;
                 } else if (b_info == .pointer and b_info.pointer.size == .slice) {
                     // Compare PyObject with string slice
-                    if (a.type_id == .string) {
-                        const pystr: *runtime.pystring.PyString = @ptrCast(@alignCast(a.data));
-                        break :blk std.mem.eql(u8, pystr.data, b);
+                    if (a_type == .string) {
+                        const pystr = runtime.PyString.getValue(a);
+                        break :blk std.mem.eql(u8, pystr, b);
                     }
                     break :blk false;
                 } else if (b_info == .pointer and b_info.pointer.size == .one) {
                     // Check if b is a pointer to array (string literal *const [N:0]u8)
                     const b_child_info = @typeInfo(b_info.pointer.child);
                     if (b_child_info == .array and b_child_info.array.child == u8) {
-                        if (a.type_id == .string) {
-                            const pystr: *runtime.pystring.PyString = @ptrCast(@alignCast(a.data));
+                        if (a_type == .string) {
+                            const pystr = runtime.PyString.getValue(a);
                             const b_slice: []const u8 = b;
-                            break :blk std.mem.eql(u8, pystr.data, b_slice);
+                            break :blk std.mem.eql(u8, pystr, b_slice);
                         }
                     }
                     break :blk false;
                 } else if (b_info == .array) {
                     const arr = b_info.array;
                     // Compare PyObject (string) with byte array [N]u8
-                    if (arr.child == u8 and a.type_id == .string) {
-                        const pystr: *runtime.pystring.PyString = @ptrCast(@alignCast(a.data));
-                        break :blk std.mem.eql(u8, pystr.data, &b);
+                    if (arr.child == u8 and a_type == .string) {
+                        const pystr = runtime.PyString.getValue(a);
+                        break :blk std.mem.eql(u8, pystr, &b);
                     }
                     // Compare PyObject (list) with Zig array of strings
-                    if (a.type_id == .list) {
+                    if (a_type == .list) {
                         const list_len = runtime.PyList.len(a);
                         if (list_len != b.len) break :blk false;
                         for (0..list_len) |i| {
@@ -123,9 +144,10 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                             const ElemType = @TypeOf(b[0]);
                             if (@typeInfo(ElemType) == .pointer and @typeInfo(ElemType).pointer.child == u8) {
                                 // Compare list element with string
-                                if (elem.type_id == .string) {
-                                    const pystr: *runtime.pystring.PyString = @ptrCast(@alignCast(elem.data));
-                                    if (!std.mem.eql(u8, pystr.data, b[i])) break :blk false;
+                                const elem_type = runtime.getTypeId(elem);
+                                if (elem_type == .string) {
+                                    const elem_str = runtime.PyString.getValue(elem);
+                                    if (!std.mem.eql(u8, elem_str, b[i])) break :blk false;
                                 } else {
                                     break :blk false;
                                 }
@@ -134,6 +156,27 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                             }
                         }
                         break :blk true;
+                    }
+                    break :blk false;
+                }
+            }
+        }
+
+        // Check if b is a PyObject* and a is an integer
+        // Use structural check for PyObject (has ob_refcnt and ob_type fields)
+        if (b_info == .pointer and b_info.pointer.size == .one) {
+            const child = b_info.pointer.child;
+            const child_info = @typeInfo(child);
+            if (child_info == .@"struct" and @hasField(child, "ob_refcnt") and @hasField(child, "ob_type")) {
+                if (a_info == .int or a_info == .comptime_int) {
+                    // Compare integer with PyObject
+                    const b_type = runtime.getTypeId(b);
+                    if (b_type == .int) {
+                        const pyint = runtime.PyInt.getValue(b);
+                        break :blk @as(i64, @intCast(a)) == pyint;
+                    } else if (b_type == .bool) {
+                        const pybool = runtime.PyBool.getValue(b);
+                        break :blk @as(i64, @intCast(a)) == @as(i64, if (pybool) 1 else 0);
                     }
                     break :blk false;
                 }
@@ -196,7 +239,7 @@ pub fn assertIsNone(value: anytype) void {
         .pointer => |ptr| blk: {
             // Check if it's a PyObject pointer
             if (ptr.size == .one and ptr.child == runtime.PyObject) {
-                break :blk value.type_id == .none;
+                break :blk runtime.getTypeId(value) == .none;
             }
             // Check if it's a PyMatch pointer (has is_match field)
             if (ptr.size == .one and @hasField(ptr.child, "is_match")) {
@@ -608,6 +651,21 @@ pub fn assertStartsWith(text: []const u8, prefix: []const u8) void {
             result.addFail("assertStartsWith failed") catch {};
         }
         @panic("assertStartsWith failed");
+    } else {
+        if (runner.global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertNotStartsWith(text, prefix) - string must not start with prefix
+pub fn assertNotStartsWith(text: []const u8, prefix: []const u8) void {
+    if (std.mem.startsWith(u8, text, prefix)) {
+        std.debug.print("AssertionError: '{s}' starts with '{s}'\n", .{ text, prefix });
+        if (runner.global_result) |result| {
+            result.addFail("assertNotStartsWith failed") catch {};
+        }
+        @panic("assertNotStartsWith failed");
     } else {
         if (runner.global_result) |result| {
             result.addPass();

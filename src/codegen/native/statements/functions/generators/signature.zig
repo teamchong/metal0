@@ -28,6 +28,121 @@ pub fn pythonTypeToZig(type_hint: ?[]const u8) []const u8 {
 const core = @import("../../../../../analysis/native_types/core.zig");
 const NativeType = core.NativeType;
 
+/// Check if an expression produces BigInt (for determining parameter types)
+fn expressionProducesBigInt(expr: ast.Node) bool {
+    switch (expr) {
+        .binop => |b| {
+            // Large left shift: 1 << N where N >= 63
+            if (b.op == .LShift) {
+                if (b.right.* == .constant and b.right.constant.value == .int) {
+                    if (b.right.constant.value.int >= 63) return true;
+                }
+            }
+            // Large power: N ** M where M >= 20
+            if (b.op == .Pow) {
+                if (b.right.* == .constant and b.right.constant.value == .int) {
+                    if (b.right.constant.value.int >= 20) return true;
+                }
+            }
+            // Arithmetic on BigInt also produces BigInt
+            if (expressionProducesBigInt(b.left.*) or expressionProducesBigInt(b.right.*)) {
+                return true;
+            }
+        },
+        .unaryop => |u| {
+            // Negation of BigInt is BigInt
+            return expressionProducesBigInt(u.operand.*);
+        },
+        else => {},
+    }
+    return false;
+}
+
+/// Check if any call to a method in the class body passes BigInt to a specific parameter index
+fn methodReceivesBigIntArg(class_body: []const ast.Node, method_name: []const u8, param_index: usize) bool {
+    for (class_body) |stmt| {
+        if (checkStmtForBigIntMethodCall(stmt, method_name, param_index)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn checkStmtForBigIntMethodCall(stmt: ast.Node, method_name: []const u8, param_index: usize) bool {
+    switch (stmt) {
+        .expr_stmt => |e| return checkExprForBigIntMethodCall(e.value.*, method_name, param_index),
+        .function_def => |f| {
+            for (f.body) |s| {
+                if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
+        },
+        .class_def => |c| {
+            for (c.body) |s| {
+                if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
+        },
+        .for_stmt => |f| {
+            for (f.body) |s| {
+                if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
+        },
+        .if_stmt => |i| {
+            for (i.body) |s| {
+                if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
+            for (i.else_body) |s| {
+                if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| {
+                if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| {
+                if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
+        },
+        else => {},
+    }
+    return false;
+}
+
+fn checkExprForBigIntMethodCall(expr: ast.Node, method_name: []const u8, param_index: usize) bool {
+    switch (expr) {
+        .call => |c| {
+            // Check if this is a call to self.method_name
+            if (c.func.* == .attribute) {
+                const attr = c.func.attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                    if (std.mem.eql(u8, attr.attr, method_name)) {
+                        // Found call to self.method_name - check the argument at param_index
+                        if (param_index < c.args.len) {
+                            if (expressionProducesBigInt(c.args[param_index])) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            // Also check arguments recursively
+            for (c.args) |arg| {
+                if (checkExprForBigIntMethodCall(arg, method_name, param_index)) return true;
+            }
+        },
+        .binop => |b| {
+            if (checkExprForBigIntMethodCall(b.left.*, method_name, param_index)) return true;
+            if (checkExprForBigIntMethodCall(b.right.*, method_name, param_index)) return true;
+        },
+        .unaryop => |u| {
+            if (checkExprForBigIntMethodCall(u.operand.*, method_name, param_index)) return true;
+        },
+        else => {},
+    }
+    return false;
+}
+
 /// Convert Python type hint to NativeType (for type inference)
 pub fn pythonTypeToNativeType(type_hint: ?[]const u8) NativeType {
     if (type_hint) |hint| {
@@ -508,8 +623,14 @@ pub fn genMethodSignatureWithSkip(
 
     // Add other parameters (skip 'self')
     // For skipped methods or unused parameters, use "_:" to suppress unused warnings
+    // Get class body for BigInt call site checking
+    const class_body: ?[]const ast.Node = if (self.class_registry.getClass(class_name)) |cd| cd.body else null;
+
+    var param_index: usize = 0;
     for (method.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
+        defer param_index += 1;
+
         try self.emit(", ");
         // Check if parameter is used in method body
         const is_param_used = param_analyzer.isNameUsedInBody(method.body, arg.name);
@@ -523,17 +644,36 @@ pub fn genMethodSignatureWithSkip(
         }
         // Use anytype for method params without type annotation to support string literals
         // This lets Zig infer the type from the call site
-        if (arg.type_annotation) |_| {
+        // Parameters with defaults become optional (? prefix)
+
+        // Check if any call site passes BigInt to this parameter
+        const receives_bigint = if (class_body) |cb|
+            methodReceivesBigIntArg(cb, method.name, param_index)
+        else
+            false;
+
+        if (receives_bigint) {
+            // Parameter receives BigInt at some call site - use anytype
+            try self.emit("anytype");
+        } else if (arg.type_annotation) |_| {
+            if (arg.default != null) {
+                try self.emit("?");
+            }
             const param_type = pythonTypeToZig(arg.type_annotation);
             try self.emit(param_type);
         } else if (self.getVarType(arg.name)) |var_type| {
             // Try inferred type from type inferrer
             const var_type_tag = @as(std.meta.Tag(@TypeOf(var_type)), var_type);
             if (var_type_tag != .unknown) {
+                if (arg.default != null) {
+                    try self.emit("?");
+                }
                 const zig_type = try self.nativeTypeToZigType(var_type);
                 defer self.allocator.free(zig_type);
                 try self.emit(zig_type);
             } else {
+                // For anytype, we can't use ? prefix, so use anytype as-is
+                // The caller must handle the optionality
                 try self.emit("anytype");
             }
         } else {

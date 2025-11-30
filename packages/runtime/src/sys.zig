@@ -33,3 +33,18 @@ pub var argv: [][]const u8 = &.{};
 pub fn exit(code: i32) noreturn {
     std.posix.exit(@intCast(code));
 }
+
+/// Integer string conversion limit (0 = disabled, default = 4300)
+/// This is a Python 3.11+ security feature to limit DoS attacks via huge int<->str conversions
+var int_max_str_digits: i64 = 4300;
+
+/// Get the current limit for integer string conversion
+pub fn get_int_max_str_digits(_: std.mem.Allocator) !i64 {
+    return int_max_str_digits;
+}
+
+/// Set the limit for integer string conversion (0 = disabled)
+pub fn set_int_max_str_digits(_: std.mem.Allocator, n: i64) !i64 {
+    int_max_str_digits = n;
+    return n;
+}

@@ -12,6 +12,8 @@ pub const printResults = runner.printResults;
 pub const deinitRunner = runner.deinitRunner;
 pub const main = runner.main;
 pub const finalize = runner.finalize;
+pub const Mock = runner.Mock;
+pub const MockValue = runner.MockValue;
 
 // Re-export basic assertions
 pub const assertEqual = assertions_basic.assertEqual;
@@ -60,6 +62,17 @@ pub const assertNotIsSubclass = assertions_type.assertNotIsSubclass;
 pub const subTest = subtest.subTest;
 pub const subTestInt = subtest.subTestInt;
 
+/// Base TestCase class with setUp/tearDown stubs
+/// Python classes call super().setUp() which becomes unittest.TestCase.setUp()
+pub const TestCase = struct {
+    pub fn setUp(_: *anyopaque) void {
+        // Base setUp - no-op
+    }
+    pub fn tearDown(_: *anyopaque) void {
+        // Base tearDown - no-op
+    }
+};
+
 /// Context manager for unittest assertions (e.g., with self.assertRaises(...) as cm)
 /// This provides a dummy implementation for cm.exception.args[0] etc.
 pub const ContextManager = struct {
@@ -71,6 +84,15 @@ pub const ContextManager = struct {
 
     exception: Exception = .{},
 };
+
+/// SkipTest exception - raised to skip a test
+/// In Python: raise unittest.SkipTest("reason")
+pub fn SkipTest(_: anytype, message: []const u8) error{SkipTest}!void {
+    std.debug.print("Test skipped: {s}\n", .{message});
+    return error.SkipTest;
+}
+
+const std = @import("std");
 
 // Tests
 test "assertEqual: integers" {

@@ -32,6 +32,7 @@ pub const genAssertRaisesRegex = assertions.genAssertRaisesRegex;
 pub const genAssertWarns = assertions.genAssertWarns;
 pub const genAssertWarnsRegex = assertions.genAssertWarnsRegex;
 pub const genAssertStartsWith = assertions.genAssertStartsWith;
+pub const genAssertNotStartsWith = assertions.genAssertNotStartsWith;
 pub const genAssertEndsWith = assertions.genAssertEndsWith;
 pub const genAssertHasAttr = assertions.genAssertHasAttr;
 pub const genAssertNotHasAttr = assertions.genAssertNotHasAttr;

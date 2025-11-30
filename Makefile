@@ -47,6 +47,10 @@ build-release:
 	@zig build -Doptimize=ReleaseFast
 	@echo "✓ Built: ./zig-out/bin/metal0"
 
+link:
+	@rm ~/.local/bin/metal0 && ln -s ./zig-out/bin/metal0 ~/.local/bin/metal0
+	@echo "✓ Linked: ./zig-out/bin/metal0"
+
 install: build-release
 	@mkdir -p ~/.local/bin
 	@cp zig-out/bin/metal0 ~/.local/bin/metal0

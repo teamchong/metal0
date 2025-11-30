@@ -227,7 +227,26 @@ pub const ExprParser = struct {
 
     fn scanNumber(self: *ExprParser) !void {
         const start = self.pos;
-        while (self.pos < self.source.len and (std.ascii.isDigit(self.source[self.pos]) or self.source[self.pos] == '.')) {
+        // Check for base prefix: 0b, 0o, 0x
+        if (self.pos + 1 < self.source.len and self.source[self.pos] == '0') {
+            const prefix = self.source[self.pos + 1];
+            if (prefix == 'b' or prefix == 'B' or prefix == 'o' or prefix == 'O' or prefix == 'x' or prefix == 'X') {
+                self.pos += 2; // Skip "0x" etc.
+                // Scan hex/binary/octal digits plus underscores
+                while (self.pos < self.source.len) {
+                    const c = self.source[self.pos];
+                    if (std.ascii.isAlphanumeric(c) or c == '_') {
+                        self.pos += 1;
+                    } else {
+                        break;
+                    }
+                }
+                self.current = .{ .type = .Number, .start = start, .end = self.pos };
+                return;
+            }
+        }
+        // Include digits, underscores (Python 3.6+), and decimal point
+        while (self.pos < self.source.len and (std.ascii.isDigit(self.source[self.pos]) or self.source[self.pos] == '.' or self.source[self.pos] == '_')) {
             self.pos += 1;
         }
         self.current = .{ .type = .Number, .start = start, .end = self.pos };
@@ -378,9 +397,28 @@ pub const ExprParser = struct {
         switch (self.current.type) {
             .Number => {
                 const text = self.getText(self.current);
-                const value = std.fmt.parseInt(i64, text, 10) catch {
-                    // Try float
-                    const fval = std.fmt.parseFloat(f64, text) catch return ParseError.InvalidNumber;
+                // Determine base from prefix and strip it
+                var base: u8 = 10;
+                var num_text = text;
+                if (text.len > 2 and text[0] == '0') {
+                    const prefix = text[1];
+                    if (prefix == 'b' or prefix == 'B') {
+                        base = 2;
+                        num_text = text[2..];
+                    } else if (prefix == 'o' or prefix == 'O') {
+                        base = 8;
+                        num_text = text[2..];
+                    } else if (prefix == 'x' or prefix == 'X') {
+                        base = 16;
+                        num_text = text[2..];
+                    }
+                }
+                // Strip underscores from numeric literals (Python 3.6+)
+                const clean = stripUnderscores(num_text) catch return ParseError.OutOfMemory;
+                const value = std.fmt.parseInt(i64, clean, base) catch {
+                    if (base != 10) return ParseError.InvalidNumber;
+                    // Try float (only for base 10)
+                    const fval = std.fmt.parseFloat(f64, clean) catch return ParseError.InvalidNumber;
                     // For now, truncate to int (TODO: proper float support)
                     const ival = @as(i64, @intFromFloat(fval));
                     const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
@@ -441,6 +479,29 @@ pub const ExprParser = struct {
         }
     }
 };
+
+/// Strip underscores from numeric literal (Python 3.6+ feature)
+/// Uses a static buffer to avoid allocation and lifetime issues
+var strip_buf: [64]u8 = undefined;
+
+fn stripUnderscores(input: []const u8) error{OutOfMemory}![]const u8 {
+    // Fast path: no underscores
+    if (std.mem.indexOfScalar(u8, input, '_') == null) {
+        return input;
+    }
+    // Use static buffer for small numbers
+    var len: usize = 0;
+    for (input) |c| {
+        if (c != '_') {
+            if (len >= strip_buf.len) return error.OutOfMemory; // Number too large for buffer
+            strip_buf[len] = c;
+            len += 1;
+        }
+    }
+    // Handle case where result is empty (e.g., just "_")
+    if (len == 0) return error.OutOfMemory;
+    return strip_buf[0..len];
+}
 
 /// Parse and compile expression to bytecode
 pub fn parseExpression(allocator: std.mem.Allocator, source: []const u8) !bytecode.BytecodeProgram {

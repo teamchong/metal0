@@ -33,6 +33,7 @@ pub const StringKind = enum {
 pub const NativeType = union(enum) {
     // Primitives - stack allocated, zero overhead
     int: void, // i64
+    bigint: void, // runtime.BigInt - arbitrary precision integer
     usize: void, // usize (for array indices)
     float: void, // f64
     bool: void, // bool
@@ -57,6 +58,7 @@ pub const NativeType = union(enum) {
         params: []const NativeType,
         return_type: *const NativeType,
     }, // Function pointer type: *const fn(T, U) R
+    callable: void, // Type-erased callable (PyCallable) - for heterogeneous callable lists
 
     // Library types (DEPRECATED - remove after implementing Python classes properly)
     dataframe: void, // DEPRECATED: pandas.DataFrame - should be generic class type
@@ -83,13 +85,14 @@ pub const NativeType = union(enum) {
     sqlite_cursor: void, // sqlite3.Cursor - database cursor
     sqlite_rows: void, // []sqlite3.Row - result from fetchall/fetchmany
     sqlite_row: void, // ?sqlite3.Row - result from fetchone
+    exception: []const u8, // Exception type - stores exception name (RuntimeError, ValueError, etc.)
 
-    /// Check if this is a simple type (int, float, bool, string, class_instance, optional)
+    /// Check if this is a simple type (int, bigint, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
     /// (workaround for semantic analyzer false positives)
     pub fn isSimpleType(self: NativeType) bool {
         return switch (self) {
-            .int, .usize, .float, .bool, .string, .class_instance, .optional, .none => true,
+            .int, .bigint, .usize, .float, .bool, .string, .class_instance, .optional, .none => true,
             else => false,
         };
     }
@@ -97,7 +100,7 @@ pub const NativeType = union(enum) {
     /// Comptime check if type is a native primitive (not PyObject)
     pub fn isNativePrimitive(self: NativeType) bool {
         return switch (self) {
-            .int, .usize, .float, .bool, .string => true,
+            .int, .bigint, .usize, .float, .bool, .string => true,
             else => false,
         };
     }
@@ -113,7 +116,7 @@ pub const NativeType = union(enum) {
     /// Get format specifier for std.debug.print
     pub fn getPrintFormat(self: NativeType) []const u8 {
         return switch (self) {
-            .int, .usize => "{d}",
+            .int, .bigint, .usize => "{d}",
             .float => "{d}",
             .bool => "{}",
             .string => "{s}",
@@ -125,6 +128,7 @@ pub const NativeType = union(enum) {
     pub fn toSimpleZigType(self: NativeType) []const u8 {
         return switch (self) {
             .int => "i64",
+            .bigint => "runtime.BigInt",
             .float => "f64",
             .bool => "bool",
             .string => "[]const u8",
@@ -141,6 +145,7 @@ pub const NativeType = union(enum) {
 
         switch (self) {
             .int => try buf.appendSlice(allocator, "i64"),
+            .bigint => try buf.appendSlice(allocator, "runtime.BigInt"),
             .usize => try buf.appendSlice(allocator, "usize"),
             .float => try buf.appendSlice(allocator, "f64"),
             .bool => try buf.appendSlice(allocator, "bool"),
@@ -230,18 +235,26 @@ pub const NativeType = union(enum) {
             .sqlite_cursor => try buf.appendSlice(allocator, "sqlite3.Cursor"),
             .sqlite_rows => try buf.appendSlice(allocator, "[]sqlite3.Row"),
             .sqlite_row => try buf.appendSlice(allocator, "?sqlite3.Row"),
+            .exception => |exc_name| {
+                // Exception type: *runtime.RuntimeError, *runtime.ValueError, etc.
+                try buf.appendSlice(allocator, "*runtime.");
+                try buf.appendSlice(allocator, exc_name);
+            },
+            .callable => try buf.appendSlice(allocator, "runtime.builtins.PyCallable"),
         }
     }
 
     /// Promote/widen types for compatibility
-    /// Follows Python's type promotion hierarchy: int < float < string < unknown
+    /// Follows Python's type promotion hierarchy: int < bigint < float < string < unknown
     pub fn widen(self: NativeType, other: NativeType) NativeType {
         // Get tags for comparison
         const self_tag = @as(std.meta.Tag(NativeType), self);
         const other_tag = @as(std.meta.Tag(NativeType), other);
 
-        // If either is unknown, result is unknown (fallback to PyObject)
-        if (self_tag == .unknown or other_tag == .unknown) return .unknown;
+        // If one is unknown but the other is known, prefer the known type
+        if (self_tag == .unknown and other_tag != .unknown) return other;
+        if (other_tag == .unknown and self_tag != .unknown) return self;
+        if (self_tag == .unknown and other_tag == .unknown) return .unknown;
 
         // If types match, no widening needed
         if (self_tag == other_tag) {
@@ -252,9 +265,17 @@ pub const NativeType = union(enum) {
         // When one is string, result is runtime string (most general)
         if (self_tag == .string or other_tag == .string) return .{ .string = .runtime };
 
-        // Float can hold ints, so float "wins"
+        // BigInt can hold any int, so bigint "wins" over int/usize
+        if ((self_tag == .bigint and other_tag == .int) or
+            (self_tag == .int and other_tag == .bigint)) return .bigint;
+        if ((self_tag == .bigint and other_tag == .usize) or
+            (self_tag == .usize and other_tag == .bigint)) return .bigint;
+
+        // Float can hold ints and bigints (with precision loss), so float "wins"
         if ((self_tag == .float and other_tag == .int) or
             (self_tag == .int and other_tag == .float)) return .float;
+        if ((self_tag == .float and other_tag == .bigint) or
+            (self_tag == .bigint and other_tag == .float)) return .float;
 
         // usize and int mix → promote to int (i64 can represent both)
         if ((self_tag == .usize and other_tag == .int) or
@@ -267,6 +288,12 @@ pub const NativeType = union(enum) {
         // IO and collection types stay as their own types (no widening)
         if (self_tag == .stringio or self_tag == .bytesio or self_tag == .file or self_tag == .hash_object or self_tag == .counter or self_tag == .deque) return self;
         if (other_tag == .stringio or other_tag == .bytesio or other_tag == .file or other_tag == .hash_object or other_tag == .counter or other_tag == .deque) return other;
+
+        // Callable types: when mixing callables with functions/closures/unknown, widen to callable
+        // This handles lists like [bytes, bytearray, lambda x: ...] -> all become PyCallable
+        if (self_tag == .callable or other_tag == .callable) return .callable;
+        if (self_tag == .function or other_tag == .function) return .callable;
+        if (self_tag == .closure or other_tag == .closure) return .callable;
 
         // Different incompatible types → fallback to unknown
         return .unknown;
