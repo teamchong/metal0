@@ -128,6 +128,39 @@ pub const IOError = struct {
 };
 pub const RuntimeError = struct {
     pub const name = "RuntimeError";
+    args: []const PyValue = &[_]PyValue{},
+    allocator: std.mem.Allocator = undefined,
+
+    pub fn init(allocator: std.mem.Allocator) !*RuntimeError {
+        const self = try allocator.create(RuntimeError);
+        self.* = .{
+            .args = &[_]PyValue{},
+            .allocator = allocator,
+        };
+        return self;
+    }
+
+    pub fn initWithArg(allocator: std.mem.Allocator, arg: anytype) !*RuntimeError {
+        const self = try allocator.create(RuntimeError);
+        const args_copy = try allocator.alloc(PyValue, 1);
+        args_copy[0] = PyValue.from(arg);
+        self.* = .{
+            .args = args_copy,
+            .allocator = allocator,
+        };
+        return self;
+    }
+
+    pub fn initWithArgs(allocator: std.mem.Allocator, args: []const PyValue) !*RuntimeError {
+        const self = try allocator.create(RuntimeError);
+        const args_copy = try allocator.alloc(PyValue, args.len);
+        @memcpy(args_copy, args);
+        self.* = .{
+            .args = args_copy,
+            .allocator = allocator,
+        };
+        return self;
+    }
 };
 pub const StopIteration = struct {
     pub const name = "StopIteration";

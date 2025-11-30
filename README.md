@@ -2,7 +2,7 @@
 
 **v0.1.0-alpha** - Early development, not production-ready
 
-Python Syntax. Bare Metal Speed.
+Python Syntax. Native Speed. Zero Cold Starts.
 
 ## Key Features
 
