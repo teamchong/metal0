@@ -117,6 +117,7 @@ fn compileModuleAsStructWithPrefix(
 
     // Use full codegen to generate proper module code
     var codegen = try NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    defer codegen.deinit();
 
     // Set mode to module so functions are wrapped in pub struct
     codegen.mode = .module;
@@ -288,6 +289,10 @@ pub fn collectImports(
     }
 
     // Process each module using registry
+    std.debug.print("[DEBUG collectImports] Processing {d} modules:\n", .{module_names.count()});
+    for (module_names.keys()) |m| {
+        std.debug.print("  - {s}\n", .{m});
+    }
     for (module_names.keys()) |python_module| {
         // Handle relative imports (starting with .)
         // Convert .app to full path like flask/app when inside flask/__init__.py
@@ -337,6 +342,7 @@ pub fn collectImports(
             continue;
         }
         if (self.import_registry.lookup(python_module)) |info| {
+            std.debug.print("[DEBUG] Module {s}: in registry, strategy={}\n", .{ python_module, @intFromEnum(info.strategy) });
             switch (info.strategy) {
                 .zig_runtime => {
                     // Include modules with Zig implementations
@@ -375,10 +381,12 @@ pub fn collectImports(
                 },
             }
         } else {
+            std.debug.print("[DEBUG] Module {s}: NOT in registry\n", .{python_module});
             // Module not in registry - first check if it's a builtin module we don't support
             // These are stdlib modules with unsupported syntax (subprocess, tempfile, os, etc.)
             if (import_resolver.isBuiltinModule(python_module)) {
                 // Built-in module without Zig runtime support - skip it
+                std.debug.print("[DEBUG] Module {s}: is builtin, skipping\n", .{python_module});
                 try self.markSkippedModule(python_module);
                 continue;
             }
@@ -389,6 +397,7 @@ pub fn collectImports(
                 source_file_dir,
                 self.allocator,
             );
+            std.debug.print("[DEBUG] Module {s}: is_local={}\n", .{ python_module, is_local });
 
             if (is_local) {
                 // Local user module - add to imports list for compilation
@@ -397,10 +406,15 @@ pub fn collectImports(
                 // Check if module was already compiled by import_scanner (e.g., stdlib modules)
                 const compiled_path = try std.fmt.allocPrint(self.allocator, ".build/{s}.zig", .{python_module});
                 defer self.allocator.free(compiled_path);
-                const already_compiled = std.fs.cwd().access(compiled_path, .{}) != error.FileNotFound;
+                const already_compiled = blk: {
+                    std.fs.cwd().access(compiled_path, .{}) catch break :blk false;
+                    break :blk true;
+                };
+                std.debug.print("[DEBUG] Module {s}: is_local=false, compiled={}, path={s}\n", .{ python_module, already_compiled, compiled_path });
 
                 if (already_compiled) {
                     // Module was compiled by import_scanner - add to imports
+                    std.debug.print("[DEBUG] Adding {s} to imports (compiled module)\n", .{python_module});
                     try imports.append(self.allocator, python_module);
                 } else {
                     // Check if it's a C extension installed in site-packages

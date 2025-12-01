@@ -76,10 +76,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         const build_path = try std.fmt.allocPrint(self.allocator, BUILD_DIR ++ "/{s}" ++ MODULE_EXT, .{root_mod_name});
         defer self.allocator.free(build_path);
 
-        std.fs.cwd().access(build_path, .{}) catch {
+        std.fs.cwd().access(build_path, .{}) catch |err| {
             // Module not in .build/, skip it
+            std.debug.print("[DEBUG generator] Module {s}: .build file not found at {s}, err={}\n", .{ root_mod_name, build_path, err });
             continue;
         };
+        std.debug.print("[DEBUG generator] Module {s}: generating @import for {s}\n", .{ root_mod_name, import_path });
 
         // Generate import statement (escape module name if it's a Zig keyword)
         const escaped_name = try zig_keywords.escapeIfKeyword(self.allocator, root_mod_name);
@@ -144,7 +146,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     try self.emit("const allocator_helper = @import(\"./utils/allocator_helper.zig\");\n");
 
     // Emit @import statements for compiled user/stdlib modules (collected in PHASE 1.6)
+    std.debug.print("[DEBUG] Emitting {d} inlined module imports\n", .{inlined_modules.items.len});
     for (inlined_modules.items) |import_stmt| {
+        std.debug.print("[DEBUG] Emitting: {s}", .{import_stmt});
         try self.emit(import_stmt);
     }
 
@@ -285,6 +289,14 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("\";\n\n");
     }
 
+    // PHASE 4.5: Pre-generate closure wrapper types for functions that return closures
+    // This allows the function signature to reference the closure type by name
+    try genClosureWrapperTypes(self, module);
+
+    // PHASE 4.6: Analyze functions that return test classes (factory pattern)
+    // This enables unittest discovery for classes assigned via tuple unpacking
+    try analyzeTestFactories(self, module);
+
     // PHASE 5: Generate imports, class and function definitions (before main)
     // In module mode, wrap functions in pub struct
     if (self.mode == .module) {
@@ -357,6 +369,34 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             try self.emit("pub const ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                             try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, j });
+                        }
+                    }
+
+                    // Check if this is a call to a test factory function
+                    // If so, register the module-level variable names as test classes
+                    if (stmt.assign.value.* == .call) {
+                        const call_node = stmt.assign.value.call;
+                        if (call_node.func.* == .name) {
+                            const func_name = call_node.func.name.id;
+                            if (self.test_factories.get(func_name)) |factory_info| {
+                                // Register each target with its corresponding class info
+                                for (target_elts, 0..) |target, j| {
+                                    if (target == .name and j < factory_info.returned_classes.len) {
+                                        const var_name = target.name.id;
+                                        const orig_class_info = factory_info.returned_classes[j];
+
+                                        // Create a new TestClassInfo with the module-level variable name
+                                        try self.unittest_classes.append(self.allocator, core.TestClassInfo{
+                                            .class_name = var_name,
+                                            .test_methods = orig_class_info.test_methods,
+                                            .has_setUp = orig_class_info.has_setUp,
+                                            .has_tearDown = orig_class_info.has_tearDown,
+                                            .has_setup_class = orig_class_info.has_setup_class,
+                                            .has_teardown_class = orig_class_info.has_teardown_class,
+                                        });
+                                    }
+                                }
+                            }
                         }
                     }
                 } else {
@@ -436,10 +476,47 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 }
             }
 
-            const zig_type = if (var_type) |vt| blk: {
+            // Check if this variable is assigned from a closure factory (e.g., x = outer())
+            // In that case, use the pre-generated closure type instead of inferred type
+            var closure_type_name: ?[]const u8 = null;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            // Check if RHS is a call to a closure factory function
+                            if (assign.value.* == .call) {
+                                const call = assign.value.call;
+                                if (call.func.* == .name) {
+                                    const func_name = call.func.name.id;
+                                    if (self.closure_factories.contains(func_name)) {
+                                        // This is a closure factory call - look up the return type
+                                        const sig = @import("../statements/functions/generators/signature.zig");
+                                        // Find the nested function being returned and get its type
+                                        for (module.body) |func_stmt| {
+                                            if (func_stmt == .function_def and std.mem.eql(u8, func_stmt.function_def.name, func_name)) {
+                                                if (sig.getReturnedNestedFuncName(func_stmt.function_def.body)) |nested_name| {
+                                                    if (self.pending_closure_types.get(nested_name)) |type_name| {
+                                                        closure_type_name = type_name;
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            const zig_type = if (closure_type_name) |ctn| blk: {
+                break :blk ctn;
+            } else if (var_type) |vt| blk: {
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";
-            defer if (var_type != null) self.allocator.free(zig_type);
+            defer if (closure_type_name == null and var_type != null) self.allocator.free(zig_type);
 
             try self.emit("var ");
             try self.emit(var_name);
@@ -722,4 +799,186 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
 // Expression generation delegated to expressions.zig
 pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     try expressions.genExpr(self, node);
+}
+
+/// Pre-generate closure wrapper types for functions that return closures.
+/// This runs BEFORE function generation so the types exist when we need them.
+/// For zero-capture closures, we generate the entire implementation at module level.
+fn genClosureWrapperTypes(self: *NativeCodegen, module: ast.Node.Module) !void {
+    const sig = @import("../statements/functions/generators/signature.zig");
+    const var_tracking = @import("../statements/functions/nested/var_tracking.zig");
+    const zero_capture = @import("../statements/functions/nested/zero_capture.zig");
+
+    for (module.body) |stmt| {
+        if (stmt == .function_def) {
+            const func = stmt.function_def;
+
+            // Check if this function returns a nested function (closure)
+            if (sig.getReturnedNestedFuncName(func.body)) |nested_func_name| {
+                // Find the nested function definition to get its signature
+                var nested_func: ?ast.Node.FunctionDef = null;
+                for (func.body) |body_stmt| {
+                    if (body_stmt == .function_def) {
+                        if (std.mem.eql(u8, body_stmt.function_def.name, nested_func_name)) {
+                            nested_func = body_stmt.function_def;
+                            break;
+                        }
+                    }
+                }
+
+                if (nested_func) |nf| {
+                    // Check if this is a zero-capture closure
+                    // We can only pre-generate zero-capture closures at module level
+                    const captured = var_tracking.findCapturedVars(
+                        self,
+                        nf,
+                    ) catch continue;
+                    defer self.allocator.free(captured);
+
+                    if (captured.len == 0) {
+                        // Generate a unique type name based on the outer function
+                        const type_name = try std.fmt.allocPrint(
+                            self.allocator,
+                            "{s}__struct_{d}",
+                            .{ func.name, self.lambda_counter },
+                        );
+
+                        // Store the type name for later reference in signature.zig
+                        // Key is the nested function name, value is the pre-generated type name
+                        const nested_name_copy = try self.allocator.dupe(u8, nested_func_name);
+                        try self.pending_closure_types.put(nested_name_copy, type_name);
+
+                        // Also mark this function as a closure factory (caller in outer function)
+                        const func_name_copy = try self.allocator.dupe(u8, func.name);
+                        try self.closure_factories.put(func_name_copy, {});
+
+                        // Generate the entire zero-capture closure at module level
+                        // This includes impl struct + wrapper struct
+                        try zero_capture.genModuleLevelZeroCaptureClosure(self, nf, type_name);
+
+                        self.lambda_counter += 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Analyze functions that return test classes (factory pattern for unittest)
+/// This populates test_factories map with factory function name -> TestClassInfo[]
+fn analyzeTestFactories(self: *NativeCodegen, module: ast.Node.Module) !void {
+    const generators = @import("../statements/functions/generators.zig");
+    const allocator_analyzer = @import("../statements/functions/allocator_analyzer.zig");
+
+    for (module.body) |stmt| {
+        if (stmt != .function_def) continue;
+        const func = stmt.function_def;
+
+        // Find test classes defined inside this function
+        var test_classes = std.ArrayList(core.TestClassInfo){};
+        errdefer {
+            for (test_classes.items) |info| self.allocator.free(info.test_methods);
+            test_classes.deinit(self.allocator);
+        }
+
+        // Track class names and their info
+        var class_info_map = hashmap_helper.StringHashMap(core.TestClassInfo).init(self.allocator);
+        defer class_info_map.deinit();
+
+        for (func.body) |body_stmt| {
+            if (body_stmt != .class_def) continue;
+            const class = body_stmt.class_def;
+
+            // Check if class inherits from unittest.TestCase
+            if (class.bases.len == 0) continue;
+            if (!std.mem.eql(u8, class.bases[0], "unittest.TestCase")) continue;
+
+            // Collect test methods
+            var test_methods = std.ArrayList(core.TestMethodInfo){};
+            var has_setUp = false;
+            var has_tearDown = false;
+            var has_setup_class = false;
+            var has_teardown_class = false;
+
+            for (class.body) |class_stmt| {
+                if (class_stmt != .function_def) continue;
+                const method = class_stmt.function_def;
+                const method_name = method.name;
+
+                if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
+                    const method_needs_allocator = allocator_analyzer.functionNeedsAllocator(method);
+                    const skip_reason: ?[]const u8 = if (generators.hasCPythonOnlyDecorator(method.decorators))
+                        "CPython implementation test"
+                    else if (generators.hasSkipUnlessCPythonModule(method.decorators))
+                        "Requires CPython-only module"
+                    else
+                        null;
+
+                    try test_methods.append(self.allocator, core.TestMethodInfo{
+                        .name = method_name,
+                        .skip_reason = skip_reason,
+                        .needs_allocator = method_needs_allocator,
+                        .is_skipped = skip_reason != null,
+                    });
+                } else if (std.mem.eql(u8, method_name, "setUp")) {
+                    has_setUp = true;
+                } else if (std.mem.eql(u8, method_name, "tearDown")) {
+                    has_tearDown = true;
+                } else if (std.mem.eql(u8, method_name, "setUpClass")) {
+                    has_setup_class = true;
+                } else if (std.mem.eql(u8, method_name, "tearDownClass")) {
+                    has_teardown_class = true;
+                }
+            }
+
+            if (test_methods.items.len > 0) {
+                try class_info_map.put(class.name, core.TestClassInfo{
+                    .class_name = class.name,
+                    .test_methods = try test_methods.toOwnedSlice(self.allocator),
+                    .has_setUp = has_setUp,
+                    .has_tearDown = has_tearDown,
+                    .has_setup_class = has_setup_class,
+                    .has_teardown_class = has_teardown_class,
+                });
+            } else {
+                test_methods.deinit(self.allocator);
+            }
+        }
+
+        // If no test classes found, skip this function
+        if (class_info_map.count() == 0) continue;
+
+        // Find the return statement to get the order of returned classes
+        var returned_class_names = std.ArrayList([]const u8){};
+        defer returned_class_names.deinit(self.allocator);
+
+        for (func.body) |body_stmt| {
+            if (body_stmt != .return_stmt) continue;
+            const ret_val = body_stmt.return_stmt.value orelse continue;
+
+            // Check if return value is a tuple of class names
+            if (ret_val.* == .tuple) {
+                for (ret_val.tuple.elts) |elt| {
+                    if (elt == .name) {
+                        try returned_class_names.append(self.allocator, elt.name.id);
+                    }
+                }
+            }
+        }
+
+        // Build ordered list of test class info based on return order
+        for (returned_class_names.items) |class_name| {
+            if (class_info_map.get(class_name)) |info| {
+                try test_classes.append(self.allocator, info);
+                _ = class_info_map.swapRemove(class_name);
+            }
+        }
+
+        if (test_classes.items.len > 0) {
+            const func_name_copy = try self.allocator.dupe(u8, func.name);
+            try self.test_factories.put(func_name_copy, core.TestFactoryInfo{
+                .returned_classes = try test_classes.toOwnedSlice(self.allocator),
+            });
+        }
+    }
 }
