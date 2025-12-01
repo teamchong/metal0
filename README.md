@@ -382,29 +382,27 @@ Benchmarked on macOS ARM64 (Apple Silicon M2).
 
 metal0 compiles Python's `asyncio` to state machine coroutines with kqueue netpoller.
 
-**CPU-Bound: Fan-out/Fan-in (1000 tasks × 10000 iterations)**
+**CPU-Bound: Fan-out/Fan-in (1000 tasks × 100,000 iterations)**
 
 | Runtime | Time | Tasks/sec | vs CPython |
 |---------|------|-----------|------------|
-| **metal0** | **0.05ms** | **20,000,000** | **6400x** 🏆 |
-| Rust (rayon) | 0.21ms | 4,842,615 | 1546x |
-| Go | 1.35ms | 740,375 | 236x |
-| PyPy | 45.65ms | 21,908 | 7x |
-| CPython | 319.28ms | 3,132 | 1x |
+| **metal0** | **0.05ms** | **22,000,000** | **73,000x** 🏆 |
+| Rust (rayon) | 0.20ms | 5,079,365 | 16,870x |
+| Go | 4.89ms | 204,668 | 680x |
+| CPython | 3,320ms | 301 | 1x |
 
-*metal0 is 4x faster than Rust and 27x faster than Go!*
+*metal0 is 4x faster than Rust and 680x faster than Go on CPU-bound async!*
 
-**I/O-Bound: Concurrent Sleep (10000 tasks × 1ms each)**
+**I/O-Bound: Concurrent Sleep (100,000 tasks × 1ms each)**
 
 | Runtime | Time | Concurrency | vs Sequential |
 |---------|------|-------------|---------------|
-| **metal0** | **1.8ms** | **5,400x** | 🏆 Best event loop |
-| Rust (tokio) | 6.22ms | 1,608x | Great async runtime |
-| Go | 9.33ms | 1,072x | Great for network |
-| CPython | 57.99ms | 172x | Good for I/O |
-| PyPy | 123.29ms | 81x | JIT doesn't help I/O |
+| **metal0** | **14.4ms** | **6,942x** | 🏆 Best event loop |
+| Rust (tokio) | 41.2ms | 2,427x | Great async runtime |
+| Go | 64.8ms | 1,542x | Great for network |
+| CPython | 1,107ms | 90x | Good for I/O |
 
-*Sequential would take 10,000ms. metal0 achieves 5400× concurrency via state machine + kqueue netpoller.*
+*Sequential would take 100,000ms. metal0 achieves 6942× concurrency via state machine + kqueue netpoller.*
 
 **When to use what:**
 - **CPU-bound** (computation): metal0 > Rust > Go >> PyPy >> CPython

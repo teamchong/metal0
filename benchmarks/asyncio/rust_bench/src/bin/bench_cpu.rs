@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use std::time::Instant;
 
 const NUM_TASKS: i64 = 1000;
-const WORK_PER_TASK: i64 = 10000;
+const WORK_PER_TASK: i64 = 100000;
 
 fn worker(task_id: i64) -> i64 {
     let mut result: i64 = 0;

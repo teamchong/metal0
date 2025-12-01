@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	NUM_TASKS = 10000
+	NUM_TASKS = 100000
 	SLEEP_MS  = 1
 )
 

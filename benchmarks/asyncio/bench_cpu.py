@@ -12,7 +12,7 @@ import asyncio
 import time
 
 NUM_TASKS = 1000
-WORK_PER_TASK = 10000
+WORK_PER_TASK = 100000
 
 async def worker(task_id: int) -> int:
     """CPU-intensive worker"""

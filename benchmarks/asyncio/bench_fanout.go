@@ -10,7 +10,7 @@ import (
 
 const (
 	NUM_TASKS      = 1000
-	WORK_PER_TASK  = 10000
+	WORK_PER_TASK  = 100000
 )
 
 func worker(taskID int) int64 {

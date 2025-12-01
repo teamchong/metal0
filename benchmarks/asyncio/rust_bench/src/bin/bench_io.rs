@@ -2,7 +2,7 @@
 use std::time::Instant;
 use tokio::time::{sleep, Duration};
 
-const NUM_TASKS: i64 = 10000;
+const NUM_TASKS: i64 = 100000;
 const SLEEP_MS: u64 = 1;
 
 async fn worker(task_id: i64) -> i64 {
