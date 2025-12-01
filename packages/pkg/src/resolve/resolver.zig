@@ -263,9 +263,9 @@ pub const Resolver = struct {
                 }
             }
 
-            // DIRECT batch fetch via HTTP/2 - prefer Simple API + PEP 658 fast path
+            // DIRECT batch fetch via HTTP/2 - prefer Simple API + PEP 658 fast path with cache
             const fetch_results = if (self.config.use_fast_path)
-                self.client.getPackagesParallelH2Fast(batch_names.items) catch
+                self.client.getPackagesParallelH2FastWithCache(batch_names.items, self.cache) catch
                     try self.client.getPackagesParallelWithCache(batch_names.items, self.cache)
             else
                 try self.client.getPackagesParallelWithCache(batch_names.items, self.cache);
