@@ -422,30 +422,31 @@ fn isDynamicAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
         }
     }
 
-    // Print class name for class_instance types
-    if (obj_type == .class_instance) {
-        std.debug.print("DEBUG isDynamicAttribute: {s}.{s} -> class_instance={s}\n", .{ obj_name, attr.attr, obj_type.class_instance });
-    } else {
-        std.debug.print("DEBUG isDynamicAttribute: {s}.{s} -> obj_type={any}\n", .{ obj_name, attr.attr, @as(std.meta.Tag(@TypeOf(obj_type)), obj_type) });
-    }
-
     // Check if it's a class instance
     if (obj_type != .class_instance) return false;
 
     const class_name = obj_type.class_instance;
 
-    std.debug.print("DEBUG isDynamicAttribute: class_name={s}\n", .{class_name});
-
-    // Check if class has this field
-    const class_info = self.type_inferrer.class_fields.get(class_name);
-    std.debug.print("DEBUG isDynamicAttribute: class_info exists={}\n", .{class_info != null});
-    if (class_info) |info| {
-        // Check if field exists in class
-        const has_field = info.fields.get(attr.attr) != null;
-        std.debug.print("DEBUG isDynamicAttribute: has_field({s})={}\n", .{ attr.attr, has_field });
-        if (info.fields.get(attr.attr)) |_| {
-            return false; // Known field
+    // Check if class has this field (including inherited fields)
+    const has_field = blk: {
+        // Check own class fields
+        if (self.type_inferrer.class_fields.get(class_name)) |info| {
+            if (info.fields.get(attr.attr)) |_| {
+                break :blk true;
+            }
         }
+        // Check parent class fields for nested classes
+        if (self.nested_class_bases.get(class_name)) |parent_name| {
+            if (self.type_inferrer.class_fields.get(parent_name)) |parent_info| {
+                if (parent_info.fields.get(attr.attr)) |_| {
+                    break :blk true;
+                }
+            }
+        }
+        break :blk false;
+    };
+    if (has_field) {
+        return false; // Known field (own or inherited)
     }
 
     // Check if this is a class-level type attribute (e.g., int_class = int)

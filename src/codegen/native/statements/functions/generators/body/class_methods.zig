@@ -19,18 +19,18 @@ const BuiltinBaseInfo = generators.BuiltinBaseInfo;
 
 
 /// Generate default init() method for classes without __init__
-/// Nested classes (class_nesting_depth > 1) are heap-allocated for Python reference semantics
-pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!void {
+/// Nested classes (in nested_class_names) are heap-allocated for Python reference semantics
+pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) CodegenError!void {
     // Default __dict__ field for dynamic attributes
     try self.emitIndent();
     try self.emit("// Dynamic attributes dictionary\n");
     try self.emitIndent();
     try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 
-    // Use __alloc for nested classes to avoid shadowing outer allocator
-    // class_nesting_depth: 1 = top-level class, 2+ = nested class
-    const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
-    const is_nested = self.class_nesting_depth > 1;
+    // Check if class is nested (defined inside a function/method)
+    // Nested classes need heap allocation for Python reference semantics
+    const is_nested = self.nested_class_names.contains(class_name);
+    const alloc_name = if (is_nested) "__alloc" else "allocator";
 
     try self.emit("\n");
     try self.emitIndent();
@@ -86,8 +86,9 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
     try self.emitIndent();
     try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 
-    // Use __alloc for nested classes to avoid shadowing outer allocator
-    const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
+    // Check if class is nested (defined inside a function/method)
+    const is_nested = self.nested_class_names.contains(class_name);
+    const alloc_name = if (is_nested) "__alloc" else "allocator";
 
     try self.emit("\n");
     try self.emitIndent();
@@ -142,7 +143,6 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
         }
     }
 
-    const is_nested = self.class_nesting_depth > 1;
     if (is_nested) {
         try self.emit(") !*@This() {\n");
     } else {
@@ -222,10 +222,9 @@ pub fn genInitMethod(
     class_name: []const u8,
     init_def: ast.Node.FunctionDef,
 ) CodegenError!void {
-    // Use __alloc for nested classes to avoid shadowing outer allocator
-    // class_nesting_depth: 1 = top-level class, 2+ = nested class
-    const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
-    const is_nested = self.class_nesting_depth > 1;
+    // Check if class is nested (defined inside a function/method)
+    const is_nested = self.nested_class_names.contains(class_name);
+    const alloc_name = if (is_nested) "__alloc" else "allocator";
 
     try self.emit("\n");
     try self.emitIndent();
@@ -357,8 +356,9 @@ pub fn genInitMethodWithBuiltinBase(
     complex_parent: ?generators.ComplexParentInfo,
     captured_vars: ?[][]const u8,
 ) CodegenError!void {
-    // Use __alloc for nested classes to avoid shadowing outer allocator
-    const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
+    // Check if class is nested (defined inside a function/method)
+    const is_nested = self.nested_class_names.contains(class_name);
+    const alloc_name = if (is_nested) "__alloc" else "allocator";
 
     try self.emit("\n");
     try self.emitIndent();
@@ -446,7 +446,6 @@ pub fn genInitMethodWithBuiltinBase(
     }
 
     // Use @This() for self-referential return type - heap-allocate for nested classes
-    const is_nested = self.class_nesting_depth > 1;
     if (is_nested) {
         try self.emit(") !*@This() {\n");
     } else {
@@ -605,8 +604,9 @@ pub fn genInitMethodFromNew(
     complex_parent: ?generators.ComplexParentInfo,
     captured_vars: ?[][]const u8,
 ) CodegenError!void {
-    // Use __alloc for nested classes to avoid shadowing outer allocator
-    const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
+    // Check if class is nested (defined inside a function/method)
+    const is_nested = self.nested_class_names.contains(class_name);
+    const alloc_name = if (is_nested) "__alloc" else "allocator";
 
     try self.emit("\n");
     try self.emitIndent();

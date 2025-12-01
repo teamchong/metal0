@@ -913,13 +913,26 @@ fn isDynamicAttrAssign(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
 
     const class_name = obj_type.class_instance;
 
-    // Check if class has this field
-    const class_info = self.type_inferrer.class_fields.get(class_name);
-    if (class_info) |info| {
-        // Check if field exists in class
-        if (info.fields.get(attr.attr)) |_| {
-            return false; // Known field
+    // Check if class has this field (including inherited fields)
+    const has_field = blk: {
+        // Check own class fields
+        if (self.type_inferrer.class_fields.get(class_name)) |info| {
+            if (info.fields.get(attr.attr)) |_| {
+                break :blk true;
+            }
         }
+        // Check parent class fields for nested classes
+        if (self.nested_class_bases.get(class_name)) |parent_name| {
+            if (self.type_inferrer.class_fields.get(parent_name)) |parent_info| {
+                if (parent_info.fields.get(attr.attr)) |_| {
+                    break :blk true;
+                }
+            }
+        }
+        break :blk false;
+    };
+    if (has_field) {
+        return false; // Known field (own or inherited)
     }
 
     // Check for special module attributes

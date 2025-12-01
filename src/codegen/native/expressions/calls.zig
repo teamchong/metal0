@@ -615,8 +615,16 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Local structs (namedtuples, etc.) don't need allocator
             const needs_allocator = in_class_registry or in_nested_names or is_self_class_call;
 
+            // Nested classes have init() returning !*@This() (error union with pointer)
+            // So we need try for: nested class calls, or self-class calls when inside a nested class
+            const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
+            const needs_try_for_nested = in_nested_names or (is_self_class_call and current_class_is_nested);
+
             if (is_user_class) {
-                // User-defined class: init returns struct directly, no try needed
+                // User-defined class: nested classes need try (returns !*@This())
+                if (needs_try_for_nested) {
+                    try self.emit("(try ");
+                }
                 if (is_self_class_call) {
                     try self.emit("@This()");
                 } else {
@@ -792,6 +800,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // All paths here use single closing paren for .init(...)
             // Runtime exception path with (try ...) already returned earlier at line 588/592/603
             try self.emit(")");
+            // Close the (try ...) wrapper for nested class constructors
+            if (needs_try_for_nested) {
+                try self.emit(")");
+            }
             return;
         }
 
