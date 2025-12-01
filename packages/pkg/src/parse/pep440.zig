@@ -23,8 +23,8 @@ pub const Version = struct {
     epoch: u32 = 0,
     release: []const u32, // Major, minor, patch, etc.
     pre: ?PreRelease = null,
-    post: ?u32 = null,
-    dev: ?u32 = null,
+    post: ?u64 = null, // u64 for large post numbers (timestamps)
+    dev: ?u64 = null, // u64 for large dev numbers like 202510250044 (timestamps)
     local: ?[]const u8 = null,
 
     pub const PreRelease = struct {
@@ -388,18 +388,26 @@ pub fn parseVersion(allocator: std.mem.Allocator, input: []const u8) ParseError!
         s = s[0..plus_pos];
     }
 
-    // Parse dev (.devN)
+    // Parse dev (.devN) - use u64 for large timestamps like 202510250044
     if (std.mem.indexOf(u8, s, ".dev")) |dev_pos| {
         const dev_str = s[dev_pos + 4 ..];
-        version.dev = if (dev_str.len == 0) 0 else std.fmt.parseInt(u32, dev_str, 10) catch return ParseError.InvalidVersion;
+        version.dev = if (dev_str.len == 0) 0 else std.fmt.parseInt(u64, dev_str, 10) catch return ParseError.InvalidVersion;
         s = s[0..dev_pos];
     }
 
-    // Parse post (.postN or .N after release for implicit post)
+    // Parse post (.postN, -N, or .N after release for implicit post) - use u64 for large timestamps
+    // PEP 440: "-N" is a legacy format equivalent to ".postN"
     if (std.mem.indexOf(u8, s, ".post")) |post_pos| {
         const post_str = s[post_pos + 5 ..];
-        version.post = if (post_str.len == 0) 0 else std.fmt.parseInt(u32, post_str, 10) catch return ParseError.InvalidVersion;
+        version.post = if (post_str.len == 0) 0 else std.fmt.parseInt(u64, post_str, 10) catch return ParseError.InvalidVersion;
         s = s[0..post_pos];
+    } else if (std.mem.lastIndexOf(u8, s, "-")) |dash_pos| {
+        // Legacy format: 1.0-1 means 1.0.post1
+        const post_str = s[dash_pos + 1 ..];
+        if (post_str.len > 0 and std.ascii.isDigit(post_str[0])) {
+            version.post = std.fmt.parseInt(u64, post_str, 10) catch null;
+            if (version.post != null) s = s[0..dash_pos];
+        }
     }
 
     // Parse pre-release (aN, bN, rcN, alphaN, betaN)
