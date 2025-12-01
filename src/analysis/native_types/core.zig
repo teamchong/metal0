@@ -63,6 +63,7 @@ pub const NativeType = union(enum) {
     float: void, // f64
     bool: void, // bool
     string: StringKind, // []const u8 - tracks allocation/optimization hint
+    complex: void, // runtime.PyComplex - complex number
 
     // Composites
     array: struct {
@@ -203,6 +204,7 @@ pub const NativeType = union(enum) {
             .float => try buf.appendSlice(allocator, "f64"),
             .bool => try buf.appendSlice(allocator, "bool"),
             .string => try buf.appendSlice(allocator, "[]const u8"),
+            .complex => try buf.appendSlice(allocator, "runtime.PyComplex"),
             .array => |arr| {
                 const len_str = try std.fmt.allocPrint(allocator, "[{d}]", .{arr.length});
                 defer allocator.free(len_str);
@@ -281,7 +283,7 @@ pub const NativeType = union(enum) {
             .usize_slice => try buf.appendSlice(allocator, "[]const usize"),
             .stringio => try buf.appendSlice(allocator, "*runtime.io.StringIO"),
             .bytesio => try buf.appendSlice(allocator, "*runtime.io.BytesIO"),
-            .file => try buf.appendSlice(allocator, "*runtime.PyFile"),
+            .file => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .hash_object => try buf.appendSlice(allocator, "hashlib.HashObject"),
             .counter => try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(i64)"),
             .deque => try buf.appendSlice(allocator, "std.ArrayList(i64)"),
@@ -309,6 +311,9 @@ pub const NativeType = union(enum) {
         if (self_tag == .unknown and other_tag != .unknown) return other;
         if (other_tag == .unknown and self_tag != .unknown) return self;
         if (self_tag == .unknown and other_tag == .unknown) return .unknown;
+
+        // PyValue absorbs everything - once heterogeneous, stays heterogeneous
+        if (self_tag == .pyvalue or other_tag == .pyvalue) return .pyvalue;
 
         // If types match, no widening needed (except for tuples and ints which need special handling)
         if (self_tag == other_tag) {
@@ -340,9 +345,19 @@ pub const NativeType = union(enum) {
             return .{ .optional = @constCast(&self) };
         }
 
-        // String "wins" over everything (str() is universal)
-        // When one is string, result is runtime string (most general)
-        if (self_tag == .string or other_tag == .string) return .{ .string = .runtime };
+        // String + non-numeric types = PyValue (heterogeneous list)
+        // Strings only "win" within the string hierarchy (literal vs runtime)
+        // When mixing string with int/float/bool/etc., use pyvalue for type erasure
+        if (self_tag == .string and other_tag == .string) return .{ .string = .runtime };
+        if (self_tag == .string or other_tag == .string) {
+            // String + numeric (int/float/usize/bigint) = pyvalue (heterogeneous)
+            // String + bool = pyvalue (heterogeneous)
+            const other_is_numeric = other_tag == .int or other_tag == .float or other_tag == .usize or other_tag == .bigint or other_tag == .bool;
+            const self_is_numeric = self_tag == .int or self_tag == .float or self_tag == .usize or self_tag == .bigint or self_tag == .bool;
+            if (self_is_numeric or other_is_numeric) return .pyvalue;
+            // String + other non-numeric types still defaults to pyvalue
+            return .pyvalue;
+        }
 
         // BigInt can hold any int, so bigint "wins" over int/usize
         if ((self_tag == .bigint and other_tag == .int) or

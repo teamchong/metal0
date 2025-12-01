@@ -20,8 +20,22 @@ pub fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate marshal.dumps(value, version=4)
+/// For AOT compilation, we serialize at compile time by encoding the type+value
 pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
+        // For bool constants, we encode as 'T' for True, 'F' for False
+        // This is a simplified marshal format for AOT use
+        if (args[0] == .constant) {
+            if (args[0].constant.value == .bool) {
+                if (args[0].constant.value.bool) {
+                    try self.emit("\"T\""); // Marshal format for True
+                } else {
+                    try self.emit("\"F\""); // Marshal format for False
+                }
+                return;
+            }
+        }
+        // Fallback: stub for unsupported types
         const uid = self.output.items.len;
         try self.emitFmt("marshal_dumps_{d}: {{ const val = ", .{uid});
         try self.genExpr(args[0]);
@@ -44,12 +58,13 @@ pub fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate marshal.loads(bytes)
+/// Decodes the simplified marshal format used by genDumps
 pub fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const uid = self.output.items.len;
-        try self.emitFmt("marshal_loads_{d}: {{ const data = ", .{uid});
+        // Use runtime function to decode the marshal data
+        try self.emit("runtime.marshalLoads(");
         try self.genExpr(args[0]);
-        try self.emitFmt("; _ = data; break :marshal_loads_{d} null; }}", .{uid});
+        try self.emit(")");
     } else {
         try self.emit("null");
     }

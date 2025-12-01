@@ -145,8 +145,10 @@ fn genArrayLiteral(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
         .bigint => "runtime.BigInt",
         .float => "f64",
         .string => "[]const u8",
+        .bytes => "[]const u8",
         .bool => "bool",
         .none => "void",
+        .complex => "runtime.PyComplex",
     };
 
     // Emit array literal: [_]T{elem1, elem2, ...}

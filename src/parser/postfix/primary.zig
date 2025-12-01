@@ -104,7 +104,7 @@ fn parseComplexNumber(self: *Parser) ParseError!ast.Node {
     const num_tok = self.advance().?;
     const lexeme_without_j = num_tok.lexeme[0 .. num_tok.lexeme.len - 1];
     const float_val = try std.fmt.parseFloat(f64, lexeme_without_j);
-    return ast.Node{ .constant = .{ .value = .{ .float = float_val } } };
+    return ast.Node{ .constant = .{ .value = .{ .complex = float_val } } };
 }
 
 fn parseString(self: *Parser) ParseError!ast.Node {
@@ -237,7 +237,8 @@ fn parseByteString(self: *Parser) ParseError!ast.Node {
         }
     }
 
-    return ast.Node{ .constant = .{ .value = .{ .string = result_str } } };
+    // Use .bytes instead of .string for bytes literals (b"...")
+    return ast.Node{ .constant = .{ .value = .{ .bytes = result_str } } };
 }
 
 fn parseRawString(self: *Parser) ParseError!ast.Node {

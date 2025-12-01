@@ -29,7 +29,9 @@ pub const ComptimeEvaluator = struct {
                 .float => |f| ComptimeValue{ .float = f },
                 .bool => |b| ComptimeValue{ .bool = b },
                 .string => |s| ComptimeValue{ .string = s },
+                .bytes => |s| ComptimeValue{ .string = s }, // Bytes treated as string for comptime
                 .none => null, // None cannot be compile-time evaluated
+                .complex => null, // Complex cannot be compile-time evaluated as simple value
             },
             .binop => |op| self.evalBinOp(op),
             .unaryop => |op| self.evalUnaryOp(op),

@@ -1042,6 +1042,14 @@ pub fn bigIntCompare(a: anytype, b: anytype, op: CompareOp) bool {
 
         if (a_is_complex or b_is_complex) {
             // For complex types, only eq and ne are supported
+            // If types don't match, they can't be equal
+            if (AT != BT) {
+                return switch (op) {
+                    .eq => false,
+                    .ne => true,
+                    .lt, .le, .gt, .ge => false, // Not comparable
+                };
+            }
             const equal = std.meta.eql(a, b);
             return switch (op) {
                 .eq => equal,

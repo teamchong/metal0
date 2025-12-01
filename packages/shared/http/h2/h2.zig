@@ -268,28 +268,17 @@ pub const Client = struct {
                         .name = self.allocator.dupe(u8, h.name) catch "",
                         .value = self.allocator.dupe(u8, h.value) catch "",
                     };
-                    if (std.mem.eql(u8, h.name, "content-encoding")) {
-                        std.debug.print("[H2] content-encoding: '{s}'\n", .{h.value});
-                        if (std.mem.eql(u8, h.value, "gzip")) {
-                            is_gzip = true;
-                        }
+                    if (std.mem.eql(u8, h.name, "content-encoding") and std.mem.eql(u8, h.value, "gzip")) {
+                        is_gzip = true;
                     }
                 }
-                std.debug.print("[H2] is_gzip={}, headers_count={}\n", .{ is_gzip, stream.headers.items.len });
 
                 // Decompress gzip body if needed
-                const body = blk: {
-                    if (is_gzip and stream.body.items.len > 0) {
-                        const decompressed = gzip.decompress(self.allocator, stream.body.items) catch |err| {
-                            std.debug.print("[H2] gzip decompress error: {s}, falling back to raw\n", .{@errorName(err)});
-                            break :blk self.allocator.dupe(u8, stream.body.items) catch "";
-                        };
-                        std.debug.print("[H2] gzip decompressed: {}B -> {}B\n", .{ stream.body.items.len, decompressed.len });
-                        break :blk decompressed;
-                    } else {
-                        break :blk self.allocator.dupe(u8, stream.body.items) catch "";
-                    }
-                };
+                const body = if (is_gzip and stream.body.items.len > 0)
+                    gzip.decompress(self.allocator, stream.body.items) catch
+                        self.allocator.dupe(u8, stream.body.items) catch ""
+                else
+                    self.allocator.dupe(u8, stream.body.items) catch "";
 
                 results[idx] = Response{
                     .status = stream.status orelse 0,

@@ -24,6 +24,7 @@ const TokenType = enum {
     DoubleSlash,
     Percent,
     DoubleStar,
+    Tilde, // Bitwise NOT ~
     LParen,
     RParen,
     LBracket,
@@ -132,6 +133,11 @@ pub const ExprParser = struct {
             '%' => {
                 self.pos += 1;
                 self.current = .{ .type = .Percent, .start = start, .end = self.pos };
+                return;
+            },
+            '~' => {
+                self.pos += 1;
+                self.current = .{ .type = .Tilde, .start = start, .end = self.pos };
                 return;
             },
             '(' => {
@@ -401,6 +407,14 @@ pub const ExprParser = struct {
             return; // +x is just x
         }
 
+        if (self.current.type == .Tilde) {
+            try self.advance();
+            try self.parseUnary();
+            // Bitwise NOT: ~x
+            self.compiler.instructions.append(self.allocator, .{ .op = .Invert }) catch return ParseError.OutOfMemory;
+            return;
+        }
+
         try self.parsePrimary();
     }
 
@@ -453,13 +467,13 @@ pub const ExprParser = struct {
             },
             .True => {
                 const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-                self.compiler.constants.append(self.allocator, .{ .int = 1 }) catch return ParseError.OutOfMemory;
+                self.compiler.constants.append(self.allocator, .{ .bool = true }) catch return ParseError.OutOfMemory;
                 self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                 try self.advance();
             },
             .False => {
                 const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-                self.compiler.constants.append(self.allocator, .{ .int = 0 }) catch return ParseError.OutOfMemory;
+                self.compiler.constants.append(self.allocator, .{ .bool = false }) catch return ParseError.OutOfMemory;
                 self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                 try self.advance();
             },

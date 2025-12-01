@@ -383,8 +383,10 @@ pub const Value = union(enum) {
     bigint: []const u8, // String representation for integers > i64
     float: f64,
     string: []const u8,
+    bytes: []const u8, // Bytes literal (b"...") - raw bytes, no UTF-8 encoding
     bool: bool,
     none: void,
+    complex: f64, // Imaginary component (e.g., 0j -> 0.0, 1j -> 1.0)
 };
 
 pub const Arg = struct {

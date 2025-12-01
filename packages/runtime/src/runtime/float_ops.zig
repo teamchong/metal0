@@ -343,8 +343,50 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
     if (first_info == .pointer and first_info.pointer.size == .slice) {
         return first.len > 0;
     }
-    // Handle custom classes that inherit from builtin types
+    // Handle pointers to structs (dereference and check struct)
+    if (first_info == .pointer and first_info.pointer.size == .one) {
+        const ChildType = first_info.pointer.child;
+        const child_info = @typeInfo(ChildType);
+        if (child_info == .@"struct") {
+            // Check for __bool__ method FIRST - takes precedence over __base_value__
+            // Python: if a class defines __bool__, it's called even if it inherits from int/bool
+            if (@hasDecl(ChildType, "__bool__")) {
+                return try first.__bool__();
+            }
+            // Check for __len__ method (containers are truthy if len > 0)
+            // Python raises ValueError if __len__ returns negative
+            if (@hasDecl(ChildType, "__len__")) {
+                const len = first.__len__();
+                if (len < 0) return PythonError.ValueError;
+                return len > 0;
+            }
+            // Fall back to __base_value__ for subclasses of builtin types
+            if (@hasField(ChildType, "__base_value__")) {
+                const base_value = first.__base_value__;
+                const BaseType = @TypeOf(base_value);
+                const base_info = @typeInfo(BaseType);
+                if (base_info == .bool) return base_value;
+                if (base_info == .int or base_info == .comptime_int) return base_value != 0;
+                if (base_info == .float or base_info == .comptime_float) return base_value != 0.0;
+                if (base_info == .pointer and base_info.pointer.size == .slice) return base_value.len > 0;
+            }
+        }
+    }
+    // Handle structs (user-defined classes)
     if (first_info == .@"struct") {
+        // Check for __bool__ method FIRST - takes precedence over __base_value__
+        // Python: if a class defines __bool__, it's called even if it inherits from int/bool
+        if (@hasDecl(FirstType, "__bool__")) {
+            return try first.__bool__();
+        }
+        // Check for __len__ method (containers are truthy if len > 0)
+        // Python raises ValueError if __len__ returns negative
+        if (@hasDecl(FirstType, "__len__")) {
+            const len = first.__len__();
+            if (len < 0) return PythonError.ValueError;
+            return len > 0;
+        }
+        // Fall back to __base_value__ for subclasses of builtin types (int, str, etc.)
         if (@hasField(FirstType, "__base_value__")) {
             const base_value = first.__base_value__;
             const BaseType = @TypeOf(base_value);
@@ -353,14 +395,6 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
             if (base_info == .int or base_info == .comptime_int) return base_value != 0;
             if (base_info == .float or base_info == .comptime_float) return base_value != 0.0;
             if (base_info == .pointer and base_info.pointer.size == .slice) return base_value.len > 0;
-        }
-        // Check for __bool__ method
-        if (@hasDecl(FirstType, "__bool__")) {
-            return first.__bool__();
-        }
-        // Check for __len__ method (containers are truthy if len > 0)
-        if (@hasDecl(FirstType, "__len__")) {
-            return first.__len__() > 0;
         }
     }
 

@@ -52,8 +52,14 @@ fn genExprWithSubs(
                     try self.emit(s);
                     try self.emit("\"");
                 },
+                .bytes => |s| {
+                    try self.emit("\"");
+                    try self.emit(s);
+                    try self.emit("\"");
+                },
                 .bool => |b| try self.emit(if (b) "true" else "false"),
                 .none => try self.emit("null"),
+                .complex => |imag| try self.output.writer(self.allocator).print("runtime.PyComplex.create(0.0, {d})", .{imag}),
             }
         },
         .call => |c| {

@@ -3,6 +3,7 @@ const ast = @import("ast");
 const core = @import("core.zig");
 const hashmap_helper = @import("hashmap_helper");
 const inferrer_mod = @import("inferrer.zig");
+const TypeInferrer = inferrer_mod.TypeInferrer;
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -336,12 +337,23 @@ pub fn visitStmtScoped(
                 // Single loop var: for item in items or for i in range(...)
                 const target_name = for_stmt.target.name.id;
 
+                // Helper to store var type - uses scoped storage if inside function, else global
+                const putForVarType = struct {
+                    fn put(vt: *FnvHashMap, ti: ?*TypeInferrer, name: []const u8, var_type: NativeType) !void {
+                        if (ti) |inferrer| {
+                            try inferrer.putScopedVar(name, var_type);
+                        } else {
+                            try vt.put(name, var_type);
+                        }
+                    }
+                }.put;
+
                 // Check for range() pattern - indices should be usize
                 if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .name) {
                     const func_name = for_stmt.iter.call.func.name.id;
                     if (std.mem.eql(u8, func_name, "range")) {
                         // range() produces indices → type as usize
-                        try var_types.put(target_name, .usize);
+                        try putForVarType(var_types, type_inferrer, target_name, .usize);
                     }
                 } else if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .attribute) {
                     // Handle method calls like dict.keys(), dict.values()
@@ -350,13 +362,13 @@ pub fn visitStmtScoped(
 
                     if (std.mem.eql(u8, method_name, "keys")) {
                         // dict.keys() always returns strings for StringHashMap
-                        try var_types.put(target_name, .{ .string = .runtime });
+                        try putForVarType(var_types, type_inferrer, target_name, .{ .string = .runtime });
                     } else if (std.mem.eql(u8, method_name, "values")) {
                         // dict.values() - get value type from dict
                         if (obj == .name) {
                             const dict_type = var_types.get(obj.name.id) orelse .unknown;
                             if (dict_type == .dict) {
-                                try var_types.put(target_name, dict_type.dict.value.*);
+                                try putForVarType(var_types, type_inferrer, target_name, dict_type.dict.value.*);
                             }
                         }
                     } else {
@@ -368,7 +380,7 @@ pub fn visitStmtScoped(
                             .sqlite_rows => .sqlite_row, // []sqlite3.Row -> sqlite3.Row
                             else => .unknown,
                         };
-                        try var_types.put(target_name, elem_type);
+                        try putForVarType(var_types, type_inferrer, target_name, elem_type);
                     }
                 } else if (for_stmt.iter.* == .name) {
                     const iter_type = var_types.get(for_stmt.iter.name.id) orelse .unknown;
@@ -390,15 +402,25 @@ pub fn visitStmtScoped(
                         },
                         else => .unknown,
                     };
-                    try var_types.put(target_name, elem_type);
+                    try putForVarType(var_types, type_inferrer, target_name, elem_type);
                 } else if (for_stmt.iter.* == .list and for_stmt.iter.list.elts.len > 0) {
                     // Iterating over list literal: for sign in ["", "+", "-"]
-                    const elem_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.list.elts[0]);
-                    try var_types.put(target_name, elem_type);
+                    // Widen across all elements for heterogeneous lists like ['illegal', -1, 1 << 32]
+                    var elem_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.list.elts[0]);
+                    for (for_stmt.iter.list.elts[1..]) |elem| {
+                        const this_type = inferExprFn(allocator, var_types, class_fields, func_return_types, elem) catch .unknown;
+                        elem_type = elem_type.widen(this_type);
+                    }
+                    try putForVarType(var_types, type_inferrer, target_name, elem_type);
                 } else if (for_stmt.iter.* == .tuple and for_stmt.iter.tuple.elts.len > 0) {
                     // Iterating over tuple literal: for sign in "", "+", "-"
-                    const elem_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.tuple.elts[0]);
-                    try var_types.put(target_name, elem_type);
+                    // Widen across all elements for heterogeneous tuples
+                    var elem_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.tuple.elts[0]);
+                    for (for_stmt.iter.tuple.elts[1..]) |elem| {
+                        const this_type = inferExprFn(allocator, var_types, class_fields, func_return_types, elem) catch .unknown;
+                        elem_type = elem_type.widen(this_type);
+                    }
+                    try putForVarType(var_types, type_inferrer, target_name, elem_type);
                 }
             }
 
@@ -466,7 +488,9 @@ fn inferConstant(value: ast.Value) InferError!NativeType {
         .bigint => .bigint, // Large integers are BigInt
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants
+        .bytes => .{ .string = .literal }, // Bytes literals are also []const u8
         .bool => .bool,
         .none => .none,
+        .complex => .complex, // Complex number literals
     };
 }

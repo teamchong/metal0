@@ -8,6 +8,99 @@ const CodegenError = @import("../../main.zig").CodegenError;
 pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!void {
     try self.emitIndent();
 
+    // Handle self.attr augmented assignment
+    // For static fields: __self.count = __self.count + 1
+    // For dynamic fields: try __self.__dict__.put("count", .{ .int = ... + 1 });
+    if (aug.target.* == .attribute) {
+        const attr = aug.target.attribute;
+        if (attr.value.* == .name) {
+            const obj_name = attr.value.name.id;
+            // Check if this is self.field
+            if (std.mem.eql(u8, obj_name, "self") or std.mem.eql(u8, obj_name, "__self")) {
+                // Determine correct self name for nested classes
+                const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
+
+                // Check if attribute is dynamic (stored in __dict__) vs static (struct field)
+                // A field is static if:
+                // 1. It's in class_fields registry for current class, OR
+                // 2. We're in a nested class inside method and it was initialized in __init__
+                const is_static = blk: {
+                    if (self.current_class_name) |class_name| {
+                        if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                            if (class_info.fields.contains(attr.attr)) {
+                                break :blk true;
+                            }
+                        }
+                    }
+                    // For nested classes not in registry, check nested_class_names
+                    // These classes will have all init fields as static
+                    if (self.nested_class_names.contains(attr.attr)) {
+                        break :blk false; // The attr itself is a nested class, not static field
+                    }
+                    // If we can't determine, assume static (direct field access)
+                    // This works because nested classes generate static fields from __init__
+                    break :blk true;
+                };
+
+                if (is_static) {
+                    // Static field: direct field access assignment
+                    try self.emit(self_name);
+                    try self.emit(".");
+                    try self.emit(attr.attr);
+                    try self.emit(" = ");
+                    try self.emit(self_name);
+                    try self.emit(".");
+                    try self.emit(attr.attr);
+
+                    // Apply operation
+                    const op_str = switch (aug.op) {
+                        .Add => " + ",
+                        .Sub => " - ",
+                        .Mult => " * ",
+                        .BitAnd => " & ",
+                        .BitOr => " | ",
+                        .BitXor => " ^ ",
+                        .Div => " / ",
+                        .FloorDiv => " / ", // TODO: proper floor div
+                        .Mod => " % ",
+                        else => " ? ",
+                    };
+                    try self.emit(op_str);
+                    try self.genExpr(aug.value.*);
+                    try self.emit(";\n");
+                    return;
+                } else {
+                    // Dynamic attribute aug assign: put the new value
+                    try self.emit("try ");
+                    try self.emit(self_name);
+                    try self.output.writer(self.allocator).print(".__dict__.put(\"{s}\", .{{ .int = ", .{attr.attr});
+
+                    // Get current value and apply operation
+                    try self.emit(self_name);
+                    try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.int", .{attr.attr});
+
+                    // Apply operation
+                    const op_str = switch (aug.op) {
+                        .Add => " + ",
+                        .Sub => " - ",
+                        .Mult => " * ",
+                        .BitAnd => " & ",
+                        .BitOr => " | ",
+                        .BitXor => " ^ ",
+                        .Div => " / ",
+                        .FloorDiv => " / ", // TODO: proper floor div
+                        .Mod => " % ",
+                        else => " ? ",
+                    };
+                    try self.emit(op_str);
+                    try self.genExpr(aug.value.*);
+                    try self.emit(" });\n");
+                    return;
+                }
+            }
+        }
+    }
+
     // Handle subscript with slice augmented assignment: x[1:2] *= 2
     // This is a complex operation that modifies the list in place
     if (aug.target.* == .subscript and aug.target.subscript.slice == .slice) {

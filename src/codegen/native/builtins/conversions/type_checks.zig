@@ -19,22 +19,86 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Checks if object matches expected type at compile time
 /// For native codegen, this is a compile-time type check
 pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // isinstance returns true at compile time
-    // However, we MUST reference all arguments to avoid "unused parameter" warnings in Zig
-    // when isinstance(x, int) appears in a function body but x is only used here
-    if (args.len >= 2) {
-        // Always consume first arg to avoid unused param/var warnings
-        // Use @TypeOf() since that doesn't require runtime and silences the warning
-        try self.emit("blk: { _ = @TypeOf(");
-        try self.genExpr(args[0]);
-        try self.emit("); break :blk true; }");
-    } else if (args.len >= 1) {
-        try self.emit("blk: { _ = @TypeOf(");
-        try self.genExpr(args[0]);
-        try self.emit("); break :blk true; }");
-    } else {
+    if (args.len < 2) {
         try self.emit("true");
+        return;
     }
+
+    // Get the type name being checked against
+    const type_name = if (args[1] == .name) args[1].name.id else null;
+
+    // Get the inferred type of the first argument
+    const obj_type = self.inferExprScoped(args[0]) catch .unknown;
+
+    // Perform type check based on type name
+    if (type_name) |tname| {
+        if (std.mem.eql(u8, tname, "bool")) {
+            // isinstance(x, bool) - only true for actual bools
+            // In Python: isinstance(True, bool) = True, isinstance(1, bool) = False
+            if (obj_type == .bool) {
+                try self.emit("true");
+            } else if (obj_type == .int or obj_type == .usize) {
+                try self.emit("false");
+            } else {
+                // Unknown type at compile time - reference argument to avoid unused warning
+                try self.emit("blk: { _ = @TypeOf(");
+                try self.genExpr(args[0]);
+                try self.emit("); break :blk false; }");
+            }
+            return;
+        } else if (std.mem.eql(u8, tname, "int")) {
+            // isinstance(x, int) - True for int and bool (since bool is subclass of int)
+            if (obj_type == .bool or obj_type == .int or obj_type == .usize) {
+                try self.emit("true");
+            } else {
+                try self.emit("blk: { _ = @TypeOf(");
+                try self.genExpr(args[0]);
+                try self.emit("); break :blk false; }");
+            }
+            return;
+        } else if (std.mem.eql(u8, tname, "float")) {
+            if (obj_type == .float) {
+                try self.emit("true");
+            } else {
+                try self.emit("blk: { _ = @TypeOf(");
+                try self.genExpr(args[0]);
+                try self.emit("); break :blk false; }");
+            }
+            return;
+        } else if (std.mem.eql(u8, tname, "str")) {
+            if (obj_type == .string) {
+                try self.emit("true");
+            } else {
+                try self.emit("blk: { _ = @TypeOf(");
+                try self.genExpr(args[0]);
+                try self.emit("); break :blk false; }");
+            }
+            return;
+        } else if (std.mem.eql(u8, tname, "list")) {
+            if (obj_type == .list) {
+                try self.emit("true");
+            } else {
+                try self.emit("blk: { _ = @TypeOf(");
+                try self.genExpr(args[0]);
+                try self.emit("); break :blk false; }");
+            }
+            return;
+        } else if (std.mem.eql(u8, tname, "dict")) {
+            if (obj_type == .dict) {
+                try self.emit("true");
+            } else {
+                try self.emit("blk: { _ = @TypeOf(");
+                try self.genExpr(args[0]);
+                try self.emit("); break :blk false; }");
+            }
+            return;
+        }
+    }
+
+    // Default: reference argument and return true for compile-time compatibility
+    try self.emit("blk: { _ = @TypeOf(");
+    try self.genExpr(args[0]);
+    try self.emit("); break :blk true; }");
 }
 
 /// Generate code for callable(obj)

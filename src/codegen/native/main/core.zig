@@ -561,6 +561,10 @@ pub const NativeCodegen = struct {
                     return var_type;
                 }
             }
+            // Check if this is a nested class instance (e.g., x = X() where X is defined locally)
+            if (self.nested_class_instances.get(name)) |class_name| {
+                return .{ .class_instance = class_name };
+            }
             // If name wasn't found in local scope with a known type, it might be
             // a function parameter generated as anytype - return unknown to be safe
             // This covers both null and .unknown returns from getType()

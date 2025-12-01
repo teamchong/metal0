@@ -242,6 +242,10 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
 /// Generate class definition with __init__ constructor
 pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!void {
+    // Track this class name for nested class instance detection
+    // This allows `x = X()` to be identified as a class instance after the class is defined
+    try self.nested_class_names.put(class.name, {});
+
     // Find __init__, __new__, and setUp methods to determine struct fields
     var init_method: ?ast.Node.FunctionDef = null;
     var new_method: ?ast.Node.FunctionDef = null;
@@ -489,10 +493,22 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         try self.emit("// Captured outer scope variables (pointers)\n");
         for (vars) |var_name| {
             try self.emitIndent();
-            // Use *const i64 as the default type - const because we read, not modify
-            // For loop variables (range, lists), this is compatible with isize/i64
-            // NOTE: This won't work for list captures in forward-reference patterns
-            try self.output.writer(self.allocator).print("__captured_{s}: *const i64,\n", .{var_name});
+            // Look up the actual type of the captured variable from type inferrer
+            // If type is known, use that type; otherwise default to i64 (for loop indices etc)
+            // Try scoped lookup first (for function-local variables), then fall back to global var_types
+            var type_buf = std.ArrayList(u8){};
+            const var_type: ?@import("../../../../analysis/native_types/core.zig").NativeType = self.type_inferrer.getScopedVar(var_name) orelse
+                self.type_inferrer.var_types.get(var_name);
+            const zig_type = if (var_type) |vt| blk: {
+                vt.toZigType(self.allocator, &type_buf) catch {};
+                if (type_buf.items.len > 0) {
+                    break :blk type_buf.items;
+                }
+                break :blk "i64";
+            } else "i64";
+            defer type_buf.deinit(self.allocator);
+
+            try self.output.writer(self.allocator).print("__captured_{s}: *const {s},\n", .{ var_name, zig_type });
         }
         try self.emit("\n");
     }

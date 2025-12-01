@@ -39,9 +39,11 @@ const MagicMethodConversion = struct {
 /// NOTE: __int__, __index__ don't need wrappers - they return i64 directly
 fn getMagicMethodConversion(method_name: []const u8) ?MagicMethodConversion {
     const converters = std.StaticStringMap(MagicMethodConversion).initComptime(.{
-        .{ "__bool__", MagicMethodConversion{ .prefix = "runtime.toBool(", .suffix = ")" } },
-        .{ "__len__", MagicMethodConversion{ .prefix = "@as(i64, @intCast(", .suffix = "))" } },
-        .{ "__hash__", MagicMethodConversion{ .prefix = "@as(i64, @intCast(", .suffix = "))" } },
+        // Python 3: __bool__ must return exactly bool, not converted from other types
+        .{ "__bool__", MagicMethodConversion{ .prefix = "runtime.validateBoolReturn(", .suffix = ")" } },
+        // Use runtime.pyToInt for __len__/__hash__ to handle both int and PyValue
+        .{ "__len__", MagicMethodConversion{ .prefix = "runtime.pyToInt(", .suffix = ")" } },
+        .{ "__hash__", MagicMethodConversion{ .prefix = "runtime.pyToInt(", .suffix = ")" } },
         .{ "__float__", MagicMethodConversion{ .prefix = "runtime.toFloat(", .suffix = ")" } },
     });
     return converters.get(method_name);
@@ -570,6 +572,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         const context_type = try self.type_inferrer.inferExpr(with_node.context_expr.*);
         try self.type_inferrer.var_types.put(var_name, context_type);
 
+        // Declare variable at outer scope so it's accessible after with block
         try self.emitIndent();
         if (needs_var) {
             // Use const for context manager variables (they're not reassigned)
@@ -579,6 +582,17 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         try self.emit(" = ");
         try self.genExpr(with_node.context_expr.*);
         try self.emit(";\n");
+
+        // Mark as declared for body (unless hoisted)
+        if (needs_var) {
+            try self.declareVar(var_name);
+        }
+
+        // Open a block for defer scope - defer fires at end of this block, not function
+        // This ensures file is closed immediately after with body completes
+        try self.emitIndent();
+        try self.emit("{\n");
+        self.indent();
 
         // Add defer for cleanup (close, __exit__, etc.)
         // For file objects, emit runtime.PyFile.close(f) as static method
@@ -592,11 +606,6 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             try self.emit("defer ");
             try self.emit(var_name);
             try self.emit(".close();\n");
-        }
-
-        // Mark as declared for body (unless hoisted)
-        if (needs_var) {
-            try self.declareVar(var_name);
         }
     } else {
         // No variable - just execute context expression and defer cleanup
@@ -631,12 +640,12 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         }
     }
 
-    // Close block if no variable
-    if (with_node.optional_vars == null) {
-        self.dedent();
-        try self.emitIndent();
-        try self.emit("}\n");
-    }
+    // Close block for both cases - with variable and without
+    // When there's a variable, we opened a block for defer scope
+    // When there's no variable, we also opened a block
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
 }
 
 /// Generate raise statement

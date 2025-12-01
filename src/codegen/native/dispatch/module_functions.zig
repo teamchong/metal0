@@ -1073,6 +1073,50 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
         return true;
     }
 
+    // Handle pickle.dumps with protocol kwarg
+    // pickle.dumps(obj, protocol=N) needs special handling for different protocols
+    if (std.mem.eql(u8, module_name, "pickle") and std.mem.eql(u8, func_name, "dumps")) {
+        if (call.args.len > 0) {
+            // Check for protocol kwarg
+            var protocol_value: ?i64 = null;
+
+            // Check positional arg first (args[1])
+            if (call.args.len > 1) {
+                if (call.args[1] == .constant and call.args[1].constant.value == .int) {
+                    protocol_value = call.args[1].constant.value.int;
+                }
+            }
+
+            // Check kwargs for protocol=N
+            for (call.keyword_args) |kw| {
+                if (std.mem.eql(u8, kw.name, "protocol")) {
+                    if (kw.value == .constant and kw.value.constant.value == .int) {
+                        protocol_value = kw.value.constant.value.int;
+                        break;
+                    }
+                }
+            }
+
+            // Infer type of first argument
+            const arg_type = self.type_inferrer.inferExpr(call.args[0]) catch .unknown;
+
+            if (arg_type == .bool) {
+                if (protocol_value != null and protocol_value.? >= 2) {
+                    // Protocol 2+: use binary format
+                    try self.emit("if (");
+                    try self.genExpr(call.args[0]);
+                    try self.emit(") \"\\x80\\x02\\x88.\" else \"\\x80\\x02\\x89.\"");
+                } else {
+                    // Protocol 0/1: use text format
+                    try self.emit("if (");
+                    try self.genExpr(call.args[0]);
+                    try self.emit(") \"I01\\n.\" else \"I00\\n.\"");
+                }
+                return true;
+            }
+        }
+    }
+
     // O(1) module lookup, then O(1) function lookup
     if (ModuleMap.get(module_name)) |func_map| {
         if (func_map.get(func_name)) |handler| {

@@ -8,23 +8,81 @@ const hashmap_helper = @import("hashmap_helper");
 /// Check if a method mutates self (assigns to self.field or self.field[key])
 pub fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
     for (method.body) |stmt| {
-        if (stmt == .assign) {
-            for (stmt.assign.targets) |target| {
-                if (target == .attribute) {
-                    const attr = target.attribute;
-                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
-                        return true; // Assigns to self.field
-                    }
-                } else if (target == .subscript) {
-                    // Check if subscript base is self.something: self.routes[key] = value
-                    const subscript = target.subscript;
-                    if (subscript.value.* == .attribute) {
-                        const attr = subscript.value.attribute;
-                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
-                            return true; // Assigns to self.field[key]
-                        }
-                    }
+        if (stmtMutatesSelf(stmt)) return true;
+    }
+    return false;
+}
+
+/// Check if a statement mutates self (recursively)
+fn stmtMutatesSelf(stmt: ast.Node) bool {
+    switch (stmt) {
+        .assign => |assign| {
+            for (assign.targets) |target| {
+                if (targetMutatesSelf(target)) return true;
+            }
+        },
+        .aug_assign => |aug| {
+            // Augmented assignment (+=, -=, etc.) to self.field
+            if (targetMutatesSelf(aug.target.*)) return true;
+        },
+        .if_stmt => |if_stmt| {
+            for (if_stmt.body) |body_stmt| {
+                if (stmtMutatesSelf(body_stmt)) return true;
+            }
+            for (if_stmt.else_body) |else_stmt| {
+                if (stmtMutatesSelf(else_stmt)) return true;
+            }
+        },
+        .while_stmt => |while_stmt| {
+            for (while_stmt.body) |body_stmt| {
+                if (stmtMutatesSelf(body_stmt)) return true;
+            }
+        },
+        .for_stmt => |for_stmt| {
+            for (for_stmt.body) |body_stmt| {
+                if (stmtMutatesSelf(body_stmt)) return true;
+            }
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |body_stmt| {
+                if (stmtMutatesSelf(body_stmt)) return true;
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |body_stmt| {
+                    if (stmtMutatesSelf(body_stmt)) return true;
                 }
+            }
+            for (try_stmt.else_body) |body_stmt| {
+                if (stmtMutatesSelf(body_stmt)) return true;
+            }
+            for (try_stmt.finalbody) |body_stmt| {
+                if (stmtMutatesSelf(body_stmt)) return true;
+            }
+        },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |body_stmt| {
+                if (stmtMutatesSelf(body_stmt)) return true;
+            }
+        },
+        else => {},
+    }
+    return false;
+}
+
+/// Check if a target (LHS of assignment) mutates self
+fn targetMutatesSelf(target: ast.Node) bool {
+    if (target == .attribute) {
+        const attr = target.attribute;
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+            return true; // Assigns to self.field
+        }
+    } else if (target == .subscript) {
+        // Check if subscript base is self.something: self.routes[key] = value
+        const subscript = target.subscript;
+        if (subscript.value.* == .attribute) {
+            const attr = subscript.value.attribute;
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                return true; // Assigns to self.field[key]
             }
         }
     }

@@ -305,9 +305,20 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (a_info == .pointer and a_info.pointer.size == .slice) {
                 break :blk std.mem.eql(u8, a, b);
             }
-            // BigInt comparison - use eql method
+            // Struct with eql method - use it for comparison
             if (a_info == .@"struct" and @hasDecl(A, "eql")) {
-                break :blk a.eql(&b);
+                // Check if eql takes pointer or value - BigInt takes pointer, PyComplex takes value
+                const EqlFn = @TypeOf(A.eql);
+                const eql_params = @typeInfo(EqlFn).@"fn".params;
+                if (eql_params.len >= 2) {
+                    const second_param_type = eql_params[1].type orelse break :blk a.eql(b);
+                    if (@typeInfo(second_param_type) == .pointer) {
+                        // BigInt style - takes pointer
+                        break :blk a.eql(&b);
+                    }
+                }
+                // PyComplex style - takes value or anytype
+                break :blk a.eql(b);
             }
             // ArrayList comparison - compare items element by element
             if (a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity")) {
@@ -327,6 +338,14 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             {
                 break :blk equalArrayList(a, b);
             }
+        }
+
+        // Struct with eql method comparing against different type (e.g., PyComplex vs bool)
+        if (a_info == .@"struct" and @hasDecl(A, "eql")) {
+            break :blk a.eql(b);
+        }
+        if (b_info == .@"struct" and @hasDecl(B, "eql")) {
+            break :blk b.eql(a);
         }
 
         // Integer comparisons (handle i64 vs comptime_int)
@@ -665,6 +684,7 @@ pub fn assertNotEqual(a: anytype, b: anytype) void {
 
 /// Assertion: assertIs(a, b) - pointer identity check (a is b)
 pub fn assertIs(a: anytype, b: anytype) void {
+    const runtime = @import("../runtime.zig");
     const A = @TypeOf(a);
     const B = @TypeOf(b);
     const same = blk: {
@@ -679,6 +699,27 @@ pub fn assertIs(a: anytype, b: anytype) void {
         // Same primitive type - compare values (for bool, int, etc.)
         if (A == B) {
             break :blk a == b;
+        }
+
+        // PyObject compared with bool - extract bool from PyObject
+        // This handles eval("True") is True, eval("False") is False
+        if (A == *runtime.PyObject and B == bool) {
+            if (runtime.PyBool_Check(a)) {
+                // Extract bool value from PyBoolObject
+                const bool_obj: *runtime.PyBoolObject = @ptrCast(@alignCast(a));
+                const py_bool = bool_obj.ob_digit != 0;
+                break :blk py_bool == b;
+            }
+            break :blk false;
+        }
+        if (B == *runtime.PyObject and A == bool) {
+            if (runtime.PyBool_Check(b)) {
+                // Extract bool value from PyBoolObject
+                const bool_obj: *runtime.PyBoolObject = @ptrCast(@alignCast(b));
+                const py_bool = bool_obj.ob_digit != 0;
+                break :blk a == py_bool;
+            }
+            break :blk false;
         }
 
         // Different types - can never be the same object

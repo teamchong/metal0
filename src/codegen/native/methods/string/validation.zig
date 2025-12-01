@@ -68,20 +68,14 @@ pub fn genIsalnum(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 }
 
 /// Generate code for text.isspace()
-/// Returns true if all characters are whitespace
+/// Returns true if all characters are whitespace (including Unicode whitespace)
 pub fn genIsspace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit("blk: {\n");
-    try self.emit("    const _text = ");
+    // Use runtime function that handles Unicode properly
+    try self.emit("runtime.isStringAllWhitespace(");
     try self.genExpr(obj);
-    try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk false;\n");
-    try self.emit("    for (_text) |c| {\n");
-    try self.emit("        if (!std.ascii.isWhitespace(c)) break :blk false;\n");
-    try self.emit("    }\n");
-    try self.emit("    break :blk true;\n");
-    try self.emit("}");
+    try self.emit(")");
 }
 
 /// Generate code for text.islower()

@@ -171,11 +171,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             // Track nested class instances: obj = Inner() -> obj is instance of Inner
             // This is used to pass allocator to method calls on nested class instances
+            // and to identify class instances for pass-by-reference semantics
             if (assign.value.* == .call) {
                 const call_value = assign.value.call;
                 if (call_value.func.* == .name) {
                     const class_name = call_value.func.name.id;
-                    if (self.nested_class_captures.contains(class_name)) {
+                    // Check both nested_class_names (all nested classes) and
+                    // nested_class_captures (nested classes with captured vars)
+                    if (self.nested_class_names.contains(class_name) or
+                        self.nested_class_captures.contains(class_name))
+                    {
                         // This is a nested class constructor call
                         try self.nested_class_instances.put(var_name, class_name);
                     }

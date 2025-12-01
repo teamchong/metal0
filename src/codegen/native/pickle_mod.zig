@@ -73,7 +73,27 @@ pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit(", __global_allocator), __global_allocator)");
     } else if (arg_type == .bool) {
-        // Bool: use Python pickle format for protocol 0
+        // Bool: use Python pickle format, handle protocol parameter
+        // Check if protocol argument is provided (args[1] or kwargs)
+        var protocol_arg: ?ast.Node = null;
+        if (args.len > 1) {
+            protocol_arg = args[1];
+        }
+        // Check for protocol kwarg
+        // For simplicity, we'll check for common protocol values at compile time
+        if (protocol_arg) |proto| {
+            if (proto == .constant and proto.constant.value == .int) {
+                const proto_val = proto.constant.value.int;
+                if (proto_val >= 2) {
+                    // Protocol 2+: use binary format
+                    try self.emit("if (");
+                    try self.genExpr(args[0]);
+                    try self.emit(") \"\\x80\\x02\\x88.\" else \"\\x80\\x02\\x89.\"");
+                    return;
+                }
+            }
+        }
+        // Default: protocol 0/1 format
         try self.emit("if (");
         try self.genExpr(args[0]);
         try self.emit(") \"I01\\n.\" else \"I00\\n.\"");
@@ -101,10 +121,18 @@ pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate pickle.loads(data) -> object
-/// Deserializes bytes to object using JSON parser (reuses json.loads)
+/// Deserializes bytes to object - handles both pickle and JSON formats
 pub fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // Pickle loads is just JSON loads in our implementation
-    return json.genJsonLoads(self, args);
+    if (args.len == 0) return;
+
+    // Check the type of the argument
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    _ = arg_type;
+
+    // Use runtime pickleLoads which handles pickle format
+    try self.emit("runtime.pickleLoads(");
+    try self.genExpr(args[0]);
+    try self.emit(")");
 }
 
 /// Generate pickle.dump(obj, file) -> None

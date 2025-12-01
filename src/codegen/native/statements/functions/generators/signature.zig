@@ -19,7 +19,7 @@ const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
 /// Magic method return types - these have fixed return types in Python
 /// regardless of what the method body might suggest
 const MagicMethodReturnTypes = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "__bool__", "bool" },
+    .{ "__bool__", "runtime.PythonError!bool" },  // Must return bool or error
     .{ "__len__", "i64" },
     .{ "__hash__", "i64" },
     .{ "__repr__", "[]const u8" },

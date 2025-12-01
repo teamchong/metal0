@@ -97,6 +97,36 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     const parent_module = @import("../expressions.zig");
     const genExpr = parent_module.genExpr;
 
+    // Handle bool.real and bool.imag (True.real=1, True.imag=0, False.real=0, False.imag=0)
+    // Python: bool inherits from int, so True/False have .real and .imag attributes
+    if (attr.value.* == .constant and attr.value.constant.value == .bool) {
+        const bool_val = attr.value.constant.value.bool;
+        if (std.mem.eql(u8, attr.attr, "real")) {
+            // True.real = 1, False.real = 0
+            try self.emit(if (bool_val) "1" else "0");
+            return;
+        }
+        if (std.mem.eql(u8, attr.attr, "imag")) {
+            // True.imag = 0, False.imag = 0
+            try self.emit("0");
+            return;
+        }
+    }
+
+    // Handle int.real and int.imag (e.g., (5).real = 5, (5).imag = 0)
+    if (attr.value.* == .constant and attr.value.constant.value == .int) {
+        if (std.mem.eql(u8, attr.attr, "real")) {
+            // int.real = int value itself
+            try genExpr(self, attr.value.*);
+            return;
+        }
+        if (std.mem.eql(u8, attr.attr, "imag")) {
+            // int.imag = 0
+            try self.emit("0");
+            return;
+        }
+    }
+
     // Check if value produces a block expression - need to wrap in temp variable
     // Because Zig doesn't allow field access on block expressions: blk:{}.field is invalid
     if (producesBlockExpression(attr.value.*)) {

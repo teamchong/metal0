@@ -217,6 +217,55 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
         }
 
+        // Handle int.from_bytes(bytes, byteorder) and bool.from_bytes(bytes, byteorder)
+        // Python: int.from_bytes(b'\x00\x01', 'big') -> 1
+        // Python: bool.from_bytes(b'\x00', 'big') -> False
+        if (attr.value.* == .name) {
+            const type_name = attr.value.name.id;
+            const is_int_type = std.mem.eql(u8, type_name, "int");
+            const is_bool_type = std.mem.eql(u8, type_name, "bool");
+
+            if (is_int_type or is_bool_type) {
+                if (std.mem.eql(u8, attr.attr, "from_bytes")) {
+                    // int.from_bytes(bytes, byteorder) -> runtime.intFromBytes(bytes, byteorder)
+                    // bool.from_bytes(bytes, byteorder) -> (runtime.intFromBytes(bytes, byteorder) != 0)
+                    if (is_bool_type) {
+                        try self.emit("(runtime.intFromBytes(");
+                    } else {
+                        try self.emit("runtime.intFromBytes(");
+                    }
+                    if (call.args.len > 0) {
+                        try genExpr(self, call.args[0]);
+                    }
+                    if (call.args.len > 1) {
+                        try self.emit(", ");
+                        try genExpr(self, call.args[1]);
+                    } else {
+                        try self.emit(", \"big\"");
+                    }
+                    if (is_bool_type) {
+                        try self.emit(") != 0)");
+                    } else {
+                        try self.emit(")");
+                    }
+                    return;
+                }
+
+                if (std.mem.eql(u8, attr.attr, "to_bytes") and is_int_type) {
+                    // int.to_bytes(value, length, byteorder) -> runtime.intToBytes(value, length, byteorder)
+                    // Note: In Python it's value.to_bytes(length, byteorder)
+                    // but int.to_bytes(value, length, byteorder) is also valid
+                    try self.emit("runtime.intToBytes(__global_allocator, ");
+                    for (call.args, 0..) |arg, i| {
+                        if (i > 0) try self.emit(", ");
+                        try genExpr(self, arg);
+                    }
+                    try self.emit(")");
+                    return;
+                }
+            }
+        }
+
         // Check if this is a class-level type attribute call (e.g., self.int_class(...))
         // Type attributes are static functions, not methods, so we call them via @This()
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
@@ -494,8 +543,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try self.emit(".call(");
 
             // Pass args directly - closure fn params are anytype so accept all types
+            // Pass class instances by pointer for Python reference semantics
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
+                const arg_type = self.inferExprScoped(arg) catch .unknown;
+                if (arg_type == .class_instance) {
+                    try self.emit("&");
+                }
                 try genExpr(self, arg);
             }
 
@@ -830,6 +884,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         } else {
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
+                // Check if argument is a class instance - pass by pointer for Python semantics
+                const arg_type = self.inferExprScoped(arg) catch .unknown;
+                if (arg_type == .class_instance) {
+                    // Pass class instances by pointer to allow mutations to propagate
+                    try self.emit("&");
+                }
                 try genExpr(self, arg);
             }
 

@@ -218,9 +218,8 @@ pub const Resolver = struct {
                 }
             }
 
-            std.debug.print("[Resolver] Iteration {}: fetching {} packages\n", .{ self.iterations, batch_names.items.len });
-
             // DIRECT batch fetch via HTTP/2 - ALL packages in ONE request!
+            // TODO: Switch to fast path (Simple API + PEP 658) once fixed
             const fetch_results = try self.client.getPackagesParallel(batch_names.items);
             defer self.allocator.free(fetch_results);
 
@@ -229,13 +228,9 @@ pub const Resolver = struct {
                 var result = fetch_results[i];
                 defer result.deinit(self.allocator);
 
-                std.debug.print("[Resolver] Processing result[{}] for '{s}': {s}\n", .{ i, pkg_name, @tagName(result) });
-
                 switch (result) {
                     .success => |metadata| {
-                        std.debug.print("[Resolver] Got metadata for '{s}': version={s}, deps={}\n", .{ pkg_name, metadata.latest_version, metadata.requires_dist.len });
                         self.resolvePackageWithMetadata(pkg_name, metadata) catch |err| {
-                            std.debug.print("[Resolver] resolvePackageWithMetadata failed: {}\n", .{err});
                             if (self.state.getPtr(pkg_name)) |s| {
                                 s.* = .failed;
                             }
@@ -246,8 +241,7 @@ pub const Resolver = struct {
                             return err;
                         };
                     },
-                    .err => |e| {
-                        std.debug.print("[Resolver] Fetch error for '{s}': {s}\n", .{ pkg_name, @errorName(e) });
+                    .err => {
                         if (self.state.getPtr(pkg_name)) |s| {
                             s.* = .failed;
                         }
@@ -364,11 +358,7 @@ pub const Resolver = struct {
 
     /// Resolve a package with pre-fetched metadata (used in parallel prefetch)
     fn resolvePackageWithMetadata(self: *Resolver, name: []const u8, metadata: pypi.PackageMetadata) !void {
-        std.debug.print("[resolveWithMeta] name='{s}', pending.count={}, pending.contains={}\n", .{ name, self.pending.count(), self.pending.contains(name) });
-        const dep = self.pending.get(name) orelse {
-            std.debug.print("[resolveWithMeta] FAILED - name not in pending!\n", .{});
-            return;
-        };
+        const dep = self.pending.get(name) orelse return;
 
         // Find best matching version
         const best_version = try self.selectVersion(metadata, dep.version_spec);

@@ -12,11 +12,12 @@ const genExpr = expressions.genExpr;
 pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
-    // Get the format string
-    const format_str = if (binop.left.* == .constant and binop.left.constant.value == .string)
-        binop.left.constant.value.string
-    else
-        null;
+    // Get the format string (strip Python quotes)
+    const format_str = if (binop.left.* == .constant and binop.left.constant.value == .string) blk: {
+        const raw = binop.left.constant.value.string;
+        // Strip Python quotes: 'x' or "x" -> x
+        break :blk if (raw.len >= 2) raw[1 .. raw.len - 1] else raw;
+    } else null;
 
     // For simple cases like "%d" % n where n is potentially BigInt, use comptime-aware formatting
     const label_id = self.block_label_counter;
@@ -173,6 +174,17 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                     try self.emit(", .hex_upper)");
                 } else {
                     try self.emit(", .octal)");
+                }
+            } else if (format_spec == 'd' or format_spec == 'i') {
+                // For %d/%i with bool, convert to int
+                const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
+                const right_type = self.inferExprScoped(binop.right.*) catch NativeType.unknown;
+                if (right_type == .bool) {
+                    try self.emit("@as(i64, @intFromBool(");
+                    try genExpr(self, binop.right.*);
+                    try self.emit("))");
+                } else {
+                    try genExpr(self, binop.right.*);
                 }
             } else {
                 try genExpr(self, binop.right.*);

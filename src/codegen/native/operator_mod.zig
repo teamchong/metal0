@@ -443,29 +443,58 @@ pub fn genGe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate operator.is_(a, b) -> a is b
+/// For booleans (True/False), use value comparison since they're singletons
+/// For other types, use pointer comparison
 pub fn genIs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
         try self.emit("false");
         return;
     }
-    try self.emit("(&");
-    try self.genExpr(args[0]);
-    try self.emit(" == &");
-    try self.genExpr(args[1]);
-    try self.emit(")");
+    // For boolean constants, use value comparison (True is True -> true == true)
+    // Boolean singletons in Zig are just the values true/false
+    const arg0_is_bool = args[0] == .constant and args[0].constant.value == .bool;
+    const arg1_is_bool = args[1] == .constant and args[1].constant.value == .bool;
+    if (arg0_is_bool and arg1_is_bool) {
+        try self.emit("(");
+        try self.genExpr(args[0]);
+        try self.emit(" == ");
+        try self.genExpr(args[1]);
+        try self.emit(")");
+    } else {
+        // For other types, use pointer comparison
+        try self.emit("(&");
+        try self.genExpr(args[0]);
+        try self.emit(" == &");
+        try self.genExpr(args[1]);
+        try self.emit(")");
+    }
 }
 
 /// Generate operator.is_not(a, b) -> a is not b
+/// For booleans (True/False), use value comparison since they're singletons
+/// For other types, use pointer comparison
 pub fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
         try self.emit("true");
         return;
     }
-    try self.emit("(&");
-    try self.genExpr(args[0]);
-    try self.emit(" != &");
-    try self.genExpr(args[1]);
-    try self.emit(")");
+    // For boolean constants, use value comparison (True is not False -> true != false)
+    const arg0_is_bool = args[0] == .constant and args[0].constant.value == .bool;
+    const arg1_is_bool = args[1] == .constant and args[1].constant.value == .bool;
+    if (arg0_is_bool and arg1_is_bool) {
+        try self.emit("(");
+        try self.genExpr(args[0]);
+        try self.emit(" != ");
+        try self.genExpr(args[1]);
+        try self.emit(")");
+    } else {
+        // For other types, use pointer comparison
+        try self.emit("(&");
+        try self.genExpr(args[0]);
+        try self.emit(" != &");
+        try self.genExpr(args[1]);
+        try self.emit(")");
+    }
 }
 
 /// Generate operator.concat(a, b) -> a + b (sequences)

@@ -39,8 +39,39 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         const a = boolop.values[0];
         const b = boolop.values[1];
 
-        // Infer type of first value to generate appropriate truthiness check
+        // Infer types of both values
         const a_type = try self.inferExprScoped(a);
+        const b_type = try self.inferExprScoped(b);
+        const a_tag = @as(std.meta.Tag(@TypeOf(a_type)), a_type);
+        const b_tag = @as(std.meta.Tag(@TypeOf(b_type)), b_type);
+
+        // If types are incompatible (different), we can't use value-returning semantics
+        // Instead, return bool (which is what Python would do at runtime when used in bool context)
+        // Check for type compatibility:
+        // - Same tag = compatible
+        // - class_instance types are only compatible if same class name
+        const types_compatible = blk: {
+            if (a_tag != b_tag) break :blk false;
+            if (a_tag == .class_instance) {
+                break :blk std.mem.eql(u8, a_type.class_instance, b_type.class_instance);
+            }
+            break :blk true;
+        };
+
+        if (!types_compatible) {
+            // Types incompatible - generate bool-returning version
+            // Python's `x or y` where x and y have different types, when used as bool,
+            // is equivalent to `bool(x) or bool(y)`
+            const op_str = if (boolop.op == .And) " and " else " or ";
+            try self.emit("(runtime.toBool(");
+            try genExpr(self, a);
+            try self.emit(")");
+            try self.emit(op_str);
+            try self.emit("runtime.toBool(");
+            try genExpr(self, b);
+            try self.emit("))");
+            return;
+        }
 
         try self.emit("blk: {\n");
         try self.emit("const _a = ");
@@ -52,13 +83,14 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
 
         // Generate type-appropriate truthiness check
         // Note: string is a tagged union with payload StringKind, so we check the tag
-        const truthy_check: []const u8 = switch (@as(std.meta.Tag(@TypeOf(a_type)), a_type)) {
+        // Use runtime.toBool for unknown types (handles __bool__ duck typing)
+        const truthy_check: []const u8 = switch (a_tag) {
             .string => "_a.len > 0",
             .int, .usize => "_a != 0",
             .float => "_a != 0.0",
             .bool => "_a",
             .bigint => "!_a.isZero()",
-            else => "runtime.pyTruthy(_a)",
+            else => "runtime.toBool(_a)",
         };
 
         if (boolop.op == .Or) {
@@ -76,7 +108,7 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
     const op_str = if (boolop.op == .And) " and " else " or ";
     for (boolop.values, 0..) |value, i| {
         if (i > 0) try self.emit(op_str);
-        try self.emit("runtime.pyTruthy(");
+        try self.emit("runtime.toBool(");
         try genExpr(self, value);
         try self.emit(")");
     }

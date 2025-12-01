@@ -173,19 +173,40 @@ pub fn toBool(value: anytype) bool {
     // Handle structs with __bool__ method (Python protocol)
     if (info == .@"struct") {
         if (@hasDecl(T, "__bool__")) {
-            // Call __bool__ and convert result to bool
-            const result = value.__bool__();
+            // Check if __bool__ takes a mutable pointer (self-mutating method)
+            const bool_fn_info = @typeInfo(@TypeOf(T.__bool__));
+            const first_param_type = bool_fn_info.@"fn".params[0].type.?;
+            const first_param_info = @typeInfo(first_param_type);
+
+            const result = blk: {
+                if (first_param_info == .pointer and !first_param_info.pointer.is_const) {
+                    // __bool__ takes *@This() (mutable) - need to cast away const
+                    // This matches Python's pass-by-reference semantics where
+                    // objects can be mutated through any reference
+                    var mutable = @constCast(&value);
+                    break :blk mutable.__bool__();
+                } else {
+                    // __bool__ takes *const @This() or value - call directly
+                    break :blk value.__bool__();
+                }
+            };
             const ResultT = @TypeOf(result);
             if (@typeInfo(ResultT) == .bool) {
                 return result;
             }
-            // Handle error union or other types
+            // Handle error union wrapping bool
             if (@typeInfo(ResultT) == .error_union) {
                 const unwrapped = result catch return false;
-                return toBool(unwrapped);
+                const UnwrappedT = @TypeOf(unwrapped);
+                if (@typeInfo(UnwrappedT) == .bool) {
+                    return unwrapped;
+                }
+                // __bool__ returned error union with non-bool payload
+                @panic("TypeError: __bool__ should return bool, not error union with non-bool");
             }
-            // Convert numeric/string results to bool
-            return toBool(result);
+            // Python 3: __bool__ MUST return bool (True or False)
+            // Returning anything else (including int 0/1) is a TypeError
+            @panic("TypeError: __bool__ should return bool");
         }
         // Check for __len__ as fallback (containers with 0 length are falsy)
         if (@hasDecl(T, "__len__")) {
@@ -195,6 +216,36 @@ pub fn toBool(value: anytype) bool {
 
     // Default: truthy for everything else (non-empty types)
     return true;
+}
+
+/// Validate that __bool__ returns bool (Python 3 requirement)
+/// Returns error.TypeError if value is not bool
+pub fn validateBoolReturn(value: anytype) PythonError!bool {
+    const T = @TypeOf(value);
+    if (@typeInfo(T) == .bool) {
+        return value;
+    }
+    // Python 3: __bool__ MUST return bool (True or False)
+    return PythonError.TypeError;
+}
+
+/// Generic int conversion for __len__, __hash__, etc.
+/// Handles both native int types and PyValue
+pub fn pyToInt(value: anytype) i64 {
+    const T = @TypeOf(value);
+    if (T == PyValue) {
+        // Extract int from PyValue, panic on non-convertible types
+        return value.toInt() orelse @panic("__len__() returned non-integer");
+    } else if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize or T == comptime_int) {
+        return @intCast(value);
+    } else if (T == bool) {
+        return if (value) 1 else 0;
+    } else if (@typeInfo(T) == .optional) {
+        if (value) |v| return pyToInt(v);
+        return 0;
+    } else {
+        @compileError("pyToInt: unsupported type " ++ @typeName(T));
+    }
 }
 
 /// Generic int conversion for Python int() semantics
@@ -912,6 +963,52 @@ pub fn strRepeat(allocator: std.mem.Allocator, s: []const u8, n: usize) []const 
     return result;
 }
 
+/// Check if a byte is Unicode whitespace
+/// Handles ASCII whitespace plus Unicode whitespace characters like \xa0 (NBSP)
+pub fn isUnicodeWhitespace(c: u8) bool {
+    // ASCII whitespace
+    if (std.ascii.isWhitespace(c)) return true;
+    // Non-breaking space (Unicode 0xA0)
+    if (c == 0xA0) return true;
+    // Other common Unicode whitespace in Latin-1 range
+    return false;
+}
+
+/// Check if a Unicode codepoint is whitespace
+pub fn isUnicodeCodepointWhitespace(cp: u21) bool {
+    // ASCII whitespace (0x09-0x0D, 0x20)
+    if (cp <= 0x20) {
+        return cp == 0x20 or (cp >= 0x09 and cp <= 0x0D);
+    }
+    // Unicode whitespace characters
+    return switch (cp) {
+        0x00A0, // Non-breaking space
+        0x1680, // Ogham space
+        0x2000...0x200A, // Various typographic spaces
+        0x2028, // Line separator
+        0x2029, // Paragraph separator
+        0x202F, // Narrow no-break space
+        0x205F, // Medium mathematical space
+        0x3000, // Ideographic space
+        => true,
+        else => false,
+    };
+}
+
+/// Check if a UTF-8 string contains only whitespace characters
+pub fn isStringAllWhitespace(text: []const u8) bool {
+    if (text.len == 0) return false;
+    var i: usize = 0;
+    while (i < text.len) {
+        const cp_len = std.unicode.utf8ByteSequenceLength(text[i]) catch return false;
+        if (i + cp_len > text.len) return false;
+        const cp = std.unicode.utf8Decode(text[i..][0..cp_len]) catch return false;
+        if (!isUnicodeCodepointWhitespace(cp)) return false;
+        i += cp_len;
+    }
+    return true;
+}
+
 /// Convert primitive i64 to PyString
 // Import and re-export built-in functions
 pub const builtins = @import("runtime/builtins.zig");
@@ -955,6 +1052,8 @@ pub const intToString = int_ops.intToString;
 pub const parseIntUnicode = int_ops.parseIntUnicode;
 pub const parseIntToBigInt = int_ops.parseIntToBigInt;
 pub const intBuiltinCall = int_ops.intBuiltinCall;
+pub const intFromBytes = int_ops.intFromBytes;
+pub const intToBytes = int_ops.intToBytes;
 pub const floatAsIntegerRatio = float_ops.floatAsIntegerRatio;
 pub const floatHex = float_ops.floatHex;
 pub const floatToHex = float_ops.floatToHex;
@@ -1087,6 +1186,14 @@ pub fn containsGeneric(container: anytype, item: anytype) bool {
     // ArrayList: check .items
     if (info == .@"struct" and @hasField(T, "items")) {
         for (container.items) |elem| {
+            if (std.meta.eql(elem, item)) return true;
+        }
+        return false;
+    }
+
+    // Array: iterate and compare (e.g., [_]i64{1, 2, 3})
+    if (info == .array) {
+        for (container) |elem| {
             if (std.meta.eql(elem, item)) return true;
         }
         return false;
@@ -1277,6 +1384,15 @@ pub const PyComplex = struct {
         };
     }
 
+    pub fn div(self: PyComplex, other: PyComplex) PyComplex {
+        // (a + bi) / (c + di) = (ac + bd) / (c^2 + d^2) + ((bc - ad) / (c^2 + d^2))i
+        const denom = other.real * other.real + other.imag * other.imag;
+        return .{
+            .real = (self.real * other.real + self.imag * other.imag) / denom,
+            .imag = (self.imag * other.real - self.real * other.imag) / denom,
+        };
+    }
+
     pub fn eql(self: PyComplex, other: anytype) bool {
         const T = @TypeOf(other);
         switch (@typeInfo(T)) {
@@ -1286,6 +1402,11 @@ pub const PyComplex = struct {
             },
             .float, .comptime_float => {
                 return self.real == other and self.imag == 0.0;
+            },
+            .bool => {
+                // complex(False) == False is True (both are "zero")
+                const f: f64 = if (other) 1.0 else 0.0;
+                return self.real == f and self.imag == 0.0;
             },
             .@"struct" => {
                 if (T == PyComplex) {
@@ -1474,6 +1595,29 @@ pub inline fn concat(a: anytype, b: anytype) @TypeOf(a ++ b) {
 /// This is Python list multiplication: [1,2] * 3 = [1,2,1,2,1,2]
 pub inline fn listRepeat(arr: anytype, n: anytype) @TypeOf(arr ** @as(usize, @intCast(n))) {
     return arr ** @as(usize, @intCast(n));
+}
+
+/// Marshal loads - decode simplified marshal format back to value
+/// Uses compile-time encoding: "T" = True, "F" = False
+pub fn marshalLoads(data: []const u8) bool {
+    if (data.len == 0) return false;
+    // "T" for True, "F" for False
+    return data[0] == 'T';
+}
+
+/// Pickle loads - decode pickle format back to value
+/// Handles pickle protocol 0 format for booleans: "I01\n." = True, "I00\n." = False
+pub fn pickleLoads(data: []const u8) bool {
+    if (data.len < 4) return false;
+    // Protocol 0: "I01\n." = True, "I00\n." = False
+    if (data[0] == 'I' and data[1] == '0') {
+        return data[2] == '1';
+    }
+    // Protocol 2+: \x88 = True, \x89 = False
+    if (data.len >= 4 and data[0] == 0x80 and data[1] == 0x02) {
+        return data[2] == 0x88;
+    }
+    return false;
 }
 
 test "reference counting" {

@@ -584,3 +584,55 @@ fn parseIntWithUnicodeDigits(allocator: std.mem.Allocator, str: []const u8, base
 pub fn int__new__(_: anytype, value: anytype) @TypeOf(value) {
     return value;
 }
+
+/// Convert bytes to int - implements int.from_bytes(bytes, byteorder)
+/// Python: int.from_bytes(b'\x00\x01', 'big') -> 1
+/// Python: int.from_bytes(b'\x01\x00', 'little') -> 1
+pub fn intFromBytes(bytes: []const u8, byteorder: []const u8) i64 {
+    if (bytes.len == 0) return 0;
+
+    const is_big_endian = std.mem.eql(u8, byteorder, "big");
+
+    var result: i64 = 0;
+    if (is_big_endian) {
+        for (bytes) |b| {
+            result = (result << 8) | @as(i64, b);
+        }
+    } else {
+        // Little endian - first byte is least significant
+        var shift: u6 = 0;
+        for (bytes) |b| {
+            result |= @as(i64, b) << shift;
+            if (shift < 56) shift += 8;
+        }
+    }
+    return result;
+}
+
+/// Convert int to bytes - implements int.to_bytes(length, byteorder)
+/// Python: (1).to_bytes(2, 'big') -> b'\x00\x01'
+/// Python: (1).to_bytes(2, 'little') -> b'\x01\x00'
+pub fn intToBytes(allocator: std.mem.Allocator, value: i64, length: i64, byteorder: []const u8) ![]const u8 {
+    const len = @as(usize, @intCast(if (length < 0) 0 else length));
+    const result = try allocator.alloc(u8, len);
+
+    const is_big_endian = std.mem.eql(u8, byteorder, "big");
+    const unsigned_value: u64 = @bitCast(value);
+
+    if (is_big_endian) {
+        var i: usize = len;
+        var v = unsigned_value;
+        while (i > 0) {
+            i -= 1;
+            result[i] = @truncate(v);
+            v >>= 8;
+        }
+    } else {
+        var v = unsigned_value;
+        for (result) |*b| {
+            b.* = @truncate(v);
+            v >>= 8;
+        }
+    }
+    return result;
+}

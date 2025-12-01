@@ -23,6 +23,9 @@ pub const OpCode = enum(u8) {
     Mod,
     Pow,
 
+    // Unary operations
+    Invert, // Bitwise NOT ~
+
     // Comparisons
     Eq,
     NotEq,
@@ -47,6 +50,7 @@ pub const Constant = union(enum) {
     int: i64,
     float: f64,
     string: []const u8,
+    bool: bool,
 };
 
 /// Compiled bytecode program
@@ -90,6 +94,10 @@ pub const BytecodeProgram = struct {
                     try buffer.append(1); // type tag: string
                     try buffer.appendSlice(&std.mem.toBytes(@as(u32, @intCast(s.len))));
                     try buffer.appendSlice(s);
+                },
+                .bool => |b| {
+                    try buffer.append(3); // type tag: bool
+                    try buffer.append(if (b) 1 else 0);
                 },
             }
         }
@@ -151,6 +159,11 @@ pub const BytecodeProgram = struct {
                     if (pos + 8 > data.len) return error.UnexpectedEof;
                     constants[i] = .{ .float = @bitCast(std.mem.readInt(u64, data[pos..][0..8], .little)) };
                     pos += 8;
+                },
+                3 => { // bool
+                    if (pos + 1 > data.len) return error.UnexpectedEof;
+                    constants[i] = .{ .bool = data[pos] != 0 };
+                    pos += 1;
                 },
                 else => return error.InvalidConstantType,
             }
@@ -277,6 +290,7 @@ pub const VM = struct {
                         .int => |i| try PyInt.create(self.allocator, i),
                         .float => |f| try PyFloat.create(self.allocator, f),
                         .string => return error.NotImplemented,
+                        .bool => |b| try PyBool.create(self.allocator, b),
                     };
                     try self.stack.append(self.allocator, obj);
                 },
@@ -288,6 +302,8 @@ pub const VM = struct {
                 .FloorDiv => try self.binaryOp(.FloorDiv),
                 .Mod => try self.binaryOp(.Mod),
                 .Pow => try self.binaryOp(.Pow),
+
+                .Invert => try self.unaryInvert(),
 
                 .Eq => try self.compareOp(.Eq),
                 .NotEq => try self.compareOp(.NotEq),
@@ -383,6 +399,24 @@ pub const VM = struct {
         };
 
         const result = try PyBool.create(self.allocator, result_val);
+        try self.stack.append(self.allocator, result);
+    }
+
+    fn unaryInvert(self: *VM) !void {
+        if (self.stack.items.len < 1) return error.StackUnderflow;
+
+        const val = self.stack.pop() orelse return error.StackUnderflow;
+
+        // Get integer value (convert bool to int first)
+        const int_val: i64 = if (runtime.PyBool_Check(val))
+            (if (PyBool.getValue(val)) @as(i64, 1) else @as(i64, 0))
+        else
+            PyInt.getValue(val);
+
+        // Bitwise NOT: ~x = -(x+1) in Python
+        const result_val = ~int_val;
+
+        const result = try PyInt.create(self.allocator, result_val);
         try self.stack.append(self.allocator, result);
     }
 };

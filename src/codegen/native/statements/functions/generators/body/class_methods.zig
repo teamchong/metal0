@@ -75,8 +75,20 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
     if (captured_vars) |vars| {
         for (vars) |var_name| {
             try self.emit(", ");
-            // Use *const i64 as the default type - const because we read, not modify
-            try self.output.writer(self.allocator).print("__cap_{s}: *const i64", .{var_name});
+            // Look up the actual type from type inferrer - try scoped then global
+            var type_buf = std.ArrayList(u8){};
+            const native_types = @import("../../../../../../analysis/native_types/core.zig");
+            const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
+                self.type_inferrer.var_types.get(var_name);
+            const zig_type = if (var_type) |vt| blk: {
+                vt.toZigType(self.allocator, &type_buf) catch {};
+                if (type_buf.items.len > 0) {
+                    break :blk type_buf.items;
+                }
+                break :blk "i64";
+            } else "i64";
+            defer type_buf.deinit(self.allocator);
+            try self.output.writer(self.allocator).print("__cap_{s}: *const {s}", .{ var_name, zig_type });
         }
     }
 
@@ -308,8 +320,20 @@ pub fn genInitMethodWithBuiltinBase(
     if (captured_vars) |vars| {
         for (vars) |var_name| {
             try self.emit(", ");
-            // Use *const i64 as the default type - const because we read, not modify
-            try self.output.writer(self.allocator).print("__cap_{s}: *const i64", .{var_name});
+            // Look up the actual type from type inferrer - try scoped then global
+            var type_buf = std.ArrayList(u8){};
+            const native_types = @import("../../../../../../analysis/native_types/core.zig");
+            const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
+                self.type_inferrer.var_types.get(var_name);
+            const zig_type = if (var_type) |vt| blk: {
+                vt.toZigType(self.allocator, &type_buf) catch {};
+                if (type_buf.items.len > 0) {
+                    break :blk type_buf.items;
+                }
+                break :blk "i64";
+            } else "i64";
+            defer type_buf.deinit(self.allocator);
+            try self.output.writer(self.allocator).print("__cap_{s}: *const {s}", .{ var_name, zig_type });
         }
     }
 
@@ -537,8 +561,20 @@ pub fn genInitMethodFromNew(
     if (captured_vars) |vars| {
         for (vars) |var_name| {
             try self.emit(", ");
-            // Use *const i64 as the default type - const because we read, not modify
-            try self.output.writer(self.allocator).print("__cap_{s}: *const i64", .{var_name});
+            // Look up the actual type from type inferrer - try scoped then global
+            var type_buf = std.ArrayList(u8){};
+            const native_types = @import("../../../../../../analysis/native_types/core.zig");
+            const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
+                self.type_inferrer.var_types.get(var_name);
+            const zig_type = if (var_type) |vt| blk: {
+                vt.toZigType(self.allocator, &type_buf) catch {};
+                if (type_buf.items.len > 0) {
+                    break :blk type_buf.items;
+                }
+                break :blk "i64";
+            } else "i64";
+            defer type_buf.deinit(self.allocator);
+            try self.output.writer(self.allocator).print("__cap_{s}: *const {s}", .{ var_name, zig_type });
         }
     }
 

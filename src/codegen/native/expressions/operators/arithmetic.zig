@@ -369,6 +369,65 @@ fn needsBigInt(t: NativeType) bool {
     return t == .bigint or (t == .int and t.int.needsBigInt());
 }
 
+/// Generate complex number binary operations
+/// Handles: complex + complex, int/float + complex, complex + int/float
+fn genComplexBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
+    // Helper to emit a value as the real part of a complex number
+    const emitAsComplex = struct {
+        fn emit(s: *NativeCodegen, node: ast.Node, t: NativeType) CodegenError!void {
+            if (t == .complex) {
+                // Already complex
+                try genExpr(s, node);
+            } else if (t == .float) {
+                // float -> complex with real part
+                try s.emit("runtime.PyComplex.create(");
+                try genExpr(s, node);
+                try s.emit(", 0.0)");
+            } else {
+                // int/bool -> complex with real part
+                try s.emit("runtime.PyComplex.create(@as(f64, @floatFromInt(");
+                try genExpr(s, node);
+                try s.emit(")), 0.0)");
+            }
+        }
+    }.emit;
+
+    switch (binop.op) {
+        .Add => {
+            // complex.add(other)
+            try emitAsComplex(self, binop.left.*, left_type);
+            try self.emit(".add(");
+            try emitAsComplex(self, binop.right.*, right_type);
+            try self.emit(")");
+        },
+        .Sub => {
+            // complex.sub(other)
+            try emitAsComplex(self, binop.left.*, left_type);
+            try self.emit(".sub(");
+            try emitAsComplex(self, binop.right.*, right_type);
+            try self.emit(")");
+        },
+        .Mult => {
+            // complex.mul(other)
+            try emitAsComplex(self, binop.left.*, left_type);
+            try self.emit(".mul(");
+            try emitAsComplex(self, binop.right.*, right_type);
+            try self.emit(")");
+        },
+        .Div => {
+            // complex.div(other)
+            try emitAsComplex(self, binop.left.*, left_type);
+            try self.emit(".div(");
+            try emitAsComplex(self, binop.right.*, right_type);
+            try self.emit(")");
+        },
+        else => {
+            // Unsupported complex operation - fall back to error
+            try self.emit("@compileError(\"Unsupported complex operation\")");
+        },
+    }
+}
+
 /// Generate binary operations (+, -, *, /, %, //)
 pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // Check for BigInt operations first
@@ -427,6 +486,12 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try self.emit(", ");
             try genExpr(self, binop.right.*);
             try self.emit(")");
+            return;
+        }
+
+        // Check for complex number addition: int/float + complex -> complex
+        if (left_type == .complex or right_type == .complex) {
+            try genComplexBinOp(self, binop, left_type, right_type);
             return;
         }
     }
@@ -759,6 +824,25 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     const right_is_usize = (right_type == .usize);
     const right_is_int = (right_type == .int);
     const right_is_bool = (right_type == .bool);
+
+    // Python: bool & bool = bool, bool | bool = bool, bool ^ bool = bool
+    // When both operands are bools and op is bitwise, result is bool
+    if (left_is_bool and right_is_bool and
+        (binop.op == .BitAnd or binop.op == .BitOr or binop.op == .BitXor))
+    {
+        try self.emit("(");
+        try genExprWrapped(self, binop.left.*);
+        const op_str = switch (binop.op) {
+            .BitAnd => " and ",
+            .BitOr => " or ",
+            .BitXor => " != ", // bool ^ bool = (a != b)
+            else => unreachable,
+        };
+        try self.emit(op_str);
+        try genExprWrapped(self, binop.right.*);
+        try self.emit(")");
+        return;
+    }
 
     // If mixing usize and i64, cast to i64 for the operation
     const needs_cast = (left_is_usize and right_is_int) or (left_is_int and right_is_usize);

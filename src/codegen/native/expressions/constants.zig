@@ -24,6 +24,10 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
         },
         .bool => try self.emit(if (constant.value.bool) "true" else "false"),
         .none => try self.emit("null"), // Zig null represents None
+        .complex => |imag| {
+            // Complex number literal: 0j -> .{.real = 0.0, .imag = 0.0}, 1j -> .{.real = 0.0, .imag = 1.0}
+            try self.output.writer(self.allocator).print("runtime.PyComplex.create(0.0, {d})", .{imag});
+        },
         .string => |s| {
             // Strip Python quotes
             const content = if (s.len >= 2) s[1 .. s.len - 1] else s;
@@ -38,17 +42,21 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
                     const next = content[i + 1];
                     switch (next) {
                         'x' => {
-                            // \xNN - hex escape sequence
+                            // \xNN - hex escape sequence (represents Unicode codepoint, needs UTF-8 encoding)
                             if (i + 3 < content.len) {
                                 const hex = content[i + 2 .. i + 4];
-                                const byte_val = std.fmt.parseInt(u8, hex, 16) catch {
+                                const codepoint: u21 = std.fmt.parseInt(u8, hex, 16) catch {
                                     // Invalid hex, emit as-is
                                     try self.emit("\\\\x");
                                     i += 1; // Skip the backslash
                                     continue;
                                 };
-                                // Emit the byte value directly as Zig hex escape
-                                try self.output.writer(self.allocator).print("\\x{x:0>2}", .{byte_val});
+                                // Encode as UTF-8 bytes
+                                var buf: [4]u8 = undefined;
+                                const len = std.unicode.utf8Encode(codepoint, &buf) catch 0;
+                                for (buf[0..len]) |b| {
+                                    try self.output.writer(self.allocator).print("\\x{x:0>2}", .{b});
+                                }
                                 i += 3; // Skip \xNN
                             } else {
                                 try self.emit("\\\\x");
@@ -136,6 +144,86 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
                                 try self.emit("\\\\u");
                                 i += 1;
                             }
+                        },
+                        else => {
+                            // Unknown escape, emit backslash escaped
+                            try self.emit("\\\\");
+                        },
+                    }
+                } else if (c == '"') {
+                    try self.emit("\\\"");
+                } else if (c == '\n') {
+                    try self.emit("\\n");
+                } else if (c == '\r') {
+                    try self.emit("\\r");
+                } else if (c == '\t') {
+                    try self.emit("\\t");
+                } else {
+                    try self.output.writer(self.allocator).print("{c}", .{c});
+                }
+            }
+            try self.emit("\"");
+        },
+        .bytes => |s| {
+            // Bytes literal (b"...") - escape sequences are raw bytes, no UTF-8 encoding
+            // Strip Python quotes (already stripped 'b' prefix in parser)
+            const content = if (s.len >= 2) s[1 .. s.len - 1] else s;
+
+            // Process Python escape sequences and emit Zig string with raw bytes
+            try self.emit("\"");
+            var i: usize = 0;
+            while (i < content.len) : (i += 1) {
+                const c = content[i];
+                if (c == '\\' and i + 1 < content.len) {
+                    // Handle Python escape sequences for bytes
+                    const next = content[i + 1];
+                    switch (next) {
+                        'x' => {
+                            // \xNN - hex escape sequence (raw byte, no UTF-8 encoding!)
+                            if (i + 3 < content.len) {
+                                const hex = content[i + 2 .. i + 4];
+                                const byte_val = std.fmt.parseInt(u8, hex, 16) catch {
+                                    // Invalid hex, emit as-is
+                                    try self.emit("\\\\x");
+                                    i += 1;
+                                    continue;
+                                };
+                                // Emit as raw byte (no UTF-8 encoding!)
+                                try self.output.writer(self.allocator).print("\\x{x:0>2}", .{byte_val});
+                                i += 3; // Skip \xNN
+                            } else {
+                                try self.emit("\\\\x");
+                                i += 1;
+                            }
+                        },
+                        'n' => {
+                            try self.emit("\\n");
+                            i += 1;
+                        },
+                        'r' => {
+                            try self.emit("\\r");
+                            i += 1;
+                        },
+                        't' => {
+                            try self.emit("\\t");
+                            i += 1;
+                        },
+                        '\\' => {
+                            try self.emit("\\\\");
+                            i += 1;
+                        },
+                        '\'' => {
+                            try self.emit("'");
+                            i += 1;
+                        },
+                        '"' => {
+                            try self.emit("\\\"");
+                            i += 1;
+                        },
+                        '0' => {
+                            // \0 - null byte
+                            try self.emit("\\x00");
+                            i += 1;
                         },
                         else => {
                             // Unknown escape, emit backslash escaped
