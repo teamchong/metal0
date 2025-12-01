@@ -321,10 +321,15 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Nested classes aren't in class_registry, so check nested_class_instances
             if (!is_class_method_call and attr.value.* == .name) {
                 const obj_name = attr.value.name.id;
-                if (self.nested_class_instances.contains(obj_name)) {
-                    // This is a method call on a nested class instance - always pass allocator
+                if (self.nested_class_instances.get(obj_name)) |class_name| {
+                    // This is a method call on a nested class instance
+                    // Check if this specific method needs allocator
                     is_nested_class_method_call = true;
-                    class_method_needs_alloc = true;
+                    var method_key_buf: [512]u8 = undefined;
+                    const method_key = std.fmt.bufPrint(&method_key_buf, "{s}.{s}", .{ class_name, attr.attr }) catch null;
+                    if (method_key) |key| {
+                        class_method_needs_alloc = self.nested_class_method_needs_alloc.contains(key);
+                    }
                 }
             }
         }
@@ -529,10 +534,16 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Use raw_func_name for checking class registry (original Python name)
         // Also check nested_class_names - nested classes inside functions won't be in class_registry
         // Also check symbol_table for locally defined classes (const MyClass = struct{...})
+        // Also check current_class_name - when inside a class method calling own class constructor
         const in_class_registry = self.class_registry.getClass(raw_func_name) != null;
         const in_nested_names = self.nested_class_names.contains(raw_func_name);
         const in_local_scope = self.symbol_table.lookup(raw_func_name) != null;
-        const is_user_class = in_class_registry or in_nested_names or in_local_scope;
+        // Check if we're calling our own class constructor from within the class
+        const is_self_class_call = if (self.current_class_name) |cn|
+            std.mem.eql(u8, cn, raw_func_name)
+        else
+            false;
+        const is_user_class = in_class_registry or in_nested_names or in_local_scope or is_self_class_call;
         const is_class_constructor = is_user_class or (raw_func_name.len > 0 and std.ascii.isUpper(raw_func_name[0]));
 
         // Check if this is a runtime exception type that needs runtime. prefix
@@ -542,25 +553,25 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Class instantiation: Counter(10) -> Counter.init(__global_allocator, 10)
             // User-defined classes return the struct directly, library classes like Path may return error unions
 
-            // Check if we're instantiating the current class from within itself
+            // Use is_self_class_call computed earlier - calling our own class constructor uses @This()
             // e.g., `return aug_test(self.val + val)` inside aug_test.__add__
-            // In this case, use @This() instead of the class name
-            const is_self_reference = if (self.current_class_name) |cn|
-                std.mem.eql(u8, cn, raw_func_name)
-            else
-                false;
 
             // Determine if allocator should be passed to init
             // User-defined classes (in class_registry or nested_names) need allocator
             // Local structs (namedtuples, etc.) don't need allocator
-            const needs_allocator = in_class_registry or in_nested_names or is_self_reference;
+            const needs_allocator = in_class_registry or in_nested_names or is_self_class_call;
 
-            if (is_user_class or is_self_reference) {
+            if (is_user_class) {
                 // User-defined class: init returns struct directly, no try needed
-                if (is_self_reference) {
+                if (is_self_class_call) {
                     try self.emit("@This()");
                 } else {
                     try self.emit(func_name);
+                    // Track that we actually used this nested class in generated Zig code
+                    // This is used to determine which classes need _ = ClassName; suppression
+                    if (in_nested_names) {
+                        try self.nested_class_zig_refs.put(raw_func_name, {});
+                    }
                 }
                 if (needs_allocator) {
                     try self.emit(".init(__global_allocator");
@@ -724,11 +735,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             }
 
-            if (is_user_class or is_self_reference) {
-                try self.emit(")");
-            } else {
-                try self.emit("))");
-            }
+            // All paths here use single closing paren for .init(...)
+            // Runtime exception path with (try ...) already returned earlier at line 588/592/603
+            try self.emit(")");
             return;
         }
 
