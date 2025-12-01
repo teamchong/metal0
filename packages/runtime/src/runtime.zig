@@ -43,6 +43,11 @@ pub const Closure2 = closure_impl.Closure2;
 pub const Closure3 = closure_impl.Closure3;
 pub const ZeroClosure = closure_impl.ZeroClosure;
 
+/// Export TypeFactory for first-class types (classes as values)
+pub const type_factory = @import("type_factory.zig");
+pub const TypeFactory = type_factory.TypeFactory;
+pub const AnyTypeFactory = type_factory.AnyTypeFactory;
+
 /// Export format utilities from runtime_format.zig
 const runtime_format = @import("runtime_format.zig");
 pub const formatAny = runtime_format.formatAny;
@@ -163,6 +168,29 @@ pub fn toBool(value: anytype) bool {
     // Handle optional
     if (info == .optional) {
         return value != null;
+    }
+
+    // Handle structs with __bool__ method (Python protocol)
+    if (info == .@"struct") {
+        if (@hasDecl(T, "__bool__")) {
+            // Call __bool__ and convert result to bool
+            const result = value.__bool__();
+            const ResultT = @TypeOf(result);
+            if (@typeInfo(ResultT) == .bool) {
+                return result;
+            }
+            // Handle error union or other types
+            if (@typeInfo(ResultT) == .error_union) {
+                const unwrapped = result catch return false;
+                return toBool(unwrapped);
+            }
+            // Convert numeric/string results to bool
+            return toBool(result);
+        }
+        // Check for __len__ as fallback (containers with 0 length are falsy)
+        if (@hasDecl(T, "__len__")) {
+            return value.__len__() > 0;
+        }
     }
 
     // Default: truthy for everything else (non-empty types)
@@ -935,8 +963,103 @@ pub const floatCeil = float_ops.floatCeil;
 pub const floatTrunc = float_ops.floatTrunc;
 pub const floatRound = float_ops.floatRound;
 pub const floatBuiltinCall = float_ops.floatBuiltinCall;
+pub const boolBuiltinCall = float_ops.boolBuiltinCall;
 pub const parseFloatWithUnicode = float_ops.parseFloatWithUnicode;
+
+/// Type builtin wrappers - simple functions that return a truthy []const u8
+/// Used when types are stored as first-class values in lists
+/// These return a non-empty string so bool(type) returns True
+pub fn boolBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "bool";
+}
+
+pub fn intBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "int";
+}
+
+pub fn floatBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "float";
+}
+
+pub fn strBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "str";
+}
+
+pub fn bytesBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "bytes";
+}
+
+pub fn listBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "list";
+}
+
+pub fn dictBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "dict";
+}
+
+pub fn setBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "set";
+}
+
+pub fn tupleBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "tuple";
+}
+
+pub fn frozensetBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "frozenset";
+}
+
+pub fn typeBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "type";
+}
+
+pub fn objectBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "object";
+}
+
+pub fn complexBuiltin(arg: []const u8) []const u8 {
+    return if (arg.len > 0) arg else "complex";
+}
 pub const toFloat = float_ops.toFloat;
+
+/// Format mode for formatInt
+pub const FormatMode = enum {
+    hex_lower,
+    hex_upper,
+    octal,
+    decimal,
+};
+
+/// Convert any numeric value (including bool) to a hex/octal formatted string
+/// This is needed because Zig's {x} format doesn't support bool directly
+/// Returns a stack-allocated formatted string (valid for the current scope)
+pub fn formatInt(value: anytype, mode: FormatMode) []const u8 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Convert to unsigned int for formatting
+    const int_val: u64 = if (info == .bool)
+        @as(u64, if (value) 1 else 0)
+    else if (info == .int or info == .comptime_int)
+        @as(u64, @intCast(if (value < 0) @as(i64, value) +% @as(i64, @bitCast(@as(u64, std.math.maxInt(u64)))) +% 1 else @as(i64, value)))
+    else if (info == .float or info == .comptime_float)
+        @as(u64, @intFromFloat(@abs(value)))
+    else
+        0;
+
+    // Use thread-local buffer for result
+    const S = struct {
+        threadlocal var buf: [32]u8 = undefined;
+    };
+
+    const len = switch (mode) {
+        .hex_lower => std.fmt.bufPrint(&S.buf, "{x}", .{int_val}) catch return "0",
+        .hex_upper => std.fmt.bufPrint(&S.buf, "{X}", .{int_val}) catch return "0",
+        .octal => std.fmt.bufPrint(&S.buf, "{o}", .{int_val}) catch return "0",
+        .decimal => std.fmt.bufPrint(&S.buf, "{d}", .{int_val}) catch return "0",
+    };
+    return len;
+}
 
 /// Compare two sets for equality
 /// Sets are equal if they have the same elements (order doesn't matter)
@@ -954,6 +1077,38 @@ pub fn setEqual(a: anytype, b: anytype) bool {
     }
 
     return true;
+}
+
+/// Generic 'in' operator for any type - works with ArrayLists, slices, etc.
+pub fn containsGeneric(container: anytype, item: anytype) bool {
+    const T = @TypeOf(container);
+    const info = @typeInfo(T);
+
+    // ArrayList: check .items
+    if (info == .@"struct" and @hasField(T, "items")) {
+        for (container.items) |elem| {
+            if (std.meta.eql(elem, item)) return true;
+        }
+        return false;
+    }
+
+    // Slice: iterate and compare
+    if (info == .pointer and info.pointer.size == .slice) {
+        for (container) |elem| {
+            if (std.meta.eql(elem, item)) return true;
+        }
+        return false;
+    }
+
+    // Empty list []
+    if (info == .pointer and info.pointer.size == .one) {
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info == .array and child_info.array.len == 0) {
+            return false;
+        }
+    }
+
+    return false;
 }
 
 /// Generic 'in' operator - checks membership based on container type
@@ -1068,7 +1223,8 @@ pub fn isCallable(value: anytype) bool {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
     return switch (info) {
-        .@"fn", .pointer => |ptr| switch (@typeInfo(ptr.child)) {
+        .@"fn" => true,
+        .pointer => |ptr| switch (@typeInfo(ptr.child)) {
             .@"fn" => true,
             .@"struct" => @hasDecl(ptr.child, "__call__"),
             else => false,

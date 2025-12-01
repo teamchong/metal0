@@ -101,6 +101,13 @@ pub const PyFile = struct {
         }
     }
 
+    /// Get the closed status of the file
+    pub fn getClosed(obj: *runtime.PyObject) bool {
+        const file_obj: *PyFileObject = @ptrCast(@alignCast(obj));
+        const data: *PyFileData = @ptrCast(@alignCast(file_obj.file_data orelse return true));
+        return data.closed;
+    }
+
     /// Destructor - close file and free memory
     pub fn deinit(obj: *runtime.PyObject, allocator: std.mem.Allocator) void {
         const file_obj: *PyFileObject = @ptrCast(@alignCast(obj));

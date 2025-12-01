@@ -204,8 +204,8 @@ pub const ExprParser = struct {
             else => {},
         }
 
-        // Number
-        if (std.ascii.isDigit(c)) {
+        // Number (including .14 style floats)
+        if (std.ascii.isDigit(c) or (c == '.' and self.pos + 1 < self.source.len and std.ascii.isDigit(self.source[self.pos + 1]))) {
             try self.scanNumber();
             return;
         }
@@ -245,9 +245,20 @@ pub const ExprParser = struct {
                 return;
             }
         }
-        // Include digits, underscores (Python 3.6+), and decimal point
-        while (self.pos < self.source.len and (std.ascii.isDigit(self.source[self.pos]) or self.source[self.pos] == '.' or self.source[self.pos] == '_')) {
-            self.pos += 1;
+        // Include digits, underscores (Python 3.6+), decimal point, and scientific notation (e/E)
+        while (self.pos < self.source.len) {
+            const c = self.source[self.pos];
+            if (std.ascii.isDigit(c) or c == '.' or c == '_') {
+                self.pos += 1;
+            } else if (c == 'e' or c == 'E') {
+                // Scientific notation - include e and optional sign
+                self.pos += 1;
+                if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-')) {
+                    self.pos += 1;
+                }
+            } else {
+                break;
+            }
         }
         self.current = .{ .type = .Number, .start = start, .end = self.pos };
     }
@@ -419,10 +430,9 @@ pub const ExprParser = struct {
                     if (base != 10) return ParseError.InvalidNumber;
                     // Try float (only for base 10)
                     const fval = std.fmt.parseFloat(f64, clean) catch return ParseError.InvalidNumber;
-                    // For now, truncate to int (TODO: proper float support)
-                    const ival = @as(i64, @intFromFloat(fval));
+                    // Emit float constant
                     const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-                    self.compiler.constants.append(self.allocator, .{ .int = ival }) catch return ParseError.OutOfMemory;
+                    self.compiler.constants.append(self.allocator, .{ .float = fval }) catch return ParseError.OutOfMemory;
                     self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                     try self.advance();
                     return;
