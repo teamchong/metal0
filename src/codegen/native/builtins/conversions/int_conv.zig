@@ -80,6 +80,10 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         .counter => true,
         else => false,
     };
+    const is_class_instance = switch (arg_type) {
+        .class_instance => true,
+        else => false,
+    };
 
     // Check if this is a tracked ArrayList variable (must check BEFORE dict/set type check)
     // Dict comprehensions generate ArrayList but are typed as .dict
@@ -175,6 +179,14 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else {
             try self.genExpr(args[0]);
             try self.emit(".count()");
+        }
+    } else if (is_class_instance) {
+        // User-defined class with __len__ method
+        if (needs_wrap) {
+            try self.emit("__obj.__len__()");
+        } else {
+            try self.genExpr(args[0]);
+            try self.emit(".__len__()");
         }
     } else {
         // For arrays, slices, strings - just use .len

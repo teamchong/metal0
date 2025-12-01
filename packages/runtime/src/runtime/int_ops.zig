@@ -576,3 +576,11 @@ fn parseIntWithUnicodeDigits(allocator: std.mem.Allocator, str: []const u8, base
 
     return std.fmt.parseInt(i128, ascii_digits.items, base) catch return error.ValueError;
 }
+
+/// Implement int.__new__(cls, value) - creates a new int subclass instance
+/// In Python: int.__new__(bool, 0) creates a bool with value 0
+/// Since Zig doesn't have subclassing like Python, we just return the value
+/// The cls parameter is ignored (we can't actually create a subclass instance)
+pub fn int__new__(_: anytype, value: anytype) @TypeOf(value) {
+    return value;
+}

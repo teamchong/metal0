@@ -115,7 +115,15 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         const module_name = attr.value.name.id;
         const attr_name = attr.attr;
 
-        // Handle builtin type class methods (float.fromhex, float.hex, etc.)
+        // Handle builtin type class methods (int.__new__, float.fromhex, float.hex, etc.)
+        if (std.mem.eql(u8, module_name, "int")) {
+            if (std.mem.eql(u8, attr_name, "__new__")) {
+                // int.__new__(cls, value) - creates new int subclass instance
+                try self.emit("runtime.int__new__");
+                return;
+            }
+        }
+
         if (std.mem.eql(u8, module_name, "float")) {
             if (std.mem.eql(u8, attr_name, "fromhex")) {
                 try self.emit("runtime.floatFromHex");

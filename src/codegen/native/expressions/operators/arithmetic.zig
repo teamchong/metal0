@@ -497,11 +497,24 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try self.emit(")");
             return;
         }
-        // Numeric modulo
+        // Numeric modulo - handle bool operands
+        const right_type = try self.inferExprScoped(binop.right.*);
         try self.emit("@rem(");
-        try genExpr(self, binop.left.*);
+        if (left_type == .bool) {
+            try self.emit("@as(i64, @intFromBool(");
+            try genExpr(self, binop.left.*);
+            try self.emit("))");
+        } else {
+            try genExpr(self, binop.left.*);
+        }
         try self.emit(", ");
-        try genExpr(self, binop.right.*);
+        if (right_type == .bool) {
+            try self.emit("@as(i64, @intFromBool(");
+            try genExpr(self, binop.right.*);
+            try self.emit("))");
+        } else {
+            try genExpr(self, binop.right.*);
+        }
         try self.emit(")");
         return;
     }
@@ -518,6 +531,38 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
     // Special handling for power
     if (binop.op == .Pow) {
+        // Check types for bool handling
+        const left_type = try self.inferExprScoped(binop.left.*);
+        const right_type = try self.inferExprScoped(binop.right.*);
+        const left_is_bool = (left_type == .bool);
+        const right_is_bool = (right_type == .bool);
+
+        // Helper to emit left operand with possible bool conversion
+        const emitLeft = struct {
+            fn emit(s: *NativeCodegen, binop_inner: ast.Node.BinOp, is_bool: bool) CodegenError!void {
+                if (is_bool) {
+                    try s.emit("@as(i64, @intFromBool(");
+                    try genExpr(s, binop_inner.left.*);
+                    try s.emit("))");
+                } else {
+                    try genExpr(s, binop_inner.left.*);
+                }
+            }
+        }.emit;
+
+        // Helper to emit right operand with possible bool conversion
+        const emitRight = struct {
+            fn emit(s: *NativeCodegen, binop_inner: ast.Node.BinOp, is_bool: bool) CodegenError!void {
+                if (is_bool) {
+                    try s.emit("@as(i64, @intFromBool(");
+                    try genExpr(s, binop_inner.right.*);
+                    try s.emit("))");
+                } else {
+                    try genExpr(s, binop_inner.right.*);
+                }
+            }
+        }.emit;
+
         // Check if exponent is large enough to need BigInt
         if (binop.right.* == .constant and binop.right.constant.value == .int) {
             const exp = binop.right.constant.value.int;
@@ -527,9 +572,9 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
                 try self.emit("(runtime.BigInt.fromInt(");
                 try self.emit(alloc_name);
                 try self.emit(", ");
-                try genExpr(self, binop.left.*);
+                try emitLeft(self, binop, left_is_bool);
                 try self.emit(") catch unreachable).pow(@as(u32, @intCast(");
-                try genExpr(self, binop.right.*);
+                try emitRight(self, binop, right_is_bool);
                 try self.emit(")), ");
                 try self.emit(alloc_name);
                 try self.emit(") catch unreachable");
@@ -537,18 +582,18 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             }
             // Small constant positive exponent - use i64
             try self.emit("std.math.pow(i64, ");
-            try genExpr(self, binop.left.*);
+            try emitLeft(self, binop, left_is_bool);
             try self.emit(", ");
-            try genExpr(self, binop.right.*);
+            try emitRight(self, binop, right_is_bool);
             try self.emit(")");
             return;
         }
         // Runtime exponent (could be negative) - use f64 for safety
         // Python: 10 ** -1 = 0.1 (float), 10 ** random.randint(-100, 100) could be negative
         try self.emit("std.math.pow(f64, @as(f64, @floatFromInt(");
-        try genExpr(self, binop.left.*);
+        try emitLeft(self, binop, left_is_bool);
         try self.emit(")), @as(f64, @floatFromInt(");
-        try genExpr(self, binop.right.*);
+        try emitRight(self, binop, right_is_bool);
         try self.emit(")))");
         return;
     }
@@ -566,20 +611,48 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             return;
         }
 
+        const right_type = try self.inferExprScoped(binop.right.*);
+        const left_is_bool = (left_type == .bool);
+        const right_is_bool = (right_type == .bool);
+
         // True division (/) - always returns float
         // At module level (indent_level == 0), we can't use 'try', so use direct division
         if (self.indent_level == 0) {
             // Direct division for module-level constants (assume no divide-by-zero)
             try self.emit("(@as(f64, @floatFromInt(");
-            try genExpr(self, binop.left.*);
+            if (left_is_bool) {
+                try self.emit("@as(i64, @intFromBool(");
+                try genExpr(self, binop.left.*);
+                try self.emit("))");
+            } else {
+                try genExpr(self, binop.left.*);
+            }
             try self.emit(")) / @as(f64, @floatFromInt(");
-            try genExpr(self, binop.right.*);
+            if (right_is_bool) {
+                try self.emit("@as(i64, @intFromBool(");
+                try genExpr(self, binop.right.*);
+                try self.emit("))");
+            } else {
+                try genExpr(self, binop.right.*);
+            }
             try self.emit(")))");
         } else {
             try self.emit("try runtime.divideFloat(");
-            try genExpr(self, binop.left.*);
+            if (left_is_bool) {
+                try self.emit("@as(i64, @intFromBool(");
+                try genExpr(self, binop.left.*);
+                try self.emit("))");
+            } else {
+                try genExpr(self, binop.left.*);
+            }
             try self.emit(", ");
-            try genExpr(self, binop.right.*);
+            if (right_is_bool) {
+                try self.emit("@as(i64, @intFromBool(");
+                try genExpr(self, binop.right.*);
+                try self.emit("))");
+            } else {
+                try genExpr(self, binop.right.*);
+            }
             try self.emit(")");
         }
         return;
@@ -682,21 +755,27 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
     const left_is_usize = (left_type == .usize);
     const left_is_int = (left_type == .int);
+    const left_is_bool = (left_type == .bool);
     const right_is_usize = (right_type == .usize);
     const right_is_int = (right_type == .int);
+    const right_is_bool = (right_type == .bool);
 
     // If mixing usize and i64, cast to i64 for the operation
     const needs_cast = (left_is_usize and right_is_int) or (left_is_int and right_is_usize);
 
     try self.emit("(");
 
-    // Cast left operand if needed
-    if (left_is_usize and needs_cast) {
+    // Cast left operand if needed - bool or usize to i64
+    if (left_is_bool) {
+        try self.emit("@as(i64, @intFromBool(");
+    } else if (left_is_usize and needs_cast) {
         try self.emit("@as(i64, @intCast(");
     }
     // Use genExprWrapped to add parens around comparisons, etc.
     try genExprWrapped(self, binop.left.*);
-    if (left_is_usize and needs_cast) {
+    if (left_is_bool) {
+        try self.emit("))");
+    } else if (left_is_usize and needs_cast) {
         try self.emit("))");
     }
 
@@ -713,13 +792,17 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     };
     try self.emit(op_str);
 
-    // Cast right operand if needed
-    if (right_is_usize and needs_cast) {
+    // Cast right operand if needed - bool or usize to i64
+    if (right_is_bool) {
+        try self.emit("@as(i64, @intFromBool(");
+    } else if (right_is_usize and needs_cast) {
         try self.emit("@as(i64, @intCast(");
     }
     // Use genExprWrapped to add parens around comparisons, etc.
     try genExprWrapped(self, binop.right.*);
-    if (right_is_usize and needs_cast) {
+    if (right_is_bool) {
+        try self.emit("))");
+    } else if (right_is_usize and needs_cast) {
         try self.emit("))");
     }
 
@@ -798,9 +881,38 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
         .Invert => {
             // Bitwise NOT: ~x in Zig
             // Cast to i64 to handle comptime_int literals
-            try self.emit("~@as(i64, ");
-            try genExpr(self, unaryop.operand.*);
-            try self.emit(")");
+            // For booleans, need to convert to int first (Python: ~False = -1, ~True = -2)
+            const operand_type = try self.inferExprScoped(unaryop.operand.*);
+
+            // Check if operand is a boolean constant or name (True/False)
+            const is_bool = blk: {
+                if (operand_type == .bool) break :blk true;
+                // Check for True/False names which may not be typed as bool
+                if (unaryop.operand.* == .name) {
+                    const name = unaryop.operand.name.id;
+                    if (std.mem.eql(u8, name, "True") or std.mem.eql(u8, name, "False")) {
+                        break :blk true;
+                    }
+                }
+                // Check for bool constants
+                if (unaryop.operand.* == .constant) {
+                    if (unaryop.operand.constant.value == .bool) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+
+            if (is_bool) {
+                // ~False = ~0 = -1, ~True = ~1 = -2
+                try self.emit("~@as(i64, @intFromBool(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit("))");
+            } else {
+                try self.emit("~@as(i64, ");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(")");
+            }
         },
     }
 }

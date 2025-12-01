@@ -171,6 +171,48 @@ fn exprUsesSelfForWith(node: ast.Node) bool {
     };
 }
 
+/// Check if expression uses self without filtering unittest methods
+/// Used for lambda closures which need to capture self even when calling unittest methods
+fn exprUsesSelfRaw(node: ast.Node) bool {
+    return switch (node) {
+        .name => |name| std.mem.eql(u8, name.id, "self"),
+        .attribute => |attr| exprUsesSelfRaw(attr.value.*),
+        .call => |call| {
+            if (exprUsesSelfRaw(call.func.*)) return true;
+            for (call.args) |arg| {
+                if (exprUsesSelfRaw(arg)) return true;
+            }
+            for (call.keyword_args) |kw| {
+                if (exprUsesSelfRaw(kw.value)) return true;
+            }
+            return false;
+        },
+        .binop => |binop| exprUsesSelfRaw(binop.left.*) or exprUsesSelfRaw(binop.right.*),
+        .compare => |comp| blk: {
+            if (exprUsesSelfRaw(comp.left.*)) break :blk true;
+            for (comp.comparators) |c| {
+                if (exprUsesSelfRaw(c)) break :blk true;
+            }
+            break :blk false;
+        },
+        .subscript => |sub| exprUsesSelfRaw(sub.value.*) or
+            (if (sub.slice == .index) exprUsesSelfRaw(sub.slice.index.*) else false),
+        .unaryop => |unary| exprUsesSelfRaw(unary.operand.*),
+        .if_expr => |if_expr| exprUsesSelfRaw(if_expr.condition.*) or
+            exprUsesSelfRaw(if_expr.body.*) or exprUsesSelfRaw(if_expr.orelse_value.*),
+        .tuple => |tup| blk: {
+            for (tup.elts) |elt| if (exprUsesSelfRaw(elt)) break :blk true;
+            break :blk false;
+        },
+        .list => |list| blk: {
+            for (list.elts) |elt| if (exprUsesSelfRaw(elt)) break :blk true;
+            break :blk false;
+        },
+        .lambda => |lambda| exprUsesSelfRaw(lambda.body.*),
+        else => false,
+    };
+}
+
 fn exprUsesSelf(node: ast.Node) bool {
     return exprUsesSelfWithContext(node, true);
 }
@@ -276,7 +318,9 @@ fn exprUsesSelfWithContext(node: ast.Node, has_parent: bool) bool {
         .lambda => |lambda| {
             // Check if self is used in the lambda body
             // This is critical for closures that capture self
-            return exprUsesSelfWithContext(lambda.body.*, has_parent);
+            // Use raw check (without unittest filtering) because lambda closures
+            // need to capture self even when calling unittest assertion methods
+            return exprUsesSelfRaw(lambda.body.*);
         },
         else => false,
     };

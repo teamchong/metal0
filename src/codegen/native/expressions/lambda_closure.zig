@@ -210,8 +210,8 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     }
     try closure_code.writer(self.allocator).writeAll("\n");
 
-    // Call method
-    try closure_code.writer(self.allocator).writeAll("    pub fn call(self: @This()");
+    // Call method - use __closure as parameter name to avoid shadowing captured "self" field
+    try closure_code.writer(self.allocator).writeAll("    pub fn call(__closure: @This()");
     for (lambda.args) |arg| {
         try closure_code.writer(self.allocator).writeAll(", ");
         try zig_keywords.writeEscapedIdent(closure_code.writer(self.allocator), arg.name);
@@ -263,18 +263,32 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     // Return success - caller should mark this variable as a closure
 }
 
-/// Generate expression with captured variable references prefixed with "self."
+/// Generate expression with captured variable references prefixed with "__closure."
 fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]const u8) CodegenError!void {
+    const expressions = @import("../expressions.zig");
+
     switch (node) {
         .name => |n| {
             // Check if this variable is captured
             for (captured_vars) |captured| {
                 if (std.mem.eql(u8, n.id, captured)) {
-                    // Prefix with self.
-                    try self.emit("self.");
+                    // Prefix with __closure. (the closure struct parameter)
+                    try self.emit("__closure.");
                     try self.emit(n.id);
                     return;
                 }
+            }
+            // Check if it's a Python exception type
+            if (expressions.isPythonExceptionType(n.id)) {
+                try self.emit("@intFromEnum(runtime.ExceptionTypeId.");
+                try self.emit(n.id);
+                try self.emit(")");
+                return;
+            }
+            // Check if it's a builtin type/function
+            if (std.mem.eql(u8, n.id, "bool")) {
+                try self.emit("runtime.builtins.boolType");
+                return;
             }
             // Not captured, use directly
             try self.emit(n.id);
@@ -304,7 +318,6 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
             try self.emit(")");
         },
         .constant => |c| {
-            const expressions = @import("../expressions.zig");
             // Constants don't need capture handling
             const saved_output = self.output;
             self.output = std.ArrayList(u8){};
@@ -340,19 +353,29 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
             }
         },
         .attribute => |attr| {
-            // For module.function references like struct.pack_into, use regular expression generation
-            // which handles keyword escaping properly
+            // First check if the base is a captured variable (e.g., self.assertRaises)
             if (attr.value.* == .name) {
-                const module_name = attr.value.name.id;
-                // Always escape Zig keywords in module/attribute access
+                const base_name = attr.value.name.id;
+                // Check if this is a captured variable
+                for (captured_vars) |captured| {
+                    if (std.mem.eql(u8, base_name, captured)) {
+                        // It's a captured variable - use __closure prefix
+                        try self.emit("__closure.");
+                        try self.emit(base_name);
+                        try self.emit(".");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+                        return;
+                    }
+                }
+                // Not captured - treat as module.function reference
                 // Use proper module function dispatch with keyword escaping
                 try self.emit("runtime.");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), base_name);
                 try self.emit(".");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
                 return;
             }
-            // Handle regular attribute access (e.g., self.foo) - recurse into value with capture
+            // Handle regular attribute access (e.g., obj.foo) - recurse into value with capture
             try genExprWithCapture(self, attr.value.*, captured_vars);
             try self.emit(".");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
@@ -367,7 +390,6 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
         },
         else => {
             // For other node types, fall back to regular generation
-            const expressions = @import("../expressions.zig");
             try expressions.genExpr(self, node);
         },
     }

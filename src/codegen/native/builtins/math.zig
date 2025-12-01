@@ -20,7 +20,18 @@ fn isNoneArg(arg: ast.Node) bool {
 pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: @abs(n) or if (n < 0) -n else n
+    // Check if arg is a bool - need to cast to int first since @abs doesn't work on bool
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    if (arg_type == .bool) {
+        // abs(True) = 1, abs(False) = 0
+        // Just convert bool to int: @intFromBool(...)
+        try self.emit("@as(i64, @intFromBool(");
+        try self.genExpr(args[0]);
+        try self.emit("))");
+        return;
+    }
+
+    // Generate: @abs(n)
     try self.emit("@abs(");
     try self.genExpr(args[0]);
     try self.emit(")");

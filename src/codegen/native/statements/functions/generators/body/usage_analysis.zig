@@ -225,10 +225,34 @@ pub fn collectUsesInNode(self: *NativeCodegen, node: ast.Node) !void {
         .yield_from_stmt => |yield_from| {
             try collectUsesInNode(self, yield_from.value.*);
         },
+        // Nested class definitions - need to analyze their bodies for uses of outer-scope classes
+        .class_def => |class_def| {
+            // Check base classes - they reference outer scope (bases are string names)
+            for (class_def.bases) |base_name| {
+                try self.func_local_uses.put(base_name, {});
+            }
+            // Analyze class body for uses
+            for (class_def.body) |body_stmt| {
+                switch (body_stmt) {
+                    .function_def => |method| {
+                        // Check return type annotation if present - it may reference outer classes
+                        // return_type is a string name, so just mark it as used
+                        if (method.return_type) |ret_type_name| {
+                            try self.func_local_uses.put(ret_type_name, {});
+                        }
+                        // Analyze method body for references to outer-scope classes
+                        for (method.body) |method_stmt| {
+                            try collectUsesInNode(self, method_stmt);
+                        }
+                    },
+                    else => try collectUsesInNode(self, body_stmt),
+                }
+            }
+        },
         // Skip these - they don't contain variable uses
         .constant, .pass, .break_stmt, .continue_stmt, .ellipsis_literal,
         .import_stmt, .import_from, .global_stmt, .nonlocal_stmt,
-        .function_def, .class_def, .del_stmt => {},
+        .function_def, .del_stmt => {},
         // Catch-all for other node types
         else => {},
     }

@@ -605,7 +605,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (self.nested_class_captures.get(raw_func_name)) |captured_vars| {
                 for (captured_vars) |var_name| {
                     try self.emit(", &");
-                    try self.emit(var_name);
+                    // Use renamed variable if inside TryHelper or other scope
+                    if (self.var_renames.get(var_name)) |renamed| {
+                        try self.emit(renamed);
+                    } else {
+                        try self.emit(var_name);
+                    }
                 }
             }
 

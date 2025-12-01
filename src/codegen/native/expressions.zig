@@ -66,6 +66,10 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 try self.emit("f64");
             } else if (std.mem.eql(u8, name_to_use, "bool")) {
                 try self.emit("bool");
+            } else if (std.mem.eql(u8, name_to_use, "True")) {
+                try self.emit("true");
+            } else if (std.mem.eql(u8, name_to_use, "False")) {
+                try self.emit("false");
             } else if (std.mem.eql(u8, name_to_use, "str")) {
                 // str type as value - emit a PyCallable factory for list storage
                 try self.emit("runtime.builtins.str_factory");
@@ -544,7 +548,7 @@ fn isBuiltinFunction(name: []const u8) bool {
 }
 
 /// Check if a name is a Python exception type
-fn isPythonExceptionType(name: []const u8) bool {
+pub fn isPythonExceptionType(name: []const u8) bool {
     const exceptions = [_][]const u8{
         "TypeError",
         "ValueError",

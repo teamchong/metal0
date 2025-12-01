@@ -290,7 +290,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try self.emit("; const __val = ");
                     try genExpr(self, current_left); // item to search for
                     // Use std.meta.Elem which works for arrays, slices, and pointers
-                    try self.output.writer(self.allocator).print("; const T = std.meta.Elem(@TypeOf(__arr)); break :in_{d} (std.mem.indexOfScalar(T, __arr, __val)", .{in_label_id});
+                    // Use &__arr to coerce array to slice for indexOfScalar
+                    try self.output.writer(self.allocator).print("; const T = std.meta.Elem(@TypeOf(__arr)); break :in_{d} (std.mem.indexOfScalar(T, &__arr, __val)", .{in_label_id});
                     if (op == .In) {
                         try self.emit(" != null); }");
                     } else {
@@ -421,15 +422,32 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         }
         // Handle 'is' and 'is not' identity operators
         else if (op == .Is or op == .IsNot) {
-            // For primitives (int, bool, None), identity is same as equality
-            // For objects/slices, compare pointer addresses
-            try genExpr(self, current_left);
-            if (op == .Is) {
-                try self.emit(" == ");
+            // For arrays/lists/dicts/sets, we need to compare pointers since == doesn't work
+            if (current_left_type == .list or right_type == .list or
+                current_left_type == .array or right_type == .array or
+                current_left_type == .dict or right_type == .dict or
+                current_left_type == .set or right_type == .set)
+            {
+                // Compare pointers for identity
+                try self.emit("(&");
+                try genExpr(self, current_left);
+                if (op == .Is) {
+                    try self.emit(" == &");
+                } else {
+                    try self.emit(" != &");
+                }
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(")");
             } else {
-                try self.emit(" != ");
+                // For primitives (int, bool, None), identity is same as equality
+                try genExpr(self, current_left);
+                if (op == .Is) {
+                    try self.emit(" == ");
+                } else {
+                    try self.emit(" != ");
+                }
+                try genExpr(self, compare.comparators[i]);
             }
-            try genExpr(self, compare.comparators[i]);
         }
         // Handle tuple comparisons (anonymous structs don't support ==)
         else if ((current_left_type == .tuple or current_left == .tuple) and

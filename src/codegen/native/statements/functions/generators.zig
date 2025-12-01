@@ -310,6 +310,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         "Test uses runtime type parameters (cls=float)"
                     else if (callsSelfMethodWithClassArg(method.body, class_names))
                         "Test passes class as runtime argument (self.method(ClassName))"
+                    else if (hasSkipDocstring(method.body))
+                        "Marked skip in docstring"
                     else
                         null;
 
@@ -387,7 +389,15 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     var saved_nested_class_bases = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer saved_nested_class_bases.deinit();
 
-    if (self.class_nesting_depth > 1) {
+    // Also save nested_class_captures - for passing captured vars to class init
+    var saved_nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(self.allocator);
+    defer saved_nested_class_captures.deinit();
+
+    // Save state when inside a function scope (func_local_uses has entries)
+    // OR when inside a nested class (class_nesting_depth > 1)
+    // This handles: 1) classes inside functions, 2) classes inside classes
+    const needs_save_restore = self.func_local_uses.count() > 0 or self.class_nesting_depth > 1;
+    if (needs_save_restore) {
         // Copy current func_local_uses
         var it = self.func_local_uses.iterator();
         while (it.next()) |entry| {
@@ -410,6 +420,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         var ncb_it = self.nested_class_bases.iterator();
         while (ncb_it.next()) |entry| {
             try saved_nested_class_bases.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+
+        // Copy current nested_class_captures
+        var ncc_it = self.nested_class_captures.iterator();
+        while (ncc_it.next()) |entry| {
+            try saved_nested_class_captures.put(entry.key_ptr.*, entry.value_ptr.*);
         }
     }
 
@@ -449,9 +465,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         try self.emit("// Captured outer scope variables (pointers)\n");
         for (vars) |var_name| {
             try self.emitIndent();
-            // Use *anyopaque as a generic pointer type for captured vars
-            // The type will be inferred from usage
-            try self.output.writer(self.allocator).print("__captured_{s}: *std.ArrayList(i64),\n", .{var_name});
+            // Use *const i64 as the default type - const because we read, not modify
+            // For loop variables (range, lists), this is compatible with isize/i64
+            try self.output.writer(self.allocator).print("__captured_{s}: *const i64,\n", .{var_name});
         }
         try self.emit("\n");
     }
@@ -602,7 +618,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Restore func_local_uses from saved state (for nested classes)
     // This is critical: nested class methods call analyzeFunctionLocalUses which clears
     // the map. We need to restore the parent scope's uses so isVarUnused() works correctly.
-    if (self.class_nesting_depth > 1) {
+    if (needs_save_restore) {
         self.func_local_uses.clearRetainingCapacity();
         var restore_it = saved_func_local_uses.iterator();
         while (restore_it.next()) |entry| {
@@ -630,6 +646,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         while (restore_ncb_it.next()) |entry| {
             try self.nested_class_bases.put(entry.key_ptr.*, entry.value_ptr.*);
         }
+
+        // Also restore nested_class_captures for passing captured vars to init
+        self.nested_class_captures.clearRetainingCapacity();
+        var restore_ncc_it = saved_nested_class_captures.iterator();
+        while (restore_ncc_it.next()) |entry| {
+            try self.nested_class_captures.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
     }
 
     // Inherit parent methods that aren't overridden
@@ -645,8 +668,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     try self.declareVar(effective_class_name);
 
     // For nested classes (inside functions), suppress unused warning only if truly unused
-    // Note: class_nesting_depth > 1 means we're inside a method/function
-    if (self.class_nesting_depth > 1 and self.isVarUnused(class.name)) {
+    // Check needs_save_restore which accounts for classes inside functions
+    if (needs_save_restore and self.isVarUnused(class.name)) {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("_ = {s};\n", .{effective_class_name});
     }
@@ -765,6 +788,25 @@ fn exprCallsSelfMethodWithClassArg(expr: ast.Node, class_names: []const []const 
         },
         else => false,
     };
+}
+
+/// Check if first statement in function body is a docstring containing "skip:"
+/// This allows test files to mark tests for skipping with: """skip: reason"""
+fn hasSkipDocstring(func_body: []const ast.Node) bool {
+    if (func_body.len == 0) return false;
+    // First statement should be an expression statement containing a string constant
+    if (func_body[0] == .expr_stmt) {
+        const expr = func_body[0].expr_stmt.value.*;
+        if (expr == .constant) {
+            if (expr.constant.value == .string) {
+                const docstring = expr.constant.value.string;
+                // Check if docstring starts with or contains "skip:"
+                return std.mem.startsWith(u8, docstring, "skip:") or
+                    std.mem.indexOf(u8, docstring, "skip:") != null;
+            }
+        }
+    }
+    return false;
 }
 
 /// Check if test has @support.cpython_only decorator

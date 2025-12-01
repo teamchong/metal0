@@ -248,10 +248,12 @@ pub fn genMethodBodyWithAllocatorInfo(
     try usage_analysis.analyzeFunctionLocalUses(self, method);
 
     // Track local variables and analyze nested class captures for closure support
-    // Note: We only clear func_local_vars here, not nested_class_captures
-    // because nested_class_captures may already contain info from parent scope
-    // that we need for class instantiation code
+    // Clear all maps for each method to avoid pollution from sibling methods
+    // (e.g., class A in test_sane_len should not affect class A in test_blocked)
     self.func_local_vars.clearRetainingCapacity();
+    self.nested_class_captures.clearRetainingCapacity();
+    self.nested_class_names.clearRetainingCapacity();
+    self.nested_class_bases.clearRetainingCapacity();
     try nested_captures.analyzeNestedClassCaptures(self, method);
 
     self.indent();

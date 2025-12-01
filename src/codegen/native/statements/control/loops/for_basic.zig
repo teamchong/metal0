@@ -185,6 +185,26 @@ fn stmtUsesVar(stmt: ast.Node, var_name: []const u8) bool {
             }
             break :blk false;
         },
+        .class_def => |class_def| blk: {
+            // Check if variable is used in any method body (closure capture)
+            // This handles: for x in items: class A: def f(self): return x
+            for (class_def.body) |class_stmt| {
+                if (class_stmt == .function_def) {
+                    const method = class_stmt.function_def;
+                    for (method.body) |method_stmt| {
+                        if (stmtUsesVar(method_stmt, var_name)) break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        },
+        .function_def => |func_def| blk: {
+            // Check if variable is used in nested function body
+            for (func_def.body) |func_stmt| {
+                if (stmtUsesVar(func_stmt, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
         else => false,
     };
 }
@@ -612,6 +632,29 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Push new scope for loop body
     try self.pushScope();
+
+    // If the loop variable is captured by a nested class but not directly used,
+    // emit `_ = varname;` to suppress unused warning while keeping it available for captures
+    if (!var_used and self.nested_class_captures.count() > 0) {
+        // Check if any nested class captures this variable
+        var iter = self.nested_class_captures.iterator();
+        var is_captured = false;
+        while (iter.next()) |entry| {
+            for (entry.value_ptr.*) |cap| {
+                if (std.mem.eql(u8, cap, for_stmt.target.name.id)) {
+                    is_captured = true;
+                    break;
+                }
+            }
+            if (is_captured) break;
+        }
+        if (is_captured) {
+            try self.emitIndent();
+            try self.emit("_ = ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.emit(";\n");
+        }
+    }
 
     // Track loop capture variable for shadowing detection
     // When Python code does `line = line.strip()` inside `for line in file:`,

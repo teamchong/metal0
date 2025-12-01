@@ -74,7 +74,8 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
     if (captured_vars) |vars| {
         for (vars) |var_name| {
             try self.emit(", ");
-            try self.output.writer(self.allocator).print("__cap_{s}: *std.ArrayList(i64)", .{var_name});
+            // Use *const i64 as the default type - const because we read, not modify
+            try self.output.writer(self.allocator).print("__cap_{s}: *const i64", .{var_name});
         }
     }
 
@@ -301,7 +302,8 @@ pub fn genInitMethodWithBuiltinBase(
     if (captured_vars) |vars| {
         for (vars) |var_name| {
             try self.emit(", ");
-            try self.output.writer(self.allocator).print("__cap_{s}: *std.ArrayList(i64)", .{var_name});
+            // Use *const i64 as the default type - const because we read, not modify
+            try self.output.writer(self.allocator).print("__cap_{s}: *const i64", .{var_name});
         }
     }
 
@@ -522,7 +524,8 @@ pub fn genInitMethodFromNew(
     if (captured_vars) |vars| {
         for (vars) |var_name| {
             try self.emit(", ");
-            try self.output.writer(self.allocator).print("__cap_{s}: *std.ArrayList(i64)", .{var_name});
+            // Use *const i64 as the default type - const because we read, not modify
+            try self.output.writer(self.allocator).print("__cap_{s}: *const i64", .{var_name});
         }
     }
 

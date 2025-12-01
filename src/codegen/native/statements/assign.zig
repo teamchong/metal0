@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
+const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
 const helpers = @import("assign_helpers.zig");
 const comptimeHelpers = @import("assign_comptime.zig");
 const deferCleanup = @import("assign_defer.zig");
@@ -362,6 +363,24 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // This handles reassignments like: u = Class1(); u = Class2()
                 // In Zig, we can't change a variable's type, so we shadow with a new const
                 const needs_shadow = blk: {
+                    // Collection type transitions: list <-> dict, array <-> hashmap
+                    // These are fundamentally incompatible in Zig
+                    const declared_tag = @as(std.meta.Tag(NativeType), declared_type);
+                    const new_tag = @as(std.meta.Tag(NativeType), new_type);
+
+                    // List/array to dict/set transition
+                    if ((declared_tag == .list or declared_tag == .array) and
+                        (new_tag == .dict or new_tag == .set))
+                    {
+                        break :blk true;
+                    }
+                    // Dict/set to list/array transition
+                    if ((declared_tag == .dict or declared_tag == .set) and
+                        (new_tag == .list or new_tag == .array))
+                    {
+                        break :blk true;
+                    }
+
                     if (declared_type == .class_instance and new_type == .class_instance) {
                         // Different class instances - need shadow
                         if (!std.mem.eql(u8, declared_type.class_instance, new_type.class_instance)) {
@@ -437,8 +456,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Register the rename so future references use the new name
                     try self.var_renames.put(var_name, unique_name);
 
-                    // Update declared type for the ORIGINAL name (for tracking)
+                    // Declare type for BOTH the original name and unique name
+                    // Original name: needed for tracking
+                    // Unique name: needed for type inference when lookups use the renamed variable
                     try self.declareVarWithType(var_name, new_type);
+                    try self.declareVarWithType(unique_name, new_type);
                 } else {
                     // Normal reassignment
                     // Use renamed version if in var_renames map (for exception handling)

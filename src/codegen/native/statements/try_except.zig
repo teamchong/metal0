@@ -275,6 +275,29 @@ fn findReferencedVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap, allocator: st
                 try findReferencedVarsInExpr(for_stmt.iter.*, vars, allocator);
                 try findReferencedVarsInStmts(for_stmt.body, vars, allocator);
             },
+            .class_def => |class_def| {
+                // Find variables referenced in class methods that come from outer scope
+                // This handles cases like: for badval in [...]: class A: def f(self): return badval
+                for (class_def.body) |class_stmt| {
+                    if (class_stmt == .function_def) {
+                        const method = class_stmt.function_def;
+                        try findReferencedVarsInStmts(method.body, vars, allocator);
+                    }
+                }
+            },
+            .function_def => |func_def| {
+                // Find variables referenced in nested function bodies
+                try findReferencedVarsInStmts(func_def.body, vars, allocator);
+            },
+            .try_stmt => |try_stmt| {
+                // Find variables referenced in try body and handlers
+                try findReferencedVarsInStmts(try_stmt.body, vars, allocator);
+                for (try_stmt.handlers) |handler| {
+                    try findReferencedVarsInStmts(handler.body, vars, allocator);
+                }
+                try findReferencedVarsInStmts(try_stmt.else_body, vars, allocator);
+                try findReferencedVarsInStmts(try_stmt.finalbody, vars, allocator);
+            },
             else => {},
         }
     }
@@ -466,9 +489,36 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (written_vars.contains(name)) {
                 // Variable is written in try block and not locally declared - it's an outer variable
                 try written_outer_vars.append(self.allocator, name);
-            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name)) {
+            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.nested_class_names.contains(name)) {
                 // Variable is only read and we can verify it exists - capture as read-only
+                // Note: nested_class_names tracks classes defined inside methods (like for-loop bodies)
                 try read_only_vars.append(self.allocator, name);
+            }
+
+            // If this is a nested class with captured variables, also capture those variables
+            // Example: class A captures badval, try block uses A() -> need to pass badval too
+            if (self.nested_class_captures.get(name)) |captured_vars| {
+                for (captured_vars) |cap_var| {
+                    // Add captured var if not already tracked and exists in outer scope
+                    var already_tracked = false;
+                    for (read_only_vars.items) |existing| {
+                        if (std.mem.eql(u8, existing, cap_var)) {
+                            already_tracked = true;
+                            break;
+                        }
+                    }
+                    if (!already_tracked) {
+                        for (written_outer_vars.items) |existing| {
+                            if (std.mem.eql(u8, existing, cap_var)) {
+                                already_tracked = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!already_tracked and (self.isDeclared(cap_var) or self.semantic_info.lifetimes.contains(cap_var) or self.type_inferrer.var_types.contains(cap_var) or self.func_local_vars.contains(cap_var))) {
+                        try read_only_vars.append(self.allocator, cap_var);
+                    }
+                }
             }
         }
 
