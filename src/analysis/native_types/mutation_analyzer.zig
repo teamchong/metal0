@@ -26,6 +26,8 @@ pub const MutationType = enum {
     list_clear,
     list_sort,
     list_reverse,
+    list_concat_aug, // x += [...] - list concatenation augmented assignment
+    list_repeat_aug, // x *= n - list repeat augmented assignment
     dict_setitem,
     reassignment,
     attr_setattr, // setattr(obj, name, value)
@@ -88,10 +90,19 @@ fn collectMutations(
             }
         },
         .aug_assign => |a| {
-            // x += 1 is a reassignment
             if (a.target.* == .name) {
                 const var_name = a.target.name.id;
-                try recordMutation(var_name, .reassignment, mutations, allocator);
+                // Check for list augmented operations that change list size
+                if (a.op == .Add and a.value.* == .list) {
+                    // x += [...] - list concatenation
+                    try recordMutation(var_name, .list_concat_aug, mutations, allocator);
+                } else if (a.op == .Mult) {
+                    // x *= n - could be list repeat
+                    try recordMutation(var_name, .list_repeat_aug, mutations, allocator);
+                } else {
+                    // Regular reassignment
+                    try recordMutation(var_name, .reassignment, mutations, allocator);
+                }
             }
         },
         .if_stmt => |i| {
@@ -290,6 +301,8 @@ pub fn hasListMutation(mutations: hashmap_helper.StringHashMap(MutationInfo), va
             .list_clear,
             .list_sort,
             .list_reverse,
+            .list_concat_aug,
+            .list_repeat_aug,
             => return true,
             else => {},
         }

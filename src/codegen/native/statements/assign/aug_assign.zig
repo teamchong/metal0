@@ -114,17 +114,104 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         return;
     }
 
-    // Handle subscript augmented assignment on dicts: x[key] += value
-    // Dicts use .get()/.put() instead of direct indexing
+    // Handle subscript augmented assignment on dicts and ArrayLists: x[key] += value
     if (aug.target.* == .subscript) {
         const subscript = aug.target.subscript;
         if (subscript.slice == .index) {
-            // Check if base is a dict: either by type inference or by tracking
+            // Check if base is a dict or ArrayList
             const base_type = try self.inferExprScoped(subscript.value.*);
             const is_tracked_dict = if (subscript.value.* == .name)
                 self.isDictVar(subscript.value.name.id)
             else
                 false;
+            const is_arraylist = if (subscript.value.* == .name)
+                self.isArrayListVar(subscript.value.name.id)
+            else
+                false;
+
+            // Handle ArrayList subscript aug assign: x[i] += value
+            // Generates: x.items[@as(usize, @intCast(i))] = x.items[...] OP value;
+            // IMPORTANT: Check dict FIRST since dict also uses subscript
+            if (is_arraylist and !is_tracked_dict and base_type != .dict) {
+                // Special cases that need function calls
+                if (aug.op == .Pow) {
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))] = std.math.pow(i64, ");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))], ");
+                    try self.genExpr(aug.value.*);
+                    try self.emit(");\n");
+                    return;
+                }
+                if (aug.op == .FloorDiv) {
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))] = @divFloor(");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))], ");
+                    try self.genExpr(aug.value.*);
+                    try self.emit(");\n");
+                    return;
+                }
+                if (aug.op == .Div) {
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))] = @divTrunc(");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))], ");
+                    try self.genExpr(aug.value.*);
+                    try self.emit(");\n");
+                    return;
+                }
+                if (aug.op == .Mod) {
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))] = @rem(");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))], ");
+                    try self.genExpr(aug.value.*);
+                    try self.emit(");\n");
+                    return;
+                }
+
+                try self.genExpr(subscript.value.*);
+                try self.emit(".items[@as(usize, @intCast(");
+                try self.genExpr(subscript.slice.index.*);
+                try self.emit("))] = ");
+                try self.genExpr(subscript.value.*);
+                try self.emit(".items[@as(usize, @intCast(");
+                try self.genExpr(subscript.slice.index.*);
+                try self.emit("))]");
+
+                // Apply simple binary operators
+                const op_str = switch (aug.op) {
+                    .Add => " + ",
+                    .Sub => " - ",
+                    .Mult => " * ",
+                    .BitAnd => " & ",
+                    .BitOr => " | ",
+                    .BitXor => " ^ ",
+                    else => " ? ",
+                };
+                try self.emit(op_str);
+                try self.genExpr(aug.value.*);
+                try self.emit(";\n");
+                return;
+            }
+
             if (base_type == .dict or is_tracked_dict) {
                 // Dict subscript aug assign: x[key] += value
                 // Generates: try base.put(key, (base.get(key).? OP value));
@@ -203,6 +290,75 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         }
     }
 
+    // Special handling for list/array concatenation: x += [1, 2]
+    // Check if RHS is a list literal
+    // IMPORTANT: Must be before "Emit target" to avoid generating "x = try x.appendSlice"
+    if (aug.op == .Add and aug.value.* == .list) {
+        // Check if target is an ArrayList (will be mutated)
+        const is_arraylist = if (aug.target.* == .name)
+            self.isArrayListVar(aug.target.name.id)
+        else
+            false;
+
+        if (is_arraylist) {
+            // ArrayList: extend in place via appendSlice
+            try self.emit("try ");
+            try self.genExpr(aug.target.*);
+            try self.emit(".appendSlice(__global_allocator, &");
+            try self.genExpr(aug.value.*);
+            try self.emit(");\n");
+        } else {
+            // Static array: use comptime concat
+            try self.genExpr(aug.target.*);
+            try self.emit(" = runtime.concat(");
+            try self.genExpr(aug.target.*);
+            try self.emit(", ");
+            try self.genExpr(aug.value.*);
+            try self.emit(");\n");
+        }
+        return;
+    }
+
+    // Special handling for list/array multiplication: x *= 2
+    // Check if LHS is actually an ArrayList
+    // IMPORTANT: Must be before "Emit target" to avoid generating "x = { block }"
+    if (aug.op == .Mult) {
+        const is_arraylist = if (aug.target.* == .name)
+            self.isArrayListVar(aug.target.name.id)
+        else
+            false;
+
+        if (is_arraylist) {
+            // ArrayList: repeat in place by copying original items n-1 more times
+            try self.emit("{\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("const __orig_len = ");
+            try self.genExpr(aug.target.*);
+            try self.emit(".items.len;\n");
+            try self.emitIndent();
+            try self.emit("var __i: usize = 1;\n");
+            try self.emitIndent();
+            try self.emit("while (__i < @as(usize, @intCast(");
+            try self.genExpr(aug.value.*);
+            try self.emit("))) : (__i += 1) {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("try ");
+            try self.genExpr(aug.target.*);
+            try self.emit(".appendSlice(__global_allocator, ");
+            try self.genExpr(aug.target.*);
+            try self.emit(".items[0..__orig_len]);\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            return;
+        }
+    }
+
     // Emit target (variable name)
     try self.genExpr(aug.target.*);
     try self.emit(" = ");
@@ -278,32 +434,6 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             try self.emit(", allocator);\n");
         }
         return;
-    }
-
-    // Special handling for list/array concatenation: x += [1, 2]
-    // Check if RHS is a list literal
-    if (aug.op == .Add and aug.value.* == .list) {
-        try self.emit("runtime.concat(");
-        try self.genExpr(aug.target.*);
-        try self.emit(", ");
-        try self.genExpr(aug.value.*);
-        try self.emit(");\n");
-        return;
-    }
-
-    // Special handling for list/array multiplication: x *= 2
-    // Check if LHS is a list type
-    if (aug.op == .Mult) {
-        const target_type = try self.inferExprScoped(aug.target.*);
-        if (target_type == .list or aug.target.* == .list) {
-            // List repeat: x *= n => runtime.listRepeat(x, n)
-            try self.emit("runtime.listRepeat(");
-            try self.genExpr(aug.target.*);
-            try self.emit(", ");
-            try self.genExpr(aug.value.*);
-            try self.emit(");\n");
-            return;
-        }
     }
 
     try self.genExpr(aug.target.*);
