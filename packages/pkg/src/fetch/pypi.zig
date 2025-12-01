@@ -805,6 +805,10 @@ pub const PyPIClient = struct {
             try simple_urls.append(self.allocator, url);
         }
 
+        // Preconnect to files.pythonhosted.org while we fetch Simple API
+        // This saves ~100ms of connection setup time on cold runs
+        self.h2_client.preconnect("files.pythonhosted.org", 443);
+
         // Phase 1: Fetch Simple API pages that weren't cached
         var fetched_responses: []H2Response = &[_]H2Response{};
         if (simple_urls.items.len > 0) {
@@ -1029,6 +1033,7 @@ pub const PyPIClient = struct {
     }
 
     /// Parse Simple API HTML to extract version and wheel info
+    /// Optimized: Scans backwards to find latest wheel with metadata first
     fn parseSimpleApiHtml(self: *PyPIClient, body: []const u8, _: []const u8) !SimplePackageInfo {
         var versions = std.ArrayList(SimpleVersion){};
         errdefer {
@@ -1036,7 +1041,87 @@ pub const PyPIClient = struct {
             versions.deinit(self.allocator);
         }
 
-        // Parse HTML anchor tags: <a href="...">filename</a>
+        // FAST PATH: Find the LAST wheel with metadata (usually latest version)
+        // Scan backwards from end to find latest .whl with data-dist-info-metadata
+        var search_pos: usize = body.len;
+        var found_best = false;
+
+        while (search_pos > 0 and !found_best) {
+            // Find last occurrence of "<a " before current position
+            const last_a = std.mem.lastIndexOf(u8, body[0..search_pos], "<a ") orelse break;
+            const end = std.mem.indexOfPos(u8, body, last_a, "</a>") orelse {
+                search_pos = last_a;
+                continue;
+            };
+
+            const tag = body[last_a..end];
+
+            // Check for wheel with metadata
+            if (std.mem.indexOf(u8, tag, ".whl\"") == null or
+                std.mem.indexOf(u8, tag, "data-dist-info-metadata") == null)
+            {
+                search_pos = last_a;
+                continue;
+            }
+
+            // Extract href
+            const href_start = std.mem.indexOf(u8, tag, "href=\"") orelse {
+                search_pos = last_a;
+                continue;
+            };
+            const href_content_start = href_start + 6;
+            const href_end = std.mem.indexOfPos(u8, tag, href_content_start, "\"") orelse {
+                search_pos = last_a;
+                continue;
+            };
+
+            // Strip fragment (#sha256=...) from href
+            const href_full = tag[href_content_start..href_end];
+            const href = if (std.mem.indexOf(u8, href_full, "#")) |hash_pos|
+                href_full[0..hash_pos]
+            else
+                href_full;
+
+            // Extract filename
+            const text_start = std.mem.indexOf(u8, tag, ">") orelse {
+                search_pos = last_a;
+                continue;
+            };
+            const filename = tag[text_start + 1 ..];
+
+            if (!std.mem.endsWith(u8, filename, ".whl")) {
+                search_pos = last_a;
+                continue;
+            }
+
+            // Extract version
+            const ver = extractVersionFromFilename(filename) orelse {
+                search_pos = last_a;
+                continue;
+            };
+
+            // Found a wheel with metadata! Store it and stop
+            const ver_copy = try self.allocator.dupe(u8, ver);
+            const href_copy = try self.allocator.dupe(u8, href);
+
+            try versions.append(self.allocator, .{
+                .version = ver_copy,
+                .wheel_url = href_copy,
+                .requires_python = null,
+                .has_metadata = true,
+            });
+            found_best = true;
+        }
+
+        // If fast path found a wheel, return early
+        if (found_best) {
+            return .{
+                .name = "",
+                .versions = try versions.toOwnedSlice(self.allocator),
+            };
+        }
+
+        // SLOW PATH: Parse all anchors (fallback for packages without metadata)
         var pos: usize = 0;
         while (std.mem.indexOfPos(u8, body, pos, "<a ")) |start| {
             const end = std.mem.indexOfPos(u8, body, start, "</a>") orelse break;
@@ -1081,19 +1166,6 @@ pub const PyPIClient = struct {
             // Check for data-dist-info-metadata attribute (PEP 658)
             const has_metadata = std.mem.indexOf(u8, tag, "data-dist-info-metadata") != null;
 
-            // Extract requires-python if present
-            var requires_python: ?[]const u8 = null;
-            if (std.mem.indexOf(u8, tag, "data-requires-python=\"")) |rp_start| {
-                const rp_content_start = rp_start + "data-requires-python=\"".len;
-                if (std.mem.indexOfPos(u8, tag, rp_content_start, "\"")) |rp_end| {
-                    requires_python = try self.allocator.dupe(u8, tag[rp_content_start..rp_end]);
-                }
-            }
-
-            // Prefer py3-none-any wheels
-            const is_universal = std.mem.indexOf(u8, filename, "-py3-none-any") != null;
-            _ = is_universal;
-
             // Store version info (later versions overwrite earlier - gives us latest)
             const ver_copy = try self.allocator.dupe(u8, ver);
             const href_copy = try self.allocator.dupe(u8, href);
@@ -1101,7 +1173,7 @@ pub const PyPIClient = struct {
             try versions.append(self.allocator, .{
                 .version = ver_copy,
                 .wheel_url = href_copy,
-                .requires_python = requires_python,
+                .requires_python = null,
                 .has_metadata = has_metadata,
             });
 

@@ -251,8 +251,8 @@ pub const Client = struct {
     const UrlIndexList = std.ArrayList(UrlIndexPair);
 
     /// Fetch multiple URLs in parallel (multiplexed over single connection!)
+    /// Uses thread-per-host parallelism to overlap connection setup
     pub fn getAll(self: *Client, urls: []const []const u8) ![]Response {
-
         if (urls.len == 0) return &[_]Response{};
 
         // Group URLs by host
@@ -290,82 +290,135 @@ pub const Client = struct {
             };
         }
 
-        // Fetch each host group (multiplexed within host)
-        var host_it = by_host.iterator();
-        while (host_it.next()) |entry| {
-            const host = entry.key_ptr.*;
-            const url_list = entry.value_ptr.items;
-    
+        // Count hosts
+        const host_count = by_host.count();
 
-            // Parse first URL to get port
-            const first_uri = std.Uri.parse(url_list[0].url) catch continue;
-            const port: u16 = first_uri.port orelse if (std.mem.eql(u8, getScheme(first_uri.scheme), "https")) 443 else 80;
-
-            // Get connection for this host
-            const conn = self.getConnection(host, port) catch {
-                continue;
-            };
-
-            // Build requests
-            var requests = try self.allocator.alloc(connection.Request, url_list.len);
-            defer self.allocator.free(requests);
-
-            for (url_list, 0..) |item, j| {
-                const uri = std.Uri.parse(item.url) catch {
-                    requests[j] = .{ .method = "GET", .path = "/", .host = host };
-                    continue;
-                };
-                requests[j] = .{
-                    .method = "GET",
-                    .path = getPathString(uri.path),
-                    .host = host,
-                };
+        // If only one host, use fast path (no thread overhead)
+        if (host_count <= 1) {
+            var host_it = by_host.iterator();
+            while (host_it.next()) |entry| {
+                const host = entry.key_ptr.*;
+                const url_list = entry.value_ptr.items;
+                self.fetchHostGroup(host, url_list, results);
             }
+            return results;
+        }
 
-            // Send all requests and get responses (multiplexed!)
-            const streams = conn.h2.requestAll(requests) catch {
-                continue;
+        // Multiple hosts - use thread-per-host parallelism
+        const HostTask = struct {
+            host: []const u8,
+            url_list: []const UrlIndexPair,
+            results: []Response,
+            client: *Client,
+
+            fn run(ctx: *@This()) void {
+                ctx.client.fetchHostGroup(ctx.host, ctx.url_list, ctx.results);
+            }
+        };
+
+        // Collect host tasks
+        var tasks = try self.allocator.alloc(HostTask, host_count);
+        defer self.allocator.free(tasks);
+
+        var threads = try self.allocator.alloc(?std.Thread, host_count);
+        defer self.allocator.free(threads);
+
+        var task_idx: usize = 0;
+        var host_it = by_host.iterator();
+        while (host_it.next()) |entry| : (task_idx += 1) {
+            tasks[task_idx] = .{
+                .host = entry.key_ptr.*,
+                .url_list = entry.value_ptr.items,
+                .results = results,
+                .client = self,
             };
-            defer self.allocator.free(streams);
+            threads[task_idx] = std.Thread.spawn(.{}, HostTask.run, .{&tasks[task_idx]}) catch null;
+        }
 
-            // Convert streams to responses
-            for (streams, 0..) |stream, j| {
-                const idx = url_list[j].index;
-
-                const resp_headers = self.allocator.alloc(
-                    hpack.Header,
-                    stream.headers.items.len,
-                ) catch continue;
-
-                // Check for gzip content-encoding
-                var is_gzip = false;
-                for (stream.headers.items, 0..) |h, k| {
-                    resp_headers[k] = .{
-                        .name = self.allocator.dupe(u8, h.name) catch "",
-                        .value = self.allocator.dupe(u8, h.value) catch "",
-                    };
-                    if (std.mem.eql(u8, h.name, "content-encoding") and std.mem.eql(u8, h.value, "gzip")) {
-                        is_gzip = true;
-                    }
-                }
-
-                // Decompress gzip body if needed
-                const body = if (is_gzip and stream.body.items.len > 0)
-                    gzip.decompress(self.allocator, stream.body.items) catch
-                        self.allocator.dupe(u8, stream.body.items) catch ""
-                else
-                    self.allocator.dupe(u8, stream.body.items) catch "";
-
-                results[idx] = Response{
-                    .status = stream.status orelse 0,
-                    .headers = resp_headers,
-                    .body = body,
-                    .allocator = self.allocator,
-                };
+        // Wait for all threads
+        for (threads) |maybe_thread| {
+            if (maybe_thread) |thread| {
+                thread.join();
             }
         }
 
         return results;
+    }
+
+    /// Fetch all URLs for a single host group
+    fn fetchHostGroup(self: *Client, host: []const u8, url_list: []const UrlIndexPair, results: []Response) void {
+        // Use first URL to get port
+        const first_uri = std.Uri.parse(url_list[0].url) catch return;
+        const port: u16 = first_uri.port orelse if (std.mem.eql(u8, getScheme(first_uri.scheme), "https")) 443 else 80;
+
+        // Get connection for this host
+        const conn = self.getConnection(host, port) catch return;
+
+        // Build requests
+        var requests = self.allocator.alloc(connection.Request, url_list.len) catch return;
+        defer self.allocator.free(requests);
+
+        for (url_list, 0..) |item, j| {
+            const uri = std.Uri.parse(item.url) catch {
+                requests[j] = .{ .method = "GET", .path = "/", .host = host };
+                continue;
+            };
+            requests[j] = .{
+                .method = "GET",
+                .path = getPathString(uri.path),
+                .host = host,
+            };
+        }
+
+        // Send all requests and get responses (multiplexed!)
+        const streams = conn.h2.requestAll(requests) catch return;
+        defer self.allocator.free(streams);
+
+        // Convert streams to responses
+        for (streams, 0..) |stream, j| {
+            const idx = url_list[j].index;
+
+            const resp_headers = self.allocator.alloc(
+                hpack.Header,
+                stream.headers.items.len,
+            ) catch continue;
+
+            // Check for gzip content-encoding
+            var is_gzip = false;
+            for (stream.headers.items, 0..) |h, k| {
+                resp_headers[k] = .{
+                    .name = self.allocator.dupe(u8, h.name) catch "",
+                    .value = self.allocator.dupe(u8, h.value) catch "",
+                };
+                if (std.mem.eql(u8, h.name, "content-encoding") and std.mem.eql(u8, h.value, "gzip")) {
+                    is_gzip = true;
+                }
+            }
+
+            // Decompress gzip body if needed
+            const body = if (is_gzip and stream.body.items.len > 0)
+                gzip.decompress(self.allocator, stream.body.items) catch
+                    self.allocator.dupe(u8, stream.body.items) catch ""
+            else
+                self.allocator.dupe(u8, stream.body.items) catch "";
+
+            results[idx] = Response{
+                .status = stream.status orelse 0,
+                .headers = resp_headers,
+                .body = body,
+                .allocator = self.allocator,
+            };
+        }
+    }
+
+    /// Preconnect to a host (synchronous, but can be called early to overlap with other work)
+    /// This establishes the TCP+TLS+H2 connection so subsequent requests are faster
+    pub fn preconnect(self: *Client, host: []const u8, port: u16) void {
+        // Already connected?
+        if (self.connections.get(host)) |_| return;
+
+        // Establish connection (ignore errors - this is best-effort)
+        _ = self.getConnection(host, port) catch {};
     }
 
     fn getConnection(self: *Client, host: []const u8, port: u16) !*H2Connection {
