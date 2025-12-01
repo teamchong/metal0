@@ -375,9 +375,52 @@ Flask routes ready!
 
 ## Performance
 
-Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM64 (Apple Silicon).
+Benchmarked on macOS ARM64 (Apple Silicon M2).
 
-**Fibonacci(45) - Recursive Computation:**
+### Async/Concurrency Benchmarks
+
+metal0 compiles Python's `asyncio` to Zig goroutines with work-stealing scheduler.
+
+**CPU-Bound: Fan-out/Fan-in (1000 tasks × 10000 iterations)**
+
+| Runtime | Time | Tasks/sec | vs CPython |
+|---------|------|-----------|------------|
+| **Rust (rayon)** | 0.24ms | 4,098,361 | **1257x** |
+| **Go** | 1.05ms | 953,781 | **292x** |
+| **metal0** | 1.18ms | 848,878 | **256x** |
+| PyPy | 45.97ms | 21,754 | 6.6x |
+| CPython | 301.61ms | 3,316 | 1x |
+
+*metal0 matches Go performance while you write Python syntax!*
+
+**I/O-Bound: Concurrent Sleep (10000 tasks × 1ms each)**
+
+| Runtime | Time | Concurrency | vs Sequential |
+|---------|------|-------------|---------------|
+| **Rust (tokio)** | 5.29ms | 1,890x | Best event loop |
+| **Go** | 8.94ms | 1,119x | Great for network |
+| **CPython** | 59.59ms | 168x | Good for I/O |
+| PyPy | 123.94ms | 81x | JIT doesn't help I/O |
+
+*Sequential would take 10,000ms. All runtimes handle concurrent I/O well.*
+
+**When to use what:**
+- **CPU-bound** (computation): Rust > Go ≈ metal0 >> PyPy >> CPython
+- **I/O-bound** (network): Rust ≈ Go > CPython > PyPy
+- **Developer productivity**: Python (metal0) > Go > Rust
+
+```bash
+# Run benchmarks
+cd benchmarks/asyncio
+python3 bench_cpu.py    # CPython
+pypy3 bench_cpu.py      # PyPy
+./bench_cpu_go          # Go
+./rust_bench/target/release/bench_cpu  # Rust
+```
+
+### Recursive Computation
+
+**Fibonacci(45) - Recursive:**
 
 | Language | Time | vs Python |
 |----------|------|-----------|
@@ -386,8 +429,6 @@ Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM6
 | Go | 3.60s | 26.9x faster |
 | PyPy | 11.75s | 8.3x faster |
 | Python | 96.94s | baseline |
-
-*3 runs, 1 warmup. Long runtime (~3-100s) ensures startup overhead is negligible.*
 
 **Tail-Recursive Fibonacci (10K × fib(10000)) - TCO Test:**
 
@@ -398,21 +439,16 @@ Benchmarked with [hyperfine](https://github.com/sharkdp/hyperfine) on macOS ARM6
 | Go | 286.7ms | 8.99x slower |
 | Python/PyPy | ❌ | RecursionError |
 
-*metal0 uses `@call(.always_tail)` for guaranteed TCO. Python/PyPy crash at depth ~1000.*
-
-```bash
-make benchmark-fib       # fib(35) with PyPy
-make benchmark-fib-tail  # Tail-recursive TCO test
-```
+*metal0 uses `@call(.always_tail)` for guaranteed TCO.*
 
 **Startup Time - Hello World (100 runs):**
 
-| Language | Time | vs metal0 | vs CPython |
-|:---------|-----:|---------:|-----------:|
-| **metal0 (Zig)** | **1.6ms ± 0.1ms** | **1.00x** 🏆 | **14.0x faster** |
-| **Rust 1.91** | **1.8ms ± 0.1ms** | 1.14x slower | 12.4x faster |
-| **Go 1.25** | **2.4ms ± 0.2ms** | 1.50x slower | 9.3x faster |
-| CPython 3.13 | 22.4ms ± 1.2ms | 14.0x slower | 1.00x |
+| Language | Time | vs CPython |
+|:---------|-----:|-----------:|
+| **metal0** | **1.6ms** | **14x faster** 🏆 |
+| Rust | 1.8ms | 12x faster |
+| Go | 2.4ms | 9x faster |
+| CPython | 22.4ms | baseline |
 
 ### JSON Benchmark (50K iterations × 38KB realistic JSON)
 

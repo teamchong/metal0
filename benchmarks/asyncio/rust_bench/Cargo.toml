@@ -1,0 +1,20 @@
+[package]
+name = "bench_fanout"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rayon = "1.10"
+tokio = { version = "1", features = ["full"] }
+
+[[bin]]
+name = "bench_cpu"
+path = "src/bin/bench_cpu.rs"
+
+[[bin]]
+name = "bench_io"
+path = "src/bin/bench_io.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
