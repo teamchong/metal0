@@ -553,7 +553,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         self.var_renames.contains(arg.name.id)
                     else
                         false;
-                    if (!is_renamed_var) {
+                    // Don't add & for anytype params - they need actual value for type checking
+                    const is_anytype_param = if (arg == .name)
+                        self.anytype_params.contains(arg.name.id)
+                    else
+                        false;
+                    if (!is_renamed_var and !is_anytype_param) {
                         try self.emit("&");
                     }
                 }
@@ -941,7 +946,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         self.var_renames.contains(arg.name.id)
                     else
                         false;
-                    if (!is_renamed_var) {
+                    // Don't add & for anytype params - they need actual value for type checking
+                    const is_anytype_param = if (arg == .name)
+                        self.anytype_params.contains(arg.name.id)
+                    else
+                        false;
+                    if (!is_renamed_var and !is_anytype_param) {
                         // Pass class instances by pointer to allow mutations to propagate
                         try self.emit("&");
                     }

@@ -606,17 +606,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Skip type-changing assignments for anytype parameters
                     // Pattern: other = Rat(other) where other is anytype and RHS is constructor
                     // This is incompatible with Zig's type system - will be handled by comptime branching
-                    const is_renamed = self.var_renames.contains(var_name);
                     const is_anytype = self.anytype_params.contains(var_name);
-                    // Debug: emit comment to see if we're reaching this code
-                    // try self.emit("// DEBUG: checking ");
-                    // try self.emit(var_name);
-                    // try self.emit(" is_renamed=");
-                    // try self.emit(if (is_renamed) "true" else "false");
-                    // try self.emit(" is_anytype=");
-                    // try self.emit(if (is_anytype) "true" else "false");
-                    // try self.emit("\n");
-                    if (is_renamed and is_anytype) {
+                    if (is_anytype) {
                         // Check if RHS is a constructor call (class instantiation)
                         if (assign.value.* == .call) {
                             if (assign.value.call.func.* == .name) {

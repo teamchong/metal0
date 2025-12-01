@@ -197,6 +197,18 @@ pub fn genFunctionBody(
 
         // Check if this parameter is reassigned in the function body
         if (var_tracking.isParamReassignedInStmts(arg.name, func.body)) {
+            // For anytype parameters, check if ALL reassignments are type-changing
+            // (e.g., other = Rat(other)) - if so, we skip the mutable copy since
+            // these assignments will be skipped in codegen
+            const is_anytype = self.anytype_params.contains(arg.name);
+            const all_type_changing = var_tracking.areAllReassignmentsTypeChanging(arg.name, func.body);
+
+            if (is_anytype and all_type_changing) {
+                // Don't create mutable copy - type-changing assignments will be skipped
+                // Still add to var_renames so references use original name
+                continue;
+            }
+
             // Create a mutable copy of the parameter
             try self.emitIndent();
             try self.emit("var ");
@@ -563,6 +575,17 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // Check if this parameter is reassigned in the method body
         // Zig function parameters are const, so we need a mutable copy
         if (var_tracking.isParamReassignedInStmts(arg.name, method.body)) {
+            // For anytype parameters, check if ALL reassignments are type-changing
+            // (e.g., other = Rat(other)) - if so, we skip the mutable copy since
+            // these assignments will be skipped in codegen
+            const is_anytype = self.anytype_params.contains(arg.name);
+            const all_type_changing = var_tracking.areAllReassignmentsTypeChanging(arg.name, method.body);
+
+            if (is_anytype and all_type_changing) {
+                // Don't create mutable copy - type-changing assignments will be skipped
+                continue;
+            }
+
             // Create a mutable copy of the parameter
             try self.emitIndent();
             try self.emit("var ");

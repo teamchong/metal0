@@ -336,9 +336,24 @@ pub fn genFunctionSignature(
         return;
     }
 
+    // Check if any parameter is used in isinstance() - these need inline fn
+    // so that comptime type checks can be evaluated and branches pruned
+    var has_type_check_param = false;
+    for (func.args) |arg| {
+        if (param_analyzer.isParameterUsedInTypeCheck(func.body, arg.name)) {
+            has_type_check_param = true;
+            break;
+        }
+    }
+
     // Generate function signature: fn name(param: type, ...) return_type {
     // Rename "main" to "__user_main" to avoid conflict with entry point
-    try self.emit("fn ");
+    // Use "inline fn" if function has type-check parameters for comptime branch pruning
+    if (has_type_check_param) {
+        try self.emit("inline fn ");
+    } else {
+        try self.emit("fn ");
+    }
     if (std.mem.eql(u8, func.name, "main")) {
         try self.emit("__user_main");
     } else {
@@ -851,6 +866,7 @@ pub fn genMethodSignatureWithSkip(
         if (receives_bigint) {
             // Parameter receives BigInt at some call site - use anytype
             try self.emit("anytype");
+            try self.anytype_params.put(arg.name, {});
         } else if (arg.type_annotation) |_| {
             if (arg.default != null) {
                 try self.emit("?");
@@ -869,6 +885,7 @@ pub fn genMethodSignatureWithSkip(
                     if (!self.class_registry.classes.contains(inferred_class_name)) {
                         // Class not in registry - use anytype instead
                         try self.emit("anytype");
+                        try self.anytype_params.put(arg.name, {});
                     } else {
                         if (arg.default != null) {
                             try self.emit("?");
@@ -889,9 +906,11 @@ pub fn genMethodSignatureWithSkip(
                 // For anytype, we can't use ? prefix, so use anytype as-is
                 // The caller must handle the optionality
                 try self.emit("anytype");
+                try self.anytype_params.put(arg.name, {});
             }
         } else {
             try self.emit("anytype");
+            try self.anytype_params.put(arg.name, {});
         }
     }
 

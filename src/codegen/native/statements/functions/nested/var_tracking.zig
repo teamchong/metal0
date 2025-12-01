@@ -253,6 +253,87 @@ fn isParamReassignedInNode(param_name: []const u8, node: ast.Node) bool {
     };
 }
 
+/// Check if all reassignments of a parameter are type-changing assignments (to constructors)
+/// Type-changing pattern: param = ClassName(param, ...)
+/// Returns true only if ALL reassignments match this pattern
+pub fn areAllReassignmentsTypeChanging(param_name: []const u8, stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        if (!isReassignmentTypeChangingInNode(param_name, stmt)) return false;
+    }
+    return true;
+}
+
+/// Check if a node's reassignment (if any) is type-changing
+/// Returns true if: no reassignment in this node, or the reassignment is type-changing
+fn isReassignmentTypeChangingInNode(param_name: []const u8, node: ast.Node) bool {
+    return switch (node) {
+        .assign => |a| blk: {
+            for (a.targets) |target| {
+                if (target == .name and std.mem.eql(u8, target.name.id, param_name)) {
+                    // Check if RHS is a constructor call (ClassName(...))
+                    if (a.value.* == .call and a.value.call.func.* == .name) {
+                        const func_name = a.value.call.func.name.id;
+                        // Check if starts with uppercase (class constructor)
+                        if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
+                            break :blk true; // This is a type-changing assignment
+                        }
+                    }
+                    // Not a type-changing assignment
+                    break :blk false;
+                }
+            }
+            // This assignment doesn't target our param
+            break :blk true;
+        },
+        .aug_assign => |a| blk: {
+            // Aug assign (+=, etc.) can't be type-changing
+            if (a.target.* == .name and std.mem.eql(u8, a.target.name.id, param_name)) {
+                break :blk false;
+            }
+            break :blk true;
+        },
+        .if_stmt => |i| blk: {
+            for (i.body) |s| {
+                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+            }
+            for (i.else_body) |s| {
+                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+            }
+            break :blk true;
+        },
+        .for_stmt => |f| blk: {
+            for (f.body) |s| {
+                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+            }
+            break :blk true;
+        },
+        .while_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+            }
+            break :blk true;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| {
+                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+            }
+            for (t.handlers) |h| {
+                for (h.body) |s| {
+                    if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+                }
+            }
+            for (t.else_body) |s| {
+                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+            }
+            for (t.finalbody) |s| {
+                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+            }
+            break :blk true;
+        },
+        else => true, // No assignment in this node type
+    };
+}
+
 /// Check if any of the captured variables are actually used in the function body
 pub fn areCapturedVarsUsed(captured_vars: [][]const u8, stmts: []ast.Node) bool {
     for (captured_vars) |var_name| {
