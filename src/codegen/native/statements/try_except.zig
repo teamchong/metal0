@@ -758,12 +758,27 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 self.indent();
                 // If handler has "as name", declare the exception variable as a string
                 // But only if it's actually used in the handler body
+                // Check if this variable was hoisted (already declared with var at outer scope)
                 if (handler.name) |exc_name| {
                     if (isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
+                        // Check if this name was already hoisted as a var
+                        const is_hoisted = blk: {
+                            for (declared_vars.items) |hoisted| {
+                                if (std.mem.eql(u8, hoisted.name, exc_name)) break :blk true;
+                            }
+                            break :blk false;
+                        };
                         try self.emitIndent();
-                        try self.emit("const ");
-                        try self.emit(exc_name);
-                        try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
+                        if (is_hoisted) {
+                            // Assign to the existing hoisted variable
+                            try self.emit(exc_name);
+                            try self.output.writer(self.allocator).print(" = @errorName({s});\n", .{err_var});
+                        } else {
+                            // Declare new const
+                            try self.emit("const ");
+                            try self.emit(exc_name);
+                            try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
+                        }
                     }
                 }
                 for (handler.body) |stmt| {
@@ -781,12 +796,27 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 self.indent();
                 // If handler has "as name", declare the exception variable as a string
                 // But only if it's actually used in the handler body
+                // Check if this variable was hoisted (already declared with var at outer scope)
                 if (handler.name) |exc_name| {
                     if (isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
+                        // Check if this name was already hoisted as a var
+                        const is_hoisted = blk: {
+                            for (declared_vars.items) |hoisted| {
+                                if (std.mem.eql(u8, hoisted.name, exc_name)) break :blk true;
+                            }
+                            break :blk false;
+                        };
                         try self.emitIndent();
-                        try self.emit("const ");
-                        try self.emit(exc_name);
-                        try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
+                        if (is_hoisted) {
+                            // Assign to the existing hoisted variable
+                            try self.emit(exc_name);
+                            try self.output.writer(self.allocator).print(" = @errorName({s});\n", .{err_var});
+                        } else {
+                            // Declare new const
+                            try self.emit("const ");
+                            try self.emit(exc_name);
+                            try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
+                        }
                     }
                 }
                 for (handler.body) |stmt| {
