@@ -23,7 +23,7 @@ pub fn genGlob(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _results = std.ArrayList([]const u8).init(__global_allocator);\n");
+    try self.emit("var _results: std.ArrayList([]const u8) = .{};\n");
     try self.emitIndent();
     // Simple glob: split pattern and match files
     try self.emit("const _dir_path = std.fs.path.dirname(_pattern) orelse \".\";\n");
@@ -108,7 +108,7 @@ pub fn genEscape(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var _result: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("for (_path) |c| {\n");
     self.indent();

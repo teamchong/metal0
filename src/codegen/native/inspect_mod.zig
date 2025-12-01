@@ -234,7 +234,7 @@ pub fn genGetfullargspec(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
     try self.emitIndent();
     try self.emit("kwonlydefaults: ?hashmap_helper.StringHashMap([]const u8) = null,\n");
     try self.emitIndent();
-    try self.emit("annotations: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
+    try self.emit("annotations: hashmap_helper.StringHashMap([]const u8) = .{},\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");

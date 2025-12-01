@@ -20,7 +20,7 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("filename: []const u8 = \"\",\n");
     try self.emitIndent();
-    try self.emit("data: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
+    try self.emit("data: hashmap_helper.StringHashMap([]const u8) = .{},\n");
     try self.emitIndent();
     try self.emit("writeback: bool = false,\n");
     try self.emitIndent();

@@ -96,7 +96,7 @@ pub fn genPool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_ = self;\n");
     try self.emitIndent();
-    try self.emit("var result = std.ArrayList(@TypeOf(func(iterable[0]))).init(__global_allocator);\n");
+    try self.emit("var result: std.ArrayList(@TypeOf(func(iterable[0]))) = .{};\n");
     try self.emitIndent();
     try self.emit("for (iterable) |item| result.append(__global_allocator, func(item)) catch {};\n");
     try self.emitIndent();
@@ -171,7 +171,7 @@ pub fn genQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("items: std.ArrayList(anyopaque) = std.ArrayList(anyopaque).init(__global_allocator),\n");
+    try self.emit("items: std.ArrayList(anyopaque) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn put(self: *@This(), item: anytype, block: bool, timeout: ?f64) void {\n");
     self.indent();
@@ -291,7 +291,7 @@ pub fn genManager(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("pub fn list(self: @This()) std.ArrayList(anyopaque) { _ = self; return std.ArrayList(anyopaque).init(__global_allocator); }\n");
+    try self.emit("pub fn list(self: @This()) std.ArrayList(anyopaque) { _ = self; return .{}; }\n");
     try self.emitIndent();
     try self.emit("pub fn dict(self: @This()) hashmap_helper.StringHashMap(anyopaque) { _ = self; return hashmap_helper.StringHashMap(anyopaque).init(__global_allocator); }\n");
     try self.emitIndent();

@@ -106,7 +106,7 @@ pub fn genSpooledTemporaryFile(self: *NativeCodegen, args: []ast.Node) CodegenEr
     try self.emit("spooled_tempfile_blk: {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var _buf = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var _buf: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("break :spooled_tempfile_blk struct {\n");
     self.indent();

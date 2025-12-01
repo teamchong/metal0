@@ -103,7 +103,7 @@ pub fn genCursor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("lastrowid: ?i64 = null,\n");
     try self.emitIndent();
-    try self.emit("results: std.ArrayList([][]const u8) = std.ArrayList([][]const u8).init(__global_allocator),\n");
+    try self.emit("results: std.ArrayList([][]const u8) = .{},\n");
     try self.emitIndent();
     try self.emit("pos: usize = 0,\n");
     try self.emitIndent();

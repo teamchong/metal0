@@ -58,11 +58,11 @@ pub fn genArgumentParser(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
     try self.emit("return @This(){\n");
     self.indent();
     try self.emitIndent();
-    try self.emit(".arguments = std.ArrayList(Argument).init(__global_allocator),\n");
+    try self.emit(".arguments = .{},\n");
     try self.emitIndent();
-    try self.emit(".parsed = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
+    try self.emit(".parsed = .{},\n");
     try self.emitIndent();
-    try self.emit(".positional_args = std.ArrayList([]const u8).init(__global_allocator),\n");
+    try self.emit(".positional_args = .{},\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");

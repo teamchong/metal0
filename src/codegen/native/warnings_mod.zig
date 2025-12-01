@@ -87,7 +87,7 @@ pub fn genCatchWarnings(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emitIndent();
     try self.emit("record: bool = false,\n");
     try self.emitIndent();
-    try self.emit("log: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(__global_allocator),\n");
+    try self.emit("log: std.ArrayList([]const u8) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn __enter__(__self: *@This()) *@This() { return __self; }\n");
     try self.emitIndent();

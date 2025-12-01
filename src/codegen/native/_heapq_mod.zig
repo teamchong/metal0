@@ -78,7 +78,7 @@ pub fn genNlargest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit(")); const items = ");
         try self.genExpr(args[1]);
-        try self.emit("; var result = std.ArrayList(@TypeOf(items[0])).init(__global_allocator); for (items[0..@min(n, items.len)]) |item| { result.append(__global_allocator, item) catch {}; } break :blk result.items; }");
+        try self.emit("; var result: std.ArrayList(@TypeOf(items[0])) = .{}; for (items[0..@min(n, items.len)]) |item| { result.append(__global_allocator, item) catch {}; } break :blk result.items; }");
     } else {
         try self.emit("&[_]@TypeOf(0){}");
     }
@@ -91,7 +91,7 @@ pub fn genNsmallest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit(")); const items = ");
         try self.genExpr(args[1]);
-        try self.emit("; var result = std.ArrayList(@TypeOf(items[0])).init(__global_allocator); for (items[0..@min(n, items.len)]) |item| { result.append(__global_allocator, item) catch {}; } break :blk result.items; }");
+        try self.emit("; var result: std.ArrayList(@TypeOf(items[0])) = .{}; for (items[0..@min(n, items.len)]) |item| { result.append(__global_allocator, item) catch {}; } break :blk result.items; }");
     } else {
         try self.emit("&[_]@TypeOf(0){}");
     }

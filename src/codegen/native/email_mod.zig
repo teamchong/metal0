@@ -93,7 +93,7 @@ pub fn genMIMEText(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("subtype: []const u8 = \"plain\",\n");
     try self.emitIndent();
-    try self.emit("headers: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
+    try self.emit("headers: hashmap_helper.StringHashMap([]const u8) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn as_string(self: *@This()) []const u8 { return self.body; }\n");
     try self.emitIndent();
@@ -115,16 +115,16 @@ pub fn genMIMEMultipart(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emitIndent();
     try self.emit("subtype: []const u8 = \"mixed\",\n");
     try self.emitIndent();
-    try self.emit("parts: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(__global_allocator),\n");
+    try self.emit("parts: std.ArrayList([]const u8) = .{},\n");
     try self.emitIndent();
-    try self.emit("headers: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
+    try self.emit("headers: hashmap_helper.StringHashMap([]const u8) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn attach(self: *@This(), part: anytype) void { self.parts.append(__global_allocator, part.as_string()) catch {}; }\n");
     try self.emitIndent();
     try self.emit("pub fn as_string(self: *@This()) []const u8 {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var result = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var result: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("for (self.parts.items) |p| result.appendSlice(__global_allocator, p) catch {};\n");
     try self.emitIndent();

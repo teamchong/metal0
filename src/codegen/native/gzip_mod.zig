@@ -64,7 +64,7 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn init(p: []const u8) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return @This(){ .path = p, .buffer = std.ArrayList(u8).init(__global_allocator) };\n");
+    try self.emit("return @This(){ .path = p, .buffer = .{} };\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

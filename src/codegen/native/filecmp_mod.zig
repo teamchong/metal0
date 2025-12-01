@@ -57,7 +57,7 @@ pub fn genDircmp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("funny_files: [][]const u8 = &[_][]const u8{},\n");
     try self.emitIndent();
-    try self.emit("subdirs: hashmap_helper.StringHashMap(*@This()) = hashmap_helper.StringHashMap(*@This()).init(__global_allocator),\n");
+    try self.emit("subdirs: hashmap_helper.StringHashMap(*@This()) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn report(self: *@This()) void { _ = self; }\n");
     try self.emitIndent();

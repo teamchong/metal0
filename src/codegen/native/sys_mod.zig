@@ -60,7 +60,7 @@ pub fn genArgv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _os_args = std.os.argv;\n");
     try self.emitIndent();
-    try self.emit("var _argv = std.ArrayList([]const u8).init(__global_allocator);\n");
+    try self.emit("var _argv: std.ArrayList([]const u8) = .{};\n");
     try self.emitIndent();
     try self.emit("for (_os_args) |arg| {\n");
     self.indent();

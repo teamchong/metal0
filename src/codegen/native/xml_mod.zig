@@ -75,7 +75,7 @@ pub fn genTostring(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var _result: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("_result.appendSlice(__global_allocator, \"<\") catch {};\n");
     try self.emitIndent();
@@ -203,9 +203,9 @@ pub fn genElementStruct(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emitIndent();
     try self.emit("tail: []const u8 = \"\",\n");
     try self.emitIndent();
-    try self.emit("attrib: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
+    try self.emit("attrib: hashmap_helper.StringHashMap([]const u8) = .{},\n");
     try self.emitIndent();
-    try self.emit("children: std.ArrayList(*Element) = std.ArrayList(*Element).init(__global_allocator),\n");
+    try self.emit("children: std.ArrayList(*Element) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn get(self: *@This(), key: []const u8, default: ?[]const u8) ?[]const u8 {\n");
     self.indent();
@@ -236,7 +236,7 @@ pub fn genElementStruct(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emit("pub fn findall(self: *@This(), path: []const u8) []*Element {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var result = std.ArrayList(*Element).init(__global_allocator);\n");
+    try self.emit("var result: std.ArrayList(*Element) = .{};\n");
     try self.emitIndent();
     try self.emit("for (self.children.items) |child| if (std.mem.eql(u8, child.tag, path)) result.append(__global_allocator, child) catch {};\n");
     try self.emitIndent();

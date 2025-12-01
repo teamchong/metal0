@@ -130,7 +130,7 @@ pub fn genUrlunparse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var _result: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("if (_parts.scheme.len > 0) {\n");
     self.indent();
@@ -192,7 +192,7 @@ pub fn genQuote(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var _result: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("const _safe = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-~\";\n");
     try self.emitIndent();
@@ -244,7 +244,7 @@ pub fn genUnquote(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var _result: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("var _i: usize = 0;\n");
     try self.emitIndent();
@@ -313,7 +313,7 @@ pub fn genUrljoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("if (std.mem.indexOfScalarPos(u8, _base, i + 3, '/')) |j| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var r = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var r: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("r.appendSlice(__global_allocator, _base[0..j]) catch {};\n");
     try self.emitIndent();
@@ -382,7 +382,7 @@ pub fn genParseQsl(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(struct { []const u8, []const u8 }).init(__global_allocator);\n");
+    try self.emit("var _result: std.ArrayList(struct { []const u8, []const u8 }) = .{};\n");
     try self.emitIndent();
     try self.emit("var _pairs = std.mem.splitScalar(u8, _qs, '&');\n");
     try self.emitIndent();

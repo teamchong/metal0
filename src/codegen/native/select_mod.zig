@@ -61,7 +61,7 @@ pub fn genPoll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("fds: std.ArrayList(struct { fd: i64, events: i16, revents: i16 }) = std.ArrayList(struct { fd: i64, events: i16, revents: i16 }).init(__global_allocator),\n");
+    try self.emit("fds: std.ArrayList(struct { fd: i64, events: i16, revents: i16 }) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn register(self: *@This(), fd: i64, eventmask: ?i16) void {\n");
     self.indent();
@@ -104,7 +104,7 @@ pub fn genPoll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_ = timeout;\n");
     try self.emitIndent();
-    try self.emit("var result = std.ArrayList(struct { i64, i16 }).init(__global_allocator);\n");
+    try self.emit("var result: std.ArrayList(struct { i64, i16 }) = .{};\n");
     try self.emitIndent();
     try self.emit("for (self.fds.items) |item| {\n");
     self.indent();
