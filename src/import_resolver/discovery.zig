@@ -214,14 +214,14 @@ pub fn discoverStdlib(allocator: std.mem.Allocator) ![][]const u8 {
                 );
                 paths.append(allocator, local_path) catch allocator.free(local_path);
 
-                // uv python installations
+                // uv/mise python installations
                 if (std.posix.getenv("HOME")) |home| {
-                    const uv_path = try std.fmt.allocPrint(
+                    const tool_path = try std.fmt.allocPrint(
                         allocator,
                         "{s}/Library/Application Support/uv/python/cpython-3.{d}.*/lib/python3.{d}",
                         .{ home, version, version },
                     );
-                    paths.append(allocator, uv_path) catch allocator.free(uv_path);
+                    paths.append(allocator, tool_path) catch allocator.free(tool_path);
                 }
             }
         },

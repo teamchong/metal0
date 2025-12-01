@@ -18,7 +18,7 @@ def main():
         import tiktoken
     except ImportError:
         print("ERROR: tiktoken not installed")
-        print("Run: uv pip install tiktoken")
+        print("Run: metal0 install tiktoken")
         sys.exit(1)
 
     # Import rs-bpe
@@ -26,7 +26,7 @@ def main():
         import rs_bpe
     except ImportError:
         print("ERROR: rs-bpe not installed")
-        print("Run: uv pip install rs-bpe")
+        print("Run: metal0 install rs-bpe")
         sys.exit(1)
 
     # Load encoders

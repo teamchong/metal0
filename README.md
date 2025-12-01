@@ -955,7 +955,7 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 - [ ] File I/O (open, read, write)
 - [x] String formatting (f-strings) ✅
 - [ ] Async/await (asyncio compatible)
-- [ ] Integration with uv for package management
+- [x] Built-in package manager (install, uninstall, freeze, list) ✅
 
 **Phase 2: Dynamic Features (Self-Hosting)**
 - [ ] `eval()` and `exec()` support via AST executor
