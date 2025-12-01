@@ -20,7 +20,7 @@ const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
 /// regardless of what the method body might suggest
 const MagicMethodReturnTypes = std.StaticStringMap([]const u8).initComptime(.{
     .{ "__bool__", "runtime.PythonError!bool" },  // Must return bool or error
-    .{ "__len__", "i64" },
+    .{ "__len__", "runtime.PythonError!i64" },  // Must return non-negative int or error
     .{ "__hash__", "i64" },
     .{ "__repr__", "[]const u8" },
     .{ "__str__", "[]const u8" },

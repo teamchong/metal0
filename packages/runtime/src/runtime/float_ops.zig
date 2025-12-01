@@ -356,7 +356,7 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
             // Check for __len__ method (containers are truthy if len > 0)
             // Python raises ValueError if __len__ returns negative
             if (@hasDecl(ChildType, "__len__")) {
-                const len = first.__len__();
+                const len = try first.__len__();
                 if (len < 0) return PythonError.ValueError;
                 return len > 0;
             }
@@ -382,7 +382,7 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
         // Check for __len__ method (containers are truthy if len > 0)
         // Python raises ValueError if __len__ returns negative
         if (@hasDecl(FirstType, "__len__")) {
-            const len = first.__len__();
+            const len = try first.__len__();
             if (len < 0) return PythonError.ValueError;
             return len > 0;
         }

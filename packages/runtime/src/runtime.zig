@@ -148,6 +148,50 @@ pub fn toBool(value: anytype) bool {
         if (child_info == .array) {
             return child_info.array.len > 0;
         }
+        // Handle pointers to structs with __bool__ method (Python objects)
+        if (child_info == .@"struct") {
+            const ChildT = info.pointer.child;
+            if (@hasDecl(ChildT, "__bool__")) {
+                // Check if __bool__ takes a mutable pointer (self-mutating method)
+                const bool_fn_info = @typeInfo(@TypeOf(ChildT.__bool__));
+                const first_param_type = bool_fn_info.@"fn".params[0].type.?;
+                const first_param_info = @typeInfo(first_param_type);
+
+                const result = blk: {
+                    if (first_param_info == .pointer and !first_param_info.pointer.is_const) {
+                        // __bool__ takes *@This() (mutable) - value is already a pointer
+                        if (info.pointer.is_const) {
+                            // Cast away const if needed
+                            break :blk @constCast(value).__bool__();
+                        } else {
+                            break :blk value.__bool__();
+                        }
+                    } else {
+                        // __bool__ takes *const @This() or value - call directly
+                        break :blk value.__bool__();
+                    }
+                };
+                const ResultT = @TypeOf(result);
+                if (@typeInfo(ResultT) == .bool) {
+                    return result;
+                }
+                // Handle error union wrapping bool
+                if (@typeInfo(ResultT) == .error_union) {
+                    const unwrapped = result catch return false;
+                    const UnwrappedT = @TypeOf(unwrapped);
+                    if (@typeInfo(UnwrappedT) == .bool) {
+                        return unwrapped;
+                    }
+                    @panic("TypeError: __bool__ should return bool, not error union with non-bool");
+                }
+                @panic("TypeError: __bool__ should return bool");
+            }
+            // Check for __len__ as fallback (containers with 0 length are falsy)
+            if (@hasDecl(ChildT, "__len__")) {
+                const len = value.__len__() catch return false;
+                return len > 0;
+            }
+        }
     }
 
     // Handle PyString
@@ -210,7 +254,8 @@ pub fn toBool(value: anytype) bool {
         }
         // Check for __len__ as fallback (containers with 0 length are falsy)
         if (@hasDecl(T, "__len__")) {
-            return value.__len__() > 0;
+            const len = value.__len__() catch return false;
+            return len > 0;
         }
     }
 
@@ -231,20 +276,22 @@ pub fn validateBoolReturn(value: anytype) PythonError!bool {
 
 /// Generic int conversion for __len__, __hash__, etc.
 /// Handles both native int types and PyValue
-pub fn pyToInt(value: anytype) i64 {
+/// Returns error for non-convertible types (e.g., string for __len__)
+pub fn pyToInt(value: anytype) PythonError!i64 {
     const T = @TypeOf(value);
     if (T == PyValue) {
-        // Extract int from PyValue, panic on non-convertible types
-        return value.toInt() orelse @panic("__len__() returned non-integer");
+        // Extract int from PyValue, return error on non-convertible types
+        return value.toInt() orelse return PythonError.TypeError;
     } else if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize or T == comptime_int) {
         return @intCast(value);
     } else if (T == bool) {
         return if (value) 1 else 0;
     } else if (@typeInfo(T) == .optional) {
-        if (value) |v| return pyToInt(v);
+        if (value) |v| return try pyToInt(v);
         return 0;
     } else {
-        @compileError("pyToInt: unsupported type " ++ @typeName(T));
+        // Return error for unsupported types at runtime
+        return PythonError.TypeError;
     }
 }
 
@@ -1393,6 +1440,11 @@ pub const PyComplex = struct {
         };
     }
 
+    /// Negation operator for PyComplex (-c)
+    pub fn neg(self: PyComplex) PyComplex {
+        return .{ .real = -self.real, .imag = -self.imag };
+    }
+
     pub fn eql(self: PyComplex, other: anytype) bool {
         const T = @TypeOf(other);
         switch (@typeInfo(T)) {
@@ -1547,6 +1599,16 @@ pub fn pyObjToInt(obj: *PyObject) i64 {
         return PyInt.getValue(obj);
     }
     return 0;
+}
+
+/// Extract BigInt value from PyObject (for eval() results with large integers)
+pub fn pyObjToBigInt(obj: *PyObject, allocator: std.mem.Allocator) BigInt {
+    const type_id = getTypeId(obj);
+    if (type_id == .int) {
+        const val = PyInt.getValue(obj);
+        return BigInt.fromInt(allocator, val) catch BigInt.fromInt(allocator, 0) catch unreachable;
+    }
+    return BigInt.fromInt(allocator, 0) catch unreachable;
 }
 
 /// Bounds-checked array list access for exception handling

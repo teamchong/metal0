@@ -739,6 +739,34 @@ pub fn assertIs(a: anytype, b: anytype) void {
     }
 }
 
+/// Assertion: assertTypeIs(actual_type, expected_type) - compile-time type comparison
+/// Used for type(x) is int style assertions
+pub fn assertTypeIs(comptime actual_type: type, comptime expected_type: type) void {
+    // Check for type equivalence, considering comptime types
+    const matches = comptime blk: {
+        if (actual_type == expected_type) break :blk true;
+        // comptime_int is compatible with i64 (Python int)
+        if (expected_type == i64 and actual_type == comptime_int) break :blk true;
+        if (actual_type == i64 and expected_type == comptime_int) break :blk true;
+        // comptime_float is compatible with f64 (Python float)
+        if (expected_type == f64 and actual_type == comptime_float) break :blk true;
+        if (actual_type == f64 and expected_type == comptime_float) break :blk true;
+        break :blk false;
+    };
+
+    if (matches) {
+        if (runner.global_result) |result| {
+            result.addPass();
+        }
+    } else {
+        std.debug.print("AssertionError: type mismatch (expected {s}, got {s})\n", .{ @typeName(expected_type), @typeName(actual_type) });
+        if (runner.global_result) |result| {
+            result.addFail("assertTypeIs failed") catch {};
+        }
+        @panic("assertTypeIs failed");
+    }
+}
+
 /// Assertion: assertIsNot(a, b) - pointer identity check (a is not b)
 pub fn assertIsNot(a: anytype, b: anytype) void {
     const A = @TypeOf(a);

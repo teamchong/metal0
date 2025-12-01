@@ -22,6 +22,7 @@
 
 const std = @import("std");
 const json = @import("json"); // SIMD-accelerated JSON parser (2.7-3.1x faster)
+const json_stream = json.stream; // Fast streaming JSON extraction
 
 // HTTP/2 with TLS 1.3 (our implementation)
 const h2 = @import("h2");
@@ -1124,126 +1125,41 @@ pub const PyPIClient = struct {
 
     /// FAST streaming JSON parser - extracts only needed fields without building full tree
     /// ~50x faster than full parse for large packages like numpy (2.7MB JSON)
+    /// Uses shared json_stream module for reusable extraction utilities
     fn parsePackageJsonStatic(allocator: std.mem.Allocator, body: []const u8, fallback_name: []const u8) !PackageMetadata {
         // Fast path: stream parse to extract only: name, version, requires_dist
         // The JSON structure is: {"info": {"name": "...", "version": "...", "requires_dist": [...]}, "releases": {...}}
         // We only need the info section, skip releases entirely
 
-        var name: ?[]const u8 = null;
-        var version: ?[]const u8 = null;
-        var requires_dist_list = std.ArrayList([]const u8){};
-        errdefer {
-            if (name) |n| allocator.free(n);
-            if (version) |v| allocator.free(v);
-            for (requires_dist_list.items) |dep| allocator.free(dep);
-            requires_dist_list.deinit(allocator);
-        }
-
-        // Find "info" section start
-        const info_start = std.mem.indexOf(u8, body, "\"info\"") orelse return PyPIError.ParseError;
-        const info_section = body[info_start..];
-
-        // Find "releases" to know where info ends (or end of object)
-        const releases_pos = std.mem.indexOf(u8, info_section, "\"releases\"") orelse info_section.len;
-        const info_end = info_section[0..releases_pos];
+        // Get info section (between "info" and "releases")
+        const info_section = json_stream.findObjectBetween(body, "\"info\"", "\"releases\"") orelse
+            return PyPIError.ParseError;
 
         // Extract "name" from info section
-        if (findJsonString(info_end, "\"name\"")) |name_str| {
+        var name: ?[]const u8 = null;
+        errdefer if (name) |n| allocator.free(n);
+        if (json_stream.findString(info_section, "\"name\"")) |name_str| {
             name = try allocator.dupe(u8, name_str);
         }
 
         // Extract "version" from info section
-        if (findJsonString(info_end, "\"version\"")) |ver_str| {
+        var version: ?[]const u8 = null;
+        errdefer if (version) |v| allocator.free(v);
+        if (json_stream.findString(info_section, "\"version\"")) |ver_str| {
             version = try allocator.dupe(u8, ver_str);
         }
 
-        // Extract "requires_dist" array
-        if (std.mem.indexOf(u8, info_end, "\"requires_dist\"")) |req_pos| {
-            const after_key = info_end[req_pos + 15 ..]; // Skip "requires_dist"
-
-            // Find array start
-            if (std.mem.indexOf(u8, after_key, "[")) |arr_start| {
-                const arr_content = after_key[arr_start + 1 ..];
-
-                // Find array end
-                if (std.mem.indexOf(u8, arr_content, "]")) |arr_end| {
-                    const deps_str = arr_content[0..arr_end];
-
-                    // Parse each string in array
-                    var pos: usize = 0;
-                    while (pos < deps_str.len) {
-                        // Find next string start
-                        const quote_start = std.mem.indexOfPos(u8, deps_str, pos, "\"") orelse break;
-                        const str_start = quote_start + 1;
-
-                        // Find string end (handle escapes)
-                        var str_end = str_start;
-                        while (str_end < deps_str.len) {
-                            if (deps_str[str_end] == '\\' and str_end + 1 < deps_str.len) {
-                                str_end += 2; // Skip escaped char
-                            } else if (deps_str[str_end] == '"') {
-                                break;
-                            } else {
-                                str_end += 1;
-                            }
-                        }
-
-                        if (str_end > str_start and str_end <= deps_str.len) {
-                            const dep = deps_str[str_start..str_end];
-                            const dep_copy = try allocator.dupe(u8, dep);
-                            try requires_dist_list.append(allocator, dep_copy);
-                        }
-
-                        pos = str_end + 1;
-                    }
-                }
-            }
-        }
+        // Extract "requires_dist" array using shared utility
+        const requires_dist = json_stream.extractStringArray(allocator, info_section, "\"requires_dist\"") catch
+            &[_][]const u8{};
 
         return .{
             .name = name orelse try allocator.dupe(u8, fallback_name),
             .latest_version = version orelse try allocator.dupe(u8, "0.0.0"),
             .summary = null,
             .releases = &[_]ReleaseInfo{},
-            .requires_dist = try requires_dist_list.toOwnedSlice(allocator),
+            .requires_dist = requires_dist,
         };
-    }
-
-    /// Find a JSON string value after a key
-    fn findJsonString(data: []const u8, key: []const u8) ?[]const u8 {
-        const key_pos = std.mem.indexOf(u8, data, key) orelse return null;
-        const after_key = data[key_pos + key.len ..];
-
-        // Skip to colon and whitespace
-        var pos: usize = 0;
-        while (pos < after_key.len and (after_key[pos] == ':' or after_key[pos] == ' ' or after_key[pos] == '\n' or after_key[pos] == '\t')) {
-            pos += 1;
-        }
-
-        if (pos >= after_key.len) return null;
-
-        // Check for null
-        if (after_key.len > pos + 4 and std.mem.eql(u8, after_key[pos .. pos + 4], "null")) {
-            return null;
-        }
-
-        // Expect opening quote
-        if (after_key[pos] != '"') return null;
-        pos += 1;
-
-        // Find closing quote (handle escapes)
-        const str_start = pos;
-        while (pos < after_key.len) {
-            if (after_key[pos] == '\\' and pos + 1 < after_key.len) {
-                pos += 2;
-            } else if (after_key[pos] == '"') {
-                return after_key[str_start..pos];
-            } else {
-                pos += 1;
-            }
-        }
-
-        return null;
     }
 
     /// Fetch multiple wheel METADATA files in parallel (PEP 658)

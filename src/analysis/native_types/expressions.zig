@@ -697,6 +697,18 @@ fn inferBinOp(
         return .{ .string = .runtime }; // Concatenation produces runtime string
     }
 
+    // String repetition: str * int or int * str → runtime string
+    if (binop.op == .Mult) {
+        const left_is_string = left_tag == .string;
+        const right_is_string = right_tag == .string;
+        const left_is_numeric = left_tag == .int or left_tag == .usize;
+        const right_is_numeric = right_tag == .int or right_tag == .usize;
+
+        if ((left_is_string and right_is_numeric) or (left_is_numeric and right_is_string)) {
+            return .{ .string = .runtime }; // String repetition produces runtime string
+        }
+    }
+
     // Type promotion: int + float → float
     if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or binop.op == .Div) {
         if (left_tag == .float or right_tag == .float) {

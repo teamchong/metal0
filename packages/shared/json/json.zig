@@ -23,6 +23,9 @@ pub const StringifyError = @import("stringify.zig").StringifyError;
 pub const LazyValue = @import("lazy.zig").LazyValue;
 pub const LazyString = @import("lazy.zig").LazyString;
 
+// Stream parsing (fast extraction without full parse tree)
+pub const stream = @import("stream.zig");
+
 // Re-export utility functions from value.zig
 pub const isWhitespace = @import("value.zig").isWhitespace;
 pub const skipWhitespace = @import("value.zig").skipWhitespace;
@@ -53,4 +56,5 @@ test {
     _ = @import("stringify.zig");
     _ = @import("lazy.zig");
     _ = @import("parse_lazy.zig");
+    _ = @import("stream.zig");
 }
