@@ -39,6 +39,7 @@ const GreenThread = @import("green_thread").GreenThread;
 pub const PyPIError = error{
     InvalidPackageName,
     PackageNotFound,
+    NoWheelAvailable,
     NetworkError,
     ParseError,
     Timeout,
@@ -319,6 +320,26 @@ pub const PyPIClient = struct {
         defer self.allocator.free(body);
 
         return try self.parseSimpleJson(body, package_name);
+    }
+
+    /// Get wheel URL for a package (latest version)
+    pub fn getWheelUrl(self: *PyPIClient, package_name: []const u8) ![]const u8 {
+        var info = try self.getSimplePackageInfo(package_name);
+        defer info.deinit(self.allocator);
+
+        if (info.versions.len == 0) return PyPIError.PackageNotFound;
+
+        // Get latest version's wheel URL
+        const latest = info.versions[info.versions.len - 1];
+        if (latest.wheel_url) |url| {
+            return try self.allocator.dupe(u8, url);
+        }
+        return PyPIError.NoWheelAvailable;
+    }
+
+    /// Fetch raw content from URL (for downloading wheels)
+    pub fn fetchRawUrl(self: *PyPIClient, url: []const u8) ![]const u8 {
+        return try self.fetchUrl(url);
     }
 
     /// FASTEST: Fetch wheel METADATA file directly (PEP 658)
