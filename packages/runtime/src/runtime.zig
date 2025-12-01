@@ -1358,7 +1358,7 @@ pub var scheduler_initialized = false;
 // Export convenience functions
 pub const httpGet = http.getAsPyString;
 pub const httpGetResponse = http.getAsResponse;
-pub const sleep = async_runtime.sleepAsync;
+pub const sleep = async_runtime.sleep;
 pub const now = async_runtime.now;
 pub const jsonLoads = json.loads;
 pub const jsonDumps = json.dumps;

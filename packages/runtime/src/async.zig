@@ -48,9 +48,30 @@ pub const yield = runtime.yield;
 pub const run = runtime.run;
 pub const getRuntime = runtime.getRuntime;
 
-/// Async sleep (yields to event loop)
+/// Async sleep using busy-wait with yields
+/// This is a simple implementation - for true async we need coroutines
 pub fn sleep(seconds: f64) void {
-    const nanos = @as(u64, @intFromFloat(seconds * 1_000_000_000));
+    const nanos: u64 = @intFromFloat(seconds * 1_000_000_000);
+
+    // For very short sleeps (< 100µs), just busy-wait
+    if (nanos < 100_000) {
+        const deadline = std.time.nanoTimestamp() + @as(i128, nanos);
+        while (std.time.nanoTimestamp() < deadline) {
+            std.atomic.spinLoopHint();
+        }
+        return;
+    }
+
+    // For short sleeps (<= 10ms), yield loop - allows other threads to run
+    if (nanos <= 10_000_000) {
+        const deadline = std.time.nanoTimestamp() + @as(i128, nanos);
+        while (std.time.nanoTimestamp() < deadline) {
+            std.Thread.yield() catch {};
+        }
+        return;
+    }
+
+    // For longer sleeps, use OS timer
     std.Thread.sleep(nanos);
 }
 

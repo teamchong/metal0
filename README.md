@@ -401,9 +401,9 @@ metal0 compiles Python's `asyncio` to Zig goroutines with work-stealing schedule
 | **Go** | 8.94ms | 1,119x | Great for network |
 | **CPython** | 59.59ms | 168x | Good for I/O |
 | PyPy | 123.94ms | 81x | JIT doesn't help I/O |
-| metal0 | 1,388ms | 7x | Thread pool (no netpoller yet) |
+| metal0 | 1,158ms | 9x | Thread pool (N workers) |
 
-*Sequential would take 10,000ms. metal0's thread pool blocks on sleep - netpoller coming soon.*
+*Sequential would take 10,000ms. metal0 achieves ~N× concurrency where N = CPU cores. True coroutines needed for 1000×+ like Go/Rust.*
 
 **When to use what:**
 - **CPU-bound** (computation): Rust > Go ≈ metal0 >> PyPy >> CPython

@@ -127,9 +127,9 @@ pub fn genFunctionBody(
 
     // Clear nested class tracking (names and bases) after exiting function
     // This prevents class name collisions between different functions
-    // BUT: Don't clear if we're inside a nested class (class_nesting_depth > 1)
-    // because the parent scope needs to retain nested class info
-    if (self.class_nesting_depth <= 1) {
+    // BUT: Preserve if current class is nested or inside a nested class (class_nesting_depth > 1)
+    const current_class_is_nested_fn = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
+    if (!current_class_is_nested_fn and self.class_nesting_depth <= 1) {
         self.nested_class_names.clearRetainingCapacity();
         self.nested_class_bases.clearRetainingCapacity();
     }
@@ -295,11 +295,12 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Track local variables and analyze nested class captures for closure support
     // Clear all maps for each method to avoid pollution from sibling methods
     // (e.g., class A in test_sane_len should not affect class A in test_blocked)
-    // BUT: For nested classes (class_nesting_depth > 1), preserve nested_class_names/bases
-    // so sibling class relationships are maintained (e.g., aug_test2's parent aug_test)
+    // BUT: Preserve nested_class_names/bases when current class is nested (in nested_class_names)
+    // or when deeply nested (class_nesting_depth > 1)
     self.func_local_vars.clearRetainingCapacity();
     self.nested_class_captures.clearRetainingCapacity();
-    if (self.class_nesting_depth <= 1) {
+    const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
+    if (!current_class_is_nested and self.class_nesting_depth <= 1) {
         self.nested_class_names.clearRetainingCapacity();
         self.nested_class_bases.clearRetainingCapacity();
     }
@@ -439,10 +440,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Clear nested class tracking (names and bases) after exiting method
     // This prevents class name collisions between different methods
     // (e.g., both test_foo and test_bar may have a nested class named BadIndex)
-    // BUT: Don't clear if we're inside a nested class (class_nesting_depth > 1)
-    // because the parent scope needs to retain nested class info for constructor calls
-    // that appear AFTER the nested class definition
-    if (self.class_nesting_depth <= 1) {
+    // BUT: Preserve if current class is nested or inside a nested class (class_nesting_depth > 1)
+    const current_class_is_nested_exit = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
+    if (!current_class_is_nested_exit and self.class_nesting_depth <= 1) {
         self.nested_class_names.clearRetainingCapacity();
         self.nested_class_bases.clearRetainingCapacity();
     }

@@ -21,6 +21,7 @@ pub const IoOp = enum {
     write,
     connect,
     accept,
+    timer, // For asyncio.sleep
 };
 
 /// Pending I/O operation
@@ -30,6 +31,13 @@ pub const PendingIo = struct {
     thread: *GreenThread,
     callback: ?*const fn (*GreenThread, anyerror!usize) void,
     user_data: ?*anyopaque,
+};
+
+/// Pending timer (for asyncio.sleep)
+pub const PendingTimer = struct {
+    id: u64,
+    thread: *GreenThread,
+    deadline_ns: i128, // Absolute time when timer fires
 };
 
 /// Netpoller - manages async I/O across all green threads
@@ -48,6 +56,11 @@ pub const Netpoller = struct {
     pending: std.AutoHashMap(std.posix.fd_t, PendingIo),
     pending_mutex: std.Thread.Mutex,
 
+    // Pending timers (id -> PendingTimer) for asyncio.sleep
+    timers: std.AutoHashMap(u64, PendingTimer),
+    timer_mutex: std.Thread.Mutex,
+    next_timer_id: std.atomic.Value(u64),
+
     // Ready threads (woken by I/O completion)
     ready_threads: std.ArrayList(*GreenThread),
     ready_mutex: std.Thread.Mutex,
@@ -56,6 +69,7 @@ pub const Netpoller = struct {
     total_registered: u64,
     total_completed: u64,
     total_errors: u64,
+    total_timers: u64,
 
     // Poller thread
     poller_thread: ?std.Thread,
@@ -67,11 +81,15 @@ pub const Netpoller = struct {
             .poll_fd = undefined,
             .pending = std.AutoHashMap(std.posix.fd_t, PendingIo).init(allocator),
             .pending_mutex = .{},
+            .timers = std.AutoHashMap(u64, PendingTimer).init(allocator),
+            .timer_mutex = .{},
+            .next_timer_id = std.atomic.Value(u64).init(1),
             .ready_threads = std.ArrayList(*GreenThread){},
             .ready_mutex = .{},
             .total_registered = 0,
             .total_completed = 0,
             .total_errors = 0,
+            .total_timers = 0,
             .poller_thread = null,
             .running = std.atomic.Value(bool).init(false),
         };
@@ -96,6 +114,7 @@ pub const Netpoller = struct {
         }
 
         self.pending.deinit();
+        self.timers.deinit();
         self.ready_threads.deinit(self.allocator);
     }
 
@@ -160,6 +179,37 @@ pub const Netpoller = struct {
         }
     }
 
+    /// Register a timer (for asyncio.sleep)
+    /// duration_ns: how long to sleep in nanoseconds
+    /// thread: the green thread to wake when timer fires
+    /// Returns immediately, thread will be woken by poll loop
+    pub fn registerTimer(self: *Netpoller, duration_ns: u64, thread: *GreenThread) !void {
+        const timer_id = self.next_timer_id.fetchAdd(1, .monotonic);
+        const now = std.time.nanoTimestamp();
+        const deadline = now + @as(i128, duration_ns);
+
+        self.timer_mutex.lock();
+        defer self.timer_mutex.unlock();
+
+        try self.timers.put(timer_id, .{
+            .id = timer_id,
+            .thread = thread,
+            .deadline_ns = deadline,
+        });
+        self.total_timers += 1;
+
+        // Register with OS using EVFILT_TIMER (kqueue) or timerfd (Linux)
+        if (builtin.os.tag == .macos or builtin.os.tag == .freebsd or builtin.os.tag == .netbsd or builtin.os.tag == .openbsd) {
+            try self.kqueueAddTimer(timer_id, duration_ns);
+        } else if (builtin.os.tag == .linux) {
+            // Linux uses timerfd - for now use simple polling
+            // TODO: implement timerfd for better efficiency
+        }
+
+        // Park the thread
+        thread.state = .blocked;
+    }
+
     /// Get ready threads (called by scheduler)
     pub fn getReadyThreads(self: *Netpoller) []*GreenThread {
         self.ready_mutex.lock();
@@ -180,6 +230,7 @@ pub const Netpoller = struct {
         const filter: i16 = switch (op) {
             .read, .accept => std.posix.system.EVFILT.READ,
             .write, .connect => std.posix.system.EVFILT.WRITE,
+            .timer => return, // Timers use kqueueAddTimer
         };
 
         changelist[0] = .{
@@ -189,6 +240,25 @@ pub const Netpoller = struct {
             .fflags = 0,
             .data = 0,
             .udata = @intFromPtr(&self.pending.get(fd).?),
+        };
+
+        _ = std.posix.kevent(self.poll_fd, &changelist, &[_]std.posix.Kevent{}, null) catch return error.KqueueError;
+    }
+
+    /// Add a timer to kqueue using EVFILT_TIMER
+    fn kqueueAddTimer(self: *Netpoller, timer_id: u64, duration_ns: u64) !void {
+        var changelist: [1]std.posix.Kevent = undefined;
+
+        // Convert nanoseconds to milliseconds for kqueue (NOTE_NSECONDS flag would allow ns)
+        const duration_ms: isize = @intCast(@max(1, duration_ns / 1_000_000));
+
+        changelist[0] = .{
+            .ident = timer_id,
+            .filter = std.posix.system.EVFILT.TIMER,
+            .flags = std.posix.system.EV.ADD | std.posix.system.EV.ONESHOT,
+            .fflags = 0, // Use milliseconds (default)
+            .data = duration_ms,
+            .udata = timer_id, // Store timer_id for lookup
         };
 
         _ = std.posix.kevent(self.poll_fd, &changelist, &[_]std.posix.Kevent{}, null) catch return error.KqueueError;
@@ -218,10 +288,14 @@ pub const Netpoller = struct {
     }
 
     fn epollAdd(self: *Netpoller, fd: std.posix.fd_t, op: IoOp) !void {
+        // Timers use timerfd on Linux, not epoll directly
+        if (op == .timer) return;
+
         var event: std.os.linux.epoll_event = .{
             .events = switch (op) {
                 .read, .accept => std.os.linux.EPOLL.IN,
                 .write, .connect => std.os.linux.EPOLL.OUT,
+                .timer => unreachable, // Handled above
             } | std.os.linux.EPOLL.ONESHOT,
             .data = .{ .fd = fd },
         };
@@ -250,28 +324,40 @@ pub const Netpoller = struct {
 
     fn pollKqueue(self: *Netpoller) void {
         var events: [64]std.posix.Kevent = undefined;
-        const timeout = std.posix.timespec{ .sec = 0, .nsec = 10 * std.time.ns_per_ms }; // 10ms
+        const timeout = std.posix.timespec{ .sec = 0, .nsec = 1 * std.time.ns_per_ms }; // 1ms for faster timer response
 
         const n = std.posix.kevent(self.poll_fd, &[_]std.posix.Kevent{}, &events, &timeout) catch return;
         if (n == 0) return;
 
         self.pending_mutex.lock();
+        self.timer_mutex.lock();
         self.ready_mutex.lock();
         defer {
             self.ready_mutex.unlock();
+            self.timer_mutex.unlock();
             self.pending_mutex.unlock();
         }
 
         for (events[0..@intCast(n)]) |event| {
-            const fd: std.posix.fd_t = @intCast(event.ident);
+            // Check if this is a timer event
+            if (event.filter == std.posix.system.EVFILT.TIMER) {
+                const timer_id: u64 = event.udata;
+                if (self.timers.get(timer_id)) |timer| {
+                    // Wake the thread
+                    timer.thread.state = .ready;
+                    self.ready_threads.append(self.allocator, timer.thread) catch {};
+                    self.total_completed += 1;
+                    _ = self.timers.remove(timer_id);
+                }
+                continue;
+            }
 
+            // Regular I/O event
+            const fd: std.posix.fd_t = @intCast(event.ident);
             if (self.pending.get(fd)) |pending| {
-                // Wake the thread
                 pending.thread.state = .ready;
                 self.ready_threads.append(self.allocator, pending.thread) catch {};
                 self.total_completed += 1;
-
-                // Remove from pending
                 _ = self.pending.remove(fd);
             }
         }
@@ -280,7 +366,11 @@ pub const Netpoller = struct {
     fn pollEpoll(self: *Netpoller) void {
         var events: [64]std.os.linux.epoll_event = undefined;
 
-        const n = std.posix.epoll_wait(self.poll_fd, &events, 10) catch return; // 10ms timeout
+        const n = std.posix.epoll_wait(self.poll_fd, &events, 1) catch return; // 1ms timeout
+
+        // Check timers (deadline-based polling - TODO: use timerfd)
+        self.checkTimers();
+
         if (n == 0) return;
 
         self.pending_mutex.lock();
@@ -294,13 +384,43 @@ pub const Netpoller = struct {
             const fd = event.data.fd;
 
             if (self.pending.get(fd)) |pending| {
-                // Wake the thread
                 pending.thread.state = .ready;
                 self.ready_threads.append(self.allocator, pending.thread) catch {};
                 self.total_completed += 1;
-
-                // Remove from pending
                 _ = self.pending.remove(fd);
+            }
+        }
+    }
+
+    /// Check expired timers (used by Linux until timerfd is implemented)
+    fn checkTimers(self: *Netpoller) void {
+        const now = std.time.nanoTimestamp();
+
+        self.timer_mutex.lock();
+        self.ready_mutex.lock();
+        defer {
+            self.ready_mutex.unlock();
+            self.timer_mutex.unlock();
+        }
+
+        // Collect expired timers
+        var expired = std.ArrayList(u64){};
+        defer expired.deinit(self.allocator);
+
+        var iter = self.timers.iterator();
+        while (iter.next()) |entry| {
+            if (entry.value_ptr.deadline_ns <= now) {
+                expired.append(self.allocator, entry.key_ptr.*) catch continue;
+            }
+        }
+
+        // Wake expired timers
+        for (expired.items) |timer_id| {
+            if (self.timers.get(timer_id)) |timer| {
+                timer.thread.state = .ready;
+                self.ready_threads.append(self.allocator, timer.thread) catch {};
+                self.total_completed += 1;
+                _ = self.timers.remove(timer_id);
             }
         }
     }

@@ -242,9 +242,12 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
 /// Generate class definition with __init__ constructor
 pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!void {
-    // Track this class name for nested class instance detection
-    // This allows `x = X()` to be identified as a class instance after the class is defined
-    try self.nested_class_names.put(class.name, {});
+    // Track nested class names for instance detection and heap allocation
+    // Only add to nested_class_names if inside a function (current_function_name is set)
+    // Module-level classes should NOT be in nested_class_names
+    if (self.current_function_name != null) {
+        try self.nested_class_names.put(class.name, {});
+    }
 
     // Find __init__, __new__, and setUp methods to determine struct fields
     var init_method: ?ast.Node.FunctionDef = null;

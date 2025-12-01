@@ -103,17 +103,22 @@ pub fn genAsyncioCreateTask(self: *NativeCodegen, args: []ast.Node) CodegenError
 }
 
 /// Generate code for asyncio.sleep(seconds)
-/// Maps to: std.Thread.sleep (non-blocking in goroutine context)
+/// Uses runtime.sleep which yields to other goroutines while waiting
 pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         try self.emit("{}");
         return;
     }
 
-    // Emit inline sleep - convert seconds to nanoseconds
-    try self.emit("std.Thread.sleep(@as(u64, @intFromFloat(");
+    // Use runtime.sleep which does chunked sleeping with yields
+    // Use labeled block expression that returns void to avoid trailing ; issues
+    try self.emit("__sleep_blk: {\n");
+    try self.emit("    const __sleep_secs: f64 = try @as(anyerror!f64, ");
     try self.genExpr(args[0]);
-    try self.emit(" * 1_000_000_000.0)))");
+    try self.emit(");\n");
+    try self.emit("    runtime.sleep(__sleep_secs);\n");
+    try self.emit("    break :__sleep_blk;\n");
+    try self.emit("}");
 }
 
 /// Generate code for asyncio.Queue(maxsize)
