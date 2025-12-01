@@ -170,6 +170,13 @@ pub fn build(b: *std.Build) void {
     });
     work_queue_module.addImport("green_thread", green_thread_module);
 
+    const netpoller_module = b.createModule(.{
+        .root_source_file = b.path("packages/runtime/src/netpoller.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    netpoller_module.addImport("green_thread", green_thread_module);
+
     const scheduler_module = b.createModule(.{
         .root_source_file = b.path("packages/runtime/src/scheduler.zig"),
         .target = target,
@@ -177,6 +184,7 @@ pub fn build(b: *std.Build) void {
     });
     scheduler_module.addImport("green_thread", green_thread_module);
     scheduler_module.addImport("work_queue", work_queue_module);
+    scheduler_module.addImport("netpoller", netpoller_module);
 
     // Goroutine tests
     const goroutine_tests = b.addTest(.{
