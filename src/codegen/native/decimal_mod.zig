@@ -33,14 +33,14 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "Clamped", genClamped },
 });
 
-/// Generate decimal.Decimal(value) -> Decimal
+/// Generate decimal.Decimal(value) -> runtime.Decimal
 pub fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("Decimal{ .value = 0 }");
+        try self.emit("runtime.Decimal{ .value = 0 }");
         return;
     }
 
-    try self.emit("Decimal{ .value = ");
+    try self.emit("runtime.Decimal{ .value = ");
     // Handle string or numeric input
     if (args[0] == .constant) {
         if (args[0].constant.value == .string) {

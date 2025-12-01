@@ -24,12 +24,24 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
-        // Skip inline-only modules (no zig_import, functions are generated inline)
+        // Handle inline-only modules (no zig_import, functions are generated inline)
         // These modules don't have a struct to reference - their functions are
-        // directly available as builtins (e.g., from itertools import chain → chain is builtin)
+        // directly generated at call sites via dispatch (e.g., from decimal import Decimal)
         if (self.import_registry.lookup(from_imp.module)) |info| {
             if (info.zig_import == null) {
-                // Module is inline-only - symbols are available as builtins
+                // Module is inline-only - register symbols for dispatch routing
+                // This allows calls like Decimal(...) to be routed to decimal.Decimal dispatch
+                for (from_imp.names, 0..) |name, i| {
+                    // Skip import * for now
+                    if (std.mem.eql(u8, name, "*")) continue;
+
+                    const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                        from_imp.asnames[i].?
+                    else
+                        name;
+
+                    try self.local_from_imports.put(symbol_name, from_imp.module);
+                }
                 continue;
             }
         } else {
