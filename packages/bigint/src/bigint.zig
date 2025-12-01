@@ -277,6 +277,182 @@ pub fn parseBigInt(allocator: Allocator, str: []const u8) !BigInt {
     return BigInt.fromString(allocator, str, 10);
 }
 
+/// Parse a string to BigInt with Unicode whitespace handling (like Python's int())
+pub fn parseBigIntUnicode(allocator: Allocator, str: []const u8, base: u8) !BigInt {
+    // Strip leading/trailing Unicode whitespace
+    var s = str;
+
+    // Strip leading whitespace (ASCII and common Unicode)
+    while (s.len > 0) {
+        if (s[0] == ' ' or s[0] == '\t' or s[0] == '\n' or s[0] == '\r') {
+            s = s[1..];
+        } else if (s.len >= 3 and s[0] == 0xE2) {
+            // Unicode spaces: U+2000-U+200A, U+2028, U+2029, U+202F, U+205F, U+3000
+            if ((s[1] == 0x80 and s[2] >= 0x80 and s[2] <= 0x8A) or // U+2000-U+200A
+                (s[1] == 0x80 and (s[2] == 0xA8 or s[2] == 0xA9 or s[2] == 0xAF)) or // U+2028, U+2029, U+202F
+                (s[1] == 0x81 and s[2] == 0x9F)) // U+205F
+            {
+                s = s[3..];
+            } else {
+                break;
+            }
+        } else if (s.len >= 3 and s[0] == 0xE3 and s[1] == 0x80 and s[2] == 0x80) {
+            // U+3000 (ideographic space)
+            s = s[3..];
+        } else {
+            break;
+        }
+    }
+
+    // Strip trailing whitespace (ASCII and common Unicode)
+    while (s.len > 0) {
+        const last = s[s.len - 1];
+        if (last == ' ' or last == '\t' or last == '\n' or last == '\r') {
+            s = s[0 .. s.len - 1];
+        } else if (s.len >= 3) {
+            const tail = s[s.len - 3 ..];
+            if (tail[0] == 0xE2) {
+                if ((tail[1] == 0x80 and tail[2] >= 0x80 and tail[2] <= 0x8A) or
+                    (tail[1] == 0x80 and (tail[2] == 0xA8 or tail[2] == 0xA9 or tail[2] == 0xAF)) or
+                    (tail[1] == 0x81 and tail[2] == 0x9F))
+                {
+                    s = s[0 .. s.len - 3];
+                } else {
+                    break;
+                }
+            } else if (tail[0] == 0xE3 and tail[1] == 0x80 and tail[2] == 0x80) {
+                s = s[0 .. s.len - 3];
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Handle negative
+    const is_negative = s.len > 0 and s[0] == '-';
+    if (is_negative) s = s[1..];
+
+    // Handle positive sign
+    const is_positive = s.len > 0 and s[0] == '+';
+    if (is_positive) s = s[1..];
+
+    // Actual base to use (0 = auto-detect)
+    var actual_base: u8 = base;
+
+    // Handle base prefixes (when base is 0 or matches the prefix)
+    if (s.len >= 2) {
+        if ((base == 0 or base == 16) and (std.mem.startsWith(u8, s, "0x") or std.mem.startsWith(u8, s, "0X"))) {
+            actual_base = 16;
+            s = s[2..];
+        } else if ((base == 0 or base == 8) and (std.mem.startsWith(u8, s, "0o") or std.mem.startsWith(u8, s, "0O"))) {
+            actual_base = 8;
+            s = s[2..];
+        } else if ((base == 0 or base == 2) and (std.mem.startsWith(u8, s, "0b") or std.mem.startsWith(u8, s, "0B"))) {
+            actual_base = 2;
+            s = s[2..];
+        } else if (base == 0) {
+            actual_base = 10;
+        }
+    } else if (base == 0) {
+        actual_base = 10;
+    }
+
+    // Empty string after stripping is invalid
+    if (s.len == 0) return error.ValueError;
+
+    // Try standard ASCII parsing first
+    var result = BigInt.fromString(allocator, s, actual_base) catch {
+        // If that fails, try converting Unicode digits to ASCII
+        const ascii_str = convertUnicodeDigitsToAscii(allocator, s) catch return error.ValueError;
+        defer allocator.free(ascii_str);
+
+        var r = BigInt.fromString(allocator, ascii_str, actual_base) catch return error.ValueError;
+        if (is_negative) r.negate();
+        return r;
+    };
+    if (is_negative) result.negate();
+    return result;
+}
+
+/// Convert Unicode digit characters to ASCII digits
+/// Handles Devanagari (0x0966-0x096F), Arabic-Indic (0x0660-0x0669), etc.
+fn convertUnicodeDigitsToAscii(allocator: Allocator, str: []const u8) ![]u8 {
+    var result = std.ArrayList(u8){};
+    errdefer result.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < str.len) {
+        const byte = str[i];
+
+        // Skip underscores (Python allows 1_000_000)
+        if (byte == '_') {
+            i += 1;
+            continue;
+        }
+
+        // ASCII digit
+        if (byte >= '0' and byte <= '9') {
+            try result.append(allocator, byte);
+            i += 1;
+            continue;
+        }
+
+        // Check for multi-byte Unicode digit
+        const cp_len = std.unicode.utf8ByteSequenceLength(byte) catch return error.ValueError;
+        if (i + cp_len > str.len) return error.ValueError;
+
+        const codepoint = std.unicode.utf8Decode(str[i..][0..cp_len]) catch return error.ValueError;
+
+        // Check various Unicode digit ranges and convert to '0'-'9'
+        const digit: ?u8 = blk: {
+            // Devanagari digits (Hindi): U+0966 to U+096F
+            if (codepoint >= 0x0966 and codepoint <= 0x096F) break :blk @intCast(codepoint - 0x0966);
+            // Arabic-Indic digits: U+0660 to U+0669
+            if (codepoint >= 0x0660 and codepoint <= 0x0669) break :blk @intCast(codepoint - 0x0660);
+            // Extended Arabic-Indic: U+06F0 to U+06F9
+            if (codepoint >= 0x06F0 and codepoint <= 0x06F9) break :blk @intCast(codepoint - 0x06F0);
+            // Bengali digits: U+09E6 to U+09EF
+            if (codepoint >= 0x09E6 and codepoint <= 0x09EF) break :blk @intCast(codepoint - 0x09E6);
+            // Gurmukhi digits: U+0A66 to U+0A6F
+            if (codepoint >= 0x0A66 and codepoint <= 0x0A6F) break :blk @intCast(codepoint - 0x0A66);
+            // Gujarati digits: U+0AE6 to U+0AEF
+            if (codepoint >= 0x0AE6 and codepoint <= 0x0AEF) break :blk @intCast(codepoint - 0x0AE6);
+            // Oriya digits: U+0B66 to U+0B6F
+            if (codepoint >= 0x0B66 and codepoint <= 0x0B6F) break :blk @intCast(codepoint - 0x0B66);
+            // Tamil digits: U+0BE6 to U+0BEF
+            if (codepoint >= 0x0BE6 and codepoint <= 0x0BEF) break :blk @intCast(codepoint - 0x0BE6);
+            // Telugu digits: U+0C66 to U+0C6F
+            if (codepoint >= 0x0C66 and codepoint <= 0x0C6F) break :blk @intCast(codepoint - 0x0C66);
+            // Kannada digits: U+0CE6 to U+0CEF
+            if (codepoint >= 0x0CE6 and codepoint <= 0x0CEF) break :blk @intCast(codepoint - 0x0CE6);
+            // Malayalam digits: U+0D66 to U+0D6F
+            if (codepoint >= 0x0D66 and codepoint <= 0x0D6F) break :blk @intCast(codepoint - 0x0D66);
+            // Thai digits: U+0E50 to U+0E59
+            if (codepoint >= 0x0E50 and codepoint <= 0x0E59) break :blk @intCast(codepoint - 0x0E50);
+            // Lao digits: U+0ED0 to U+0ED9
+            if (codepoint >= 0x0ED0 and codepoint <= 0x0ED9) break :blk @intCast(codepoint - 0x0ED0);
+            // Tibetan digits: U+0F20 to U+0F29
+            if (codepoint >= 0x0F20 and codepoint <= 0x0F29) break :blk @intCast(codepoint - 0x0F20);
+            // Myanmar digits: U+1040 to U+1049
+            if (codepoint >= 0x1040 and codepoint <= 0x1049) break :blk @intCast(codepoint - 0x1040);
+            // Fullwidth digits: U+FF10 to U+FF19
+            if (codepoint >= 0xFF10 and codepoint <= 0xFF19) break :blk @intCast(codepoint - 0xFF10);
+            break :blk null;
+        };
+
+        if (digit) |d| {
+            try result.append(allocator, '0' + d);
+        } else {
+            return error.ValueError;
+        }
+        i += cp_len;
+    }
+
+    return result.toOwnedSlice(allocator);
+}
+
 /// Parse a string with optional base prefix (0x, 0o, 0b)
 pub fn parseBigIntAuto(allocator: Allocator, str: []const u8) !BigInt {
     var s = str;

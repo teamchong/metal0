@@ -253,7 +253,7 @@ pub fn inferExpr(
                                 switch (attr) {
                                     .platform, .version => break :blk .{ .string = .literal },
                                     .version_info => break :blk .{ .int = .bounded }, // Access like int
-                                    .maxsize => break :blk .{ .int = .bounded }, // sys.maxsize is bounded to i64
+                                    .maxsize => break :blk .{ .int = .bounded }, // sys.maxsize uses i128 to allow arithmetic without overflow
                                     .argv => {
                                         // sys.argv is [][]const u8 - return as string array
                                         const str_type = try allocator.create(NativeType);
@@ -668,8 +668,14 @@ fn inferBinOp(
         }
     }
 
-    // If either operand is bigint, result is bigint (for arithmetic ops)
-    if (left_tag == .bigint or right_tag == .bigint) {
+    // Helper to check if type needs BigInt (explicit bigint or unbounded int)
+    const left_needs_bigint = left_tag == .bigint or
+        (left_tag == .int and left_type.int.needsBigInt());
+    const right_needs_bigint = right_tag == .bigint or
+        (right_tag == .int and right_type.int.needsBigInt());
+
+    // If either operand needs bigint, result is bigint (for arithmetic ops)
+    if (left_needs_bigint or right_needs_bigint) {
         if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or
             binop.op == .FloorDiv or binop.op == .Mod or binop.op == .Pow or
             binop.op == .LShift or binop.op == .RShift or

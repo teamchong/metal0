@@ -271,6 +271,14 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (arg_type == .int) {
         try self.emitFmt("try buf.writer({s}).print(\"{{}}\", .{{", .{alloc_name});
+    } else if (arg_type == .bigint) {
+        // BigInt - use toDecimalString method
+        try self.emitFmt("try buf.appendSlice({s}, try (", .{alloc_name});
+        try self.genExpr(args[0]);
+        try self.emitFmt(").toDecimalString({s}));\n", .{alloc_name});
+        try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
+        try self.emit("}");
+        return;
     } else if (arg_type == .float and !is_float_error_union) {
         try self.emitFmt("try buf.writer({s}).print(\"{{d}}\", .{{", .{alloc_name});
     } else {

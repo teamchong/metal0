@@ -48,6 +48,8 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"runtime.zig\")", "@import(\"../runtime.zig\")");
+                // Patch bigint module import for files in runtime/ subdirectory
+                content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"bigint\")", "@import(\"../bigint.zig\")");
                 // Patch json_simd module - different depths need different paths
                 // Files in json/ need simd/dispatch.zig
                 // Files in json/parse/ or json/parse_direct/ need ../simd/dispatch.zig

@@ -262,24 +262,34 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             break :blk false;
         };
 
-        // In assertRaises context, don't emit 'try' - the outer catch will handle errors
+        // In assertRaises context, don't emit 'try' or type casts - the outer catch will handle errors
         // Use runtime.parseIntUnicode to handle Unicode whitespace (like Python's int())
-        // Cast to i64 for normal integers (using @as for explicit type)
-        try self.emit("@as(i64, @intCast(");
-        if (!self.in_assert_raises_context) {
-            try self.emit("try ");
-        }
-        try self.emit("runtime.parseIntUnicode(");
-        try self.genExpr(args[0]);
-        try self.emit(", @intCast(");
-        if (base_is_indexable_class) {
-            // For class with __index__, create instance and call __index__()
-            try self.genExpr(args[1]);
-            try self.emit(".__index__()");
+        if (self.in_assert_raises_context) {
+            // Return raw error union for assertRaises to catch
+            try self.emit("runtime.parseIntUnicode(");
+            try self.genExpr(args[0]);
+            try self.emit(", @intCast(");
+            if (base_is_indexable_class) {
+                try self.genExpr(args[1]);
+                try self.emit(".__index__()");
+            } else {
+                try self.genExpr(args[1]);
+            }
+            try self.emit("))");
         } else {
-            try self.genExpr(args[1]);
+            // Cast to i64 for normal integers (using @as for explicit type)
+            try self.emit("@as(i64, @intCast(try runtime.parseIntUnicode(");
+            try self.genExpr(args[0]);
+            try self.emit(", @intCast(");
+            if (base_is_indexable_class) {
+                // For class with __index__, create instance and call __index__()
+                try self.genExpr(args[1]);
+                try self.emit(".__index__()");
+            } else {
+                try self.genExpr(args[1]);
+            }
+            try self.emit("))))");
         }
-        try self.emit("))))");
         return;
     }
 
@@ -308,38 +318,44 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Parse string to int
     if (arg_type == .string) {
-        // Check if literal string is too large for i128 (39+ digits need BigInt)
+        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
+        // Check if this is a literal string
         if (args[0] == .constant and args[0].constant.value == .string) {
             const str_val = args[0].constant.value.string;
-            // i128 max is ~39 digits, use BigInt for anything >= 38 digits to be safe
-            const digit_count = blk: {
-                var count: usize = 0;
-                for (str_val) |c| {
-                    if (c >= '0' and c <= '9') count += 1;
-                }
-                break :blk count;
-            };
-            if (digit_count >= 38) {
-                // Use BigInt for very large numbers
-                // Use catch unreachable since Python doesn't expect allocation to fail
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emitFmt("(runtime.bigint.parseBigInt({s}, ", .{alloc_name});
+
+            // Check if string might produce a number >= 19 digits
+            // For Unicode digits, each digit can be multi-byte (up to 4 bytes)
+            // A 19-digit number needs at least 19 bytes
+            // If string has >=19 bytes, use BigInt to be safe (handles Unicode digits)
+            const needs_bigint = str_val.len >= 19;
+
+            if (needs_bigint) {
+                // Use BigInt for large numbers
+                try self.emitFmt("(try runtime.bigint.parseBigIntUnicode({s}, ", .{alloc_name});
                 try self.genExpr(args[0]);
-                try self.emit(") catch unreachable)");
+                try self.emit(", 10))");
                 return;
             }
+            // Small literal - use i64
+            if (self.in_assert_raises_context) {
+                try self.emit("runtime.parseIntUnicode(");
+                try self.genExpr(args[0]);
+                try self.emit(", 10)");
+            } else {
+                try self.emit("@as(i64, @intCast(try runtime.parseIntUnicode(");
+                try self.genExpr(args[0]);
+                try self.emit(", 10)))");
+            }
+            return;
         }
-        // Use i128 to handle large integers like sys.maxsize + 1
-        // In assertRaises context, don't emit 'try' - the outer catch will handle errors
-        // Use runtime.parseIntUnicode to handle Unicode whitespace (like Python's int())
-        // Cast to i64 for normal integers (using @as for explicit type)
-        try self.emit("@as(i64, @intCast(");
-        if (!self.in_assert_raises_context) {
-            try self.emit("try ");
-        }
-        try self.emit("runtime.parseIntUnicode(");
+
+        // Runtime string (variable, subscript, etc.) - use BigInt for Python compatibility
+        // since we can't know at compile time if the value will overflow i64
+        // Always use 'try' to allow error propagation for try/except blocks
+        try self.emitFmt("(try runtime.bigint.parseBigIntUnicode({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
-        try self.emit(", 10)))");
+        try self.emit(", 10))");
         return;
     }
 
