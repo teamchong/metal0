@@ -7,6 +7,7 @@ const PyObject = runtime.PyObject;
 const PyInt = @import("pyint.zig").PyInt;
 const PyFloat = @import("pyfloat.zig").PyFloat;
 const PyBool = @import("pybool.zig").PyBool;
+const BigInt = @import("bigint").BigInt;
 
 /// Bytecode instruction opcodes
 pub const OpCode = enum(u8) {
@@ -51,6 +52,7 @@ pub const Constant = union(enum) {
     float: f64,
     string: []const u8,
     bool: bool,
+    bigint: []const u8, // BigInt stored as decimal string for serialization
 };
 
 /// Compiled bytecode program
@@ -98,6 +100,11 @@ pub const BytecodeProgram = struct {
                 .bool => |b| {
                     try buffer.append(3); // type tag: bool
                     try buffer.append(if (b) 1 else 0);
+                },
+                .bigint => |s| {
+                    try buffer.append(4); // type tag: bigint (stored as string)
+                    try buffer.appendSlice(&std.mem.toBytes(@as(u32, @intCast(s.len))));
+                    try buffer.appendSlice(s);
                 },
             }
         }
@@ -164,6 +171,14 @@ pub const BytecodeProgram = struct {
                     if (pos + 1 > data.len) return error.UnexpectedEof;
                     constants[i] = .{ .bool = data[pos] != 0 };
                     pos += 1;
+                },
+                4 => { // bigint (stored as string)
+                    if (pos + 4 > data.len) return error.UnexpectedEof;
+                    const str_len = std.mem.readInt(u32, data[pos..][0..4], .little);
+                    pos += 4;
+                    if (pos + str_len > data.len) return error.UnexpectedEof;
+                    constants[i] = .{ .bigint = try allocator.dupe(u8, data[pos..][0..str_len]) };
+                    pos += str_len;
                 },
                 else => return error.InvalidConstantType,
             }

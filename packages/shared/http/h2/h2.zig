@@ -60,11 +60,77 @@ pub const Response = struct {
     }
 };
 
-/// HTTP/2 Client with connection pooling
+/// Response cache for H2 client
+pub const ResponseCache = struct {
+    allocator: std.mem.Allocator,
+    entries: std.StringHashMap(CacheEntry),
+    max_size: usize,
+    ttl_seconds: i64,
+
+    const CacheEntry = struct {
+        body: []const u8,
+        status: u16,
+        timestamp: i64,
+    };
+
+    pub fn init(allocator: std.mem.Allocator, max_size: usize, ttl_seconds: i64) ResponseCache {
+        return .{
+            .allocator = allocator,
+            .entries = std.StringHashMap(CacheEntry).init(allocator),
+            .max_size = max_size,
+            .ttl_seconds = ttl_seconds,
+        };
+    }
+
+    pub fn deinit(self: *ResponseCache) void {
+        var it = self.entries.iterator();
+        while (it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.body);
+        }
+        self.entries.deinit();
+    }
+
+    pub fn get(self: *ResponseCache, url: []const u8) ?CacheEntry {
+        if (self.entries.get(url)) |entry| {
+            const now = std.time.timestamp();
+            if (now - entry.timestamp < self.ttl_seconds) {
+                return entry;
+            }
+            // Expired - remove
+            if (self.entries.fetchRemove(url)) |kv| {
+                self.allocator.free(kv.key);
+                self.allocator.free(kv.value.body);
+            }
+        }
+        return null;
+    }
+
+    pub fn put(self: *ResponseCache, url: []const u8, status: u16, body: []const u8) !void {
+        const key = try self.allocator.dupe(u8, url);
+        errdefer self.allocator.free(key);
+
+        const body_copy = try self.allocator.dupe(u8, body);
+        errdefer self.allocator.free(body_copy);
+
+        try self.entries.put(key, .{
+            .body = body_copy,
+            .status = status,
+            .timestamp = std.time.timestamp(),
+        });
+    }
+
+    pub fn stats(self: *ResponseCache) struct { entries: usize, hits: u64, misses: u64 } {
+        return .{ .entries = self.entries.count(), .hits = 0, .misses = 0 };
+    }
+};
+
+/// HTTP/2 Client with connection pooling and optional response cache
 pub const Client = struct {
     allocator: std.mem.Allocator,
     connections: std.StringHashMap(*H2Connection),
     max_connections_per_host: usize,
+    cache: ?*ResponseCache,
 
     const H2Connection = struct {
         tls: *TlsConnection,
@@ -76,6 +142,16 @@ pub const Client = struct {
             .allocator = allocator,
             .connections = std.StringHashMap(*H2Connection).init(allocator),
             .max_connections_per_host = 1, // HTTP/2 multiplexing means 1 is enough
+            .cache = null,
+        };
+    }
+
+    pub fn initWithCache(allocator: std.mem.Allocator, cache: *ResponseCache) Client {
+        return .{
+            .allocator = allocator,
+            .connections = std.StringHashMap(*H2Connection).init(allocator),
+            .max_connections_per_host = 1,
+            .cache = cache,
         };
     }
 

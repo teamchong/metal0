@@ -206,8 +206,8 @@ pub const DiskCache = struct {
     ttl_seconds: i64,
 
     pub fn init(allocator: std.mem.Allocator, cache_dir: []const u8, ttl_seconds: i64) !DiskCache {
-        // Ensure cache directory exists
-        std.fs.makeDirAbsolute(cache_dir) catch |err| {
+        // Ensure cache directory exists (create parent dirs too)
+        std.fs.cwd().makePath(cache_dir) catch |err| {
             if (err != error.PathAlreadyExists) return err;
         };
 
@@ -350,10 +350,12 @@ pub const Cache = struct {
         // Try disk
         if (self.disk) |*d| {
             if (d.get(key)) |data| {
-                // Promote to memory cache
+                // Promote to memory cache (makes a copy)
                 self.memory.put(key, data) catch {};
+                // Free the disk-allocated copy since memory.put made its own
+                self.allocator.free(data);
                 self.hits += 1;
-                return self.memory.get(key); // Return from memory (data was freed)
+                return self.memory.get(key); // Return from memory cache
             } else |_| {}
         }
 

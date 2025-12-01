@@ -1077,3 +1077,5 @@ kernels = metal0.load("kernels.zig")
 
 
 to allow manual memory control
+
+!IMPORTANT! always go for the proper fix, Say NO to simpler approach that is not a proper fix.
