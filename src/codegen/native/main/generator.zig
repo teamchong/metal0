@@ -21,8 +21,6 @@ const MAIN_NAME = "__main__";
 
 /// Generate native Zig code for module
 pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
-    std.debug.print("\n[DEBUG generate] source_file_path={?s}, mode={}\n", .{ self.source_file_path, @intFromEnum(self.mode) });
-
     // PHASE 1: Analyze module to determine requirements
     const analysis = try analyzer.analyzeModule(module, self.allocator);
     defer if (analysis.global_vars.len > 0) self.allocator.free(analysis.global_vars);
@@ -148,12 +146,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     try self.emit("const allocator_helper = @import(\"./utils/allocator_helper.zig\");\n");
 
     // Emit @import statements for compiled user/stdlib modules (collected in PHASE 1.6)
-    std.debug.print("[DEBUG] Emitting {d} inlined module imports, output.len before={d}\n", .{ inlined_modules.items.len, self.output.items.len });
     for (inlined_modules.items) |import_stmt| {
-        std.debug.print("[DEBUG] Emitting: {s}", .{import_stmt});
         try self.emit(import_stmt);
     }
-    std.debug.print("[DEBUG] After emit, output.len={d}\n", .{self.output.items.len});
 
     // PHASE 3.5: Generate C library imports (if any detected)
     if (self.import_ctx) |ctx| {
