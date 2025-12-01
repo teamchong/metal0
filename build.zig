@@ -71,6 +71,11 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("packages/bigint/src/bigint.zig"),
     });
 
+    // Package manager module (PEP 440, 508, requirements.txt, METADATA parsing)
+    const pkg_mod = b.addModule("pkg", .{
+        .root_source_file = b.path("packages/pkg/src/pkg.zig"),
+    });
+
     // Module dependencies
     runtime.addImport("hashmap_helper", hashmap_helper);
     runtime.addImport("json_simd", json_simd);
@@ -102,6 +107,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("zig_keywords", zig_keywords);
     exe.root_module.addImport("ast", ast);
     exe.root_module.addImport("c_interop", c_interop_mod);
+    exe.root_module.addImport("pkg", pkg_mod);
     exe.linkLibC();
 
     b.installArtifact(exe);
@@ -305,4 +311,17 @@ pub fn build(b: *std.Build) void {
     const run_gzip_tests = b.addRunArtifact(gzip_tests);
     const gzip_test_step = b.step("test-gzip", "Run gzip compression tests");
     gzip_test_step.dependOn(&run_gzip_tests.step);
+
+    // Package manager tests (PEP 440, 508, requirements.txt, METADATA)
+    const pkg_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/pkg/src/pkg.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const run_pkg_tests = b.addRunArtifact(pkg_tests);
+    const pkg_test_step = b.step("test-pkg", "Run package manager parser tests");
+    pkg_test_step.dependOn(&run_pkg_tests.step);
 }
