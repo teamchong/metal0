@@ -180,9 +180,7 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
             } else {
                 // For compiled Python modules, reference directly
-                // e.g., _py_abc.ABCMeta -> _py_abc._py_abc.ABCMeta (module const has nested struct)
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
-                try self.emit(".");
+                // e.g., _py_abc.ABCMeta -> _py_abc.ABCMeta (module @import gives direct access)
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
                 try self.emit(".");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
