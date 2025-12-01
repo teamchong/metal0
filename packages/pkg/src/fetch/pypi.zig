@@ -1190,6 +1190,7 @@ pub const PyPIClient = struct {
 
     /// FAST: Parallel fetch using Simple API + PEP 658 wheel METADATA
     /// Downloads ~2KB per package instead of ~80KB (40x smaller!)
+    /// Uses HTTP/2 multiplexing - NO threads, single connection!
     pub fn getPackagesParallelFast(
         self: *PyPIClient,
         package_names: []const []const u8,
@@ -1203,141 +1204,187 @@ pub const PyPIClient = struct {
             r.* = .{ .err = PyPIError.NetworkError };
         }
 
-        // Fast fetch context - uses Simple API + wheel METADATA
-        const FastFetchContext = struct {
-            client: *PyPIClient,
-            name: []const u8,
-            result: *FetchResult,
+        // Phase 1: Fetch all Simple API pages in parallel (H2 multiplexing)
+        var simple_urls = try self.allocator.alloc([]const u8, package_names.len);
+        defer {
+            for (simple_urls) |url| self.allocator.free(url);
+            self.allocator.free(simple_urls);
+        }
 
-            fn fetch(ctx: *@This()) void {
-                ctx.result.* = if (ctx.fetchFast()) |meta|
-                    .{ .success = meta }
-                else |_|
-                    .{ .err = PyPIError.NetworkError };
+        for (package_names, 0..) |name, i| {
+            simple_urls[i] = try std.fmt.allocPrint(self.allocator, "https://pypi.org/simple/{s}/", .{name});
+        }
+
+        const simple_responses = try self.h2_client.getAll(simple_urls);
+        defer {
+            for (simple_responses) |*r| r.deinit();
+            self.allocator.free(simple_responses);
+        }
+
+        // Parse Simple API responses and collect wheel metadata URLs
+        const WheelInfo = struct {
+            pkg_idx: usize,
+            url: []const u8,
+            version: []const u8,
+        };
+        var wheel_infos = std.ArrayList(WheelInfo){};
+        defer wheel_infos.deinit(self.allocator);
+
+        // Track which packages need JSON fallback
+        var needs_json = try self.allocator.alloc(bool, package_names.len);
+        defer self.allocator.free(needs_json);
+        for (needs_json) |*n| n.* = false;
+
+        for (simple_responses, 0..) |resp, i| {
+            if (resp.status != 200) {
+                needs_json[i] = true;
+                continue;
             }
 
-            fn fetchFast(ctx: *@This()) !PackageMetadata {
-                const allocator = ctx.client.allocator;
+            // Parse simple HTML to find best wheel with metadata
+            var best_wheel_url: ?[]const u8 = null;
+            var best_version: ?[]const u8 = null;
 
-                // 1. Get Simple API - lightweight version list
-                var simple = ctx.client.getSimplePackageInfo(ctx.name) catch {
-                    // Fallback to JSON API
-                    return ctx.client.getPackageMetadata(ctx.name);
-                };
-                defer simple.deinit(allocator);
+            var pos: usize = 0;
+            while (std.mem.indexOfPos(u8, resp.body, pos, "href=\"")) |href_start| {
+                const url_start = href_start + 6;
+                const url_end = std.mem.indexOfPos(u8, resp.body, url_start, "\"") orelse break;
+                const url = resp.body[url_start..url_end];
+                pos = url_end;
 
-                // 2. Find latest version with PEP 658 metadata support
-                var best_wheel_url: ?[]const u8 = null;
-                var best_version: ?[]const u8 = null;
-                for (simple.versions) |v| {
-                    if (v.has_metadata and v.wheel_url != null) {
-                        best_wheel_url = v.wheel_url;
-                        best_version = v.version;
+                // Check for data-dist-info-metadata attribute (PEP 658)
+                const line_end = std.mem.indexOfPos(u8, resp.body, pos, "\n") orelse resp.body.len;
+                const line = resp.body[pos..line_end];
+
+                if (std.mem.indexOf(u8, line, "data-dist-info-metadata") != null) {
+                    // Extract version from wheel filename
+                    if (std.mem.lastIndexOf(u8, url, "/")) |slash| {
+                        const filename = url[slash + 1 ..];
+                        if (std.mem.indexOf(u8, filename, "-")) |first_dash| {
+                            const after_name = filename[first_dash + 1 ..];
+                            if (std.mem.indexOf(u8, after_name, "-")) |second_dash| {
+                                best_version = after_name[0..second_dash];
+                                best_wheel_url = url;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (best_wheel_url) |wheel_url| {
+                // Build metadata URL
+                const meta_url = try std.fmt.allocPrint(self.allocator, "{s}.metadata", .{wheel_url});
+                try wheel_infos.append(self.allocator, .{
+                    .pkg_idx = i,
+                    .url = meta_url,
+                    .version = best_version orelse "",
+                });
+            } else {
+                needs_json[i] = true;
+            }
+        }
+
+        // Phase 2: Fetch all wheel METADATA files in parallel (H2 multiplexing)
+        if (wheel_infos.items.len > 0) {
+            var meta_urls = try self.allocator.alloc([]const u8, wheel_infos.items.len);
+            defer self.allocator.free(meta_urls);
+
+            for (wheel_infos.items, 0..) |info, j| {
+                meta_urls[j] = info.url;
+            }
+
+            const meta_responses = try self.h2_client.getAll(meta_urls);
+            defer {
+                for (meta_responses) |*r| r.deinit();
+                self.allocator.free(meta_responses);
+            }
+
+            // Parse wheel METADATA and build results
+            for (meta_responses, 0..) |resp, j| {
+                const info = wheel_infos.items[j];
+                const pkg_idx = info.pkg_idx;
+
+                if (resp.status != 200) {
+                    needs_json[pkg_idx] = true;
+                    continue;
+                }
+
+                // Parse METADATA file
+                var requires_dist = std.ArrayList([]const u8){};
+                errdefer {
+                    for (requires_dist.items) |d| self.allocator.free(d);
+                    requires_dist.deinit(self.allocator);
+                }
+
+                var lines = std.mem.splitScalar(u8, resp.body, '\n');
+                while (lines.next()) |line| {
+                    if (std.mem.startsWith(u8, line, "Requires-Dist: ")) {
+                        const dep = std.mem.trim(u8, line["Requires-Dist: ".len..], &[_]u8{ ' ', '\r' });
+                        const dep_copy = try self.allocator.dupe(u8, dep);
+                        try requires_dist.append(self.allocator, dep_copy);
                     }
                 }
 
-                // 3. No PEP 658 metadata available? Use full JSON API
-                if (best_wheel_url == null) {
-                    return ctx.client.getPackageMetadata(ctx.name);
-                }
+                const name_copy = try self.allocator.dupe(u8, package_names[pkg_idx]);
+                const version_copy = try self.allocator.dupe(u8, info.version);
 
-                // 4. Fetch wheel METADATA (~2KB vs ~80KB JSON)
-                var wheel_meta = ctx.client.getWheelMetadata(best_wheel_url.?) catch {
-                    // Fallback to JSON API on failure
-                    return ctx.client.getPackageMetadata(ctx.name);
-                };
-                defer wheel_meta.deinit(allocator);
-
-                // 5. Build result - all allocations with errdefer cleanup
-                const name_copy = try allocator.dupe(u8, ctx.name);
-                errdefer allocator.free(name_copy);
-
-                const version_copy = try allocator.dupe(u8, best_version orelse wheel_meta.version);
-                errdefer allocator.free(version_copy);
-
-                // Copy requires_dist
-                var requires_dist_list = std.ArrayList([]const u8){};
-                errdefer {
-                    for (requires_dist_list.items) |dep| allocator.free(dep);
-                    requires_dist_list.deinit(allocator);
-                }
-                for (wheel_meta.requires_dist) |dep| {
-                    const dep_copy = try allocator.dupe(u8, dep);
-                    errdefer allocator.free(dep_copy);
-                    try requires_dist_list.append(allocator, dep_copy);
-                }
-
-                // Build minimal releases list from simple versions
-                var releases_list = std.ArrayList(ReleaseInfo){};
-                errdefer {
-                    for (releases_list.items) |*r| @constCast(r).deinit(allocator);
-                    releases_list.deinit(allocator);
-                }
-                for (simple.versions) |v| {
-                    const ver_copy = try allocator.dupe(u8, v.version);
-                    errdefer allocator.free(ver_copy);
-                    try releases_list.append(allocator, .{
-                        .version = ver_copy,
-                        .files = &[_]FileInfo{},
-                    });
-                }
-
-                // Convert to owned slices
-                const requires_dist = try requires_dist_list.toOwnedSlice(allocator);
-                errdefer {
-                    for (requires_dist) |dep| allocator.free(dep);
-                    allocator.free(requires_dist);
-                }
-
-                const releases = try releases_list.toOwnedSlice(allocator);
-
-                return .{
-                    .name = name_copy,
-                    .latest_version = version_copy,
-                    .summary = null,
-                    .releases = releases,
-                    .requires_dist = requires_dist,
+                results[pkg_idx] = .{
+                    .success = .{
+                        .name = name_copy,
+                        .latest_version = version_copy,
+                        .summary = null,
+                        .releases = &[_]ReleaseInfo{},
+                        .requires_dist = try requires_dist.toOwnedSlice(self.allocator),
+                    },
                 };
             }
-        };
 
-        // Create contexts
-        const contexts = try self.allocator.alloc(FastFetchContext, package_names.len);
-        defer self.allocator.free(contexts);
-
-        for (package_names, 0..) |name, i| {
-            contexts[i] = .{
-                .client = self,
-                .name = name,
-                .result = &results[i],
-            };
+            // Free wheel info URLs
+            for (wheel_infos.items) |info| {
+                self.allocator.free(info.url);
+            }
         }
 
-        // Spawn ALL threads at once for maximum parallelism
-        var threads = try self.allocator.alloc(std.Thread, package_names.len);
-        defer self.allocator.free(threads);
+        // Phase 3: Fallback to JSON API for packages without PEP 658 metadata
+        var json_urls = std.ArrayList([]const u8){};
+        defer {
+            for (json_urls.items) |url| self.allocator.free(url);
+            json_urls.deinit(self.allocator);
+        }
+        var json_indices = std.ArrayList(usize){};
+        defer json_indices.deinit(self.allocator);
 
-        var spawned: usize = 0;
-        errdefer {
-            for (threads[0..spawned]) |t| t.join();
+        for (needs_json, 0..) |need, i| {
+            if (need) {
+                const url = try std.fmt.allocPrint(self.allocator, "https://pypi.org/pypi/{s}/json", .{package_names[i]});
+                try json_urls.append(self.allocator, url);
+                try json_indices.append(self.allocator, i);
+            }
         }
 
-        for (0..package_names.len) |i| {
-            threads[i] = std.Thread.spawn(.{}, FastFetchContext.fetch, .{&contexts[i]}) catch {
-                FastFetchContext.fetch(&contexts[i]);
-                continue;
-            };
-            spawned += 1;
-        }
+        if (json_urls.items.len > 0) {
+            const json_responses = try self.h2_client.getAll(json_urls.items);
+            defer {
+                for (json_responses) |*r| r.deinit();
+                self.allocator.free(json_responses);
+            }
 
-        // Wait for all
-        for (threads[0..spawned]) |t| t.join();
+            for (json_responses, 0..) |resp, j| {
+                const pkg_idx = json_indices.items[j];
+                if (resp.status != 200) continue;
+
+                // Parse JSON response
+                if (self.parsePackageJson(resp.body, package_names[pkg_idx])) |meta| {
+                    results[pkg_idx] = .{ .success = meta };
+                } else |_| {}
+            }
+        }
 
         return results;
     }
 
-    /// SLOW: Parallel fetch using full JSON API (80KB per package)
-    /// Use getPackagesParallelFast instead when possible
+    /// Parallel fetch using full JSON API (80KB per package)
+    /// Uses HTTP/2 multiplexing - NO threads, single connection!
     pub fn getPackagesParallelSlow(
         self: *PyPIClient,
         package_names: []const []const u8,
@@ -1351,71 +1398,32 @@ pub const PyPIClient = struct {
             r.* = .{ .err = PyPIError.NetworkError };
         }
 
-        const FetchContext = struct {
-            allocator: std.mem.Allocator,
-            config: *const Config,
-            name: []const u8,
-            result: *FetchResult,
-
-            fn fetch(ctx: *@This()) void {
-                // Each thread creates its own h2 client (thread-safe!)
-                var client = H2Client.init(ctx.allocator);
-                defer client.deinit();
-
-                ctx.result.* = blk: {
-                    const meta = fetchPackage(&client, ctx.allocator, ctx.config, ctx.name) catch {
-                        break :blk .{ .err = PyPIError.NetworkError };
-                    };
-                    break :blk .{ .success = meta };
-                };
-            }
-
-            fn fetchPackage(client: *H2Client, allocator: std.mem.Allocator, config: *const Config, name: []const u8) !PackageMetadata {
-                _ = config;
-                // Build URL
-                const url = try std.fmt.allocPrint(allocator, "https://pypi.org/pypi/{s}/json", .{name});
-                defer allocator.free(url);
-
-                // Fetch using h2 client
-                var response = client.get(url) catch return PyPIError.NetworkError;
-                defer response.deinit();
-
-                if (response.status != 200) return PyPIError.NetworkError;
-
-                // Parse with lazy JSON
-                return parsePackageJsonStatic(allocator, response.body, name);
-            }
-        };
-
-        const contexts = try self.allocator.alloc(FetchContext, package_names.len);
-        defer self.allocator.free(contexts);
+        // Build all URLs
+        var urls = try self.allocator.alloc([]const u8, package_names.len);
+        defer {
+            for (urls) |url| self.allocator.free(url);
+            self.allocator.free(urls);
+        }
 
         for (package_names, 0..) |name, i| {
-            contexts[i] = .{
-                .allocator = self.allocator,
-                .config = &self.config,
-                .name = name,
-                .result = &results[i],
-            };
+            urls[i] = try std.fmt.allocPrint(self.allocator, "https://pypi.org/pypi/{s}/json", .{name});
         }
 
-        var threads = try self.allocator.alloc(std.Thread, package_names.len);
-        defer self.allocator.free(threads);
-
-        var spawned: usize = 0;
-        errdefer {
-            for (threads[0..spawned]) |t| t.join();
+        // Fetch ALL at once with H2 multiplexing
+        const responses = try self.h2_client.getAll(urls);
+        defer {
+            for (responses) |*r| r.deinit();
+            self.allocator.free(responses);
         }
 
-        for (0..package_names.len) |i| {
-            threads[i] = std.Thread.spawn(.{}, FetchContext.fetch, .{&contexts[i]}) catch {
-                FetchContext.fetch(&contexts[i]);
-                continue;
-            };
-            spawned += 1;
-        }
+        // Parse responses
+        for (responses, 0..) |resp, i| {
+            if (resp.status != 200) continue;
 
-        for (threads[0..spawned]) |t| t.join();
+            if (parsePackageJsonStatic(self.allocator, resp.body, package_names[i])) |meta| {
+                results[i] = .{ .success = meta };
+            } else |_| {}
+        }
 
         return results;
     }
@@ -1496,7 +1504,7 @@ pub const PyPIClient = struct {
     }
 
     /// Fetch multiple wheel METADATA files in parallel (PEP 658)
-    /// This is the fastest path for dependency fetching (~2KB each)
+    /// Uses HTTP/2 multiplexing - NO threads, single connection!
     pub fn getWheelMetadataParallel(
         self: *PyPIClient,
         wheel_urls: []const []const u8,
@@ -1511,51 +1519,44 @@ pub const PyPIClient = struct {
             r.* = .{ .err = PyPIError.NetworkError };
         }
 
-        // Parallel fetch context
-        const FetchContext = struct {
-            client: *PyPIClient,
-            url: []const u8,
-            result: *WheelMetadataResult,
+        // Fetch ALL at once with H2 multiplexing
+        const responses = try self.h2_client.getAll(wheel_urls);
+        defer {
+            for (responses) |*r| @constCast(r).deinit();
+            self.allocator.free(responses);
+        }
 
-            fn fetch(ctx: *@This()) void {
-                ctx.result.* = if (ctx.client.getWheelMetadata(ctx.url)) |meta|
-                    .{ .success = meta }
-                else |_|
-                    .{ .err = PyPIError.NetworkError };
+        // Parse METADATA responses
+        for (responses, 0..) |resp, i| {
+            if (resp.status != 200) continue;
+
+            // Parse wheel METADATA format (RFC 822-like)
+            var requires_dist = std.ArrayList([]const u8){};
+            var version: []const u8 = "";
+
+            var lines = std.mem.splitScalar(u8, resp.body, '\n');
+            while (lines.next()) |line| {
+                if (std.mem.startsWith(u8, line, "Requires-Dist: ")) {
+                    const dep = std.mem.trim(u8, line["Requires-Dist: ".len..], &[_]u8{ ' ', '\r' });
+                    const dep_copy = self.allocator.dupe(u8, dep) catch continue;
+                    requires_dist.append(self.allocator, dep_copy) catch {
+                        self.allocator.free(dep_copy);
+                        continue;
+                    };
+                } else if (std.mem.startsWith(u8, line, "Version: ")) {
+                    version = std.mem.trim(u8, line["Version: ".len..], &[_]u8{ ' ', '\r' });
+                }
             }
-        };
 
-        // Create contexts
-        const contexts = try self.allocator.alloc(FetchContext, wheel_urls.len);
-        defer self.allocator.free(contexts);
+            const version_copy = self.allocator.dupe(u8, version) catch continue;
 
-        for (wheel_urls, 0..) |url, i| {
-            contexts[i] = .{
-                .client = self,
-                .url = url,
-                .result = &results[i],
+            results[i] = .{
+                .success = .{
+                    .version = version_copy,
+                    .requires_dist = requires_dist.toOwnedSlice(self.allocator) catch &[_][]const u8{},
+                },
             };
         }
-
-        // Spawn all threads
-        var threads = try self.allocator.alloc(std.Thread, wheel_urls.len);
-        defer self.allocator.free(threads);
-
-        var spawned: usize = 0;
-        errdefer {
-            for (threads[0..spawned]) |t| t.join();
-        }
-
-        for (0..wheel_urls.len) |i| {
-            threads[i] = std.Thread.spawn(.{}, FetchContext.fetch, .{&contexts[i]}) catch {
-                FetchContext.fetch(&contexts[i]);
-                continue;
-            };
-            spawned += 1;
-        }
-
-        // Wait for all
-        for (threads[0..spawned]) |t| t.join();
 
         return results;
     }

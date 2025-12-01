@@ -116,6 +116,24 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
 
+    // Check if it's a user-defined class by looking in the class registry
+    if (type_name) |tname| {
+        if (self.class_registry.classes.contains(tname)) {
+            // User-defined class - check if @TypeOf(x) == ClassName
+            // For anytype params or unknown types, this is a comptime check
+            try self.emit("blk: { const T = @TypeOf(");
+            try self.genExpr(args[0]);
+            try self.emit("); break :blk T == ");
+            try self.emit(tname);
+            try self.emit(" or T == *");
+            try self.emit(tname);
+            try self.emit(" or T == *const ");
+            try self.emit(tname);
+            try self.emit("; }");
+            return;
+        }
+    }
+
     // Default: reference argument and return true for compile-time compatibility
     try self.emit("blk: { _ = @TypeOf(");
     try self.genExpr(args[0]);
