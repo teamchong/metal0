@@ -792,6 +792,7 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
     // and function calls (with_metaclass(ABCMeta)) - function calls are parsed but not stored
     var bases = std.ArrayList([]const u8){};
     var body_alloc: ?[]ast.Node = null;
+    var metaclass: ?[]const u8 = null;
     errdefer {
         // Clean up bases (they're duped strings)
         for (bases.items) |base| {
@@ -835,10 +836,19 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
             // We need to peek ahead to see if this is name=value pattern
             if (self.current < self.tokens.len and self.tokens[self.current].type == .Ident) {
                 if (self.current + 1 < self.tokens.len and self.tokens[self.current + 1].type == .Eq) {
-                    // Skip keyword argument: name = expression
-                    _ = try self.expect(.Ident); // keyword name
+                    // Capture keyword argument: name = expression
+                    const kw_name = (try self.expect(.Ident)).lexeme;
                     _ = try self.expect(.Eq); // =
-                    _ = try self.parseExpression(); // value expression
+                    const kw_value = try self.parseExpression();
+                    // If this is metaclass=X, capture the value
+                    if (std.mem.eql(u8, kw_name, "metaclass")) {
+                        if (kw_value == .name) {
+                            metaclass = kw_value.name.id;
+                        } else if (kw_value == .attribute) {
+                            // For abc.ABCMeta, extract just ABCMeta
+                            metaclass = kw_value.attribute.attr;
+                        }
+                    }
                     // Continue to next item or end
                     if (!self.match(.Comma)) {
                         _ = try self.expect(.RParen);
@@ -902,6 +912,7 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
             .name = name_tok.lexeme,
             .bases = final_bases,
             .body = final_body,
+            .metaclass = metaclass,
         },
     };
 }

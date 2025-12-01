@@ -100,6 +100,20 @@ pub fn visitStmtScoped(
             // Get constructor arg types if available
             const constructor_arg_types = class_constructor_args.get(class_def.name);
 
+            // Extract class-level attributes (before __init__ parsing)
+            // These are assignments directly in the class body, not inside methods
+            for (class_def.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                        const field_name = assign.targets[0].name.id;
+                        // Infer type from value
+                        const field_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
+                        try fields.put(field_name, field_type);
+                    }
+                }
+            }
+
             // Extract field types from __init__ method
             for (class_def.body) |stmt| {
                 if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, "__init__")) {
@@ -437,8 +451,11 @@ pub fn visitStmtScoped(
 
             // Register function parameter types from type annotations FIRST
             // This allows return type inference to see parameter types
+            // Only store if we have an actual type annotation - don't overwrite
+            // the int defaults set by inferFunctionReturnTypes
             for (func_def.args) |arg| {
                 const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
+                if (param_type == .unknown) continue; // Don't overwrite existing types with unknown
                 if (type_inferrer) |ti| {
                     try ti.putScopedVar(arg.name, param_type);
                 } else {

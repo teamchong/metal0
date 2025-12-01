@@ -18,6 +18,7 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for isinstance(obj, type)
 /// Checks if object matches expected type at compile time
 /// For native codegen, this is a compile-time type check
+/// For anytype parameters, generates runtime type check
 pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
         try self.emit("true");
@@ -30,65 +31,85 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Get the inferred type of the first argument
     const obj_type = self.inferExprScoped(args[0]) catch .unknown;
 
+    // Check if argument has unknown type at inference time
+    // This happens for anytype parameters or other dynamic types
+    // In this case, generate a runtime type check using @TypeOf
+    const is_unknown_type = obj_type == .unknown and args[0] == .name;
+
     // Perform type check based on type name
     if (type_name) |tname| {
         if (std.mem.eql(u8, tname, "bool")) {
+            if (is_unknown_type) {
+                // Runtime check: @TypeOf(x) == bool
+                try self.emit("(@TypeOf(");
+                try self.genExpr(args[0]);
+                try self.emit(") == bool)");
+                return;
+            }
             // isinstance(x, bool) - only true for actual bools
             // In Python: isinstance(True, bool) = True, isinstance(1, bool) = False
+            // Reference argument to avoid unused parameter warning
+            try self.emit("blk: { _ = @TypeOf(");
+            try self.genExpr(args[0]);
             if (obj_type == .bool) {
-                try self.emit("true");
-            } else if (obj_type == .int or obj_type == .usize) {
-                try self.emit("false");
+                try self.emit("); break :blk true; }");
             } else {
-                // Unknown type at compile time - reference argument to avoid unused warning
-                try self.emit("blk: { _ = @TypeOf(");
-                try self.genExpr(args[0]);
                 try self.emit("); break :blk false; }");
             }
             return;
         } else if (std.mem.eql(u8, tname, "int")) {
-            // isinstance(x, int) - True for int and bool (since bool is subclass of int)
-            if (obj_type == .bool or obj_type == .int or obj_type == .usize) {
-                try self.emit("true");
-            } else {
-                try self.emit("blk: { _ = @TypeOf(");
-                try self.genExpr(args[0]);
-                try self.emit("); break :blk false; }");
-            }
+            // Always use runtime check for int to handle anytype params correctly
+            // isinstance(x, int) checks if @TypeOf(x) is an integer type or bool
+            // Use @typeInfo for comprehensive int checking (handles i64, comptime_int, etc.)
+            try self.emit("blk: { const T = @TypeOf(");
+            try self.genExpr(args[0]);
+            try self.emit("); break :blk @typeInfo(T) == .int or @typeInfo(T) == .comptime_int or T == bool; }");
             return;
         } else if (std.mem.eql(u8, tname, "float")) {
-            if (obj_type == .float) {
-                try self.emit("true");
-            } else {
-                try self.emit("blk: { _ = @TypeOf(");
+            if (is_unknown_type) {
+                try self.emit("(@TypeOf(");
                 try self.genExpr(args[0]);
+                try self.emit(") == f64)");
+                return;
+            }
+            try self.emit("blk: { _ = @TypeOf(");
+            try self.genExpr(args[0]);
+            if (obj_type == .float) {
+                try self.emit("); break :blk true; }");
+            } else {
                 try self.emit("); break :blk false; }");
             }
             return;
         } else if (std.mem.eql(u8, tname, "str")) {
-            if (obj_type == .string) {
-                try self.emit("true");
-            } else {
-                try self.emit("blk: { _ = @TypeOf(");
+            if (is_unknown_type) {
+                try self.emit("(@TypeOf(");
                 try self.genExpr(args[0]);
+                try self.emit(") == []const u8)");
+                return;
+            }
+            try self.emit("blk: { _ = @TypeOf(");
+            try self.genExpr(args[0]);
+            if (obj_type == .string) {
+                try self.emit("); break :blk true; }");
+            } else {
                 try self.emit("); break :blk false; }");
             }
             return;
         } else if (std.mem.eql(u8, tname, "list")) {
+            try self.emit("blk: { _ = @TypeOf(");
+            try self.genExpr(args[0]);
             if (obj_type == .list) {
-                try self.emit("true");
+                try self.emit("); break :blk true; }");
             } else {
-                try self.emit("blk: { _ = @TypeOf(");
-                try self.genExpr(args[0]);
                 try self.emit("); break :blk false; }");
             }
             return;
         } else if (std.mem.eql(u8, tname, "dict")) {
+            try self.emit("blk: { _ = @TypeOf(");
+            try self.genExpr(args[0]);
             if (obj_type == .dict) {
-                try self.emit("true");
+                try self.emit("); break :blk true; }");
             } else {
-                try self.emit("blk: { _ = @TypeOf(");
-                try self.genExpr(args[0]);
                 try self.emit("); break :blk false; }");
             }
             return;

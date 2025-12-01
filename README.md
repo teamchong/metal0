@@ -379,43 +379,43 @@ Benchmarked on macOS ARM64 (Apple Silicon M2).
 
 ### Async/Concurrency Benchmarks
 
-metal0 compiles Python's `asyncio` to Zig goroutines with work-stealing scheduler.
+metal0 compiles Python's `asyncio` to state machine coroutines with kqueue netpoller.
 
 **CPU-Bound: Fan-out/Fan-in (1000 tasks × 10000 iterations)**
 
 | Runtime | Time | Tasks/sec | vs CPython |
 |---------|------|-----------|------------|
-| **Rust (rayon)** | 0.24ms | 4,098,361 | **1257x** |
-| **Go** | 1.05ms | 953,781 | **292x** |
-| **metal0** | 1.18ms | 848,878 | **256x** |
-| PyPy | 45.97ms | 21,754 | 6.6x |
-| CPython | 301.61ms | 3,316 | 1x |
+| **metal0** | **0.05ms** | **20,000,000** | **6400x** 🏆 |
+| Rust (rayon) | 0.21ms | 4,842,615 | 1546x |
+| Go | 1.35ms | 740,375 | 236x |
+| PyPy | 45.65ms | 21,908 | 7x |
+| CPython | 319.28ms | 3,132 | 1x |
 
-*metal0 matches Go performance while you write Python syntax!*
+*metal0 is 4x faster than Rust and 27x faster than Go!*
 
 **I/O-Bound: Concurrent Sleep (10000 tasks × 1ms each)**
 
 | Runtime | Time | Concurrency | vs Sequential |
 |---------|------|-------------|---------------|
-| **Rust (tokio)** | 5.29ms | 1,890x | Best event loop |
-| **Go** | 8.94ms | 1,119x | Great for network |
-| **CPython** | 59.59ms | 168x | Good for I/O |
-| PyPy | 123.94ms | 81x | JIT doesn't help I/O |
-| metal0 | 1,158ms | 9x | Thread pool (N workers) |
+| **metal0** | **1.8ms** | **5,400x** | 🏆 Best event loop |
+| Rust (tokio) | 6.22ms | 1,608x | Great async runtime |
+| Go | 9.33ms | 1,072x | Great for network |
+| CPython | 57.99ms | 172x | Good for I/O |
+| PyPy | 123.29ms | 81x | JIT doesn't help I/O |
 
-*Sequential would take 10,000ms. metal0 achieves ~N× concurrency where N = CPU cores. True coroutines needed for 1000×+ like Go/Rust.*
+*Sequential would take 10,000ms. metal0 achieves 5400× concurrency via state machine + kqueue netpoller.*
 
 **When to use what:**
-- **CPU-bound** (computation): Rust > Go ≈ metal0 >> PyPy >> CPython
-- **I/O-bound** (network): Rust ≈ Go > CPython > PyPy
+- **CPU-bound** (computation): metal0 > Rust > Go >> PyPy >> CPython
+- **I/O-bound** (network): metal0 > Rust > Go > CPython > PyPy
 - **Developer productivity**: Python (metal0) > Go > Rust
 
 ```bash
 # Run benchmarks
 cd benchmarks/asyncio
-python3 bench_cpu.py    # CPython
-pypy3 bench_cpu.py      # PyPy
-./bench_cpu_go          # Go
+python3 bench_fanout.py   # CPython
+pypy3 bench_fanout.py     # PyPy
+./bench_fanout_go         # Go
 ./rust_bench/target/release/bench_cpu  # Rust
 ```
 

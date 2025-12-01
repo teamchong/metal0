@@ -151,6 +151,7 @@ pub const Node = union(enum) {
         name: []const u8,
         bases: [][]const u8,
         body: []Node,
+        metaclass: ?[]const u8 = null,
     };
 
     pub const Return = struct {

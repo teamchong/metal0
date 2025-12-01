@@ -573,34 +573,47 @@ pub const NativeCodegen = struct {
         if (node == .name) {
             const original_name = node.name.id;
             // Check if variable has been renamed (e.g., loop capture line -> __loop_line)
-            const name = self.var_renames.get(original_name) orelse original_name;
+            const renamed_name = self.var_renames.get(original_name) orelse original_name;
             // Check if this variable was assigned from a BigInt expression
-            if (self.bigint_vars.contains(name)) {
+            if (self.bigint_vars.contains(renamed_name)) {
                 return .bigint;
             }
             // Check if we have a locally-declared type (from current function scope)
             // This uses the symbol table which tracks declarations per scope
-            if (self.symbol_table.getType(name)) |local_type| {
+            if (self.symbol_table.getType(renamed_name)) |local_type| {
                 // Only use local type if it's not unknown
                 if (local_type != .unknown) {
                     return local_type;
                 }
             }
-            // Also check type inferrer's scoped map (for analysis-time types)
-            if (self.type_inferrer.getScopedVar(name)) |scoped_type| {
+            // Check type inferrer's scoped map for the current function scope
+            // Use ORIGINAL name since that's what was stored during type inference
+            // This prevents type pollution from variables with the same name in other scopes
+            if (self.current_function_name) |func_name| {
+                if (self.getVarTypeInScope(func_name, original_name)) |scoped_type| {
+                    if (scoped_type != .unknown) {
+                        return scoped_type;
+                    }
+                }
+            }
+            // Also check type inferrer's current scope (for nested functions with scope set)
+            if (self.type_inferrer.getScopedVar(original_name)) |scoped_type| {
                 if (scoped_type != .unknown) {
                     return scoped_type;
                 }
             }
-            // Also check type inferrer's var_types map (for renamed variables)
-            if (self.type_inferrer.var_types.get(name)) |var_type| {
-                if (var_type != .unknown) {
-                    return var_type;
+            // Fallback to global var_types ONLY if not in a function scope
+            // This prevents pollution from same-named variables in other functions
+            if (self.current_function_name == null) {
+                if (self.type_inferrer.var_types.get(original_name)) |var_type| {
+                    if (var_type != .unknown) {
+                        return var_type;
+                    }
                 }
             }
             // Check if this is a nested class instance (e.g., x = X() where X is defined locally)
             // Check both renamed name and original name since register happens before rename
-            if (self.nested_class_instances.get(name)) |class_name| {
+            if (self.nested_class_instances.get(renamed_name)) |class_name| {
                 return .{ .class_instance = class_name };
             }
             if (self.nested_class_instances.get(original_name)) |class_name| {
@@ -733,6 +746,15 @@ pub const NativeCodegen = struct {
         }
         // Fall back to global type inference
         return self.type_inferrer.var_types.get(var_name);
+    }
+
+    /// Get the inferred type of a parameter within a specific function scope
+    /// This avoids pollution from variables with the same name in other scopes
+    pub fn getVarTypeInScope(self: *NativeCodegen, scope_name: []const u8, var_name: []const u8) ?NativeType {
+        // Create scoped key: "scope_name:var_name"
+        const scoped_key = std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ scope_name, var_name }) catch return null;
+        defer self.allocator.free(scoped_key);
+        return self.type_inferrer.scoped_var_types.get(scoped_key);
     }
 
     /// Register a local variable type (for current function/method scope)

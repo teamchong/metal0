@@ -35,7 +35,8 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
         const tuple = binop.right.tuple;
         if (format_str) |fmt| {
             // Parse format string and match with tuple elements
-            try self.emit("try writer.print(\"");
+            // Use catch unreachable since we're often inside non-error contexts like panic args
+            try self.emit("writer.print(\"");
             // Convert Python format to Zig format
             var i: usize = 0;
             while (i < fmt.len) {
@@ -105,12 +106,12 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                     fmt_idx += 1; // Skip the spec char
                 }
             }
-            try self.emit("});\n");
+            try self.emit("}) catch unreachable;\n");
         } else {
             // Format string is a variable - use runtime formatting
-            try self.emit("try writer.print(\"{any}\", .{");
+            try self.emit("writer.print(\"{any}\", .{");
             try genExpr(self, binop.right.*);
-            try self.emit("});\n");
+            try self.emit("}) catch unreachable;\n");
         }
     } else {
         // Single format argument: "%d" % n
@@ -127,7 +128,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             }
 
             // Parse format string for output
-            try self.emit("try writer.print(\"");
+            try self.emit("writer.print(\"");
             i = 0;
             while (i < fmt.len) {
                 if (fmt[i] == '%' and i + 1 < fmt.len) {
@@ -189,14 +190,15 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             } else {
                 try genExpr(self, binop.right.*);
             }
-            try self.emit("});\n");
+            try self.emit("}) catch unreachable;\n");
         } else {
             // Format string is a variable
-            try self.emit("try writer.print(\"{any}\", .{");
+            try self.emit("writer.print(\"{any}\", .{");
             try genExpr(self, binop.right.*);
-            try self.emit("});\n");
+            try self.emit("}) catch unreachable;\n");
         }
     }
 
-    try self.emitFmt("break :fmt_{d} try __fmt_buf_{d}.toOwnedSlice({s});\n}}", .{ label_id, label_id, alloc_name });
+    // Use catch unreachable since print/toOwnedSlice won't fail with valid allocator in most cases
+    try self.emitFmt("break :fmt_{d} __fmt_buf_{d}.toOwnedSlice({s}) catch unreachable;\n}}", .{ label_id, label_id, alloc_name });
 }

@@ -671,7 +671,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // it's likely a local class that wasn't tracked in nested_class_names
                 // (e.g., due to scoping issues). User-defined init() returns struct directly.
                 try self.emit(func_name);
-                try self.emit(".init(__global_allocator");
+                if (call.args.len == 0 and call.keyword_args.len == 0) {
+                    try self.emit(".init(__global_allocator");
+                } else {
+                    try self.emit(".init(__global_allocator, ");
+                }
             }
 
             // Check if this class has captured variables - pass pointers to them
@@ -794,6 +798,29 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 for (call.keyword_args, 0..) |kwarg, i| {
                     if (i > 0 or call.args.len > 0) try self.emit(", ");
                     try genExpr(self, kwarg.value);
+                }
+
+                // Fill in missing default arguments from __init__ method
+                // e.g., Rat(7) should become Rat.init(allocator, 7, 1) if def __init__(num=0, den=1)
+                if (self.class_registry.findMethod(raw_func_name, "__init__")) |init_info| {
+                    // Skip 'self' parameter (first param in __init__)
+                    const init_params = init_info.params;
+                    const num_provided = call.args.len + call.keyword_args.len;
+                    // num_required_params excludes 'self'
+                    const num_init_params = if (init_params.len > 0) init_params.len - 1 else 0;
+
+                    // If we provided fewer args than params (excluding self), fill in defaults
+                    if (num_provided < num_init_params) {
+                        // Start from the first missing param
+                        var param_idx: usize = num_provided + 1; // +1 to skip 'self'
+                        while (param_idx < init_params.len) : (param_idx += 1) {
+                            const param = init_params[param_idx];
+                            if (param.default) |default_expr| {
+                                try self.emit(", ");
+                                try genExpr(self, default_expr.*);
+                            }
+                        }
+                    }
                 }
             }
 

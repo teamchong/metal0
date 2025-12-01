@@ -15,6 +15,7 @@ const function_gen = @import("body/function_gen.zig");
 // Re-export class field functions
 pub const genClassFields = class_fields.genClassFields;
 pub const genClassFieldsNoDict = class_fields.genClassFieldsNoDict;
+pub const genClassLevelFields = class_fields.genClassLevelFields;
 pub const inferParamType = class_fields.inferParamType;
 
 // Re-export class method functions

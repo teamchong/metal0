@@ -36,6 +36,19 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
     for (target_tuple.elts, 0..) |target, i| {
         if (target == .name) {
             const var_name = target.name.id;
+
+            // Handle Python's discard pattern: `_, x = (1, 2)` or `a, _ = (1, 2)`
+            // In Zig, use `_ = value;` to explicitly discard the value
+            if (std.mem.eql(u8, var_name, "_")) {
+                try self.emitIndent();
+                if (is_list_type) {
+                    try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, i });
+                } else {
+                    try self.output.writer(self.allocator).print("_ = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                }
+                continue;
+            }
+
             const is_first_assignment = !self.isDeclared(var_name);
 
             // Register the type for this unpacked variable
@@ -125,6 +138,19 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
     for (target_list.elts, 0..) |target, i| {
         if (target == .name) {
             const var_name = target.name.id;
+
+            // Handle Python's discard pattern: `_, x = [1, 2]` or `[a, _] = [1, 2]`
+            // In Zig, use `_ = value;` to explicitly discard the value
+            if (std.mem.eql(u8, var_name, "_")) {
+                try self.emitIndent();
+                if (is_list_type) {
+                    try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, i });
+                } else {
+                    try self.output.writer(self.allocator).print("_ = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                }
+                continue;
+            }
+
             const is_first_assignment = !self.isDeclared(var_name);
 
             // Register element type for unpacked variable

@@ -128,8 +128,118 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
     }
 }
 
+/// Generate struct fields for class-level attributes (not in __init__)
+/// e.g., class Foo:
+///           candidates = set1 + set2  # This is a class attribute
+pub fn genClassLevelFields(self: *NativeCodegen, class_body: []const ast.Node) CodegenError!void {
+    for (class_body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            // Class-level assignments have simple name targets (not self.attr)
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                const field_name = assign.targets[0].name.id;
+
+                // Skip type references (int_class = int) - these are handled as methods
+                if (assign.value.* == .name) {
+                    const type_name = assign.value.name.id;
+                    if (std.mem.eql(u8, type_name, "int") or
+                        std.mem.eql(u8, type_name, "float") or
+                        std.mem.eql(u8, type_name, "str") or
+                        std.mem.eql(u8, type_name, "bool") or
+                        std.mem.eql(u8, type_name, "list") or
+                        std.mem.eql(u8, type_name, "dict"))
+                    {
+                        continue;
+                    }
+                }
+
+                // Skip None assignments (__bool__ = None, __len__ = None)
+                if (assign.value.* == .constant and assign.value.constant.value == .none) {
+                    continue;
+                }
+
+                // Infer type from value
+                const inferred = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
+
+                // Use nativeTypeToZigType for proper type conversion
+                // For unknown types, use runtime.PyValue for dynamic dispatch
+                const field_type_str = if (inferred == .unknown)
+                    try self.allocator.dupe(u8, "runtime.PyValue")
+                else
+                    try self.nativeTypeToZigType(inferred);
+                defer self.allocator.free(field_type_str);
+
+                try self.emitIndent();
+                try self.emit("// Class-level attribute\n");
+                try self.emitIndent();
+                const writer = self.output.writer(self.allocator);
+                try zig_keywords.writeEscapedIdent(writer, field_name);
+                // Class-level attributes need default initialization
+                // Use .{} for structs/arrays/lists, or specific default for primitives
+                const default_val = switch (inferred) {
+                    .int, .usize => "0",
+                    .float => "0.0",
+                    .bool => "false",
+                    .string => "\"\"",
+                    else => ".{}",
+                };
+                try writer.print(": {s} = {s},\n", .{ field_type_str, default_val });
+            }
+        }
+    }
+}
+
+/// Check if a parameter has runtime type checking (isinstance followed by raise TypeError)
+/// Pattern: if not isinstance(param, type): raise TypeError(...)
+/// Such parameters should use anytype to accept any value and check at runtime
+fn hasRuntimeTypeCheck(init: ast.Node.FunctionDef, param_name: []const u8) bool {
+    for (init.body) |stmt| {
+        // Look for: if not isinstance(param, type): raise TypeError
+        if (stmt == .if_stmt) {
+            const if_test = stmt.if_stmt.condition.*;
+            // Check for "not isinstance(param, type)" or "not isint(param)" patterns
+            if (if_test == .unaryop and if_test.unaryop.op == .Not) {
+                const operand = if_test.unaryop.operand.*;
+                if (operand == .call) {
+                    const func = operand.call.func.*;
+                    if (func == .name) {
+                        const func_name = func.name.id;
+                        // isinstance(x, int) or isint(x) or similar type check functions
+                        if (std.mem.eql(u8, func_name, "isinstance") or
+                            std.mem.eql(u8, func_name, "isint") or
+                            std.mem.eql(u8, func_name, "isnum") or
+                            std.mem.eql(u8, func_name, "isRat"))
+                        {
+                            // Check if first arg matches param_name
+                            if (operand.call.args.len > 0) {
+                                if (operand.call.args[0] == .name and
+                                    std.mem.eql(u8, operand.call.args[0].name.id, param_name))
+                                {
+                                    // Check if body contains raise TypeError
+                                    for (stmt.if_stmt.body) |body_stmt| {
+                                        if (body_stmt == .raise_stmt) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 /// Infer parameter type by looking at how it's used in __init__ or constructor call args
 pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef, param_name: []const u8) ![]const u8 {
+    // Check if parameter has runtime type checking - use anytype to accept any value
+    // Pattern: if not isinstance(param, int): raise TypeError(...)
+    if (hasRuntimeTypeCheck(init, param_name)) {
+        return try self.allocator.dupe(u8, "anytype");
+    }
+
     // Get constructor arg types from type inferrer
     const constructor_arg_types = self.type_inferrer.class_constructor_args.get(class_name);
 

@@ -307,11 +307,17 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
     // Unpack tuple elements using struct field access: const x = __tuple__.@"0"; const y = __tuple__.@"1";
     // Escape variable names if they're Zig keywords (e.g., "fn" -> @"fn")
+    // Handle Python's discard pattern: `for _, v in items:` - use `_ = value;` to discard
     for (var_names, 0..) |var_name, i| {
         try self.emitIndent();
-        try self.emit("const ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        try self.output.writer(self.allocator).print(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
+        if (std.mem.eql(u8, var_name, "_")) {
+            // Discard pattern - explicitly discard the value
+            try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
+        } else {
+            try self.emit("const ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.output.writer(self.allocator).print(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
+        }
     }
 
     // Generate body statements
