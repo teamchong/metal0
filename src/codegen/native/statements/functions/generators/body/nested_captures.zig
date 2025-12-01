@@ -85,6 +85,9 @@ pub fn findNestedClassCaptures(self: *NativeCodegen, stmts: []ast.Node) CodegenE
                 // Track all nested class names for constructor detection
                 try self.nested_class_names.put(class.name, {});
 
+                // Track full class definition for nested class inheritance
+                try self.nested_class_defs.put(class.name, class);
+
                 // Track base class for nested classes (for default constructor args)
                 if (class.bases.len > 0) {
                     try self.nested_class_bases.put(class.name, class.bases[0]);

@@ -279,7 +279,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         // Look up parent class in registry (populated in Phase 2 of generate())
         // Order doesn't matter - all classes are registered before code generation
         if (builtin_base == null and complex_parent == null) {
+            // First check class_registry for module-level classes
             parent_class = self.class_registry.getClass(class.bases[0]);
+
+            // Then check nested_class_defs for nested classes defined in same scope
+            if (parent_class == null) {
+                parent_class = self.nested_class_defs.get(class.bases[0]);
+            }
         }
 
         // Check if this class inherits from unittest.TestCase
@@ -411,6 +417,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     var saved_nested_class_bases = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer saved_nested_class_bases.deinit();
 
+    // Also save nested_class_defs - for nested class inheritance
+    var saved_nested_class_defs = hashmap_helper.StringHashMap(ast.Node.ClassDef).init(self.allocator);
+    defer saved_nested_class_defs.deinit();
+
     // Also save nested_class_captures - for passing captured vars to class init
     var saved_nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(self.allocator);
     defer saved_nested_class_captures.deinit();
@@ -442,6 +452,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         var ncb_it = self.nested_class_bases.iterator();
         while (ncb_it.next()) |entry| {
             try saved_nested_class_bases.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+
+        // Copy current nested_class_defs
+        var ncd_it = self.nested_class_defs.iterator();
+        while (ncd_it.next()) |entry| {
+            try saved_nested_class_defs.put(entry.key_ptr.*, entry.value_ptr.*);
         }
 
         // Copy current nested_class_captures
@@ -725,6 +741,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         var restore_ncb_it = saved_nested_class_bases.iterator();
         while (restore_ncb_it.next()) |entry| {
             try self.nested_class_bases.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+
+        // Also restore nested_class_defs for nested class inheritance
+        self.nested_class_defs.clearRetainingCapacity();
+        var restore_ncd_it = saved_nested_class_defs.iterator();
+        while (restore_ncd_it.next()) |entry| {
+            try self.nested_class_defs.put(entry.key_ptr.*, entry.value_ptr.*);
         }
 
         // Also restore nested_class_captures for passing captured vars to init

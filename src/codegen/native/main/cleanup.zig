@@ -168,6 +168,9 @@ pub fn deinit(self: *NativeCodegen) void {
     // Clean up nested_class_bases tracking (keys/values are AST refs)
     self.nested_class_bases.deinit();
 
+    // Clean up nested_class_defs tracking (keys are AST refs)
+    self.nested_class_defs.deinit();
+
     // Clean up comptime_evals tracking
     freeMapKeys(self.allocator, &self.comptime_evals);
     self.comptime_evals.deinit();

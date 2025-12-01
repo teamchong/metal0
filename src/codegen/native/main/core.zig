@@ -18,6 +18,7 @@ const hashmap_helper = @import("hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
 const FnvFuncDefMap = hashmap_helper.StringHashMap(ast.Node.FunctionDef);
+const FnvClassDefMap = hashmap_helper.StringHashMap(ast.Node.ClassDef);
 
 // Function signature info for default parameter handling
 const FuncSignature = struct {
@@ -284,6 +285,10 @@ pub const NativeCodegen = struct {
     // Used to provide default args when calling BadIndex() where BadIndex(int)
     nested_class_bases: FnvStringMap,
 
+    // Track nested class definitions (maps class name -> ClassDef AST)
+    // Used to inherit __init__ signature from parent nested classes
+    nested_class_defs: FnvClassDefMap,
+
     // Track which nested class methods need allocator parameter
     // Maps "ClassName.methodName" -> void for methods that need allocator
     // Used at call sites to determine if allocator should be passed
@@ -449,6 +454,7 @@ pub const NativeCodegen = struct {
             .nested_class_names = FnvVoidMap.init(allocator),
             .bigint_vars = FnvVoidMap.init(allocator),
             .nested_class_bases = FnvStringMap.init(allocator),
+            .nested_class_defs = FnvClassDefMap.init(allocator),
             .nested_class_method_needs_alloc = FnvVoidMap.init(allocator),
             .nested_class_zig_refs = FnvVoidMap.init(allocator),
             .class_type_attrs = FnvStringMap.init(allocator),
