@@ -537,6 +537,25 @@ pub inline fn Py_SET_SIZE(op: *PyObject, size: Py_ssize_t) void {
     var_obj.ob_size = size;
 }
 
+/// Extract value from PyObject for comparisons
+/// Returns f64 for numeric types (allows uniform comparison)
+pub fn pyObjectToValue(obj: *PyObject) f64 {
+    if (PyFloat_Check(obj)) {
+        const float_obj: *PyFloatObject = @ptrCast(@alignCast(obj));
+        return float_obj.ob_fval;
+    }
+    if (PyLong_Check(obj)) {
+        const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
+        return @floatFromInt(long_obj.ob_digit);
+    }
+    if (PyBool_Check(obj)) {
+        const bool_obj: *PyBoolObject = @ptrCast(@alignCast(obj));
+        return @floatFromInt(bool_obj.ob_digit);
+    }
+    // Default to 0 for non-numeric types
+    return 0.0;
+}
+
 // =============================================================================
 // Backwards Compatibility - Legacy TypeId enum
 // =============================================================================
@@ -916,6 +935,7 @@ pub const floatCeil = float_ops.floatCeil;
 pub const floatTrunc = float_ops.floatTrunc;
 pub const floatRound = float_ops.floatRound;
 pub const floatBuiltinCall = float_ops.floatBuiltinCall;
+pub const parseFloatWithUnicode = float_ops.parseFloatWithUnicode;
 pub const toFloat = float_ops.toFloat;
 
 /// Compare two sets for equality

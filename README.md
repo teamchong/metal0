@@ -14,7 +14,6 @@ Python Syntax. Native Speed. Zero Cold Starts.
 
 ⚡ **Performance**
 - 28x faster than CPython (fib(35): 29ms vs 801ms)
-- Beats Rust and Go on same workloads
 - Zero GIL - true parallelism
 - No GC pauses - manual memory management (Zig)
 - Memory safety from Zig's compiler checks
@@ -33,10 +32,8 @@ Python Syntax. Native Speed. Zero Cold Starts.
 - Fast startup, tiny binary size
 
 📦 **Write Once, Run Everywhere**
-- Compile Python to native libraries for **any language**
-- Use from JavaScript (npm), C# (NuGet), Rust (crates.io), Go, Swift
 - Single Python codebase → multi-platform distribution
-- No runtime dependencies in target language
+- WASM on edge/browser
 
 ```python
 # Write Python once
