@@ -447,6 +447,19 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         return;
     }
 
+    // Check for complex number operations
+    // Must check BOTH Add and Sub for complex operand type coercion
+    if (binop.op == .Add or binop.op == .Sub) {
+        const left_type = try self.inferExprScoped(binop.left.*);
+        const right_type = try self.inferExprScoped(binop.right.*);
+
+        // Handle complex arithmetic: int/float +/- complex -> complex
+        if (left_type == .complex or right_type == .complex) {
+            try genComplexBinOp(self, binop, left_type, right_type);
+            return;
+        }
+    }
+
     // Check if this is string concatenation
     if (binop.op == .Add) {
         // Use scope-aware type inference to prevent cross-function type pollution
@@ -926,6 +939,11 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
                 try self.emit("-@as(i64, @intFromBool(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit("))");
+            } else if (operand_type == .complex) {
+                // Complex negation uses .neg() method
+                try self.emit("(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(").neg()");
             } else if (operand_type == .bigint) {
                 // BigInt negation: clone and negate
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
@@ -992,6 +1010,17 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
                 try self.emit("~@as(i64, @intFromBool(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit("))");
+            } else if (operand_type == .bigint) {
+                // BigInt bitwise complement: ~n = -(n+1)
+                // Implemented as: negate (n+1) -> -(n+1) = -n-1 = ~n
+                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                try self.emit("blk: { var __bi_tmp = (");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(").add(&(runtime.BigInt.fromInt(");
+                try self.emit(alloc_name);
+                try self.emit(", 1) catch unreachable), ");
+                try self.emit(alloc_name);
+                try self.emit(") catch unreachable; __bi_tmp.negate(); break :blk __bi_tmp; }");
             } else {
                 try self.emit("~@as(i64, ");
                 try genExpr(self, unaryop.operand.*);

@@ -612,6 +612,45 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Generate regular methods (non-__init__)
     try body.genClassMethods(self, class, captured_vars);
 
+    // Generate blocked __bool__/__len__ methods (when assigned to None)
+    // Python: __bool__ = None or __len__ = None blocks the method from being called
+    for (class.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                const attr_name = assign.targets[0].name.id;
+                // Check if it's __bool__ = None or __len__ = None
+                if (assign.value.* == .constant and assign.value.constant.value == .none) {
+                    if (std.mem.eql(u8, attr_name, "__bool__")) {
+                        try self.emit("\n");
+                        try self.emitIndent();
+                        try self.emit("// __bool__ = None - method is blocked\n");
+                        try self.emitIndent();
+                        try self.emit("pub fn __bool__(_: *const @This()) runtime.PythonError!bool {\n");
+                        self.indent();
+                        try self.emitIndent();
+                        try self.emit("return runtime.PythonError.TypeError;\n");
+                        self.dedent();
+                        try self.emitIndent();
+                        try self.emit("}\n");
+                    } else if (std.mem.eql(u8, attr_name, "__len__")) {
+                        try self.emit("\n");
+                        try self.emitIndent();
+                        try self.emit("// __len__ = None - method is blocked\n");
+                        try self.emitIndent();
+                        try self.emit("pub fn __len__(_: *const @This()) runtime.PythonError!i64 {\n");
+                        self.indent();
+                        try self.emitIndent();
+                        try self.emit("return runtime.PythonError.TypeError;\n");
+                        self.dedent();
+                        try self.emitIndent();
+                        try self.emit("}\n");
+                    }
+                }
+            }
+        }
+    }
+
     // Generate code for class-level type attributes (e.g., int_class = int)
     // Registration already done earlier, now just generate the function code
     for (class.body) |stmt| {

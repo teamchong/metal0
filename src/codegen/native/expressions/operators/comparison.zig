@@ -392,25 +392,49 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             const left_is_eval = isEvalCall(current_left);
             const right_is_eval = isEvalCall(compare.comparators[i]);
 
-            // For == and != with eval() result and integer, use pyObjEqInt
+            // For == and != with eval() result and integer/bigint, use appropriate comparison
             if (op == .Eq or op == .NotEq) {
                 if (op == .NotEq) {
                     try self.emit("!");
                 }
                 if (left_is_eval and !right_is_eval) {
-                    // eval(...) == value
-                    try self.emit("runtime.pyObjEqInt(");
-                    try genExpr(self, current_left);
-                    try self.emit(", ");
-                    try genExpr(self, compare.comparators[i]);
-                    try self.emit(")");
+                    // eval(...) == value - check if value is BigInt
+                    // Note: right_type is already in scope from line 103
+                    const rhs_tag = @as(std.meta.Tag(@TypeOf(right_type)), right_type);
+                    if (rhs_tag == .bigint) {
+                        // BigInt comparison
+                        try self.emit("runtime.bigIntCompare(runtime.pyObjToBigInt(");
+                        try genExpr(self, current_left);
+                        try self.emit(", __global_allocator), ");
+                        try genExpr(self, compare.comparators[i]);
+                        try self.emit(", .eq)");
+                    } else {
+                        // Integer comparison
+                        try self.emit("runtime.pyObjEqInt(");
+                        try genExpr(self, current_left);
+                        try self.emit(", ");
+                        try genExpr(self, compare.comparators[i]);
+                        try self.emit(")");
+                    }
                 } else if (right_is_eval and !left_is_eval) {
-                    // value == eval(...)
-                    try self.emit("runtime.pyObjEqInt(");
-                    try genExpr(self, compare.comparators[i]);
-                    try self.emit(", ");
-                    try genExpr(self, current_left);
-                    try self.emit(")");
+                    // value == eval(...) - check if value is BigInt
+                    // Note: current_left_type is already in scope from line 107
+                    const lhs_tag = @as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type);
+                    if (lhs_tag == .bigint) {
+                        // BigInt comparison
+                        try self.emit("runtime.bigIntCompare(");
+                        try genExpr(self, current_left);
+                        try self.emit(", runtime.pyObjToBigInt(");
+                        try genExpr(self, compare.comparators[i]);
+                        try self.emit(", __global_allocator), .eq)");
+                    } else {
+                        // Integer comparison
+                        try self.emit("runtime.pyObjEqInt(");
+                        try genExpr(self, compare.comparators[i]);
+                        try self.emit(", ");
+                        try genExpr(self, current_left);
+                        try self.emit(")");
+                    }
                 } else {
                     // Both are eval() calls - compare as PyObject pointers
                     try genExpr(self, current_left);

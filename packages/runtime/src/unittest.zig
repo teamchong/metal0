@@ -37,6 +37,7 @@ pub const assertHasAttr = assertions_basic.assertHasAttr;
 pub const assertNotHasAttr = assertions_basic.assertNotHasAttr;
 pub const assertStartsWith = assertions_basic.assertStartsWith;
 pub const assertEndsWith = assertions_basic.assertEndsWith;
+pub const assertTypeIs = assertions_basic.assertTypeIs;
 
 // Re-export type/container assertions
 pub const assertCountEqual = assertions_type.assertCountEqual;

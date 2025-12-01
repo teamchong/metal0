@@ -258,10 +258,34 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
                 std.mem.eql(u8, parent_name, "float") or
                 std.mem.eql(u8, parent_name, "bool"));
 
-            if (is_builtin_new and call.args.len >= 2) {
-                // Return the value argument (second arg after cls)
-                try self.genExpr(call.args[1]);
-                return true;
+            if (is_builtin_new) {
+                if (call.args.len >= 2) {
+                    // Return the value argument (second arg after cls)
+                    // e.g., bool.__new__(bool, 1) -> true, bool.__new__(bool, 0) -> false
+                    if (std.mem.eql(u8, parent_name, "bool")) {
+                        try self.emit("runtime.toBool(");
+                        try self.genExpr(call.args[1]);
+                        try self.emit(")");
+                    } else {
+                        try self.genExpr(call.args[1]);
+                    }
+                    return true;
+                } else {
+                    // No value argument - return default for the type
+                    // bool.__new__(bool) -> false, int.__new__(int) -> 0, etc.
+                    if (std.mem.eql(u8, parent_name, "bool")) {
+                        try self.emit("false");
+                    } else if (std.mem.eql(u8, parent_name, "int")) {
+                        try self.emit("@as(i64, 0)");
+                    } else if (std.mem.eql(u8, parent_name, "float")) {
+                        try self.emit("@as(f64, 0.0)");
+                    } else if (std.mem.eql(u8, parent_name, "str")) {
+                        try self.emit("\"\"");
+                    } else {
+                        try self.emit("{}");
+                    }
+                    return true;
+                }
             }
 
             // For __init__ or __new__ without value, emit no-op

@@ -132,6 +132,40 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
         try self.emit("@compileError(\"assertIs requires 2 arguments\")");
         return;
     }
+
+    // Handle special case: assertIs(type(x), int) / assertIs(type(x), bool) etc.
+    // Python's type(x) returns the type object, and comparing with `is` checks identity
+    if (args[0] == .call and args[0].call.func.* == .name) {
+        const func_name = args[0].call.func.name.id;
+        if (std.mem.eql(u8, func_name, "type") and args[0].call.args.len == 1) {
+            // This is type(x) - check if second arg is a type name
+            if (args[1] == .name) {
+                const type_name = args[1].name.id;
+                // Map Python type names to Zig types
+                const zig_type: ?[]const u8 = if (std.mem.eql(u8, type_name, "int"))
+                    "i64"
+                else if (std.mem.eql(u8, type_name, "bool"))
+                    "bool"
+                else if (std.mem.eql(u8, type_name, "float"))
+                    "f64"
+                else if (std.mem.eql(u8, type_name, "str"))
+                    "[]const u8"
+                else
+                    null;
+
+                if (zig_type) |ztype| {
+                    // Generate: runtime.unittest.assertTypeIs(@TypeOf(x), ztype)
+                    try self.emit("runtime.unittest.assertTypeIs(@TypeOf(");
+                    try parent.genExpr(self, args[0].call.args[0]);
+                    try self.emit("), ");
+                    try self.emit(ztype);
+                    try self.emit(")");
+                    return;
+                }
+            }
+        }
+    }
+
     try self.emit("runtime.unittest.assertIs(");
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
