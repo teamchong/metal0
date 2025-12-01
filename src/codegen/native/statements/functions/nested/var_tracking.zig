@@ -197,6 +197,14 @@ fn isParamReassignedInNode(param_name: []const u8, node: ast.Node) bool {
                 if (target == .name and std.mem.eql(u8, target.name.id, param_name)) {
                     break :blk true;
                 }
+                // Handle tuple unpacking: a, b = ...
+                if (target == .tuple) {
+                    for (target.tuple.elts) |elt| {
+                        if (elt == .name and std.mem.eql(u8, elt.name.id, param_name)) {
+                            break :blk true;
+                        }
+                    }
+                }
             }
             break :blk false;
         },

@@ -115,6 +115,39 @@ pub const NotImplementedType = struct {
 };
 pub const NotImplemented: NotImplementedType = .{};
 
+/// Comptime type check for Python type names
+/// Used for comptime branching in type-checking patterns with anytype params
+/// Example: if (comptime !runtime.istype(@TypeOf(x), "int")) return error.TypeError;
+pub fn istype(comptime T: type, comptime type_name: []const u8) bool {
+    const info = @typeInfo(T);
+
+    if (comptime std.mem.eql(u8, type_name, "int")) {
+        return info == .int or info == .comptime_int or T == bool;
+    } else if (comptime std.mem.eql(u8, type_name, "float")) {
+        return info == .float or info == .comptime_float;
+    } else if (comptime std.mem.eql(u8, type_name, "bool")) {
+        return T == bool;
+    } else if (comptime std.mem.eql(u8, type_name, "str")) {
+        if (T == []const u8 or T == []u8) return true;
+        // String literals: *const [N:0]u8
+        if (info == .pointer and info.pointer.size == .one) {
+            const child_info = @typeInfo(info.pointer.child);
+            if (child_info == .array and child_info.array.child == u8) {
+                return true;
+            }
+        }
+        return false;
+    } else {
+        // Unknown type - check for struct with matching name
+        if (info == .@"struct") {
+            if (@hasDecl(T, "__class_name__")) {
+                return std.mem.eql(u8, T.__class_name__, type_name);
+            }
+        }
+        return false;
+    }
+}
+
 /// Generic bool conversion for Python truthiness semantics
 /// Returns false for: 0, 0.0, false, empty strings, empty slices
 /// Returns true for everything else
@@ -1354,6 +1387,9 @@ pub const GreenThread = @import("green_thread").GreenThread;
 pub const Scheduler = @import("scheduler").Scheduler;
 pub var scheduler: Scheduler = undefined;
 pub var scheduler_initialized = false;
+
+// Netpoller for async I/O and timers
+pub const netpoller = @import("netpoller");
 
 // Export convenience functions
 pub const httpGet = http.getAsPyString;

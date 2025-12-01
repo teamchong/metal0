@@ -11,6 +11,104 @@ const mutation_analysis = @import("mutation_analysis.zig");
 const usage_analysis = @import("usage_analysis.zig");
 const nested_captures = @import("nested_captures.zig");
 
+/// Info about a type check at the start of a function
+pub const TypeCheckInfo = struct {
+    param_name: []const u8,
+    check_type: []const u8,
+};
+
+/// Detect type-check-raise pattern at the start of a function body
+/// Pattern: if not isint(param): raise TypeError  OR  if not isinstance(param, type): raise TypeError
+/// Returns the checks found and the index of the first non-type-check statement
+pub fn detectTypeCheckRaisePatterns(body: []ast.Node, anytype_params: anytype, allocator: std.mem.Allocator) !struct { checks: []TypeCheckInfo, start_idx: usize } {
+    var checks = std.ArrayList(TypeCheckInfo){};
+    var idx: usize = 0;
+
+    while (idx < body.len) : (idx += 1) {
+        const stmt = body[idx];
+        // Skip docstrings (expr_stmt containing a string constant)
+        if (stmt == .expr_stmt) {
+            const expr = stmt.expr_stmt.value.*;
+            if (expr == .constant) {
+                const val = expr.constant.value;
+                if (val == .string) {
+                    // It's a docstring - skip it
+                    continue;
+                }
+            }
+        }
+        if (stmt != .if_stmt) break;
+
+        const if_stmt = stmt.if_stmt;
+
+        // Body must be a single raise TypeError
+        std.debug.print("DEBUG: if_stmt.body.len = {}\n", .{if_stmt.body.len});
+        if (if_stmt.body.len != 1) break;
+        std.debug.print("DEBUG: if_stmt.body[0] tag = {s}\n", .{@tagName(if_stmt.body[0])});
+        if (if_stmt.body[0] != .raise_stmt) break;
+        const raise = if_stmt.body[0].raise_stmt;
+        std.debug.print("DEBUG: raise.exc is null = {}\n", .{raise.exc == null});
+        if (raise.exc == null) break;
+
+        // Check the exception is TypeError
+        std.debug.print("DEBUG: raise.exc.?.* tag = {s}\n", .{@tagName(raise.exc.?.*)});
+        const is_type_error = blk: {
+            if (raise.exc.?.* == .call) {
+                const call = raise.exc.?.call;
+                std.debug.print("DEBUG: call.func.* tag = {s}\n", .{@tagName(call.func.*)});
+                if (call.func.* == .name) {
+                    std.debug.print("DEBUG: call.func.name.id = {s}\n", .{call.func.name.id});
+                    break :blk std.mem.eql(u8, call.func.name.id, "TypeError");
+                }
+            } else if (raise.exc.?.* == .name) {
+                break :blk std.mem.eql(u8, raise.exc.?.name.id, "TypeError");
+            }
+            break :blk false;
+        };
+        std.debug.print("DEBUG: is_type_error = {}\n", .{is_type_error});
+        if (!is_type_error) break;
+
+        // Condition must be: not isint(x) or not isinstance(x, type)
+        if (if_stmt.condition.* != .unaryop) break;
+        const unary = if_stmt.condition.unaryop;
+        if (unary.op != .Not) break;
+        if (unary.operand.* != .call) break;
+
+        const call = unary.operand.call;
+        if (call.func.* != .name) break;
+        const func_name = call.func.name.id;
+
+        // Check for isint(x) pattern
+        if (std.mem.eql(u8, func_name, "isint")) {
+            if (call.args.len >= 1 and call.args[0] == .name) {
+                const arg_name = call.args[0].name.id;
+                if (anytype_params.contains(arg_name)) {
+                    try checks.append(allocator, TypeCheckInfo{ .param_name = arg_name, .check_type = "int" });
+                    continue;
+                }
+            }
+        }
+        // Check for isinstance(x, int) pattern
+        else if (std.mem.eql(u8, func_name, "isinstance")) {
+            if (call.args.len >= 2 and call.args[0] == .name and call.args[1] == .name) {
+                const arg_name = call.args[0].name.id;
+                const type_name = call.args[1].name.id;
+                if (anytype_params.contains(arg_name)) {
+                    try checks.append(allocator, TypeCheckInfo{ .param_name = arg_name, .check_type = type_name });
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+
+    return .{ .checks = checks.items, .start_idx = idx };
+}
+
+/// Use state machine async (true non-blocking) vs thread-based (blocking)
+/// State machines allow 1000x+ concurrent I/O operations (like Go/Rust)
+const USE_STATE_MACHINE_ASYNC = true;
+
 /// Generate function body with scope management
 pub fn genFunctionBody(
     self: *NativeCodegen,
@@ -31,6 +129,9 @@ pub fn genFunctionBody(
     self.hoisted_vars.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
+    // Clear variable renames from previous functions to avoid cross-function pollution
+    // (e.g., gcd's a->a__mut rename shouldn't affect test_constructor's local var 'a')
+    self.var_renames.clearRetainingCapacity();
     try mutation_analysis.analyzeFunctionLocalMutations(self, func);
 
     // Analyze function body for used variables (prevents false "unused" detection)
@@ -93,17 +194,71 @@ pub fn genFunctionBody(
     }
 
     // Declare function parameters in the scope so closures can capture them
+    // Also create mutable copies for parameters that are reassigned in the body
+    const var_tracking = @import("../../nested/var_tracking.zig");
     for (func.args) |arg| {
+        // Skip parameters with defaults - they're handled above
+        if (arg.default != null) continue;
+
         try self.declareVar(arg.name);
+
+        // Check if this parameter is reassigned in the function body
+        if (var_tracking.isParamReassignedInStmts(arg.name, func.body)) {
+            // Create a mutable copy of the parameter
+            try self.emitIndent();
+            try self.emit("var ");
+            try self.emit(arg.name);
+            try self.emit("__mut = ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(";\n");
+            // Rename all references to use the mutable copy
+            try self.var_renames.put(arg.name, try std.fmt.allocPrint(self.allocator, "{s}__mut", .{arg.name}));
+        }
     }
 
     // NOTE: Forward-referenced captured variables (class captures variable before it's declared)
     // are a complex edge case that requires runtime type erasure. For now, these patterns
     // may fail to compile. See test_equal_operator_modifying_operand for an example.
 
-    // Generate function body
-    for (func.body) |stmt| {
-        try self.generateStmt(stmt);
+    // Detect type-check-raise patterns at the start of the function body for anytype params
+    // These need comptime branching to prevent invalid type instantiations from being analyzed
+    const type_checks = try detectTypeCheckRaisePatterns(func.body, self.anytype_params, self.allocator);
+
+    if (type_checks.checks.len > 0) {
+        // Generate comptime type guard: if (comptime istype(@TypeOf(p1), "int") and istype(@TypeOf(p2), "int")) {
+        try self.emitIndent();
+        try self.emit("if (comptime ");
+        for (type_checks.checks, 0..) |check, i| {
+            if (i > 0) try self.emit(" and ");
+            try self.emit("runtime.istype(@TypeOf(");
+            try self.emit(check.param_name);
+            try self.emit("), \"");
+            try self.emit(check.check_type);
+            try self.emit("\")");
+        }
+        try self.emit(") {\n");
+        self.indent();
+
+        // Generate the rest of the function body (after the type checks)
+        for (func.body[type_checks.start_idx..]) |stmt| {
+            try self.generateStmt(stmt);
+        }
+
+        // Close the comptime if block with else returning error.TypeError
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("} else {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("return error.TypeError;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    } else {
+        // No type-check patterns - generate body normally
+        for (func.body) |stmt| {
+            try self.generateStmt(stmt);
+        }
     }
 
     // NOTE: Nested class unused suppression (e.g., _ = &ClassName;) is now handled
@@ -143,6 +298,12 @@ pub fn genAsyncFunctionBody(
     self: *NativeCodegen,
     func: ast.Node.FunctionDef,
 ) CodegenError!void {
+    // State machine approach generates everything in signature phase
+    if (USE_STATE_MACHINE_ASYNC) {
+        return; // Body already generated by state_machine.genAsyncStateMachine
+    }
+
+    // Fallback: thread-based approach (blocking)
     // Analyze function body for mutated variables BEFORE generating code
     // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
     self.func_local_mutations.clearRetainingCapacity();

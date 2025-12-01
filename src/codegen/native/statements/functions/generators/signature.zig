@@ -6,6 +6,11 @@ const CodegenError = @import("../../../main.zig").CodegenError;
 const param_analyzer = @import("../param_analyzer.zig");
 const self_analyzer = @import("../self_analyzer.zig");
 const zig_keywords = @import("zig_keywords");
+const state_machine = @import("../../../async_state_machine.zig");
+
+/// Use state machine async (true non-blocking) vs thread-based (blocking)
+/// State machines allow 1000x+ concurrent I/O operations (like Go/Rust)
+const USE_STATE_MACHINE_ASYNC = true;
 
 /// Python type hint to Zig type mapping (comptime optimized)
 const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
@@ -384,12 +389,18 @@ pub fn genFunctionSignature(
         // For decorators, use anytype to accept any function type
         const is_func = param_analyzer.isParameterUsedAsFunction(func.body, arg.name);
         const is_iter = param_analyzer.isParameterUsedAsIterator(func.body, arg.name);
+        const is_type_check = param_analyzer.isParameterUsedInTypeCheck(func.body, arg.name);
         if (is_func and arg.default == null) {
             try self.emit("anytype"); // For decorators and higher-order functions (without defaults)
             try self.anytype_params.put(arg.name, {});
         } else if (is_iter and arg.type_annotation == null) {
             // Parameter used as iterator (for x in param:) - use anytype for slice inference
             // Note: ?anytype is not valid in Zig, so we don't add ? prefix for anytype params
+            try self.emit("anytype");
+            try self.anytype_params.put(arg.name, {});
+        } else if (is_type_check and arg.type_annotation == null) {
+            // Parameter used in isinstance() type check - use anytype for runtime type checking
+            // e.g., def isint(x): return isinstance(x, int)
             try self.emit("anytype");
             try self.anytype_params.put(arg.name, {});
         } else if (arg.type_annotation) |_| {
@@ -400,8 +411,9 @@ pub fn genFunctionSignature(
                 try self.emit("?");
             }
             try self.emit(zig_type);
-        } else if (self.getVarType(arg.name)) |var_type| {
-            // Only use inferred type if it's not .unknown
+        } else if (self.getVarTypeInScope(func.name, arg.name)) |var_type| {
+            // Use scoped type inference for function parameters
+            // This avoids type pollution from variables with same name in other scopes
             const var_type_tag = @as(std.meta.Tag(@TypeOf(var_type)), var_type);
             if (var_type_tag != .unknown) {
                 const zig_type = try self.nativeTypeToZigType(var_type);
@@ -455,6 +467,12 @@ fn genAsyncFunctionSignature(
 ) CodegenError!void {
     _ = needs_allocator; // Async functions always need allocator
 
+    // Use state machine approach for true non-blocking I/O
+    if (USE_STATE_MACHINE_ASYNC) {
+        return state_machine.genAsyncStateMachine(self, func);
+    }
+
+    // Fallback: thread-based approach (blocking)
     // Rename "main" to "__user_main" to avoid conflict with entry point
     const func_name = if (std.mem.eql(u8, func.name, "main")) "__user_main" else func.name;
 

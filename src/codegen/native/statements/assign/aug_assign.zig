@@ -544,20 +544,36 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 // x += val => x = x.__iadd__(allocator, val)
                 // For nested classes, use @hasDecl runtime check to fallback to __add__
                 if (is_nested_class) {
-                    // Generate: x = if (@hasDecl(@TypeOf(x.*), "__iadd__")) try x.__iadd__(allocator, val) else try x.__add__(allocator, val);
-                    // Note: x is a pointer (*ClassName) for heap-allocated nested classes, so use x.* to get struct type
-                    try self.genExpr(aug.target.*);
-                    try self.emit(" = if (@hasDecl(@TypeOf(");
-                    try self.genExpr(aug.target.*);
-                    try self.emitFmt(".*), \"{s}\")) try ", .{iadd_method.?});
-                    try self.genExpr(aug.target.*);
-                    try self.emitFmt(".{s}(__global_allocator, ", .{iadd_method.?});
-                    try self.genExpr(aug.value.*);
-                    try self.emit(") else try ");
-                    try self.genExpr(aug.target.*);
-                    try self.emitFmt(".{s}(__global_allocator, ", .{add_method.?});
-                    try self.genExpr(aug.value.*);
-                    try self.emit(");\n");
+                    // In assertRaises context, catch errors instead of propagating
+                    if (self.in_assert_raises_context) {
+                        // Generate: _ = (if (@hasDecl(...)) x.__iadd__(...) else x.__add__(...)) catch null;
+                        try self.emit("_ = (if (@hasDecl(@TypeOf(");
+                        try self.genExpr(aug.target.*);
+                        try self.emitFmt(".*), \"{s}\")) ", .{iadd_method.?});
+                        try self.genExpr(aug.target.*);
+                        try self.emitFmt(".{s}(__global_allocator, ", .{iadd_method.?});
+                        try self.genExpr(aug.value.*);
+                        try self.emit(") else ");
+                        try self.genExpr(aug.target.*);
+                        try self.emitFmt(".{s}(__global_allocator, ", .{add_method.?});
+                        try self.genExpr(aug.value.*);
+                        try self.emit(")) catch null;\n");
+                    } else {
+                        // Generate: x = if (@hasDecl(@TypeOf(x.*), "__iadd__")) try x.__iadd__(allocator, val) else try x.__add__(allocator, val);
+                        // Note: x is a pointer (*ClassName) for heap-allocated nested classes, so use x.* to get struct type
+                        try self.genExpr(aug.target.*);
+                        try self.emit(" = if (@hasDecl(@TypeOf(");
+                        try self.genExpr(aug.target.*);
+                        try self.emitFmt(".*), \"{s}\")) try ", .{iadd_method.?});
+                        try self.genExpr(aug.target.*);
+                        try self.emitFmt(".{s}(__global_allocator, ", .{iadd_method.?});
+                        try self.genExpr(aug.value.*);
+                        try self.emit(") else try ");
+                        try self.genExpr(aug.target.*);
+                        try self.emitFmt(".{s}(__global_allocator, ", .{add_method.?});
+                        try self.genExpr(aug.value.*);
+                        try self.emit(");\n");
+                    }
                 } else {
                     try self.genExpr(aug.target.*);
                     try self.emit(" = try ");

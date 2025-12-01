@@ -449,6 +449,7 @@ pub const NetpollerStats = struct {
 
 var global_netpoller: ?*Netpoller = null;
 var global_netpoller_mutex: std.Thread.Mutex = .{};
+var global_allocator: ?std.mem.Allocator = null;
 
 pub fn getNetpoller(allocator: std.mem.Allocator) !*Netpoller {
     global_netpoller_mutex.lock();
@@ -462,8 +463,79 @@ pub fn getNetpoller(allocator: std.mem.Allocator) !*Netpoller {
     np.* = try Netpoller.init(allocator);
     try np.start();
     global_netpoller = np;
+    global_allocator = allocator;
 
     return np;
+}
+
+// === Simple timer API for state machine async ===
+
+/// Timer state for non-blocking sleep
+const SimpleTimer = struct {
+    deadline_ns: i128,
+    fired: bool = false,
+};
+
+var simple_timers: std.AutoHashMap(u64, SimpleTimer) = undefined;
+var simple_timer_mutex: std.Thread.Mutex = .{};
+var next_simple_timer_id: std.atomic.Value(u64) = std.atomic.Value(u64).init(1);
+var simple_timers_initialized = false;
+
+fn ensureSimpleTimersInit() void {
+    if (!simple_timers_initialized) {
+        simple_timers = std.AutoHashMap(u64, SimpleTimer).init(std.heap.page_allocator);
+        simple_timers_initialized = true;
+    }
+}
+
+/// Add a timer that fires after duration_ns nanoseconds
+/// Returns timer ID for checking with timerReady()
+pub fn addTimer(duration_ns: u64) u64 {
+    ensureSimpleTimersInit();
+
+    const timer_id = next_simple_timer_id.fetchAdd(1, .monotonic);
+    const now = std.time.nanoTimestamp();
+    const deadline = now + @as(i128, duration_ns);
+
+    simple_timer_mutex.lock();
+    defer simple_timer_mutex.unlock();
+
+    simple_timers.put(timer_id, .{
+        .deadline_ns = deadline,
+        .fired = false,
+    }) catch {};
+
+    return timer_id;
+}
+
+/// Check if a timer has fired (deadline passed)
+pub fn timerReady(timer_id: u64) bool {
+    ensureSimpleTimersInit();
+
+    simple_timer_mutex.lock();
+    defer simple_timer_mutex.unlock();
+
+    if (simple_timers.getPtr(timer_id)) |timer| {
+        if (timer.fired) return true;
+
+        const now = std.time.nanoTimestamp();
+        if (now >= timer.deadline_ns) {
+            timer.fired = true;
+            return true;
+        }
+        return false;
+    }
+    return true; // Unknown timer treated as complete
+}
+
+/// Remove a completed timer to free memory
+pub fn removeTimer(timer_id: u64) void {
+    ensureSimpleTimersInit();
+
+    simple_timer_mutex.lock();
+    defer simple_timer_mutex.unlock();
+
+    _ = simple_timers.remove(timer_id);
 }
 
 // === Tests ===

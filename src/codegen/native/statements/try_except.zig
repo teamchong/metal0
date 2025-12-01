@@ -181,6 +181,24 @@ fn findReferencedVarsInExpr(expr: ast.Node, vars: *FnvVoidMap, allocator: std.me
                 try findReferencedVarsInExpr(val, vars, allocator);
             }
         },
+        .starred => |starred| {
+            try findReferencedVarsInExpr(starred.value.*, vars, allocator);
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elem| {
+                try findReferencedVarsInExpr(elem, vars, allocator);
+            }
+        },
+        .boolop => |boolop| {
+            for (boolop.values) |val| {
+                try findReferencedVarsInExpr(val, vars, allocator);
+            }
+        },
+        .if_expr => |if_expr| {
+            try findReferencedVarsInExpr(if_expr.condition.*, vars, allocator);
+            try findReferencedVarsInExpr(if_expr.body.*, vars, allocator);
+            try findReferencedVarsInExpr(if_expr.orelse_value.*, vars, allocator);
+        },
         else => {},
     }
 }
@@ -559,12 +577,21 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (param_count > 0) try self.emit(", ");
             try self.emit("p_");
             try self.emit(var_name);
-            // Get actual type from type inference
-            const var_type = self.type_inferrer.var_types.get(var_name);
-            const zig_type = if (var_type) |vt| blk: {
+            // Get actual type from type inference (local scope first, then global)
+            const var_type = self.getVarType(var_name);
+            var zig_type = if (var_type) |vt| blk: {
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";
             defer if (var_type != null) self.allocator.free(zig_type);
+            // Check for class renames (e.g., Rat -> metal0_main.Rat)
+            if (var_type) |vt| {
+                if (@as(std.meta.Tag(NativeType), vt) == .class_instance) {
+                    if (self.var_renames.get(vt.class_instance)) |renamed| {
+                        self.allocator.free(zig_type);
+                        zig_type = try self.allocator.dupe(u8, renamed);
+                    }
+                }
+            }
             try self.emit(": *");
             try self.emit(zig_type); // Pointer for mutable access
             param_count += 1;
@@ -703,6 +730,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         }
         for (written_outer_vars.items) |var_name| {
             if (call_param_count > 0) try self.emit(", ");
+            // Check if variable has been renamed (e.g., function param a -> a__mut)
+            const actual_name = self.var_renames.get(var_name) orelse var_name;
             // Check if this is a captured variable in the current nested class
             if (isCapturedByCurrentClass(self, var_name)) {
                 // Access via __self.__captured_var for captured variables (already a pointer, no & needed)
@@ -710,7 +739,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 try self.output.writer(self.allocator).print("{s}.__captured_{s}", .{ self_name, var_name });
             } else {
                 try self.emit("&");
-                try self.emit(var_name);
+                try self.emit(actual_name);
             }
             call_param_count += 1;
         }

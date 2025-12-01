@@ -626,6 +626,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
+    // Note: Class-level attributes (candidates = set1 + set2) are NOT generated as struct fields
+    // They are evaluated at class definition time in Python and stored in class.__dict__
+    // For now, we access them via instance.__dict__ with runtime type extraction
+
     // Generate init() method from __init__, __new__, or inherit from parent
     // Priority: __init__ > __new__ > parent __init__ > default
     if (init_method) |init| {
@@ -821,6 +825,18 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // genMethodBodyWithAllocatorInfo which clears func_local_uses
     if (parent_class) |parent| {
         try body.genInheritedMethods(self, class, parent, child_method_names.items);
+    }
+
+    // For classes with metaclass=ABCMeta, generate register() method
+    // register(cls) is used to register virtual subclasses - we make it a no-op
+    if (class.metaclass) |mc| {
+        if (std.mem.eql(u8, mc, "ABCMeta")) {
+            try self.emit("\n");
+            try self.emitIndent();
+            try self.emit("// ABCMeta.register - register virtual subclass (no-op for AOT)\n");
+            try self.emitIndent();
+            try self.emit("pub fn register(_: anytype) void {}\n");
+        }
     }
 
     // Restore func_local_uses from saved state (for nested classes)

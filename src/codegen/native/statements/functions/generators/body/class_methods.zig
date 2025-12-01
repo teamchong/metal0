@@ -13,6 +13,7 @@ const generators = @import("../../generators.zig");
 // Import from parent for methodMutatesSelf and genMethodBody
 const body = @import("../body.zig");
 const usage_analysis = @import("usage_analysis.zig");
+const function_gen = @import("function_gen.zig");
 
 // Type alias for builtin base info
 const BuiltinBaseInfo = generators.BuiltinBaseInfo;
@@ -255,6 +256,11 @@ pub fn genInitMethod(
             const param_type = try class_fields.inferParamType(self, class_name, init_def, arg.name);
             defer self.allocator.free(param_type);
             try self.emit(param_type);
+
+            // Track anytype params for comptime type guard detection
+            if (std.mem.eql(u8, param_type, "anytype")) {
+                try self.anytype_params.put(arg.name, {});
+            }
         }
     }
 
@@ -273,9 +279,32 @@ pub fn genInitMethod(
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
     try usage_analysis.analyzeFunctionLocalUses(self, init_def);
 
+    // Detect type-check-raise patterns at the start of the function body for anytype params
+    // These need comptime branching to prevent invalid type instantiations from being analyzed
+    const type_checks = try function_gen.detectTypeCheckRaisePatterns(init_def.body, self.anytype_params, self.allocator);
+    const body_start_idx = type_checks.start_idx;
+    const has_type_checks = type_checks.checks.len > 0;
+
+    if (has_type_checks) {
+        // Generate comptime type guard: if (comptime istype(@TypeOf(p1), "int") and istype(@TypeOf(p2), "int")) {
+        try self.emitIndent();
+        try self.emit("if (comptime ");
+        for (type_checks.checks, 0..) |check, i| {
+            if (i > 0) try self.emit(" and ");
+            try self.emit("runtime.istype(@TypeOf(");
+            try self.emit(check.param_name);
+            try self.emit("), \"");
+            try self.emit(check.check_type);
+            try self.emit("\")");
+        }
+        try self.emit(") {\n");
+        self.indent();
+    }
+
     // First pass: generate non-field assignments (local variables, control flow, etc.)
     // These need to be executed BEFORE the struct is created
-    for (init_def.body) |stmt| {
+    // Skip the type-check statements that were already handled with comptime branching
+    for (init_def.body[body_start_idx..]) |stmt| {
         const is_field_assign = blk: {
             if (stmt == .assign) {
                 const assign = stmt.assign;
@@ -309,7 +338,8 @@ pub fn genInitMethod(
     self.indent();
 
     // Second pass: extract field assignments from __init__ body
-    for (init_def.body) |stmt| {
+    // Skip the type-check statements that were already handled with comptime branching
+    for (init_def.body[body_start_idx..]) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
             if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
@@ -340,6 +370,19 @@ pub fn genInitMethod(
     if (is_nested) {
         try self.emitIndent();
         try self.emit("return __ptr;\n");
+    }
+
+    // Close comptime type guard if we opened one
+    if (has_type_checks) {
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("} else {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("return error.TypeError;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
     }
 
     self.dedent();
@@ -441,6 +484,13 @@ pub fn genInitMethodWithBuiltinBase(
                 const param_type = try class_fields.inferParamType(self, class_name, init, arg.name);
                 defer self.allocator.free(param_type);
                 try self.emit(param_type);
+
+                // Track anytype params for comptime type guard detection
+                std.debug.print("DEBUG genInitMethodWithBuiltinBase: arg.name = {s}, param_type = {s}\n", .{ arg.name, param_type });
+                if (std.mem.eql(u8, param_type, "anytype")) {
+                    try self.anytype_params.put(arg.name, {});
+                    std.debug.print("DEBUG: Added {s} to anytype_params\n", .{arg.name});
+                }
             }
         }
     }
@@ -465,9 +515,34 @@ pub fn genInitMethodWithBuiltinBase(
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
     try usage_analysis.analyzeFunctionLocalUses(self, init);
 
+    // Detect type-check-raise patterns at the start of the function body for anytype params
+    // These need comptime branching to prevent invalid type instantiations from being analyzed
+    std.debug.print("DEBUG: Before detectTypeCheckRaisePatterns, anytype_params.count() = {}\n", .{self.anytype_params.count()});
+    const type_checks = try function_gen.detectTypeCheckRaisePatterns(init.body, self.anytype_params, self.allocator);
+    const body_start_idx = type_checks.start_idx;
+    const has_type_checks = type_checks.checks.len > 0;
+    std.debug.print("DEBUG: type_checks.checks.len = {}, body_start_idx = {}\n", .{ type_checks.checks.len, body_start_idx });
+
+    if (has_type_checks) {
+        // Generate comptime type guard: if (comptime istype(@TypeOf(p1), "int") and istype(@TypeOf(p2), "int")) {
+        try self.emitIndent();
+        try self.emit("if (comptime ");
+        for (type_checks.checks, 0..) |check, i| {
+            if (i > 0) try self.emit(" and ");
+            try self.emit("runtime.istype(@TypeOf(");
+            try self.emit(check.param_name);
+            try self.emit("), \"");
+            try self.emit(check.check_type);
+            try self.emit("\")");
+        }
+        try self.emit(") {\n");
+        self.indent();
+    }
+
     // First pass: generate non-field assignments (local variables, control flow, etc.)
     // These need to be executed BEFORE the struct is created
-    for (init.body) |stmt| {
+    // Skip type-check statements if we're using comptime branching
+    for (init.body[body_start_idx..]) |stmt| {
         const is_field_assign = blk: {
             if (stmt == .assign) {
                 const assign = stmt.assign;
@@ -556,7 +631,8 @@ pub fn genInitMethodWithBuiltinBase(
     }
 
     // Second pass: extract field assignments from __init__ body
-    for (init.body) |stmt| {
+    // Skip type-check statements if we're using comptime branching
+    for (init.body[body_start_idx..]) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
             if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
@@ -586,6 +662,19 @@ pub fn genInitMethodWithBuiltinBase(
     if (is_nested) {
         try self.emitIndent();
         try self.emit("return __ptr;\n");
+    }
+
+    // Close comptime type guard if we opened one
+    if (has_type_checks) {
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("} else {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("return error.TypeError;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
     }
 
     self.dedent();

@@ -13,7 +13,8 @@ const HoistedVar = struct {
 
 /// Check if a condition is a comptime constant and return its boolean value
 /// Returns null if not comptime constant, true/false otherwise
-fn isComptimeConstantCondition(node: ast.Node) ?bool {
+/// anytype_params: set of parameter names that are anytype (cannot be comptime evaluated)
+fn isComptimeConstantCondition(node: ast.Node, anytype_params: anytype) ?bool {
     switch (node) {
         // Literal True/False or numeric constants
         .constant => |c| {
@@ -28,11 +29,22 @@ fn isComptimeConstantCondition(node: ast.Node) ?bool {
                 else => return null,
             }
         },
-        // isinstance() always returns true at compile time for typed variables
+        // isinstance() returns true at compile time ONLY for non-anytype typed variables
+        // NOTE: User-defined type check functions (isint, isnum, isRat) are NOT comptime constant
+        // because they call isinstance internally which may have runtime behavior for anytype
         .call => |call| {
             if (call.func.* == .name) {
                 const func_name = call.func.name.id;
+                // Only isinstance itself can be comptime evaluated, not user wrappers
                 if (std.mem.eql(u8, func_name, "isinstance")) {
+                    // Check if the argument is an anytype parameter
+                    if (call.args.len > 0 and call.args[0] == .name) {
+                        const arg_name = call.args[0].name.id;
+                        if (anytype_params.contains(arg_name)) {
+                            // Cannot evaluate at comptime for anytype params
+                            return null;
+                        }
+                    }
                     return true;
                 }
             }
@@ -41,7 +53,7 @@ fn isComptimeConstantCondition(node: ast.Node) ?bool {
         // not <expr> - negate the inner value
         .unaryop => |u| {
             if (u.op == .Not) {
-                if (isComptimeConstantCondition(u.operand.*)) |inner| {
+                if (isComptimeConstantCondition(u.operand.*, anytype_params)) |inner| {
                     return !inner;
                 }
             }
@@ -49,6 +61,68 @@ fn isComptimeConstantCondition(node: ast.Node) ?bool {
         },
         else => return null,
     }
+}
+
+/// Info about a type check pattern: if not isint(x): raise TypeError
+const TypeCheckRaiseInfo = struct {
+    param_name: []const u8,
+    check_type: []const u8, // "int", "float", etc.
+};
+
+/// Check if an if statement is a type-check-then-raise pattern for an anytype param
+/// Pattern: if not isinstance(x, int): raise TypeError  OR  if not isint(x): raise TypeError
+fn isTypeCheckRaisePattern(if_stmt: ast.Node.If, anytype_params: anytype) ?TypeCheckRaiseInfo {
+    // Body must be a single raise TypeError
+    if (if_stmt.body.len != 1) return null;
+    if (if_stmt.body[0] != .raise_stmt) return null;
+    const raise = if_stmt.body[0].raise_stmt;
+    if (raise.exc == null) return null;
+
+    // Check the exception is TypeError
+    const is_type_error = blk: {
+        if (raise.exc.?.* == .call) {
+            const call = raise.exc.?.call;
+            if (call.func.* == .name) {
+                break :blk std.mem.eql(u8, call.func.name.id, "TypeError");
+            }
+        } else if (raise.exc.?.* == .name) {
+            break :blk std.mem.eql(u8, raise.exc.?.name.id, "TypeError");
+        }
+        break :blk false;
+    };
+    if (!is_type_error) return null;
+
+    // Condition must be: not isint(x) or not isinstance(x, type)
+    if (if_stmt.condition.* != .unaryop) return null;
+    const unary = if_stmt.condition.unaryop;
+    if (unary.op != .Not) return null;
+    if (unary.operand.* != .call) return null;
+
+    const call = unary.operand.call;
+    if (call.func.* != .name) return null;
+    const func_name = call.func.name.id;
+
+    // Check for isint(x) pattern
+    if (std.mem.eql(u8, func_name, "isint")) {
+        if (call.args.len >= 1 and call.args[0] == .name) {
+            const arg_name = call.args[0].name.id;
+            if (anytype_params.contains(arg_name)) {
+                return TypeCheckRaiseInfo{ .param_name = arg_name, .check_type = "int" };
+            }
+        }
+    }
+    // Check for isinstance(x, int) pattern
+    else if (std.mem.eql(u8, func_name, "isinstance")) {
+        if (call.args.len >= 2 and call.args[0] == .name and call.args[1] == .name) {
+            const arg_name = call.args[0].name.id;
+            const type_name = call.args[1].name.id;
+            if (anytype_params.contains(arg_name)) {
+                return TypeCheckRaiseInfo{ .param_name = arg_name, .check_type = type_name };
+            }
+        }
+    }
+
+    return null;
 }
 
 /// Pre-scan an expression for walrus operators (named_expr) and emit variable declarations
@@ -153,8 +227,12 @@ pub fn genIf(self: *NativeCodegen, if_stmt: ast.Node.If) CodegenError!void {
 /// Internal if generation with option to skip initial indent (for elif chains)
 /// hoist_vars: whether to pre-scan and hoist variable declarations (only for top-level if)
 fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hoist_vars: bool) CodegenError!void {
+    // NOTE: Type-check-raise patterns (if not isint(x): raise TypeError) are now handled
+    // at the function level in function_gen.zig using comptime branching that wraps the
+    // entire function body. This ensures gcd(x, y) calls are only analyzed for valid types.
+
     // Check for comptime constant conditions - eliminate dead branches
-    if (isComptimeConstantCondition(if_stmt.condition.*)) |comptime_value| {
+    if (isComptimeConstantCondition(if_stmt.condition.*, self.anytype_params)) |comptime_value| {
         // Even though condition is comptime constant, we still need to "evaluate" it
         // to mark any variables it uses as referenced (e.g., isinstance(x, T) uses x)
         // Generate: _ = (condition); before the body

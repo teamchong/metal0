@@ -233,6 +233,12 @@ fn isNameUsedInExpr(expr: ast.Node, name: []const u8) bool {
             return false;
         },
         .unaryop => |unary| isNameUsedInExpr(unary.operand.*, name),
+        .boolop => |boolop| {
+            for (boolop.values) |val| {
+                if (isNameUsedInExpr(val, name)) return true;
+            }
+            return false;
+        },
         .subscript => |sub| {
             if (isNameUsedInExpr(sub.value.*, name)) return true;
             // Check slice for index usage
@@ -339,23 +345,13 @@ pub fn isParameterCalled(body: []ast.Node, param_name: []const u8) bool {
     return false;
 }
 
-/// Check if a parameter is used as a function (called or returned) - for decorators
+/// Check if a parameter is used as a function (called somewhere in the body)
+/// For decorators that return their parameter unchanged, the parameter still needs
+/// to be called at some point for us to know it's a function type
 pub fn isParameterUsedAsFunction(body: []ast.Node, param_name: []const u8) bool {
-    // Check if parameter is called
-    if (isParameterCalled(body, param_name)) return true;
-
-    // Check if parameter is returned (decorator pattern)
-    for (body) |stmt| {
-        if (stmt == .return_stmt) {
-            if (stmt.return_stmt.value) |val| {
-                if (val.* == .name and std.mem.eql(u8, val.name.id, param_name)) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
+    // Only check if parameter is called as a function
+    // "return param" alone doesn't mean param is a function - it could be any value
+    return isParameterCalled(body, param_name);
 }
 
 fn isParameterCalledInStmt(stmt: ast.Node, param_name: []const u8) bool {
@@ -628,6 +624,12 @@ fn isFirstParamUsedNonUnittestInExpr(expr: ast.Node, name: []const u8) bool {
             return false;
         },
         .unaryop => |unary| isFirstParamUsedNonUnittestInExpr(unary.operand.*, name),
+        .boolop => |boolop| {
+            for (boolop.values) |val| {
+                if (isFirstParamUsedNonUnittestInExpr(val, name)) return true;
+            }
+            return false;
+        },
         .subscript => |sub| {
             if (isFirstParamUsedNonUnittestInExpr(sub.value.*, name)) return true;
             switch (sub.slice) {
@@ -669,4 +671,48 @@ fn isFirstParamUsedNonUnittestInExpr(expr: ast.Node, name: []const u8) bool {
         },
         else => false,
     };
+}
+
+/// Check if a parameter is used in isinstance() or similar type-checking call
+/// Pattern: return isinstance(param, type) or isinstance(param, (type1, type2))
+/// Such parameters should use anytype to accept any value for runtime type checking
+pub fn isParameterUsedInTypeCheck(body: []ast.Node, param_name: []const u8) bool {
+    for (body) |stmt| {
+        switch (stmt) {
+            .return_stmt => |ret| {
+                if (ret.value) |value| {
+                    if (isTypeCheckCall(value.*, param_name)) return true;
+                }
+            },
+            else => {},
+        }
+    }
+    return false;
+}
+
+/// Check if an expression is isinstance(param, ...) or a type-checking call on param
+fn isTypeCheckCall(expr: ast.Node, param_name: []const u8) bool {
+    if (expr == .call) {
+        const func = expr.call.func.*;
+        if (func == .name) {
+            const func_name = func.name.id;
+            // isinstance(x, type) is a type-checking call
+            if (std.mem.eql(u8, func_name, "isinstance")) {
+                if (expr.call.args.len > 0 and expr.call.args[0] == .name) {
+                    if (std.mem.eql(u8, expr.call.args[0].name.id, param_name)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    // Check for "for T in ...: if isinstance(x, T): return True" pattern
+    if (expr == .for_stmt) {
+        for (expr.for_stmt.body) |body_stmt| {
+            if (body_stmt == .if_stmt) {
+                if (isTypeCheckCall(body_stmt.if_stmt.condition.*, param_name)) return true;
+            }
+        }
+    }
+    return false;
 }
