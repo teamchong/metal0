@@ -147,7 +147,7 @@ pub fn genSimpleNamespace(self: *NativeCodegen, args: []ast.Node) CodegenError!v
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("attrs: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
+    try self.emit("attrs: hashmap_helper.StringHashMap([]const u8) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn get(self: *@This(), name: []const u8) ?[]const u8 { return self.attrs.get(name); }\n");
     try self.emitIndent();

@@ -146,7 +146,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("pub fn sections(self: *@This()) [][]const u8 {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var result = std.ArrayList([]const u8).init(__global_allocator);\n");
+    try self.emit("var result: std.ArrayList([]const u8) = .{};\n");
     try self.emitIndent();
     try self.emit("var iter = self.sections_map.keyIterator();\n");
     try self.emitIndent();
@@ -238,7 +238,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("pub fn options(self: *@This(), section: []const u8) [][]const u8 {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("var result = std.ArrayList([]const u8).init(__global_allocator);\n");
+    try self.emit("var result: std.ArrayList([]const u8) = .{};\n");
     try self.emitIndent();
     try self.emit("if (self.sections_map.get(section)) |sec| {\n");
     self.indent();

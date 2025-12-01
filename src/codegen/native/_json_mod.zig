@@ -18,7 +18,7 @@ pub fn genEncodeBasestring(self: *NativeCodegen, args: []ast.Node) CodegenError!
     if (args.len > 0) {
         try self.emit("blk: { const s = ");
         try self.genExpr(args[0]);
-        try self.emit("; var result = std.ArrayList(u8).init(__global_allocator); result.append('\"') catch {}; for (s) |c| { switch (c) { '\"' => result.appendSlice(\"\\\\\\\"\") catch {}, '\\\\' => result.appendSlice(\"\\\\\\\\\") catch {}, '\\n' => result.appendSlice(\"\\\\n\") catch {}, '\\r' => result.appendSlice(\"\\\\r\") catch {}, '\\t' => result.appendSlice(\"\\\\t\") catch {}, else => result.append(c) catch {}, } } result.append('\"') catch {}; break :blk result.items; }");
+        try self.emit("; var result: std.ArrayList(u8) = .{}; result.append('\"') catch {}; for (s) |c| { switch (c) { '\"' => result.appendSlice(\"\\\\\\\"\") catch {}, '\\\\' => result.appendSlice(\"\\\\\\\\\") catch {}, '\\n' => result.appendSlice(\"\\\\n\") catch {}, '\\r' => result.appendSlice(\"\\\\r\") catch {}, '\\t' => result.appendSlice(\"\\\\t\") catch {}, else => result.append(c) catch {}, } } result.append('\"') catch {}; break :blk result.items; }");
     } else {
         try self.emit("\"\\\"\\\"\"");
     }
@@ -29,7 +29,7 @@ pub fn genEncodeBasestringAscii(self: *NativeCodegen, args: []ast.Node) CodegenE
     if (args.len > 0) {
         try self.emit("blk: { const s = ");
         try self.genExpr(args[0]);
-        try self.emit("; var result = std.ArrayList(u8).init(__global_allocator); result.append('\"') catch {}; for (s) |c| { if (c < 0x20 or c > 0x7e) { result.appendSlice(\"\\\\u\") catch {}; var buf: [4]u8 = undefined; _ = std.fmt.bufPrint(&buf, \"{x:0>4}\", .{c}) catch {}; result.appendSlice(&buf) catch {}; } else { switch (c) { '\"' => result.appendSlice(\"\\\\\\\"\") catch {}, '\\\\' => result.appendSlice(\"\\\\\\\\\") catch {}, else => result.append(c) catch {}, } } } result.append('\"') catch {}; break :blk result.items; }");
+        try self.emit("; var result: std.ArrayList(u8) = .{}; result.append('\"') catch {}; for (s) |c| { if (c < 0x20 or c > 0x7e) { result.appendSlice(\"\\\\u\") catch {}; var buf: [4]u8 = undefined; _ = std.fmt.bufPrint(&buf, \"{x:0>4}\", .{c}) catch {}; result.appendSlice(&buf) catch {}; } else { switch (c) { '\"' => result.appendSlice(\"\\\\\\\"\") catch {}, '\\\\' => result.appendSlice(\"\\\\\\\\\") catch {}, else => result.append(c) catch {}, } } } result.append('\"') catch {}; break :blk result.items; }");
     } else {
         try self.emit("\"\\\"\\\"\"");
     }

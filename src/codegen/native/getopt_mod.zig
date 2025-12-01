@@ -19,7 +19,7 @@ pub fn genGetopt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit("; const shortopts = ");
         try self.genExpr(args[1]);
-        try self.emit("; _ = shortopts; var opts = std.ArrayList(struct { []const u8, []const u8 }).init(__global_allocator); var remaining = std.ArrayList([]const u8).init(__global_allocator); for (argv) |arg| { remaining.append(__global_allocator, arg) catch {}; } break :blk .{ opts.items, remaining.items }; }");
+        try self.emit("; _ = shortopts; var opts: std.ArrayList(struct { []const u8, []const u8 }) = .{}; var remaining: std.ArrayList([]const u8) = .{}; for (argv) |arg| { remaining.append(__global_allocator, arg) catch {}; } break :blk .{ opts.items, remaining.items }; }");
     } else {
         try self.emit(".{ &[_]struct { []const u8, []const u8 }{}, &[_][]const u8{} }");
     }
@@ -32,7 +32,7 @@ pub fn genGnuGetopt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit("; const shortopts = ");
         try self.genExpr(args[1]);
-        try self.emit("; _ = shortopts; var opts = std.ArrayList(struct { []const u8, []const u8 }).init(__global_allocator); var remaining = std.ArrayList([]const u8).init(__global_allocator); for (argv) |arg| { remaining.append(__global_allocator, arg) catch {}; } break :blk .{ opts.items, remaining.items }; }");
+        try self.emit("; _ = shortopts; var opts: std.ArrayList(struct { []const u8, []const u8 }) = .{}; var remaining: std.ArrayList([]const u8) = .{}; for (argv) |arg| { remaining.append(__global_allocator, arg) catch {}; } break :blk .{ opts.items, remaining.items }; }");
     } else {
         try self.emit(".{ &[_]struct { []const u8, []const u8 }{}, &[_][]const u8{} }");
     }

@@ -111,7 +111,7 @@ pub fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     try self.emitIndent();
-    try self.emit("var _entries = std.ArrayList([]const u8).init(__global_allocator);\n");
+    try self.emit("var _entries: std.ArrayList([]const u8) = .{};\n");
     try self.emitIndent();
     try self.emit("var _dir = std.fs.cwd().openDir(_dir_path, .{ .iterate = true }) catch {\n");
     self.indent();

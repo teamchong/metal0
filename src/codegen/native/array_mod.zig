@@ -19,7 +19,7 @@ pub fn genArray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("typecode: u8 = 'l',\n");
     try self.emitIndent();
-    try self.emit("items: std.ArrayList(i64) = std.ArrayList(i64).init(__global_allocator),\n");
+    try self.emit("items: std.ArrayList(i64) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn append(self: *@This(), x: i64) void { self.items.append(__global_allocator, x) catch {}; }\n");
     try self.emitIndent();

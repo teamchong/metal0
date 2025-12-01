@@ -62,7 +62,7 @@ pub fn genWeakSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("items: std.ArrayList(*anyopaque) = std.ArrayList(*anyopaque).init(__global_allocator),\n");
+    try self.emit("items: std.ArrayList(*anyopaque) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn add(self: *@This(), item: anytype) void {\n");
     self.indent();
@@ -88,7 +88,7 @@ pub fn genWeakKeyDictionary(self: *NativeCodegen, args: []ast.Node) CodegenError
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("data: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator),\n");
+    try self.emit("data: hashmap_helper.StringHashMap([]const u8) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn get(self: *@This(), key: anytype) ?[]const u8 { _ = self; _ = key; return null; }\n");
     try self.emitIndent();
@@ -106,7 +106,7 @@ pub fn genWeakValueDictionary(self: *NativeCodegen, args: []ast.Node) CodegenErr
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("data: hashmap_helper.StringHashMap(*anyopaque) = hashmap_helper.StringHashMap(*anyopaque).init(__global_allocator),\n");
+    try self.emit("data: hashmap_helper.StringHashMap(*anyopaque) = .{},\n");
     try self.emitIndent();
     try self.emit("pub fn get(self: *@This(), key: []const u8) ?*anyopaque { return self.data.get(key); }\n");
     try self.emitIndent();

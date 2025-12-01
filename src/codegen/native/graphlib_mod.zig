@@ -16,9 +16,9 @@ pub fn genTopologicalSorter(self: *NativeCodegen, args: []ast.Node) CodegenError
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("nodes: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(__global_allocator),\n");
+    try self.emit("nodes: std.ArrayList([]const u8) = .{},\n");
     try self.emitIndent();
-    try self.emit("edges: hashmap_helper.StringHashMap(std.ArrayList([]const u8)) = hashmap_helper.StringHashMap(std.ArrayList([]const u8)).init(__global_allocator),\n");
+    try self.emit("edges: hashmap_helper.StringHashMap(std.ArrayList([]const u8)) = .{},\n");
     try self.emitIndent();
     try self.emit("prepared: bool = false,\n");
     try self.emitIndent();

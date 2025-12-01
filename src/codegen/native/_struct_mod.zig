@@ -21,7 +21,7 @@ pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("blk: { const fmt = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = fmt; var result = std.ArrayList(u8).init(__global_allocator); break :blk result.items; }");
+        try self.emit("; _ = fmt; var result: std.ArrayList(u8) = .{}; break :blk result.items; }");
     } else {
         try self.emit("\"\"");
     }

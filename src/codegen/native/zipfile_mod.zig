@@ -48,7 +48,7 @@ pub fn genZipFile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn init(p: []const u8) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return @This(){ .path = p, .files = std.ArrayList([]const u8).init(__global_allocator) };\n");
+    try self.emit("return @This(){ .path = p, .files = .{} };\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

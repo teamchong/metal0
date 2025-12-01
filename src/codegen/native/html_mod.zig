@@ -21,7 +21,7 @@ pub fn genEscape(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var _result: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("for (_s) |c| {\n");
     self.indent();
@@ -64,7 +64,7 @@ pub fn genUnescape(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var _result: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("var _i: usize = 0;\n");
     try self.emitIndent();

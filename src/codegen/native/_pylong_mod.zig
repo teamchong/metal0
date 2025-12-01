@@ -33,7 +33,7 @@ pub fn genSpread(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // We emit a struct with the required methods that operates on an internal map
     // Since tests call .copy()/.clear()/.update() on _spread, we need those methods
     try self.emit("(struct {\n");
-    try self.emit("    data: std.AutoHashMap(i64, i64) = std.AutoHashMap(i64, i64).init(__global_allocator),\n");
+    try self.emit("    data: std.AutoHashMap(i64, i64) = .{},\n");
     try self.emit("    pub fn copy(self: @This()) @This() { return self; }\n");
     try self.emit("    pub fn clear(self: *@This()) void { self.data.clearRetainingCapacity(); }\n");
     try self.emit("    pub fn clearRetainingCapacity(self: *@This()) void { self.data.clearRetainingCapacity(); }\n");

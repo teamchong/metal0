@@ -132,7 +132,7 @@ pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[1]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList([]const u8).init(__global_allocator);\n");
+    try self.emit("var _result: std.ArrayList([]const u8) = .{};\n");
     try self.emitIndent();
     try self.emit("for (_names) |_fname| {\n");
     self.indent();
@@ -192,7 +192,7 @@ pub fn genTranslate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var _result = std.ArrayList(u8).init(__global_allocator);\n");
+    try self.emit("var _result: std.ArrayList(u8) = .{};\n");
     try self.emitIndent();
     try self.emit("_result.appendSlice(__global_allocator, \"(?s:\") catch {};\n");
     try self.emitIndent();

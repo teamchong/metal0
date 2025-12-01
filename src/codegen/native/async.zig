@@ -50,7 +50,7 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Maps to: spawn all, wait for all
 pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("(blk: {\n");
-    try self.emit("    var __threads = std.ArrayList(*runtime.GreenThread).init(__global_allocator);\n");
+    try self.emit("    var __threads: std.ArrayList(*runtime.GreenThread) = .{};\n");
     try self.emit("    defer __threads.deinit();\n");
 
     // Spawn all tasks
@@ -61,7 +61,7 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     }
 
     // Wait for all and collect results
-    try self.emit("    var __results = std.ArrayList(runtime.PyValue).init(__global_allocator);\n");
+    try self.emit("    var __results: std.ArrayList(runtime.PyValue) = .{};\n");
     try self.emit("    for (__threads.items) |__t| {\n");
     try self.emit("        runtime.scheduler.wait(__t);\n");
     try self.emit("        try __results.append(__t.result orelse runtime.PyValue{.none = {}});\n");
