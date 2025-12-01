@@ -489,11 +489,18 @@ pub const VM = struct {
             const left_val = PyInt.getValue(left);
             const right_val = PyInt.getValue(right);
 
+            // True division (/) returns float in Python 3
+            if (op == .Div) {
+                const result_float = @as(f64, @floatFromInt(left_val)) / @as(f64, @floatFromInt(right_val));
+                const result = try PyFloat.create(self.allocator, result_float);
+                try self.stack.append(self.allocator, result);
+                return;
+            }
+
             const result_val: i64 = switch (op) {
                 .Add => left_val + right_val,
                 .Sub => left_val - right_val,
                 .Mult => left_val * right_val,
-                .Div => @divTrunc(left_val, right_val),
                 .FloorDiv => @divFloor(left_val, right_val),
                 .Mod => @mod(left_val, right_val),
                 .Pow => std.math.pow(i64, left_val, @intCast(right_val)),

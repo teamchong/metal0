@@ -382,16 +382,16 @@ Benchmarked on macOS ARM64 (Apple Silicon M2).
 
 metal0 compiles Python's `asyncio` to state machine coroutines with kqueue netpoller.
 
-**CPU-Bound: Fan-out/Fan-in (1000 tasks × 100,000 iterations)**
+**CPU-Bound: Fan-out/Fan-in (1000 tasks × 1M iterations each)**
 
 | Runtime | Time | Tasks/sec | vs CPython |
 |---------|------|-----------|------------|
-| **metal0** | **0.05ms** | **22,000,000** | **73,000x** 🏆 |
-| Rust (rayon) | 0.20ms | 5,079,365 | 16,870x |
-| Go | 4.89ms | 204,668 | 680x |
-| CPython | 3,320ms | 301 | 1x |
+| **Rust (rayon)** | **0.23ms** | **4,400,440** | **138,000x** 🏆 |
+| **metal0** | **0.05ms*** | **20,000,000** | **comptime** |
+| Go | 45ms | 22,166 | 708x |
+| CPython | 31,861ms | 31 | 1x |
 
-*metal0 is 4x faster than Rust and 680x faster than Go on CPU-bound async!*
+*\*metal0 computes arithmetic at compile time - not a fair runtime comparison. For CPU-bound work, use Rust/Go or wait for metal0's runtime loop optimization.*
 
 **I/O-Bound: Concurrent Sleep (100,000 tasks × 1ms each)**
 

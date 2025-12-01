@@ -14,7 +14,7 @@ import asyncio
 import time
 
 NUM_TASKS = 1000
-WORK_PER_TASK = 100000  # iterations of busy work - CPU bound
+WORK_PER_TASK = 1000000  # 1M iterations per task - CPU bound
 
 async def worker(task_id: int) -> int:
     """Simulated async worker that does some computation"""

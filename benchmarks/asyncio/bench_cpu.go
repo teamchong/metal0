@@ -9,7 +9,7 @@ import (
 
 const (
 	NUM_TASKS     = 1000
-	WORK_PER_TASK = 100000
+	WORK_PER_TASK = 1000000  // 1M iterations per task
 )
 
 func worker(taskID int) int64 {

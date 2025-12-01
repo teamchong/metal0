@@ -1133,6 +1133,8 @@ pub const operatorLt = builtins.operatorLt;
 pub const operatorLe = builtins.operatorLe;
 pub const operatorGt = builtins.operatorGt;
 pub const operatorGe = builtins.operatorGe;
+pub const classInstanceEq = builtins.classInstanceEq;
+pub const classInstanceNe = builtins.classInstanceNe;
 
 // Import and re-export float operations
 pub const float_ops = @import("runtime/float_ops.zig");
