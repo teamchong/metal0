@@ -191,8 +191,7 @@ pub const Netpoller = struct {
             .udata = @intFromPtr(&self.pending.get(fd).?),
         };
 
-        const result = std.posix.kevent(self.poll_fd, &changelist, &[_]std.posix.Kevent{}, null);
-        if (result < 0) return error.KqueueError;
+        _ = std.posix.kevent(self.poll_fd, &changelist, &[_]std.posix.Kevent{}, null) catch return error.KqueueError;
     }
 
     fn kqueueRemove(self: *Netpoller, fd: std.posix.fd_t) !void {

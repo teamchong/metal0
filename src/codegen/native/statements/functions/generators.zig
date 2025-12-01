@@ -262,6 +262,40 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
+    // Register nested class fields in type_inferrer.class_fields
+    // This is needed so isDynamicAttribute() can find fields of nested classes
+    if (init_method) |init| {
+        const native_types = @import("../../../../analysis/native_types/core.zig");
+        var fields = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
+        const methods = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
+        const property_methods = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
+
+        // Extract field types from __init__ body
+        for (init.body) |stmt| {
+            if (stmt == .assign) {
+                const assign = stmt.assign;
+                if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                    const attr = assign.targets[0].attribute;
+                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        // Register the field name - type doesn't matter for isDynamicAttribute check
+                        // Use .unknown as a placeholder type
+                        try fields.put(attr.attr, .unknown);
+                    }
+                }
+            }
+        }
+
+        try self.type_inferrer.class_fields.put(class.name, .{
+            .fields = fields,
+            .methods = methods,
+            .property_methods = property_methods,
+        });
+
+        // Also register 'self' as a class_instance of this class
+        // This is needed for type inference during method body generation
+        try self.type_inferrer.var_types.put("self", .{ .class_instance = class.name });
+    }
+
     // Check for base classes - we support single inheritance
     var parent_class: ?ast.Node.ClassDef = null;
     var is_unittest_class = false;
@@ -407,6 +441,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     var saved_func_local_mutations = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer saved_func_local_mutations.deinit();
 
+    // Also save func_local_aug_assigns - for shadow variable var/const decisions
+    var saved_func_local_aug_assigns = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer saved_func_local_aug_assigns.deinit();
+
     // Also save nested_class_names - nested class methods will clear it
     // This prevents parent method's nested class tracking from being lost
     // (e.g., MyIndexable defined in outer scope, used later after nested class's methods are generated)
@@ -440,6 +478,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         var mut_it = self.func_local_mutations.iterator();
         while (mut_it.next()) |entry| {
             try saved_func_local_mutations.put(entry.key_ptr.*, {});
+        }
+
+        // Copy current func_local_aug_assigns
+        var aug_it = self.func_local_aug_assigns.iterator();
+        while (aug_it.next()) |entry| {
+            try saved_func_local_aug_assigns.put(entry.key_ptr.*, {});
         }
 
         // Copy current nested_class_names
@@ -515,7 +559,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             var type_buf = std.ArrayList(u8){};
             const var_type: ?@import("../../../../analysis/native_types/core.zig").NativeType = self.type_inferrer.getScopedVar(var_name) orelse
                 self.type_inferrer.var_types.get(var_name);
-            const zig_type = if (var_type) |vt| blk: {
+            var zig_type: []const u8 = if (var_type) |vt| blk: {
                 vt.toZigType(self.allocator, &type_buf) catch {};
                 if (type_buf.items.len > 0) {
                     break :blk type_buf.items;
@@ -523,8 +567,20 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 break :blk "i64";
             } else "i64";
             defer type_buf.deinit(self.allocator);
+            // Fix empty list type: type inferrer may detect PyObject for mixed/string lists
+            // Map to appropriate Zig type: PyObject -> []const u8 for string lists
+            if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
+                // Default to string list since that's the most common case for empty lists with appends
+                zig_type = "std.ArrayList([]const u8)";
+            }
 
-            try self.output.writer(self.allocator).print("__captured_{s}: *const {s},\n", .{ var_name, zig_type });
+            // Check if this captured variable is mutated (via append, extend, etc.)
+            // If mutated, use * instead of *const
+            var mutation_key_buf: [256]u8 = undefined;
+            const mutation_key = std.fmt.bufPrint(&mutation_key_buf, "{s}.{s}", .{ class.name, var_name }) catch var_name;
+            const is_mutated = self.mutated_captures.contains(mutation_key);
+            const ptr_type: []const u8 = if (is_mutated) "*" else "*const";
+            try self.output.writer(self.allocator).print("__captured_{s}: {s} {s},\n", .{ var_name, ptr_type, zig_type });
         }
         try self.emit("\n");
     }
@@ -548,11 +604,16 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     }
 
     // Extract fields from __init__ body (self.x = ...)
-    // If no __init__, extract from __new__ body (since __new__ can also set attributes)
+    // If no __init__, extract from __new__ or parent's __init__ (since they set attributes)
     if (init_method) |init| {
         try body.genClassFields(self, class.name, init);
     } else if (new_method) |new| {
         try body.genClassFields(self, class.name, new);
+    } else if (parent_class) |_| {
+        // No __init__ - recursively find __init__ in parent chain
+        if (findInheritedInit(self, parent_class)) |inherited_init| {
+            try body.genClassFields(self, class.name, inherited_init);
+        }
     }
 
     // For unittest classes, also extract fields from setUp method (without adding __dict__ again)
@@ -562,13 +623,24 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
-    // Generate init() method from __init__, __new__, or default
-    // Priority: __init__ > __new__ > default
+    // Generate init() method from __init__, __new__, or inherit from parent
+    // Priority: __init__ > __new__ > parent __init__ > default
     if (init_method) |init| {
         try body.genInitMethodWithBuiltinBase(self, class.name, init, builtin_base, complex_parent, captured_vars);
     } else if (new_method) |new| {
         // No __init__ but has __new__ - use __new__'s parameters for init
         try body.genInitMethodFromNew(self, class.name, new, builtin_base, complex_parent, captured_vars);
+    } else if (parent_class) |_| {
+        // No __init__ but has parent class - inherit parent's __init__ signature
+        // Recursively search the parent chain for __init__
+        const parent_init = findInheritedInit(self, parent_class);
+        if (parent_init) |pinit| {
+            // Use parent's __init__ signature for our init
+            try body.genInitMethodWithBuiltinBase(self, class.name, pinit, builtin_base, complex_parent, captured_vars);
+        } else {
+            // No __init__ in parent chain, generate default
+            try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base, complex_parent, captured_vars);
+        }
     } else {
         // No __init__ or __new__ defined, generate default init method
         try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base, complex_parent, captured_vars);
@@ -711,6 +783,37 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
+    // Generate stub methods for attributes set to None (e.g., __iadd__ = None)
+    // These stub methods raise TypeError at runtime, matching Python's behavior
+    for (class.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                const attr_name = assign.targets[0].name.id;
+                // Check if assigned to None
+                if (assign.value.* == .constant and assign.value.constant.value == .none) {
+                    // Generate a stub method that raises TypeError
+                    try self.emit("\n");
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("pub fn {s}(_: *const @This(), _: std.mem.Allocator, _: anytype) !@This() {{\n", .{attr_name});
+                    self.indent();
+                    try self.emitIndent();
+                    try self.emit("return error.TypeError; // 'NoneType' object is not callable\n");
+                    self.dedent();
+                    try self.emitIndent();
+                    try self.emit("}\n");
+                }
+            }
+        }
+    }
+
+    // Inherit parent methods that aren't overridden
+    // NOTE: This must happen BEFORE the restore, because genInheritedMethods calls
+    // genMethodBodyWithAllocatorInfo which clears func_local_uses
+    if (parent_class) |parent| {
+        try body.genInheritedMethods(self, class, parent, child_method_names.items);
+    }
+
     // Restore func_local_uses from saved state (for nested classes)
     // This is critical: nested class methods call analyzeFunctionLocalUses which clears
     // the map. We need to restore the parent scope's uses so isVarUnused() works correctly.
@@ -726,6 +829,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         var restore_mut_it = saved_func_local_mutations.iterator();
         while (restore_mut_it.next()) |entry| {
             try self.func_local_mutations.put(entry.key_ptr.*, {});
+        }
+
+        // Also restore func_local_aug_assigns for shadow variable decisions
+        self.func_local_aug_assigns.clearRetainingCapacity();
+        var restore_aug_it = saved_func_local_aug_assigns.iterator();
+        while (restore_aug_it.next()) |entry| {
+            try self.func_local_aug_assigns.put(entry.key_ptr.*, {});
         }
 
         // Also restore nested_class_names so parent method's class tracking works correctly
@@ -756,11 +866,6 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         while (restore_ncc_it.next()) |entry| {
             try self.nested_class_captures.put(entry.key_ptr.*, entry.value_ptr.*);
         }
-    }
-
-    // Inherit parent methods that aren't overridden
-    if (parent_class) |parent| {
-        try body.genInheritedMethods(self, class, parent, child_method_names.items);
     }
 
     self.dedent();
@@ -1091,5 +1196,33 @@ fn isMockPatchFunc(node: ast.Node) bool {
         }
     }
     return false;
+}
+
+/// Recursively find __init__ method in parent chain
+/// For classes without __init__, searches up the inheritance chain
+fn findInheritedInit(self: *NativeCodegen, parent_class: ?ast.Node.ClassDef) ?ast.Node.FunctionDef {
+    var current = parent_class;
+    while (current) |parent| {
+        // Check if this parent has __init__
+        for (parent.body) |stmt| {
+            if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, "__init__")) {
+                return stmt.function_def;
+            }
+        }
+
+        // No __init__ in this parent - check its parent
+        if (parent.bases.len > 0) {
+            // First check class_registry for module-level classes
+            current = self.class_registry.getClass(parent.bases[0]);
+            if (current == null) {
+                // Then check nested_class_defs for nested classes
+                current = self.nested_class_defs.get(parent.bases[0]);
+            }
+        } else {
+            // No more parents
+            break;
+        }
+    }
+    return null;
 }
 

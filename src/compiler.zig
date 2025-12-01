@@ -22,7 +22,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     };
 
     // Copy runtime files to .build for import
-    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig", "pickle.zig", "test_support.zig", "expr_parser.zig", "zlib.zig", "base64.zig", "pylong.zig", "_string.zig", "type_factory.zig" };
+    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "netpoller.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig", "pickle.zig", "test_support.zig", "expr_parser.zig", "zlib.zig", "base64.zig", "pylong.zig", "_string.zig", "type_factory.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(aa, "packages/runtime/src/{s}", .{file});
         const dst_path = try std.fmt.allocPrint(aa, "{s}/{s}", .{ build_dir, file });
@@ -35,6 +35,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"green_thread\")", "@import(\"green_thread.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"work_queue\")", "@import(\"work_queue.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"scheduler\")", "@import(\"scheduler.zig\")");
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"netpoller\")", "@import(\"netpoller.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"regex\")", "@import(\"regex/src/pyregex/regex.zig\")");

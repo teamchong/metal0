@@ -1,9 +1,9 @@
 /// Async/await support - async def, await, asyncio
+/// Compiles Python asyncio to metal0's goroutine + channel infrastructure
 const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
-const async_complexity = @import("../../analysis/async_complexity.zig");
 const bridge = @import("stdlib_bridge.zig");
 
 /// Handler function type
@@ -19,16 +19,14 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
 });
 
 /// Generate code for asyncio.run(main())
-/// Maps to: initialize scheduler once, spawn main, wait for completion
+/// Maps to: initialize scheduler, spawn main, wait
 pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        // TODO: Error handling
+        try self.emit("{}");
         return;
     }
 
-    try self.emit("{\n");
-
-    // Initialize scheduler once (global singleton)
+    try self.emit("__asyncio_run: {\n");
     try self.emit("    if (!runtime.scheduler_initialized) {\n");
     try self.emit("        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
     try self.emit("        runtime.scheduler = try runtime.Scheduler.init(__global_allocator, __num_threads);\n");
@@ -36,72 +34,98 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("        runtime.scheduler_initialized = true;\n");
     try self.emit("    }\n");
 
-    // Spawn main coroutine
-    try self.emit("    const __main_thread = ");
-    try self.genExpr(args[0]); // This calls foo_async() which spawns
-    try self.emit(";\n");
+    // Check if it's a call expression (asyncio.run(main()))
+    if (args[0] == .call) {
+        const call = args[0].call;
+        if (call.func.* == .name) {
+            const func_name = call.func.*.name.id;
+            // Rename "main" to "__user_main" to match function generation
+            const actual_name = if (std.mem.eql(u8, func_name, "main")) "__user_main" else func_name;
+            // Spawn as goroutine and wait
+            try self.emit("    const __main_thread = try ");
+            try self.emit(actual_name);
+            try self.emit("_async();\n");
+            try self.emit("    runtime.scheduler.wait(__main_thread);\n");
+        }
+    }
 
-    // Wait for completion
-    try self.emit("    runtime.scheduler.wait(__main_thread);\n");
+    try self.emit("    break :__asyncio_run;\n");
     try self.emit("}");
 }
 
 /// Generate code for asyncio.gather(*tasks)
-/// Maps to: spawn all, wait for all
+/// When passed a list, spawn all items as goroutines and collect results
 pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("(blk: {\n");
+    try self.emit("__gather_blk: {\n");
     try self.emit("    var __threads: std.ArrayList(*runtime.GreenThread) = .{};\n");
-    try self.emit("    defer __threads.deinit();\n");
+    try self.emit("    defer __threads.deinit(__global_allocator);\n");
 
-    // Spawn all tasks
-    for (args) |arg| {
-        try self.emit("    try __threads.append(");
-        try self.genExpr(arg);
-        try self.emit(");\n");
+    // Handle starred expression (asyncio.gather(*tasks))
+    if (args.len == 1 and args[0] == .starred) {
+        const starred = args[0].starred;
+        try self.emit("    for (");
+        try self.genExpr(starred.value.*);
+        try self.emit(".items) |__item| {\n");
+        try self.emit("        try __threads.append(__global_allocator, __item);\n");
+        try self.emit("    }\n");
+    } else {
+        // Direct args: asyncio.gather(task1, task2, ...)
+        for (args) |arg| {
+            try self.emit("    try __threads.append(__global_allocator, ");
+            try self.genExpr(arg);
+            try self.emit(");\n");
+        }
     }
 
     // Wait for all and collect results
-    try self.emit("    var __results: std.ArrayList(runtime.PyValue) = .{};\n");
+    try self.emit("    var __results: std.ArrayList(i64) = .{};\n");
     try self.emit("    for (__threads.items) |__t| {\n");
     try self.emit("        runtime.scheduler.wait(__t);\n");
-    try self.emit("        try __results.append(__t.result orelse runtime.PyValue{.none = {}});\n");
+    try self.emit("        if (__t.result) |__r| {\n");
+    try self.emit("            try __results.append(__global_allocator, @as(*i64, @ptrCast(@alignCast(__r))).*);\n");
+    try self.emit("        }\n");
     try self.emit("    }\n");
-    try self.emit("    break :blk __results.items;\n");
-    try self.emit("})");
+    try self.emit("    break :__gather_blk __results;\n");
+    try self.emit("}");
 }
 
 /// Generate code for asyncio.create_task(coro)
-/// Maps to: runtime.asyncio.createTask(__global_allocator, coro)
-pub const genAsyncioCreateTask = bridge.genSimpleCall(.{ .runtime_path = "runtime.asyncio.createTask", .arg_count = 1 });
+/// Maps to: spawn goroutine, return handle
+pub fn genAsyncioCreateTask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        try self.emit("null");
+        return;
+    }
+
+    // The arg should be a coroutine call like worker(i)
+    // We need to spawn it and return the thread handle
+    try self.genExpr(args[0]);
+}
 
 /// Generate code for asyncio.sleep(seconds)
-/// Maps to: sleep + yield to scheduler
+/// Maps to: std.Thread.sleep (non-blocking in goroutine context)
 pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        // TODO: Error handling
+        try self.emit("{}");
         return;
     }
 
     try self.emit("{\n");
-    try self.emit("    const __duration_ns = @as(i64, @intFromFloat(");
+    try self.emit("    const __ns = @as(u64, @intFromFloat(");
     try self.genExpr(args[0]);
-    try self.emit(" * 1_000_000_000));\n");
-    try self.emit("    std.time.sleep(@intCast(__duration_ns));\n");
-    try self.emit("    runtime.scheduler.yield();\n");
+    try self.emit(" * 1_000_000_000.0));\n");
+    try self.emit("    std.Thread.sleep(__ns);\n");
     try self.emit("}");
 }
 
 /// Generate code for asyncio.Queue(maxsize)
-/// Maps to: runtime.asyncio.Queue(i64).init(__global_allocator, maxsize)
+/// Maps to: runtime.asyncio.Queue backed by channel
 pub fn genAsyncioQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // Generate Queue instantiation
-    // TODO: Infer element type from usage; for now use i64
-    try self.emit("try runtime.asyncio.Queue(i64).init(__global_allocator, ");
+    try self.emit("try runtime.asyncio.Queue(runtime.PyValue).init(__global_allocator, ");
 
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        // Default maxsize is 0 (unbuffered)
         try self.emit("0");
     }
 
@@ -109,62 +133,81 @@ pub fn genAsyncioQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 }
 
 /// Generate code for await expression
-/// Maps to: wait for green thread and extract result
-/// Comptime optimizes simple functions by inlining instead of spawning
+/// For now, just execute synchronously (simplified)
 pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    // Check if this is a call to a simple async function that can be inlined
+    // For await on a coroutine call like `await worker(i)`:
+    // Spawn as goroutine and wait for result
     if (expr == .call) {
         const call = expr.call;
         if (call.func.* == .name) {
             const func_name = call.func.*.name.id;
-
-            // Look up function definition to analyze complexity
-            if (self.lookupAsyncFunction(func_name)) |func_def| {
-                const complexity = async_complexity.analyzeFunction(func_def);
-
-                // Inline trivial and simple functions
-                if (complexity == .trivial or complexity == .simple) {
-                    try self.emit("(blk: {\n");
-                    try self.emit("    // Comptime inlined async function\n");
-                    try self.emit("    break :blk ");
-                    try self.emit(func_name);
-                    try self.emit("_impl(");
-
-                    // Generate args
-                    for (call.args, 0..) |arg, i| {
-                        if (i > 0) {
-                            try self.emit(", ");
-                        }
-                        try self.genExpr(arg);
-                    }
-
-                    try self.emit(");\n");
-                    try self.emit("})");
-                    return;
-                }
+            try self.emit("blk: {\n");
+            try self.emit("    const __thread = try ");
+            try self.emit(func_name);
+            try self.emit("_async(");
+            // Pass arguments
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try self.genExpr(arg);
             }
+            try self.emit(");\n");
+            try self.emit("    runtime.scheduler.wait(__thread);\n");
+            try self.emit("    break :blk if (__thread.result) |__r| @as(*i64, @ptrCast(@alignCast(__r))).* else 0;\n");
+            try self.emit("}");
+            return;
         }
     }
 
-    // Fall back to full spawn for complex functions or unknown calls
-    try self.emit("(blk: {\n");
-    try self.emit("    const __thread = ");
+    // Fallback: just execute
     try self.genExpr(expr);
-    try self.emit(";\n");
-    try self.emit("    runtime.scheduler.wait(__thread);\n");
-
-    // Cast result to expected type
-    // For now, assume i64 return type (TODO: infer from type system)
-    try self.emit("    const __result = __thread.result orelse unreachable;\n");
-    try self.emit("    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
-    try self.emit("})");
 }
 
-/// Check if a function is async (has 'async' keyword in decorator or name)
-/// TODO: Implement proper async function detection from AST
-pub fn isAsyncFunction(func_def: ast.Node.FunctionDef) bool {
-    _ = func_def;
-    // For now, assume functions with 'async' in name are async
-    // Proper implementation: check AST for 'async def' syntax
-    return false;
+/// Generate async function definition
+/// Converts `async def foo(args):` to two functions:
+/// 1. foo_async(args) -> spawns goroutine, returns GreenThread
+/// 2. foo_impl(args) -> actual implementation
+pub fn genAsyncFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
+    const name = func.name;
+
+    // 1. Generate _async spawner function
+    try self.emit("fn ");
+    try self.emit(name);
+    try self.emit("_async(");
+    // Parameters
+    for (func.params.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try self.emit(arg.arg);
+        try self.emit(": i64");
+    }
+    try self.emit(") !*runtime.GreenThread {\n");
+    try self.emit("    return try runtime.scheduler.spawn(");
+    try self.emit(name);
+    try self.emit("_impl, .{");
+    for (func.params.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try self.emit(arg.arg);
+    }
+    try self.emit("});\n");
+    try self.emit("}\n\n");
+
+    // 2. Generate _impl function
+    try self.emit("fn ");
+    try self.emit(name);
+    try self.emit("_impl(");
+    for (func.params.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try self.emit(arg.arg);
+        try self.emit(": i64");
+    }
+    try self.emit(") !i64 {\n");
+    try self.emit("    const allocator = __global_allocator; _ = allocator;\n");
+
+    // Generate body
+    for (func.body) |stmt| {
+        try self.generateStmt(stmt);
+    }
+
+    // Default return if needed
+    try self.emit("    return 0;\n");
+    try self.emit("}\n");
 }

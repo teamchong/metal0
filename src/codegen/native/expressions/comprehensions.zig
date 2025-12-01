@@ -64,6 +64,23 @@ fn genExprWithSubs(
         },
         .call => |c| {
             // Handle call expressions with substitution for arguments
+            // Check if calling an async function - needs _async suffix and try
+            if (c.func.* == .name) {
+                const func_name = c.func.name.id;
+                if (self.async_functions.contains(func_name)) {
+                    // Async function call in comprehension
+                    try self.emit("try ");
+                    try self.emit(func_name);
+                    try self.emit("_async(");
+                    for (c.args, 0..) |arg, i| {
+                        if (i > 0) try self.emit(", ");
+                        try genExprWithSubs(self, arg, subs);
+                    }
+                    try self.emit(")");
+                    return;
+                }
+            }
+            // Regular function call
             const parent = @import("../expressions.zig");
             // Generate function part
             try parent.genExpr(self, c.func.*);
@@ -127,9 +144,25 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     try self.emit(try std.fmt.allocPrint(self.allocator, "comp_{d}: {{\n", .{label_id}));
     self.indent();
 
-    // Generate: var __comp_result = std.ArrayList(i64){};
+    // Determine element type - check if element is an async function call
+    const element_type: []const u8 = blk: {
+        if (listcomp.elt.* == .call) {
+            const call = listcomp.elt.call;
+            if (call.func.* == .name) {
+                const func_name = call.func.name.id;
+                if (self.async_functions.contains(func_name)) {
+                    break :blk "*runtime.GreenThread";
+                }
+            }
+        }
+        break :blk "i64";
+    };
+
+    // Generate: var __comp_result = std.ArrayList(ElementType){};
     try self.emitIndent();
-    try self.emit("var __comp_result = std.ArrayList(i64){};\n");
+    try self.emit("var __comp_result = std.ArrayList(");
+    try self.emit(element_type);
+    try self.emit("){};\n");
 
     // Generate nested loops for each generator
     for (listcomp.generators, 0..) |gen, gen_idx| {
@@ -147,33 +180,26 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             const mangled_name = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ orig_var_name, comp_id });
             try subs.put(orig_var_name, mangled_name);
 
-            // Parse range arguments
-            var start_val: i64 = 0;
-            var stop_val: i64 = 0;
+            // Parse range arguments - handle both constants and variable expressions
+            const start_expr: ?ast.Node = if (args.len >= 2) args[0] else null;
+            const stop_expr: ast.Node = if (args.len >= 2) args[1] else args[0];
             const step_val: i64 = 1;
-
-            if (args.len == 1) {
-                // range(stop)
-                if (args[0] == .constant and args[0].constant.value == .int) {
-                    stop_val = args[0].constant.value.int;
-                }
-            } else if (args.len == 2) {
-                // range(start, stop)
-                if (args[0] == .constant and args[0].constant.value == .int) {
-                    start_val = args[0].constant.value.int;
-                }
-                if (args[1] == .constant and args[1].constant.value == .int) {
-                    stop_val = args[1].constant.value.int;
-                }
-            }
 
             // Generate: var __comp_<orig>_<id>: i64 = <start>;
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ mangled_name, start_val });
+            try self.output.writer(self.allocator).print("var {s}: i64 = ", .{mangled_name});
+            if (start_expr) |start| {
+                try genExpr(self, start);
+            } else {
+                try self.emit("0");
+            }
+            try self.emit(";\n");
 
             // Generate: while (__comp_<orig>_<id> < <stop>) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ mangled_name, stop_val });
+            try self.output.writer(self.allocator).print("while ({s} < ", .{mangled_name});
+            try genExpr(self, stop_expr);
+            try self.emit(") {\n");
             self.indent();
 
             // Defer increment: defer __comp_<orig>_<id> += <step>;

@@ -458,6 +458,26 @@ fn genAsyncFunctionSignature(
     // Rename "main" to "__user_main" to avoid conflict with entry point
     const func_name = if (std.mem.eql(u8, func.name, "main")) "__user_main" else func.name;
 
+    // For functions with parameters, generate a context struct first
+    if (func.args.len > 0) {
+        try self.emit("const ");
+        try self.emit(func_name);
+        try self.emit("_Context = struct {\n");
+        for (func.args) |arg| {
+            try self.emit("    ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(": ");
+            if (arg.type_annotation) |_| {
+                const zig_type = pythonTypeToZig(arg.type_annotation);
+                try self.emit(zig_type);
+            } else {
+                try self.emit("i64");
+            }
+            try self.emit(",\n");
+        }
+        try self.emit("};\n\n");
+    }
+
     // Generate wrapper function that spawns green thread
     try self.emit("fn ");
     try self.emit(func_name);
@@ -489,9 +509,12 @@ fn genAsyncFunctionSignature(
         try self.emit(func_name);
         try self.emit("_impl, .{");
 
-        // Pass parameters to implementation
+        // Pass parameters as struct fields
         for (func.args, 0..) |arg, i| {
             if (i > 0) try self.emit(", ");
+            try self.emit(".");
+            try self.emit(arg.name);
+            try self.emit(" = ");
             try self.emit(arg.name);
         }
 
@@ -505,18 +528,11 @@ fn genAsyncFunctionSignature(
     try self.emit(func_name);
     try self.emit("_impl(");
 
-    // Generate parameters for implementation
-    for (func.args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-        try self.emit(": ");
-
-        if (arg.type_annotation) |_| {
-            const zig_type = pythonTypeToZig(arg.type_annotation);
-            try self.emit(zig_type);
-        } else {
-            try self.emit("i64");
-        }
+    // For functions with parameters, take pointer to context struct
+    if (func.args.len > 0) {
+        try self.emit("ctx: *");
+        try self.emit(func_name);
+        try self.emit("_Context");
     }
 
     try self.emit(") !");
@@ -532,6 +548,17 @@ fn genAsyncFunctionSignature(
     }
 
     try self.emit(" {\n");
+
+    // Unpack context fields into local variables
+    if (func.args.len > 0) {
+        for (func.args) |arg| {
+            try self.emit("    const ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(" = ctx.");
+            try self.emit(arg.name);
+            try self.emit(";\n");
+        }
+    }
 }
 
 /// Generate return type for function signature
@@ -698,7 +725,21 @@ pub fn genMethodSignatureWithSkip(
         }
         break :blk false;
     } else false;
-    const uses_self = if (is_skipped) false else (method_uses_captures or self_analyzer.usesSelfWithContext(method.body, has_known_parent));
+    // Also check if the first parameter is used when it's NOT named "self"
+    // This handles methods like def foo(test_self): test_self.assertEqual(...)
+    // For params named "self", usesSelfWithContext handles it properly
+    // IMPORTANT: Use isFirstParamUsedNonUnittest to exclude unittest method calls
+    // which get dispatched to runtime.unittest.* and don't actually use the Zig self param
+    const first_param_name = if (method.args.len > 0) method.args[0].name else null;
+    const first_param_is_non_self = if (first_param_name) |name|
+        !std.mem.eql(u8, name, "self")
+    else
+        false;
+    const first_param_used = if (first_param_is_non_self)
+        param_analyzer.isFirstParamUsedNonUnittest(method.body, first_param_name.?)
+    else
+        false;
+    const uses_self = if (is_skipped) false else (method_uses_captures or first_param_used or self_analyzer.usesSelfWithContext(method.body, has_known_parent));
 
     // For __new__ methods, the first Python parameter is 'cls' not 'self', and the body often
     // does 'self = super().__new__(cls)' which would shadow a 'self' parameter.
@@ -746,8 +787,13 @@ pub fn genMethodSignatureWithSkip(
     const class_body: ?[]const ast.Node = if (self.class_registry.getClass(class_name)) |cd| cd.body else null;
 
     var param_index: usize = 0;
+    var is_first_param = true;
     for (method.args) |arg| {
-        if (std.mem.eql(u8, arg.name, "self")) continue;
+        // Skip the first parameter (self/cls/etc.) - in Python methods, first param is always the instance
+        if (is_first_param) {
+            is_first_param = false;
+            continue;
+        }
         defer param_index += 1;
 
         try self.emit(", ");
@@ -918,6 +964,20 @@ pub fn genMethodSignatureWithSkip(
             try zig_keywords.writeParamName(self.output.writer(self.allocator), param_name);
             try self.emit(")");
         } else {
+            // First, check if method returns a constructor call to a nested class
+            // This handles inherited methods like aug_test.__add__ returning aug_test(...)
+            const returned_class = getReturnedNestedClassConstructor(method.body, self);
+            if (returned_class) |rc| {
+                // If returning same class, use @This() for self-reference
+                if (std.mem.eql(u8, rc, class_name)) {
+                    try self.emit("@This()");
+                } else {
+                    try self.emit(rc);
+                }
+                try self.emit(" {\n");
+                return;
+            }
+
             // Try to get inferred return type from class_fields.methods
             const class_info = self.type_inferrer.class_fields.get(class_name);
             const inferred_type = if (class_info) |info| info.methods.get(method.name) else null;
@@ -968,4 +1028,33 @@ pub fn genMethodSignatureWithSkip(
     }
 
     try self.emit(" {\n");
+}
+
+
+/// Check if method returns a constructor call to a nested class
+/// Returns the class name if found, null otherwise
+fn getReturnedNestedClassConstructor(body: []const ast.Node, self: *NativeCodegen) ?[]const u8 {
+    for (body) |stmt| {
+        if (stmt == .return_stmt) {
+            if (stmt.return_stmt.value) |val| {
+                if (val.* == .call) {
+                    const call = val.call;
+                    if (call.func.* == .name) {
+                        const func_name = call.func.name.id;
+                        // Check if this is a nested class constructor
+                        if (self.nested_class_names.contains(func_name)) {
+                            return func_name;
+                        }
+                        // Also check if this is the current class being generated
+                        if (self.current_class_name) |ccn| {
+                            if (std.mem.eql(u8, func_name, ccn)) {
+                                return func_name;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return null;
 }

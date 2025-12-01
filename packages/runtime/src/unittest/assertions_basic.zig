@@ -340,6 +340,22 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             }
         }
 
+        // ArrayList vs array comparison - compare ArrayList.items with array
+        if (a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity") and b_info == .array) {
+            if (a.items.len != b.len) break :blk false;
+            for (a.items, 0..) |a_elem, i| {
+                if (a_elem != b[i]) break :blk false;
+            }
+            break :blk true;
+        }
+        if (b_info == .@"struct" and @hasField(B, "items") and @hasField(B, "capacity") and a_info == .array) {
+            if (b.items.len != a.len) break :blk false;
+            for (b.items, 0..) |b_elem, i| {
+                if (b_elem != a[i]) break :blk false;
+            }
+            break :blk true;
+        }
+
         // Struct with eql method comparing against different type (e.g., PyComplex vs bool)
         if (a_info == .@"struct" and @hasDecl(A, "eql")) {
             break :blk a.eql(b);

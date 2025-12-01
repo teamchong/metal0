@@ -330,6 +330,9 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
     }
 
+    // For nested class instances (heap-allocated), x is already a pointer (*ClassName)
+    // Zig auto-dereferences for field access on pointers, so x.val works directly
+
     if (is_property) {
         // Property method: call it automatically (Python @property semantics)
         try genExpr(self, attr.value.*);
@@ -409,18 +412,37 @@ fn isDynamicAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
 
     const obj_name = attr.value.name.id;
 
-    // Get object type
-    const obj_type = try self.type_inferrer.inferExpr(attr.value.*);
+    // Get object type - first try type inferrer, then nested_class_instances
+    var obj_type = try self.type_inferrer.inferExpr(attr.value.*);
+
+    // If type is unknown, check nested_class_instances
+    if (obj_type == .unknown) {
+        if (self.nested_class_instances.get(obj_name)) |class_name| {
+            obj_type = .{ .class_instance = class_name };
+        }
+    }
+
+    // Print class name for class_instance types
+    if (obj_type == .class_instance) {
+        std.debug.print("DEBUG isDynamicAttribute: {s}.{s} -> class_instance={s}\n", .{ obj_name, attr.attr, obj_type.class_instance });
+    } else {
+        std.debug.print("DEBUG isDynamicAttribute: {s}.{s} -> obj_type={any}\n", .{ obj_name, attr.attr, @as(std.meta.Tag(@TypeOf(obj_type)), obj_type) });
+    }
 
     // Check if it's a class instance
     if (obj_type != .class_instance) return false;
 
     const class_name = obj_type.class_instance;
 
+    std.debug.print("DEBUG isDynamicAttribute: class_name={s}\n", .{class_name});
+
     // Check if class has this field
     const class_info = self.type_inferrer.class_fields.get(class_name);
+    std.debug.print("DEBUG isDynamicAttribute: class_info exists={}\n", .{class_info != null});
     if (class_info) |info| {
         // Check if field exists in class
+        const has_field = info.fields.get(attr.attr) != null;
+        std.debug.print("DEBUG isDynamicAttribute: has_field({s})={}\n", .{ attr.attr, has_field });
         if (info.fields.get(attr.attr)) |_| {
             return false; // Known field
         }

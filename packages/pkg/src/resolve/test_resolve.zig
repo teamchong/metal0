@@ -63,8 +63,13 @@ pub fn main() !void {
     };
     defer cache.deinit();
 
-    // Create PyPI client and resolver with cache
-    var client = pypi.PyPIClient.init(allocator);
+    // Create PyPI client with async I/O (goroutine-style)
+    var client = pypi.PyPIClient.initAsync(allocator) catch |err| {
+        std.debug.print("Warning: Failed to init async client: {}, using sync mode\n", .{err});
+        var sync_client = pypi.PyPIClient.init(allocator);
+        defer sync_client.deinit();
+        return runResolver(allocator, &sync_client, &cache, deps.items);
+    };
     defer client.deinit();
 
     // Pre-warm connections to both PyPI hosts in parallel
@@ -74,13 +79,17 @@ pub fn main() !void {
         .{ .host = "files.pythonhosted.org", .port = 443 },
     });
 
-    var resolver = Resolver.init(allocator, &client, &cache);
+    return runResolver(allocator, &client, &cache, deps.items);
+}
+
+fn runResolver(allocator: std.mem.Allocator, client: *pypi.PyPIClient, cache: *Cache, deps: []const pep508.Dependency) !void {
+    var resolver = Resolver.init(allocator, client, cache);
     defer resolver.deinit();
 
     // Time the resolution
     const start = std.time.milliTimestamp();
 
-    const result = resolver.resolve(deps.items) catch |err| {
+    const result = resolver.resolve(deps) catch |err| {
         std.debug.print("Resolution failed: {}\n", .{err});
 
         const stats = resolver.stats();
@@ -111,7 +120,7 @@ pub fn main() !void {
 
     // Print stats
     const stats = resolver.stats();
-    const cache_stats = cache.stats();
+    const cache_stats = cache.*.stats();
     std.debug.print("\nStats:\n", .{});
     std.debug.print("  Iterations: {}\n", .{stats.iterations});
     std.debug.print("  Backtracks: {}\n", .{stats.backtrack_count});

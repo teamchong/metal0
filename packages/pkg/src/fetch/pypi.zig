@@ -29,6 +29,13 @@ const h2 = @import("h2");
 const H2Client = h2.Client;
 const H2Response = h2.Response;
 
+// Async I/O support (goroutine-style)
+const Netpoller = @import("netpoller").Netpoller;
+const GreenThread = @import("green_thread").GreenThread;
+
+// For future: full scheduler integration
+// const Scheduler = @import("scheduler").Scheduler;
+
 pub const PyPIError = error{
     InvalidPackageName,
     PackageNotFound,
@@ -215,6 +222,10 @@ pub const PyPIClient = struct {
     config: Config,
     h2_client: H2Client, // Persistent HTTP/2 connection pool
 
+    // Async I/O support (owned when created via initAsync)
+    netpoller: ?*Netpoller = null,
+    owns_netpoller: bool = false,
+
     pub fn init(allocator: std.mem.Allocator) PyPIClient {
         return .{
             .allocator = allocator,
@@ -231,8 +242,33 @@ pub const PyPIClient = struct {
         };
     }
 
+    /// Initialize with async I/O support (goroutine-style)
+    /// Creates and owns a netpoller for non-blocking I/O
+    pub fn initAsync(allocator: std.mem.Allocator) !PyPIClient {
+        // Create netpoller
+        const np = try allocator.create(Netpoller);
+        np.* = try Netpoller.init(allocator);
+        try np.start();
+
+        return .{
+            .allocator = allocator,
+            .config = .{},
+            .h2_client = H2Client.init(allocator), // Will be upgraded to async per-connection
+            .netpoller = np,
+            .owns_netpoller = true,
+        };
+    }
+
     pub fn deinit(self: *PyPIClient) void {
         self.h2_client.deinit();
+
+        // Clean up owned netpoller
+        if (self.owns_netpoller) {
+            if (self.netpoller) |np| {
+                np.deinit();
+                self.allocator.destroy(np);
+            }
+        }
     }
 
     /// Fetch package metadata from PyPI JSON API
@@ -1322,8 +1358,8 @@ pub const PyPIClient = struct {
             result: *FetchResult,
 
             fn fetch(ctx: *@This()) void {
-                // Each thread creates its own HTTP client (thread-safe!)
-                var client = std.http.Client{ .allocator = ctx.allocator };
+                // Each thread creates its own h2 client (thread-safe!)
+                var client = H2Client.init(ctx.allocator);
                 defer client.deinit();
 
                 ctx.result.* = blk: {
@@ -1334,31 +1370,20 @@ pub const PyPIClient = struct {
                 };
             }
 
-            fn fetchPackage(client: *std.http.Client, allocator: std.mem.Allocator, config: *const Config, name: []const u8) !PackageMetadata {
+            fn fetchPackage(client: *H2Client, allocator: std.mem.Allocator, config: *const Config, name: []const u8) !PackageMetadata {
+                _ = config;
                 // Build URL
-                const url = try std.fmt.allocPrint(allocator, "{s}/{s}/json", .{ config.json_api_url, name });
+                const url = try std.fmt.allocPrint(allocator, "https://pypi.org/pypi/{s}/json", .{name});
                 defer allocator.free(url);
 
-                // Fetch with allocating writer
-                var response_writer = std.Io.Writer.Allocating.init(allocator);
-                errdefer if (response_writer.writer.buffer.len > 0) allocator.free(response_writer.writer.buffer);
+                // Fetch using h2 client
+                var response = client.get(url) catch return PyPIError.NetworkError;
+                defer response.deinit();
 
-                const result = client.fetch(.{
-                    .location = .{ .url = url },
-                    .extra_headers = &.{
-                        .{ .name = "User-Agent", .value = config.user_agent },
-                        .{ .name = "Accept", .value = "application/json" },
-                    },
-                    .response_writer = &response_writer.writer,
-                }) catch return PyPIError.NetworkError;
-
-                if (result.status != .ok) return PyPIError.NetworkError;
-
-                const body = response_writer.writer.buffer[0..response_writer.writer.end];
-                defer allocator.free(response_writer.writer.buffer);
+                if (response.status != 200) return PyPIError.NetworkError;
 
                 // Parse with lazy JSON
-                return parsePackageJsonStatic(allocator, body, name);
+                return parsePackageJsonStatic(allocator, response.body, name);
             }
         };
 

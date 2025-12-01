@@ -285,3 +285,41 @@ pub fn join(allocator: std.mem.Allocator, separator: *PyObject, list: *PyObject)
 
     return try PyString.createOwned(allocator, result);
 }
+
+/// Split string at line boundaries (splits on \n, \r, \r\n)
+/// Like Python's str.splitlines()
+pub fn splitlines(allocator: std.mem.Allocator, obj: *PyObject, keepends: bool) !*PyObject {
+    std.debug.assert(runtime.PyUnicode_Check(obj));
+    const str = getStrData(obj);
+
+    const result = try PyList.create(allocator);
+    var start: usize = 0;
+    var i: usize = 0;
+
+    while (i < str.len) {
+        // Check for \r\n (must check before single \r)
+        if (i + 1 < str.len and str[i] == '\r' and str[i + 1] == '\n') {
+            const end = if (keepends) i + 2 else i;
+            const line_obj = try PyString.create(allocator, str[start..end]);
+            try PyList.append(result, line_obj);
+            i += 2;
+            start = i;
+        } else if (str[i] == '\n' or str[i] == '\r') {
+            const end = if (keepends) i + 1 else i;
+            const line_obj = try PyString.create(allocator, str[start..end]);
+            try PyList.append(result, line_obj);
+            i += 1;
+            start = i;
+        } else {
+            i += 1;
+        }
+    }
+
+    // Add final part if there's content after the last line ending
+    if (start < str.len) {
+        const line_obj = try PyString.create(allocator, str[start..]);
+        try PyList.append(result, line_obj);
+    }
+
+    return result;
+}

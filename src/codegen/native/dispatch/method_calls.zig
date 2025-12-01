@@ -51,6 +51,7 @@ const StringMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "isnumeric", methods.genIsnumeric },
     .{ "encode", methods.genEncode },
     .{ "decode", methods.genDecode },
+    .{ "splitlines", methods.genSplitlines },
 });
 
 // List methods - O(1) lookup via StaticStringMap
@@ -386,7 +387,21 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
     // unittest assertion methods (self.assertEqual, etc.)
     // Check if obj is 'self' - unittest methods called on self
-    if (obj == .name and std.mem.eql(u8, obj.name.id, "self")) {
+    // Also check for renamed self (e.g., test_self -> self via var_renames)
+    const is_self_obj = if (obj == .name) blk: {
+        const obj_name = obj.name.id;
+        // Direct check for "self"
+        if (std.mem.eql(u8, obj_name, "self")) break :blk true;
+        // Check if obj_name is renamed to "self" or "__self"
+        if (self.var_renames.get(obj_name)) |renamed| {
+            if (std.mem.eql(u8, renamed, "self") or std.mem.eql(u8, renamed, "__self")) {
+                break :blk true;
+            }
+        }
+        break :blk false;
+    } else false;
+
+    if (is_self_obj) {
         // Special handling for subTest which needs keyword arguments
         if (std.mem.eql(u8, method_name, "subTest")) {
             try unittest_mod.genSubTest(self, obj, call.args, call.keyword_args);

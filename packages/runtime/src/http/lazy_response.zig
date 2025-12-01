@@ -1,88 +1,64 @@
 //! Lazy HTTP Response - body read deferred until accessed
 //!
-//! Usage:
-//!   var resp = try client.getLazy(url);
-//!   defer resp.deinit();
-//!
-//!   // No body read yet - just status and headers available
-//!   if (resp.status == .ok) {
-//!       const body = try resp.body(); // NOW reads body
-//!   }
-//!
-//! Benefits:
-//! - HEAD-like efficiency for status checks
-//! - Memory: body only allocated if accessed
-//! - Early exit: can check status before reading large body
+//! Uses unified h2 client (HTTP/1.1 for http://, HTTP/2 for https://)
 
 const std = @import("std");
 const Status = @import("response.zig").Status;
+const h2 = @import("h2");
 
 pub const LazyResponse = struct {
     allocator: std.mem.Allocator,
     status: Status,
-    /// The underlying HTTP client (owns connection)
-    client: std.http.Client,
-    /// Fetch result containing body reference
-    fetch_result: ?std.http.Client.FetchResult,
     /// Materialized body (owned, allocated on first access)
     body_data: ?[]const u8,
 
     pub fn init(allocator: std.mem.Allocator, url: []const u8) !LazyResponse {
-        var client = std.http.Client{ .allocator = allocator };
-        errdefer client.deinit();
+        var client = h2.Client.init(allocator);
+        defer client.deinit();
 
-        const result = client.fetch(.{
-            .location = .{ .url = url },
-        }) catch |err| {
-            client.deinit();
+        var response = client.get(url) catch |err| {
             std.debug.print("HTTP fetch error: {}\n", .{err});
             return error.ConnectionFailed;
         };
+        defer response.deinit();
+
+        const body_copy = if (response.body.len > 0)
+            try allocator.dupe(u8, response.body)
+        else
+            null;
 
         return .{
             .allocator = allocator,
-            .status = Status.fromCode(@intFromEnum(result.status)),
-            .client = client,
-            .fetch_result = result,
-            .body_data = null,
+            .status = Status.fromCode(response.status),
+            .body_data = body_copy,
         };
     }
 
     pub fn initPost(allocator: std.mem.Allocator, url: []const u8, payload: []const u8) !LazyResponse {
-        var client = std.http.Client{ .allocator = allocator };
-        errdefer client.deinit();
+        var client = h2.Client.init(allocator);
+        defer client.deinit();
 
-        const result = client.fetch(.{
-            .location = .{ .url = url },
-            .payload = payload,
-        }) catch |err| {
-            client.deinit();
-            std.debug.print("HTTP fetch error: {}\n", .{err});
+        var response = client.post(url, payload, "application/x-www-form-urlencoded") catch |err| {
+            std.debug.print("HTTP POST error: {}\n", .{err});
             return error.ConnectionFailed;
         };
+        defer response.deinit();
+
+        const body_copy = if (response.body.len > 0)
+            try allocator.dupe(u8, response.body)
+        else
+            null;
 
         return .{
             .allocator = allocator,
-            .status = Status.fromCode(@intFromEnum(result.status)),
-            .client = client,
-            .fetch_result = result,
-            .body_data = null,
+            .status = Status.fromCode(response.status),
+            .body_data = body_copy,
         };
     }
 
-    /// Get body - reads on first access
+    /// Get body
     pub fn body(self: *LazyResponse) ![]const u8 {
         if (self.body_data) |data| return data;
-
-        if (self.fetch_result) |result| {
-            if (result.body) |body_slice| {
-                self.body_data = try self.allocator.dupe(u8, body_slice);
-                return self.body_data.?;
-            }
-        }
-
-        // No body available
-        self.body_data = "";
         return "";
     }
 
@@ -121,13 +97,10 @@ pub const LazyResponse = struct {
                 self.allocator.free(data);
             }
         }
-        self.client.deinit();
     }
 };
 
 test "LazyResponse status without body" {
-    // Would need network to test properly
-    // This just verifies the type compiles
     const allocator = std.testing.allocator;
     _ = allocator;
 }

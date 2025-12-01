@@ -8,6 +8,12 @@
 
 const std = @import("std");
 const crypto = std.crypto;
+const builtin = @import("builtin");
+
+// Netpoller for async I/O (kqueue on macOS, epoll on Linux)
+const Netpoller = @import("netpoller").Netpoller;
+const IoOp = @import("netpoller").IoOp;
+const GreenThread = @import("green_thread").GreenThread;
 
 /// TLS 1.3 Record Types
 pub const ContentType = enum(u8) {
@@ -248,6 +254,10 @@ pub const TlsConnection = struct {
     allocator: std.mem.Allocator,
     socket: std.posix.socket_t,
 
+    // Async I/O support (goroutine-style)
+    netpoller: ?*Netpoller,
+    green_thread: ?*GreenThread,
+
     cipher_suite: CipherSuite,
     key_schedule: KeySchedule,
     client_cipher: ?AesGcm,
@@ -265,13 +275,20 @@ pub const TlsConnection = struct {
     read_pos: usize,
     read_len: usize,
 
-    pub fn init(allocator: std.mem.Allocator, socket: std.posix.socket_t) !*TlsConnection {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        socket: std.posix.socket_t,
+        netpoller: ?*Netpoller,
+        green_thread: ?*GreenThread,
+    ) !*TlsConnection {
         const conn = try allocator.create(TlsConnection);
         errdefer allocator.destroy(conn);
 
         conn.* = .{
             .allocator = allocator,
             .socket = socket,
+            .netpoller = netpoller,
+            .green_thread = green_thread,
             .cipher_suite = .TLS_AES_128_GCM_SHA256,
             .key_schedule = undefined,
             .client_cipher = null,
@@ -294,6 +311,69 @@ pub const TlsConnection = struct {
     pub fn deinit(self: *TlsConnection) void {
         self.allocator.free(self.read_buffer);
         self.allocator.destroy(self);
+    }
+
+    // === Async I/O helpers (goroutine-style) ===
+
+    /// Park green thread until socket is readable
+    fn parkForRead(self: *TlsConnection) !void {
+        if (self.netpoller) |np| {
+            if (self.green_thread) |gt| {
+                try np.register(self.socket, IoOp.read, gt);
+            }
+        }
+    }
+
+    /// Park green thread until socket is writable
+    fn parkForWrite(self: *TlsConnection) !void {
+        if (self.netpoller) |np| {
+            if (self.green_thread) |gt| {
+                try np.register(self.socket, IoOp.write, gt);
+            }
+        }
+    }
+
+    /// Read with async support - parks if would block (when netpoller available)
+    fn asyncRead(self: *TlsConnection, buffer: []u8) !usize {
+        while (true) {
+            const result = std.posix.read(self.socket, buffer);
+            if (result) |n| {
+                return n;
+            } else |err| {
+                switch (err) {
+                    error.WouldBlock => {
+                        if (self.netpoller != null) {
+                            try self.parkForRead();
+                            continue;
+                        }
+                        return err;
+                    },
+                    else => return err,
+                }
+            }
+        }
+    }
+
+    /// Write all with async support - parks if would block (when netpoller available)
+    fn asyncWriteAll(self: *TlsConnection, data: []const u8) !void {
+        var written: usize = 0;
+        while (written < data.len) {
+            const result = std.posix.write(self.socket, data[written..]);
+            if (result) |n| {
+                written += n;
+            } else |err| {
+                switch (err) {
+                    error.WouldBlock => {
+                        if (self.netpoller != null) {
+                            try self.parkForWrite();
+                            continue;
+                        }
+                        return err;
+                    },
+                    else => return err,
+                }
+            }
+        }
     }
 
     /// Perform TLS 1.3 handshake with ALPN
@@ -627,8 +707,8 @@ pub const TlsConnection = struct {
         };
         rec.serialize(&header);
 
-        _ = std.posix.write(self.socket, &header) catch return error.WriteFailed;
-        _ = std.posix.write(self.socket, data) catch return error.WriteFailed;
+        self.asyncWriteAll(&header) catch return error.WriteFailed;
+        self.asyncWriteAll(data) catch return error.WriteFailed;
     }
 
     fn sendEncryptedRecord(self: *TlsConnection, content_type: ContentType, data: []const u8) !void {
@@ -669,9 +749,9 @@ pub const TlsConnection = struct {
         };
         rec.serialize(&header);
 
-        _ = std.posix.write(self.socket, &header) catch return error.WriteFailed;
-        _ = std.posix.write(self.socket, ciphertext) catch return error.WriteFailed;
-        _ = std.posix.write(self.socket, &tag) catch return error.WriteFailed;
+        self.asyncWriteAll(&header) catch return error.WriteFailed;
+        self.asyncWriteAll(ciphertext) catch return error.WriteFailed;
+        self.asyncWriteAll(&tag) catch return error.WriteFailed;
     }
 
     fn receiveRecord(self: *TlsConnection) !struct { content_type: ContentType, payload: []const u8 } {
@@ -751,7 +831,7 @@ pub const TlsConnection = struct {
                 self.read_pos = 0;
             }
 
-            const n = std.posix.read(self.socket, self.read_buffer[self.read_len..]) catch return error.ReadFailed;
+            const n = self.asyncRead(self.read_buffer[self.read_len..]) catch return error.ReadFailed;
             if (n == 0) return error.ConnectionClosed;
             self.read_len += n;
         }

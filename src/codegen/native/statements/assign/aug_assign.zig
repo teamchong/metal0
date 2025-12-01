@@ -101,16 +101,137 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         }
     }
 
-    // Handle subscript with slice augmented assignment: x[1:2] *= 2
-    // This is a complex operation that modifies the list in place
+    // Handle subscript with slice augmented assignment: x[1:2] *= 2, x[1:2] += [3]
+    // This modifies the list in place by replacing the slice with the result
     if (aug.target.* == .subscript and aug.target.subscript.slice == .slice) {
-        // For slice augmented assignment, we need runtime support
-        // For now, emit a self-assignment as placeholder to suppress "never mutated" warning
-        // The mutation analyzer marks this variable as mutated, so codegen uses var
-        try self.genExpr(aug.target.subscript.value.*);
-        try self.emit(" = ");
-        try self.genExpr(aug.target.subscript.value.*);
-        try self.emit("; // TODO: slice augmented assignment not yet supported\n");
+        const subscript = aug.target.subscript;
+        const slice = subscript.slice.slice;
+
+        // Generate a block for the slice aug assign operation
+        try self.emit("{\n");
+        self.indent();
+
+        // Get slice bounds - handle ArrayList aliases (need to dereference)
+        try self.emitIndent();
+        try self.emit("const __list = ");
+        if (subscript.value.* == .name) {
+            const var_name = subscript.value.name.id;
+            if (self.isArrayListAlias(var_name)) {
+                // Alias is already a pointer, just use it directly
+                try self.genExpr(subscript.value.*);
+            } else {
+                // Regular ArrayList, take address
+                try self.emit("&");
+                try self.genExpr(subscript.value.*);
+            }
+        } else {
+            try self.emit("&");
+            try self.genExpr(subscript.value.*);
+        }
+        try self.emit(";\n");
+
+        // Calculate start index
+        try self.emitIndent();
+        if (slice.lower) |lower| {
+            try self.emit("const __start: usize = @intCast(");
+            try self.genExpr(lower.*);
+            try self.emit(");\n");
+        } else {
+            try self.emit("const __start: usize = 0;\n");
+        }
+
+        // Calculate end index
+        try self.emitIndent();
+        if (slice.upper) |upper| {
+            try self.emit("const __end: usize = @intCast(");
+            try self.genExpr(upper.*);
+            try self.emit(");\n");
+        } else {
+            try self.emit("const __end: usize = __list.items.len;\n");
+        }
+
+        // Extract the slice to operate on
+        try self.emitIndent();
+        try self.emit("const __slice = __list.items[__start..__end];\n");
+
+        // Generate the operation based on operator
+        if (aug.op == .Mult) {
+            // x[start:end] *= n - repeat the slice n times
+            try self.emitIndent();
+            try self.emit("const __repeat_count: usize = @intCast(");
+            try self.genExpr(aug.value.*);
+            try self.emit(");\n");
+
+            // Create new slice content (repeated)
+            try self.emitIndent();
+            try self.emit("var __new_items = std.ArrayList(@TypeOf(__list.items[0])){};\n");
+            try self.emitIndent();
+            try self.emit("for (0..__repeat_count) |_| {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("for (__slice) |item| {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("try __new_items.append(__global_allocator, item);\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+
+            // Replace the slice in the original list
+            try self.emitIndent();
+            try self.emit("try __list.replaceRange(__global_allocator, __start, __end - __start, __new_items.items);\n");
+
+            // Cleanup
+            try self.emitIndent();
+            try self.emit("__new_items.deinit(__global_allocator);\n");
+        } else if (aug.op == .Add) {
+            // x[start:end] += [items] - extend the slice with items
+            try self.emitIndent();
+            try self.emit("var __new_items = std.ArrayList(@TypeOf(__list.items[0])){};\n");
+
+            // First add original slice items
+            try self.emitIndent();
+            try self.emit("for (__slice) |item| {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("try __new_items.append(__global_allocator, item);\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+
+            // Then add the extension items
+            try self.emitIndent();
+            try self.emit("const __extend_items = ");
+            try self.genExpr(aug.value.*);
+            try self.emit(";\n");
+            try self.emitIndent();
+            try self.emit("for (__extend_items) |item| {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("try __new_items.append(__global_allocator, item);\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+
+            // Replace the slice in the original list
+            try self.emitIndent();
+            try self.emit("try __list.replaceRange(__global_allocator, __start, __end - __start, __new_items.items);\n");
+
+            // Cleanup
+            try self.emitIndent();
+            try self.emit("__new_items.deinit(__global_allocator);\n");
+        } else {
+            // Other operators not commonly used with slice aug assign
+            try self.emitIndent();
+            try self.emit("_ = __slice; // TODO: unsupported slice aug assign op\n");
+        }
+
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
         return;
     }
 
@@ -320,15 +441,20 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     }
 
     // Special handling for list/array multiplication: x *= 2
-    // Check if LHS is actually an ArrayList
+    // Check if LHS is actually an ArrayList (NOT a class instance with __imul__)
     // IMPORTANT: Must be before "Emit target" to avoid generating "x = { block }"
     if (aug.op == .Mult) {
-        const is_arraylist = if (aug.target.* == .name)
-            self.isArrayListVar(aug.target.name.id)
-        else
-            false;
+        // First check if this is a class instance - if so, use dunder methods
+        const target_type_for_mult = try self.inferExprScoped(aug.target.*);
+        if (target_type_for_mult == .class_instance) {
+            // Fall through to class instance handler below
+        } else {
+            const is_arraylist = if (aug.target.* == .name)
+                self.isArrayListVar(aug.target.name.id)
+            else
+                false;
 
-        if (is_arraylist) {
+            if (is_arraylist) {
             // ArrayList: repeat in place by copying original items n-1 more times
             try self.emit("{\n");
             self.indent();
@@ -356,6 +482,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             try self.emitIndent();
             try self.emit("}\n");
             return;
+            }
         }
     }
 

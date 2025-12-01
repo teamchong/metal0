@@ -162,6 +162,9 @@ pub fn deinit(self: *NativeCodegen) void {
     }
     self.nested_class_captures.deinit();
 
+    // Clean up mutated_captures tracking
+    self.mutated_captures.deinit();
+
     // Clean up nested_class_instances tracking (keys are AST refs, values are AST refs)
     self.nested_class_instances.deinit();
 

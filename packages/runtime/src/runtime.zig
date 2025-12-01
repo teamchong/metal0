@@ -1341,7 +1341,7 @@ pub const flask = @import("flask.zig");
 pub const requests = @import("requests.zig");
 pub const eval_module = @import("eval.zig");
 pub const exec_module = @import("exec.zig");
-pub const gzip = @import("gzip/gzip.zig");
+pub const gzip = @import("gzip");
 pub const zlib = @import("zlib.zig");
 pub const hashlib = @import("hashlib.zig");
 pub const pickle = @import("pickle.zig");
@@ -1349,9 +1349,9 @@ pub const test_support = @import("test_support.zig");
 pub const base64 = @import("base64.zig");
 pub const pylong = @import("pylong.zig");
 
-// Green thread runtime (real M:N scheduler)
-pub const GreenThread = @import("green_thread.zig").GreenThread;
-pub const Scheduler = @import("scheduler.zig").Scheduler;
+// Green thread runtime (real M:N scheduler) - use module imports to avoid conflicts with h2
+pub const GreenThread = @import("green_thread").GreenThread;
+pub const Scheduler = @import("scheduler").Scheduler;
 pub var scheduler: Scheduler = undefined;
 pub var scheduler_initialized = false;
 

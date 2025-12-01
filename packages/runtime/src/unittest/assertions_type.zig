@@ -89,6 +89,16 @@ pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) void {
     const matches = blk: {
         if (std.mem.eql(u8, actual_type_name, expected_type_name)) break :blk true;
 
+        // Handle fully qualified type names (e.g., "module.class.inner" matches "inner")
+        // Check if expected name is a suffix after a dot
+        if (std.mem.endsWith(u8, actual_type_name, expected_type_name)) {
+            // Make sure it's after a dot (not just any suffix)
+            if (actual_type_name.len > expected_type_name.len) {
+                const prefix_len = actual_type_name.len - expected_type_name.len;
+                if (actual_type_name[prefix_len - 1] == '.') break :blk true;
+            }
+        }
+
         if (std.mem.eql(u8, expected_type_name, "int")) {
             break :blk std.mem.startsWith(u8, actual_type_name, "i") or
                 std.mem.startsWith(u8, actual_type_name, "u") or

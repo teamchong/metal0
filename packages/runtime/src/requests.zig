@@ -1,5 +1,9 @@
+//! Python requests library implementation
+//! Uses unified h2 client (HTTP/1.1 for http://, HTTP/2 for https://)
+
 const std = @import("std");
 const runtime = @import("runtime.zig");
+const h2 = @import("h2");
 
 /// Thread-local allocator for requests (set by generated main)
 var _allocator: ?std.mem.Allocator = null;
@@ -51,119 +55,66 @@ pub const Response = struct {
     }
 };
 
-/// HTTP GET request (mimics requests.get) - uses module allocator
+/// HTTP GET request (mimics requests.get)
 pub fn get(url: []const u8) !*Response {
     const allocator = getAllocator();
 
-    // Use std.http.Client with Zig 0.15 API
-    var client = std.http.Client{ .allocator = allocator };
+    var client = h2.Client.init(allocator);
     defer client.deinit();
 
-    // Create allocating writer for response body
-    var response_writer = std.Io.Writer.Allocating.init(allocator);
-    defer if (response_writer.writer.buffer.len > 0) allocator.free(response_writer.writer.buffer);
-
-    // Fetch with response_writer
-    const result = client.fetch(.{
-        .location = .{ .url = url },
-        .response_writer = &response_writer.writer,
-    }) catch |err| {
+    var response = client.get(url) catch |err| {
         std.debug.print("HTTP GET error: {}\n", .{err});
         return error.ConnectionFailed;
     };
+    defer response.deinit();
 
-    // Get body from writer buffer
-    const body_text = response_writer.writer.buffer[0..response_writer.writer.end];
-
-    return try Response.create(
-        allocator,
-        @intFromEnum(result.status),
-        body_text,
-    );
+    return try Response.create(allocator, response.status, response.body);
 }
 
 /// HTTP POST request (mimics requests.post)
 pub fn post(url: []const u8, data: ?[]const u8) !*Response {
     const allocator = getAllocator();
 
-    var client = std.http.Client{ .allocator = allocator };
+    var client = h2.Client.init(allocator);
     defer client.deinit();
 
-    var response_writer = std.Io.Writer.Allocating.init(allocator);
-    defer if (response_writer.writer.buffer.len > 0) allocator.free(response_writer.writer.buffer);
-
-    const result = client.fetch(.{
-        .location = .{ .url = url },
-        .method = .POST,
-        .payload = data,
-        .response_writer = &response_writer.writer,
-    }) catch |err| {
+    var response = client.post(url, data orelse "", "application/x-www-form-urlencoded") catch |err| {
         std.debug.print("HTTP POST error: {}\n", .{err});
         return error.ConnectionFailed;
     };
+    defer response.deinit();
 
-    const body_text = response_writer.writer.buffer[0..response_writer.writer.end];
-
-    return try Response.create(
-        allocator,
-        @intFromEnum(result.status),
-        body_text,
-    );
+    return try Response.create(allocator, response.status, response.body);
 }
 
 /// HTTP PUT request (mimics requests.put)
 pub fn put(url: []const u8, data: ?[]const u8) !*Response {
     const allocator = getAllocator();
 
-    var client = std.http.Client{ .allocator = allocator };
+    var client = h2.Client.init(allocator);
     defer client.deinit();
 
-    var response_writer = std.Io.Writer.Allocating.init(allocator);
-    defer if (response_writer.writer.buffer.len > 0) allocator.free(response_writer.writer.buffer);
-
-    const result = client.fetch(.{
-        .location = .{ .url = url },
-        .method = .PUT,
-        .payload = data,
-        .response_writer = &response_writer.writer,
-    }) catch |err| {
+    var response = client.request("PUT", url, &[_]h2.ExtraHeader{}, data) catch |err| {
         std.debug.print("HTTP PUT error: {}\n", .{err});
         return error.ConnectionFailed;
     };
+    defer response.deinit();
 
-    const body_text = response_writer.writer.buffer[0..response_writer.writer.end];
-
-    return try Response.create(
-        allocator,
-        @intFromEnum(result.status),
-        body_text,
-    );
+    return try Response.create(allocator, response.status, response.body);
 }
 
 /// HTTP DELETE request (mimics requests.delete)
 pub fn delete(url: []const u8) !*Response {
     const allocator = getAllocator();
 
-    var client = std.http.Client{ .allocator = allocator };
+    var client = h2.Client.init(allocator);
     defer client.deinit();
 
-    var response_writer = std.Io.Writer.Allocating.init(allocator);
-    defer if (response_writer.writer.buffer.len > 0) allocator.free(response_writer.writer.buffer);
-
-    const result = client.fetch(.{
-        .location = .{ .url = url },
-        .method = .DELETE,
-        .response_writer = &response_writer.writer,
-    }) catch |err| {
+    var response = client.request("DELETE", url, &[_]h2.ExtraHeader{}, null) catch |err| {
         std.debug.print("HTTP DELETE error: {}\n", .{err});
         return error.ConnectionFailed;
     };
+    defer response.deinit();
 
-    const body_text = response_writer.writer.buffer[0..response_writer.writer.end];
-
-    return try Response.create(
-        allocator,
-        @intFromEnum(result.status),
-        body_text,
-    );
+    return try Response.create(allocator, response.status, response.body);
 }

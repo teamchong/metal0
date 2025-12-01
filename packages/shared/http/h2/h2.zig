@@ -15,6 +15,10 @@ const connection = @import("connection.zig");
 const tls = @import("tls.zig");
 const gzip = @import("gzip");
 
+// Async I/O support (goroutine-style)
+const Netpoller = @import("netpoller").Netpoller;
+const GreenThread = @import("green_thread").GreenThread;
+
 
 pub const Frame = frame.Frame;
 pub const FrameType = frame.FrameType;
@@ -133,6 +137,10 @@ pub const Client = struct {
     max_connections_per_host: usize,
     cache: ?*ResponseCache,
 
+    // Async I/O support (goroutine-style)
+    netpoller: ?*Netpoller,
+    green_thread: ?*GreenThread,
+
     const H2Connection = struct {
         tls: *TlsConnection,
         h2: *Connection,
@@ -145,6 +153,8 @@ pub const Client = struct {
             .connections_mutex = .{},
             .max_connections_per_host = 1, // HTTP/2 multiplexing means 1 is enough
             .cache = null,
+            .netpoller = null,
+            .green_thread = null,
         };
     }
 
@@ -155,6 +165,21 @@ pub const Client = struct {
             .connections_mutex = .{},
             .max_connections_per_host = 1,
             .cache = cache,
+            .netpoller = null,
+            .green_thread = null,
+        };
+    }
+
+    /// Initialize with async I/O support (goroutine-style)
+    pub fn initAsync(allocator: std.mem.Allocator, netpoller: *Netpoller, green_thread: *GreenThread) Client {
+        return .{
+            .allocator = allocator,
+            .connections = std.StringHashMap(*H2Connection).init(allocator),
+            .connections_mutex = .{},
+            .max_connections_per_host = 1,
+            .cache = null,
+            .netpoller = netpoller,
+            .green_thread = green_thread,
         };
     }
 
@@ -181,7 +206,7 @@ pub const Client = struct {
         }, body);
     }
 
-    /// Generic request
+    /// Generic request - supports both HTTP/1.1 (plain) and HTTP/2 (TLS)
     pub fn request(
         self: *Client,
         method: []const u8,
@@ -192,19 +217,26 @@ pub const Client = struct {
         // Parse URL
         const uri = std.Uri.parse(url) catch return error.InvalidUrl;
 
+        const scheme = getScheme(uri.scheme);
         const host = getHostString(uri.host) orelse return error.InvalidUrl;
-        const port: u16 = uri.port orelse if (std.mem.eql(u8, getScheme(uri.scheme), "https")) 443 else 80;
+        const port: u16 = uri.port orelse if (std.mem.eql(u8, scheme, "https")) @as(u16, 443) else @as(u16, 80);
         const path = getPathString(uri.path);
 
-        // Get or create connection
+        // Use HTTP/1.1 for plain HTTP, HTTP/2 for HTTPS
+        if (std.mem.eql(u8, scheme, "http")) {
+            return self.requestHttp1(method, host, port, path, extra_headers, body);
+        }
+
+        // HTTPS: Get or create H2 connection
         const conn = try self.getConnection(host, port);
 
         // Build headers
         var headers = std.ArrayList(ExtraHeader){};
         defer headers.deinit(self.allocator);
 
-        try headers.append(self.allocator, .{ .name = "user-agent", .value = "metal0-h2/1.0" });
+        try headers.append(self.allocator, .{ .name = "user-agent", .value = "metal0/1.0" });
         try headers.append(self.allocator, .{ .name = "accept", .value = "*/*" });
+        try headers.append(self.allocator, .{ .name = "accept-encoding", .value = "gzip" });
 
         for (extra_headers) |h| {
             try headers.append(self.allocator, h);
@@ -228,11 +260,27 @@ pub const Client = struct {
         // Wait for response
         try conn.h2.waitForResponse(stream);
 
+        // Check for gzip and decompress if needed
+        var resp_body: []const u8 = undefined;
+        const content_encoding = stream.getHeader("content-encoding");
+        if (content_encoding != null and std.mem.eql(u8, content_encoding.?, "gzip")) {
+            // Decompress gzip response
+            resp_body = gzip.decompress(self.allocator, stream.body.items) catch |err| {
+                std.debug.print("[H2] gzip decompress error: {}\n", .{err});
+                resp_body = try self.allocator.dupe(u8, stream.body.items);
+                return Response{
+                    .status = stream.status orelse 0,
+                    .headers = &[_]hpack.Header{},
+                    .body = resp_body,
+                    .allocator = self.allocator,
+                };
+            };
+        } else {
+            resp_body = try self.allocator.dupe(u8, stream.body.items);
+        }
+
         // Build response
-        const resp_headers = try self.allocator.alloc(
-            hpack.Header,
-            stream.headers.items.len,
-        );
+        const resp_headers = try self.allocator.alloc(hpack.Header, stream.headers.items.len);
         for (stream.headers.items, 0..) |h, i| {
             resp_headers[i] = .{
                 .name = try self.allocator.dupe(u8, h.name),
@@ -240,11 +288,113 @@ pub const Client = struct {
             };
         }
 
-        const resp_body = try self.allocator.dupe(u8, stream.body.items);
-
         return Response{
             .status = stream.status orelse 0,
             .headers = resp_headers,
+            .body = resp_body,
+            .allocator = self.allocator,
+        };
+    }
+
+    /// HTTP/1.1 request for plain HTTP (no TLS)
+    fn requestHttp1(
+        self: *Client,
+        method: []const u8,
+        host: []const u8,
+        port: u16,
+        path: []const u8,
+        extra_headers: []const ExtraHeader,
+        body: ?[]const u8,
+    ) !Response {
+        // TCP connect
+        const list = std.net.getAddressList(self.allocator, host, port) catch return error.ConnectionFailed;
+        defer list.deinit();
+
+        if (list.addrs.len == 0) return error.ConnectionFailed;
+
+        const socket = std.posix.socket(
+            list.addrs[0].any.family,
+            std.posix.SOCK.STREAM,
+            0,
+        ) catch return error.ConnectionFailed;
+        defer std.posix.close(socket);
+
+        std.posix.connect(socket, &list.addrs[0].any, list.addrs[0].getOsSockLen()) catch return error.ConnectionFailed;
+
+        // Build HTTP/1.1 request
+        var request_buf = std.ArrayList(u8){};
+        defer request_buf.deinit(self.allocator);
+
+        const writer = request_buf.writer(self.allocator);
+
+        // Request line
+        try writer.print("{s} {s} HTTP/1.1\r\n", .{ method, path });
+        try writer.print("Host: {s}\r\n", .{host});
+        try writer.print("User-Agent: metal0/1.0\r\n", .{});
+        try writer.print("Accept: */*\r\n", .{});
+        try writer.print("Connection: close\r\n", .{});
+
+        // Extra headers
+        for (extra_headers) |h| {
+            try writer.print("{s}: {s}\r\n", .{ h.name, h.value });
+        }
+
+        // Content-Length for body
+        if (body) |b| {
+            try writer.print("Content-Length: {}\r\n", .{b.len});
+        }
+
+        try writer.print("\r\n", .{});
+
+        // Send request
+        _ = std.posix.send(socket, request_buf.items, 0) catch return error.ConnectionFailed;
+
+        // Send body
+        if (body) |b| {
+            _ = std.posix.send(socket, b, 0) catch return error.ConnectionFailed;
+        }
+
+        // Read response
+        var response_buf = std.ArrayList(u8){};
+        defer response_buf.deinit(self.allocator);
+
+        var read_buf: [8192]u8 = undefined;
+        while (true) {
+            const n = std.posix.recv(socket, &read_buf, 0) catch break;
+            if (n == 0) break;
+            try response_buf.appendSlice(self.allocator, read_buf[0..n]);
+        }
+
+        // Parse HTTP/1.1 response
+        return self.parseHttp1Response(response_buf.items);
+    }
+
+    /// Parse HTTP/1.1 response
+    fn parseHttp1Response(self: *Client, data: []const u8) !Response {
+        // Find header/body separator
+        const header_end = std.mem.indexOf(u8, data, "\r\n\r\n") orelse return error.InvalidResponse;
+        const header_section = data[0..header_end];
+        const body_start = header_end + 4;
+
+        // Parse status line
+        const status_end = std.mem.indexOf(u8, header_section, "\r\n") orelse return error.InvalidResponse;
+        const status_line = header_section[0..status_end];
+
+        // "HTTP/1.1 200 OK" -> extract 200
+        var parts = std.mem.splitScalar(u8, status_line, ' ');
+        _ = parts.next(); // HTTP/1.1
+        const status_str = parts.next() orelse return error.InvalidResponse;
+        const status = std.fmt.parseInt(u16, status_str, 10) catch return error.InvalidResponse;
+
+        // Get body
+        const resp_body = if (body_start < data.len)
+            try self.allocator.dupe(u8, data[body_start..])
+        else
+            try self.allocator.dupe(u8, "");
+
+        return Response{
+            .status = status,
+            .headers = &[_]hpack.Header{},
             .body = resp_body,
             .allocator = self.allocator,
         };
@@ -495,11 +645,17 @@ pub const Client = struct {
         ) catch return error.ConnectionFailed;
         errdefer std.posix.close(socket);
 
+        // Set non-blocking if async mode enabled
+        if (self.netpoller != null) {
+            const flags = std.posix.fcntl(socket, std.posix.F.GETFL, 0) catch 0;
+            _ = std.posix.fcntl(socket, std.posix.F.SETFL, flags | 0x0004) catch {}; // O_NONBLOCK = 0x0004 on macOS/BSD
+        }
+
         std.posix.connect(socket, &list.addrs[0].any, list.addrs[0].getOsSockLen()) catch return error.ConnectionFailed;
         const tcp_time = timer.read() / 1_000_000;
 
-        // TLS handshake with ALPN
-        conn.tls = try TlsConnection.init(self.allocator, socket);
+        // TLS handshake with ALPN (pass netpoller/green_thread for async I/O)
+        conn.tls = try TlsConnection.init(self.allocator, socket, self.netpoller, self.green_thread);
         errdefer conn.tls.deinit();
 
         try conn.tls.handshake(host, &.{tls.ALPN.H2});

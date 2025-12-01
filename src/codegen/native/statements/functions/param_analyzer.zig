@@ -481,3 +481,192 @@ fn isParameterCalledInExpr(expr: ast.Node, param_name: []const u8) bool {
         else => false,
     };
 }
+
+/// unittest assertion method names that get dispatched to runtime.unittest.*
+/// These don't use the actual self parameter in generated Zig code
+const UnittestMethodNames = std.StaticStringMap(void).initComptime(.{
+    .{ "assertEqual", {} },
+    .{ "assertTrue", {} },
+    .{ "assertFalse", {} },
+    .{ "assertIsNone", {} },
+    .{ "assertGreater", {} },
+    .{ "assertLess", {} },
+    .{ "assertGreaterEqual", {} },
+    .{ "assertLessEqual", {} },
+    .{ "assertNotEqual", {} },
+    .{ "assertIs", {} },
+    .{ "assertIsNot", {} },
+    .{ "assertIsNotNone", {} },
+    .{ "assertIn", {} },
+    .{ "assertNotIn", {} },
+    .{ "assertAlmostEqual", {} },
+    .{ "assertNotAlmostEqual", {} },
+    .{ "assertCountEqual", {} },
+    .{ "assertRaises", {} },
+    .{ "assertRaisesRegex", {} },
+    .{ "assertRegex", {} },
+    .{ "assertNotRegex", {} },
+    .{ "assertIsInstance", {} },
+    .{ "assertNotIsInstance", {} },
+    .{ "assertIsSubclass", {} },
+    .{ "assertNotIsSubclass", {} },
+    .{ "assertWarns", {} },
+    .{ "assertWarnsRegex", {} },
+    .{ "assertStartsWith", {} },
+    .{ "assertNotStartsWith", {} },
+    .{ "assertEndsWith", {} },
+    .{ "assertHasAttr", {} },
+    .{ "assertNotHasAttr", {} },
+    .{ "assertSequenceEqual", {} },
+    .{ "assertListEqual", {} },
+    .{ "assertTupleEqual", {} },
+    .{ "assertSetEqual", {} },
+    .{ "assertDictEqual", {} },
+    .{ "assertMultiLineEqual", {} },
+    .{ "assertLogs", {} },
+    .{ "assertNoLogs", {} },
+    .{ "fail", {} },
+    .{ "skipTest", {} },
+    .{ "subTest", {} },
+    .{ "assertFloatsAreIdentical", {} },
+    .{ "addCleanup", {} },
+});
+
+/// Check if first param is used in ways that don't get dispatched to unittest methods.
+/// For test methods with non-"self" first param (e.g., test_self), calls like
+/// test_self.assertEqual(...) get dispatched to runtime.unittest.assertEqual(...)
+/// which doesn't actually use the Zig self parameter.
+pub fn isFirstParamUsedNonUnittest(body: []ast.Node, param_name: []const u8) bool {
+    for (body) |stmt| {
+        if (isFirstParamUsedNonUnittestInStmt(stmt, param_name)) return true;
+    }
+    return false;
+}
+
+fn isFirstParamUsedNonUnittestInStmt(stmt: ast.Node, name: []const u8) bool {
+    return switch (stmt) {
+        .expr_stmt => |expr| isFirstParamUsedNonUnittestInExpr(expr.value.*, name),
+        .assign => |assign| {
+            for (assign.targets) |target| {
+                if (isFirstParamUsedNonUnittestInExpr(target, name)) return true;
+            }
+            return isFirstParamUsedNonUnittestInExpr(assign.value.*, name);
+        },
+        .return_stmt => |ret| if (ret.value) |val| isFirstParamUsedNonUnittestInExpr(val.*, name) else false,
+        .if_stmt => |if_stmt| {
+            if (isFirstParamUsedNonUnittestInExpr(if_stmt.condition.*, name)) return true;
+            if (isFirstParamUsedNonUnittest(if_stmt.body, name)) return true;
+            if (isFirstParamUsedNonUnittest(if_stmt.else_body, name)) return true;
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            if (isFirstParamUsedNonUnittestInExpr(while_stmt.condition.*, name)) return true;
+            if (isFirstParamUsedNonUnittest(while_stmt.body, name)) return true;
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            if (isFirstParamUsedNonUnittestInExpr(for_stmt.iter.*, name)) return true;
+            if (isFirstParamUsedNonUnittest(for_stmt.body, name)) return true;
+            return false;
+        },
+        .function_def => |func_def| isFirstParamUsedNonUnittest(func_def.body, name),
+        .class_def => |class_def| isFirstParamUsedNonUnittest(class_def.body, name),
+        .with_stmt => |with_stmt| {
+            if (isFirstParamUsedNonUnittestInExpr(with_stmt.context_expr.*, name)) return true;
+            if (isFirstParamUsedNonUnittest(with_stmt.body, name)) return true;
+            return false;
+        },
+        .try_stmt => |try_stmt| {
+            if (isFirstParamUsedNonUnittest(try_stmt.body, name)) return true;
+            for (try_stmt.handlers) |handler| {
+                if (isFirstParamUsedNonUnittest(handler.body, name)) return true;
+            }
+            if (isFirstParamUsedNonUnittest(try_stmt.else_body, name)) return true;
+            if (isFirstParamUsedNonUnittest(try_stmt.finalbody, name)) return true;
+            return false;
+        },
+        else => false,
+    };
+}
+
+fn isFirstParamUsedNonUnittestInExpr(expr: ast.Node, name: []const u8) bool {
+    return switch (expr) {
+        .name => |n| std.mem.eql(u8, n.id, name),
+        .call => |call| {
+            // Check if this is a unittest method call: name.assertXxx(...)
+            // If so, it doesn't count as using the param (gets dispatched to runtime.unittest)
+            if (call.func.* == .attribute) {
+                const attr = call.func.attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, name)) {
+                    // This is `name.something(...)` - check if it's a unittest method
+                    if (UnittestMethodNames.has(attr.attr)) {
+                        // This is a unittest method call - doesn't use self
+                        // But still check the arguments for other uses
+                        for (call.args) |arg| {
+                            if (isFirstParamUsedNonUnittestInExpr(arg, name)) return true;
+                        }
+                        return false;
+                    }
+                }
+            }
+            // Not a unittest method call - check normally
+            if (isFirstParamUsedNonUnittestInExpr(call.func.*, name)) return true;
+            for (call.args) |arg| {
+                if (isFirstParamUsedNonUnittestInExpr(arg, name)) return true;
+            }
+            return false;
+        },
+        .binop => |binop| {
+            return isFirstParamUsedNonUnittestInExpr(binop.left.*, name) or
+                isFirstParamUsedNonUnittestInExpr(binop.right.*, name);
+        },
+        .compare => |comp| {
+            if (isFirstParamUsedNonUnittestInExpr(comp.left.*, name)) return true;
+            for (comp.comparators) |c| {
+                if (isFirstParamUsedNonUnittestInExpr(c, name)) return true;
+            }
+            return false;
+        },
+        .unaryop => |unary| isFirstParamUsedNonUnittestInExpr(unary.operand.*, name),
+        .subscript => |sub| {
+            if (isFirstParamUsedNonUnittestInExpr(sub.value.*, name)) return true;
+            switch (sub.slice) {
+                .index => |idx| {
+                    if (isFirstParamUsedNonUnittestInExpr(idx.*, name)) return true;
+                },
+                else => {},
+            }
+            return false;
+        },
+        .attribute => |attr| isFirstParamUsedNonUnittestInExpr(attr.value.*, name),
+        .lambda => |lam| isFirstParamUsedNonUnittestInExpr(lam.body.*, name),
+        .list => |list| {
+            for (list.elts) |elem| {
+                if (isFirstParamUsedNonUnittestInExpr(elem, name)) return true;
+            }
+            return false;
+        },
+        .dict => |dict| {
+            for (dict.keys) |key| {
+                if (isFirstParamUsedNonUnittestInExpr(key, name)) return true;
+            }
+            for (dict.values) |val| {
+                if (isFirstParamUsedNonUnittestInExpr(val, name)) return true;
+            }
+            return false;
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elem| {
+                if (isFirstParamUsedNonUnittestInExpr(elem, name)) return true;
+            }
+            return false;
+        },
+        .if_expr => |tern| {
+            if (isFirstParamUsedNonUnittestInExpr(tern.condition.*, name)) return true;
+            if (isFirstParamUsedNonUnittestInExpr(tern.body.*, name)) return true;
+            if (isFirstParamUsedNonUnittestInExpr(tern.orelse_value.*, name)) return true;
+            return false;
+        },
+        else => false,
+    };
+}

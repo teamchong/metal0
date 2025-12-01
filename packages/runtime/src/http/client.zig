@@ -1,4 +1,5 @@
-/// HTTP Client with connection pooling and builder pattern
+/// Unified HTTP Client - supports HTTP/1.1 and HTTP/2 (TLS 1.3)
+/// Uses h2 module for all requests (no std.http.Client)
 const std = @import("std");
 const Request = @import("request.zig").Request;
 const Response = @import("response.zig").Response;
@@ -7,6 +8,7 @@ const Status = @import("response.zig").Status;
 const ConnectionPool = @import("pool.zig").ConnectionPool;
 const hashmap_helper = @import("hashmap_helper");
 const LazyResponse = @import("lazy_response.zig").LazyResponse;
+const h2 = @import("h2");
 
 /// Extract raw string from Uri.Component (Zig 0.15 API)
 fn getComponentString(component: std.Uri.Component) []const u8 {
@@ -41,18 +43,21 @@ pub const Client = struct {
     pool: ConnectionPool,
     timeout_ms: u64,
     default_headers: hashmap_helper.StringHashMap([]const u8),
+    h2_client: h2.Client,
 
     pub fn init(allocator: std.mem.Allocator) Client {
         return .{
             .allocator = allocator,
-            .pool = ConnectionPool.init(allocator, 100), // Max 100 connections
-            .timeout_ms = 30000, // 30 second default timeout
+            .pool = ConnectionPool.init(allocator, 100),
+            .timeout_ms = 30000,
             .default_headers = hashmap_helper.StringHashMap([]const u8).init(allocator),
+            .h2_client = h2.Client.init(allocator),
         };
     }
 
     pub fn deinit(self: *Client) void {
         self.pool.deinit();
+        self.h2_client.deinit();
         var it = self.default_headers.iterator();
         while (it.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
@@ -162,58 +167,50 @@ pub const Client = struct {
     fn send(self: *Client, request: *const Request, uri: *const std.Uri) !Response {
         _ = request; // TODO: use custom headers from request
 
-        // Use Zig's built-in HTTP client
-        var client = std.http.Client{ .allocator = self.allocator };
-        defer client.deinit();
+        // Build URL from URI
+        var url_buf: [4096]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&url_buf);
+        uri.format(.{}, fbs.writer()) catch return error.InvalidUrl;
+        const url = fbs.getWritten();
 
-        const fetch_result = client.fetch(.{
-            .location = .{ .uri = uri.* },
-        }) catch |err| {
+        // Use unified h2 client (handles both HTTP and HTTPS)
+        var h2_response = self.h2_client.get(url) catch |err| {
             std.debug.print("HTTP fetch error: {}\n", .{err});
             return error.ConnectionFailed;
         };
+        defer h2_response.deinit();
 
-        var response = Response.init(self.allocator, Status.fromCode(@intFromEnum(fetch_result.status)));
-        // Body reading requires Zig 0.15 Writer API rework - return empty for now
-        try response.setBody("");
-
+        var response = Response.init(self.allocator, Status.fromCode(h2_response.status));
+        try response.setBody(h2_response.body);
         return response;
     }
 
     /// Fetch URL and return body as slice (simple API for Python wrappers)
     pub fn fetchBody(self: *Client, url: []const u8) ![]const u8 {
-        var client = std.http.Client{ .allocator = self.allocator };
-        defer client.deinit();
-
-        const result = client.fetch(.{
-            .location = .{ .url = url },
-        }) catch |err| {
+        var response = self.h2_client.get(url) catch |err| {
             std.debug.print("HTTP fetch error: {}\n", .{err});
             return error.ConnectionFailed;
         };
+        defer response.deinit();
 
-        // Return status as string for now (body reading needs Writer API rework)
-        var buf: [16]u8 = undefined;
-        const status_str = std.fmt.bufPrint(&buf, "{d}", .{@intFromEnum(result.status)}) catch "0";
-        return try self.allocator.dupe(u8, status_str);
+        if (response.body.len > 0) {
+            return try self.allocator.dupe(u8, response.body);
+        }
+        return try self.allocator.dupe(u8, "");
     }
 
     /// Fetch URL with POST body and return response body
     pub fn fetchBodyPost(self: *Client, url: []const u8, payload: []const u8) ![]const u8 {
-        var client = std.http.Client{ .allocator = self.allocator };
-        defer client.deinit();
-
-        const result = client.fetch(.{
-            .location = .{ .url = url },
-            .payload = payload,
-        }) catch |err| {
-            std.debug.print("HTTP fetch error: {}\n", .{err});
+        var response = self.h2_client.post(url, payload, "application/x-www-form-urlencoded") catch |err| {
+            std.debug.print("HTTP POST error: {}\n", .{err});
             return error.ConnectionFailed;
         };
+        defer response.deinit();
 
-        var buf: [16]u8 = undefined;
-        const status_str = std.fmt.bufPrint(&buf, "{d}", .{@intFromEnum(result.status)}) catch "0";
-        return try self.allocator.dupe(u8, status_str);
+        if (response.body.len > 0) {
+            return try self.allocator.dupe(u8, response.body);
+        }
+        return try self.allocator.dupe(u8, "");
     }
 
     /// Lazy GET - body read deferred until accessed
@@ -275,7 +272,7 @@ pub const RequestBuilder = struct {
     pub fn send(self: *RequestBuilder) !Response {
         try self.client.applyDefaultHeaders(&self.request);
         if (self.uri.host) |host| {
-            try self.request.setHeader("Host", host);
+            try self.request.setHeader("Host", getComponentString(host));
         }
         return try self.client.send(&self.request, &self.uri);
     }
@@ -300,6 +297,4 @@ test "RequestBuilder fluent API" {
     defer builder.deinit();
 
     _ = try builder.header("Accept", "application/json");
-
-    // Note: Actual send() would require network, so we just test the builder pattern
 }

@@ -75,12 +75,15 @@ pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) Codege
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
     // Infer type from the current value expression
     var value_type = try self.inferExprScoped(assign.value.*);
+    const original_expr_type = value_type; // Keep for class_instance shadowing detection
 
     // For variable declarations and reassignments, use the scoped widened type
     // from the type inferrer. This ensures the variable can hold all values
     // that will be assigned to it within the same function scope.
     // The type inferrer's scoped map contains the widened type from ALL assignments
     // to this variable in the current function.
+    // EXCEPTION: For class_instance types, don't widen if the actual expression type
+    // is a DIFFERENT class. This allows proper shadowing detection later.
     for (assign.targets) |target| {
         if (target == .name) {
             const var_name = target.name.id;
@@ -89,8 +92,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // where x needs to be BigInt to hold both values
             if (self.type_inferrer.getScopedVar(var_name)) |scoped_type| {
                 if (scoped_type != .unknown) {
-                    value_type = scoped_type;
-                    break;
+                    // Don't widen for class_instance types that differ - need actual type for shadowing
+                    const skip_widening = scoped_type == .class_instance and
+                        original_expr_type == .class_instance and
+                        !std.mem.eql(u8, scoped_type.class_instance, original_expr_type.class_instance);
+                    if (!skip_widening) {
+                        value_type = scoped_type;
+                        break;
+                    }
                 }
             }
         }
@@ -103,6 +112,23 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         for (assign.targets) |target| {
             if (target == .name) {
                 try self.bigint_vars.put(target.name.id, {});
+            }
+        }
+    }
+
+    // Track variables assigned from nested class constructor calls
+    // This handles cases like: x = MyClass(1) where MyClass is defined in the same function
+    // We need to know x is a MyClass instance for subsequent attribute accesses like x.val
+    if (assign.value.* == .call and assign.value.call.func.* == .name) {
+        const class_name = assign.value.call.func.name.id;
+        if (self.nested_class_names.contains(class_name)) {
+            for (assign.targets) |target| {
+                if (target == .name) {
+                    std.debug.print("DEBUG: Registering {s} as instance of {s}\n", .{ target.name.id, class_name });
+                    try self.nested_class_instances.put(target.name.id, class_name);
+                    // Also register in type_inferrer's scoped variables for proper type lookup
+                    try self.type_inferrer.putScopedVar(target.name.id, .{ .class_instance = class_name });
+                }
             }
         }
     }
@@ -251,6 +277,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
             }
 
+            // Set current assignment target for type-aware empty list generation
+            self.current_assign_target = var_name;
+            defer self.current_assign_target = null;
+
             // Check collection types and allocation behavior
             const is_constant_array = typeHandling.isConstantArray(self, assign, var_name);
             const is_arraylist = typeHandling.isArrayList(self, assign, var_name);
@@ -315,10 +345,22 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             try self.emitIndent();
 
-            // For unused variables, discard with _ = expr; to avoid Zig errors
-            // But PyObjects still need decref to free memory (e.g., json.loads)
+            // For unused variables, either skip the statement or discard with _ = expr;
             // Use original_var_name since usage analysis uses the original Python variable name
             if (is_first_assignment and self.isVarUnused(original_var_name)) {
+                // Check if value expression has side effects
+                // Simple name/constant references have no side effects - skip entirely
+                // Calls, list/dict literals with calls, etc. have side effects - execute them
+                const has_side_effects = switch (assign.value.*) {
+                    .name, .constant => false,
+                    else => true,
+                };
+
+                if (!has_side_effects) {
+                    // No side effects - skip the entire statement
+                    return;
+                }
+
                 if (value_type == .unknown) {
                     // PyObject: capture in block and decref immediately
                     // { const __unused = expr; runtime.decref(__unused, __global_allocator); }
@@ -335,6 +377,39 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             }
 
             if (is_first_assignment) {
+                // Special handling for y = x where x is ArrayList
+                // In Python, y = x makes y an alias (reference) to the same list
+                // Generate: const y = &x (pointer to x)
+                if (assign.value.* == .name) {
+                    const rhs_name = assign.value.name.id;
+                    // Check if the inferred type is a list (not just if variable was ever ArrayList)
+                    // This ensures we don't alias class instances even if a previous function had same var name
+                    const is_rhs_list_type = value_type == .list or value_type == .array;
+                    const is_rhs_arraylist = is_rhs_list_type and (self.isArrayListVar(rhs_name) or self.arraylist_aliases.contains(rhs_name));
+                    if (is_rhs_arraylist) {
+                        // Track y as an alias pointing to x
+                        const var_name_copy = try self.allocator.dupe(u8, var_name);
+                        const rhs_name_copy = try self.allocator.dupe(u8, rhs_name);
+                        try self.arraylist_aliases.put(var_name_copy, rhs_name_copy);
+
+                        // Generate const pointer assignment: const y = &x
+                        // Always use const - if y is reassigned to different type, we shadow it
+                        try self.emit("const ");
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                        try self.emit(" = &");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(";\n");
+
+                        // Mark as declared
+                        try self.declareVarWithType(var_name, value_type);
+                        return;
+                    }
+
+                    // For nested class instances (heap-allocated pointers), y = x simply copies the pointer
+                    // This is handled by normal assignment - no special case needed since
+                    // nested classes now return *@This() from init(), so x is already a pointer
+                }
+
                 // First assignment: emit var/const declaration with type annotation
                 try valueGen.emitVarDeclaration(
                     self,
@@ -439,6 +514,37 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 };
 
                 if (needs_shadow) {
+                    // Check if this is an alias being reassigned to a different type
+                    // y = x where y was a pointer alias and x's type changed
+                    const is_alias_reassign = self.arraylist_aliases.contains(var_name) and assign.value.* == .name;
+                    if (is_alias_reassign) {
+                        const rhs_name = assign.value.name.id;
+                        const is_rhs_list_type = new_type == .list or new_type == .array;
+                        const is_rhs_arraylist = is_rhs_list_type and (self.isArrayListVar(rhs_name) or self.arraylist_aliases.contains(rhs_name));
+                        if (is_rhs_arraylist) {
+                            // Shadow the alias - generate new pointer variable
+                            const unique_suffix = self.output.items.len;
+                            const unique_name = std.fmt.allocPrint(self.allocator, "{s}__{d}", .{ var_name, unique_suffix }) catch var_name;
+
+                            // Don't emit _ = y - original alias is const and likely already used
+                            // Just declare the new shadow alias
+                            try self.emit("const ");
+                            try self.emit(unique_name);
+                            try self.emit(" = &");
+                            try self.genExpr(assign.value.*);
+                            try self.emit(";\n");
+
+                            // Update alias tracking and renames
+                            const unique_name_copy = try self.allocator.dupe(u8, unique_name);
+                            const rhs_name_copy = try self.allocator.dupe(u8, rhs_name);
+                            try self.arraylist_aliases.put(unique_name_copy, rhs_name_copy);
+                            try self.var_renames.put(var_name, unique_name);
+                            try self.declareVarWithType(var_name, new_type);
+                            try self.declareVarWithType(unique_name, new_type);
+                            return;
+                        }
+                    }
+
                     // Generate a unique name for this new type
                     // Use the output buffer length as a unique suffix
                     const unique_suffix = self.output.items.len;
@@ -453,8 +559,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit(";\n");
                     try self.emitIndent();
 
-                    // Emit new const declaration with unique name
-                    try self.emit("const ");
+                    // For nested class instances (heap-allocated), shadowing works normally
+                    // since x is already a pointer (*ClassName), y = x copies the pointer
+
+                    // Check if the shadow variable will be aug_assigned (e.g., x += 1)
+                    // Only aug_assign needs var, regular multi-assignment doesn't (uses shadowing)
+                    const shadow_is_mutable = self.isVarAugAssigned(var_name);
+                    try self.emit(if (shadow_is_mutable) "var " else "const ");
                     try self.emit(unique_name);
                     try self.emit(" = ");
 
@@ -467,6 +578,27 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.declareVarWithType(var_name, new_type);
                     try self.declareVarWithType(unique_name, new_type);
                 } else {
+                    // Check if this is reassigning an alias (y = x where y was previously an alias)
+                    // When reassigning an alias, we need to update the pointer: y = &x
+                    if (self.arraylist_aliases.contains(var_name) and assign.value.* == .name) {
+                        const rhs_name = assign.value.name.id;
+                        const is_rhs_list_type = value_type == .list or value_type == .array;
+                        const is_rhs_arraylist = is_rhs_list_type and (self.isArrayListVar(rhs_name) or self.arraylist_aliases.contains(rhs_name));
+                        if (is_rhs_arraylist) {
+                            // Update alias to point to new target
+                            const var_name_copy = try self.allocator.dupe(u8, var_name);
+                            const rhs_name_copy = try self.allocator.dupe(u8, rhs_name);
+                            try self.arraylist_aliases.put(var_name_copy, rhs_name_copy);
+
+                            // Generate pointer reassignment: y = &x
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                            try self.emit(" = &");
+                            try self.genExpr(assign.value.*);
+                            try self.emit(";\n");
+                            return;
+                        }
+                    }
+
                     // Normal reassignment
                     // Use renamed version if in var_renames map (for exception handling)
                     const actual_name = self.var_renames.get(var_name) orelse var_name;
@@ -506,22 +638,6 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     assign.value.*,
                 );
                 return;
-            }
-
-            // Special handling for y = x where x is ArrayList
-            // In Python, y = x makes y an alias to the same list, so y should also be ArrayList
-            if (assign.value.* == .name) {
-                const rhs_name = assign.value.name.id;
-                if (self.isArrayListVar(rhs_name)) {
-                    // Track the new variable as ArrayList too
-                    const var_name_copy = try self.allocator.dupe(u8, var_name);
-                    try self.arraylist_vars.put(var_name_copy, {});
-
-                    // Generate the assignment (no special code needed, just emit y = x)
-                    try self.genExpr(assign.value.*);
-                    try self.emit(";\n");
-                    return;
-                }
             }
 
             // Special handling for bigint variable assignments

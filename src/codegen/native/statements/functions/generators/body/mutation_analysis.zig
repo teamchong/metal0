@@ -268,9 +268,11 @@ pub fn analyzeFunctionLocalMutations(self: *NativeCodegen, func: ast.Node.Functi
 
     // Mark aug_assign variables as mutated (with scope 0 - function level)
     // aug_assign means mutation regardless of scope
+    // Also track separately for shadow variable detection
     var aug_iter = aug_assign_vars.iterator();
     while (aug_iter.next()) |entry| {
         try self.func_local_mutations.put(entry.key_ptr.*, {});
+        try self.func_local_aug_assigns.put(entry.key_ptr.*, {});
     }
 
     // Mark variables with multiple assignments at same scope as mutated
@@ -316,6 +318,7 @@ pub fn analyzeModuleLevelMutations(self: *NativeCodegen, module_body: []const as
     var aug_iter = aug_assign_vars.iterator();
     while (aug_iter.next()) |entry| {
         try self.func_local_mutations.put(entry.key_ptr.*, {});
+        try self.func_local_aug_assigns.put(entry.key_ptr.*, {});
     }
 
     // Mark variables with multiple assignments at same scope as mutated

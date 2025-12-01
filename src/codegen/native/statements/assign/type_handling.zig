@@ -65,8 +65,12 @@ pub fn isConstantArray(self: *NativeCodegen, assign: ast.Node.Assign, var_name: 
 pub fn isArrayList(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []const u8) bool {
     // Check if RHS is a variable that is already an ArrayList
     // y = x where x is ArrayList -> y should also be ArrayList
+    // BUT: Only if the inferred type is actually a list, not class_instance
+    // (arraylist_vars is module-scoped so may have stale entries from other functions)
     if (assign.value.* == .name) {
-        if (self.isArrayListVar(assign.value.name.id)) {
+        const rhs_type = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
+        const is_list_type = rhs_type == .list or rhs_type == .array;
+        if (is_list_type and self.isArrayListVar(assign.value.name.id)) {
             return true;
         }
     }

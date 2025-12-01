@@ -168,8 +168,36 @@ fn genArrayLiteral(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
 
 /// Generate list literal as ArrayList (Python lists are always mutable)
 pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
-    // Empty lists
+    // Empty lists - use type from context if available
     if (list.elts.len == 0) {
+        // Check if we have a target variable name from assignment context
+        // and its inferred type indicates string elements
+        if (self.current_assign_target) |target_name| {
+            // Look up the inferred type for this variable
+            var type_buf = std.ArrayList(u8){};
+            defer type_buf.deinit(self.allocator);
+            const var_type = self.type_inferrer.getScopedVar(target_name) orelse
+                self.type_inferrer.var_types.get(target_name);
+            if (var_type) |vt| {
+                vt.toZigType(self.allocator, &type_buf) catch {};
+                if (type_buf.items.len > 0) {
+                    // Check if it's a string list (PyObject = strings in our context)
+                    if (std.mem.indexOf(u8, type_buf.items, "std.ArrayList(*runtime.PyObject)") != null or
+                        std.mem.indexOf(u8, type_buf.items, "std.ArrayList([]const u8)") != null)
+                    {
+                        try self.emit("std.ArrayList([]const u8){}");
+                        return;
+                    }
+                    // Use the inferred type directly if it's an ArrayList
+                    if (std.mem.startsWith(u8, type_buf.items, "std.ArrayList(")) {
+                        try self.emit(type_buf.items);
+                        try self.emit("{}");
+                        return;
+                    }
+                }
+            }
+        }
+        // Default to i64 for empty lists without type context
         try self.emit("std.ArrayList(i64){}");
         return;
     }

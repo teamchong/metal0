@@ -27,7 +27,10 @@ pub fn genFunctionBody(
     // Analyze function body for mutated variables BEFORE generating code
     // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
     self.func_local_mutations.clearRetainingCapacity();
+    self.func_local_aug_assigns.clearRetainingCapacity();
     self.hoisted_vars.clearRetainingCapacity();
+    self.nested_class_instances.clearRetainingCapacity();
+    self.class_instance_aliases.clearRetainingCapacity();
     try mutation_analysis.analyzeFunctionLocalMutations(self, func);
 
     // Analyze function body for used variables (prevents false "unused" detection)
@@ -112,6 +115,7 @@ pub fn genFunctionBody(
 
     // Clear function-local state after exiting function
     self.func_local_mutations.clearRetainingCapacity();
+    self.func_local_aug_assigns.clearRetainingCapacity();
     self.func_local_vars.clearRetainingCapacity();
     self.forward_declared_vars.clearRetainingCapacity();
     // Clear nested_class_captures (free the slices first)
@@ -139,6 +143,18 @@ pub fn genAsyncFunctionBody(
     self: *NativeCodegen,
     func: ast.Node.FunctionDef,
 ) CodegenError!void {
+    // Analyze function body for mutated variables BEFORE generating code
+    // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
+    self.func_local_mutations.clearRetainingCapacity();
+    self.func_local_aug_assigns.clearRetainingCapacity();
+    self.hoisted_vars.clearRetainingCapacity();
+    self.nested_class_instances.clearRetainingCapacity();
+    self.class_instance_aliases.clearRetainingCapacity();
+    try mutation_analysis.analyzeFunctionLocalMutations(self, func);
+
+    // Analyze function body for used variables (prevents false "unused" detection)
+    try usage_analysis.analyzeFunctionLocalUses(self, func);
+
     self.indent();
 
     // Push new scope for function body
@@ -238,11 +254,28 @@ pub fn genMethodBodyWithAllocatorInfo(
     _: bool, // has_allocator_param - unused, handled in signature.zig
     _: bool, // actually_uses_allocator - unused, handled in signature.zig
 ) CodegenError!void {
+    return genMethodBodyWithAllocatorInfoAndContext(self, method, &[_][]const u8{});
+}
+
+/// Generate method body with extra context for inherited methods
+/// extra_class_names: class names to add to nested_class_names (for inherited method constructor calls)
+pub fn genMethodBodyWithContext(
+    self: *NativeCodegen,
+    method: ast.Node.FunctionDef,
+    extra_class_names: []const []const u8,
+) CodegenError!void {
+    return genMethodBodyWithAllocatorInfoAndContext(self, method, extra_class_names);
+}
+
+fn genMethodBodyWithAllocatorInfoAndContext(
+    self: *NativeCodegen,
+    method: ast.Node.FunctionDef,
+    extra_class_names: []const []const u8,
+) CodegenError!void {
     // Track whether we're inside a method with 'self' parameter.
     // This is used by generators.zig to know if a nested class should use __self.
-    const has_self = for (method.args) |arg| {
-        if (std.mem.eql(u8, arg.name, "self")) break true;
-    } else false;
+    // The first parameter of a class method is always self (regardless of name like test_self, cls, etc.)
+    const has_self = method.args.len > 0;
     const was_inside_method = self.inside_method_with_self;
     if (has_self) self.inside_method_with_self = true;
     defer self.inside_method_with_self = was_inside_method;
@@ -250,7 +283,10 @@ pub fn genMethodBodyWithAllocatorInfo(
     // Analyze method body for mutated variables BEFORE generating code
     // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
     self.func_local_mutations.clearRetainingCapacity();
+    self.func_local_aug_assigns.clearRetainingCapacity();
     self.hoisted_vars.clearRetainingCapacity();
+    self.nested_class_instances.clearRetainingCapacity();
+    self.class_instance_aliases.clearRetainingCapacity();
     try mutation_analysis.analyzeFunctionLocalMutations(self, method);
 
     // Analyze method body for used variables (prevents false "unused" detection)
@@ -264,6 +300,11 @@ pub fn genMethodBodyWithAllocatorInfo(
     self.nested_class_names.clearRetainingCapacity();
     self.nested_class_bases.clearRetainingCapacity();
     try nested_captures.analyzeNestedClassCaptures(self, method);
+
+    // Add extra class names (for inherited method bodies that call parent class constructors)
+    for (extra_class_names) |name| {
+        try self.nested_class_names.put(name, {});
+    }
 
     self.indent();
 
@@ -328,17 +369,36 @@ pub fn genMethodBodyWithAllocatorInfo(
 
     // Declare method parameters in the scope (skip 'self')
     // This prevents variable shadowing when reassigning parameters
+    // Get the first param name for renaming if it's not "self"
+    const first_param_name = if (method.args.len > 0) method.args[0].name else null;
+    const needs_first_param_rename = if (first_param_name) |name|
+        !std.mem.eql(u8, name, "self")
+    else
+        false;
+
+    // If first param isn't named "self", rename it to "self" for proper Zig self reference
+    // Use the appropriate self name based on nesting depth (self vs __self)
+    if (needs_first_param_rename) {
+        const target_self_name = if (self.method_nesting_depth > 0) "__self" else "self";
+        try self.var_renames.put(first_param_name.?, target_self_name);
+        try renamed_params.append(self.allocator, first_param_name.?);
+    }
+
+    var is_first = true;
     for (method.args) |arg| {
-        if (!std.mem.eql(u8, arg.name, "self")) {
-            // Check if this param would shadow a method name and needs renaming
-            if (zig_keywords.wouldShadowMethod(arg.name)) {
-                // Add rename mapping: original -> renamed
-                const renamed = try std.fmt.allocPrint(self.allocator, "{s}_arg", .{arg.name});
-                try self.var_renames.put(arg.name, renamed);
-                try renamed_params.append(self.allocator, arg.name);
-            }
-            try self.declareVar(arg.name);
+        // Skip the first parameter (self/cls/test_self/etc.)
+        if (is_first) {
+            is_first = false;
+            continue;
         }
+        // Check if this param would shadow a method name and needs renaming
+        if (zig_keywords.wouldShadowMethod(arg.name)) {
+            // Add rename mapping: original -> renamed
+            const renamed = try std.fmt.allocPrint(self.allocator, "{s}_arg", .{arg.name});
+            try self.var_renames.put(arg.name, renamed);
+            try renamed_params.append(self.allocator, arg.name);
+        }
+        try self.declareVar(arg.name);
     }
 
     // NOTE: Forward-referenced captured variables (class captures variable before it's declared)
@@ -357,7 +417,10 @@ pub fn genMethodBodyWithAllocatorInfo(
     // Remove parameter renames when exiting method scope
     for (renamed_params.items) |param_name| {
         if (self.var_renames.fetchSwapRemove(param_name)) |entry| {
-            self.allocator.free(entry.value);
+            // Only free dynamically allocated strings (not static "self" or "__self")
+            if (!std.mem.eql(u8, entry.value, "self") and !std.mem.eql(u8, entry.value, "__self")) {
+                self.allocator.free(entry.value);
+            }
         }
     }
 
@@ -366,6 +429,7 @@ pub fn genMethodBodyWithAllocatorInfo(
 
     // Clear function-local mutations and forward declarations after exiting method
     self.func_local_mutations.clearRetainingCapacity();
+    self.func_local_aug_assigns.clearRetainingCapacity();
     self.forward_declared_vars.clearRetainingCapacity();
 
     // Clear nested class tracking (names and bases) after exiting method

@@ -6,21 +6,10 @@
 //! - Retry with exponential backoff
 //! - Custom headers support
 //!
-//! ## Usage
-//! ```zig
-//! var client = HttpClient.init(allocator);
-//! defer client.deinit();
-//!
-//! // Single request
-//! const body = try client.get("https://example.com/api");
-//! defer allocator.free(body);
-//!
-//! // Parallel requests
-//! const results = try client.getParallel(&.{"url1", "url2", "url3"});
-//! defer allocator.free(results);
-//! ```
+//! Uses unified h2 client (HTTP/1.1 for http://, HTTP/2 for https://)
 
 const std = @import("std");
+const h2 = @import("h2");
 
 pub const HttpError = error{
     NetworkError,
@@ -58,11 +47,11 @@ pub const FetchResult = union(enum) {
     }
 };
 
-/// High-performance HTTP client with connection pooling
+/// High-performance HTTP client using unified h2 (HTTP/1.1 + HTTP/2)
 pub const HttpClient = struct {
     allocator: std.mem.Allocator,
     config: Config,
-    inner: std.http.Client,
+    h2_client: h2.Client,
 
     pub fn init(allocator: std.mem.Allocator) HttpClient {
         return initWithConfig(allocator, .{});
@@ -72,29 +61,29 @@ pub const HttpClient = struct {
         return .{
             .allocator = allocator,
             .config = config,
-            .inner = std.http.Client{ .allocator = allocator },
+            .h2_client = h2.Client.init(allocator),
         };
     }
 
     pub fn deinit(self: *HttpClient) void {
-        self.inner.deinit();
+        self.h2_client.deinit();
     }
 
     /// GET request with default headers
     pub fn get(self: *HttpClient, url: []const u8) ![]const u8 {
-        return self.getWithHeaders(url, &.{});
+        return self.fetchWithRetry(url);
     }
 
-    /// GET request with custom headers
-    pub fn getWithHeaders(self: *HttpClient, url: []const u8, extra_headers: []const std.http.Header) ![]const u8 {
-        return self.fetchWithRetry(url, extra_headers);
+    /// GET request with custom headers (headers ignored for now, h2 handles defaults)
+    pub fn getWithHeaders(self: *HttpClient, url: []const u8, extra_headers: anytype) ![]const u8 {
+        _ = extra_headers;
+        return self.fetchWithRetry(url);
     }
 
     /// GET request with custom Accept header
     pub fn getWithAccept(self: *HttpClient, url: []const u8, accept: []const u8) ![]const u8 {
-        return self.fetchWithRetry(url, &.{
-            .{ .name = "Accept", .value = accept },
-        });
+        _ = accept;
+        return self.fetchWithRetry(url);
     }
 
     /// Parallel GET requests
@@ -111,15 +100,44 @@ pub const HttpClient = struct {
 
         // Fetch context for thread workers
         const FetchContext = struct {
-            client: *HttpClient,
+            allocator: std.mem.Allocator,
             url: []const u8,
             result: *FetchResult,
+            max_retries: u32,
 
             fn fetch(ctx: *@This()) void {
-                ctx.result.* = if (ctx.client.get(ctx.url)) |body|
-                    .{ .success = body }
-                else |_|
-                    .{ .err = HttpError.NetworkError };
+                var h2_client = h2.Client.init(ctx.allocator);
+                defer h2_client.deinit();
+
+                var retries: u32 = 0;
+                while (retries < ctx.max_retries) : (retries += 1) {
+                    var response = h2_client.get(ctx.url) catch {
+                        if (retries + 1 < ctx.max_retries) {
+                            const delay_ms: u64 = @as(u64, 100) << @intCast(retries);
+                            std.Thread.sleep(delay_ms * std.time.ns_per_ms);
+                        }
+                        continue;
+                    };
+                    defer response.deinit();
+
+                    if (response.status >= 200 and response.status < 300) {
+                        ctx.result.* = if (ctx.allocator.dupe(u8, response.body)) |body|
+                            .{ .success = body }
+                        else |_|
+                            .{ .err = HttpError.OutOfMemory };
+                        return;
+                    } else if (response.status == 404) {
+                        ctx.result.* = .{ .err = HttpError.NotFound };
+                        return;
+                    } else if (response.status == 429) {
+                        ctx.result.* = .{ .err = HttpError.TooManyRequests };
+                        return;
+                    } else if (response.status >= 500) {
+                        ctx.result.* = .{ .err = HttpError.ServerError };
+                        return;
+                    }
+                }
+                ctx.result.* = .{ .err = HttpError.NetworkError };
             }
         };
 
@@ -129,9 +147,10 @@ pub const HttpClient = struct {
 
         for (urls, 0..) |url, i| {
             contexts[i] = .{
-                .client = self,
+                .allocator = self.allocator,
                 .url = url,
                 .result = &results[i],
+                .max_retries = self.config.max_retries,
             };
         }
 
@@ -165,12 +184,12 @@ pub const HttpClient = struct {
     }
 
     /// Fetch with retry and exponential backoff
-    fn fetchWithRetry(self: *HttpClient, url: []const u8, extra_headers: []const std.http.Header) ![]const u8 {
+    fn fetchWithRetry(self: *HttpClient, url: []const u8) ![]const u8 {
         var retries: u32 = 0;
         var last_err: HttpError = HttpError.NetworkError;
 
         while (retries < self.config.max_retries) : (retries += 1) {
-            const result = self.doFetch(url, extra_headers);
+            const result = self.doFetch(url);
             if (result) |body| {
                 return body;
             } else |err| {
@@ -185,50 +204,19 @@ pub const HttpClient = struct {
         return last_err;
     }
 
-    /// Perform actual HTTP fetch
-    fn doFetch(self: *HttpClient, url: []const u8, extra_headers: []const std.http.Header) HttpError![]const u8 {
-        var response_writer = std.Io.Writer.Allocating.init(self.allocator);
-        errdefer if (response_writer.writer.buffer.len > 0) self.allocator.free(response_writer.writer.buffer);
-
-        // Build headers array
-        var headers_buf: [16]std.http.Header = undefined;
-        var header_count: usize = 0;
-
-        headers_buf[header_count] = .{ .name = "User-Agent", .value = self.config.user_agent };
-        header_count += 1;
-
-        headers_buf[header_count] = .{ .name = "Accept", .value = self.config.accept };
-        header_count += 1;
-
-        for (extra_headers) |h| {
-            if (header_count < headers_buf.len) {
-                headers_buf[header_count] = h;
-                header_count += 1;
-            }
-        }
-
-        const result = self.inner.fetch(.{
-            .location = .{ .url = url },
-            .extra_headers = headers_buf[0..header_count],
-            .response_writer = &response_writer.writer,
-        }) catch return HttpError.NetworkError;
+    /// Perform actual HTTP fetch using h2 client
+    fn doFetch(self: *HttpClient, url: []const u8) HttpError![]const u8 {
+        var response = self.h2_client.get(url) catch return HttpError.NetworkError;
+        defer response.deinit();
 
         // Check status
-        const status = result.status;
-        if (status == .not_found) return HttpError.NotFound;
-        if (status == .too_many_requests) return HttpError.TooManyRequests;
-        if (@intFromEnum(status) >= 500) return HttpError.ServerError;
-        if (status != .ok) return HttpError.NetworkError;
+        if (response.status == 404) return HttpError.NotFound;
+        if (response.status == 429) return HttpError.TooManyRequests;
+        if (response.status >= 500) return HttpError.ServerError;
+        if (response.status < 200 or response.status >= 300) return HttpError.NetworkError;
 
         // Copy body
-        const body = response_writer.writer.buffer[0..response_writer.writer.end];
-        const result_body = self.allocator.dupe(u8, body) catch return HttpError.OutOfMemory;
-
-        if (response_writer.writer.buffer.len > 0) {
-            self.allocator.free(response_writer.writer.buffer);
-        }
-
-        return result_body;
+        return self.allocator.dupe(u8, response.body) catch HttpError.OutOfMemory;
     }
 };
 

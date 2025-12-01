@@ -88,6 +88,8 @@ pub fn build(b: *std.Build) void {
     runtime.addImport("json_simd", json_simd);
     runtime.addImport("regex", regex_mod);
     runtime.addImport("bigint", bigint_mod);
+    runtime.addImport("gzip", gzip_module);
+    runtime.addImport("h2", h2_mod);
     collections.addImport("runtime", runtime);
 
     // C interop module
@@ -185,6 +187,20 @@ pub fn build(b: *std.Build) void {
     scheduler_module.addImport("green_thread", green_thread_module);
     scheduler_module.addImport("work_queue", work_queue_module);
     scheduler_module.addImport("netpoller", netpoller_module);
+
+    // Add async I/O support to HTTP/2 module
+    h2_mod.addImport("green_thread", green_thread_module);
+    h2_mod.addImport("netpoller", netpoller_module);
+
+    // Add async I/O support to package manager module
+    pkg_mod.addImport("green_thread", green_thread_module);
+    pkg_mod.addImport("netpoller", netpoller_module);
+
+    // Add async I/O support to runtime module (enables H2 client with goroutines)
+    runtime.addImport("green_thread", green_thread_module);
+    runtime.addImport("netpoller", netpoller_module);
+    runtime.addImport("work_queue", work_queue_module);
+    runtime.addImport("scheduler", scheduler_module);
 
     // Goroutine tests
     const goroutine_tests = b.addTest(.{
@@ -290,6 +306,25 @@ pub fn build(b: *std.Build) void {
     const bench_json_stringify_step = b.step("bench-json-stringify", "Build and run JSON stringify benchmark");
     bench_json_stringify_step.dependOn(&run_bench_json_stringify.step);
 
+    // Goroutine fan-out benchmark
+    const bench_goroutine = b.addExecutable(.{
+        .name = "bench_goroutine",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("benchmarks/asyncio/bench_fanout.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    bench_goroutine.root_module.addImport("scheduler", scheduler_module);
+    bench_goroutine.root_module.addImport("green_thread", green_thread_module);
+    bench_goroutine.linkLibC();
+
+    b.installArtifact(bench_goroutine);
+
+    const run_bench_goroutine = b.addRunArtifact(bench_goroutine);
+    const bench_goroutine_step = b.step("bench-goroutine", "Build and run goroutine fan-out benchmark");
+    bench_goroutine_step.dependOn(&run_bench_goroutine.step);
+
     // Token optimizer proxy - build from packages/token_optimizer/ directory
     // It has its own build.zig with zigimg dependency
     // Run: cd packages/token_optimizer && zig build
@@ -348,6 +383,8 @@ pub fn build(b: *std.Build) void {
     });
     pkg_module.addImport("json", json_mod);
     pkg_module.addImport("h2", h2_mod);
+    pkg_module.addImport("green_thread", green_thread_module);
+    pkg_module.addImport("netpoller", netpoller_module);
 
     const resolve_exe = b.addExecutable(.{
         .name = "resolve",

@@ -1,31 +1,33 @@
-//! Async Socket - Non-blocking socket I/O with netpoller integration
+//! Async Socket - Goroutine-style non-blocking I/O
 //!
-//! This provides goroutine-like async I/O for HTTP connections:
+//! How it works:
 //! 1. Socket is set to non-blocking mode
-//! 2. When read/write would block, we register with netpoller
-//! 3. Green thread yields (parks)
-//! 4. When I/O is ready, netpoller wakes the thread
-//!
-//! Usage with green threads:
-//! ```zig
-//! const socket = try AsyncSocket.init(allocator, fd, netpoller);
-//! defer socket.deinit();
-//!
-//! // These calls may yield if I/O would block
-//! const n = try socket.read(buffer);
-//! try socket.writeAll(data);
-//! ```
+//! 2. When read/write would block, register fd with netpoller
+//! 3. Green thread parks (yields to scheduler)
+//! 4. When I/O is ready, netpoller wakes the green thread
 
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Async socket with netpoller integration
+// Netpoller for async I/O (kqueue on macOS, epoll on Linux)
+const Netpoller = @import("netpoller").Netpoller;
+const IoOp = @import("netpoller").IoOp;
+const GreenThread = @import("green_thread").GreenThread;
+
+/// Async socket with goroutine-style I/O
 pub const AsyncSocket = struct {
     fd: std.posix.socket_t,
     allocator: std.mem.Allocator,
-    is_nonblocking: bool,
+    netpoller: *Netpoller,
+    green_thread: *GreenThread,
 
-    pub fn init(allocator: std.mem.Allocator, fd: std.posix.socket_t) !AsyncSocket {
+    /// Initialize async socket with netpoller and green thread
+    pub fn init(
+        allocator: std.mem.Allocator,
+        fd: std.posix.socket_t,
+        netpoller: *Netpoller,
+        green_thread: *GreenThread,
+    ) !AsyncSocket {
         // Set socket to non-blocking mode
         if (builtin.os.tag != .windows) {
             const flags = std.posix.fcntl(fd, std.posix.F.GETFL, 0) catch 0;
@@ -35,17 +37,26 @@ pub const AsyncSocket = struct {
         return .{
             .fd = fd,
             .allocator = allocator,
-            .is_nonblocking = true,
+            .netpoller = netpoller,
+            .green_thread = green_thread,
         };
     }
 
     pub fn deinit(self: *AsyncSocket) void {
         _ = self;
-        // Socket is owned by caller, don't close
     }
 
-    /// Read data, yielding if would block
-    /// Returns number of bytes read, or 0 for EOF
+    /// Park green thread until socket is readable
+    fn parkForRead(self: *AsyncSocket) !void {
+        try self.netpoller.register(self.fd, IoOp.read, self.green_thread);
+    }
+
+    /// Park green thread until socket is writable
+    fn parkForWrite(self: *AsyncSocket) !void {
+        try self.netpoller.register(self.fd, IoOp.write, self.green_thread);
+    }
+
+    /// Read data, parking if would block
     pub fn read(self: *AsyncSocket, buffer: []u8) !usize {
         while (true) {
             const result = std.posix.read(self.fd, buffer);
@@ -54,10 +65,7 @@ pub const AsyncSocket = struct {
             } else |err| {
                 switch (err) {
                     error.WouldBlock => {
-                        // Would block - yield and retry
-                        // In full implementation, register with netpoller here
-                        // For now, just spin with a small sleep
-                        std.time.sleep(100); // 100ns
+                        try self.parkForRead();
                         continue;
                     },
                     else => return err,
@@ -66,7 +74,7 @@ pub const AsyncSocket = struct {
         }
     }
 
-    /// Write all data, yielding if would block
+    /// Write all data, parking if would block
     pub fn writeAll(self: *AsyncSocket, data: []const u8) !void {
         var written: usize = 0;
         while (written < data.len) {
@@ -76,8 +84,7 @@ pub const AsyncSocket = struct {
             } else |err| {
                 switch (err) {
                     error.WouldBlock => {
-                        // Would block - yield and retry
-                        std.time.sleep(100); // 100ns
+                        try self.parkForWrite();
                         continue;
                     },
                     else => return err,
@@ -86,7 +93,7 @@ pub const AsyncSocket = struct {
         }
     }
 
-    /// Connect with async handling
+    /// Connect, parking if would block
     pub fn connect(self: *AsyncSocket, addr: *const std.posix.sockaddr, len: std.posix.socklen_t) !void {
         const result = std.posix.connect(self.fd, addr, len);
         if (result) |_| {
@@ -94,30 +101,11 @@ pub const AsyncSocket = struct {
         } else |err| {
             switch (err) {
                 error.WouldBlock => {
-                    // Connection in progress - wait for writable
-                    // Poll for write readiness
-                    var poll_fds = [_]std.posix.pollfd{.{
-                        .fd = self.fd,
-                        .events = std.posix.POLL.OUT,
-                        .revents = 0,
-                    }};
-
-                    while (true) {
-                        const poll_result = std.posix.poll(&poll_fds, 5000); // 5 second timeout
-                        if (poll_result > 0) {
-                            // Check for error
-                            var so_error: c_int = 0;
-                            var len: std.posix.socklen_t = @sizeOf(c_int);
-                            _ = std.posix.getsockopt(self.fd, std.posix.SOL.SOCKET, std.posix.SO.ERROR, @ptrCast(&so_error), &len) catch {};
-                            if (so_error != 0) {
-                                return error.ConnectionRefused;
-                            }
-                            return; // Connected!
-                        } else if (poll_result == 0) {
-                            return error.ConnectionTimedOut;
-                        }
-                        // Interrupted, retry
-                    }
+                    try self.parkForWrite();
+                    var so_error: c_int = 0;
+                    var opt_len: std.posix.socklen_t = @sizeOf(c_int);
+                    _ = std.posix.getsockopt(self.fd, std.posix.SOL.SOCKET, std.posix.SO.ERROR, @ptrCast(&so_error), &opt_len) catch {};
+                    if (so_error != 0) return error.ConnectionRefused;
                 },
                 else => return err,
             }
@@ -127,19 +115,22 @@ pub const AsyncSocket = struct {
 
 /// Create a non-blocking socket
 pub fn createNonBlockingSocket(domain: u32, socket_type: u32, protocol: u32) !std.posix.socket_t {
-    const fd = try std.posix.socket(domain, socket_type | std.posix.SOCK.NONBLOCK, protocol);
-    return fd;
+    return try std.posix.socket(domain, socket_type | std.posix.SOCK.NONBLOCK, protocol);
 }
 
-/// Connect to host:port with non-blocking socket
-pub fn connectAsync(allocator: std.mem.Allocator, host: []const u8, port: u16) !AsyncSocket {
-    // DNS lookup
+/// Connect to host:port with goroutine-style async
+pub fn connectAsync(
+    allocator: std.mem.Allocator,
+    host: []const u8,
+    port: u16,
+    netpoller: *Netpoller,
+    green_thread: *GreenThread,
+) !AsyncSocket {
     const list = std.net.getAddressList(allocator, host, port) catch return error.DnsLookupFailed;
     defer list.deinit();
 
     if (list.addrs.len == 0) return error.NoAddressFound;
 
-    // Create non-blocking socket
     const fd = try createNonBlockingSocket(
         list.addrs[0].any.family,
         std.posix.SOCK.STREAM,
@@ -147,16 +138,12 @@ pub fn connectAsync(allocator: std.mem.Allocator, host: []const u8, port: u16) !
     );
     errdefer std.posix.close(fd);
 
-    var socket = try AsyncSocket.init(allocator, fd);
-
-    // Connect (may yield)
+    var socket = try AsyncSocket.init(allocator, fd, netpoller, green_thread);
     try socket.connect(&list.addrs[0].any, list.addrs[0].getOsSockLen());
 
     return socket;
 }
 
-// Tests
 test "AsyncSocket creation" {
-    // Just test compilation
     _ = AsyncSocket;
 }

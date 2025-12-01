@@ -422,3 +422,46 @@ pub fn genDecode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.genExpr(obj);
     }
 }
+
+/// Generate code for text.splitlines([keepends])
+/// Splits string at line boundaries (\n, \r, \r\n)
+pub fn genSplitlines(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
+    try self.emitFmt("splitlines_{d}: {{\n", .{label_id});
+    try self.emit("    const _text = ");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+
+    // keepends argument (default false)
+    if (args.len > 0) {
+        try self.emit("    const _keepends = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+    } else {
+        try self.emit("    const _keepends = false;\n");
+    }
+
+    try self.emit("    var _result = std.ArrayList([]const u8){};\n");
+    try self.emit("    var _start: usize = 0;\n");
+    try self.emit("    var _i: usize = 0;\n");
+    try self.emit("    while (_i < _text.len) {\n");
+    try self.emit("        if (_i + 1 < _text.len and _text[_i] == '\\r' and _text[_i + 1] == '\\n') {\n");
+    try self.emit("            const _end = if (_keepends) _i + 2 else _i;\n");
+    try self.emit("            try _result.append(__global_allocator, _text[_start.._end]);\n");
+    try self.emit("            _i += 2;\n");
+    try self.emit("            _start = _i;\n");
+    try self.emit("        } else if (_text[_i] == '\\n' or _text[_i] == '\\r') {\n");
+    try self.emit("            const _end = if (_keepends) _i + 1 else _i;\n");
+    try self.emit("            try _result.append(__global_allocator, _text[_start.._end]);\n");
+    try self.emit("            _i += 1;\n");
+    try self.emit("            _start = _i;\n");
+    try self.emit("        } else {\n");
+    try self.emit("            _i += 1;\n");
+    try self.emit("        }\n");
+    try self.emit("    }\n");
+    try self.emit("    if (_start < _text.len) {\n");
+    try self.emit("        try _result.append(__global_allocator, _text[_start..]);\n");
+    try self.emit("    }\n");
+    try self.emitFmt("    break :splitlines_{d} _result;\n", .{label_id});
+    try self.emit("}");
+}

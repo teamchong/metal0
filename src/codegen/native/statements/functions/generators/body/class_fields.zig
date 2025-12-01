@@ -68,33 +68,6 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     // Found field: self.x = y
                     const field_name = attr.attr;
 
-                    // Check if field value is a passthrough parameter (self.field = param pattern)
-                    // For passthrough fields, use runtime.PyValue to allow any type
-                    const is_passthrough = blk: {
-                        if (assign.value.* == .name) {
-                            const param_name = assign.value.name.id;
-                            for (init.args) |arg| {
-                                if (std.mem.eql(u8, arg.name, param_name) and arg.type_annotation == null) {
-                                    break :blk true;
-                                }
-                            }
-                        }
-                        break :blk false;
-                    };
-
-                    if (is_passthrough) {
-                        // Use runtime.PyValue for passthrough fields to allow any type
-                        try self.emitIndent();
-                        const writer = self.output.writer(self.allocator);
-                        try zig_keywords.writeEscapedIdent(writer, field_name);
-                        if (with_defaults) {
-                            try writer.print(": runtime.PyValue = .none,\n", .{});
-                        } else {
-                            try writer.print(": runtime.PyValue,\n", .{});
-                        }
-                        continue;
-                    }
-
                     // Determine field type by inferring the value's type
                     var inferred = try self.type_inferrer.inferExpr(assign.value.*);
 
@@ -168,32 +141,6 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
             param_idx = if (i > 0) i - 1 else 0;
             break;
         }
-    }
-
-    // Check if parameter is just passed through to a field (self.field = param pattern)
-    // If so, use anytype to allow any type to be passed
-    const is_passthrough = blk: {
-        for (init.body) |stmt| {
-            if (stmt == .assign) {
-                const assign = stmt.assign;
-                // Check if this is self.field = param_name
-                if (assign.value.* == .name and std.mem.eql(u8, assign.value.name.id, param_name)) {
-                    if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
-                        const attr = assign.targets[0].attribute;
-                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
-                            break :blk true;
-                        }
-                    }
-                }
-            }
-        }
-        break :blk false;
-    };
-
-    // For passthrough parameters with no explicit type, use anytype
-    // This allows the class to be instantiated with any type
-    if (is_passthrough) {
-        return try self.allocator.dupe(u8, "anytype");
     }
 
     // Method 1: Try to use constructor call arg types

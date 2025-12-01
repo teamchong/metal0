@@ -447,6 +447,62 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         return;
     }
 
+    // Check for custom class with dunder methods (e.g., x + 1 calls x.__add__(1))
+    // Must check before other type-specific handling
+    if (bigint_left_type == .class_instance or bigint_right_type == .class_instance) {
+        const dunder_method = switch (binop.op) {
+            .Add => "__add__",
+            .Sub => "__sub__",
+            .Mult => "__mul__",
+            .Div => "__truediv__",
+            .FloorDiv => "__floordiv__",
+            .Mod => "__mod__",
+            .Pow => "__pow__",
+            .BitAnd => "__and__",
+            .BitOr => "__or__",
+            .BitXor => "__xor__",
+            .LShift => "__lshift__",
+            .RShift => "__rshift__",
+            .MatMul => "__matmul__", // Already handled below, but included for completeness
+        };
+        const rdunder_method = switch (binop.op) {
+            .Add => "__radd__",
+            .Sub => "__rsub__",
+            .Mult => "__rmul__",
+            .Div => "__rtruediv__",
+            .FloorDiv => "__rfloordiv__",
+            .Mod => "__rmod__",
+            .Pow => "__rpow__",
+            .BitAnd => "__rand__",
+            .BitOr => "__ror__",
+            .BitXor => "__rxor__",
+            .LShift => "__rlshift__",
+            .RShift => "__rrshift__",
+            .MatMul => "__rmatmul__",
+        };
+
+        if (bigint_left_type == .class_instance) {
+            // Left is class, call left.__add__(right) etc.
+            try self.emit("try ");
+            try genExpr(self, binop.left.*);
+            try self.emit(".");
+            try self.emit(dunder_method);
+            try self.emit("(__global_allocator, ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+        } else {
+            // Right is class, call right.__radd__(left) etc.
+            try self.emit("try ");
+            try genExpr(self, binop.right.*);
+            try self.emit(".");
+            try self.emit(rdunder_method);
+            try self.emit("(__global_allocator, ");
+            try genExpr(self, binop.left.*);
+            try self.emit(")");
+        }
+        return;
+    }
+
     // Check for complex number operations
     // Must check BOTH Add and Sub for complex operand type coercion
     if (binop.op == .Add or binop.op == .Sub) {

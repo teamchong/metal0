@@ -41,6 +41,7 @@ pub const genIsdecimal = string.genIsdecimal;
 pub const genIsnumeric = string.genIsnumeric;
 pub const genEncode = string.genEncode;
 pub const genDecode = string.genDecode;
+pub const genSplitlines = string.genSplitlines;
 
 // List methods
 pub const genAppend = list.genAppend;

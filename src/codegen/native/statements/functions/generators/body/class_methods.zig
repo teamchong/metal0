@@ -19,6 +19,7 @@ const BuiltinBaseInfo = generators.BuiltinBaseInfo;
 
 
 /// Generate default init() method for classes without __init__
+/// Nested classes (class_nesting_depth > 1) are heap-allocated for Python reference semantics
 pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!void {
     // Default __dict__ field for dynamic attributes
     try self.emitIndent();
@@ -29,25 +30,48 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!vo
     // Use __alloc for nested classes to avoid shadowing outer allocator
     // class_nesting_depth: 1 = top-level class, 2+ = nested class
     const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
+    const is_nested = self.class_nesting_depth > 1;
 
     try self.emit("\n");
     try self.emitIndent();
-    // Use @This() for self-referential return type instead of class name
-    try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator) @This() {{\n", .{alloc_name});
-    self.indent();
 
-    try self.emitIndent();
-    // Use @This(){} for struct literal initialization
-    try self.emit("return @This(){\n");
-    self.indent();
+    if (is_nested) {
+        // Nested classes: heap-allocate for Python reference semantics (y = x makes y an alias)
+        try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator) !*@This() {{\n", .{alloc_name});
+        self.indent();
 
-    // Initialize __dict__ for dynamic attributes
-    try self.emitIndent();
-    try self.output.writer(self.allocator).print(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init({s}),\n", .{alloc_name});
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
+        try self.emitIndent();
+        try self.emit("__ptr.* = @This(){\n");
+        self.indent();
 
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("};\n");
+        // Initialize __dict__ for dynamic attributes
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init({s}),\n", .{alloc_name});
+
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("};\n");
+        try self.emitIndent();
+        try self.emit("return __ptr;\n");
+    } else {
+        // Top-level classes: value semantics (existing behavior)
+        try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator) @This() {{\n", .{alloc_name});
+        self.indent();
+
+        try self.emitIndent();
+        try self.emit("return @This(){\n");
+        self.indent();
+
+        // Initialize __dict__ for dynamic attributes
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init({s}),\n", .{alloc_name});
+
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("};\n");
+    }
 
     self.dedent();
     try self.emitIndent();
@@ -55,7 +79,7 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, _: []const u8) CodegenError!vo
 }
 
 /// Generate default init() method with builtin/complex parent type support
-pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, builtin_base: ?BuiltinBaseInfo, complex_parent: ?generators.ComplexParentInfo, captured_vars: ?[][]const u8) CodegenError!void {
+pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []const u8, builtin_base: ?BuiltinBaseInfo, complex_parent: ?generators.ComplexParentInfo, captured_vars: ?[][]const u8) CodegenError!void {
     // Default __dict__ field for dynamic attributes
     try self.emitIndent();
     try self.emit("// Dynamic attributes dictionary\n");
@@ -80,7 +104,7 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
             const native_types = @import("../../../../../../analysis/native_types/core.zig");
             const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
                 self.type_inferrer.var_types.get(var_name);
-            const zig_type = if (var_type) |vt| blk: {
+            var zig_type: []const u8 = if (var_type) |vt| blk: {
                 vt.toZigType(self.allocator, &type_buf) catch {};
                 if (type_buf.items.len > 0) {
                     break :blk type_buf.items;
@@ -88,7 +112,17 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
                 break :blk "i64";
             } else "i64";
             defer type_buf.deinit(self.allocator);
-            try self.output.writer(self.allocator).print("__cap_{s}: *const {s}", .{ var_name, zig_type });
+            // Fix empty list type: type inferrer may detect PyObject for mixed/string lists
+            // Map to appropriate Zig type: PyObject -> []const u8 for string lists
+            if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
+                zig_type = "std.ArrayList([]const u8)";
+            }
+            // Check if this captured variable is mutated - use * instead of *const if so
+            var mutation_key_buf: [256]u8 = undefined;
+            const mutation_key = std.fmt.bufPrint(&mutation_key_buf, "{s}.{s}", .{ class_name, var_name }) catch var_name;
+            const is_mutated = self.mutated_captures.contains(mutation_key);
+            const ptr_type: []const u8 = if (is_mutated) "*" else "*const";
+            try self.output.writer(self.allocator).print("__cap_{s}: {s} {s}", .{ var_name, ptr_type, zig_type });
         }
     }
 
@@ -108,11 +142,24 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
         }
     }
 
-    try self.emit(") @This() {\n");
+    const is_nested = self.class_nesting_depth > 1;
+    if (is_nested) {
+        try self.emit(") !*@This() {\n");
+    } else {
+        try self.emit(") @This() {\n");
+    }
     self.indent();
 
-    try self.emitIndent();
-    try self.emit("return @This(){\n");
+    if (is_nested) {
+        // Nested classes: heap-allocate for Python reference semantics
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
+        try self.emitIndent();
+        try self.emit("__ptr.* = @This(){\n");
+    } else {
+        try self.emitIndent();
+        try self.emit("return @This(){\n");
+    }
     self.indent();
 
     // Initialize captured variable pointers first
@@ -159,6 +206,11 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
     try self.emitIndent();
     try self.emit("};\n");
 
+    if (is_nested) {
+        try self.emitIndent();
+        try self.emit("return __ptr;\n");
+    }
+
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -168,11 +220,12 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, _: []const u8, 
 pub fn genInitMethod(
     self: *NativeCodegen,
     class_name: []const u8,
-    init: ast.Node.FunctionDef,
+    init_def: ast.Node.FunctionDef,
 ) CodegenError!void {
     // Use __alloc for nested classes to avoid shadowing outer allocator
     // class_nesting_depth: 1 = top-level class, 2+ = nested class
     const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
+    const is_nested = self.class_nesting_depth > 1;
 
     try self.emit("\n");
     try self.emitIndent();
@@ -180,14 +233,14 @@ pub fn genInitMethod(
 
     // Parameters (skip 'self')
     const param_analyzer = @import("../../param_analyzer.zig");
-    for (init.args) |arg| {
+    for (init_def.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
 
         try self.emit(", ");
 
         // Check if parameter is used in init body (excluding parent __init__ calls)
         // Parent calls are skipped in codegen, so params only used there are unused
-        const is_used = param_analyzer.isNameUsedInInitBody(init.body, arg.name);
+        const is_used = param_analyzer.isNameUsedInInitBody(init_def.body, arg.name);
         if (!is_used) {
             // Zig requires unused params to be named just "_", not "_name"
             try self.emit("_: ");
@@ -200,14 +253,18 @@ pub fn genInitMethod(
         if (arg.type_annotation) |_| {
             try self.emit(signature.pythonTypeToZig(arg.type_annotation));
         } else {
-            const param_type = try class_fields.inferParamType(self, class_name, init, arg.name);
+            const param_type = try class_fields.inferParamType(self, class_name, init_def, arg.name);
             defer self.allocator.free(param_type);
             try self.emit(param_type);
         }
     }
 
-    // Use @This() for self-referential return type
-    try self.emit(") @This() {\n");
+    // Use @This() for self-referential return type - heap-allocate for nested classes
+    if (is_nested) {
+        try self.emit(") !*@This() {\n");
+    } else {
+        try self.emit(") @This() {\n");
+    }
     self.indent();
 
     // Note: allocator is always used for __dict__ initialization, so no discard needed
@@ -215,11 +272,11 @@ pub fn genInitMethod(
     // Analyze local variable uses BEFORE generating code
     // This ensures variables like `g = gcd(...)` that are used in field assignments
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
-    try usage_analysis.analyzeFunctionLocalUses(self, init);
+    try usage_analysis.analyzeFunctionLocalUses(self, init_def);
 
     // First pass: generate non-field assignments (local variables, control flow, etc.)
     // These need to be executed BEFORE the struct is created
-    for (init.body) |stmt| {
+    for (init_def.body) |stmt| {
         const is_field_assign = blk: {
             if (stmt == .assign) {
                 const assign = stmt.assign;
@@ -240,13 +297,20 @@ pub fn genInitMethod(
     }
 
     // Generate return statement with field initializers
-    try self.emitIndent();
-    // Use @This(){} for struct literal initialization
-    try self.emit("return @This(){\n");
+    if (is_nested) {
+        // Nested classes: heap-allocate for Python reference semantics
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
+        try self.emitIndent();
+        try self.emit("__ptr.* = @This(){\n");
+    } else {
+        try self.emitIndent();
+        try self.emit("return @This(){\n");
+    }
     self.indent();
 
     // Second pass: extract field assignments from __init__ body
-    for (init.body) |stmt| {
+    for (init_def.body) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
             if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
@@ -254,33 +318,12 @@ pub fn genInitMethod(
                 if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
                     const field_name = attr.attr;
 
-                    // Check if this is a passthrough field (value comes from untyped parameter)
-                    const is_passthrough = blk: {
-                        if (assign.value.* == .name) {
-                            const param_name = assign.value.name.id;
-                            for (init.args) |arg| {
-                                if (std.mem.eql(u8, arg.name, param_name) and arg.type_annotation == null) {
-                                    break :blk true;
-                                }
-                            }
-                        }
-                        break :blk false;
-                    };
-
                     try self.emitIndent();
                     // Escape field name if it's a Zig keyword (e.g., "test")
                     try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
-
-                    if (is_passthrough) {
-                        // Wrap passthrough value in PyValue using runtime helper
-                        try self.emit("runtime.PyValue.from(");
-                        try self.genExpr(assign.value.*);
-                        try self.emit(")");
-                    } else {
-                        try self.genExpr(assign.value.*);
-                    }
+                    try self.genExpr(assign.value.*);
                     try self.emit(",\n");
                 }
             }
@@ -294,6 +337,11 @@ pub fn genInitMethod(
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
+
+    if (is_nested) {
+        try self.emitIndent();
+        try self.emit("return __ptr;\n");
+    }
 
     self.dedent();
     try self.emitIndent();
@@ -325,7 +373,7 @@ pub fn genInitMethodWithBuiltinBase(
             const native_types = @import("../../../../../../analysis/native_types/core.zig");
             const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
                 self.type_inferrer.var_types.get(var_name);
-            const zig_type = if (var_type) |vt| blk: {
+            var zig_type: []const u8 = if (var_type) |vt| blk: {
                 vt.toZigType(self.allocator, &type_buf) catch {};
                 if (type_buf.items.len > 0) {
                     break :blk type_buf.items;
@@ -333,7 +381,17 @@ pub fn genInitMethodWithBuiltinBase(
                 break :blk "i64";
             } else "i64";
             defer type_buf.deinit(self.allocator);
-            try self.output.writer(self.allocator).print("__cap_{s}: *const {s}", .{ var_name, zig_type });
+            // Fix empty list type: type inferrer may detect PyObject for mixed/string lists
+            // Map to appropriate Zig type: PyObject -> []const u8 for string lists
+            if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
+                zig_type = "std.ArrayList([]const u8)";
+            }
+            // Check if this captured variable is mutated - use * instead of *const if so
+            var mutation_key_buf: [256]u8 = undefined;
+            const mutation_key = std.fmt.bufPrint(&mutation_key_buf, "{s}.{s}", .{ class_name, var_name }) catch var_name;
+            const is_mutated = self.mutated_captures.contains(mutation_key);
+            const ptr_type: []const u8 = if (is_mutated) "*" else "*const";
+            try self.output.writer(self.allocator).print("__cap_{s}: {s} {s}", .{ var_name, ptr_type, zig_type });
         }
     }
 
@@ -387,8 +445,13 @@ pub fn genInitMethodWithBuiltinBase(
         }
     }
 
-    // Use @This() for self-referential return type
-    try self.emit(") @This() {\n");
+    // Use @This() for self-referential return type - heap-allocate for nested classes
+    const is_nested = self.class_nesting_depth > 1;
+    if (is_nested) {
+        try self.emit(") !*@This() {\n");
+    } else {
+        try self.emit(") @This() {\n");
+    }
     self.indent();
 
     // Set captured vars context for expression generation
@@ -426,8 +489,16 @@ pub fn genInitMethodWithBuiltinBase(
     }
 
     // Generate return statement with field initializers
-    try self.emitIndent();
-    try self.emit("return @This(){\n");
+    if (is_nested) {
+        // Nested classes: heap-allocate for Python reference semantics
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
+        try self.emitIndent();
+        try self.emit("__ptr.* = @This(){\n");
+    } else {
+        try self.emitIndent();
+        try self.emit("return @This(){\n");
+    }
     self.indent();
 
     // Initialize captured variable pointers first
@@ -494,32 +565,11 @@ pub fn genInitMethodWithBuiltinBase(
                 if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
                     const field_name = attr.attr;
 
-                    // Check if this is a passthrough field (value comes from untyped parameter)
-                    const is_passthrough = blk: {
-                        if (assign.value.* == .name) {
-                            const param_name = assign.value.name.id;
-                            for (init.args) |arg| {
-                                if (std.mem.eql(u8, arg.name, param_name) and arg.type_annotation == null) {
-                                    break :blk true;
-                                }
-                            }
-                        }
-                        break :blk false;
-                    };
-
                     try self.emitIndent();
                     try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
-
-                    if (is_passthrough) {
-                        // Wrap passthrough value in PyValue
-                        try self.emit("runtime.PyValue.from(");
-                        try self.genExpr(assign.value.*);
-                        try self.emit(")");
-                    } else {
-                        try self.genExpr(assign.value.*);
-                    }
+                    try self.genExpr(assign.value.*);
                     try self.emit(",\n");
                 }
             }
@@ -533,6 +583,11 @@ pub fn genInitMethodWithBuiltinBase(
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
+
+    if (is_nested) {
+        try self.emitIndent();
+        try self.emit("return __ptr;\n");
+    }
 
     self.dedent();
     try self.emitIndent();
@@ -566,7 +621,7 @@ pub fn genInitMethodFromNew(
             const native_types = @import("../../../../../../analysis/native_types/core.zig");
             const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
                 self.type_inferrer.var_types.get(var_name);
-            const zig_type = if (var_type) |vt| blk: {
+            var zig_type: []const u8 = if (var_type) |vt| blk: {
                 vt.toZigType(self.allocator, &type_buf) catch {};
                 if (type_buf.items.len > 0) {
                     break :blk type_buf.items;
@@ -574,7 +629,17 @@ pub fn genInitMethodFromNew(
                 break :blk "i64";
             } else "i64";
             defer type_buf.deinit(self.allocator);
-            try self.output.writer(self.allocator).print("__cap_{s}: *const {s}", .{ var_name, zig_type });
+            // Fix empty list type: type inferrer may detect PyObject for mixed/string lists
+            // Map to appropriate Zig type: PyObject -> []const u8 for string lists
+            if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
+                zig_type = "std.ArrayList([]const u8)";
+            }
+            // Check if this captured variable is mutated - use * instead of *const if so
+            var mutation_key_buf: [256]u8 = undefined;
+            const mutation_key = std.fmt.bufPrint(&mutation_key_buf, "{s}.{s}", .{ class_name, var_name }) catch var_name;
+            const is_mutated = self.mutated_captures.contains(mutation_key);
+            const ptr_type: []const u8 = if (is_mutated) "*" else "*const";
+            try self.output.writer(self.allocator).print("__cap_{s}: {s} {s}", .{ var_name, ptr_type, zig_type });
         }
     }
 
@@ -734,31 +799,11 @@ pub fn genInitMethodFromNew(
                 if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
                     const field_name = attr.attr;
 
-                    // Check if this is a passthrough field
-                    const is_passthrough = blk: {
-                        if (assign.value.* == .name) {
-                            const param_name = assign.value.name.id;
-                            for (new_method.args) |arg| {
-                                if (std.mem.eql(u8, arg.name, param_name) and arg.type_annotation == null) {
-                                    break :blk true;
-                                }
-                            }
-                        }
-                        break :blk false;
-                    };
-
                     try self.emitIndent();
                     try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
-
-                    if (is_passthrough) {
-                        try self.emit("runtime.PyValue.from(");
-                        try self.genExpr(assign.value.*);
-                        try self.emit(")");
-                    } else {
-                        try self.genExpr(assign.value.*);
-                    }
+                    try self.genExpr(assign.value.*);
                     try self.emit(",\n");
                 }
             }
@@ -881,43 +926,103 @@ pub fn genClassMethods(
             self.current_function_name = method.name;
             defer self.current_function_name = prev_func_name;
 
+            // Track whether self is mutable for return dereference handling
+            // When method mutates self and returns self, we need: return __self.*;
+            const prev_self_mutable = self.method_self_is_mutable;
+            self.method_self_is_mutable = mutates_self;
+            defer self.method_self_is_mutable = prev_self_mutable;
+
             try body.genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses_allocator);
         }
     }
 }
 
 
-/// Generate inherited methods from parent class
+/// Generate inherited methods from parent class (recursively includes grandparents)
 pub fn genInheritedMethods(
     self: *NativeCodegen,
     class: ast.Node.ClassDef,
     parent: ast.Node.ClassDef,
     child_method_names: []const []const u8,
 ) CodegenError!void {
+    // Track methods we've already generated to avoid duplicates from grandparents
+    var generated_methods = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer generated_methods.deinit();
+
+    // Add all child method names to avoid re-inheriting overridden methods
+    for (child_method_names) |name| {
+        try generated_methods.put(name, {});
+    }
+
+    // Also check for class attribute assignments that block inheritance (e.g., __iadd__ = None)
+    for (class.body) |stmt| {
+        if (stmt == .assign) {
+            for (stmt.assign.targets) |target| {
+                if (target == .name) {
+                    try generated_methods.put(target.name.id, {});
+                }
+            }
+        }
+    }
+
+    // Recursively inherit from parent chain
+    try inheritMethodsFromClass(self, class, parent, &generated_methods);
+}
+
+/// Recursively inherit methods from a class and its parents
+fn inheritMethodsFromClass(
+    self: *NativeCodegen,
+    child: ast.Node.ClassDef,
+    parent: ast.Node.ClassDef,
+    generated_methods: *hashmap_helper.StringHashMap(void),
+) CodegenError!void {
+    // First, recursively inherit from grandparents (so grandparent methods come first)
+    if (parent.bases.len > 0) {
+        const grandparent_name = parent.bases[0];
+        // Look up grandparent class
+        var grandparent = self.class_registry.getClass(grandparent_name);
+        if (grandparent == null) {
+            grandparent = self.nested_class_defs.get(grandparent_name);
+        }
+        if (grandparent) |gp| {
+            try inheritMethodsFromClass(self, child, gp, generated_methods);
+        }
+    }
+
+    // Now inherit methods from this parent
     for (parent.body) |parent_stmt| {
         if (parent_stmt == .function_def) {
             const parent_method = parent_stmt.function_def;
             if (std.mem.eql(u8, parent_method.name, "__init__")) continue;
 
-            // Check if child overrides this method
-            var is_overridden = false;
-            for (child_method_names) |child_name| {
-                if (std.mem.eql(u8, child_name, parent_method.name)) {
-                    is_overridden = true;
-                    break;
-                }
-            }
+            // Skip if already generated (from child or earlier in chain)
+            if (generated_methods.contains(parent_method.name)) continue;
 
-            if (!is_overridden) {
-                // Copy parent method to child class
-                const mutates_self = body.methodMutatesSelf(parent_method);
-                // Use methodNeedsAllocatorInClass with parent class name for inherited methods
-                const needs_allocator = allocator_analyzer.methodNeedsAllocatorInClass(parent_method, parent.name);
-                const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParamInClass(parent_method, parent.name);
-                // Use genMethodSignatureWithSkip to properly pass actually_uses_allocator flag
-                try signature.genMethodSignatureWithSkip(self, class.name, parent_method, mutates_self, needs_allocator, false, actually_uses_allocator);
-                try body.genMethodBodyWithAllocatorInfo(self, parent_method, needs_allocator, actually_uses_allocator);
-            }
+            // Mark as generated
+            try generated_methods.put(parent_method.name, {});
+
+            // Copy parent method to child class
+            const mutates_self = body.methodMutatesSelf(parent_method);
+            // Use methodNeedsAllocatorInClass with parent class name for inherited methods
+            const needs_allocator = allocator_analyzer.methodNeedsAllocatorInClass(parent_method, parent.name);
+            const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParamInClass(parent_method, parent.name);
+
+            // Before generating signature, add parent to nested_class_names for return type detection
+            // (e.g., aug_test.__add__ returns aug_test(...) which needs parent to be known)
+            try self.nested_class_names.put(parent.name, {});
+
+            // Use genMethodSignatureWithSkip to properly pass actually_uses_allocator flag
+            try signature.genMethodSignatureWithSkip(self, child.name, parent_method, mutates_self, needs_allocator, false, actually_uses_allocator);
+
+            // Track whether self is mutable for return dereference handling
+            const prev_self_mutable = self.method_self_is_mutable;
+            self.method_self_is_mutable = mutates_self;
+            defer self.method_self_is_mutable = prev_self_mutable;
+
+            // For inherited methods, pass the parent class name so method body can call its constructor
+            // (e.g., aug_test.__add__ returns aug_test(...) - when inherited to aug_test4,
+            // the method body needs to know aug_test is a nested class for allocator handling)
+            try body.genMethodBodyWithContext(self, parent_method, &[_][]const u8{parent.name});
         }
     }
 }

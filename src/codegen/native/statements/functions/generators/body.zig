@@ -52,4 +52,5 @@ pub const genFunctionBody = function_gen.genFunctionBody;
 pub const genAsyncFunctionBody = function_gen.genAsyncFunctionBody;
 pub const genMethodBody = function_gen.genMethodBody;
 pub const genMethodBodyWithAllocatorInfo = function_gen.genMethodBodyWithAllocatorInfo;
+pub const genMethodBodyWithContext = function_gen.genMethodBodyWithContext;
 pub const hasSuperCall = function_gen.hasSuperCall;

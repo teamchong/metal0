@@ -1,6 +1,7 @@
 const std = @import("std");
 const compress = @import("compress.zig");
 const gzip = @import("gzip");
+const h2 = @import("h2");
 
 pub const ProxyServer = struct {
     allocator: std.mem.Allocator,
@@ -139,16 +140,16 @@ pub const ProxyServer = struct {
             try self.allocator.dupe(u8, body);
         defer self.allocator.free(compressed_body);
 
-        // Forward to Anthropic API
+        // Forward to Anthropic API using h2 client
         const url_str = try std.fmt.allocPrint(self.allocator, "https://api.anthropic.com{s}", .{trimmed_path});
         defer self.allocator.free(url_str);
 
-        var client = std.http.Client{ .allocator = self.allocator };
+        var client = h2.Client.init(self.allocator);
         defer client.deinit();
 
-        // Prepare request headers
-        var req_headers = std.ArrayList(std.http.Header){};
-        defer req_headers.deinit(self.allocator);
+        // Build extra headers for h2 client
+        var extra_headers_buf: [16]h2.ExtraHeader = undefined;
+        var extra_count: usize = 0;
 
         // Add anthropic-version if missing
         var has_version = false;
@@ -158,45 +159,34 @@ pub const ProxyServer = struct {
             }
         }
         if (!has_version) {
-            try req_headers.append(self.allocator, .{ .name = "anthropic-version", .value = "2023-06-01" });
+            extra_headers_buf[extra_count] = .{ .name = "anthropic-version", .value = "2023-06-01" };
+            extra_count += 1;
         }
 
         // Copy existing headers (skip Host and Content-Length)
         for (headers.items) |header| {
             if (std.ascii.eqlIgnoreCase(header.name, "host")) continue;
             if (std.ascii.eqlIgnoreCase(header.name, "content-length")) continue;
-            try req_headers.append(self.allocator, header);
+            if (extra_count < extra_headers_buf.len) {
+                extra_headers_buf[extra_count] = .{ .name = header.name, .value = header.value };
+                extra_count += 1;
+            }
         }
 
-        const uri = try std.Uri.parse(url_str);
-
-        var req = try client.request(.POST, uri, .{
-            .extra_headers = req_headers.items,
-        });
-        defer req.deinit();
-
-        req.transfer_encoding = .{ .content_length = compressed_body.len };
-        const body_mut = @constCast(compressed_body);
-        try req.sendBodyComplete(body_mut);
-        try req.connection.?.flush();
-
-        // Receive response headers
-        var redirect_buf: [8192]u8 = undefined;
-        var response = try req.receiveHead(&redirect_buf);
-
-        // Read response body
-        var transfer_buf: [8192]u8 = undefined;
-        const reader = response.reader(&transfer_buf);
-
-        const max_size = 10 * 1024 * 1024;
-        const response_bytes = try reader.*.allocRemaining(self.allocator, @enumFromInt(max_size));
-        defer self.allocator.free(response_bytes);
+        // Make POST request using h2 client
+        var h2_response = client.post(url_str, compressed_body, "application/json") catch |err| {
+            std.debug.print("[PROXY] h2 request failed: {}\n", .{err});
+            const error_response = "HTTP/1.1 502 Bad Gateway\r\nContent-Type: application/json\r\nContent-Length: 26\r\n\r\n{\"error\":\"upstream_error\"}";
+            try connection.stream.writeAll(error_response);
+            return;
+        };
+        defer h2_response.deinit();
 
         var response_body = std.ArrayList(u8){};
         defer response_body.deinit(self.allocator);
-        try response_body.appendSlice(self.allocator, response_bytes);
+        try response_body.appendSlice(self.allocator, h2_response.body);
 
-        const status = @intFromEnum(response.head.status);
+        const status = h2_response.status;
         std.debug.print("[PROXY] Response: {d} ({d}B)\n", .{ status, response_body.items.len });
 
         // Log error responses
@@ -211,15 +201,15 @@ pub const ProxyServer = struct {
         }
 
         // Preserve actual status code from API
-        const status_text = switch (response.head.status) {
-            .ok => "200 OK",
-            .bad_request => "400 Bad Request",
-            .unauthorized => "401 Unauthorized",
-            .forbidden => "403 Forbidden",
-            .not_found => "404 Not Found",
-            .too_many_requests => "429 Too Many Requests",
-            .internal_server_error => "500 Internal Server Error",
-            .service_unavailable => "503 Service Unavailable",
+        const status_text: []const u8 = switch (status) {
+            200 => "200 OK",
+            400 => "400 Bad Request",
+            401 => "401 Unauthorized",
+            403 => "403 Forbidden",
+            404 => "404 Not Found",
+            429 => "429 Too Many Requests",
+            500 => "500 Internal Server Error",
+            503 => "503 Service Unavailable",
             else => "200 OK",
         };
 

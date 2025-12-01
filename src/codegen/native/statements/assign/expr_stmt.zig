@@ -42,6 +42,22 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         added_discard_prefix = true;
     }
 
+    // Discard binary operator results on class instances (e.g., x / 1 where x has __truediv__)
+    // These generate method calls that return values
+    if (expr == .binop) {
+        const left_type = try self.inferExprScoped(expr.binop.left.*);
+        if (left_type == .class_instance) {
+            try self.emit("_ = ");
+            added_discard_prefix = true;
+        } else {
+            const right_type = try self.inferExprScoped(expr.binop.right.*);
+            if (right_type == .class_instance) {
+                try self.emit("_ = ");
+                added_discard_prefix = true;
+            }
+        }
+    }
+
     // Discard return values from function calls (Zig requires all non-void values to be used)
     if (expr == .call and expr.call.func.* == .name) {
         const func_name = expr.call.func.name.id;
@@ -205,6 +221,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         const is_labeled_block = blk: {
             // Check for common label patterns
             if (std.mem.indexOf(u8, generated, "blk: {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "__asyncio_run: {") != null) break :blk true;
             if (std.mem.indexOf(u8, generated, "sub_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
             if (std.mem.indexOf(u8, generated, "slice_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
             if (std.mem.indexOf(u8, generated, "comp_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;

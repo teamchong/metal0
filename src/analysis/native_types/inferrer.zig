@@ -270,6 +270,14 @@ pub const TypeInferrer = struct {
 
     /// Infer the native type of an expression node
     pub fn inferExpr(self: *TypeInferrer, node: ast.Node) InferError!NativeType {
+        // For name nodes, check scoped variable types first
+        // This ensures function-local variables shadow global ones correctly
+        if (node == .name) {
+            if (self.getScopedVar(node.name.id)) |scoped_type| {
+                return scoped_type;
+            }
+        }
+
         // Use arena allocator for type allocations
         const arena_alloc = self.arena.allocator();
         return expressions.inferExpr(

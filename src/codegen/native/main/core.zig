@@ -155,6 +155,14 @@ pub const NativeCodegen = struct {
     // Track ArrayList variables (for len() -> .items.len)
     arraylist_vars: FnvVoidMap,
 
+    // Track ArrayList aliases (y = x where x is ArrayList, y points to x)
+    // Maps alias name -> original variable name
+    arraylist_aliases: FnvStringMap,
+
+    // Track class instance aliases (y = x where x is class instance, y points to x)
+    // Maps alias name -> original variable name (for Python reference semantics)
+    class_instance_aliases: FnvStringMap,
+
     // Track dict variables (for subscript access -> .get()/.put())
     dict_vars: FnvVoidMap,
 
@@ -249,6 +257,10 @@ pub const NativeCodegen = struct {
     // Maps variable name -> void for variables that are reassigned within current function
     func_local_mutations: FnvVoidMap,
 
+    // Track function-local aug_assign variables (x += 1, etc.)
+    // Used to distinguish true mutations from just type-change reassignments
+    func_local_aug_assigns: FnvVoidMap,
+
     // Track function-local used variables (populated before genFunctionBody)
     // Maps variable name -> void for variables that are read (not just assigned) within current function
     // Used to prevent false "unused variable" detection for local variables
@@ -267,6 +279,11 @@ pub const NativeCodegen = struct {
     // Maps class name -> list of captured variable names
     // E.g., "Left" -> ["calls", "results"]
     nested_class_captures: hashmap_helper.StringHashMap([][]const u8),
+
+    // Track which captured variables are mutated (via append, extend, etc.)
+    // Maps "class_name.var_name" -> {} for mutated vars
+    // Used to decide *const vs * pointer type for captured vars
+    mutated_captures: FnvVoidMap,
 
     // Track instances of nested classes (variable name -> class name)
     // E.g., "obj" -> "Inner" when we have `obj = Inner()`
@@ -308,6 +325,10 @@ pub const NativeCodegen = struct {
     // Set during class method generation, null otherwise
     current_class_name: ?[]const u8,
 
+    // Current assignment target name (for type-aware empty list generation)
+    // Set during assignment generation, null otherwise
+    current_assign_target: ?[]const u8,
+
     // Captured variables for the current class (from parent scope)
     // Set when entering a class with captured variables, null otherwise
     // Used by expression generator to convert `var_name` to `self.__captured_var_name.*`
@@ -315,6 +336,10 @@ pub const NativeCodegen = struct {
 
     // True when inside __init__ method - captured vars accessed via __cap_* params, not self
     inside_init_method: bool,
+
+    // True when current method has mutable self (*@This() vs *const @This())
+    // Used to dereference self when returning from methods that mutate and return self
+    method_self_is_mutable: bool,
 
     // Current class's parent name (for parent method call resolution)
     // E.g., "array.array" when class inherits from array.array
@@ -420,6 +445,8 @@ pub const NativeCodegen = struct {
             .array_vars = FnvVoidMap.init(allocator),
             .array_slice_vars = FnvVoidMap.init(allocator),
             .arraylist_vars = FnvVoidMap.init(allocator),
+            .arraylist_aliases = FnvStringMap.init(allocator),
+            .class_instance_aliases = FnvStringMap.init(allocator),
             .dict_vars = FnvVoidMap.init(allocator),
             .anytype_params = FnvVoidMap.init(allocator),
             .mutable_classes = FnvVoidMap.init(allocator),
@@ -446,10 +473,12 @@ pub const NativeCodegen = struct {
             .c_libraries = std.ArrayList([]const u8){},
             .comptime_evals = FnvVoidMap.init(allocator),
             .func_local_mutations = FnvVoidMap.init(allocator),
+            .func_local_aug_assigns = FnvVoidMap.init(allocator),
             .func_local_uses = FnvVoidMap.init(allocator),
             .global_vars = FnvVoidMap.init(allocator),
             .func_local_vars = FnvVoidMap.init(allocator),
             .nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(allocator),
+            .mutated_captures = FnvVoidMap.init(allocator),
             .nested_class_instances = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .nested_class_names = FnvVoidMap.init(allocator),
             .bigint_vars = FnvVoidMap.init(allocator),
@@ -459,8 +488,10 @@ pub const NativeCodegen = struct {
             .nested_class_zig_refs = FnvVoidMap.init(allocator),
             .class_type_attrs = FnvStringMap.init(allocator),
             .current_class_name = null,
+            .current_assign_target = null,
             .current_class_captures = null,
             .inside_init_method = false,
+            .method_self_is_mutable = false,
             .current_class_parent = null,
             .class_nesting_depth = 0,
             .method_nesting_depth = 0,
@@ -568,13 +599,27 @@ pub const NativeCodegen = struct {
                 }
             }
             // Check if this is a nested class instance (e.g., x = X() where X is defined locally)
+            // Check both renamed name and original name since register happens before rename
             if (self.nested_class_instances.get(name)) |class_name| {
+                return .{ .class_instance = class_name };
+            }
+            if (self.nested_class_instances.get(original_name)) |class_name| {
                 return .{ .class_instance = class_name };
             }
             // If name wasn't found in local scope with a known type, it might be
             // a function parameter generated as anytype - return unknown to be safe
             // This covers both null and .unknown returns from getType()
             return .unknown;
+        }
+
+        // For calls to nested classes, return class_instance with the class name
+        if (node == .call) {
+            if (node.call.func.* == .name) {
+                const func_name = node.call.func.name.id;
+                if (self.nested_class_names.contains(func_name)) {
+                    return .{ .class_instance = func_name };
+                }
+            }
         }
 
         // For unary ops, recursively check the operand
@@ -613,6 +658,26 @@ pub const NativeCodegen = struct {
     /// Check if variable is an ArrayList (needs .items.len for len())
     pub fn isArrayListVar(self: *NativeCodegen, name: []const u8) bool {
         return self.arraylist_vars.contains(name);
+    }
+
+    /// Check if variable is an ArrayList alias (pointer to another ArrayList)
+    pub fn isArrayListAlias(self: *NativeCodegen, name: []const u8) bool {
+        return self.arraylist_aliases.contains(name);
+    }
+
+    /// Get the original ArrayList name for an alias, or null if not an alias
+    pub fn getArrayListAliasTarget(self: *NativeCodegen, name: []const u8) ?[]const u8 {
+        return self.arraylist_aliases.get(name);
+    }
+
+    /// Check if variable is a class instance alias (pointer to another class instance)
+    pub fn isClassInstanceAlias(self: *NativeCodegen, name: []const u8) bool {
+        return self.class_instance_aliases.contains(name);
+    }
+
+    /// Get the original class instance name for an alias, or null if not an alias
+    pub fn getClassInstanceAliasTarget(self: *NativeCodegen, name: []const u8) ?[]const u8 {
+        return self.class_instance_aliases.get(name);
     }
 
     /// Check if variable is a dict (needs .get()/.put() for subscript access)
@@ -724,6 +789,12 @@ pub const NativeCodegen = struct {
         }
         // Fall back to module-level semantic info (for module-level variables)
         return self.semantic_info.isMutated(var_name);
+    }
+
+    /// Check if a variable has aug_assign (x += 1, etc.)
+    /// This indicates the variable itself is modified, not just type-changed
+    pub fn isVarAugAssigned(self: *NativeCodegen, var_name: []const u8) bool {
+        return self.func_local_aug_assigns.contains(var_name);
     }
 
     /// Check if a variable is unused (assigned but never read)

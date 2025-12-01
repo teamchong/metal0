@@ -142,9 +142,10 @@ pub const Scheduler = struct {
             @compileError("spawn0 requires function with 0 parameters. Use spawn() for functions with context.");
         }
 
-        // Extract return type
+        // Extract return type info
         const return_type_opt = func_info.@"fn".return_type;
         const return_type = if (return_type_opt) |rt| rt else void;
+        const is_error_union = @typeInfo(return_type) == .error_union;
 
         // Create wrapper that calls the function and stores result
         const Wrapper = struct {
@@ -153,16 +154,28 @@ pub const Scheduler = struct {
 
             fn call(ctx: ?*anyopaque) void {
                 const wrapper: *@This() = @ptrCast(@alignCast(ctx.?));
-                const result = func() catch |err| {
-                    std.debug.print("Error in spawned function: {}\n", .{err});
-                    return;
-                };
 
-                // Store result if function returns a value
-                if (return_type != void and return_type != @TypeOf(error{}!void)) {
-                    const result_ptr = wrapper.allocator.create(@TypeOf(result)) catch return;
-                    result_ptr.* = result;
-                    wrapper.thread_ptr.result = @ptrCast(result_ptr);
+                // Handle error union vs plain return types
+                if (is_error_union) {
+                    const result = func() catch |err| {
+                        std.debug.print("Error in spawned function: {}\n", .{err});
+                        return;
+                    };
+                    // Store result if function returns a value (not void)
+                    const payload_type = @typeInfo(return_type).error_union.payload;
+                    if (payload_type != void) {
+                        const result_ptr = wrapper.allocator.create(payload_type) catch return;
+                        result_ptr.* = result;
+                        wrapper.thread_ptr.result = @ptrCast(result_ptr);
+                    }
+                } else {
+                    // Plain return type (no error union)
+                    const result = func();
+                    if (return_type != void) {
+                        const result_ptr = wrapper.allocator.create(return_type) catch return;
+                        result_ptr.* = result;
+                        wrapper.thread_ptr.result = @ptrCast(result_ptr);
+                    }
                 }
             }
 
@@ -229,6 +242,11 @@ pub const Scheduler = struct {
 
         const ExpectedContext = ptr_info.pointer.child;
 
+        // Check return type for error union handling
+        const return_type_opt = func_info.@"fn".return_type;
+        const return_type = if (return_type_opt) |rt| rt else void;
+        const is_error_union = @typeInfo(return_type) == .error_union;
+
         // Allocate expected context type on heap
         const ctx = try self.allocator.create(ExpectedContext);
         errdefer self.allocator.destroy(ctx);
@@ -236,24 +254,68 @@ pub const Scheduler = struct {
         // Convert anonymous struct to expected type at comptime
         ctx.* = convertToType(ExpectedContext, context);
 
+        // Wrapper struct that holds both the user context and thread pointer
+        const WrapperContext = struct {
+            user_ctx: *ExpectedContext,
+            thread_ptr: *GreenThread,
+            allocator: std.mem.Allocator,
+        };
+
         // Create type-erased wrapper and cleanup function
         const Gen = struct {
-            fn wrapper(user_ctx: ?*anyopaque) void {
-                const typed_ctx: *ExpectedContext = @ptrCast(@alignCast(user_ctx.?));
-                @call(.auto, func, .{typed_ctx});
+            fn wrapper(ctx_ptr: ?*anyopaque) void {
+                const wrapper_ctx: *WrapperContext = @ptrCast(@alignCast(ctx_ptr.?));
+                const typed_ctx = wrapper_ctx.user_ctx;
+                const thread_ptr = wrapper_ctx.thread_ptr;
+                const allocator = wrapper_ctx.allocator;
+
+                // Handle error union vs plain return types
+                if (is_error_union) {
+                    const result = @call(.auto, func, .{typed_ctx}) catch |err| {
+                        std.debug.print("Error in spawned function: {}\n", .{err});
+                        return;
+                    };
+                    // Store result if function returns a value (not void)
+                    const payload_type = @typeInfo(return_type).error_union.payload;
+                    if (payload_type != void) {
+                        const result_ptr = allocator.create(payload_type) catch return;
+                        result_ptr.* = result;
+                        thread_ptr.result = @ptrCast(result_ptr);
+                    }
+                } else {
+                    const result = @call(.auto, func, .{typed_ctx});
+                    if (return_type != void) {
+                        const result_ptr = allocator.create(return_type) catch return;
+                        result_ptr.* = result;
+                        thread_ptr.result = @ptrCast(result_ptr);
+                    }
+                }
             }
 
             fn cleanup(thread: *GreenThread, allocator: std.mem.Allocator) void {
-                if (thread.user_context) |user_ctx| {
-                    const typed_ctx: *ExpectedContext = @ptrCast(@alignCast(user_ctx));
-                    allocator.destroy(typed_ctx);
+                if (thread.user_context) |wrapper_ctx_ptr| {
+                    const wrapper_ctx: *WrapperContext = @ptrCast(@alignCast(wrapper_ctx_ptr));
+                    // Free user context
+                    allocator.destroy(wrapper_ctx.user_ctx);
+                    // Free wrapper context
+                    allocator.destroy(wrapper_ctx);
                 }
             }
         };
 
-        // Create GreenThread with wrapper, context, and cleanup
+        // Create GreenThread first so we can pass it to the wrapper
         const id = self.next_id.fetchAdd(1, .monotonic);
-        const thread = try GreenThread.init(self.allocator, id, Gen.wrapper, @ptrCast(ctx), Gen.cleanup);
+        const thread = try GreenThread.init(self.allocator, id, Gen.wrapper, null, Gen.cleanup);
+        errdefer thread.deinit(self.allocator);
+
+        // Create wrapper context that holds user ctx, thread ptr, and allocator
+        const wrapper_ctx = try self.allocator.create(WrapperContext);
+        wrapper_ctx.* = .{
+            .user_ctx = ctx,
+            .thread_ptr = thread,
+            .allocator = self.allocator,
+        };
+        thread.user_context = @ptrCast(wrapper_ctx);
 
         // Round-robin assignment to queues
         const queue_idx = @as(usize, @intCast(id % self.num_workers));
@@ -303,6 +365,9 @@ pub const Scheduler = struct {
                     }
                 }
                 _ = self.active_threads.fetchSub(1, .release);
+                // NOTE: Do NOT deinit here! The caller may be waiting on this thread
+                // via wait() and needs to read thread.result. The waiter is responsible
+                // for cleanup after reading the result.
                 continue;
             }
 
@@ -320,6 +385,7 @@ pub const Scheduler = struct {
                                 cleanup(task, self.allocator);
                             }
                             _ = self.active_threads.fetchSub(1, .release);
+                            // Do NOT deinit - waiter owns the thread
                         } else {
                             queue.push(task) catch {};
                         }
@@ -339,6 +405,7 @@ pub const Scheduler = struct {
                     }
                 }
                 _ = self.active_threads.fetchSub(1, .release);
+                // Do NOT deinit - waiter owns the thread
                 continue;
             }
 

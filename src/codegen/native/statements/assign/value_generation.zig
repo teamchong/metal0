@@ -290,8 +290,20 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     // Infer element type with widening across ALL elements
     var elem_type: NativeType = if (list.elts.len > 0)
         try self.type_inferrer.inferExpr(list.elts[0])
-    else
-        .{ .int = .bounded }; // Default to int for empty lists
+    else blk: {
+        // For empty lists, check if type inference has a better type for this variable
+        // (e.g., based on later append calls with strings)
+        const var_type = self.type_inferrer.getScopedVar(var_name) orelse
+            self.type_inferrer.var_types.get(var_name);
+        if (var_type) |vt| {
+            // Extract element type from list type
+            if (vt == .list) {
+                // Get the element type from the list
+                break :blk vt.list.*;
+            }
+        }
+        break :blk .{ .int = .bounded }; // Default to int for empty lists
+    };
 
     // Widen type to accommodate all elements
     if (list.elts.len > 1) {
@@ -306,7 +318,15 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
         try self.emit(".{};\n");
     } else {
         try self.emit("std.ArrayList(");
-        try elem_type.toZigType(self.allocator, &self.output);
+        // Generate element type, converting PyObject to []const u8 for string lists
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+        try elem_type.toZigType(self.allocator, &type_buf);
+        const type_str = if (std.mem.eql(u8, type_buf.items, "*runtime.PyObject"))
+            "[]const u8"
+        else
+            type_buf.items;
+        try self.emit(type_str);
         try self.emit("){};\n");
     }
 

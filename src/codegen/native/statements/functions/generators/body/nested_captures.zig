@@ -149,7 +149,88 @@ pub fn findCapturedVarsInClass(
             const method = stmt.function_def;
             // Collect all variable names referenced in method body
             try findOuterRefsInStmts(self, method.body, method.args, captured);
+            // Also detect mutations on captured variables (e.g., output.append())
+            try detectCapturedMutations(self, class.name, method.body, method.args);
         }
+    }
+}
+
+/// Detect mutations on captured variables in method body
+/// Mutating methods: append, extend, insert, pop, clear, remove, update, add, discard
+fn detectCapturedMutations(
+    self: *NativeCodegen,
+    class_name: []const u8,
+    stmts: []ast.Node,
+    method_params: []ast.Arg,
+) error{OutOfMemory}!void {
+    for (stmts) |stmt| {
+        try detectMutationInNode(self, class_name, stmt, method_params);
+    }
+}
+
+/// Check if a node contains mutation of a captured variable
+fn detectMutationInNode(
+    self: *NativeCodegen,
+    class_name: []const u8,
+    node: ast.Node,
+    method_params: []ast.Arg,
+) error{OutOfMemory}!void {
+    switch (node) {
+        .call => |c| {
+            // Check for method calls like var.append(), var.extend(), etc.
+            if (c.func.* == .attribute) {
+                const attr = c.func.attribute;
+                // Check if the receiver is a simple name (captured variable)
+                if (attr.value.* == .name) {
+                    const var_name = attr.value.name.id;
+                    // Skip method params
+                    var is_param = false;
+                    for (method_params) |param| {
+                        if (std.mem.eql(u8, param.name, var_name)) {
+                            is_param = true;
+                            break;
+                        }
+                    }
+                    if (!is_param and self.func_local_vars.contains(var_name)) {
+                        // Check if method name is a mutating method
+                        const mutating_methods = [_][]const u8{
+                            "append", "extend", "insert", "pop", "clear",
+                            "remove", "update", "add", "discard", "sort", "reverse",
+                        };
+                        for (mutating_methods) |m| {
+                            if (std.mem.eql(u8, attr.attr, m)) {
+                                // Mark as mutated: "class_name.var_name"
+                                const key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, var_name }) catch continue;
+                                try self.mutated_captures.put(key, {});
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            // Recurse into args
+            for (c.args) |arg| {
+                try detectMutationInNode(self, class_name, arg, method_params);
+            }
+        },
+        .expr_stmt => |e| try detectMutationInNode(self, class_name, e.value.*, method_params),
+        .if_stmt => |i| {
+            for (i.body) |s| try detectMutationInNode(self, class_name, s, method_params);
+            for (i.else_body) |s| try detectMutationInNode(self, class_name, s, method_params);
+        },
+        .for_stmt => |f| {
+            for (f.body) |s| try detectMutationInNode(self, class_name, s, method_params);
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| try detectMutationInNode(self, class_name, s, method_params);
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| try detectMutationInNode(self, class_name, s, method_params);
+            for (t.handlers) |h| {
+                for (h.body) |s| try detectMutationInNode(self, class_name, s, method_params);
+            }
+        },
+        else => {},
     }
 }
 

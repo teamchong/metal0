@@ -18,6 +18,14 @@ pub const WorkQueue = struct {
     }
 
     pub fn deinit(self: *WorkQueue) void {
+        // Free any remaining tasks (handles cleanup on shutdown)
+        for (self.tasks.items) |task| {
+            // Cleanup user context if needed
+            if (task.context_cleanup) |cleanup| {
+                cleanup(task, self.allocator);
+            }
+            task.deinit(self.allocator);
+        }
         self.tasks.deinit(self.allocator);
     }
 
@@ -72,18 +80,13 @@ test "WorkQueue basic operations" {
     try std.testing.expectEqual(@as(usize, 0), queue.len());
     try std.testing.expectEqual(true, queue.isEmpty());
 
-    // Create dummy threads
+    // Create dummy threads - queue.deinit() will clean them up
     const TestFunc = struct {
-        fn func(thread: *GreenThread) void {
-            _ = thread;
-        }
+        fn func(_: ?*anyopaque) void {}
     };
 
     const t1 = try GreenThread.init(allocator, 1, TestFunc.func, null, null);
-    defer t1.deinit(allocator);
-
     const t2 = try GreenThread.init(allocator, 2, TestFunc.func, null, null);
-    defer t2.deinit(allocator);
 
     // Push tasks
     try queue.push(t1);
@@ -94,8 +97,10 @@ test "WorkQueue basic operations" {
     // Pop (LIFO) - should get t2
     const popped = queue.pop().?;
     try std.testing.expectEqual(@as(u64, 2), popped.id);
+    popped.deinit(allocator); // Manually free popped item
 
     try std.testing.expectEqual(@as(usize, 1), queue.len());
+    // t1 will be freed by queue.deinit()
 }
 
 test "WorkQueue work stealing" {
@@ -105,19 +110,12 @@ test "WorkQueue work stealing" {
     defer queue.deinit();
 
     const TestFunc = struct {
-        fn func(thread: *GreenThread) void {
-            _ = thread;
-        }
+        fn func(_: ?*anyopaque) void {}
     };
 
     const t1 = try GreenThread.init(allocator, 1, TestFunc.func, null, null);
-    defer t1.deinit(allocator);
-
     const t2 = try GreenThread.init(allocator, 2, TestFunc.func, null, null);
-    defer t2.deinit(allocator);
-
     const t3 = try GreenThread.init(allocator, 3, TestFunc.func, null, null);
-    defer t3.deinit(allocator);
 
     // Push tasks
     try queue.push(t1);
@@ -127,11 +125,13 @@ test "WorkQueue work stealing" {
     // Steal (FIFO) - should get t1 (oldest)
     const stolen = queue.steal().?;
     try std.testing.expectEqual(@as(u64, 1), stolen.id);
+    stolen.deinit(allocator); // Manually free stolen item
 
     // Pop (LIFO) - should get t3 (newest)
     const popped = queue.pop().?;
     try std.testing.expectEqual(@as(u64, 3), popped.id);
+    popped.deinit(allocator); // Manually free popped item
 
-    // Should have t2 left
+    // Should have t2 left - will be freed by queue.deinit()
     try std.testing.expectEqual(@as(usize, 1), queue.len());
 }

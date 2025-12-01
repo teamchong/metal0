@@ -349,7 +349,7 @@ pub const import_helper = struct {
         if (std.mem.eql(u8, module_name, "zlib")) {
             return @import("zlib.zig");
         } else if (std.mem.eql(u8, module_name, "gzip")) {
-            return @import("gzip/gzip.zig");
+            return @import("gzip");
         } else if (std.mem.eql(u8, module_name, "hashlib")) {
             return @import("hashlib.zig");
         } else if (std.mem.eql(u8, module_name, "json")) {

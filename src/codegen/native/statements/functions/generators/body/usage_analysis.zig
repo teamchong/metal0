@@ -217,6 +217,9 @@ pub fn collectUsesInNode(self: *NativeCodegen, node: ast.Node) !void {
         .await_expr => |await_expr| {
             try collectUsesInNode(self, await_expr.value.*);
         },
+        .starred => |starred| {
+            try collectUsesInNode(self, starred.value.*);
+        },
         .yield_stmt => |yield| {
             if (yield.value) |value| {
                 try collectUsesInNode(self, value.*);

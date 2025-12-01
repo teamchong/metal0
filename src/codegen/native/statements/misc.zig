@@ -84,13 +84,28 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         // Normal return - check if inside a magic method that needs conversion
         try self.emit("return ");
 
+        // Check if returning self from a method (with either *@This() or *const @This())
+        // When method signature returns !@This() and we return self,
+        // we need: return __self.*; (dereference the pointer)
+        // This applies to both mutable (*@This()) and immutable (*const @This()) methods
+        const is_self_return = self.current_class_name != null and
+            value.* == .name and
+            std.mem.eql(u8, value.name.id, "self");
+        // For methods that return self, always dereference when inside a nested method
+        // (where self is renamed to __self) or when method_self_is_mutable
+        const needs_self_deref = is_self_return and (self.method_self_is_mutable or self.method_nesting_depth > 0);
+
         // Check if we're inside a magic method that needs return value conversion
         const conversion = if (self.current_function_name) |fn_name|
             getMagicMethodConversion(fn_name)
         else
             null;
 
-        if (conversion) |conv| {
+        if (needs_self_deref) {
+            // Dereference the mutable self pointer
+            const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
+            try self.output.writer(self.allocator).print("{s}.*", .{self_name});
+        } else if (conversion) |conv| {
             try self.emit(conv.prefix);
             try self.genExpr(value.*);
             try self.emit(conv.suffix);

@@ -467,23 +467,58 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         }
         // Handle 'is' and 'is not' identity operators
         else if (op == .Is or op == .IsNot) {
-            // For arrays/lists/dicts/sets/class_instances, we need to compare pointers since == doesn't work
+            // For arrays/lists/dicts/sets, we need to compare pointers since == doesn't work
+            // For class_instances, we use value comparison (they're stack-allocated value types)
             const needs_ptr_compare = current_left_type == .list or right_type == .list or
                 current_left_type == .array or right_type == .array or
                 current_left_type == .dict or right_type == .dict or
-                current_left_type == .set or right_type == .set or
-                current_left_type == .class_instance or right_type == .class_instance;
+                current_left_type == .set or right_type == .set;
 
-            if (needs_ptr_compare) {
-                // Compare pointers for identity
-                try self.emit("(&");
+            // Class instances: with heap allocation, both sides are already pointers
+            // Direct pointer comparison works for identity semantics
+            const is_class_instance = current_left_type == .class_instance or right_type == .class_instance;
+
+            if (is_class_instance) {
+                // Both are pointers to heap-allocated objects - direct pointer comparison
+                try self.emit("(");
                 try genExpr(self, current_left);
                 if (op == .Is) {
-                    try self.emit(" == &");
+                    try self.emit(" == ");
                 } else {
-                    try self.emit(" != &");
+                    try self.emit(" != ");
                 }
                 try genExpr(self, compare.comparators[i]);
+                try self.emit(")");
+            } else if (needs_ptr_compare) {
+                // Compare pointers for identity
+                // For ArrayList aliases, the alias is a pointer (*ArrayList), so &alias gives **ArrayList
+                // For regular variables, &x gives *type
+                // We need to compare the actual addresses
+                const left_is_alias = if (current_left == .name) self.isArrayListAlias(current_left.name.id) else false;
+                const right_is_alias = if (compare.comparators[i] == .name) self.isArrayListAlias(compare.comparators[i].name.id) else false;
+
+                try self.emit("(");
+                // For alias: use alias directly (it's already *ArrayList pointing to x)
+                // For regular: use &x to get pointer
+                if (left_is_alias) {
+                    // Alias pointer - use directly
+                    try genExpr(self, current_left);
+                } else {
+                    try self.emit("&");
+                    try genExpr(self, current_left);
+                }
+                if (op == .Is) {
+                    try self.emit(" == ");
+                } else {
+                    try self.emit(" != ");
+                }
+                if (right_is_alias) {
+                    // Alias pointer - use directly
+                    try genExpr(self, compare.comparators[i]);
+                } else {
+                    try self.emit("&");
+                    try genExpr(self, compare.comparators[i]);
+                }
                 try self.emit(")");
             } else {
                 // For primitives (int, bool, None), identity is same as equality
