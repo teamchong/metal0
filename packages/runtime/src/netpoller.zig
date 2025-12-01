@@ -166,10 +166,10 @@ pub const Netpoller = struct {
         defer self.ready_mutex.unlock();
 
         if (self.ready_threads.items.len == 0) {
-            return &[_]*GreenThread{};
+            return @constCast(&[_]*GreenThread{});
         }
 
-        const result = self.ready_threads.toOwnedSlice(self.allocator) catch &[_]*GreenThread{};
+        const result = self.ready_threads.toOwnedSlice(self.allocator) catch @constCast(&[_]*GreenThread{});
         return result;
     }
 

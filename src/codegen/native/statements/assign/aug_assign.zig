@@ -359,6 +359,96 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         }
     }
 
+    // Handle class instance operators: x += val calls x.__iadd__(val) or x = x.__add__(val)
+    const target_type = try self.inferExprScoped(aug.target.*);
+    if (target_type == .class_instance) {
+        const class_name = target_type.class_instance;
+
+        // Map operator to dunder method names
+        const iadd_method: ?[]const u8 = switch (aug.op) {
+            .Add => "__iadd__",
+            .Sub => "__isub__",
+            .Mult => "__imul__",
+            .Div => "__itruediv__",
+            .FloorDiv => "__ifloordiv__",
+            .Mod => "__imod__",
+            .Pow => "__ipow__",
+            .BitAnd => "__iand__",
+            .BitOr => "__ior__",
+            .BitXor => "__ixor__",
+            .LShift => "__ilshift__",
+            .RShift => "__irshift__",
+            else => null,
+        };
+        const add_method: ?[]const u8 = switch (aug.op) {
+            .Add => "__add__",
+            .Sub => "__sub__",
+            .Mult => "__mul__",
+            .Div => "__truediv__",
+            .FloorDiv => "__floordiv__",
+            .Mod => "__mod__",
+            .Pow => "__pow__",
+            .BitAnd => "__and__",
+            .BitOr => "__or__",
+            .BitXor => "__xor__",
+            .LShift => "__lshift__",
+            .RShift => "__rshift__",
+            else => null,
+        };
+
+        if (iadd_method != null or add_method != null) {
+            // Check if class has __iadd__ method
+            // For global classes, search in class_registry (includes inheritance)
+            // For nested classes, check nested_class_names (we'll generate optimistically)
+            const is_nested_class = self.nested_class_names.contains(class_name);
+            const has_iadd = iadd_method != null and (is_nested_class or
+                self.class_registry.findMethod(class_name, iadd_method.?) != null);
+
+            if (has_iadd) {
+                // x += val => x = x.__iadd__(allocator, val)
+                // For nested classes, use @hasDecl runtime check to fallback to __add__
+                if (is_nested_class) {
+                    // Generate: x = if (@hasDecl(@TypeOf(x), "__iadd__")) try x.__iadd__(allocator, val) else try x.__add__(allocator, val);
+                    try self.genExpr(aug.target.*);
+                    try self.emit(" = if (@hasDecl(@TypeOf(");
+                    try self.genExpr(aug.target.*);
+                    try self.emitFmt("), \"{s}\")) try ", .{iadd_method.?});
+                    try self.genExpr(aug.target.*);
+                    try self.emitFmt(".{s}(__global_allocator, ", .{iadd_method.?});
+                    try self.genExpr(aug.value.*);
+                    try self.emit(") else try ");
+                    try self.genExpr(aug.target.*);
+                    try self.emitFmt(".{s}(__global_allocator, ", .{add_method.?});
+                    try self.genExpr(aug.value.*);
+                    try self.emit(");\n");
+                } else {
+                    try self.genExpr(aug.target.*);
+                    try self.emit(" = try ");
+                    try self.genExpr(aug.target.*);
+                    try self.emitFmt(".{s}(__global_allocator, ", .{iadd_method.?});
+                    try self.genExpr(aug.value.*);
+                    try self.emit(");\n");
+                }
+                return;
+            } else if (add_method != null) {
+                // Check if class has __add__ method (fallback)
+                const has_add = is_nested_class or
+                    self.class_registry.findMethod(class_name, add_method.?) != null;
+
+                if (has_add) {
+                    // x += val => x = try x.__add__(allocator, val)
+                    try self.genExpr(aug.target.*);
+                    try self.emit(" = try ");
+                    try self.genExpr(aug.target.*);
+                    try self.emitFmt(".{s}(__global_allocator, ", .{add_method.?});
+                    try self.genExpr(aug.value.*);
+                    try self.emit(");\n");
+                    return;
+                }
+            }
+        }
+    }
+
     // Emit target (variable name)
     try self.genExpr(aug.target.*);
     try self.emit(" = ");
@@ -417,7 +507,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Handle matrix multiplication separately
     if (aug.op == .MatMul) {
         // MatMul: target @= value => call __imatmul__ if available, else numpy.matmulAuto
-        const target_type = try self.inferExprScoped(aug.target.*);
+        // NOTE: target_type already computed above for class instance operators
         if (target_type == .class_instance or target_type == .unknown) {
             // User class with __imatmul__: try target.__imatmul__(allocator, value)
             try self.emit("try ");

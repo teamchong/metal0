@@ -224,11 +224,11 @@ pub fn emitVarDeclaration(
     // not function-scoped. Different variables named 'o' in different functions would collide.
     // Instead, setattr/delattr codegen uses the object directly (not copying it).
     //
-    // Special case for class instances: If the class doesn't have mutating methods, even if
-    // the variable is "mutated" (reassigned to different types), those reassignments become
-    // shadowed variables (const with unique suffix), not actual mutations of this variable.
-    // So we use const unless the class itself has mutating methods.
-    const is_immutable_class_instance = (value_type == .class_instance) and !is_mutable_class_instance;
+    // Special case for class instances: If the class doesn't have mutating methods AND the variable
+    // isn't reassigned (e.g., via aug_assign), we can use const. But if the variable is reassigned
+    // (e.g., x += 10 where __add__ returns new object), we need var.
+    // Note: is_mutated tracks actual reassignment, not just attribute mutation.
+    const is_immutable_class_instance = (value_type == .class_instance) and !is_mutable_class_instance and !is_mutated;
     const effective_is_mutated = if (is_immutable_class_instance) false else is_mutated;
     const needs_var = is_arraylist or is_dict or is_mutable_class_instance or effective_is_mutated or is_listcomp or is_mutable_collection or is_iterator;
 

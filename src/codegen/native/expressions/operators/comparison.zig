@@ -467,12 +467,14 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         }
         // Handle 'is' and 'is not' identity operators
         else if (op == .Is or op == .IsNot) {
-            // For arrays/lists/dicts/sets, we need to compare pointers since == doesn't work
-            if (current_left_type == .list or right_type == .list or
+            // For arrays/lists/dicts/sets/class_instances, we need to compare pointers since == doesn't work
+            const needs_ptr_compare = current_left_type == .list or right_type == .list or
                 current_left_type == .array or right_type == .array or
                 current_left_type == .dict or right_type == .dict or
-                current_left_type == .set or right_type == .set)
-            {
+                current_left_type == .set or right_type == .set or
+                current_left_type == .class_instance or right_type == .class_instance;
+
+            if (needs_ptr_compare) {
                 // Compare pointers for identity
                 try self.emit("(&");
                 try genExpr(self, current_left);
