@@ -527,6 +527,24 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             try self.emit("{}, .{}");
         }
         try self.emit(")");
+    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "bool")) {
+        // Handle bool() builtin specially - it validates arg count
+        try self.emit("runtime.boolBuiltinCall(");
+        if (args.len > 2) {
+            try parent.genExpr(self, args[2]); // first arg
+            try self.emit(", .{");
+            // Remaining args as tuple - bool() should raise TypeError for extra args
+            if (args.len > 3) {
+                for (args[3..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            try self.emit("{}, .{}");
+        }
+        try self.emit(")");
     } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "next")) {
         // Handle next() builtin specially - iterators need to be passed by pointer
         try self.emit("runtime.builtins.next(&");
@@ -661,6 +679,17 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
         } else {
             // No args to round() - this is an error but pass empty values
             try self.emit("0, .{}");
+        }
+        try self.emit(")");
+    } else if (args[2] == .attribute and args[2].attribute.value.* == .name and std.mem.eql(u8, args[2].attribute.value.name.id, "operator")) {
+        // operator.* callables need .call() method
+        try parent.genExpr(self, args[2]);
+        try self.emit(".call(");
+        if (args.len > 3) {
+            for (args[3..], 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try parent.genExpr(self, arg);
+            }
         }
         try self.emit(")");
     } else {

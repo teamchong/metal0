@@ -222,7 +222,8 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));
     //   break :blk copy;
     // }
-    const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
+    // Always use __global_allocator since method allocator param may be discarded as "_"
+    const alloc_name = "__global_allocator";
 
     try self.emit("blk: {\n");
     try self.emitFmt("const copy = try {s}.dupe(i64, ", .{alloc_name});
@@ -256,7 +257,8 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   std.mem.reverse(elem_type, copy);
     //   break :blk copy;
     // }
-    const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
+    // Always use __global_allocator since method allocator param may be discarded as "_"
+    const alloc_name = "__global_allocator";
 
     try self.emit("blk: {\n");
     try self.emitFmt("const copy = try {s}.dupe({s}, ", .{ alloc_name, elem_zig_type });

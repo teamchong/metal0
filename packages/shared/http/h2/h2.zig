@@ -25,6 +25,9 @@ pub const Stream = connection.Stream;
 pub const TlsConnection = tls.TlsConnection;
 pub const Header = hpack.Header;
 
+/// Extra header for requests (alias to hpack.Header for type compatibility)
+pub const ExtraHeader = hpack.Header;
+
 /// HTTP/2 Response
 pub const Response = struct {
     status: u16,
@@ -89,13 +92,12 @@ pub const Client = struct {
 
     /// GET request
     pub fn get(self: *Client, url: []const u8) !Response {
-
-        return self.request("GET", url, &[_]struct { name: []const u8, value: []const u8 }{}, null);
+        return self.request("GET", url, &[_]ExtraHeader{}, null);
     }
 
     /// POST request with body
     pub fn post(self: *Client, url: []const u8, body: []const u8, content_type: []const u8) !Response {
-        return self.request("POST", url, &.{
+        return self.request("POST", url, &[_]ExtraHeader{
             .{ .name = "content-type", .value = content_type },
         }, body);
     }
@@ -105,7 +107,7 @@ pub const Client = struct {
         self: *Client,
         method: []const u8,
         url: []const u8,
-        extra_headers: []const struct { name: []const u8, value: []const u8 },
+        extra_headers: []const ExtraHeader,
         body: ?[]const u8,
     ) !Response {
         // Parse URL
@@ -119,7 +121,7 @@ pub const Client = struct {
         const conn = try self.getConnection(host, port);
 
         // Build headers
-        var headers = std.ArrayList(struct { name: []const u8, value: []const u8 }){};
+        var headers = std.ArrayList(ExtraHeader){};
         defer headers.deinit(self.allocator);
 
         try headers.append(self.allocator, .{ .name = "user-agent", .value = "metal0-h2/1.0" });
@@ -266,17 +268,28 @@ pub const Client = struct {
                         .name = self.allocator.dupe(u8, h.name) catch "",
                         .value = self.allocator.dupe(u8, h.value) catch "",
                     };
-                    if (std.mem.eql(u8, h.name, "content-encoding") and std.mem.eql(u8, h.value, "gzip")) {
-                        is_gzip = true;
+                    if (std.mem.eql(u8, h.name, "content-encoding")) {
+                        std.debug.print("[H2] content-encoding: '{s}'\n", .{h.value});
+                        if (std.mem.eql(u8, h.value, "gzip")) {
+                            is_gzip = true;
+                        }
                     }
                 }
+                std.debug.print("[H2] is_gzip={}, headers_count={}\n", .{ is_gzip, stream.headers.items.len });
 
                 // Decompress gzip body if needed
-                const body = if (is_gzip and stream.body.items.len > 0)
-                    gzip.decompress(self.allocator, stream.body.items) catch
-                        self.allocator.dupe(u8, stream.body.items) catch ""
-                else
-                    self.allocator.dupe(u8, stream.body.items) catch "";
+                const body = blk: {
+                    if (is_gzip and stream.body.items.len > 0) {
+                        const decompressed = gzip.decompress(self.allocator, stream.body.items) catch |err| {
+                            std.debug.print("[H2] gzip decompress error: {s}, falling back to raw\n", .{@errorName(err)});
+                            break :blk self.allocator.dupe(u8, stream.body.items) catch "";
+                        };
+                        std.debug.print("[H2] gzip decompressed: {}B -> {}B\n", .{ stream.body.items.len, decompressed.len });
+                        break :blk decompressed;
+                    } else {
+                        break :blk self.allocator.dupe(u8, stream.body.items) catch "";
+                    }
+                };
 
                 results[idx] = Response{
                     .status = stream.status orelse 0,

@@ -67,8 +67,8 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 } else |_| {}
             }
         }
-        // For non-literal strings, use parseFloat (requires try, so only works in function scope)
-        try self.emit("(std.fmt.parseFloat(f64, ");
+        // For non-literal strings, use runtime.parseFloatWithUnicode (handles Unicode digits)
+        try self.emit("(runtime.parseFloatWithUnicode(");
         try self.genExpr(args[0]);
         try self.emit(") catch 0.0)");
         return;
@@ -80,9 +80,9 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // If this is a variable, be cautious - type inference may be wrong for loop vars
         // Use runtime fallback instead which handles all types
         if (args[0] == .name) {
-            try self.emit("runtime.floatBuiltinCall(");
+            try self.emit("(runtime.floatBuiltinCall(");
             try self.genExpr(args[0]);
-            try self.emit(", .{})");
+            try self.emit(", .{}) catch 0.0)");
             return;
         }
         try self.emit("@as(f64, @floatFromInt(");
@@ -123,16 +123,16 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // For strings, use parseFloat
+    // For strings, use runtime.parseFloatWithUnicode (handles Unicode digits)
     if (arg_type == .string) {
-        try self.emit("(std.fmt.parseFloat(f64, ");
+        try self.emit("(runtime.parseFloatWithUnicode(");
         try self.genExpr(args[0]);
         try self.emit(") catch 0.0)");
         return;
     }
 
     // Generic fallback for unknown types - use runtime.floatBuiltinCall which handles all types
-    try self.emit("runtime.floatBuiltinCall(");
+    try self.emit("(runtime.floatBuiltinCall(");
     try self.genExpr(args[0]);
-    try self.emit(", .{})");
+    try self.emit(", .{}) catch 0.0)");
 }

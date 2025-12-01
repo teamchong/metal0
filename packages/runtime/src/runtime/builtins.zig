@@ -818,17 +818,98 @@ pub const PyCallable = struct {
     }
 
     /// Create a PyCallable from any callable (type-erased)
-    /// This wraps the callable in a thunk that converts types
-    pub fn fromAny(comptime T: type, func: T) PyCallable {
+    /// For class constructors that return structs with __base_value__, extracts the bytes
+    pub fn fromAny(comptime T: type, comptime func: T) PyCallable {
+        const type_info = @typeInfo(T);
+
+        // Handle function pointers
+        if (type_info == .pointer and @typeInfo(type_info.pointer.child) == .@"fn") {
+            const fn_info = @typeInfo(type_info.pointer.child).@"fn";
+            const ReturnType = fn_info.return_type orelse void;
+
+            const Wrapper = struct {
+                fn thunk(arg: []const u8) []const u8 {
+                    // Check number of parameters
+                    if (fn_info.params.len == 1) {
+                        // Single arg function (like lambda b: ...)
+                        const result = func(arg);
+                        return extractBytes(ReturnType, result);
+                    } else if (fn_info.params.len == 2) {
+                        // Two arg function (like CustomClass.init(allocator, bytes))
+                        // Use global allocator - this is safe because we're in runtime context
+                        const result = func(std.heap.page_allocator, arg);
+                        return extractBytes(ReturnType, result);
+                    }
+                    return arg;
+                }
+
+                fn extractBytes(comptime R: type, value: R) []const u8 {
+                    const r_info = @typeInfo(R);
+                    // If return type is []const u8, return as-is
+                    if (R == []const u8 or R == []u8) {
+                        return value;
+                    }
+                    // If return type is a struct with __base_value__, extract it
+                    if (r_info == .@"struct" and @hasField(R, "__base_value__")) {
+                        return value.__base_value__;
+                    }
+                    // If return type is pointer to struct with __base_value__
+                    if (r_info == .pointer and r_info.pointer.size == .one) {
+                        const child_info = @typeInfo(r_info.pointer.child);
+                        if (child_info == .@"struct" and @hasField(r_info.pointer.child, "__base_value__")) {
+                            return value.__base_value__;
+                        }
+                    }
+                    // Fallback - return empty
+                    return "";
+                }
+            };
+            return .{ .call_fn = &Wrapper.thunk, .context = null };
+        }
+
+        // Handle bound methods / struct functions
+        if (type_info == .@"fn") {
+            const fn_info = type_info.@"fn";
+            const ReturnType = fn_info.return_type orelse void;
+
+            const Wrapper = struct {
+                fn thunk(arg: []const u8) []const u8 {
+                    if (fn_info.params.len == 1) {
+                        const result = func(arg);
+                        return extractBytesFromResult(ReturnType, result);
+                    } else if (fn_info.params.len == 2) {
+                        const result = func(std.heap.page_allocator, arg);
+                        return extractBytesFromResult(ReturnType, result);
+                    }
+                    return arg;
+                }
+
+                fn extractBytesFromResult(comptime R: type, value: R) []const u8 {
+                    const r_info = @typeInfo(R);
+                    if (R == []const u8 or R == []u8) {
+                        return value;
+                    }
+                    if (r_info == .@"struct" and @hasField(R, "__base_value__")) {
+                        return value.__base_value__;
+                    }
+                    if (r_info == .pointer and r_info.pointer.size == .one) {
+                        const child_info = @typeInfo(r_info.pointer.child);
+                        if (child_info == .@"struct" and @hasField(r_info.pointer.child, "__base_value__")) {
+                            return value.__base_value__;
+                        }
+                    }
+                    return "";
+                }
+            };
+            return .{ .call_fn = &Wrapper.thunk, .context = null };
+        }
+
+        // Fallback - identity function
         const Wrapper = struct {
             fn thunk(arg: []const u8) []const u8 {
-                _ = arg;
-                // Call the original function - type erasure means we lose info
-                // For now just return empty bytes
-                return "";
+                return arg;
             }
         };
-        _ = func;
         return .{ .call_fn = &Wrapper.thunk, .context = null };
     }
 };
@@ -1032,6 +1113,172 @@ pub const OperatorPow = struct {
 /// This is the same as OperatorPow but named 'pow' for direct access
 /// e.g., `for pow_op in pow, operator.pow:`
 pub const pow = OperatorPow{};
+
+/// operator.concat callable - sequence concatenation
+/// Called as: OperatorConcat{}.call(a, b)
+pub const OperatorConcat = struct {
+    pub fn call(_: @This(), allocator: std.mem.Allocator, a: anytype, b: anytype) ![]const u8 {
+        // For strings, concatenate
+        const T = @TypeOf(a);
+        if (T == []const u8 or T == []u8) {
+            return std.fmt.allocPrint(allocator, "{s}{s}", .{ a, b });
+        }
+        // For other sequences, we'd need list concatenation
+        return std.fmt.allocPrint(allocator, "{any}{any}", .{ a, b });
+    }
+};
+
+/// operator.lt callable - less than comparison
+pub const OperatorLt = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) bool {
+        return a < b;
+    }
+};
+
+/// operator.le callable - less than or equal comparison
+pub const OperatorLe = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) bool {
+        return a <= b;
+    }
+};
+
+/// operator.eq callable - equality comparison
+pub const OperatorEq = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) bool {
+        return std.meta.eql(a, b);
+    }
+};
+
+/// operator.ne callable - inequality comparison
+pub const OperatorNe = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) bool {
+        return !std.meta.eql(a, b);
+    }
+};
+
+/// operator.ge callable - greater than or equal comparison
+pub const OperatorGe = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) bool {
+        return a >= b;
+    }
+};
+
+/// operator.gt callable - greater than comparison
+pub const OperatorGt = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) bool {
+        return a > b;
+    }
+};
+
+/// operator.abs callable - absolute value
+pub const OperatorAbs = struct {
+    pub fn call(_: @This(), a: anytype) @TypeOf(a) {
+        return if (a < 0) -a else a;
+    }
+};
+
+/// operator.add callable - addition
+pub const OperatorAdd = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
+        return a + b;
+    }
+};
+
+/// operator.and_ callable - bitwise and
+pub const OperatorAnd = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
+        return a & b;
+    }
+};
+
+/// operator.or_ callable - bitwise or
+pub const OperatorOr = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
+        return a | b;
+    }
+};
+
+/// operator.xor callable - bitwise xor
+pub const OperatorXor = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
+        return a ^ b;
+    }
+};
+
+/// operator.neg callable - negation
+pub const OperatorNeg = struct {
+    pub fn call(_: @This(), a: anytype) @TypeOf(a) {
+        return -a;
+    }
+};
+
+/// operator.pos callable - positive (identity for numbers)
+pub const OperatorPos = struct {
+    pub fn call(_: @This(), a: anytype) @TypeOf(a) {
+        return a;
+    }
+};
+
+/// operator.sub callable - subtraction
+pub const OperatorSub = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
+        return a - b;
+    }
+};
+
+/// operator.mul callable - multiplication
+pub const OperatorMul = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
+        return a * b;
+    }
+};
+
+/// operator.truediv callable - true division
+pub const OperatorTruediv = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) f64 {
+        const af: f64 = switch (@typeInfo(@TypeOf(a))) {
+            .float, .comptime_float => @as(f64, a),
+            .int, .comptime_int => @as(f64, @floatFromInt(a)),
+            else => 0.0,
+        };
+        const bf: f64 = switch (@typeInfo(@TypeOf(b))) {
+            .float, .comptime_float => @as(f64, b),
+            .int, .comptime_int => @as(f64, @floatFromInt(b)),
+            else => 1.0,
+        };
+        return af / bf;
+    }
+};
+
+/// operator.floordiv callable - floor division
+pub const OperatorFloordiv = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
+        return @divFloor(a, b);
+    }
+};
+
+/// operator.lshift callable - left shift
+pub const OperatorLshift = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
+        const shift: std.math.Log2Int(@TypeOf(a)) = @intCast(b);
+        return a << shift;
+    }
+};
+
+/// operator.rshift callable - right shift
+pub const OperatorRshift = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
+        const shift: std.math.Log2Int(@TypeOf(a)) = @intCast(b);
+        return a >> shift;
+    }
+};
+
+/// operator.invert callable - bitwise inversion
+pub const OperatorInvert = struct {
+    pub fn call(_: @This(), a: anytype) @TypeOf(a) {
+        return ~a;
+    }
+};
 
 /// Python type name constants for type() comparisons
 /// These are used when comparing `type(x) == complex`, `type(x) == int`, etc.

@@ -218,6 +218,12 @@ fn findUsedVarsInStmt(node: ast.Node, vars: *hashmap_helper.StringHashMap(void),
                 try findUsedVarsInStmt(stmt, vars, allocator);
             }
         },
+        .class_def => |c| {
+            // Nested class methods may use variables from outer scope
+            for (c.body) |stmt| {
+                try findUsedVarsInStmt(stmt, vars, allocator);
+            }
+        },
         else => {},
     }
 }
@@ -227,6 +233,14 @@ fn findLocalVars(func: ast.Node.FunctionDef, vars: *hashmap_helper.StringHashMap
     // Add function parameters
     for (func.args) |arg| {
         try vars.put(arg.name, {});
+    }
+    // Add vararg (*args) parameter if present
+    if (func.vararg) |vararg_name| {
+        try vars.put(vararg_name, {});
+    }
+    // Add kwarg (**kwargs) parameter if present
+    if (func.kwarg) |kwarg_name| {
+        try vars.put(kwarg_name, {});
     }
 
     // Find all assignments
@@ -248,6 +262,14 @@ fn findLocalVars(func: ast.Node.FunctionDef, vars: *hashmap_helper.StringHashMap
                 if (f.target.* == .name) {
                     try vars.put(f.target.name.id, {});
                 }
+            },
+            .function_def => |f| {
+                // Nested function name is a local variable
+                try vars.put(f.name, {});
+            },
+            .class_def => |c| {
+                // Nested class name is a local variable
+                try vars.put(c.name, {});
             },
             else => {},
         }

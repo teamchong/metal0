@@ -23,6 +23,7 @@ const pep440 = @import("../parse/pep440.zig");
 const pep508 = @import("../parse/pep508.zig");
 const pypi = @import("../fetch/pypi.zig");
 const cache_mod = @import("../fetch/cache.zig");
+const scheduler_mod = @import("../fetch/scheduler.zig");
 
 pub const ResolverError = error{
     NoVersionFound,
@@ -87,10 +88,14 @@ pub const ResolverConfig = struct {
     max_backtrack: u32 = 100,
     /// Enable parallel prefetching
     parallel_prefetch: bool = true,
-    /// Number of versions to prefetch
-    prefetch_count: u32 = 10,
+    /// Number of packages to prefetch per batch (higher = more parallelism)
+    prefetch_count: u32 = 50,
     /// Python version for compatibility filtering
     python_version: struct { major: u8, minor: u8 } = .{ .major = 3, .minor = 11 },
+    /// Use fast path: Simple API + PEP 658 wheel METADATA (~2KB vs 80KB)
+    use_fast_path: bool = true,
+    /// Target environment for marker evaluation (Python 3.11 on macOS ARM64 by default)
+    environment: pep508.Environment = .{},
 };
 
 /// Dependency Resolver
@@ -99,6 +104,7 @@ pub const Resolver = struct {
     config: ResolverConfig,
     client: *pypi.PyPIClient,
     cache: ?*cache_mod.Cache,
+    scheduler: scheduler_mod.FetchScheduler,
 
     // Resolution state
     resolved: std.StringHashMap(ResolvedPackage),
@@ -131,6 +137,7 @@ pub const Resolver = struct {
             .config = config,
             .client = client,
             .cache = cache,
+            .scheduler = scheduler_mod.FetchScheduler.init(allocator, client),
             .resolved = std.StringHashMap(ResolvedPackage).init(allocator),
             .pending = std.StringHashMap(pep508.Dependency).init(allocator),
             .state = std.StringHashMap(PackageState).init(allocator),
@@ -166,6 +173,7 @@ pub const Resolver = struct {
         self.state.deinit();
 
         self.conflicts.deinit(self.allocator);
+        self.scheduler.deinit();
     }
 
     /// Resolve dependencies starting from root requirements
@@ -178,19 +186,16 @@ pub const Resolver = struct {
             try self.state.put(state_name, .pending);
         }
 
-        // Main resolution loop with parallel prefetching
+        // Main resolution loop with DIRECT batch fetching
         while (self.pending.count() > 0) {
             self.iterations += 1;
             if (self.iterations > self.config.max_iterations) {
                 return ResolverError.MaxIterationsExceeded;
             }
 
-            // Batch resolution: collect up to prefetch_count pending packages
+            // Collect ALL pending package names for batch fetch
             var batch_names = std.ArrayList([]const u8){};
-            defer {
-                for (batch_names.items) |name| self.allocator.free(name);
-                batch_names.deinit(self.allocator);
-            }
+            defer batch_names.deinit(self.allocator);
 
             var pending_it = self.pending.keyIterator();
             while (pending_it.next()) |key_ptr| {
@@ -201,10 +206,7 @@ pub const Resolver = struct {
                     if (s == .resolved) continue;
                 }
 
-                const name_copy = try self.allocator.dupe(u8, name);
-                try batch_names.append(self.allocator, name_copy);
-
-                if (batch_names.items.len >= self.config.prefetch_count) break;
+                try batch_names.append(self.allocator, name);
             }
 
             if (batch_names.items.len == 0) break;
@@ -216,51 +218,43 @@ pub const Resolver = struct {
                 }
             }
 
-            // Parallel prefetch: fetch all metadata in parallel
-            if (self.config.parallel_prefetch and batch_names.items.len > 1) {
-                const fetch_results = try self.client.getPackagesParallel(batch_names.items);
-                defer self.allocator.free(fetch_results);
+            std.debug.print("[Resolver] Iteration {}: fetching {} packages\n", .{ self.iterations, batch_names.items.len });
 
-                // Process fetched results
-                for (batch_names.items, 0..) |pkg_name, i| {
-                    var result = fetch_results[i];
-                    defer result.deinit(self.allocator);
+            // DIRECT batch fetch via HTTP/2 - ALL packages in ONE request!
+            const fetch_results = try self.client.getPackagesParallel(batch_names.items);
+            defer self.allocator.free(fetch_results);
 
-                    switch (result) {
-                        .success => |metadata| {
-                            self.resolvePackageWithMetadata(pkg_name, metadata) catch |err| {
-                                if (self.state.getPtr(pkg_name)) |s| {
-                                    s.* = .failed;
-                                }
-                                if (self.backtrack_count < self.config.max_backtrack) {
-                                    self.backtrack_count += 1;
-                                    continue;
-                                }
-                                return err;
-                            };
-                        },
-                        .err => {
+            // Process results
+            for (batch_names.items, 0..) |pkg_name, i| {
+                var result = fetch_results[i];
+                defer result.deinit(self.allocator);
+
+                std.debug.print("[Resolver] Processing result[{}] for '{s}': {s}\n", .{ i, pkg_name, @tagName(result) });
+
+                switch (result) {
+                    .success => |metadata| {
+                        std.debug.print("[Resolver] Got metadata for '{s}': version={s}, deps={}\n", .{ pkg_name, metadata.latest_version, metadata.requires_dist.len });
+                        self.resolvePackageWithMetadata(pkg_name, metadata) catch |err| {
+                            std.debug.print("[Resolver] resolvePackageWithMetadata failed: {}\n", .{err});
                             if (self.state.getPtr(pkg_name)) |s| {
                                 s.* = .failed;
                             }
-                        },
-                    }
-                }
-            } else {
-                // Sequential fallback for single packages
-                for (batch_names.items) |pkg_name| {
-                    self.resolvePackage(pkg_name) catch |err| {
+                            if (self.backtrack_count < self.config.max_backtrack) {
+                                self.backtrack_count += 1;
+                                continue;
+                            }
+                            return err;
+                        };
+                    },
+                    .err => |e| {
+                        std.debug.print("[Resolver] Fetch error for '{s}': {s}\n", .{ pkg_name, @errorName(e) });
                         if (self.state.getPtr(pkg_name)) |s| {
                             s.* = .failed;
                         }
-                        if (self.backtrack_count < self.config.max_backtrack) {
-                            self.backtrack_count += 1;
-                            continue;
-                        }
-                        return err;
-                    };
+                    },
                 }
             }
+            self.network_fetches += @intCast(batch_names.items.len);
         }
 
         // Build result - transfer ownership from self.resolved
@@ -326,8 +320,11 @@ pub const Resolver = struct {
     fn resolvePackage(self: *Resolver, name: []const u8) !void {
         const dep = self.pending.get(name) orelse return;
 
-        // Fetch package metadata
-        const metadata = try self.fetchMetadata(name);
+        // Fetch package metadata - use fast path if enabled
+        const metadata = if (self.config.use_fast_path)
+            self.fetchMetadataFast(name) catch try self.fetchMetadata(name)
+        else
+            try self.fetchMetadata(name);
         defer {
             var meta = metadata;
             meta.deinit(self.allocator);
@@ -336,40 +333,8 @@ pub const Resolver = struct {
         // Find best matching version
         const best_version = try self.selectVersion(metadata, dep.version_spec);
 
-        // Parse transitive dependencies from requires_dist
-        for (metadata.requires_dist) |req_str| {
-            // Skip extras (dependencies with "; extra ==" in them)
-            if (std.mem.indexOf(u8, req_str, "extra ==") != null or
-                std.mem.indexOf(u8, req_str, "extra==") != null)
-            {
-                continue;
-            }
-
-            // Parse the dependency string
-            var trans_dep = pep508.parseDependency(self.allocator, req_str) catch continue;
-
-            // Normalize name for lookup
-            var norm_name_buf: [256]u8 = undefined;
-            const norm_name = normalizeName(trans_dep.name, &norm_name_buf);
-
-            // Skip if already resolved or pending
-            if (self.resolved.contains(norm_name)) {
-                pep508.freeDependency(self.allocator, &trans_dep);
-                continue;
-            }
-            if (self.pending.contains(norm_name)) {
-                pep508.freeDependency(self.allocator, &trans_dep);
-                continue;
-            }
-
-            // Add to pending
-            const pending_name = try self.allocator.dupe(u8, norm_name);
-            errdefer self.allocator.free(pending_name);
-            try self.pending.put(pending_name, trans_dep);
-
-            const state_name = try self.allocator.dupe(u8, norm_name);
-            try self.state.put(state_name, .pending);
-        }
+        // Add transitive dependencies
+        try self.addTransitiveDependencies(metadata.requires_dist);
 
         // Create resolved package
         const resolved = ResolvedPackage{
@@ -399,45 +364,17 @@ pub const Resolver = struct {
 
     /// Resolve a package with pre-fetched metadata (used in parallel prefetch)
     fn resolvePackageWithMetadata(self: *Resolver, name: []const u8, metadata: pypi.PackageMetadata) !void {
-        const dep = self.pending.get(name) orelse return;
+        std.debug.print("[resolveWithMeta] name='{s}', pending.count={}, pending.contains={}\n", .{ name, self.pending.count(), self.pending.contains(name) });
+        const dep = self.pending.get(name) orelse {
+            std.debug.print("[resolveWithMeta] FAILED - name not in pending!\n", .{});
+            return;
+        };
 
         // Find best matching version
         const best_version = try self.selectVersion(metadata, dep.version_spec);
 
-        // Parse transitive dependencies from requires_dist
-        for (metadata.requires_dist) |req_str| {
-            // Skip extras (dependencies with "; extra ==" in them)
-            if (std.mem.indexOf(u8, req_str, "extra ==") != null or
-                std.mem.indexOf(u8, req_str, "extra==") != null)
-            {
-                continue;
-            }
-
-            // Parse the dependency string
-            var trans_dep = pep508.parseDependency(self.allocator, req_str) catch continue;
-
-            // Normalize name for lookup
-            var norm_name_buf: [256]u8 = undefined;
-            const norm_name = normalizeName(trans_dep.name, &norm_name_buf);
-
-            // Skip if already resolved or pending
-            if (self.resolved.contains(norm_name)) {
-                pep508.freeDependency(self.allocator, &trans_dep);
-                continue;
-            }
-            if (self.pending.contains(norm_name)) {
-                pep508.freeDependency(self.allocator, &trans_dep);
-                continue;
-            }
-
-            // Add to pending
-            const pending_name = try self.allocator.dupe(u8, norm_name);
-            errdefer self.allocator.free(pending_name);
-            try self.pending.put(pending_name, trans_dep);
-
-            const state_name = try self.allocator.dupe(u8, norm_name);
-            try self.state.put(state_name, .pending);
-        }
+        // Add transitive dependencies
+        try self.addTransitiveDependencies(metadata.requires_dist);
 
         // Create resolved package
         const resolved = ResolvedPackage{
@@ -466,6 +403,44 @@ pub const Resolver = struct {
 
         // Count as network fetch for stats
         self.network_fetches += 1;
+    }
+
+    /// Add transitive dependencies from requires_dist, filtering by markers
+    fn addTransitiveDependencies(self: *Resolver, requires_dist: []const []const u8) !void {
+        for (requires_dist) |req_str| {
+            // Parse the dependency string
+            var trans_dep = pep508.parseDependency(self.allocator, req_str) catch continue;
+
+            // Evaluate environment markers - skip if markers don't match target environment
+            if (trans_dep.markers) |markers| {
+                if (!pep508.evaluateMarker(markers, self.config.environment)) {
+                    pep508.freeDependency(self.allocator, &trans_dep);
+                    continue;
+                }
+            }
+
+            // Normalize name for lookup
+            var norm_name_buf: [256]u8 = undefined;
+            const norm_name = normalizeName(trans_dep.name, &norm_name_buf);
+
+            // Skip if already resolved or pending
+            if (self.resolved.contains(norm_name)) {
+                pep508.freeDependency(self.allocator, &trans_dep);
+                continue;
+            }
+            if (self.pending.contains(norm_name)) {
+                pep508.freeDependency(self.allocator, &trans_dep);
+                continue;
+            }
+
+            // Add to pending
+            const pending_name = try self.allocator.dupe(u8, norm_name);
+            errdefer self.allocator.free(pending_name);
+            try self.pending.put(pending_name, trans_dep);
+
+            const state_name = try self.allocator.dupe(u8, norm_name);
+            try self.state.put(state_name, .pending);
+        }
     }
 
     /// Normalize package name (lowercase, replace - and _ with -)
@@ -497,6 +472,248 @@ pub const Resolver = struct {
         }
 
         // Fetch from network
+        self.network_fetches += 1;
+        return self.client.getPackageMetadata(name);
+    }
+
+    /// ULTRA-FAST BATCH: Resolve multiple packages in parallel using Simple API + PEP 658
+    /// This is the fastest resolution path - parallel fetches with minimal data transfer
+    fn resolveBatchFast(self: *Resolver, names: []const []const u8) !void {
+        // Phase 1: Parallel fetch Simple API for all packages
+        // (This gets version list + wheel URLs with PEP 658 metadata info)
+        const SimpleFetchContext = struct {
+            client: *pypi.PyPIClient,
+            name: []const u8,
+            result: ?pypi.SimplePackageInfo = null,
+            wheel_url: ?[]const u8 = null,
+            version: ?[]const u8 = null,
+            has_metadata: bool = false,
+
+            fn fetch(ctx: *@This()) void {
+                ctx.result = ctx.client.getSimplePackageInfo(ctx.name) catch null;
+                if (ctx.result) |info| {
+                    // Find latest version with PEP 658 metadata
+                    for (info.versions) |v| {
+                        if (v.has_metadata and v.wheel_url != null) {
+                            ctx.wheel_url = v.wheel_url;
+                            ctx.version = v.version;
+                            ctx.has_metadata = true;
+                            // Keep searching for later version
+                        }
+                    }
+                }
+            }
+        };
+
+        // Create contexts for Simple API fetches
+        const simple_contexts = try self.allocator.alloc(SimpleFetchContext, names.len);
+        defer self.allocator.free(simple_contexts);
+
+        for (names, 0..) |name, i| {
+            simple_contexts[i] = .{
+                .client = self.client,
+                .name = name,
+            };
+        }
+
+        // Spawn threads for Simple API fetches
+        var simple_threads = try self.allocator.alloc(std.Thread, names.len);
+        defer self.allocator.free(simple_threads);
+
+        var spawned: usize = 0;
+        for (0..names.len) |i| {
+            simple_threads[i] = std.Thread.spawn(.{}, SimpleFetchContext.fetch, .{&simple_contexts[i]}) catch {
+                SimpleFetchContext.fetch(&simple_contexts[i]);
+                continue;
+            };
+            spawned += 1;
+        }
+        for (simple_threads[0..spawned]) |t| t.join();
+
+        // Phase 2: Collect wheel URLs that have PEP 658 metadata
+        var wheel_urls = std.ArrayList([]const u8){};
+        defer wheel_urls.deinit(self.allocator);
+        var url_to_name = std.StringHashMap(usize).init(self.allocator);
+        defer url_to_name.deinit();
+
+        for (simple_contexts, 0..) |ctx, i| {
+            if (ctx.has_metadata and ctx.wheel_url != null) {
+                try wheel_urls.append(self.allocator, ctx.wheel_url.?);
+                try url_to_name.put(ctx.wheel_url.?, i);
+            }
+        }
+
+        // Phase 3: Parallel fetch wheel METADATA files (~2KB each)
+        if (wheel_urls.items.len > 0) {
+            const meta_results = try self.client.getWheelMetadataParallel(wheel_urls.items);
+            defer {
+                for (meta_results) |*r| r.deinit(self.allocator);
+                self.allocator.free(meta_results);
+            }
+
+            // Process metadata results
+            for (wheel_urls.items, 0..) |url, meta_idx| {
+                if (url_to_name.get(url)) |ctx_idx| {
+                    const ctx = simple_contexts[ctx_idx];
+                    const pkg_name = names[ctx_idx];
+
+                    if (meta_results[meta_idx] == .success) {
+                        const wheel_meta = meta_results[meta_idx].success;
+
+                        // Convert to PackageMetadata format for processing
+                        var requires_dist_list = std.ArrayList([]const u8){};
+                        errdefer {
+                            for (requires_dist_list.items) |dep| self.allocator.free(dep);
+                            requires_dist_list.deinit(self.allocator);
+                        }
+
+                        for (wheel_meta.requires_dist) |dep| {
+                            const dep_copy = try self.allocator.dupe(u8, dep);
+                            try requires_dist_list.append(self.allocator, dep_copy);
+                        }
+
+                        // Build releases from simple info
+                        var releases_list = std.ArrayList(pypi.ReleaseInfo){};
+                        errdefer {
+                            for (releases_list.items) |*r| @constCast(r).deinit(self.allocator);
+                            releases_list.deinit(self.allocator);
+                        }
+
+                        if (ctx.result) |simple_info| {
+                            for (simple_info.versions) |v| {
+                                const ver_copy = try self.allocator.dupe(u8, v.version);
+                                try releases_list.append(self.allocator, .{
+                                    .version = ver_copy,
+                                    .files = &[_]pypi.FileInfo{},
+                                });
+                            }
+                        }
+
+                        const metadata = pypi.PackageMetadata{
+                            .name = try self.allocator.dupe(u8, pkg_name),
+                            .latest_version = try self.allocator.dupe(u8, ctx.version orelse wheel_meta.version),
+                            .summary = null,
+                            .releases = try releases_list.toOwnedSlice(self.allocator),
+                            .requires_dist = try requires_dist_list.toOwnedSlice(self.allocator),
+                        };
+
+                        self.resolvePackageWithMetadata(pkg_name, metadata) catch {
+                            if (self.state.getPtr(pkg_name)) |s| s.* = .failed;
+                        };
+
+                        // Free metadata after use
+                        var meta = metadata;
+                        meta.deinit(self.allocator);
+                        self.network_fetches += 1;
+                    }
+                }
+            }
+        }
+
+        // Phase 4: Fallback to JSON API for packages without PEP 658
+        for (simple_contexts, 0..) |ctx, i| {
+            const pkg_name = names[i];
+            if (self.state.get(pkg_name)) |s| {
+                if (s == .resolved) continue;
+            }
+
+            // Clean up simple result
+            if (ctx.result) |res| {
+                var r = res;
+                r.deinit(self.allocator);
+            }
+
+            // Fallback to sequential fetch
+            self.resolvePackage(pkg_name) catch {
+                if (self.state.getPtr(pkg_name)) |s| s.* = .failed;
+            };
+        }
+    }
+
+    /// FAST PATH: Fetch metadata using Simple API + PEP 658 wheel METADATA
+    /// This fetches ~2KB instead of ~80KB per package!
+    fn fetchMetadataFast(self: *Resolver, name: []const u8) !pypi.PackageMetadata {
+        // 1. Get Simple API info (version list + wheel URLs)
+        const simple_info = try self.client.getSimplePackageInfo(name);
+        defer {
+            var info = simple_info;
+            info.deinit(self.allocator);
+        }
+
+        if (simple_info.versions.len == 0) {
+            return error.NoVersionFound;
+        }
+
+        // 2. Find latest version with PEP 658 metadata
+        // Parse versions and compare to find the actual latest
+        var best_version: ?pypi.SimpleVersion = null;
+        var best_parsed: ?pep440.Version = null;
+        defer if (best_parsed) |*bp| pep440.freeVersion(self.allocator, bp);
+
+        for (simple_info.versions) |v| {
+            if (v.has_metadata and v.wheel_url != null) {
+                var parsed = pep440.parseVersion(self.allocator, v.version) catch continue;
+
+                const dominated = if (best_parsed) |bp| parsed.compare(bp) == .gt else true;
+
+                if (dominated) {
+                    if (best_parsed) |*bp| pep440.freeVersion(self.allocator, bp);
+                    best_version = v;
+                    best_parsed = parsed;
+                } else {
+                    pep440.freeVersion(self.allocator, &parsed);
+                }
+            }
+        }
+
+        // 3. If we have a wheel with metadata, fetch just the METADATA file (~2KB)
+        if (best_version) |ver| {
+            if (ver.wheel_url) |wheel_url| {
+                const wheel_meta = try self.client.getWheelMetadata(wheel_url);
+                defer {
+                    var wm = wheel_meta;
+                    wm.deinit(self.allocator);
+                }
+
+                // Convert WheelMetadata to PackageMetadata
+                var requires_dist_list = std.ArrayList([]const u8){};
+                errdefer {
+                    for (requires_dist_list.items) |dep| self.allocator.free(dep);
+                    requires_dist_list.deinit(self.allocator);
+                }
+
+                for (wheel_meta.requires_dist) |dep| {
+                    const dep_copy = try self.allocator.dupe(u8, dep);
+                    try requires_dist_list.append(self.allocator, dep_copy);
+                }
+
+                // Build releases list from simple_info versions
+                var releases_list = std.ArrayList(pypi.ReleaseInfo){};
+                errdefer {
+                    for (releases_list.items) |*r| r.deinit(self.allocator);
+                    releases_list.deinit(self.allocator);
+                }
+
+                for (simple_info.versions) |v| {
+                    const ver_copy = try self.allocator.dupe(u8, v.version);
+                    try releases_list.append(self.allocator, .{
+                        .version = ver_copy,
+                        .files = &[_]pypi.FileInfo{},
+                    });
+                }
+
+                self.network_fetches += 1;
+                return pypi.PackageMetadata{
+                    .name = try self.allocator.dupe(u8, name),
+                    .latest_version = try self.allocator.dupe(u8, ver.version),
+                    .summary = null,
+                    .releases = try releases_list.toOwnedSlice(self.allocator),
+                    .requires_dist = try requires_dist_list.toOwnedSlice(self.allocator),
+                };
+            }
+        }
+
+        // 4. Fallback to full JSON API if no PEP 658 support
         self.network_fetches += 1;
         return self.client.getPackageMetadata(name);
     }

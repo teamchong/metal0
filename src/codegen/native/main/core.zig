@@ -52,6 +52,12 @@ pub const TestClassInfo = struct {
     has_teardown_class: bool = false,
 };
 
+/// Factory function that returns test classes
+/// Maps factory function name -> array of TestClassInfo (in order returned)
+pub const TestFactoryInfo = struct {
+    returned_classes: []const TestClassInfo,
+};
+
 /// Code generation mode
 pub const CodegenMode = enum {
     script, // Has main(), runs directly
@@ -111,6 +117,9 @@ pub const NativeCodegen = struct {
     // Track which variables hold closures (for .call() generation)
     closure_vars: FnvVoidMap,
 
+    // Track closures that return void (no catch needed)
+    void_closure_vars: FnvVoidMap,
+
     // Track which variables hold callables (PyCallable - for .call() generation)
     callable_vars: FnvVoidMap,
 
@@ -119,6 +128,10 @@ pub const NativeCodegen = struct {
 
     // Track which variables are closure factories (return closures)
     closure_factories: FnvVoidMap,
+
+    // Track pending closure types for functions that return closures
+    // Maps nested function name -> pre-declared closure type name
+    pending_closure_types: FnvStringMap,
 
     // Track which class methods return closures (ClassName.method_name -> void)
     closure_returning_methods: FnvVoidMap,
@@ -152,6 +165,9 @@ pub const NativeCodegen = struct {
 
     // Track unittest TestCase classes and their test methods
     unittest_classes: std.ArrayList(TestClassInfo),
+
+    // Track factory functions that return test classes (for tuple unpacking discovery)
+    test_factories: hashmap_helper.StringHashMap(TestFactoryInfo),
 
     // Compile-time evaluator for constant folding
     comptime_evaluator: comptime_eval.ComptimeEvaluator,
@@ -268,6 +284,17 @@ pub const NativeCodegen = struct {
     // Used to provide default args when calling BadIndex() where BadIndex(int)
     nested_class_bases: FnvStringMap,
 
+    // Track which nested class methods need allocator parameter
+    // Maps "ClassName.methodName" -> void for methods that need allocator
+    // Used at call sites to determine if allocator should be passed
+    nested_class_method_needs_alloc: FnvVoidMap,
+
+    // Track which nested classes are actually referenced in generated Zig code
+    // When emitting class references (e.g., ClassName.init(), ClassName.method()),
+    // the class name is added here. At function body end, we emit _ = ClassName;
+    // only for classes in nested_class_names but NOT in this map
+    nested_class_zig_refs: FnvVoidMap,
+
     // Track class-level type attributes (e.g., int_class = int)
     // Maps "ClassName.attr_name" -> type_name (e.g., "IntStrDigitLimitsTests.int_class" -> "int")
     class_type_attrs: FnvStringMap,
@@ -335,6 +362,11 @@ pub const NativeCodegen = struct {
     // When assigning to a loop capture, we rename to __loop_<varname> and track in var_renames
     loop_capture_vars: FnvVoidMap,
 
+    // Track forward-declared variables (captured by nested classes before defined)
+    // Maps variable name -> void (e.g., "list2" -> {})
+    // When assigning to a forward-declared var, don't emit "var" again
+    forward_declared_vars: FnvVoidMap,
+
     // Track callable global variables (function references like float.fromhex)
     // These need to be emitted at module level, not inside main()
     // Maps variable name -> void (e.g., "fromHex" -> {})
@@ -371,9 +403,11 @@ pub const NativeCodegen = struct {
             .lambda_functions = std.ArrayList([]const u8){},
             .block_label_counter = 0,
             .closure_vars = FnvVoidMap.init(allocator),
+            .void_closure_vars = FnvVoidMap.init(allocator),
             .callable_vars = FnvVoidMap.init(allocator),
             .recursive_closure_vars = hashmap_helper.StringHashMap([][]const u8).init(allocator),
             .closure_factories = FnvVoidMap.init(allocator),
+            .pending_closure_types = FnvStringMap.init(allocator),
             .closure_returning_methods = FnvVoidMap.init(allocator),
             .lambda_vars = FnvVoidMap.init(allocator),
             .var_renames = FnvStringMap.init(allocator),
@@ -385,6 +419,7 @@ pub const NativeCodegen = struct {
             .anytype_params = FnvVoidMap.init(allocator),
             .mutable_classes = FnvVoidMap.init(allocator),
             .unittest_classes = std.ArrayList(TestClassInfo){},
+            .test_factories = hashmap_helper.StringHashMap(TestFactoryInfo).init(allocator),
             .comptime_evaluator = comptime_eval.ComptimeEvaluator.init(allocator),
             .import_ctx = null,
             .source_file_path = null,
@@ -414,6 +449,8 @@ pub const NativeCodegen = struct {
             .nested_class_names = FnvVoidMap.init(allocator),
             .bigint_vars = FnvVoidMap.init(allocator),
             .nested_class_bases = FnvStringMap.init(allocator),
+            .nested_class_method_needs_alloc = FnvVoidMap.init(allocator),
+            .nested_class_zig_refs = FnvVoidMap.init(allocator),
             .class_type_attrs = FnvStringMap.init(allocator),
             .current_class_name = null,
             .current_class_captures = null,
@@ -430,6 +467,7 @@ pub const NativeCodegen = struct {
             .local_from_imports = FnvStringMap.init(allocator),
             .loop_capture_vars = FnvVoidMap.init(allocator),
             .callable_global_vars = FnvVoidMap.init(allocator),
+            .forward_declared_vars = FnvVoidMap.init(allocator),
         };
         return self;
     }
@@ -459,6 +497,19 @@ pub const NativeCodegen = struct {
     /// Check if variable declared in any scope (innermost to outermost)
     pub fn isDeclared(self: *NativeCodegen, name: []const u8) bool {
         return self.symbol_table.lookup(name) != null;
+    }
+
+    /// Check if a variable is captured by any nested class in the current function scope
+    /// Used to determine if a function parameter is "used" indirectly via closure
+    pub fn isVarCapturedByAnyNestedClass(self: *NativeCodegen, var_name: []const u8) bool {
+        var iter = self.nested_class_captures.iterator();
+        while (iter.next()) |entry| {
+            const captured_vars = entry.value_ptr.*;
+            for (captured_vars) |captured| {
+                if (std.mem.eql(u8, captured, var_name)) return true;
+            }
+        }
+        return false;
     }
 
     /// Declare variable in current (innermost) scope with a specific type

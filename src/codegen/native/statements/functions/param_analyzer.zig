@@ -45,6 +45,54 @@ pub fn isNameUsedInInitBody(body: []ast.Node, name: []const u8) bool {
     return false;
 }
 
+/// Check if a name is used in __new__ body in ways that translate to init() method
+/// For __new__, only field assignments (self.x = param) should be considered as "used"
+/// Return statements, calls to meta(), etc. don't translate to init() body
+pub fn isNameUsedInNewForInit(body: []ast.Node, name: []const u8) bool {
+    for (body) |stmt| {
+        if (isNameUsedInNewStmtForInit(stmt, name)) return true;
+    }
+    return false;
+}
+
+fn isNameUsedInNewStmtForInit(stmt: ast.Node, name: []const u8) bool {
+    return switch (stmt) {
+        .assign => |assign| {
+            // Only check field assignments (self.x = value)
+            for (assign.targets) |target| {
+                if (target == .attribute) {
+                    const attr = target.attribute;
+                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        // This is self.field = value - check if name is in value
+                        return isNameUsedInExpr(assign.value.*, name);
+                    }
+                }
+            }
+            // For non-field assignments, check if this creates a local var used later for fields
+            // (e.g., g = gcd(num, den); self.__num = num // g)
+            // But for now, be conservative and skip non-field assignments
+            return false;
+        },
+        .if_stmt => |if_stmt| {
+            // Check nested field assignments
+            if (isNameUsedInNewForInit(if_stmt.body, name)) return true;
+            if (isNameUsedInNewForInit(if_stmt.else_body, name)) return true;
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            if (isNameUsedInNewForInit(while_stmt.body, name)) return true;
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            if (isNameUsedInNewForInit(for_stmt.body, name)) return true;
+            return false;
+        },
+        // Don't consider return statements - they don't translate to init()
+        // Don't consider expression statements (calls) - they don't translate to init()
+        else => false,
+    };
+}
+
 fn isNameUsedInStmtExcludingParentInit(stmt: ast.Node, name: []const u8) bool {
     return switch (stmt) {
         .expr_stmt => |expr| {

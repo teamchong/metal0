@@ -243,6 +243,7 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     // PHASE 5: Native Codegen - Generate native Zig code (no PyObject overhead)
     std.debug.print("Generating native Zig code...\n", .{});
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    defer native_gen.deinit();
 
     // Pass import context to codegen
     native_gen.setImportContext(&import_ctx);
@@ -425,6 +426,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // PHASE 5: Native Codegen - Generate native Zig code (no PyObject overhead)
     std.debug.print("Generating native Zig code...\n", .{});
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    defer native_gen.deinit();
 
     // Set mode: shared library (.so) = module mode, binary/run/wasm = script mode
     // WASM needs script mode (with main/_start entry point)

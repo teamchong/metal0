@@ -9,6 +9,16 @@ const param_analyzer = @import("functions/param_analyzer.zig");
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
+/// Check if a variable is captured by the current nested class
+/// Uses current_class_captures which is set when entering nested class methods
+fn isCapturedByCurrentClass(self: *NativeCodegen, var_name: []const u8) bool {
+    const captured_vars = self.current_class_captures orelse return false;
+    for (captured_vars) |captured| {
+        if (std.mem.eql(u8, captured, var_name)) return true;
+    }
+    return false;
+}
+
 /// Detect try/except import pattern: try: import X except: X = None
 /// Returns the module name if pattern matches and module is unavailable
 fn detectOptionalImportPattern(try_node: ast.Node.Try, codegen: *NativeCodegen) ?[]const u8 {
@@ -489,9 +499,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (written_vars.contains(name)) {
                 // Variable is written in try block and not locally declared - it's an outer variable
                 try written_outer_vars.append(self.allocator, name);
-            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.nested_class_names.contains(name)) {
+            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.nested_class_names.contains(name) or self.func_local_vars.contains(name)) {
                 // Variable is only read and we can verify it exists - capture as read-only
                 // Note: nested_class_names tracks classes defined inside methods (like for-loop bodies)
+                // Note: func_local_vars tracks function-local variables declared before the try block
                 try read_only_vars.append(self.allocator, name);
             }
 
@@ -680,13 +691,27 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         var call_param_count: usize = 0;
         for (read_only_vars.items) |var_name| {
             if (call_param_count > 0) try self.emit(", ");
-            try self.emit(var_name);
+            // Check if this is a captured variable in the current nested class
+            if (isCapturedByCurrentClass(self, var_name)) {
+                // Access via __self.__captured_var.* for captured variables
+                const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
+                try self.output.writer(self.allocator).print("{s}.__captured_{s}.*", .{ self_name, var_name });
+            } else {
+                try self.emit(var_name);
+            }
             call_param_count += 1;
         }
         for (written_outer_vars.items) |var_name| {
             if (call_param_count > 0) try self.emit(", ");
-            try self.emit("&");
-            try self.emit(var_name);
+            // Check if this is a captured variable in the current nested class
+            if (isCapturedByCurrentClass(self, var_name)) {
+                // Access via __self.__captured_var for captured variables (already a pointer, no & needed)
+                const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
+                try self.output.writer(self.allocator).print("{s}.__captured_{s}", .{ self_name, var_name });
+            } else {
+                try self.emit("&");
+                try self.emit(var_name);
+            }
             call_param_count += 1;
         }
         for (declared_vars.items) |hoisted| {

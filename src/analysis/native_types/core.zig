@@ -180,6 +180,7 @@ pub const NativeType = union(enum) {
             .string => "[]const u8",
             .usize => "usize",
             .path => "*pathlib.Path",
+            .class_instance => |class_name| class_name,
             else => "*runtime.PyObject",
         };
     }

@@ -37,7 +37,10 @@ pub const genZfill = string.genZfill;
 pub const genIsascii = string.genIsascii;
 pub const genIstitle = string.genIstitle;
 pub const genIsprintable = string.genIsprintable;
+pub const genIsdecimal = string.genIsdecimal;
+pub const genIsnumeric = string.genIsnumeric;
 pub const genEncode = string.genEncode;
+pub const genDecode = string.genDecode;
 
 // List methods
 pub const genAppend = list.genAppend;

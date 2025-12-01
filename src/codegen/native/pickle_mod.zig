@@ -72,6 +72,26 @@ pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("try runtime.json.dumpsDirect(try runtime.PyList.fromArrayList(");
         try self.genExpr(args[0]);
         try self.emit(", __global_allocator), __global_allocator)");
+    } else if (arg_type == .bool) {
+        // Bool: use Python pickle format for protocol 0
+        try self.emit("if (");
+        try self.genExpr(args[0]);
+        try self.emit(") \"I01\\n.\" else \"I00\\n.\"");
+    } else if (arg_type == .int) {
+        // Int: convert to PyInt for serialization
+        try self.emit("try runtime.json.dumpsDirect(try runtime.PyInt.create(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try self.emit("), __global_allocator)");
+    } else if (arg_type == .float) {
+        // Float: convert to PyFloat for serialization
+        try self.emit("try runtime.json.dumpsDirect(try runtime.PyFloat.create(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try self.emit("), __global_allocator)");
+    } else if (arg_type == .string or @as(std.meta.Tag(@TypeOf(arg_type)), arg_type) == .string) {
+        // String: convert to PyString for serialization
+        try self.emit("try runtime.json.dumpsDirect(try runtime.PyString.create(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try self.emit("), __global_allocator)");
     } else {
         // Already a PyObject - use dumpsDirect
         try self.emit("try runtime.json.dumpsDirect(");

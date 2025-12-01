@@ -345,6 +345,257 @@ pub fn freeDependency(allocator: std.mem.Allocator, dep: *Dependency) void {
 }
 
 // ============================================================================
+// PEP 508 Marker Evaluation
+// ============================================================================
+
+/// Environment for marker evaluation
+pub const Environment = struct {
+    os_name: []const u8 = "posix", // "posix", "nt", "java"
+    sys_platform: []const u8 = "darwin", // "darwin", "linux", "win32"
+    platform_machine: []const u8 = "arm64", // "x86_64", "arm64", "aarch64"
+    platform_python_implementation: []const u8 = "CPython",
+    platform_release: []const u8 = "",
+    platform_system: []const u8 = "Darwin", // "Darwin", "Linux", "Windows"
+    platform_version: []const u8 = "",
+    python_version: []const u8 = "3.11", // Major.minor only
+    python_full_version: []const u8 = "3.11.0",
+    implementation_name: []const u8 = "cpython",
+    implementation_version: []const u8 = "3.11.0",
+    extra: ?[]const u8 = null, // Currently active extra
+
+    /// Default environment for Python 3.11 on macOS ARM64
+    pub const default = Environment{};
+
+    /// Get value for a marker variable
+    pub fn getValue(self: Environment, variable: Marker.Variable) []const u8 {
+        return switch (variable) {
+            .os_name => self.os_name,
+            .sys_platform => self.sys_platform,
+            .platform_machine => self.platform_machine,
+            .platform_python_implementation => self.platform_python_implementation,
+            .platform_release => self.platform_release,
+            .platform_system => self.platform_system,
+            .platform_version => self.platform_version,
+            .python_version => self.python_version,
+            .python_full_version => self.python_full_version,
+            .implementation_name => self.implementation_name,
+            .implementation_version => self.implementation_version,
+            .extra => self.extra orelse "",
+        };
+    }
+};
+
+/// Evaluate a marker expression against an environment
+/// Returns true if the marker matches, false otherwise
+/// On parse error, returns true (conservative: include the dependency)
+pub fn evaluateMarker(marker: []const u8, env: Environment) bool {
+    return evaluateMarkerExpr(marker, env) catch true;
+}
+
+/// Evaluate marker expression (can return error on parse failure)
+fn evaluateMarkerExpr(marker: []const u8, env: Environment) ParseError!bool {
+    const s = std.mem.trim(u8, marker, " \t");
+    if (s.len == 0) return true;
+
+    // Parse OR expressions (lowest precedence)
+    return parseOrExpr(s, env);
+}
+
+/// Parse OR expression: expr ("or" expr)*
+fn parseOrExpr(input: []const u8, env: Environment) ParseError!bool {
+    var s = input;
+    var result = try parseAndExpr(s, env, &s);
+
+    while (s.len > 0) {
+        const trimmed = std.mem.trim(u8, s, " \t");
+        if (std.mem.startsWith(u8, trimmed, "or ") or std.mem.startsWith(u8, trimmed, "or\t")) {
+            s = trimmed[3..];
+            const right = try parseAndExpr(s, env, &s);
+            result = result or right;
+        } else {
+            break;
+        }
+    }
+    return result;
+}
+
+/// Parse AND expression: term ("and" term)*
+fn parseAndExpr(input: []const u8, env: Environment, rest: *[]const u8) ParseError!bool {
+    var s = std.mem.trim(u8, input, " \t");
+    var result = try parseTerm(s, env, &s);
+
+    while (s.len > 0) {
+        const trimmed = std.mem.trim(u8, s, " \t");
+        if (std.mem.startsWith(u8, trimmed, "and ") or std.mem.startsWith(u8, trimmed, "and\t")) {
+            s = trimmed[4..];
+            const right = try parseTerm(s, env, &s);
+            result = result and right;
+        } else {
+            break;
+        }
+    }
+    rest.* = s;
+    return result;
+}
+
+/// Parse term: "(" expr ")" | comparison
+fn parseTerm(input: []const u8, env: Environment, rest: *[]const u8) ParseError!bool {
+    var s = std.mem.trim(u8, input, " \t");
+
+    // Handle parentheses
+    if (s.len > 0 and s[0] == '(') {
+        // Find matching close paren
+        var depth: i32 = 1;
+        var i: usize = 1;
+        while (i < s.len and depth > 0) : (i += 1) {
+            if (s[i] == '(') depth += 1;
+            if (s[i] == ')') depth -= 1;
+        }
+        if (depth != 0) return ParseError.InvalidMarkers;
+
+        const inner = s[1 .. i - 1];
+        const result = try evaluateMarkerExpr(inner, env);
+        rest.* = s[i..];
+        return result;
+    }
+
+    // Parse comparison
+    return parseComparison(s, env, rest);
+}
+
+/// Parse comparison: variable op value | value op variable
+fn parseComparison(input: []const u8, env: Environment, rest: *[]const u8) ParseError!bool {
+    var s = std.mem.trim(u8, input, " \t");
+
+    // Extract left operand (variable or quoted string)
+    const left_result = try parseOperand(s);
+    s = std.mem.trim(u8, s[left_result.consumed..], " \t");
+
+    // Extract operator
+    const op_result = parseOperator(s) orelse return ParseError.InvalidMarkers;
+    s = std.mem.trim(u8, s[op_result.consumed..], " \t");
+
+    // Extract right operand
+    const right_result = try parseOperand(s);
+    rest.* = s[right_result.consumed..];
+
+    // Get actual values
+    const left_val = if (left_result.variable) |v| env.getValue(v) else left_result.literal;
+    const right_val = if (right_result.variable) |v| env.getValue(v) else right_result.literal;
+
+    // Evaluate comparison
+    return evaluateComparison(left_val, op_result.op, right_val);
+}
+
+const OperandResult = struct {
+    variable: ?Marker.Variable,
+    literal: []const u8,
+    consumed: usize,
+};
+
+fn parseOperand(input: []const u8) ParseError!OperandResult {
+    const s = std.mem.trim(u8, input, " \t");
+    const skip = input.len - s.len;
+
+    // Quoted string
+    if (s.len > 0 and (s[0] == '"' or s[0] == '\'')) {
+        const quote = s[0];
+        var i: usize = 1;
+        while (i < s.len and s[i] != quote) : (i += 1) {}
+        if (i >= s.len) return ParseError.InvalidMarkers;
+        return .{
+            .variable = null,
+            .literal = s[1..i],
+            .consumed = skip + i + 1,
+        };
+    }
+
+    // Variable name
+    var i: usize = 0;
+    while (i < s.len and (std.ascii.isAlphanumeric(s[i]) or s[i] == '_')) : (i += 1) {}
+    if (i == 0) return ParseError.InvalidMarkers;
+
+    const name = s[0..i];
+    if (Marker.variableFromStr(name)) |v| {
+        return .{
+            .variable = v,
+            .literal = "",
+            .consumed = skip + i,
+        };
+    }
+
+    return ParseError.InvalidMarkers;
+}
+
+const OperatorResult = struct {
+    op: Marker.Op,
+    consumed: usize,
+};
+
+fn parseOperator(input: []const u8) ?OperatorResult {
+    const s = std.mem.trim(u8, input, " \t");
+    const skip = input.len - s.len;
+
+    // Multi-char operators first
+    if (s.len >= 6 and std.mem.startsWith(u8, s, "not in")) {
+        return .{ .op = .not_in, .consumed = skip + 6 };
+    }
+    if (s.len >= 2) {
+        if (std.mem.startsWith(u8, s, "==")) return .{ .op = .eq, .consumed = skip + 2 };
+        if (std.mem.startsWith(u8, s, "!=")) return .{ .op = .ne, .consumed = skip + 2 };
+        if (std.mem.startsWith(u8, s, "<=")) return .{ .op = .le, .consumed = skip + 2 };
+        if (std.mem.startsWith(u8, s, ">=")) return .{ .op = .ge, .consumed = skip + 2 };
+        if (std.mem.startsWith(u8, s, "in")) return .{ .op = .in_, .consumed = skip + 2 };
+    }
+    if (s.len >= 1) {
+        if (s[0] == '<') return .{ .op = .lt, .consumed = skip + 1 };
+        if (s[0] == '>') return .{ .op = .gt, .consumed = skip + 1 };
+    }
+    return null;
+}
+
+/// Evaluate a comparison between two string values
+fn evaluateComparison(left: []const u8, op: Marker.Op, right: []const u8) bool {
+    return switch (op) {
+        .eq => std.mem.eql(u8, left, right),
+        .ne => !std.mem.eql(u8, left, right),
+        .lt => compareVersionStrings(left, right) == .lt,
+        .le => compareVersionStrings(left, right) != .gt,
+        .gt => compareVersionStrings(left, right) == .gt,
+        .ge => compareVersionStrings(left, right) != .lt,
+        .in_ => std.mem.indexOf(u8, right, left) != null,
+        .not_in => std.mem.indexOf(u8, right, left) == null,
+    };
+}
+
+/// Compare version-like strings (e.g., "3.11" vs "3.8")
+fn compareVersionStrings(a: []const u8, b: []const u8) std.math.Order {
+    // Try to parse as versions for proper comparison
+    var a_parts = std.mem.splitScalar(u8, a, '.');
+    var b_parts = std.mem.splitScalar(u8, b, '.');
+
+    while (true) {
+        const a_part = a_parts.next();
+        const b_part = b_parts.next();
+
+        if (a_part == null and b_part == null) return .eq;
+        if (a_part == null) return .lt; // a is shorter, treat as less
+        if (b_part == null) return .gt; // b is shorter, treat as greater
+
+        const a_num = std.fmt.parseInt(i32, a_part.?, 10) catch {
+            // Fall back to string comparison
+            return std.mem.order(u8, a, b);
+        };
+        const b_num = std.fmt.parseInt(i32, b_part.?, 10) catch {
+            return std.mem.order(u8, a, b);
+        };
+
+        if (a_num < b_num) return .lt;
+        if (a_num > b_num) return .gt;
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -416,4 +667,67 @@ test "parse complex dependency" {
     try std.testing.expect(dep.version_spec != null);
     try std.testing.expectEqual(@as(usize, 2), dep.version_spec.?.constraints.len);
     try std.testing.expect(dep.markers != null);
+}
+
+// ============================================================================
+// Marker Evaluation Tests
+// ============================================================================
+
+test "marker: python_version comparison" {
+    const env = Environment.default; // python_version = "3.11"
+
+    // Should match
+    try std.testing.expect(evaluateMarker("python_version >= \"3.8\"", env));
+    try std.testing.expect(evaluateMarker("python_version > \"3.0\"", env));
+    try std.testing.expect(evaluateMarker("python_version == \"3.11\"", env));
+    try std.testing.expect(evaluateMarker("python_version != \"2.7\"", env));
+    try std.testing.expect(evaluateMarker("python_version < \"4.0\"", env));
+    try std.testing.expect(evaluateMarker("python_version <= \"3.11\"", env));
+
+    // Should not match (Python 2 compatibility)
+    try std.testing.expect(!evaluateMarker("python_version < \"3\"", env));
+    try std.testing.expect(!evaluateMarker("python_version < \"3.0\"", env));
+    try std.testing.expect(!evaluateMarker("python_version == \"2.7\"", env));
+}
+
+test "marker: sys_platform comparison" {
+    const env = Environment.default; // sys_platform = "darwin"
+
+    try std.testing.expect(evaluateMarker("sys_platform == \"darwin\"", env));
+    try std.testing.expect(!evaluateMarker("sys_platform == \"win32\"", env));
+    try std.testing.expect(!evaluateMarker("sys_platform == \"linux\"", env));
+    try std.testing.expect(evaluateMarker("sys_platform != \"win32\"", env));
+}
+
+test "marker: and expression" {
+    const env = Environment.default;
+
+    try std.testing.expect(evaluateMarker("python_version >= \"3.8\" and sys_platform == \"darwin\"", env));
+    try std.testing.expect(!evaluateMarker("python_version >= \"3.8\" and sys_platform == \"win32\"", env));
+    try std.testing.expect(!evaluateMarker("python_version < \"3\" and sys_platform == \"darwin\"", env));
+}
+
+test "marker: or expression" {
+    const env = Environment.default;
+
+    try std.testing.expect(evaluateMarker("sys_platform == \"win32\" or sys_platform == \"darwin\"", env));
+    try std.testing.expect(evaluateMarker("python_version < \"3\" or python_version >= \"3.8\"", env));
+    try std.testing.expect(!evaluateMarker("sys_platform == \"win32\" or sys_platform == \"linux\"", env));
+}
+
+test "marker: parentheses" {
+    const env = Environment.default;
+
+    try std.testing.expect(evaluateMarker("(python_version >= \"3.8\")", env));
+    try std.testing.expect(evaluateMarker("(python_version >= \"3.8\" and sys_platform == \"darwin\")", env));
+    try std.testing.expect(evaluateMarker("(sys_platform == \"win32\") or (sys_platform == \"darwin\")", env));
+}
+
+test "marker: version string comparison" {
+    // Test compareVersionStrings directly
+    try std.testing.expectEqual(std.math.Order.gt, compareVersionStrings("3.11", "3.8"));
+    try std.testing.expectEqual(std.math.Order.lt, compareVersionStrings("3.8", "3.11"));
+    try std.testing.expectEqual(std.math.Order.eq, compareVersionStrings("3.11", "3.11"));
+    try std.testing.expectEqual(std.math.Order.gt, compareVersionStrings("3.11", "3"));
+    try std.testing.expectEqual(std.math.Order.lt, compareVersionStrings("2.7", "3.0"));
 }

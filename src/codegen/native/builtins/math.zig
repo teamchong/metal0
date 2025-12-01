@@ -205,29 +205,7 @@ pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check the type of the argument to generate appropriate code
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
-    // Check if argument is a float() call with variable arg that returns error union
-    // Note: float(string_literal) uses 'catch', float(int_var) uses runtime.floatBuiltinCall (!f64)
-    // int() already adds 'try' in genInt, so don't add another
-    const is_float_error_union = if (args[0] == .call) blk: {
-        const call = args[0].call;
-        if (call.func.* == .name) {
-            const name = call.func.name.id;
-            if (std.mem.eql(u8, name, "float") and call.args.len == 1) {
-                // Only returns error union (!f64) if arg is a variable name
-                // String literals use 'catch 0.0' and return f64 directly
-                if (call.args[0] == .name) {
-                    break :blk true;
-                }
-                // If arg is a constant, it doesn't return error union
-                if (call.args[0] == .constant) {
-                    break :blk false;
-                }
-                // For other expressions, be safe and assume it might need try
-                break :blk true;
-            }
-        }
-        break :blk false;
-    } else false;
+    // float() now always returns f64 (uses catch 0.0 internally), not error union
 
     switch (arg_type) {
         .int => {
@@ -245,16 +223,9 @@ pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         },
         .float => {
             // For floats: hash the bit representation
-            if (is_float_error_union) {
-                // float(x) returns !f64 - need to try it first
-                try self.emit("@as(i64, @bitCast(@as(u64, @bitCast(try ");
-                try self.genExpr(args[0]);
-                try self.emit("))))");
-            } else {
-                try self.emit("@as(i64, @bitCast(@as(u64, @bitCast(");
-                try self.genExpr(args[0]);
-                try self.emit("))))");
-            }
+            try self.emit("@as(i64, @bitCast(@as(u64, @bitCast(");
+            try self.genExpr(args[0]);
+            try self.emit("))))");
         },
         .string => {
             // For strings: use std.hash.Wyhash

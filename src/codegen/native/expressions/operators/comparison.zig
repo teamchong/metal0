@@ -208,15 +208,36 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // For dict literals, wrap in block to assign to temp var
                 const is_literal = compare.comparators[i] == .dict;
                 if (is_literal) {
-                    try self.emit("(blk: { const __d = ");
-                    try genExpr(self, compare.comparators[i]); // dict literal
-                    if (op == .In) {
-                        try self.emit("; break :blk __d.contains(");
+                    const dict_lit = compare.comparators[i].dict;
+                    // Empty dict - key in {} is always false, key not in {} is always true
+                    if (dict_lit.keys.len == 0) {
+                        if (op == .In) {
+                            try self.emit("false");
+                        } else {
+                            try self.emit("true");
+                        }
                     } else {
-                        try self.emit("; break :blk !__d.contains(");
+                        // Non-empty dict - check key type to use appropriate contains
+                        const key_type = try self.inferExprScoped(dict_lit.keys[0]);
+                        const uses_int_keys = key_type == .int;
+
+                        try self.emit("(blk: { const __d = ");
+                        try genExpr(self, compare.comparators[i]); // dict literal
+                        if (op == .In) {
+                            try self.emit("; break :blk __d.contains(");
+                        } else {
+                            try self.emit("; break :blk !__d.contains(");
+                        }
+                        if (uses_int_keys) {
+                            // Cast to i64 for AutoHashMap key type
+                            try self.emit("@as(i64, ");
+                            try genExpr(self, current_left); // key
+                            try self.emit(")");
+                        } else {
+                            try genExpr(self, current_left); // key
+                        }
+                        try self.emit("); })");
                     }
-                    try genExpr(self, current_left); // key
-                    try self.emit("); })");
                 } else {
                     if (op == .In) {
                         try genExpr(self, compare.comparators[i]); // dict var
@@ -290,8 +311,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try self.emit("; const __val = ");
                     try genExpr(self, current_left); // item to search for
                     // Use std.meta.Elem which works for arrays, slices, and pointers
-                    // Use &__arr to coerce array to slice for indexOfScalar
-                    try self.output.writer(self.allocator).print("; const T = std.meta.Elem(@TypeOf(__arr)); break :in_{d} (std.mem.indexOfScalar(T, &__arr, __val)", .{in_label_id});
+                    // For arrays, use &__arr to coerce to slice; for slices, use __arr directly
+                    try self.output.writer(self.allocator).print("; const T = std.meta.Elem(@TypeOf(__arr)); const __slice = if (@typeInfo(@TypeOf(__arr)) == .array) &__arr else __arr; break :in_{d} (std.mem.indexOfScalar(T, __slice, __val)", .{in_label_id});
                     if (op == .In) {
                         try self.emit(" != null); }");
                     } else {

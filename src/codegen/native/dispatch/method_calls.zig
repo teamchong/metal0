@@ -47,7 +47,10 @@ const StringMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "isascii", methods.genIsascii },
     .{ "istitle", methods.genIstitle },
     .{ "isprintable", methods.genIsprintable },
+    .{ "isdecimal", methods.genIsdecimal },
+    .{ "isnumeric", methods.genIsnumeric },
     .{ "encode", methods.genEncode },
+    .{ "decode", methods.genDecode },
 });
 
 // List methods - O(1) lookup via StaticStringMap
@@ -179,7 +182,7 @@ const SqliteConnectionMethods = std.StaticStringMap(SqliteCursorMethodOutput).in
 });
 
 // unittest assertion methods - O(1) lookup
-const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
+pub const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "assertEqual", unittest_mod.genAssertEqual },
     .{ "assertTrue", unittest_mod.genAssertTrue },
     .{ "assertFalse", unittest_mod.genAssertFalse },

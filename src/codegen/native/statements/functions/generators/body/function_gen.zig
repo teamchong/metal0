@@ -94,10 +94,18 @@ pub fn genFunctionBody(
         try self.declareVar(arg.name);
     }
 
+    // NOTE: Forward-referenced captured variables (class captures variable before it's declared)
+    // are a complex edge case that requires runtime type erasure. For now, these patterns
+    // may fail to compile. See test_equal_operator_modifying_operand for an example.
+
     // Generate function body
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
     }
+
+    // NOTE: Nested class unused suppression (e.g., _ = &ClassName;) is now handled
+    // immediately after each class definition in generators.zig genClassDef().
+    // This is necessary because classes inside if/for/while blocks are out of scope here.
 
     // Pop scope when exiting function
     self.popScope();
@@ -105,6 +113,7 @@ pub fn genFunctionBody(
     // Clear function-local state after exiting function
     self.func_local_mutations.clearRetainingCapacity();
     self.func_local_vars.clearRetainingCapacity();
+    self.forward_declared_vars.clearRetainingCapacity();
     // Clear nested_class_captures (free the slices first)
     var cap_iter = self.nested_class_captures.iterator();
     while (cap_iter.next()) |entry| {
@@ -332,10 +341,18 @@ pub fn genMethodBodyWithAllocatorInfo(
         }
     }
 
+    // NOTE: Forward-referenced captured variables (class captures variable before it's declared)
+    // are a complex edge case that requires runtime type erasure. For now, these patterns
+    // may fail to compile. See test_equal_operator_modifying_operand for an example.
+
     // Generate method body
     for (method.body) |method_stmt| {
         try self.generateStmt(method_stmt);
     }
+
+    // NOTE: Nested class unused suppression (e.g., _ = &ClassName;) is now handled
+    // immediately after each class definition in generators.zig genClassDef().
+    // This is necessary because classes inside if/for/while blocks are out of scope here.
 
     // Remove parameter renames when exiting method scope
     for (renamed_params.items) |param_name| {
@@ -347,8 +364,9 @@ pub fn genMethodBodyWithAllocatorInfo(
     // Pop scope when exiting method
     self.popScope();
 
-    // Clear function-local mutations after exiting method
+    // Clear function-local mutations and forward declarations after exiting method
     self.func_local_mutations.clearRetainingCapacity();
+    self.forward_declared_vars.clearRetainingCapacity();
 
     // Clear nested class tracking (names and bases) after exiting method
     // This prevents class name collisions between different methods

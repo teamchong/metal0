@@ -22,9 +22,11 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
 
+    // Use unique buf name to avoid shadowing in nested format expressions
+    // e.g., "%s" % repr(x) where repr(x) generates another format block
     try self.emitFmt("fmt_{d}: {{\n", .{label_id});
-    try self.emit("var buf = std.ArrayList(u8){};\n");
-    try self.emitFmt("const writer = buf.writer({s});\n", .{alloc_name});
+    try self.emitFmt("var __fmt_buf_{d} = std.ArrayList(u8){{}};\n", .{label_id});
+    try self.emitFmt("const writer = __fmt_buf_{d}.writer({s});\n", .{ label_id, alloc_name });
 
     // Check if right side is a tuple (multiple values)
     if (binop.right.* == .tuple) {
@@ -42,9 +44,9 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         'd', 'i' => try self.emit("{any}"),
                         's' => try self.emit("{s}"),
                         'f' => try self.emit("{d}"),
-                        'x' => try self.emit("{x}"),
-                        'X' => try self.emit("{X}"),
-                        'o' => try self.emit("{o}"),
+                        'x' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
+                        'X' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
+                        'o' => try self.emit("{s}"), // Use {s} for octal - formatInt returns string
                         'r' => try self.emit("{any}"),
                         '%' => try self.emit("%"),
                         else => {
@@ -70,9 +72,37 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                 }
             }
             try self.emit("\", .{");
-            for (tuple.elts, 0..) |elem, j| {
-                if (j > 0) try self.emit(", ");
-                try genExpr(self, elem);
+            // Track which format specs need special handling
+            var elem_idx: usize = 0;
+            var fmt_idx: usize = 0;
+            while (fmt_idx < fmt.len) : (fmt_idx += 1) {
+                if (fmt[fmt_idx] == '%' and fmt_idx + 1 < fmt.len) {
+                    const spec = fmt[fmt_idx + 1];
+                    // Skip %% - it's an escaped literal % and doesn't consume a tuple element
+                    if (spec == '%') {
+                        fmt_idx += 1;
+                        continue;
+                    }
+                    if (elem_idx > 0) try self.emit(", ");
+                    if (elem_idx < tuple.elts.len) {
+                        // For hex/octal formats, wrap in runtime.formatInt to handle bool
+                        if (spec == 'x' or spec == 'X' or spec == 'o') {
+                            try self.emit("runtime.formatInt(");
+                            try genExpr(self, tuple.elts[elem_idx]);
+                            if (spec == 'x') {
+                                try self.emit(", .hex_lower)");
+                            } else if (spec == 'X') {
+                                try self.emit(", .hex_upper)");
+                            } else {
+                                try self.emit(", .octal)");
+                            }
+                        } else {
+                            try genExpr(self, tuple.elts[elem_idx]);
+                        }
+                        elem_idx += 1;
+                    }
+                    fmt_idx += 1; // Skip the spec char
+                }
             }
             try self.emit("});\n");
         } else {
@@ -84,9 +114,20 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     } else {
         // Single format argument: "%d" % n
         if (format_str) |fmt| {
-            // Parse format string
-            try self.emit("try writer.print(\"");
+            // Find the format specifier for special handling
+            var format_spec: u8 = 0;
             var i: usize = 0;
+            while (i < fmt.len) {
+                if (fmt[i] == '%' and i + 1 < fmt.len) {
+                    format_spec = fmt[i + 1];
+                    break;
+                }
+                i += 1;
+            }
+
+            // Parse format string for output
+            try self.emit("try writer.print(\"");
+            i = 0;
             while (i < fmt.len) {
                 if (fmt[i] == '%' and i + 1 < fmt.len) {
                     const spec = fmt[i + 1];
@@ -94,9 +135,9 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         'd', 'i' => try self.emit("{any}"),
                         's' => try self.emit("{s}"),
                         'f' => try self.emit("{d}"),
-                        'x' => try self.emit("{x}"),
-                        'X' => try self.emit("{X}"),
-                        'o' => try self.emit("{o}"),
+                        'x' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
+                        'X' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
+                        'o' => try self.emit("{s}"), // Use {s} for octal - formatInt returns string
                         'r' => try self.emit("{any}"),
                         '%' => try self.emit("%"),
                         else => {
@@ -122,7 +163,20 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                 }
             }
             try self.emit("\", .{");
-            try genExpr(self, binop.right.*);
+            // For hex/octal formats, wrap value in runtime.formatInt
+            if (format_spec == 'x' or format_spec == 'X' or format_spec == 'o') {
+                try self.emit("runtime.formatInt(");
+                try genExpr(self, binop.right.*);
+                if (format_spec == 'x') {
+                    try self.emit(", .hex_lower)");
+                } else if (format_spec == 'X') {
+                    try self.emit(", .hex_upper)");
+                } else {
+                    try self.emit(", .octal)");
+                }
+            } else {
+                try genExpr(self, binop.right.*);
+            }
             try self.emit("});\n");
         } else {
             // Format string is a variable
@@ -132,5 +186,5 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
         }
     }
 
-    try self.emitFmt("break :fmt_{d} try buf.toOwnedSlice({s});\n}}", .{ label_id, alloc_name });
+    try self.emitFmt("break :fmt_{d} try __fmt_buf_{d}.toOwnedSlice({s});\n}}", .{ label_id, label_id, alloc_name });
 }

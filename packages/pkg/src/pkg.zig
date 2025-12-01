@@ -27,6 +27,7 @@ pub const record = @import("parse/record.zig");
 pub const pypi = @import("fetch/pypi.zig");
 pub const wheel = @import("fetch/wheel.zig");
 pub const cache = @import("fetch/cache.zig");
+pub const scheduler = @import("fetch/scheduler.zig");
 
 // Phase 3: Resolver
 pub const resolver = @import("resolve/resolver.zig");
@@ -50,6 +51,7 @@ pub const WheelInfo = wheel.WheelInfo;
 pub const Platform = wheel.Platform;
 pub const Cache = cache.Cache;
 pub const MemoryCache = cache.MemoryCache;
+pub const FetchScheduler = scheduler.FetchScheduler;
 
 // Re-export main types - Resolver
 pub const Resolver = resolver.Resolver;

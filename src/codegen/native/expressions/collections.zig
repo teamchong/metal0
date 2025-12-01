@@ -58,11 +58,41 @@ fn allSameType(elements: []ast.Node) bool {
     return true;
 }
 
+/// Builtin type names that need special handling when used as first-class values
+/// Maps Python type names to runtime callable functions with ([]const u8) -> []const u8 signature
+const BuiltinTypeNames = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "bool", "runtime.boolBuiltin" },
+    .{ "int", "runtime.intBuiltin" },
+    .{ "float", "runtime.floatBuiltin" },
+    .{ "str", "runtime.strBuiltin" },
+    .{ "bytes", "runtime.bytesBuiltin" },
+    .{ "list", "runtime.listBuiltin" },
+    .{ "dict", "runtime.dictBuiltin" },
+    .{ "set", "runtime.setBuiltin" },
+    .{ "tuple", "runtime.tupleBuiltin" },
+    .{ "frozenset", "runtime.frozensetBuiltin" },
+    .{ "type", "runtime.typeBuiltin" },
+    .{ "object", "runtime.objectBuiltin" },
+    .{ "complex", "runtime.complexBuiltin" },
+});
+
 /// Generate an element for a list of callables (PyCallable)
 /// Wraps lambdas, classes, and other callable elements in PyCallable.fromFn
 fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: NativeType) CodegenError!void {
     switch (elem_type) {
         .callable => {
+            // Check if this is a builtin type name that needs wrapping
+            if (elem == .name) {
+                if (BuiltinTypeNames.get(elem.name.id)) |builtin_fn| {
+                    // Use PyCallable.fromAny with the runtime builtin function
+                    try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+                    try self.emit(builtin_fn);
+                    try self.emit("), ");
+                    try self.emit(builtin_fn);
+                    try self.emit(")");
+                    return;
+                }
+            }
             // Already a PyCallable (bytes_factory, etc.) - emit directly
             try genExpr(self, elem);
         },

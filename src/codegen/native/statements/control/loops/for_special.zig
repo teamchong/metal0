@@ -107,8 +107,15 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         }
     }
 
+    // Check if item variable is used in body
+    const item_var_used = param_analyzer.isNameUsedInBody(body, item_var);
+
     try self.emit(") |");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), item_var);
+    if (!item_var_used) {
+        try self.emit("_");
+    } else {
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), item_var);
+    }
     try self.emit("| {\n");
 
     self.indent();

@@ -155,6 +155,14 @@ pub fn genIf(self: *NativeCodegen, if_stmt: ast.Node.If) CodegenError!void {
 fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hoist_vars: bool) CodegenError!void {
     // Check for comptime constant conditions - eliminate dead branches
     if (isComptimeConstantCondition(if_stmt.condition.*)) |comptime_value| {
+        // Even though condition is comptime constant, we still need to "evaluate" it
+        // to mark any variables it uses as referenced (e.g., isinstance(x, T) uses x)
+        // Generate: _ = (condition); before the body
+        try self.emitIndent();
+        try self.emit("_ = ");
+        try self.genExpr(if_stmt.condition.*);
+        try self.emit(";\n");
+
         if (comptime_value) {
             // Condition is comptime True - only emit if body
             for (if_stmt.body) |stmt| {

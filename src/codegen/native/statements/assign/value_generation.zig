@@ -9,6 +9,8 @@ const zig_keywords = @import("zig_keywords");
 
 /// Generate tuple unpacking assignment: a, b = (1, 2)
 pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tuple: ast.Node.Tuple) CodegenError!void {
+    const core = @import("../../main/core.zig");
+
     // Generate unique temporary variable name
     const tmp_name = try std.fmt.allocPrint(self.allocator, "__unpack_tmp_{d}", .{self.unpack_counter});
     defer self.allocator.free(tmp_name);
@@ -66,10 +68,40 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             }
         }
     }
+
+    // Check if this is a call to a test factory function (script mode)
+    // If so, register the unpacked variable names as test classes
+    if (assign.value.* == .call) {
+        const call_node = assign.value.call;
+        if (call_node.func.* == .name) {
+            const func_name = call_node.func.name.id;
+            if (self.test_factories.get(func_name)) |factory_info| {
+                // Register each target with its corresponding class info
+                for (target_tuple.elts, 0..) |target, j| {
+                    if (target == .name and j < factory_info.returned_classes.len) {
+                        const var_name = target.name.id;
+                        const orig_class_info = factory_info.returned_classes[j];
+
+                        // Create a new TestClassInfo with the module-level variable name
+                        try self.unittest_classes.append(self.allocator, core.TestClassInfo{
+                            .class_name = var_name,
+                            .test_methods = orig_class_info.test_methods,
+                            .has_setUp = orig_class_info.has_setUp,
+                            .has_tearDown = orig_class_info.has_tearDown,
+                            .has_setup_class = orig_class_info.has_setup_class,
+                            .has_teardown_class = orig_class_info.has_teardown_class,
+                        });
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Generate list unpacking assignment: [a, b] = [1, 2] or a, b = x (when parsed as list)
 pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list: ast.Node.List) CodegenError!void {
+    const core = @import("../../main/core.zig");
+
     // Generate unique temporary variable name
     const tmp_name = try std.fmt.allocPrint(self.allocator, "__unpack_tmp_{d}", .{self.unpack_counter});
     defer self.allocator.free(tmp_name);
@@ -124,6 +156,34 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             }
         }
     }
+
+    // Check if this is a call to a test factory function (script mode)
+    // If so, register the unpacked variable names as test classes
+    if (assign.value.* == .call) {
+        const call_node = assign.value.call;
+        if (call_node.func.* == .name) {
+            const func_name = call_node.func.name.id;
+            if (self.test_factories.get(func_name)) |factory_info| {
+                // Register each target with its corresponding class info
+                for (target_list.elts, 0..) |target, j| {
+                    if (target == .name and j < factory_info.returned_classes.len) {
+                        const var_name = target.name.id;
+                        const orig_class_info = factory_info.returned_classes[j];
+
+                        // Create a new TestClassInfo with the module-level variable name
+                        try self.unittest_classes.append(self.allocator, core.TestClassInfo{
+                            .class_name = var_name,
+                            .test_methods = orig_class_info.test_methods,
+                            .has_setUp = orig_class_info.has_setUp,
+                            .has_tearDown = orig_class_info.has_tearDown,
+                            .has_setup_class = orig_class_info.has_setup_class,
+                            .has_teardown_class = orig_class_info.has_teardown_class,
+                        });
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Emit variable declaration with const/var decision
@@ -137,6 +197,18 @@ pub fn emitVarDeclaration(
     is_listcomp: bool,
     is_iterator: bool,
 ) CodegenError!void {
+    // Check if variable was forward-declared (captured by nested class before defined)
+    // If so, just emit the variable name for assignment, not a new declaration
+    if (self.forward_declared_vars.contains(var_name)) {
+        // Remove from forward_declared_vars so we don't suppress future shadowing declarations
+        _ = self.forward_declared_vars.fetchSwapRemove(var_name);
+        // Just emit variable name for assignment
+        const actual_name = self.var_renames.get(var_name) orelse var_name;
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+        try self.emit(" = ");
+        return;
+    }
+
     // Check if variable is mutated (reassigned later)
     // This checks both module-level analysis AND function-local mutations
     const is_mutated = self.isVarMutated(var_name);
@@ -183,6 +255,7 @@ pub fn emitVarDeclaration(
     const is_list = (value_type == .list);
     const is_tuple = (value_type == .tuple);
     const is_closure = (value_type == .closure);
+    const is_function = (value_type == .function); // Lambdas/closures - don't use *const fn type annotation
     const is_dict_type = (value_type == .dict);
     const is_counter = (value_type == .counter);
     const is_deque = (value_type == .deque);
@@ -195,7 +268,8 @@ pub fn emitVarDeclaration(
         return;
     }
 
-    if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_counter and !is_deque and !is_class_instance and !is_int) {
+    // For functions (lambdas), never emit *const fn type annotation - closures can't be coerced to function pointers
+    if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_function and !is_counter and !is_deque and !is_class_instance and !is_int) {
         try self.emit(": ");
         try value_type.toZigType(self.allocator, &self.output);
     }
@@ -426,6 +500,10 @@ pub fn trackVariableMetadata(
         if (lambda_mod.lambdaCapturesVars(self, assign.value.lambda)) {
             // This lambda generated a closure struct, mark it
             try lambda_closure.markAsClosure(self, var_name);
+            // Check if the lambda returns void (e.g., calls self.assertRaises)
+            if (lambda_closure.lambdaReturnsVoid(assign.value.lambda)) {
+                try lambda_closure.markAsVoidClosure(self, var_name);
+            }
         } else {
             // Simple lambda (no captures) - track as function pointer
             const key = try self.allocator.dupe(u8, var_name);

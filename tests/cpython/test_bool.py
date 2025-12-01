@@ -8,7 +8,6 @@ import os
 class BoolTest(unittest.TestCase):
 
     def test_subclass(self):
-        """skip: CPython-specific type system test (bool subclassing, int.__new__)"""
         try:
             class C(bool):
                 pass
@@ -20,7 +19,6 @@ class BoolTest(unittest.TestCase):
         self.assertRaises(TypeError, int.__new__, bool, 0)
 
     def test_repr(self):
-        """skip: eval() not properly handled"""
         self.assertEqual(repr(False), 'False')
         self.assertEqual(repr(True), 'True')
         self.assertIs(eval(repr(False)), False)
@@ -43,14 +41,12 @@ class BoolTest(unittest.TestCase):
         self.assertIsNot(float(True), True)
 
     def test_complex(self):
-        """skip: complex number comparison not fully implemented"""
         self.assertEqual(complex(False), 0j)
         self.assertEqual(complex(False), False)
         self.assertEqual(complex(True), 1+0j)
         self.assertEqual(complex(True), True)
 
     def test_math(self):
-        """skip: abs(bool) and bitwise ops on bool not supported"""
         self.assertEqual(+False, 0)
         self.assertIsNot(+False, False)
         self.assertEqual(-False, 0)
@@ -174,7 +170,6 @@ class BoolTest(unittest.TestCase):
         self.assertIs(not False, True)
 
     def test_convert(self):
-        """skip: assertRaises with type callable not supported"""
         self.assertRaises(TypeError, bool, 42, 42)
         self.assertIs(bool(10), True)
         self.assertIs(bool(1), True)
@@ -185,29 +180,24 @@ class BoolTest(unittest.TestCase):
         self.assertIs(bool(), False)
 
     def test_keyword_args(self):
-        """skip: assertRaisesRegex not fully implemented"""
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
             bool(x=10)
 
     def test_format(self):
-        """skip: % string formatting not implemented"""
         self.assertEqual("%d" % False, "0")
         self.assertEqual("%d" % True, "1")
         self.assertEqual("%x" % False, "0")
         self.assertEqual("%x" % True, "1")
 
     def test_hasattr(self):
-        """skip: hasattr on list literals not supported"""
         self.assertIs(hasattr([], "append"), True)
         self.assertIs(hasattr([], "wobble"), False)
 
     def test_callable(self):
-        """skip: callable() not implemented"""
         self.assertIs(callable(len), True)
         self.assertIs(callable(1), False)
 
     def test_isinstance(self):
-        """skip: isinstance with type objects not implemented"""
         self.assertIs(isinstance(True, bool), True)
         self.assertIs(isinstance(False, bool), True)
         self.assertIs(isinstance(True, int), True)
@@ -216,17 +206,14 @@ class BoolTest(unittest.TestCase):
         self.assertIs(isinstance(0, bool), False)
 
     def test_issubclass(self):
-        """skip: issubclass() not implemented"""
         self.assertIs(issubclass(bool, int), True)
         self.assertIs(issubclass(int, bool), False)
 
     def test_contains(self):
-        """skip: 'in' operator with dict literals"""
         self.assertIs(1 in {}, False)
         self.assertIs(1 in {1:1}, True)
 
     def test_string(self):
-        """skip: some string methods not implemented"""
         self.assertIs("xyz".endswith("z"), True)
         self.assertIs("xyz".endswith("x"), False)
         self.assertIs("xyz0123".isalnum(), True)
@@ -253,7 +240,6 @@ class BoolTest(unittest.TestCase):
         self.assertIs("xyz".startswith("z"), False)
 
     def test_boolean(self):
-        """skip: bool & int type issues"""
         self.assertEqual(True & 1, 1)
         self.assertNotIsInstance(True & 1, bool)
         self.assertIs(True & True, True)
@@ -267,7 +253,6 @@ class BoolTest(unittest.TestCase):
         self.assertIs(True ^ True, False)
 
     def test_fileclosed(self):
-        """skip: file operations not fully implemented"""
         try:
             with open(os_helper.TESTFN, "w", encoding="utf-8") as f:
                 self.assertIs(f.closed, False)
@@ -276,14 +261,12 @@ class BoolTest(unittest.TestCase):
             os.remove(os_helper.TESTFN)
 
     def test_types(self):
-        """skip: type objects as bool not implemented"""
         # types are always true.
         for t in [bool, complex, dict, float, int, list, object,
                   set, str, tuple, type]:
             self.assertIs(bool(t), True)
 
     def test_operator(self):
-        """skip: operator module not implemented"""
         import operator
         self.assertIs(operator.truth(0), False)
         self.assertIs(operator.truth(1), True)
@@ -299,20 +282,17 @@ class BoolTest(unittest.TestCase):
         self.assertIs(operator.is_not(True, False), True)
 
     def test_marshal(self):
-        """skip: marshal module not implemented"""
         import marshal
         self.assertIs(marshal.loads(marshal.dumps(True)), True)
         self.assertIs(marshal.loads(marshal.dumps(False)), False)
 
     def test_pickle(self):
-        """skip: pickle module not implemented"""
         import pickle
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.assertIs(pickle.loads(pickle.dumps(True, proto)), True)
             self.assertIs(pickle.loads(pickle.dumps(False, proto)), False)
 
     def test_picklevalues(self):
-        """skip: pickle module not implemented"""
         # Test for specific backwards-compatible pickle values
         import pickle
         self.assertEqual(pickle.dumps(True, protocol=0), b"I01\n.")
@@ -323,7 +303,6 @@ class BoolTest(unittest.TestCase):
         self.assertEqual(pickle.dumps(False, protocol=2), b'\x80\x02\x89.')
 
     def test_convert_to_bool(self):
-        """skip: CPython-specific __bool__ return type checking"""
         # Verify that TypeError occurs when bad things are returned
         # from __bool__().  This isn't really a bool test, but
         # it's related.
@@ -355,7 +334,6 @@ class BoolTest(unittest.TestCase):
         self.assertRaises(ValueError, bool, Eggs())
 
     def test_interpreter_convert_to_bool_raises(self):
-        """skip: CPython-specific __bool__ exception handling"""
         class SymbolicBool:
             def __bool__(self):
                 raise TypeError
@@ -376,12 +354,10 @@ class BoolTest(unittest.TestCase):
         del x
 
     def test_from_bytes(self):
-        """skip: bool.from_bytes not implemented"""
         self.assertIs(bool.from_bytes(b'\x00'*8, 'big'), False)
         self.assertIs(bool.from_bytes(b'abcd', 'little'), True)
 
     def test_sane_len(self):
-        """skip: CPython-specific __len__ exception handling"""
         # this test just tests our assumptions about __len__
         # this will start failing if __len__ changes assertions
         for badval in ['illegal', -1, 1 << 32]:
@@ -397,7 +373,6 @@ class BoolTest(unittest.TestCase):
                     self.assertEqual(str(e_bool), str(e_len))
 
     def test_blocked(self):
-        """skip: CPython-specific __bool__=None blocking"""
         class A:
             __bool__ = None
         self.assertRaises(TypeError, bool, A())
@@ -413,7 +388,6 @@ class BoolTest(unittest.TestCase):
         self.assertRaises(TypeError, bool, C())
 
     def test_real_and_imag(self):
-        """skip: bool.real/imag not implemented"""
         self.assertEqual(True.real, 1)
         self.assertEqual(True.imag, 0)
         self.assertIs(type(True.real), int)
@@ -424,7 +398,6 @@ class BoolTest(unittest.TestCase):
         self.assertIs(type(False.imag), int)
 
     def test_bool_called_at_least_once(self):
-        """skip: CPython-specific __bool__ call counting"""
         class X:
             def __init__(self):
                 self.count = 0
@@ -441,7 +414,6 @@ class BoolTest(unittest.TestCase):
         self.assertGreaterEqual(x.count, 1)
 
     def test_bool_new(self):
-        """skip: bool.__new__ not implemented"""
         self.assertIs(bool.__new__(bool), False)
         self.assertIs(bool.__new__(bool, 1), True)
         self.assertIs(bool.__new__(bool, 0), False)

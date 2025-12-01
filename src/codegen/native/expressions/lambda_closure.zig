@@ -106,7 +106,7 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     for (inner_lambda.args) |arg| {
         try closure_code.writer(self.allocator).writeAll(", ");
         try zig_keywords.writeEscapedIdent(closure_code.writer(self.allocator), arg.name);
-        try closure_code.writer(self.allocator).writeAll(": i64");
+        try closure_code.writer(self.allocator).writeAll(": anytype");
     }
 
     // Infer return type from inner lambda body
@@ -142,7 +142,7 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     for (outer_lambda.args, 0..) |arg, i| {
         if (i > 0) try closure_code.writer(self.allocator).writeAll(", ");
         try zig_keywords.writeEscapedIdent(closure_code.writer(self.allocator), arg.name);
-        try closure_code.writer(self.allocator).writeAll(": i64");
+        try closure_code.writer(self.allocator).writeAll(": anytype");
     }
     try closure_code.writer(self.allocator).print(") {s} {{\n", .{closure_name});
     try closure_code.writer(self.allocator).writeAll("    return .{\n");
@@ -173,10 +173,31 @@ pub fn markAsClosure(self: *NativeCodegen, var_name: []const u8) !void {
     try self.closure_vars.put(owned_name, {});
 }
 
+/// Mark a variable as holding a void-returning closure (no catch needed)
+pub fn markAsVoidClosure(self: *NativeCodegen, var_name: []const u8) !void {
+    const owned_name = try self.allocator.dupe(u8, var_name);
+    try self.void_closure_vars.put(owned_name, {});
+}
+
 /// Mark a variable as a closure factory (returns closures)
 pub fn markAsClosureFactory(self: *NativeCodegen, var_name: []const u8) !void {
     const owned_name = try self.allocator.dupe(u8, var_name);
     try self.closure_factories.put(owned_name, {});
+}
+
+/// Check if lambda body returns void (e.g., calls self.assertRaises)
+pub fn lambdaReturnsVoid(lambda: ast.Node.Lambda) bool {
+    // Check if body is a call on self.unittest_method
+    if (lambda.body.* == .call) {
+        const call = lambda.body.call;
+        if (call.func.* == .attribute) {
+            const attr = call.func.attribute;
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                return isUnittestMethod(attr.attr);
+            }
+        }
+    }
+    return false;
 }
 
 /// Generate simple closure for lambda capturing outer variables
@@ -210,18 +231,30 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     }
     try closure_code.writer(self.allocator).writeAll("\n");
 
-    // Call method - use __closure as parameter name to avoid shadowing captured "self" field
-    try closure_code.writer(self.allocator).writeAll("    pub fn call(__closure: @This()");
+    // Check if self is only used for unittest methods (in which case we don't need the captured self)
+    const self_only_for_unittest = isSelfOnlyForUnittest(lambda.body.*, captured_vars);
+
+    // Call method - use _ or __closure as parameter name depending on usage
+    if (self_only_for_unittest) {
+        try closure_code.writer(self.allocator).writeAll("    pub fn call(_: @This()");
+    } else {
+        try closure_code.writer(self.allocator).writeAll("    pub fn call(__closure: @This()");
+    }
     for (lambda.args) |arg| {
         try closure_code.writer(self.allocator).writeAll(", ");
         try zig_keywords.writeEscapedIdent(closure_code.writer(self.allocator), arg.name);
-        try closure_code.writer(self.allocator).writeAll(": i64");
+        try closure_code.writer(self.allocator).writeAll(": anytype");
     }
 
     // Infer return type
     const return_type = try inferReturnType(self, lambda.body.*);
     try closure_code.writer(self.allocator).print(") {s} {{\n", .{return_type});
-    try closure_code.writer(self.allocator).writeAll("        return ");
+    // Don't use return for void functions
+    if (std.mem.eql(u8, return_type, "void")) {
+        try closure_code.writer(self.allocator).writeAll("        ");
+    } else {
+        try closure_code.writer(self.allocator).writeAll("        return ");
+    }
 
     // Generate body with captured vars prefixed with "self."
     const saved_output = self.output;
@@ -233,9 +266,16 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     self.output = saved_output;
 
     try closure_code.writer(self.allocator).writeAll(body_code);
+
+    // Don't add semicolon if body already ends with } (block expressions like assertRaises)
+    const needs_semicolon = body_code.len == 0 or body_code[body_code.len - 1] != '}';
     self.allocator.free(body_code);
 
-    try closure_code.writer(self.allocator).writeAll(";\n    }\n};\n\n");
+    if (needs_semicolon) {
+        try closure_code.writer(self.allocator).writeAll(";\n    }\n};\n\n");
+    } else {
+        try closure_code.writer(self.allocator).writeAll("\n    }\n};\n\n");
+    }
 
     // Store closure struct
     try self.lambda_functions.append(self.allocator, try closure_code.toOwnedSlice(self.allocator));
@@ -328,6 +368,65 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
             self.allocator.free(const_code);
         },
         .call => |c| {
+            // Check for self.assertRaises(...) etc - unittest assertion methods on captured self
+            if (c.func.* == .attribute) {
+                const func_attr = c.func.attribute;
+                if (func_attr.value.* == .name) {
+                    const base_name = func_attr.value.name.id;
+                    // Check if this is a call on captured 'self' variable
+                    for (captured_vars) |captured| {
+                        if (std.mem.eql(u8, base_name, captured) and std.mem.eql(u8, captured, "self")) {
+                            // Check if method is a unittest assertion method
+                            if (isUnittestMethod(func_attr.attr)) {
+                                // Use existing method dispatch which handles unittest assertions properly
+                                // Create a node with 'self' as the object (not __closure.self)
+                                const method_calls = @import("../dispatch/method_calls.zig");
+                                // Build call args with captured vars - need to generate these first
+                                var temp_args = std.ArrayList(u8){};
+                                for (c.args, 0..) |arg, i| {
+                                    if (i > 0) try temp_args.writer(self.allocator).writeAll(", ");
+                                    // Generate arg to temp buffer
+                                    const saved = self.output;
+                                    self.output = std.ArrayList(u8){};
+                                    try genExprWithCapture(self, arg, captured_vars);
+                                    const arg_code = try self.output.toOwnedSlice(self.allocator);
+                                    self.output = saved;
+                                    try temp_args.writer(self.allocator).writeAll(arg_code);
+                                    self.allocator.free(arg_code);
+                                }
+                                // Call the unittest assertion generator directly
+                                const unittest_mod = @import("../unittest/mod.zig");
+                                // Manually dispatch to assertion generator based on method name
+                                if (std.mem.eql(u8, func_attr.attr, "assertRaises")) {
+                                    try unittest_mod.genAssertRaises(self, func_attr.value.*, c.args);
+                                } else if (std.mem.eql(u8, func_attr.attr, "assertEqual")) {
+                                    try unittest_mod.genAssertEqual(self, func_attr.value.*, c.args);
+                                } else if (std.mem.eql(u8, func_attr.attr, "assertTrue")) {
+                                    try unittest_mod.genAssertTrue(self, func_attr.value.*, c.args);
+                                } else if (std.mem.eql(u8, func_attr.attr, "assertFalse")) {
+                                    try unittest_mod.genAssertFalse(self, func_attr.value.*, c.args);
+                                } else {
+                                    // Fallback for other assertions - use generic dispatch
+                                    if (method_calls.UnittestMethods.get(func_attr.attr)) |handler| {
+                                        try handler(self, func_attr.value.*, c.args);
+                                    } else {
+                                        // Unknown unittest method - generate as-is
+                                        try genExprWithCapture(self, c.func.*, captured_vars);
+                                        try self.emit("(");
+                                        for (c.args, 0..) |arg, i| {
+                                            if (i > 0) try self.emit(", ");
+                                            try genExprWithCapture(self, arg, captured_vars);
+                                        }
+                                        try self.emit(")");
+                                    }
+                                }
+                                temp_args.deinit(self.allocator);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
             try genExprWithCapture(self, c.func.*, captured_vars);
             try self.emit("(");
             for (c.args, 0..) |arg, i| {
@@ -395,8 +494,102 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
     }
 }
 
+/// Check if 'self' captured variable is only used for unittest assertion methods
+/// In this case, we don't need the closure to actually access self, since we dispatch
+/// to runtime.unittest.* functions directly
+fn isSelfOnlyForUnittest(body: ast.Node, captured_vars: [][]const u8) bool {
+    // Check if self is in captured vars
+    var has_self = false;
+    for (captured_vars) |v| {
+        if (std.mem.eql(u8, v, "self")) {
+            has_self = true;
+            break;
+        }
+    }
+    if (!has_self) return false;
+
+    // Check if body is a call on self.unittest_method
+    if (body == .call) {
+        const call = body.call;
+        if (call.func.* == .attribute) {
+            const attr = call.func.attribute;
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                return isUnittestMethod(attr.attr);
+            }
+        }
+    }
+    return false;
+}
+
+/// Check if a method name is a unittest assertion method
+fn isUnittestMethod(method_name: []const u8) bool {
+    const unittest_methods = [_][]const u8{
+        "assertEqual",
+        "assertTrue",
+        "assertFalse",
+        "assertIsNone",
+        "assertGreater",
+        "assertLess",
+        "assertGreaterEqual",
+        "assertLessEqual",
+        "assertNotEqual",
+        "assertIs",
+        "assertIsNot",
+        "assertIsNotNone",
+        "assertIn",
+        "assertNotIn",
+        "assertAlmostEqual",
+        "assertNotAlmostEqual",
+        "assertCountEqual",
+        "assertRaises",
+        "assertRaisesRegex",
+        "assertRegex",
+        "assertNotRegex",
+        "assertIsInstance",
+        "assertNotIsInstance",
+        "assertIsSubclass",
+        "assertNotIsSubclass",
+        "assertWarns",
+        "assertWarnsRegex",
+        "assertStartsWith",
+        "assertNotStartsWith",
+        "assertEndsWith",
+        "assertHasAttr",
+        "assertNotHasAttr",
+        "assertSequenceEqual",
+        "assertListEqual",
+        "assertTupleEqual",
+        "assertSetEqual",
+        "assertDictEqual",
+        "assertMultiLineEqual",
+        "assertLogs",
+        "assertNoLogs",
+        "fail",
+        "skipTest",
+        "assertFloatsAreIdentical",
+    };
+    for (unittest_methods) |m| {
+        if (std.mem.eql(u8, method_name, m)) return true;
+    }
+    return false;
+}
+
 /// Infer return type from lambda body expression
 fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8 {
+    // Check for unittest assertion calls which return void
+    if (body == .call) {
+        const call = body.call;
+        if (call.func.* == .attribute) {
+            const attr = call.func.attribute;
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                // Check if it's a unittest assertion method
+                if (isUnittestMethod(attr.attr)) {
+                    return "void";
+                }
+            }
+        }
+    }
+
     const inferred_type = self.type_inferrer.inferExpr(body) catch {
         return "i64";
     };

@@ -270,10 +270,333 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
         return @as(f64, first);
     }
     if (first_info == .pointer) {
-        return std.fmt.parseFloat(f64, first) catch return PythonError.ValueError;
+        return parseFloatWithUnicode(first) catch return PythonError.ValueError;
+    }
+    // Handle custom classes that inherit from str/bytes/float (have __base_value__ field)
+    if (first_info == .@"struct") {
+        if (@hasField(FirstType, "__base_value__")) {
+            const base_value = first.__base_value__;
+            const BaseType = @TypeOf(base_value);
+            const base_info = @typeInfo(BaseType);
+            // If base_value is already a float, return it directly
+            if (base_info == .float or base_info == .comptime_float) {
+                return @as(f64, base_value);
+            }
+            // If base_value is an int, convert to float
+            if (base_info == .int or base_info == .comptime_int) {
+                return @as(f64, @floatFromInt(base_value));
+            }
+            // If base_value is a string/slice, parse it
+            if (base_info == .pointer or base_info == .array) {
+                return parseFloatWithUnicode(base_value) catch return PythonError.ValueError;
+            }
+        }
+        // Check for __float__ method
+        if (@hasDecl(FirstType, "__float__")) {
+            const result = first.__float__();
+            // __float__ might return error union or plain value
+            const ResultType = @TypeOf(result);
+            const result_info = @typeInfo(ResultType);
+            if (result_info == .error_union) {
+                return result catch return PythonError.ValueError;
+            }
+            // __float__ should return f64, but handle legacy code that returns int
+            if (result_info == .float or result_info == .comptime_float) {
+                return result;
+            }
+            return @as(f64, @floatFromInt(result));
+        }
     }
 
     return PythonError.TypeError;
+}
+
+/// bool() builtin call wrapper for assertRaises testing
+/// Handles bool(x) with proper error checking - bool() takes exactly 0 or 1 argument
+pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
+    const FirstType = @TypeOf(first);
+    const first_info = @typeInfo(FirstType);
+    const RestType = @TypeOf(rest);
+    const rest_info = @typeInfo(RestType);
+
+    // bool() takes at most one argument
+    const has_extra_args = rest_info == .@"struct" and rest_info.@"struct".fields.len > 0;
+    if (has_extra_args) {
+        return PythonError.TypeError;
+    }
+
+    // Handle void/empty first arg (bool() with no args returns False)
+    if (FirstType == void or first_info == .@"struct" and first_info.@"struct".fields.len == 0) {
+        return false;
+    }
+
+    // Convert to bool using Python truthiness rules
+    if (first_info == .bool) {
+        return first;
+    }
+    if (first_info == .int or first_info == .comptime_int) {
+        return first != 0;
+    }
+    if (first_info == .float or first_info == .comptime_float) {
+        return first != 0.0;
+    }
+    if (first_info == .pointer and first_info.pointer.size == .slice) {
+        return first.len > 0;
+    }
+    // Handle custom classes that inherit from builtin types
+    if (first_info == .@"struct") {
+        if (@hasField(FirstType, "__base_value__")) {
+            const base_value = first.__base_value__;
+            const BaseType = @TypeOf(base_value);
+            const base_info = @typeInfo(BaseType);
+            if (base_info == .bool) return base_value;
+            if (base_info == .int or base_info == .comptime_int) return base_value != 0;
+            if (base_info == .float or base_info == .comptime_float) return base_value != 0.0;
+            if (base_info == .pointer and base_info.pointer.size == .slice) return base_value.len > 0;
+        }
+        // Check for __bool__ method
+        if (@hasDecl(FirstType, "__bool__")) {
+            return first.__bool__();
+        }
+        // Check for __len__ method (containers are truthy if len > 0)
+        if (@hasDecl(FirstType, "__len__")) {
+            return first.__len__() > 0;
+        }
+    }
+
+    // Default: objects are truthy
+    return true;
+}
+
+/// Parse float string with Unicode digit support (Python-compatible)
+/// Handles Arabic-Indic digits (\u0660-\u0669), Extended Arabic-Indic (\u06F0-\u06F9),
+/// Devanagari (\u0966-\u096F), and other Unicode digit ranges
+pub fn parseFloatWithUnicode(str: []const u8) !f64 {
+    // Trim whitespace first (including Unicode whitespace)
+    var trimmed = trimUnicodeWhitespace(str);
+    if (trimmed.len == 0) return error.InvalidFloat;
+
+    // Python's float() rejects hex literals - use float.fromhex() for that
+    // Reject strings starting with 0x, 0X, -0x, -0X, +0x, +0X
+    if (trimmed.len >= 2) {
+        const start = if (trimmed[0] == '-' or trimmed[0] == '+') trimmed[1..] else trimmed;
+        if (start.len >= 2 and start[0] == '0' and (start[1] == 'x' or start[1] == 'X')) {
+            return error.InvalidFloat;
+        }
+        // Reject multiple signs: ++, +-, -+, --
+        if ((trimmed[0] == '+' or trimmed[0] == '-') and (trimmed[1] == '+' or trimmed[1] == '-')) {
+            return error.InvalidFloat;
+        }
+        // Reject malformed: .nan, +.inf, -.inf, +., -., just .
+        if (trimmed[0] == '.' and trimmed.len > 1) {
+            const next = trimmed[1];
+            if (next == 'n' or next == 'N' or next == 'i' or next == 'I') {
+                return error.InvalidFloat;
+            }
+        }
+        if ((trimmed[0] == '+' or trimmed[0] == '-') and trimmed.len > 1 and trimmed[1] == '.') {
+            if (trimmed.len == 2) return error.InvalidFloat; // just "+." or "-."
+            const next = trimmed[2];
+            if (next == 'n' or next == 'N' or next == 'i' or next == 'I') {
+                return error.InvalidFloat;
+            }
+        }
+    }
+    // Just "." is invalid
+    if (trimmed.len == 1 and trimmed[0] == '.') {
+        return error.InvalidFloat;
+    }
+
+    // First try standard parsing (fast path for ASCII)
+    if (std.fmt.parseFloat(f64, trimmed)) |val| {
+        return val;
+    } else |_| {}
+
+    // Try to normalize Unicode digits to ASCII
+    var buf: [256]u8 = undefined;
+    var buf_len: usize = 0;
+    var i: usize = 0;
+
+    while (i < trimmed.len) {
+        if (buf_len >= buf.len - 1) return error.InvalidFloat; // Buffer overflow protection
+
+        const byte = trimmed[i];
+
+        // ASCII characters pass through
+        if (byte < 0x80) {
+            buf[buf_len] = byte;
+            buf_len += 1;
+            i += 1;
+            continue;
+        }
+
+        // Try to decode UTF-8 and convert Unicode digits
+        const codepoint = decodeUtf8Codepoint(trimmed[i..]) catch {
+            i += 1;
+            continue;
+        };
+        const cp_len = utf8CodepointLen(byte);
+
+        // Check if it's a Unicode digit and convert to ASCII
+        if (unicodeDigitToAscii(codepoint)) |ascii_digit| {
+            buf[buf_len] = ascii_digit;
+            buf_len += 1;
+        } else if (codepoint == 0x066B or codepoint == 0x066C) {
+            // Arabic decimal/thousands separator - use as decimal point
+            buf[buf_len] = '.';
+            buf_len += 1;
+        } else {
+            // Skip other Unicode characters (whitespace was already trimmed)
+            // This allows things like EM SPACE around the number
+        }
+
+        i += cp_len;
+    }
+
+    if (buf_len == 0) return error.InvalidFloat;
+
+    return std.fmt.parseFloat(f64, buf[0..buf_len]) catch error.InvalidFloat;
+}
+
+/// Decode a UTF-8 codepoint from bytes
+fn decodeUtf8Codepoint(bytes: []const u8) !u21 {
+    if (bytes.len == 0) return error.InvalidUtf8;
+
+    const first = bytes[0];
+    if (first < 0x80) {
+        return first;
+    } else if (first < 0xC0) {
+        return error.InvalidUtf8;
+    } else if (first < 0xE0) {
+        if (bytes.len < 2) return error.InvalidUtf8;
+        return (@as(u21, first & 0x1F) << 6) | (bytes[1] & 0x3F);
+    } else if (first < 0xF0) {
+        if (bytes.len < 3) return error.InvalidUtf8;
+        return (@as(u21, first & 0x0F) << 12) | (@as(u21, bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F);
+    } else {
+        if (bytes.len < 4) return error.InvalidUtf8;
+        return (@as(u21, first & 0x07) << 18) | (@as(u21, bytes[1] & 0x3F) << 12) | (@as(u21, bytes[2] & 0x3F) << 6) | (bytes[3] & 0x3F);
+    }
+}
+
+/// Get UTF-8 byte length from first byte
+fn utf8CodepointLen(first_byte: u8) usize {
+    if (first_byte < 0x80) return 1;
+    if (first_byte < 0xE0) return 2;
+    if (first_byte < 0xF0) return 3;
+    return 4;
+}
+
+/// Convert Unicode digit codepoint to ASCII digit character
+fn unicodeDigitToAscii(codepoint: u21) ?u8 {
+    // Arabic-Indic digits (٠-٩) U+0660-U+0669
+    if (codepoint >= 0x0660 and codepoint <= 0x0669) {
+        return @intCast('0' + (codepoint - 0x0660));
+    }
+    // Extended Arabic-Indic digits (۰-۹) U+06F0-U+06F9
+    if (codepoint >= 0x06F0 and codepoint <= 0x06F9) {
+        return @intCast('0' + (codepoint - 0x06F0));
+    }
+    // Devanagari digits (०-९) U+0966-U+096F
+    if (codepoint >= 0x0966 and codepoint <= 0x096F) {
+        return @intCast('0' + (codepoint - 0x0966));
+    }
+    // Bengali digits (০-৯) U+09E6-U+09EF
+    if (codepoint >= 0x09E6 and codepoint <= 0x09EF) {
+        return @intCast('0' + (codepoint - 0x09E6));
+    }
+    // Gurmukhi digits U+0A66-U+0A6F
+    if (codepoint >= 0x0A66 and codepoint <= 0x0A6F) {
+        return @intCast('0' + (codepoint - 0x0A66));
+    }
+    // Gujarati digits U+0AE6-U+0AEF
+    if (codepoint >= 0x0AE6 and codepoint <= 0x0AEF) {
+        return @intCast('0' + (codepoint - 0x0AE6));
+    }
+    // Tamil digits U+0BE6-U+0BEF
+    if (codepoint >= 0x0BE6 and codepoint <= 0x0BEF) {
+        return @intCast('0' + (codepoint - 0x0BE6));
+    }
+    // Thai digits U+0E50-U+0E59
+    if (codepoint >= 0x0E50 and codepoint <= 0x0E59) {
+        return @intCast('0' + (codepoint - 0x0E50));
+    }
+    // Fullwidth digits (０-９) U+FF10-U+FF19
+    if (codepoint >= 0xFF10 and codepoint <= 0xFF19) {
+        return @intCast('0' + (codepoint - 0xFF10));
+    }
+    return null;
+}
+
+/// Trim Unicode whitespace from both ends
+fn trimUnicodeWhitespace(str: []const u8) []const u8 {
+    var start: usize = 0;
+    var end: usize = str.len;
+
+    // Trim leading whitespace
+    while (start < end) {
+        const byte = str[start];
+        if (byte < 0x80) {
+            // ASCII whitespace
+            if (byte == ' ' or byte == '\t' or byte == '\n' or byte == '\r' or byte == 0x0B or byte == 0x0C) {
+                start += 1;
+                continue;
+            }
+            break;
+        }
+        // Check for Unicode whitespace
+        const codepoint = decodeUtf8Codepoint(str[start..]) catch break;
+        if (isUnicodeWhitespace(codepoint)) {
+            start += utf8CodepointLen(byte);
+            continue;
+        }
+        break;
+    }
+
+    // Trim trailing whitespace
+    while (end > start) {
+        // Find start of last character
+        var char_start = end - 1;
+        while (char_start > start and (str[char_start] & 0xC0) == 0x80) {
+            char_start -= 1;
+        }
+
+        const byte = str[char_start];
+        if (byte < 0x80) {
+            if (byte == ' ' or byte == '\t' or byte == '\n' or byte == '\r' or byte == 0x0B or byte == 0x0C) {
+                end = char_start;
+                continue;
+            }
+            break;
+        }
+        const codepoint = decodeUtf8Codepoint(str[char_start..end]) catch break;
+        if (isUnicodeWhitespace(codepoint)) {
+            end = char_start;
+            continue;
+        }
+        break;
+    }
+
+    return str[start..end];
+}
+
+/// Check if codepoint is Unicode whitespace
+fn isUnicodeWhitespace(codepoint: u21) bool {
+    return switch (codepoint) {
+        0x0009...0x000D, // Tab, LF, VT, FF, CR
+        0x0020, // Space
+        0x0085, // Next Line
+        0x00A0, // No-Break Space
+        0x1680, // Ogham Space Mark
+        0x2000...0x200A, // En Quad through Hair Space (includes En Space 0x2002, Em Space 0x2003)
+        0x2028, // Line Separator
+        0x2029, // Paragraph Separator
+        0x202F, // Narrow No-Break Space
+        0x205F, // Medium Mathematical Space
+        0x3000, // Ideographic Space
+        => true,
+        else => false,
+    };
 }
 
 /// Convert any value to float - handles both native types and class instances

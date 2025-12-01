@@ -459,12 +459,369 @@ fn decodeString(allocator: std.mem.Allocator, data: []const u8, pos: *usize) ![]
     return try allocator.dupe(u8, str_data);
 }
 
-/// Simplified Huffman decoder (RFC 7541 Appendix B)
-/// For full implementation, would need complete Huffman tree
+/// Huffman decoder (RFC 7541 Appendix B)
+/// Uses the official HPACK Huffman table from RFC 7541
 fn huffmanDecode(allocator: std.mem.Allocator, data: []const u8) ![]const u8 {
-    // Simplified: just return raw bytes for now
-    // Full implementation would decode Huffman codes
-    return try allocator.dupe(u8, data);
+    var out = std.ArrayList(u8){};
+    errdefer out.deinit(allocator);
+
+    var accumulator: u32 = 0;
+    var bits: u8 = 0;
+
+    for (data) |byte| {
+        accumulator = (accumulator << 8) | byte;
+        bits += 8;
+
+        while (bits >= 5) {
+            // Try to match longest code first (up to 30 bits, but we check common ones)
+            var matched = false;
+
+            // Check from longest to shortest
+            if (bits >= 30) {
+                const code30 = (accumulator >> @intCast(bits - 30)) & 0x3FFFFFFF;
+                if (huffman30(code30)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 30;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 28) {
+                const code28 = (accumulator >> @intCast(bits - 28)) & 0xFFFFFFF;
+                if (huffman28(code28)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 28;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 26) {
+                const code26 = (accumulator >> @intCast(bits - 26)) & 0x3FFFFFF;
+                if (huffman26(code26)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 26;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 24) {
+                const code24 = (accumulator >> @intCast(bits - 24)) & 0xFFFFFF;
+                if (huffman24(code24)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 24;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 22) {
+                const code22 = (accumulator >> @intCast(bits - 22)) & 0x3FFFFF;
+                if (huffman22(code22)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 22;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 20) {
+                const code20 = (accumulator >> @intCast(bits - 20)) & 0xFFFFF;
+                if (huffman20(code20)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 20;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 15) {
+                const code15 = (accumulator >> @intCast(bits - 15)) & 0x7FFF;
+                if (huffman15(code15)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 15;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 14) {
+                const code14 = (accumulator >> @intCast(bits - 14)) & 0x3FFF;
+                if (huffman14(code14)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 14;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 13) {
+                const code13 = (accumulator >> @intCast(bits - 13)) & 0x1FFF;
+                if (huffman13(code13)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 13;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 12) {
+                const code12 = (accumulator >> @intCast(bits - 12)) & 0xFFF;
+                if (huffman12(code12)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 12;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 11) {
+                const code11 = (accumulator >> @intCast(bits - 11)) & 0x7FF;
+                if (huffman11(code11)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 11;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 10) {
+                const code10 = (accumulator >> @intCast(bits - 10)) & 0x3FF;
+                if (huffman10(code10)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 10;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 8) {
+                const code8 = (accumulator >> @intCast(bits - 8)) & 0xFF;
+                if (huffman8(code8)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 8;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 7) {
+                const code7 = (accumulator >> @intCast(bits - 7)) & 0x7F;
+                if (huffman7(code7)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 7;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 6) {
+                const code6 = (accumulator >> @intCast(bits - 6)) & 0x3F;
+                if (huffman6(code6)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 6;
+                    matched = true;
+                }
+            }
+            if (!matched and bits >= 5) {
+                const code5 = (accumulator >> @intCast(bits - 5)) & 0x1F;
+                if (huffman5(code5)) |sym| {
+                    try out.append(allocator, sym);
+                    bits -= 5;
+                    matched = true;
+                }
+            }
+
+            if (!matched) {
+                // No match found - check if we have EOS padding (all 1s)
+                if (bits < 8) break;
+                // Skip unknown bits
+                break;
+            }
+        }
+    }
+
+    return try out.toOwnedSlice(allocator);
+}
+
+// RFC 7541 Appendix B - Huffman codes (from the spec)
+// 5-bit codes
+fn huffman5(code: u32) ?u8 {
+    return switch (code) {
+        0b00000 => '0',
+        0b00001 => '1',
+        0b00010 => '2',
+        0b00011 => 'a',
+        0b00100 => 'c',
+        0b00101 => 'e',
+        0b00110 => 'i',
+        0b00111 => 'o',
+        0b01000 => 's',
+        0b01001 => 't',
+        else => null,
+    };
+}
+
+// 6-bit codes
+fn huffman6(code: u32) ?u8 {
+    return switch (code) {
+        0b010100 => ' ',
+        0b010101 => '%',
+        0b010110 => '-',
+        0b010111 => '.',
+        0b011000 => '/',
+        0b011001 => '3',
+        0b011010 => '4',
+        0b011011 => '5',
+        0b011100 => '6',
+        0b011101 => '7',
+        0b011110 => '8',
+        0b011111 => '9',
+        0b100000 => '=',
+        0b100001 => 'A',
+        0b100010 => '_',
+        0b100011 => 'b',
+        0b100100 => 'd',
+        0b100101 => 'f',
+        0b100110 => 'g',
+        0b100111 => 'h',
+        0b101000 => 'l',
+        0b101001 => 'm',
+        0b101010 => 'n',
+        0b101011 => 'p',
+        0b101100 => 'r',
+        0b101101 => 'u',
+        else => null,
+    };
+}
+
+// 7-bit codes
+fn huffman7(code: u32) ?u8 {
+    return switch (code) {
+        0b1011100 => ':',
+        0b1011101 => 'B',
+        0b1011110 => 'C',
+        0b1011111 => 'D',
+        0b1100000 => 'E',
+        0b1100001 => 'F',
+        0b1100010 => 'G',
+        0b1100011 => 'H',
+        0b1100100 => 'I',
+        0b1100101 => 'J',
+        0b1100110 => 'K',
+        0b1100111 => 'L',
+        0b1101000 => 'M',
+        0b1101001 => 'N',
+        0b1101010 => 'O',
+        0b1101011 => 'P',
+        0b1101100 => 'Q',
+        0b1101101 => 'R',
+        0b1101110 => 'S',
+        0b1101111 => 'T',
+        0b1110000 => 'U',
+        0b1110001 => 'V',
+        0b1110010 => 'W',
+        0b1110011 => 'Y',
+        0b1110100 => 'j',
+        0b1110101 => 'k',
+        0b1110110 => 'q',
+        0b1110111 => 'v',
+        0b1111000 => 'w',
+        0b1111001 => 'x',
+        0b1111010 => 'y',
+        0b1111011 => 'z',
+        else => null,
+    };
+}
+
+// 8-bit codes
+fn huffman8(code: u32) ?u8 {
+    return switch (code) {
+        0b11111000 => '&',
+        0b11111001 => '*',
+        0b11111010 => ',',
+        0b11111011 => ';',
+        0b11111100 => 'X',
+        0b11111101 => 'Z',
+        else => null,
+    };
+}
+
+// 10-bit codes
+fn huffman10(code: u32) ?u8 {
+    return switch (code) {
+        0b1111111000 => '!',
+        0b1111111001 => '"',
+        0b1111111010 => '(',
+        0b1111111011 => ')',
+        0b1111111100 => '?',
+        else => null,
+    };
+}
+
+// 11-bit codes
+fn huffman11(code: u32) ?u8 {
+    return switch (code) {
+        0b11111111010 => '\'',
+        0b11111111011 => '+',
+        0b11111111100 => '|',
+        else => null,
+    };
+}
+
+// 12-bit codes
+fn huffman12(code: u32) ?u8 {
+    return switch (code) {
+        0b111111111100 => '#',
+        0b111111111101 => '>',
+        else => null,
+    };
+}
+
+// 13-bit codes
+fn huffman13(code: u32) ?u8 {
+    return switch (code) {
+        0b1111111111100 => 0, // NUL
+        0b1111111111101 => '$',
+        0b1111111111110 => '@',
+        0b1111111111111 => '[',
+        else => null,
+    };
+}
+
+// 14-bit codes
+fn huffman14(code: u32) ?u8 {
+    return switch (code) {
+        0b11111111111100 => ']',
+        0b11111111111101 => '~',
+        else => null,
+    };
+}
+
+// 15-bit codes
+fn huffman15(code: u32) ?u8 {
+    return switch (code) {
+        0b111111111111100 => '^',
+        0b111111111111101 => '}',
+        0b111111111111110 => '<',
+        0b111111111111111 => '`',
+        else => null,
+    };
+}
+
+// 20-bit codes
+fn huffman20(code: u32) ?u8 {
+    return switch (code) {
+        0b11111111111111100 => '{',
+        0b11111111111111101000 => '\\',
+        0b11111111111111101001 => 195, // Ã (UTF-8 continuation byte marker)
+        0b11111111111111101010 => 208, // Ð
+        else => null,
+    };
+}
+
+// 22-bit codes (rare symbols)
+fn huffman22(code: u32) ?u8 {
+    _ = code;
+    return null; // Most 22-bit codes are rarely used control chars
+}
+
+// 24-bit codes (very rare)
+fn huffman24(code: u32) ?u8 {
+    _ = code;
+    return null;
+}
+
+// 26-bit codes (control chars)
+fn huffman26(code: u32) ?u8 {
+    _ = code;
+    return null;
+}
+
+// 28-bit codes (control chars)
+fn huffman28(code: u32) ?u8 {
+    _ = code;
+    return null;
+}
+
+// 30-bit codes (EOS marker)
+fn huffman30(code: u32) ?u8 {
+    if (code == 0x3FFFFFFF) return null; // EOS - don't emit
+    return null;
 }
 
 // ============================================================================

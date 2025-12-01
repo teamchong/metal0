@@ -72,6 +72,13 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             try self.emit("_ = ");
             added_discard_prefix = true;
         } else if (self.closure_vars.contains(func_name)) {
+            // Check if this is a void-returning closure (like one that calls assertRaises)
+            if (self.void_closure_vars.contains(func_name)) {
+                // Void closure - just call it directly without catch
+                try self.genExpr(expr);
+                try self.emit(";\n");
+                return;
+            }
             // Closure calls return error unions - discard both value and error
             // Generate: _ = call(...) catch {}
             try self.emit("_ = ");

@@ -116,9 +116,25 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
                     try self.output.writer(self.allocator).print("{s}.__captured_{s}.*", .{ self_name, name_to_use });
                 }
+            } else if (self.current_class_name) |class_name| {
+                // Inside a class: check if this name matches the current class name
+                // In Zig, you can't refer to a struct by name from inside it - use @This() instead
+                if (std.mem.eql(u8, name_to_use, class_name)) {
+                    try self.emit("@This()");
+                } else {
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
+                    if (self.nested_class_names.contains(name_to_use)) {
+                        try self.nested_class_zig_refs.put(name_to_use, {});
+                    }
+                }
             } else {
                 // Use writeLocalVarName to handle keywords AND method shadowing
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
+                // Track that we referenced this nested class in generated Zig code
+                // This is used to determine which classes need _ = ClassName; suppression
+                if (self.nested_class_names.contains(name_to_use)) {
+                    try self.nested_class_zig_refs.put(name_to_use, {});
+                }
             }
         },
         .fstring => |f| try genFString(self, f),

@@ -28,11 +28,40 @@ fn isTailRecursiveCall(self: *NativeCodegen, value: ast.Node) ?ast.Node.Call {
     return call;
 }
 
+/// Magic method return conversion info
+const MagicMethodConversion = struct {
+    prefix: []const u8,
+    suffix: []const u8,
+};
+
+/// Get conversion wrapper for magic method return values
+/// Some dunder methods have fixed return types that require conversion
+/// NOTE: __int__, __index__ don't need wrappers - they return i64 directly
+fn getMagicMethodConversion(method_name: []const u8) ?MagicMethodConversion {
+    const converters = std.StaticStringMap(MagicMethodConversion).initComptime(.{
+        .{ "__bool__", MagicMethodConversion{ .prefix = "runtime.toBool(", .suffix = ")" } },
+        .{ "__len__", MagicMethodConversion{ .prefix = "@as(i64, @intCast(", .suffix = "))" } },
+        .{ "__hash__", MagicMethodConversion{ .prefix = "@as(i64, @intCast(", .suffix = "))" } },
+        .{ "__float__", MagicMethodConversion{ .prefix = "runtime.toFloat(", .suffix = ")" } },
+    });
+    return converters.get(method_name);
+}
+
 /// Generate return statement with tail-call optimization
 pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
     try self.emitIndent();
 
     if (ret.value) |value| {
+        // Check if returning a pre-generated closure (e.g., return with_metaclass where with_metaclass is a nested function)
+        if (value.* == .name) {
+            const name = value.name.id;
+            if (self.pending_closure_types.get(name)) |type_name| {
+                // Return an instance of the pre-generated closure type
+                try self.output.writer(self.allocator).print("return {s}{{}};\n", .{type_name});
+                return;
+            }
+        }
+
         // Check for tail-recursive call
         if (isTailRecursiveCall(self, value.*)) |call| {
             // Emit: return @call(.always_tail, func_name, .{args})
@@ -50,9 +79,22 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             return;
         }
 
-        // Normal return
+        // Normal return - check if inside a magic method that needs conversion
         try self.emit("return ");
-        try self.genExpr(value.*);
+
+        // Check if we're inside a magic method that needs return value conversion
+        const conversion = if (self.current_function_name) |fn_name|
+            getMagicMethodConversion(fn_name)
+        else
+            null;
+
+        if (conversion) |conv| {
+            try self.emit(conv.prefix);
+            try self.genExpr(value.*);
+            try self.emit(conv.suffix);
+        } else {
+            try self.genExpr(value.*);
+        }
     } else {
         try self.emit("return ");
     }

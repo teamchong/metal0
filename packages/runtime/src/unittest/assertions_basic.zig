@@ -282,6 +282,16 @@ pub fn assertEqual(a: anytype, b: anytype) void {
         return assertEqual(a, unwrapped);
     }
 
+    // Unwrap PyObject pointers before comparison
+    if (A == *runtime.PyObject) {
+        const py_val = runtime.pyObjectToValue(a);
+        return assertEqual(py_val, b);
+    }
+    if (B == *runtime.PyObject) {
+        const py_val = runtime.pyObjectToValue(b);
+        return assertEqual(a, py_val);
+    }
+
     const equal = blk: {
 
         // Same type - direct comparison
@@ -343,6 +353,14 @@ pub fn assertEqual(a: anytype, b: anytype) void {
         // Float comparisons
         if ((a_info == .float or a_info == .comptime_float) and (b_info == .float or b_info == .comptime_float)) {
             break :blk @abs(@as(f64, a) - @as(f64, b)) < 0.0001;
+        }
+
+        // Float to int comparisons (for eval() results converted via pyObjectToValue)
+        if ((a_info == .float or a_info == .comptime_float) and (b_info == .int or b_info == .comptime_int)) {
+            break :blk @abs(@as(f64, a) - @as(f64, @floatFromInt(b))) < 0.0001;
+        }
+        if ((a_info == .int or a_info == .comptime_int) and (b_info == .float or b_info == .comptime_float)) {
+            break :blk @abs(@as(f64, @floatFromInt(a)) - @as(f64, b)) < 0.0001;
         }
 
         // Bool comparisons

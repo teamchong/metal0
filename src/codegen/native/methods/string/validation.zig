@@ -184,3 +184,39 @@ pub fn genIsprintable(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
     try self.emit("    break :blk true;\n");
     try self.emit("}");
 }
+
+/// Generate code for text.isdecimal()
+/// Returns true if all characters are decimal characters (0-9)
+/// In Python, isdecimal is more restrictive than isdigit - only matches 0-9
+pub fn genIsdecimal(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    try self.emit("blk: {\n");
+    try self.emit("    const _text = ");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+    try self.emit("    if (_text.len == 0) break :blk false;\n");
+    try self.emit("    for (_text) |c| {\n");
+    try self.emit("        if (c < '0' or c > '9') break :blk false;\n");
+    try self.emit("    }\n");
+    try self.emit("    break :blk true;\n");
+    try self.emit("}");
+}
+
+/// Generate code for text.isnumeric()
+/// Returns true if all characters are numeric
+/// For ASCII-only, this is same as isdigit (0-9)
+pub fn genIsnumeric(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    try self.emit("blk: {\n");
+    try self.emit("    const _text = ");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+    try self.emit("    if (_text.len == 0) break :blk false;\n");
+    try self.emit("    for (_text) |c| {\n");
+    try self.emit("        if (!std.ascii.isDigit(c)) break :blk false;\n");
+    try self.emit("    }\n");
+    try self.emit("    break :blk true;\n");
+    try self.emit("}");
+}

@@ -64,6 +64,10 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
 
 /// Generate operator.add(a, b) -> a + b
 pub fn genAdd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorAdd{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 0)");
         return;
@@ -77,6 +81,10 @@ pub fn genAdd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.sub(a, b) -> a - b
 pub fn genSub(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorSub{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 0)");
         return;
@@ -90,6 +98,10 @@ pub fn genSub(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.mul(a, b) -> a * b
 pub fn genMul(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorMul{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 0)");
         return;
@@ -103,6 +115,10 @@ pub fn genMul(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.truediv(a, b) -> a / b
 pub fn genTruediv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorTruediv{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(f64, 0.0)");
         return;
@@ -116,6 +132,10 @@ pub fn genTruediv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.floordiv(a, b) -> a // b
 pub fn genFloordiv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorFloordiv{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 0)");
         return;
@@ -132,7 +152,8 @@ pub fn genFloordiv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         // Return callable struct for function reference: mod = operator.mod
-        try self.emit("runtime.builtins.OperatorMod{}");
+        // Wrap in parens to ensure Zig parses {}.call() correctly
+        try self.emit("(runtime.builtins.OperatorMod{})");
         return;
     }
     if (args.len < 2) {
@@ -169,7 +190,7 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate operator.neg(a) -> -a
 pub fn genNeg(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("@as(i64, 0)");
+        try self.emit("(runtime.builtins.OperatorNeg{})");
         return;
     }
     try self.emit("(-");
@@ -180,7 +201,7 @@ pub fn genNeg(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate operator.pos(a) -> +a
 pub fn genPos(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("@as(i64, 0)");
+        try self.emit("(runtime.builtins.OperatorPos{})");
         return;
     }
     try self.genExpr(args[0]);
@@ -189,7 +210,7 @@ pub fn genPos(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate operator.abs(a) -> |a|
 pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("@as(i64, 0)");
+        try self.emit("(runtime.builtins.OperatorAbs{})");
         return;
     }
     try self.emit("@abs(");
@@ -200,7 +221,7 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate operator.invert(a) -> ~a
 pub fn genInvert(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("@as(i64, 0)");
+        try self.emit("(runtime.builtins.OperatorInvert{})");
         return;
     }
     try self.emit("(~@as(i64, ");
@@ -210,6 +231,10 @@ pub fn genInvert(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.lshift(a, b) -> a << b
 pub fn genLshift(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorLshift{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 0)");
         return;
@@ -223,6 +248,10 @@ pub fn genLshift(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.rshift(a, b) -> a >> b
 pub fn genRshift(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorRshift{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 0)");
         return;
@@ -236,6 +265,10 @@ pub fn genRshift(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.and_(a, b) -> a & b
 pub fn genAnd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorAnd{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 0)");
         return;
@@ -249,6 +282,10 @@ pub fn genAnd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.or_(a, b) -> a | b
 pub fn genOr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorOr{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 0)");
         return;
@@ -262,6 +299,10 @@ pub fn genOr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.xor(a, b) -> a ^ b
 pub fn genXor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorXor{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 0)");
         return;
@@ -274,28 +315,37 @@ pub fn genXor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate operator.not_(a) -> not a
+/// In Python, not 1 returns False because 1 is truthy
+/// Need to convert to bool first before negating
 pub fn genNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         try self.emit("true");
         return;
     }
-    try self.emit("!");
+    // First convert to bool (Python truthiness), then negate
+    try self.emit("(!(runtime.toBool(");
     try self.genExpr(args[0]);
+    try self.emit(")))");
 }
 
 /// Generate operator.truth(a) -> bool(a)
+/// Use runtime.toBool for proper Python truthiness
 pub fn genTruth(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         try self.emit("false");
         return;
     }
-    try self.emit("(");
+    try self.emit("runtime.toBool(");
     try self.genExpr(args[0]);
-    try self.emit(" != 0)");
+    try self.emit(")");
 }
 
 /// Generate operator.eq(a, b) -> a == b
 pub fn genEq(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorEq{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("false");
         return;
@@ -309,6 +359,10 @@ pub fn genEq(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.ne(a, b) -> a != b
 pub fn genNe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorNe{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("true");
         return;
@@ -322,6 +376,10 @@ pub fn genNe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.lt(a, b) -> a < b
 pub fn genLt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorLt{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("false");
         return;
@@ -335,6 +393,10 @@ pub fn genLt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.le(a, b) -> a <= b
 pub fn genLe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorLe{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("false");
         return;
@@ -348,6 +410,10 @@ pub fn genLe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.gt(a, b) -> a > b
 pub fn genGt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorGt{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("false");
         return;
@@ -361,6 +427,10 @@ pub fn genGt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.ge(a, b) -> a >= b
 pub fn genGe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorGe{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("false");
         return;
@@ -400,6 +470,10 @@ pub fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.concat(a, b) -> a + b (sequences)
 pub fn genConcat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("(runtime.builtins.OperatorConcat{})");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("&[_]u8{}");
         return;
@@ -409,8 +483,16 @@ pub fn genConcat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate operator.contains(a, b) -> b in a
 pub fn genContains(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
+    if (args.len < 2) {
+        try self.emit("false");
+        return;
+    }
+    // Use runtime.containsGeneric(container, item)
+    try self.emit("runtime.containsGeneric(");
+    try self.genExpr(args[0]);
+    try self.emit(", ");
+    try self.genExpr(args[1]);
+    try self.emit(")");
 }
 
 /// Generate operator.countOf(a, b) -> count of b in a

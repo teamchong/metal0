@@ -19,30 +19,19 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Checks if object matches expected type at compile time
 /// For native codegen, this is a compile-time type check
 pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // isinstance returns true at compile time - only consume args with side effects (calls)
-    // Simple names don't need discarding - that causes "pointless discard" errors
+    // isinstance returns true at compile time
+    // However, we MUST reference all arguments to avoid "unused parameter" warnings in Zig
+    // when isinstance(x, int) appears in a function body but x is only used here
     if (args.len >= 2) {
-        const has_side_effects = args[0] == .call or args[1] == .call;
-        if (has_side_effects) {
-            try self.emit("blk: { ");
-            if (args[0] == .call) {
-                try self.emit("_ = ");
-                try self.genExpr(args[0]);
-                try self.emit("; ");
-            }
-            if (args[1] == .call) {
-                try self.emit("_ = ");
-                try self.genExpr(args[1]);
-                try self.emit("; ");
-            }
-            try self.emit("break :blk true; }");
-        } else {
-            try self.emit("true");
-        }
-    } else if (args.len >= 1 and args[0] == .call) {
-        try self.emit("blk: { _ = ");
+        // Always consume first arg to avoid unused param/var warnings
+        // Use @TypeOf() since that doesn't require runtime and silences the warning
+        try self.emit("blk: { _ = @TypeOf(");
         try self.genExpr(args[0]);
-        try self.emit("; break :blk true; }");
+        try self.emit("); break :blk true; }");
+    } else if (args.len >= 1) {
+        try self.emit("blk: { _ = @TypeOf(");
+        try self.genExpr(args[0]);
+        try self.emit("); break :blk true; }");
     } else {
         try self.emit("true");
     }

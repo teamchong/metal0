@@ -59,6 +59,22 @@ pub fn genZeroCaptureClosure(
             try self.output.writer(self.allocator).print("_: anytype", .{});
         }
     }
+    // Handle vararg (*args) parameter
+    if (func.vararg) |vararg_name| {
+        if (func.args.len > 0) try self.emit(", ");
+        const is_vararg_used = var_tracking.isParamUsedInStmts(vararg_name, func.body);
+        if (is_vararg_used) {
+            const unique_vararg_name = try std.fmt.allocPrint(
+                self.allocator,
+                "__p_{s}_{d}",
+                .{ vararg_name, saved_counter },
+            );
+            try param_renames.put(vararg_name, unique_vararg_name);
+            try self.output.writer(self.allocator).print("{s}: anytype", .{unique_vararg_name});
+        } else {
+            try self.emit("_: anytype");
+        }
+    }
     // Look up the function's inferred return type from type inference
     // Use it for proper type safety, falling back to anytype workaround via @TypeOf
     const return_type = self.type_inferrer.func_return_types.get(func.name);
@@ -112,11 +128,34 @@ pub fn genZeroCaptureClosure(
         }
     }
 
+    // Handle vararg scope declaration and rename mapping
+    if (func.vararg) |vararg_name| {
+        try self.declareVar(vararg_name);
+        if (param_renames.get(vararg_name)) |renamed| {
+            const is_reassigned = var_tracking.isParamReassignedInStmts(vararg_name, func.body);
+            if (is_reassigned) {
+                const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ vararg_name, saved_counter });
+                try reassigned_param_vars.append(self.allocator, var_name);
+                try self.var_renames.put(vararg_name, var_name);
+            } else {
+                try self.var_renames.put(vararg_name, renamed);
+            }
+        }
+    }
+
     // Emit var copies for reassigned parameters
     for (func.args) |arg| {
         if (var_tracking.isParamReassignedInStmts(arg.name, func.body) and param_renames.get(arg.name) != null) {
             try self.emitIndent();
             try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ arg.name, saved_counter, arg.name, saved_counter });
+        }
+    }
+
+    // Emit var copy for reassigned vararg
+    if (func.vararg) |vararg_name| {
+        if (var_tracking.isParamReassignedInStmts(vararg_name, func.body) and param_renames.get(vararg_name) != null) {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ vararg_name, saved_counter, vararg_name, saved_counter });
         }
     }
 
@@ -162,6 +201,11 @@ pub fn genZeroCaptureClosure(
         _ = self.var_renames.swapRemove(arg.name);
     }
 
+    // Remove vararg rename after body generation
+    if (func.vararg) |vararg_name| {
+        _ = self.var_renames.swapRemove(vararg_name);
+    }
+
     // Free renamed param names
     var rename_iter = param_renames.valueIterator();
     while (rename_iter.next()) |renamed| {
@@ -192,21 +236,22 @@ pub fn genZeroCaptureClosure(
 
     try self.emitIndent();
     try self.emit("const ");
-    // Check if function name shadows an imported module name (e.g., "test" shadows "import test")
-    // If so, use a unique name to avoid redefinition error
-    const shadows_import = self.imported_modules.contains(func.name);
-    const wrapper_name = if (shadows_import)
-        try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
-    else
-        func.name;
+    // Always use a unique wrapper name to avoid conflicts with:
+    // 1. Imported module names (e.g., "test" shadows "import test")
+    // 2. Nested class method names (e.g., closure "foo" vs class method "foo")
+    // Using unique names prevents Zig's "shadows local constant" errors
+    const wrapper_name = try std.fmt.allocPrint(self.allocator, "__closure_{s}_{d}", .{ func.name, saved_counter });
     // Don't defer free - the name is stored in var_renames for later reference
     // Register rename so references use the correct name
-    if (shadows_import) {
-        try self.var_renames.put(func.name, wrapper_name);
-    }
+    try self.var_renames.put(func.name, wrapper_name);
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), wrapper_name);
-    if (func.args.len == 1) {
-        // Single arg - create simple wrapper struct
+
+    // Calculate total param count (including vararg)
+    const has_vararg = func.vararg != null;
+    const total_params = func.args.len + @intFromBool(has_vararg);
+
+    if (total_params == 1 and !has_vararg) {
+        // Single arg (no vararg) - create simple wrapper struct
         const unique_param = try std.fmt.allocPrint(
             self.allocator,
             "__p_{s}_{d}",
@@ -228,7 +273,7 @@ pub fn genZeroCaptureClosure(
         try self.emitIndent();
         try self.emit("}{};\n");
     } else {
-        // Multiple args - create wrapper struct with unique parameter names
+        // Multiple args or has vararg - create wrapper struct with unique parameter names
         // Use a different counter for wrapper params (saved_counter is already used above)
         const wrapper_counter = self.lambda_counter;
         self.lambda_counter += 1;
@@ -249,6 +294,17 @@ pub fn genZeroCaptureClosure(
                 .{ arg.name, wrapper_counter },
             );
             try param_names.append(self.allocator, unique_name);
+        }
+
+        // Add vararg to param_names
+        var vararg_param_name: ?[]const u8 = null;
+        if (func.vararg) |vararg_name| {
+            vararg_param_name = try std.fmt.allocPrint(
+                self.allocator,
+                "__p_{s}_{d}",
+                .{ vararg_name, wrapper_counter },
+            );
+            try param_names.append(self.allocator, vararg_param_name.?);
         }
 
         try self.emit(" = struct {\n");
@@ -277,7 +333,200 @@ pub fn genZeroCaptureClosure(
         try self.emit("}{};\n");
     }
 
+    // Suppress unused local constant warning for the wrapper
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("_ = &{s};\n", .{wrapper_name});
+
     // Mark as closure so calls use .call() syntax
+    const func_name_copy = try self.allocator.dupe(u8, func.name);
+    try self.closure_vars.put(func_name_copy, {});
+}
+
+/// Generate a zero-capture closure at module level.
+/// This is called during the pre-scan phase for functions that return closures.
+/// The generated type can be used as the function's return type.
+pub fn genModuleLevelZeroCaptureClosure(
+    self: *NativeCodegen,
+    func: ast.Node.FunctionDef,
+    type_name: []const u8,
+) CodegenError!void {
+    const saved_counter = self.lambda_counter;
+
+    // Generate the implementation struct at module level
+    const impl_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__ModImpl_{s}_{d}",
+        .{ func.name, saved_counter },
+    );
+    defer self.allocator.free(impl_name);
+
+    const inner_fn_name = try std.fmt.allocPrint(
+        self.allocator,
+        "__fn_{s}_{d}",
+        .{ func.name, saved_counter },
+    );
+    defer self.allocator.free(inner_fn_name);
+
+    // Build param name mappings for unique names
+    var param_renames = std.StringHashMap([]const u8).init(self.allocator);
+    defer {
+        var iter = param_renames.valueIterator();
+        while (iter.next()) |v| self.allocator.free(v.*);
+        param_renames.deinit();
+    }
+
+    // Generate impl struct
+    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{impl_name});
+    try self.output.writer(self.allocator).print("    fn {s}(", .{inner_fn_name});
+
+    // Generate parameters
+    for (func.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        const is_used = var_tracking.isParamUsedInStmts(arg.name, func.body);
+        if (is_used) {
+            const unique_param_name = try std.fmt.allocPrint(
+                self.allocator,
+                "__p_{s}_{d}",
+                .{ arg.name, saved_counter },
+            );
+            try param_renames.put(arg.name, unique_param_name);
+            try self.output.writer(self.allocator).print("{s}: anytype", .{unique_param_name});
+        } else {
+            try self.emit("_: anytype");
+        }
+    }
+
+    // Handle vararg
+    if (func.vararg) |vararg_name| {
+        if (func.args.len > 0) try self.emit(", ");
+        const is_vararg_used = var_tracking.isParamUsedInStmts(vararg_name, func.body);
+        if (is_vararg_used) {
+            const unique_vararg_name = try std.fmt.allocPrint(
+                self.allocator,
+                "__p_{s}_{d}",
+                .{ vararg_name, saved_counter },
+            );
+            try param_renames.put(vararg_name, unique_vararg_name);
+            try self.output.writer(self.allocator).print("{s}: anytype", .{unique_vararg_name});
+        } else {
+            try self.emit("_: anytype");
+        }
+    }
+
+    // Determine return type
+    const return_type = self.type_inferrer.func_return_types.get(func.name);
+    if (return_type) |rt| {
+        try self.emit(") !");
+        const native_types = @import("../../../../../analysis/native_types.zig");
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+        try native_types.NativeType.toZigType(rt, self.allocator, &type_buf);
+        try self.emit(type_buf.items);
+        try self.emit(" {\n");
+    } else {
+        try self.emit(") !*runtime.PyObject {\n");
+    }
+
+    // Generate function body
+    try self.pushScope();
+
+    // Add parameter renames to var_renames temporarily
+    var rename_keys = std.ArrayList([]const u8){};
+    defer rename_keys.deinit(self.allocator);
+    var rename_iter = param_renames.iterator();
+    while (rename_iter.next()) |entry| {
+        try self.declareVar(entry.key_ptr.*);
+        try self.var_renames.put(entry.key_ptr.*, entry.value_ptr.*);
+        try rename_keys.append(self.allocator, entry.key_ptr.*);
+    }
+
+    // Handle vararg scope
+    if (func.vararg) |vararg_name| {
+        try self.declareVar(vararg_name);
+        if (param_renames.get(vararg_name)) |renamed| {
+            try self.var_renames.put(vararg_name, renamed);
+        }
+    }
+
+    self.indent();
+    self.indent(); // Extra indent for inside struct fn
+
+    for (func.body) |stmt| {
+        try self.generateStmt(stmt);
+    }
+
+    self.dedent();
+    self.dedent();
+    self.popScope();
+
+    // Remove param renames
+    for (rename_keys.items) |key| {
+        _ = self.var_renames.swapRemove(key);
+    }
+    if (func.vararg) |vararg_name| {
+        _ = self.var_renames.swapRemove(vararg_name);
+    }
+
+    try self.emit("    }\n");
+    try self.emit("};\n\n");
+
+    // Generate wrapper type with the specified type_name
+    // This wrapper calls the impl struct
+    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{type_name});
+    try self.emit("    pub fn call(_: @This()");
+
+    // Parameter list for wrapper
+    const wrapper_counter = saved_counter + 1;
+    var param_names = std.ArrayList([]const u8){};
+    defer {
+        for (param_names.items) |name| self.allocator.free(name);
+        param_names.deinit(self.allocator);
+    }
+
+    for (func.args) |arg| {
+        const unique_name = try std.fmt.allocPrint(
+            self.allocator,
+            "__p_{s}_{d}",
+            .{ arg.name, wrapper_counter },
+        );
+        try param_names.append(self.allocator, unique_name);
+        try self.output.writer(self.allocator).print(", {s}: anytype", .{unique_name});
+    }
+
+    if (func.vararg) |vararg_name| {
+        const vararg_param_name = try std.fmt.allocPrint(
+            self.allocator,
+            "__p_{s}_{d}",
+            .{ vararg_name, wrapper_counter },
+        );
+        try param_names.append(self.allocator, vararg_param_name);
+        try self.output.writer(self.allocator).print(", {s}: anytype", .{vararg_param_name});
+    }
+
+    // Return type for wrapper
+    if (return_type) |rt| {
+        try self.emit(") !");
+        const native_types = @import("../../../../../analysis/native_types.zig");
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+        try native_types.NativeType.toZigType(rt, self.allocator, &type_buf);
+        try self.emit(type_buf.items);
+        try self.emit(" {\n");
+    } else {
+        try self.emit(") !*runtime.PyObject {\n");
+    }
+
+    // Call impl
+    try self.output.writer(self.allocator).print("        return try {s}.{s}(", .{ impl_name, inner_fn_name });
+    for (param_names.items, 0..) |pname, i| {
+        if (i > 0) try self.emit(", ");
+        try self.emit(pname);
+    }
+    try self.emit(");\n");
+    try self.emit("    }\n");
+    try self.emit("};\n\n");
+
+    // Mark the function as a closure
     const func_name_copy = try self.allocator.dupe(u8, func.name);
     try self.closure_vars.put(func_name_copy, {});
 }

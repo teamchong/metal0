@@ -71,6 +71,13 @@ pub fn getBuiltinBaseInfo(base_name: []const u8) ?BuiltinBaseInfo {
                 .{ .name = "__value", .zig_type = "[]const u8", .default = "\"\"" },
             },
         } },
+        .{ "bytearray", BuiltinBaseInfo{
+            .zig_type = "[]const u8",
+            .zig_init = "__value",
+            .init_args = &.{
+                .{ .name = "__value", .zig_type = "[]const u8", .default = "\"\"" },
+            },
+        } },
     });
 
     return builtin_bases.get(base_name);
@@ -198,6 +205,13 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         .required_params = required_count,
     });
 
+    // Analyze nested class captures BEFORE generating signature
+    // This allows genFunctionSignature to know which parameters are "used" via closures
+    // The nested_class_captures map is populated here and read in signature.zig
+    self.func_local_vars.clearRetainingCapacity();
+    self.nested_class_captures.clearRetainingCapacity();
+    try body.analyzeNestedClassCaptures(self, func);
+
     // Generate function signature
     try signature.genFunctionSignature(self, func, needs_allocator);
 
@@ -271,7 +285,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     }
 
     // Track unittest TestCase classes and their test methods
-    if (is_unittest_class) {
+    // Only register classes defined at module level - classes inside functions
+    // are not directly accessible and must be discovered through module-level bindings
+    if (is_unittest_class and self.current_function_name == null) {
         const core = @import("../../main/core.zig");
         var test_methods = std.ArrayList(core.TestMethodInfo){};
         var has_setUp = false;
@@ -306,6 +322,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         "CPython implementation test (not applicable to metal0)"
                     else if (hasSkipUnlessCPythonModule(method.decorators))
                         "Requires CPython-only module (_pylong or _decimal)"
+                    else if (hasSkipIfModuleIsNone(method.decorators, &self.skipped_modules))
+                        "Requires unavailable optional module"
                     else if (hasTypeParameterDefault(method.args))
                         "Test uses runtime type parameters (cls=float)"
                     else if (callsSelfMethodWithClassArg(method.body, class_names))
@@ -459,6 +477,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{effective_class_name});
     self.indent();
 
+    // Set current class name early so init() and all methods use @This() for self-references
+    // Save previous value for nested class support
+    const prev_class_name = self.current_class_name;
+    self.current_class_name = class.name;
+    defer self.current_class_name = prev_class_name;
+
     // Add pointer fields for captured outer variables
     if (captured_vars) |vars| {
         try self.emitIndent();
@@ -467,6 +491,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             try self.emitIndent();
             // Use *const i64 as the default type - const because we read, not modify
             // For loop variables (range, lists), this is compatible with isize/i64
+            // NOTE: This won't work for list captures in forward-reference patterns
             try self.output.writer(self.allocator).print("__captured_{s}: *const i64,\n", .{var_name});
         }
         try self.emit("\n");
@@ -664,15 +689,50 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     try self.emitIndent();
     try self.emit("};\n");
 
+    // For nested classes (inside functions/methods), emit _ = &ClassName; immediately
+    // to suppress "unused local constant" errors. We use & (address-of) to avoid
+    // "pointless discard" errors when the class IS actually used elsewhere.
+    // This must be done here (not at end of function) because classes inside
+    // if/for/while blocks are out of scope at function end.
+    if (needs_save_restore and self.indent_level > 0) {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("_ = &{s};\n", .{effective_class_name});
+    }
+
     // Declare the class name in current scope to detect redefinitions
     try self.declareVar(effective_class_name);
 
-    // For nested classes (inside functions), suppress unused warning only if truly unused
-    // Check needs_save_restore which accounts for classes inside functions
-    if (needs_save_restore and self.isVarUnused(class.name)) {
-        try self.emitIndent();
-        try self.output.writer(self.allocator).print("_ = {s};\n", .{effective_class_name});
+    // For nested classes inside functions, emit _ = BaseName; for local class bases
+    // This is needed because Python base classes don't generate Zig struct references -
+    // the inheritance is structural (copying methods), not referential
+    // e.g., "class F(float, H)" doesn't reference H in Zig, so H appears "unused"
+    // BUT: Only emit if the base class is truly unused (not referenced elsewhere in the function)
+    if (needs_save_restore and self.indent_level > 0) {
+        for (class.bases) |base_name| {
+            // Skip builtin types (int, float, str, etc.)
+            if (getBuiltinBaseInfo(base_name) != null) continue;
+            if (getComplexParentInfo(base_name) != null) continue;
+            // Skip unittest.TestCase and similar
+            if (std.mem.indexOf(u8, base_name, ".") != null) continue;
+            // Skip Exception bases
+            if (std.mem.endsWith(u8, base_name, "Error") or std.mem.endsWith(u8, base_name, "Exception")) continue;
+            // Skip if base is used elsewhere in the function (not just as a base class)
+            if (!self.isVarUnused(base_name)) continue;
+            // This is likely a local class used as a base - emit _ = X; to prevent unused warning
+            // Only emit if the base is in nested_class_names (i.e., defined in this scope)
+            if (self.nested_class_names.contains(base_name)) {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("_ = {s};\n", .{base_name});
+            }
+        }
     }
+
+    // NOTE: We do NOT emit _ = ClassName; here anymore.
+    // Instead, we defer unused class suppression to the end of function body.
+    // This is necessary because:
+    // 1. Classes may be used later in the same scope (e.g., class D defined before being referenced)
+    // 2. Classes may be used in Python statements that don't translate to Zig
+    // See function_gen.zig emitNestedClassUnusedSuppression() for the deferred emit logic.
 }
 
 /// Convert Python default value to Zig code for test method parameters
@@ -811,7 +871,7 @@ fn hasSkipDocstring(func_body: []const ast.Node) bool {
 
 /// Check if test has @support.cpython_only decorator
 /// These tests are CPython implementation details and should be skipped by non-CPython implementations
-fn hasCPythonOnlyDecorator(decorators: []const ast.Node) bool {
+pub fn hasCPythonOnlyDecorator(decorators: []const ast.Node) bool {
     for (decorators) |decorator| {
         if (decorator == .attribute) {
             const attr = decorator.attribute;
@@ -828,7 +888,7 @@ fn hasCPythonOnlyDecorator(decorators: []const ast.Node) bool {
 
 /// Check if test has @unittest.skipUnless with CPython-only module (_pylong, _decimal)
 /// These modules are C extensions internal to CPython and not available in metal0
-fn hasSkipUnlessCPythonModule(decorators: []const ast.Node) bool {
+pub fn hasSkipUnlessCPythonModule(decorators: []const ast.Node) bool {
     for (decorators) |decorator| {
         if (decorator == .call) {
             const call = decorator.call;
@@ -845,6 +905,47 @@ fn hasSkipUnlessCPythonModule(decorators: []const ast.Node) bool {
                                     std.mem.eql(u8, arg_name, "_decimal"))
                                 {
                                     return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Check if test has @unittest.skipIf(module is None, ...) where module is unavailable
+/// This detects: @unittest.skipIf(_testcapi is None, 'needs _testcapi')
+/// and skips the test if _testcapi was marked as unavailable during try/except import
+fn hasSkipIfModuleIsNone(decorators: []const ast.Node, skipped_modules: *const hashmap_helper.StringHashMap(void)) bool {
+    for (decorators) |decorator| {
+        if (decorator == .call) {
+            const call = decorator.call;
+            // Check if it's unittest.skipIf
+            if (call.func.* == .attribute) {
+                const func_attr = call.func.attribute;
+                if (std.mem.eql(u8, func_attr.attr, "skipIf")) {
+                    if (func_attr.value.* == .name and std.mem.eql(u8, func_attr.value.name.id, "unittest")) {
+                        // Check first argument for: module_name is None
+                        if (call.args.len > 0) {
+                            if (call.args[0] == .compare) {
+                                const cmp = call.args[0].compare;
+                                // Check for "X is None" pattern
+                                if (cmp.ops.len > 0 and cmp.ops[0] == .Is) {
+                                    if (cmp.left.* == .name and cmp.comparators.len > 0) {
+                                        const module_name = cmp.left.name.id;
+                                        // Check if comparator is None
+                                        const comparator = cmp.comparators[0];
+                                        const is_none = if (comparator == .constant)
+                                            comparator.constant.value == .none
+                                        else
+                                            false;
+                                        if (is_none and skipped_modules.contains(module_name)) {
+                                            return true;
+                                        }
+                                    }
                                 }
                             }
                         }

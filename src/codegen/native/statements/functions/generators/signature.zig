@@ -16,6 +16,37 @@ const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
     .{ "list", "anytype" },
 });
 
+/// Magic method return types - these have fixed return types in Python
+/// regardless of what the method body might suggest
+const MagicMethodReturnTypes = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "__bool__", "bool" },
+    .{ "__len__", "i64" },
+    .{ "__hash__", "i64" },
+    .{ "__repr__", "[]const u8" },
+    .{ "__str__", "[]const u8" },
+    .{ "__bytes__", "[]const u8" },
+    .{ "__format__", "[]const u8" },
+    .{ "__int__", "i64" },
+    .{ "__float__", "f64" },
+    .{ "__index__", "i64" },
+    .{ "__sizeof__", "i64" },
+    .{ "__contains__", "bool" },
+    .{ "__eq__", "bool" },
+    .{ "__ne__", "bool" },
+    .{ "__lt__", "bool" },
+    .{ "__le__", "bool" },
+    .{ "__gt__", "bool" },
+    .{ "__ge__", "bool" },
+    // __new__ should return the class instance type, but in Zig we can't determine
+    // the type at compile time, especially for metaclasses. Default to i64.
+    .{ "__new__", "i64" },
+});
+
+/// Get the fixed return type for a magic method, or null if not a special method
+pub fn getMagicMethodReturnType(method_name: []const u8) ?[]const u8 {
+    return MagicMethodReturnTypes.get(method_name);
+}
+
 /// Convert Python type hint to Zig type
 pub fn pythonTypeToZig(type_hint: ?[]const u8) []const u8 {
     if (type_hint) |hint| {
@@ -177,6 +208,52 @@ pub fn returnsLambda(body: []ast.Node) bool {
     return false;
 }
 
+/// Check if function returns a nested function (closure by name)
+/// Returns the name of the nested function if found, null otherwise
+pub fn getReturnedNestedFuncName(body: []ast.Node) ?[]const u8 {
+    // First, collect all nested function names defined in this body
+    var nested_funcs: [32][]const u8 = undefined;
+    var nested_count: usize = 0;
+
+    for (body) |stmt| {
+        if (stmt == .function_def) {
+            if (nested_count < nested_funcs.len) {
+                nested_funcs[nested_count] = stmt.function_def.name;
+                nested_count += 1;
+            }
+        }
+    }
+
+    if (nested_count == 0) return null;
+
+    // Now check if any return statement returns one of these names
+    for (body) |stmt| {
+        if (stmt == .return_stmt) {
+            if (stmt.return_stmt.value) |val| {
+                if (val.* == .name) {
+                    for (nested_funcs[0..nested_count]) |func_name| {
+                        if (std.mem.eql(u8, val.name.id, func_name)) {
+                            return func_name;
+                        }
+                    }
+                }
+            }
+        }
+        // Check nested statements
+        if (stmt == .if_stmt) {
+            if (getReturnedNestedFuncName(stmt.if_stmt.body)) |name| return name;
+            if (getReturnedNestedFuncName(stmt.if_stmt.else_body)) |name| return name;
+        }
+        if (stmt == .while_stmt) {
+            if (getReturnedNestedFuncName(stmt.while_stmt.body)) |name| return name;
+        }
+        if (stmt == .for_stmt) {
+            if (getReturnedNestedFuncName(stmt.for_stmt.body)) |name| return name;
+        }
+    }
+    return null;
+}
+
 /// Check if lambda references 'self' in its body (captures self from method scope)
 pub fn lambdaCapturesSelf(lambda_body: ast.Node) bool {
     return switch (lambda_body) {
@@ -286,7 +363,10 @@ pub fn genFunctionSignature(
         if (i > 0) try self.emit(", ");
 
         // Check if parameter is used in function body - prefix unused with "_"
-        const is_used = param_analyzer.isNameUsedInBody(func.body, arg.name);
+        // Also check if parameter is captured by any nested class (used via closure)
+        const is_used_directly = param_analyzer.isNameUsedInBody(func.body, arg.name);
+        const is_captured = self.isVarCapturedByAnyNestedClass(arg.name);
+        const is_used = is_used_directly or is_captured;
         if (!is_used) {
             try self.emit("_");
         }
@@ -526,6 +606,24 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
             try self.emit("@TypeOf(");
             try self.emit(param_name);
             try self.emit(") {\n");
+        } else if (getReturnedNestedFuncName(func.body)) |nested_func_name| {
+            // Function returns a nested function (closure factory pattern)
+            // The closure wrapper struct must be pre-declared at module level
+            // Check if we have a pre-declared closure type for this
+            const closure_type_name = self.pending_closure_types.get(nested_func_name);
+            if (closure_type_name) |type_name| {
+                if (needs_allocator) {
+                    try self.emit("!");
+                }
+                try self.emit(type_name);
+                try self.emit(" {\n");
+            } else {
+                // No pre-declared type - fallback to i64 (will cause type error if actually returned)
+                if (needs_allocator) {
+                    try self.emit("!");
+                }
+                try self.emit("i64 {\n");
+            }
         } else {
             // Try to infer return type from func_return_types
             const inferred_type = self.type_inferrer.func_return_types.get(func.name);
@@ -588,11 +686,19 @@ pub fn genMethodSignatureWithSkip(
 
     // Check if self is actually used in the method body
     // If method is skipped, self is never used since body is replaced with empty stub
-    // Also, if this class has captured variables, methods need self to access them
-    const class_has_captures = self.current_class_captures != null;
+    // Also, if this class has captured variables and the method actually uses them, self is needed
     // Check if class has a known parent - if not, super() calls compile to no-ops and don't use self
     const has_known_parent = self.getParentClassName(class_name) != null;
-    const uses_self = if (is_skipped) false else (class_has_captures or self_analyzer.usesSelfWithContext(method.body, has_known_parent));
+    // Check if method body uses any captured variables (they're accessed via self.__captured_*)
+    const method_uses_captures = if (self.current_class_captures) |captures| blk: {
+        for (captures) |var_name| {
+            if (param_analyzer.isNameUsedInBody(method.body, var_name)) {
+                break :blk true;
+            }
+        }
+        break :blk false;
+    } else false;
+    const uses_self = if (is_skipped) false else (method_uses_captures or self_analyzer.usesSelfWithContext(method.body, has_known_parent));
 
     // For __new__ methods, the first Python parameter is 'cls' not 'self', and the body often
     // does 'self = super().__new__(cls)' which would shadow a 'self' parameter.
@@ -763,6 +869,9 @@ pub fn genMethodSignatureWithSkip(
             const zig_return_type = pythonTypeToZig(method.return_type);
             try self.emit(zig_return_type);
         }
+    } else if (getMagicMethodReturnType(method.name)) |magic_return_type| {
+        // Special dunder methods have fixed return types regardless of inference
+        try self.emit(magic_return_type);
     } else if (hasReturnStatement(method.body)) {
         // Check if method returns a lambda that captures self (closure)
         if (getReturnedLambda(method.body)) |lambda| {
@@ -822,7 +931,30 @@ pub fn genMethodSignatureWithSkip(
                     if (std.mem.eql(u8, return_type_str, class_name)) {
                         try self.emit("@This()");
                     } else {
-                        try self.emit(return_type_str);
+                        // Check if the return type is a known class or a safe Zig type
+                        // Avoid using unknown names (like captured variables) as types
+                        const is_known_type = blk: {
+                            // Check known Zig primitive types
+                            const known_types = [_][]const u8{
+                                "i64", "i32", "i8", "u8", "u16", "u32", "u64", "usize", "isize",
+                                "bool", "void", "f32", "f64", "[]const u8", "[]u8",
+                                "*runtime.PyObject", "@This()", "anytype",
+                            };
+                            for (known_types) |known| {
+                                if (std.mem.eql(u8, return_type_str, known)) break :blk true;
+                            }
+                            // Check if it's a known class from type inference
+                            if (self.type_inferrer.class_fields.contains(return_type_str)) break :blk true;
+                            // Check if it's a nested class in current scope
+                            if (self.nested_class_names.contains(return_type_str)) break :blk true;
+                            break :blk false;
+                        };
+                        if (is_known_type) {
+                            try self.emit(return_type_str);
+                        } else {
+                            // Unknown type (likely a captured variable) - use i64 as safe default
+                            try self.emit("i64");
+                        }
                     }
                 } else {
                     try self.emit("i64");

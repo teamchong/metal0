@@ -110,8 +110,7 @@ pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Python: (10.0).__truediv__(3) -> 3.333...
 pub fn genTruediv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // obj / args[0]
-    // Handle error union from float() builtin call
-    try self.emit("((try ");
+    try self.emit("((");
     try self.genExpr(obj);
     try self.emit(") / @as(f64, @floatFromInt(");
     if (args.len > 0) {

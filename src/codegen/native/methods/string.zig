@@ -18,6 +18,8 @@ pub const genIsupper = validation.genIsupper;
 pub const genIsascii = validation.genIsascii;
 pub const genIstitle = validation.genIstitle;
 pub const genIsprintable = validation.genIsprintable;
+pub const genIsdecimal = validation.genIsdecimal;
+pub const genIsnumeric = validation.genIsnumeric;
 
 // Re-export formatting methods
 pub const genLstrip = formatting.genLstrip;
@@ -397,6 +399,26 @@ pub fn genEncode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.emit("; }");
     } else {
         // Encoding is a constant or no encoding specified - just return the string
+        try self.genExpr(obj);
+    }
+}
+
+/// Generate code for bytes.decode(encoding="utf-8")
+/// In Zig, bytes and strings are already UTF-8, so this just returns the bytes as string
+/// We generate a block that discards the encoding arg to avoid "unused variable" errors
+pub fn genDecode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    // If encoding arg is a variable, we need to "use" it to avoid unused variable errors
+    // Generate: blk: { _ = encoding; break :blk bytes; }
+    if (args.len > 0 and args[0] == .name) {
+        const label = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.output.writer(self.allocator).print("dec_{d}: {{ _ = ", .{label});
+        try self.genExpr(args[0]); // Generate the encoding variable reference
+        try self.output.writer(self.allocator).print("; break :dec_{d} ", .{label});
+        try self.genExpr(obj);
+        try self.emit("; }");
+    } else {
+        // Encoding is a constant or no encoding specified - just return the bytes
         try self.genExpr(obj);
     }
 }

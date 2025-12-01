@@ -70,7 +70,8 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const str_label_id = self.block_label_counter;
     self.block_label_counter += 1;
     try self.emitFmt("str_{d}: {{\n", .{str_label_id});
-    try self.emit("var buf = std.ArrayList(u8){};\n");
+    // Use unique buf name to avoid shadowing in nested str() calls
+    try self.emitFmt("var __str_buf_{d} = std.ArrayList(u8){{}};\n", .{str_label_id});
 
     // Check if this is a float() call that might return error union
     // float(string_var) generates runtime.floatBuiltinCall which returns !f64
@@ -93,27 +94,27 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitFmt(").toDecimalString({s}) catch unreachable;\n}}", .{alloc_name});
         return;
     } else if (arg_type == .int) {
-        try self.emitFmt("try buf.writer({s}).print(\"{{}}\", .{{", .{alloc_name});
+        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{}}\", .{{", .{ str_label_id, alloc_name });
     } else if (arg_type == .float and !is_float_error_union) {
-        try self.emitFmt("try buf.writer({s}).print(\"{{d}}\", .{{", .{alloc_name});
+        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{d}}\", .{{", .{ str_label_id, alloc_name });
     } else if (arg_type == .bool) {
         // Python bool to string: True/False
-        try self.emitFmt("try buf.writer({s}).print(\"{{s}}\", .{{if (", .{alloc_name});
+        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{s}}\", .{{if (", .{ str_label_id, alloc_name });
         try self.genExpr(args[0]);
         try self.emit(") \"True\" else \"False\"});\n");
-        try self.emitFmt("break :str_{d} try buf.toOwnedSlice({s});\n", .{ str_label_id, alloc_name });
+        try self.emitFmt("break :str_{d} try __str_buf_{d}.toOwnedSlice({s});\n", .{ str_label_id, str_label_id, alloc_name });
         try self.emit("}");
         return;
     } else if (arg_type == .unknown) {
         // Unknown type (e.g., anytype parameter) - use {any} with comptime type handling
-        try self.emitFmt("try buf.writer({s}).print(\"{{any}}\", .{{", .{alloc_name});
+        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{any}}\", .{{", .{ str_label_id, alloc_name });
     } else {
-        try self.emitFmt("try buf.writer({s}).print(\"{{any}}\", .{{", .{alloc_name});
+        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{any}}\", .{{", .{ str_label_id, alloc_name });
     }
 
     try self.genExpr(args[0]);
     try self.emit("});\n");
-    try self.emitFmt("break :str_{d} try buf.toOwnedSlice({s});\n", .{ str_label_id, alloc_name });
+    try self.emitFmt("break :str_{d} try __str_buf_{d}.toOwnedSlice({s});\n", .{ str_label_id, str_label_id, alloc_name });
     try self.emit("}");
 }
 
@@ -231,14 +232,16 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For strings, wrap with quotes: "'string'"
     if (arg_type == .string) {
-        try self.emit("blk: {\n");
-        try self.emit("var buf = std.ArrayList(u8){};\n");
-        try self.emitFmt("try buf.appendSlice({s}, \"'\");\n", .{alloc_name});
-        try self.emitFmt("try buf.appendSlice({s}, ", .{alloc_name});
+        const repr_label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("repr_{d}: {{\n", .{repr_label_id});
+        try self.emitFmt("var __repr_buf_{d} = std.ArrayList(u8){{}};\n", .{repr_label_id});
+        try self.emitFmt("try __repr_buf_{d}.appendSlice({s}, \"'\");\n", .{ repr_label_id, alloc_name });
+        try self.emitFmt("try __repr_buf_{d}.appendSlice({s}, ", .{ repr_label_id, alloc_name });
         try self.genExpr(args[0]);
         try self.emit(");\n");
-        try self.emitFmt("try buf.appendSlice({s}, \"'\");\n", .{alloc_name});
-        try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
+        try self.emitFmt("try __repr_buf_{d}.appendSlice({s}, \"'\");\n", .{ repr_label_id, alloc_name });
+        try self.emitFmt("break :repr_{d} try __repr_buf_{d}.toOwnedSlice({s});\n", .{ repr_label_id, repr_label_id, alloc_name });
         try self.emit("}");
         return;
     }
@@ -252,8 +255,10 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // For numbers, same as str()
-    try self.emit("blk: {\n");
-    try self.emit("var buf = std.ArrayList(u8){};\n");
+    const repr_num_label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("repr_num_{d}: {{\n", .{repr_num_label_id});
+    try self.emitFmt("var __repr_num_buf_{d} = std.ArrayList(u8){{}};\n", .{repr_num_label_id});
 
     // Check if this is a float() call that might return error union
     // float(string_var) generates runtime.floatBuiltinCall which returns !f64
@@ -270,25 +275,25 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else false;
 
     if (arg_type == .int) {
-        try self.emitFmt("try buf.writer({s}).print(\"{{}}\", .{{", .{alloc_name});
+        try self.emitFmt("try __repr_num_buf_{d}.writer({s}).print(\"{{}}\", .{{", .{ repr_num_label_id, alloc_name });
     } else if (arg_type == .bigint) {
         // BigInt - use toDecimalString method
-        try self.emitFmt("try buf.appendSlice({s}, try (", .{alloc_name});
+        try self.emitFmt("try __repr_num_buf_{d}.appendSlice({s}, try (", .{ repr_num_label_id, alloc_name });
         try self.genExpr(args[0]);
         try self.emitFmt(").toDecimalString({s}));\n", .{alloc_name});
-        try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
+        try self.emitFmt("break :repr_num_{d} try __repr_num_buf_{d}.toOwnedSlice({s});\n", .{ repr_num_label_id, repr_num_label_id, alloc_name });
         try self.emit("}");
         return;
     } else if (arg_type == .float and !is_float_error_union) {
-        try self.emitFmt("try buf.writer({s}).print(\"{{d}}\", .{{", .{alloc_name});
+        try self.emitFmt("try __repr_num_buf_{d}.writer({s}).print(\"{{d}}\", .{{", .{ repr_num_label_id, alloc_name });
     } else {
         // Use {any} for error unions and unknown types
-        try self.emitFmt("try buf.writer({s}).print(\"{{any}}\", .{{", .{alloc_name});
+        try self.emitFmt("try __repr_num_buf_{d}.writer({s}).print(\"{{any}}\", .{{", .{ repr_num_label_id, alloc_name });
     }
 
     try self.genExpr(args[0]);
     try self.emit("});\n");
-    try self.emitFmt("break :blk try buf.toOwnedSlice({s});\n", .{alloc_name});
+    try self.emitFmt("break :repr_num_{d} try __repr_num_buf_{d}.toOwnedSlice({s});\n", .{ repr_num_label_id, repr_num_label_id, alloc_name });
     try self.emit("}");
 }
 

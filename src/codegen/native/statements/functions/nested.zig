@@ -32,6 +32,13 @@ pub fn genNestedFunctionDef(
     }
 
     if (captured_vars.len == 0) {
+        // Check if this nested function has a pre-generated closure type at module level
+        if (self.pending_closure_types.get(func.name)) |_| {
+            // Skip generating inline - the closure type already exists at module level
+            // The return statement will handle instantiating it
+            return;
+        }
+
         // No captures and not recursive - use ZeroClosure comptime pattern
         try self.emitIndent();
         try zero_capture.genZeroCaptureClosure(self, func);

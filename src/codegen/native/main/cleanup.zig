@@ -22,6 +22,10 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.closure_vars);
     self.closure_vars.deinit();
 
+    // Clean up void closure tracking
+    freeMapKeys(self.allocator, &self.void_closure_vars);
+    self.void_closure_vars.deinit();
+
     // Clean up callable vars tracking (for loop variables over PyCallable lists)
     freeMapKeys(self.allocator, &self.callable_vars);
     self.callable_vars.deinit();
@@ -31,6 +35,10 @@ pub fn deinit(self: *NativeCodegen) void {
 
     freeMapKeys(self.allocator, &self.closure_factories);
     self.closure_factories.deinit();
+
+    freeStringMapValues(self.allocator, &self.pending_closure_types);
+    freeMapKeys(self.allocator, &self.pending_closure_types);
+    self.pending_closure_types.deinit();
 
     freeMapKeys(self.allocator, &self.closure_returning_methods);
     self.closure_returning_methods.deinit();
@@ -69,6 +77,16 @@ pub fn deinit(self: *NativeCodegen) void {
         self.allocator.free(class_info.test_methods);
     }
     self.unittest_classes.deinit(self.allocator);
+
+    // Clean up test_factories tracking
+    for (self.test_factories.values()) |factory_info| {
+        for (factory_info.returned_classes) |class_info| {
+            self.allocator.free(class_info.test_methods);
+        }
+        self.allocator.free(factory_info.returned_classes);
+    }
+    freeMapKeys(self.allocator, &self.test_factories);
+    self.test_factories.deinit();
 
     // Clean up functions_needing_allocator tracking
     freeMapKeys(self.allocator, &self.functions_needing_allocator);
@@ -187,6 +205,13 @@ pub fn deinit(self: *NativeCodegen) void {
 fn freeMapKeys(allocator: std.mem.Allocator, map: anytype) void {
     for (map.keys()) |key| {
         allocator.free(key);
+    }
+}
+
+/// Helper: free all values in a string->string hashmap
+fn freeStringMapValues(allocator: std.mem.Allocator, map: anytype) void {
+    for (map.values()) |value| {
+        allocator.free(value);
     }
 }
 

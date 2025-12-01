@@ -310,3 +310,53 @@ pub fn isBuiltinName(name: []const u8) bool {
     }
     return false;
 }
+
+/// Analyze function for forward-referenced captured variables
+/// Returns list of variables that are captured by nested classes before they're declared
+/// These need to be forward-declared in the generated Zig code
+pub fn findForwardReferencedCaptures(
+    self: *NativeCodegen,
+    stmts: []ast.Node,
+) CodegenError!std.ArrayList([]const u8) {
+    var forward_refs = std.ArrayList([]const u8){};
+    var declared_vars = std.StringHashMap(void).init(self.allocator);
+    defer declared_vars.deinit();
+
+    // Track which variables are captured and which are declared, in order
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .class_def => |class| {
+                // Check if this class captures any variables not yet declared
+                if (self.nested_class_captures.get(class.name)) |captures| {
+                    for (captures) |cap_var| {
+                        if (!declared_vars.contains(cap_var)) {
+                            // This is a forward reference - captured before declared
+                            // Check if we already added it
+                            var already_added = false;
+                            for (forward_refs.items) |existing| {
+                                if (std.mem.eql(u8, existing, cap_var)) {
+                                    already_added = true;
+                                    break;
+                                }
+                            }
+                            if (!already_added) {
+                                try forward_refs.append(self.allocator, cap_var);
+                            }
+                        }
+                    }
+                }
+            },
+            .assign => |assign| {
+                // Mark variables as declared
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        try declared_vars.put(target.name.id, {});
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+
+    return forward_refs;
+}

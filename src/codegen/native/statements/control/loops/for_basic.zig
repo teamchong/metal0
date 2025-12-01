@@ -452,6 +452,16 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             }
         }
 
+        // If variable appears used in AST but might not be used in generated code
+        // (e.g., isinstance(x, T) becomes compile-time true), add a reference to avoid
+        // "unused capture" error. Use @TypeOf() as it doesn't require runtime evaluation.
+        if (tuple_var_used) {
+            try self.emitIndent();
+            try self.emit("_ = @TypeOf(");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.emit(");\n");
+        }
+
         for (for_stmt.body) |stmt| {
             try self.generateStmt(stmt);
         }

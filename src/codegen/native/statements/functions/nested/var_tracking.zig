@@ -22,7 +22,7 @@ pub fn findCapturedVars(
     // These shadow outer scope and should NOT be captured
     var locally_assigned = std.ArrayList([]const u8){};
     defer locally_assigned.deinit(self.allocator);
-    collectLocallyAssignedVars(func.body, &locally_assigned) catch {};
+    collectLocallyAssignedVars(self.allocator, func.body, &locally_assigned) catch {};
 
     // Check which referenced vars are in outer scope (not params or local)
     for (referenced.items) |var_name| {
@@ -67,99 +67,99 @@ pub fn findCapturedVars(
 
 /// Collect all variable names that are assigned (as targets) in statements
 /// These are local variables that shadow outer scope
-fn collectLocallyAssignedVars(stmts: []ast.Node, assigned: *std.ArrayList([]const u8)) !void {
+fn collectLocallyAssignedVars(allocator: std.mem.Allocator, stmts: []ast.Node, assigned: *std.ArrayList([]const u8)) !void {
     for (stmts) |stmt| {
-        try collectLocallyAssignedVarsInNode(stmt, assigned);
+        try collectLocallyAssignedVarsInNode(allocator, stmt, assigned);
     }
 }
 
-fn collectLocallyAssignedVarsInNode(node: ast.Node, assigned: *std.ArrayList([]const u8)) !void {
+fn collectLocallyAssignedVarsInNode(allocator: std.mem.Allocator, node: ast.Node, assigned: *std.ArrayList([]const u8)) !void {
     switch (node) {
         .assign => |a| {
             for (a.targets) |target| {
-                try collectAssignTargetVars(target, assigned);
+                try collectAssignTargetVars(allocator, target, assigned);
             }
         },
         .aug_assign => |a| {
-            try collectAssignTargetVars(a.target.*, assigned);
+            try collectAssignTargetVars(allocator, a.target.*, assigned);
         },
         .for_stmt => |f| {
             // for loop target is a local variable
-            try collectAssignTargetVars(f.target.*, assigned);
+            try collectAssignTargetVars(allocator, f.target.*, assigned);
             for (f.body) |s| {
-                try collectLocallyAssignedVarsInNode(s, assigned);
+                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
             }
         },
         .if_stmt => |i| {
             for (i.body) |s| {
-                try collectLocallyAssignedVarsInNode(s, assigned);
+                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
             }
             for (i.else_body) |s| {
-                try collectLocallyAssignedVarsInNode(s, assigned);
+                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
             }
         },
         .while_stmt => |w| {
             for (w.body) |s| {
-                try collectLocallyAssignedVarsInNode(s, assigned);
+                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
             }
         },
         .try_stmt => |t| {
             for (t.body) |s| {
-                try collectLocallyAssignedVarsInNode(s, assigned);
+                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
             }
             for (t.handlers) |h| {
                 // Exception variable is local
                 if (h.name) |name| {
-                    try addUniqueVar(assigned, name);
+                    try addUniqueVar(allocator, assigned, name);
                 }
                 for (h.body) |s| {
-                    try collectLocallyAssignedVarsInNode(s, assigned);
+                    try collectLocallyAssignedVarsInNode(allocator, s, assigned);
                 }
             }
             for (t.else_body) |s| {
-                try collectLocallyAssignedVarsInNode(s, assigned);
+                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
             }
             for (t.finalbody) |s| {
-                try collectLocallyAssignedVarsInNode(s, assigned);
+                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
             }
         },
         .with_stmt => |w| {
             // with ... as var: introduces local var
-            if (w.optional_var) |var_node| {
-                try collectAssignTargetVars(var_node.*, assigned);
+            if (w.optional_vars) |var_name| {
+                try addUniqueVar(allocator, assigned, var_name);
             }
             for (w.body) |s| {
-                try collectLocallyAssignedVarsInNode(s, assigned);
+                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
             }
         },
         else => {},
     }
 }
 
-fn collectAssignTargetVars(target: ast.Node, assigned: *std.ArrayList([]const u8)) !void {
+fn collectAssignTargetVars(allocator: std.mem.Allocator, target: ast.Node, assigned: *std.ArrayList([]const u8)) !void {
     switch (target) {
         .name => |n| {
-            try addUniqueVar(assigned, n.id);
+            try addUniqueVar(allocator, assigned, n.id);
         },
         .tuple => |t| {
-            for (t.elements) |elem| {
-                try collectAssignTargetVars(elem, assigned);
+            for (t.elts) |elem| {
+                try collectAssignTargetVars(allocator, elem, assigned);
             }
         },
         .list => |l| {
-            for (l.elements) |elem| {
-                try collectAssignTargetVars(elem, assigned);
+            for (l.elts) |elem| {
+                try collectAssignTargetVars(allocator, elem, assigned);
             }
         },
         else => {},
     }
 }
 
-fn addUniqueVar(list: *std.ArrayList([]const u8), name: []const u8) !void {
+fn addUniqueVar(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8), name: []const u8) !void {
     for (list.items) |existing| {
         if (std.mem.eql(u8, existing, name)) return;
     }
-    try list.append(list.allocator, name);
+    try list.append(allocator, name);
 }
 
 /// Collect all variable names referenced in statements
@@ -386,10 +386,59 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
             break :blk false;
         },
         .expr_stmt => |e| isParamUsedInNode(param_name, e.value.*),
+        .aug_assign => |a| blk: {
+            // Check both target and value: a *= b uses both a and b
+            if (isParamUsedInNode(param_name, a.target.*)) break :blk true;
+            if (isParamUsedInNode(param_name, a.value.*)) break :blk true;
+            break :blk false;
+        },
         .boolop => |bo| blk: {
             for (bo.values) |v| {
                 if (isParamUsedInNode(param_name, v)) break :blk true;
             }
+            break :blk false;
+        },
+        .class_def => |cls| blk: {
+            // Check if param is used in nested class body (methods, etc.)
+            if (isParamUsedInStmts(param_name, cls.body)) break :blk true;
+            break :blk false;
+        },
+        .function_def => |func| blk: {
+            // Check if param is used in nested function body
+            // But NOT if it's shadowed by a parameter with the same name
+            for (func.args) |arg| {
+                if (std.mem.eql(u8, arg.name, param_name)) {
+                    // Shadowed by nested function's parameter
+                    break :blk false;
+                }
+            }
+            if (isParamUsedInStmts(param_name, func.body)) break :blk true;
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            if (isParamUsedInStmts(param_name, t.body)) break :blk true;
+            for (t.handlers) |h| {
+                if (isParamUsedInStmts(param_name, h.body)) break :blk true;
+            }
+            if (isParamUsedInStmts(param_name, t.else_body)) break :blk true;
+            if (isParamUsedInStmts(param_name, t.finalbody)) break :blk true;
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            if (isParamUsedInNode(param_name, w.context_expr.*)) break :blk true;
+            if (isParamUsedInStmts(param_name, w.body)) break :blk true;
+            break :blk false;
+        },
+        .lambda => |lam| blk: {
+            // Check if param is used in lambda body
+            // But NOT if it's shadowed by a lambda parameter with the same name
+            for (lam.args) |arg| {
+                if (std.mem.eql(u8, arg.name, param_name)) {
+                    // Shadowed by lambda's parameter
+                    break :blk false;
+                }
+            }
+            if (isParamUsedInNode(param_name, lam.body.*)) break :blk true;
             break :blk false;
         },
         else => false,

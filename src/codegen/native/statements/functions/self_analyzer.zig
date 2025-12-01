@@ -188,6 +188,12 @@ fn exprUsesSelfRaw(node: ast.Node) bool {
             return false;
         },
         .binop => |binop| exprUsesSelfRaw(binop.left.*) or exprUsesSelfRaw(binop.right.*),
+        .boolop => |boolop| blk: {
+            for (boolop.values) |value| {
+                if (exprUsesSelfRaw(value)) break :blk true;
+            }
+            break :blk false;
+        },
         .compare => |comp| blk: {
             if (exprUsesSelfRaw(comp.left.*)) break :blk true;
             for (comp.comparators) |c| {
@@ -268,6 +274,13 @@ fn exprUsesSelfWithContext(node: ast.Node, has_parent: bool) bool {
             return false;
         },
         .binop => |binop| exprUsesSelfWithContext(binop.left.*, has_parent) or exprUsesSelfWithContext(binop.right.*, has_parent),
+        .boolop => |boolop| {
+            // Check all values in the and/or expression
+            for (boolop.values) |value| {
+                if (exprUsesSelfWithContext(value, has_parent)) return true;
+            }
+            return false;
+        },
         .compare => |comp| {
             if (exprUsesSelfWithContext(comp.left.*, has_parent)) return true;
             for (comp.comparators) |c| {

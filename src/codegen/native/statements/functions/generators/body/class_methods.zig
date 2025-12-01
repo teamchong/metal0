@@ -12,6 +12,7 @@ const generators = @import("../../generators.zig");
 
 // Import from parent for methodMutatesSelf and genMethodBody
 const body = @import("../body.zig");
+const usage_analysis = @import("usage_analysis.zig");
 
 // Type alias for builtin base info
 const BuiltinBaseInfo = generators.BuiltinBaseInfo;
@@ -199,6 +200,11 @@ pub fn genInitMethod(
 
     // Note: allocator is always used for __dict__ initialization, so no discard needed
 
+    // Analyze local variable uses BEFORE generating code
+    // This ensures variables like `g = gcd(...)` that are used in field assignments
+    // (e.g., self.__num = num // g) are not incorrectly marked as unused
+    try usage_analysis.analyzeFunctionLocalUses(self, init);
+
     // First pass: generate non-field assignments (local variables, control flow, etc.)
     // These need to be executed BEFORE the struct is created
     for (init.body) |stmt| {
@@ -335,10 +341,12 @@ pub fn genInitMethodWithBuiltinBase(
             const is_base_value_param = is_first_param and builtin_base != null;
             const is_used = is_base_value_param or param_analyzer.isNameUsedInInitBody(init.body, arg.name);
             if (!is_used) {
-                try self.emit("_");
+                // Zig requires unused params to be named just "_", not "_name"
+                try self.emit("_: ");
+            } else {
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                try self.emit(": ");
             }
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            try self.emit(": ");
             is_first_param = false;
 
             // Type annotation: prefer type hints, fallback to inference
@@ -365,6 +373,11 @@ pub fn genInitMethodWithBuiltinBase(
     self.inside_init_method = true;
     defer self.current_class_captures = null;
     defer self.inside_init_method = false;
+
+    // Analyze local variable uses BEFORE generating code
+    // This ensures variables like `g = gcd(...)` that are used in field assignments
+    // (e.g., self.__num = num // g) are not incorrectly marked as unused
+    try usage_analysis.analyzeFunctionLocalUses(self, init);
 
     // First pass: generate non-field assignments (local variables, control flow, etc.)
     // These need to be executed BEFORE the struct is created
@@ -542,12 +555,16 @@ pub fn genInitMethodFromNew(
 
         // For builtin subclass, the first non-cls parameter is the base value
         const is_base_value_param = is_first_non_cls and builtin_base != null;
-        const is_used = is_base_value_param or param_analyzer.isNameUsedInInitBody(new_method.body, arg.name);
+        // For __new__, only field assignments (self.x = param) count as "used" for init()
+        // Return statements like `return meta(name, bases, d)` don't translate to init() body
+        const is_used = is_base_value_param or param_analyzer.isNameUsedInNewForInit(new_method.body, arg.name);
         if (!is_used) {
-            try self.emit("_");
+            // Zig requires unused params to be named just "_", not "_name"
+            try self.emit("_: ");
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(": ");
         }
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-        try self.emit(": ");
         is_first_non_cls = false;
 
         // Type annotation: prefer type hints, fallback to inference
@@ -572,6 +589,11 @@ pub fn genInitMethodFromNew(
     self.inside_init_method = true;
     defer self.current_class_captures = null;
     defer self.inside_init_method = false;
+
+    // Analyze local variable uses BEFORE generating code
+    // This ensures variables like `g = gcd(...)` that are used in field assignments
+    // (e.g., self.__num = num // g) are not incorrectly marked as unused
+    try usage_analysis.analyzeFunctionLocalUses(self, new_method);
 
     // First pass: generate non-field statements from __new__ body
     // Skip super().__new__() calls and return statements
@@ -746,15 +768,43 @@ pub fn genClassMethods(
     }
     defer self.current_class_parent = prev_parent;
 
-    for (class.body) |stmt| {
+    // In Python, methods can be "overridden" within the same class (e.g., @property + @foo.setter)
+    // Zig doesn't allow duplicate struct member names, so we find the LAST occurrence of each method
+    // and only generate that one (Python semantics: later definition shadows earlier ones)
+    var last_method_indices = hashmap_helper.StringHashMap(usize).init(self.allocator);
+    defer last_method_indices.deinit();
+
+    // First pass: find the last index for each method name
+    for (class.body, 0..) |stmt, idx| {
         if (stmt == .function_def) {
             const method = stmt.function_def;
             if (std.mem.eql(u8, method.name, "__init__")) continue;
+            try last_method_indices.put(method.name, idx);
+        }
+    }
+
+    // Second pass: only generate methods at their last occurrence index
+    for (class.body, 0..) |stmt, idx| {
+        if (stmt == .function_def) {
+            const method = stmt.function_def;
+            if (std.mem.eql(u8, method.name, "__init__")) continue;
+
+            // Skip if this is not the last occurrence of this method name
+            if (last_method_indices.get(method.name)) |last_idx| {
+                if (idx != last_idx) continue;
+            }
 
             const mutates_self = body.methodMutatesSelf(method);
             // Use methodNeedsAllocatorInClass to detect same-class constructor calls like Rat(x)
             const needs_allocator = allocator_analyzer.methodNeedsAllocatorInClass(method, class.name);
             const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParamInClass(method, class.name);
+
+            // Track allocator needs for nested class methods so call sites know whether to pass allocator
+            // This is needed because nested classes are not in the class_registry
+            if (self.nested_class_names.contains(class.name) and needs_allocator) {
+                const method_key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, method.name });
+                try self.nested_class_method_needs_alloc.put(method_key, {});
+            }
 
             // Generate method signature
             // Note: method_nesting_depth tracks whether we're inside a NESTED class inside a method
