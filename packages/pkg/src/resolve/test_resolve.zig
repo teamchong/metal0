@@ -67,6 +67,13 @@ pub fn main() !void {
     var client = pypi.PyPIClient.init(allocator);
     defer client.deinit();
 
+    // Pre-warm connections to both PyPI hosts in parallel
+    // This overlaps TCP+TLS+H2 handshakes for both hosts simultaneously
+    client.h2_client.preconnectParallel(&.{
+        .{ .host = "pypi.org", .port = 443 },
+        .{ .host = "files.pythonhosted.org", .port = 443 },
+    });
+
     var resolver = Resolver.init(allocator, &client, &cache);
     defer resolver.deinit();
 

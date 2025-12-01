@@ -129,6 +129,7 @@ pub const ResponseCache = struct {
 pub const Client = struct {
     allocator: std.mem.Allocator,
     connections: std.StringHashMap(*H2Connection),
+    connections_mutex: std.Thread.Mutex,
     max_connections_per_host: usize,
     cache: ?*ResponseCache,
 
@@ -141,6 +142,7 @@ pub const Client = struct {
         return .{
             .allocator = allocator,
             .connections = std.StringHashMap(*H2Connection).init(allocator),
+            .connections_mutex = .{},
             .max_connections_per_host = 1, // HTTP/2 multiplexing means 1 is enough
             .cache = null,
         };
@@ -150,6 +152,7 @@ pub const Client = struct {
         return .{
             .allocator = allocator,
             .connections = std.StringHashMap(*H2Connection).init(allocator),
+            .connections_mutex = .{},
             .max_connections_per_host = 1,
             .cache = cache,
         };
@@ -421,15 +424,61 @@ pub const Client = struct {
         _ = self.getConnection(host, port) catch {};
     }
 
+    /// Preconnect to multiple hosts in parallel using threads
+    /// This overlaps TCP+TLS+H2 handshakes for maximum speed
+    pub fn preconnectParallel(self: *Client, hosts: []const struct { host: []const u8, port: u16 }) void {
+        if (hosts.len == 0) return;
+        if (hosts.len == 1) {
+            self.preconnect(hosts[0].host, hosts[0].port);
+            return;
+        }
+
+        const Task = struct {
+            client: *Client,
+            host: []const u8,
+            port: u16,
+
+            fn run(task: *@This()) void {
+                task.client.preconnect(task.host, task.port);
+            }
+        };
+
+        // Create tasks for each host
+        var tasks: [8]Task = undefined; // Max 8 hosts
+        var threads: [8]std.Thread = undefined;
+        const count = @min(hosts.len, 8);
+
+        // Spawn threads
+        var spawned: usize = 0;
+        for (hosts[0..count]) |h| {
+            tasks[spawned] = .{ .client = self, .host = h.host, .port = h.port };
+            threads[spawned] = std.Thread.spawn(.{}, Task.run, .{&tasks[spawned]}) catch {
+                // Fallback to sync if thread spawn fails
+                self.preconnect(h.host, h.port);
+                continue;
+            };
+            spawned += 1;
+        }
+
+        // Wait for all threads
+        for (threads[0..spawned]) |t| {
+            t.join();
+        }
+    }
+
     fn getConnection(self: *Client, host: []const u8, port: u16) !*H2Connection {
-        // Check pool
-        if (self.connections.get(host)) |conn| {
-            return conn;
+        // Check pool with lock
+        {
+            self.connections_mutex.lock();
+            defer self.connections_mutex.unlock();
+            if (self.connections.get(host)) |conn| {
+                return conn;
+            }
         }
 
         var timer = std.time.Timer.start() catch unreachable;
 
-        // Create new connection
+        // Create new connection (outside lock - slow operations)
         const conn = try self.allocator.create(H2Connection);
         errdefer self.allocator.destroy(conn);
 
@@ -462,9 +511,23 @@ pub const Client = struct {
 
         std.debug.print("[H2] connect: tcp={d}ms, tls={d}ms, h2={d}ms\n", .{ tcp_time, tls_time - tcp_time, h2_time - tls_time });
 
-        // Store in pool
-        const host_copy = try self.allocator.dupe(u8, host);
-        try self.connections.put(host_copy, conn);
+        // Store in pool with lock
+        {
+            self.connections_mutex.lock();
+            defer self.connections_mutex.unlock();
+
+            // Double-check - another thread may have added it
+            if (self.connections.get(host)) |existing| {
+                // Another thread already added - cleanup our connection and use existing
+                conn.h2.deinit();
+                conn.tls.deinit();
+                self.allocator.destroy(conn);
+                return existing;
+            }
+
+            const host_copy = try self.allocator.dupe(u8, host);
+            try self.connections.put(host_copy, conn);
+        }
 
         return conn;
     }

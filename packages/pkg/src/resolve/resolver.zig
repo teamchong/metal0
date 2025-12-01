@@ -178,8 +178,6 @@ pub const Resolver = struct {
 
     /// Resolve dependencies starting from root requirements
     pub fn resolve(self: *Resolver, requirements: []const pep508.Dependency) !Resolution {
-        var _total_timer = std.time.Timer.start() catch unreachable;
-
         // Add root requirements to pending
         for (requirements) |req| {
             const name = try self.allocator.dupe(u8, req.name);
@@ -191,7 +189,6 @@ pub const Resolver = struct {
         // Main resolution loop with DIRECT batch fetching + CACHE
         while (self.pending.count() > 0) {
             self.iterations += 1;
-            var _iter_timer = std.time.Timer.start() catch unreachable;
             if (self.iterations > self.config.max_iterations) {
                 return ResolverError.MaxIterationsExceeded;
             }
@@ -362,13 +359,7 @@ pub const Resolver = struct {
                 }
             }
             self.network_fetches += @intCast(batch_names.items.len);
-
-            const iter_ms = _iter_timer.read() / 1_000_000;
-            std.debug.print("[Resolve] iteration {d}: {d} packages in {d}ms\n", .{ self.iterations, batch_names.items.len, iter_ms });
         }
-
-        const total_ms = _total_timer.read() / 1_000_000;
-        _ = total_ms;
 
         // Build result - transfer ownership from self.resolved
         var packages = std.ArrayList(ResolvedPackage){};

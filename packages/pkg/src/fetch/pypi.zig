@@ -1434,6 +1434,42 @@ pub const PyPIClient = struct {
         };
     }
 
+    /// Parse wheel METADATA text (RFC 822-like format) - static version for cache
+    /// This is a static function for use by the resolver cache
+    pub fn parseMetadataText(allocator: std.mem.Allocator, body: []const u8, package_name: []const u8) !PackageMetadata {
+        var requires_dist = std.ArrayList([]const u8){};
+        errdefer {
+            for (requires_dist.items) |dep| allocator.free(dep);
+            requires_dist.deinit(allocator);
+        }
+
+        var version: ?[]const u8 = null;
+        errdefer if (version) |v| allocator.free(v);
+
+        var lines = std.mem.splitScalar(u8, body, '\n');
+        while (lines.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \r\t");
+            if (trimmed.len == 0) break; // Headers end at blank line
+
+            if (std.mem.startsWith(u8, trimmed, "Version:")) {
+                const val = std.mem.trim(u8, trimmed["Version:".len..], " ");
+                version = try allocator.dupe(u8, val);
+            } else if (std.mem.startsWith(u8, trimmed, "Requires-Dist:")) {
+                const val = std.mem.trim(u8, trimmed["Requires-Dist:".len..], " ");
+                const dep_copy = try allocator.dupe(u8, val);
+                try requires_dist.append(allocator, dep_copy);
+            }
+        }
+
+        return .{
+            .name = try allocator.dupe(u8, package_name),
+            .latest_version = version orelse try allocator.dupe(u8, "0.0.0"),
+            .summary = null,
+            .releases = &[_]ReleaseInfo{},
+            .requires_dist = try requires_dist.toOwnedSlice(allocator),
+        };
+    }
+
     /// Fetch multiple wheel METADATA files in parallel (PEP 658)
     /// This is the fastest path for dependency fetching (~2KB each)
     pub fn getWheelMetadataParallel(
