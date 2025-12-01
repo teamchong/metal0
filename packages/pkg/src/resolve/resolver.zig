@@ -193,15 +193,28 @@ pub const Resolver = struct {
                 return ResolverError.MaxIterationsExceeded;
             }
 
-            // Collect pending packages, checking cache first
-            var batch_names = std.ArrayList([]const u8){};
-            defer batch_names.deinit(self.allocator);
+            // PHASE 1: Collect all pending package names first (don't modify pending while iterating)
+            var all_pending = std.ArrayList([]const u8){};
+            defer all_pending.deinit(self.allocator);
 
             var pending_it = self.pending.keyIterator();
             while (pending_it.next()) |key_ptr| {
                 const name = key_ptr.*;
-
                 // Skip if already resolved
+                if (self.state.get(name)) |s| {
+                    if (s == .resolved) continue;
+                }
+                try all_pending.append(self.allocator, name);
+            }
+
+            if (all_pending.items.len == 0) break;
+
+            // PHASE 2: Process cached packages (now safe to modify pending)
+            var batch_names = std.ArrayList([]const u8){};
+            defer batch_names.deinit(self.allocator);
+
+            for (all_pending.items) |name| {
+                // Skip if resolved by cache processing of earlier item in this batch
                 if (self.state.get(name)) |s| {
                     if (s == .resolved) continue;
                 }
@@ -241,7 +254,7 @@ pub const Resolver = struct {
                 try batch_names.append(self.allocator, name);
             }
 
-            if (batch_names.items.len == 0) break;
+            if (batch_names.items.len == 0) continue; // All resolved from cache, loop again for new transitive deps
 
             // Mark all as resolving
             for (batch_names.items) |name| {
@@ -275,6 +288,12 @@ pub const Resolver = struct {
                     .err => {
                         if (self.state.getPtr(pkg_name)) |s| {
                             s.* = .failed;
+                        }
+                        // Remove from pending to avoid infinite loop
+                        if (self.pending.fetchRemove(pkg_name)) |kv| {
+                            self.allocator.free(kv.key);
+                            var dep_to_free = kv.value;
+                            pep508.freeDependency(self.allocator, &dep_to_free);
                         }
                     },
                 }

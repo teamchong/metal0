@@ -577,7 +577,46 @@ pub const PyPIClient = struct {
     /// Fetch multiple packages with DISK CACHE support
     /// Stores raw JSON responses in cache for instant subsequent lookups
     /// Second run is ~1ms instead of ~150ms (150x faster!)
+    /// Batches requests to avoid HTTP/2 stream limits (max 100 concurrent)
     pub fn getPackagesParallelWithCache(
+        self: *PyPIClient,
+        package_names: []const []const u8,
+        cache: ?*@import("cache.zig").Cache,
+    ) ![]FetchResult {
+        if (package_names.len == 0) return &[_]FetchResult{};
+
+        // HTTP/2 max concurrent streams is typically 100-128
+        // Batch requests to avoid silent failures
+        const MAX_CONCURRENT: usize = 100;
+
+        if (package_names.len > MAX_CONCURRENT) {
+            // Process in batches
+            const results = try self.allocator.alloc(FetchResult, package_names.len);
+            var processed: usize = 0;
+
+            while (processed < package_names.len) {
+                const batch_end = @min(processed + MAX_CONCURRENT, package_names.len);
+                const batch = package_names[processed..batch_end];
+
+                const batch_results = try self.getPackagesParallelWithCacheInternal(batch, cache);
+                // DON'T defer free batch_results - we're transferring ownership to results array
+
+                // Move results (ownership transfer, not copy)
+                for (batch_results, 0..) |r, i| {
+                    results[processed + i] = r;
+                }
+                // Free the batch array itself but NOT the contents (ownership transferred)
+                self.allocator.free(batch_results);
+                processed = batch_end;
+            }
+
+            return results;
+        }
+
+        return self.getPackagesParallelWithCacheInternal(package_names, cache);
+    }
+
+    fn getPackagesParallelWithCacheInternal(
         self: *PyPIClient,
         package_names: []const []const u8,
         cache: ?*@import("cache.zig").Cache,
