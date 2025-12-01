@@ -690,30 +690,144 @@ pub const PyPIClient = struct {
         self: *PyPIClient,
         package_names: []const []const u8,
     ) ![]FetchResult {
+        return self.getPackagesParallelH2FastWithCache(package_names, null);
+    }
+
+    /// Fast path with cache support - Simple API + PEP 658 wheel METADATA
+    pub fn getPackagesParallelH2FastWithCache(
+        self: *PyPIClient,
+        package_names: []const []const u8,
+        cache: ?*@import("cache.zig").Cache,
+    ) ![]FetchResult {
         if (package_names.len == 0) return &[_]FetchResult{};
 
         var timer = std.time.Timer.start() catch unreachable;
 
-        // Phase 1: Build Simple API URLs
-        var simple_urls = try self.allocator.alloc([]const u8, package_names.len);
-        defer {
-            for (simple_urls) |url| self.allocator.free(url);
-            self.allocator.free(simple_urls);
+        // Allocate results array
+        const results = try self.allocator.alloc(FetchResult, package_names.len);
+        for (results) |*r| r.* = .{ .err = PyPIError.NetworkError };
+
+        // Phase 0: Check cache for METADATA (the parsed wheel metadata text)
+        var uncached_names = std.ArrayList([]const u8){};
+        defer uncached_names.deinit(self.allocator);
+        var uncached_indices = std.ArrayList(usize){};
+        defer uncached_indices.deinit(self.allocator);
+
+        var cache_hits: usize = 0;
+        if (cache) |c| {
+            for (package_names, 0..) |name, i| {
+                // Try cached METADATA text first (fast path cache)
+                const meta_key = std.fmt.allocPrint(self.allocator, "meta:{s}", .{name}) catch {
+                    try uncached_names.append(self.allocator, name);
+                    try uncached_indices.append(self.allocator, i);
+                    continue;
+                };
+                defer self.allocator.free(meta_key);
+
+                if (c.get(meta_key)) |cached_metadata| {
+                    // Parse cached METADATA text
+                    const meta = self.parseWheelMetadataText(cached_metadata, name, null) catch {
+                        try uncached_names.append(self.allocator, name);
+                        try uncached_indices.append(self.allocator, i);
+                        continue;
+                    };
+                    results[i] = .{ .success = meta };
+                    cache_hits += 1;
+                } else {
+                    try uncached_names.append(self.allocator, name);
+                    try uncached_indices.append(self.allocator, i);
+                }
+            }
+        } else {
+            // No cache - all packages need fetching
+            for (package_names, 0..) |name, i| {
+                try uncached_names.append(self.allocator, name);
+                try uncached_indices.append(self.allocator, i);
+            }
         }
 
-        for (package_names, 0..) |name, i| {
-            simple_urls[i] = try std.fmt.allocPrint(
+        const cache_time = timer.read() / 1_000_000;
+
+        // If all cached, return early
+        if (uncached_names.items.len == 0) {
+            std.debug.print("[PyPI-Fast] {d} packages: ALL CACHED in {d}ms\n", .{ package_names.len, cache_time });
+            return results;
+        }
+
+        // Phase 0.5: Check Simple API cache to avoid network calls
+        var simple_bodies = try self.allocator.alloc(?[]const u8, uncached_names.items.len);
+        defer {
+            for (simple_bodies) |body| {
+                if (body) |b| self.allocator.free(b);
+            }
+            self.allocator.free(simple_bodies);
+        }
+        @memset(simple_bodies, null);
+
+        var need_simple_fetch = std.ArrayList(usize){}; // indices into uncached that need fetch
+        defer need_simple_fetch.deinit(self.allocator);
+
+        var simple_cache_hits: usize = 0;
+        if (cache) |c| {
+            for (uncached_names.items, 0..) |name, i| {
+                const simple_key = std.fmt.allocPrint(self.allocator, "simple:{s}", .{name}) catch {
+                    try need_simple_fetch.append(self.allocator, i);
+                    continue;
+                };
+                defer self.allocator.free(simple_key);
+
+                if (c.get(simple_key)) |cached_html| {
+                    simple_bodies[i] = try self.allocator.dupe(u8, cached_html);
+                    simple_cache_hits += 1;
+                } else {
+                    try need_simple_fetch.append(self.allocator, i);
+                }
+            }
+        } else {
+            for (0..uncached_names.items.len) |i| {
+                try need_simple_fetch.append(self.allocator, i);
+            }
+        }
+
+        // Phase 1: Build Simple API URLs for packages that weren't in cache
+        var simple_urls = std.ArrayList([]const u8){};
+        defer {
+            for (simple_urls.items) |url| self.allocator.free(url);
+            simple_urls.deinit(self.allocator);
+        }
+
+        for (need_simple_fetch.items) |i| {
+            const url = try std.fmt.allocPrint(
                 self.allocator,
                 "{s}/{s}/",
-                .{ self.config.simple_api_url, name },
+                .{ self.config.simple_api_url, uncached_names.items[i] },
             );
+            try simple_urls.append(self.allocator, url);
         }
 
-        // Phase 1: Fetch all Simple API pages in parallel via HTTP/2 (reuse connection)
-        const simple_responses = try self.h2_client.getAll(simple_urls);
+        // Phase 1: Fetch Simple API pages that weren't cached
+        var fetched_responses: []H2Response = &[_]H2Response{};
+        if (simple_urls.items.len > 0) {
+            fetched_responses = try self.h2_client.getAll(simple_urls.items);
+        }
         defer {
-            for (simple_responses) |*r| r.deinit();
-            self.allocator.free(simple_responses);
+            for (fetched_responses) |*r| r.deinit();
+            if (fetched_responses.len > 0) self.allocator.free(fetched_responses);
+        }
+
+        // Merge fetched responses into simple_bodies and cache them
+        for (fetched_responses, 0..) |resp, fetch_idx| {
+            const uncached_idx = need_simple_fetch.items[fetch_idx];
+            if (resp.status == 200 and resp.body.len > 0) {
+                simple_bodies[uncached_idx] = try self.allocator.dupe(u8, resp.body);
+
+                // Cache Simple API response
+                if (cache) |c| {
+                    const simple_key = std.fmt.allocPrint(self.allocator, "simple:{s}", .{uncached_names.items[uncached_idx]}) catch continue;
+                    defer self.allocator.free(simple_key);
+                    c.put(simple_key, resp.body) catch {};
+                }
+            }
         }
 
         const simple_time = timer.read() / 1_000_000;
@@ -724,16 +838,16 @@ pub const PyPIClient = struct {
             for (metadata_urls.items) |url| self.allocator.free(url);
             metadata_urls.deinit(self.allocator);
         }
-        var metadata_to_pkg = std.ArrayList(usize){}; // Map metadata URL index -> package index
-        defer metadata_to_pkg.deinit(self.allocator);
+        var metadata_to_uncached = std.ArrayList(usize){}; // Map metadata URL index -> uncached index
+        defer metadata_to_uncached.deinit(self.allocator);
 
-        // Track which packages need JSON API fallback
-        var needs_json_fallback = try self.allocator.alloc(bool, package_names.len);
+        // Track which uncached packages need JSON API fallback
+        var needs_json_fallback = try self.allocator.alloc(bool, uncached_names.items.len);
         defer self.allocator.free(needs_json_fallback);
         @memset(needs_json_fallback, true);
 
         // Parse each Simple API response
-        var simple_data = try self.allocator.alloc(?SimplePackageInfo, package_names.len);
+        var simple_data = try self.allocator.alloc(?SimplePackageInfo, uncached_names.items.len);
         defer {
             for (simple_data) |*sd| {
                 if (sd.*) |*s| s.deinit(self.allocator);
@@ -742,11 +856,11 @@ pub const PyPIClient = struct {
         }
         @memset(simple_data, null);
 
-        for (simple_responses, 0..) |resp, i| {
-            if (resp.status != 200) continue;
+        for (simple_bodies, 0..) |body_opt, i| {
+            const body = body_opt orelse continue;
 
             // Parse Simple API HTML to get wheel URL with metadata
-            const parsed = self.parseSimpleApiHtml(resp.body, package_names[i]) catch continue;
+            const parsed = self.parseSimpleApiHtml(body, uncached_names.items[i]) catch continue;
             simple_data[i] = parsed;
 
             // Find best wheel with PEP 658 metadata
@@ -765,7 +879,7 @@ pub const PyPIClient = struct {
                     .{wheel_url},
                 );
                 try metadata_urls.append(self.allocator, metadata_url);
-                try metadata_to_pkg.append(self.allocator, i);
+                try metadata_to_uncached.append(self.allocator, i);
                 needs_json_fallback[i] = false;
             }
         }
@@ -784,24 +898,28 @@ pub const PyPIClient = struct {
 
         const metadata_time = timer.read() / 1_000_000;
 
-        // Phase 3: Build results
-        const results = try self.allocator.alloc(FetchResult, package_names.len);
-        for (results) |*r| r.* = .{ .err = PyPIError.NetworkError };
-
-        // Process METADATA responses
+        // Phase 3: Process METADATA responses into results and cache them
         for (metadata_responses, 0..) |resp, meta_idx| {
-            const pkg_idx = metadata_to_pkg.items[meta_idx];
+            const uncached_idx = metadata_to_uncached.items[meta_idx];
+            const orig_idx = uncached_indices.items[uncached_idx];
             if (resp.status != 200) {
-                needs_json_fallback[pkg_idx] = true;
+                needs_json_fallback[uncached_idx] = true;
                 continue;
             }
 
             // Parse wheel METADATA
-            const meta = self.parseWheelMetadataText(resp.body, package_names[pkg_idx], simple_data[pkg_idx]) catch {
-                needs_json_fallback[pkg_idx] = true;
+            const meta = self.parseWheelMetadataText(resp.body, uncached_names.items[uncached_idx], simple_data[uncached_idx]) catch {
+                needs_json_fallback[uncached_idx] = true;
                 continue;
             };
-            results[pkg_idx] = .{ .success = meta };
+            results[orig_idx] = .{ .success = meta };
+
+            // Cache METADATA text for future runs
+            if (cache) |c| {
+                const meta_key = std.fmt.allocPrint(self.allocator, "meta:{s}", .{uncached_names.items[uncached_idx]}) catch continue;
+                defer self.allocator.free(meta_key);
+                c.put(meta_key, resp.body) catch {};
+            }
         }
 
         // Phase 4: JSON API fallback for packages without PEP 658
@@ -813,31 +931,34 @@ pub const PyPIClient = struct {
         if (fallback_count > 0) {
             var fallback_names = try self.allocator.alloc([]const u8, fallback_count);
             defer self.allocator.free(fallback_names);
-            var fallback_indices = try self.allocator.alloc(usize, fallback_count);
-            defer self.allocator.free(fallback_indices);
+            var fallback_orig_indices = try self.allocator.alloc(usize, fallback_count);
+            defer self.allocator.free(fallback_orig_indices);
 
             var j: usize = 0;
             for (needs_json_fallback, 0..) |needs, i| {
                 if (needs) {
-                    fallback_names[j] = package_names[i];
-                    fallback_indices[j] = i;
+                    fallback_names[j] = uncached_names.items[i];
+                    fallback_orig_indices[j] = uncached_indices.items[i];
                     j += 1;
                 }
             }
 
-            // Use JSON API for fallback packages
-            const fallback_results = try self.getPackagesParallel(fallback_names);
+            // Use JSON API for fallback packages (WITH CACHE!)
+            const fallback_results = try self.getPackagesParallelWithCache(fallback_names, cache);
             defer self.allocator.free(fallback_results);
 
             for (fallback_results, 0..) |fr, fi| {
-                results[fallback_indices[fi]] = fr;
+                results[fallback_orig_indices[fi]] = fr;
             }
         }
 
         const total_time = timer.read() / 1_000_000;
-        std.debug.print("[PyPI-Fast] {d} packages: simple={d}ms, parse={d}ms, meta={d}ms, total={d}ms\n", .{
+        std.debug.print("[PyPI-Fast] {d} packages ({d} meta-cached, {d} simple-cached): cache={d}ms, simple={d}ms, parse={d}ms, meta={d}ms, total={d}ms\n", .{
             package_names.len,
-            simple_time,
+            cache_hits,
+            simple_cache_hits,
+            cache_time,
+            simple_time - cache_time,
             parse_simple_time - simple_time,
             metadata_time - parse_simple_time,
             total_time,
