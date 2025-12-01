@@ -243,36 +243,85 @@ fn findLocalVars(func: ast.Node.FunctionDef, vars: *hashmap_helper.StringHashMap
         try vars.put(kwarg_name, {});
     }
 
-    // Find all assignments
-    for (func.body) |stmt| {
-        switch (stmt) {
-            .assign => |a| {
-                for (a.targets) |target| {
-                    if (target == .name) {
-                        try vars.put(target.name.id, {});
-                    }
+    // Find all assignments recursively in function body
+    try findLocalVarsInStmts(func.body, vars);
+}
+
+/// Recursively find local variable assignments in statements
+fn findLocalVarsInStmts(stmts: []ast.Node, vars: *hashmap_helper.StringHashMap(void)) error{OutOfMemory}!void {
+    for (stmts) |stmt| {
+        try findLocalVarsInStmt(stmt, vars);
+    }
+}
+
+/// Find local variable assignments in a single statement (recursive)
+fn findLocalVarsInStmt(stmt: ast.Node, vars: *hashmap_helper.StringHashMap(void)) error{OutOfMemory}!void {
+    switch (stmt) {
+        .assign => |a| {
+            for (a.targets) |target| {
+                if (target == .name) {
+                    try vars.put(target.name.id, {});
                 }
-            },
-            .ann_assign => |a| {
-                if (a.target.* == .name) {
-                    try vars.put(a.target.name.id, {});
+            }
+        },
+        .ann_assign => |a| {
+            if (a.target.* == .name) {
+                try vars.put(a.target.name.id, {});
+            }
+        },
+        .for_stmt => |f| {
+            // For loop target is a local variable
+            if (f.target.* == .name) {
+                try vars.put(f.target.name.id, {});
+            }
+            // Recurse into for loop body
+            try findLocalVarsInStmts(f.body, vars);
+            if (f.orelse_body) |orelse_body| {
+                try findLocalVarsInStmts(orelse_body, vars);
+            }
+        },
+        .while_stmt => |w| {
+            // Recurse into while loop body
+            try findLocalVarsInStmts(w.body, vars);
+            if (w.orelse_body) |orelse_body| {
+                try findLocalVarsInStmts(orelse_body, vars);
+            }
+        },
+        .if_stmt => |i| {
+            // Recurse into if/else bodies
+            try findLocalVarsInStmts(i.body, vars);
+            try findLocalVarsInStmts(i.else_body, vars);
+        },
+        .try_stmt => |t| {
+            // Recurse into try/except/finally bodies
+            try findLocalVarsInStmts(t.body, vars);
+            for (t.handlers) |handler| {
+                if (handler.name) |name| {
+                    try vars.put(name, {});
                 }
-            },
-            .for_stmt => |f| {
-                if (f.target.* == .name) {
-                    try vars.put(f.target.name.id, {});
-                }
-            },
-            .function_def => |f| {
-                // Nested function name is a local variable
-                try vars.put(f.name, {});
-            },
-            .class_def => |c| {
-                // Nested class name is a local variable
-                try vars.put(c.name, {});
-            },
-            else => {},
-        }
+                try findLocalVarsInStmts(handler.body, vars);
+            }
+            try findLocalVarsInStmts(t.else_body, vars);
+            try findLocalVarsInStmts(t.finalbody, vars);
+        },
+        .with_stmt => |w| {
+            // With statement may bind to a name (as var)
+            if (w.optional_vars) |var_name| {
+                try vars.put(var_name, {});
+            }
+            try findLocalVarsInStmts(w.body, vars);
+        },
+        .function_def => |f| {
+            // Nested function name is a local variable
+            try vars.put(f.name, {});
+            // Don't recurse - nested function has its own scope
+        },
+        .class_def => |c| {
+            // Nested class name is a local variable
+            try vars.put(c.name, {});
+            // Don't recurse - nested class has its own scope
+        },
+        else => {},
     }
 }
 

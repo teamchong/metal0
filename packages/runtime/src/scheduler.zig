@@ -1,6 +1,7 @@
 const std = @import("std");
 const GreenThread = @import("green_thread").GreenThread;
 const WorkQueue = @import("work_queue").WorkQueue;
+const Netpoller = @import("netpoller").Netpoller;
 
 pub const Scheduler = struct {
     allocator: std.mem.Allocator,
@@ -10,6 +11,7 @@ pub const Scheduler = struct {
     active_threads: std.atomic.Value(usize),
     shutdown_flag: std.atomic.Value(bool),
     num_workers: usize,
+    netpoller: ?*Netpoller,
 
     pub fn init(allocator: std.mem.Allocator, num_threads: usize) !Scheduler {
         const thread_count = if (num_threads == 0)
@@ -27,6 +29,24 @@ pub const Scheduler = struct {
         const workers = try allocator.alloc(std.Thread, thread_count);
         errdefer allocator.free(workers);
 
+        // Initialize netpoller for async I/O
+        const np = allocator.create(Netpoller) catch null;
+        if (np) |p| {
+            p.* = Netpoller.init(allocator) catch {
+                allocator.destroy(p);
+                return Scheduler{
+                    .allocator = allocator,
+                    .queues = queues,
+                    .workers = workers,
+                    .next_id = std.atomic.Value(u64).init(1),
+                    .active_threads = std.atomic.Value(usize).init(0),
+                    .shutdown_flag = std.atomic.Value(bool).init(false),
+                    .num_workers = thread_count,
+                    .netpoller = null,
+                };
+            };
+        }
+
         return Scheduler{
             .allocator = allocator,
             .queues = queues,
@@ -35,10 +55,16 @@ pub const Scheduler = struct {
             .active_threads = std.atomic.Value(usize).init(0),
             .shutdown_flag = std.atomic.Value(bool).init(false),
             .num_workers = thread_count,
+            .netpoller = np,
         };
     }
 
     pub fn start(self: *Scheduler) !void {
+        // Start netpoller for async I/O
+        if (self.netpoller) |np| {
+            try np.start();
+        }
+
         // Pre-spawn persistent workers
         for (0..self.num_workers) |i| {
             self.workers[i] = try std.Thread.spawn(.{}, workerLoop, .{ self, i });
@@ -57,6 +83,12 @@ pub const Scheduler = struct {
         // Join all workers
         for (self.workers) |worker| {
             worker.join();
+        }
+
+        // Cleanup netpoller
+        if (self.netpoller) |np| {
+            np.deinit();
+            self.allocator.destroy(np);
         }
 
         // Cleanup
@@ -272,6 +304,29 @@ pub const Scheduler = struct {
                 }
                 _ = self.active_threads.fetchSub(1, .release);
                 continue;
+            }
+
+            // Check netpoller for I/O-ready threads (like Go's findrunnable)
+            if (self.netpoller) |np| {
+                const ready = np.getReadyThreads();
+                if (ready.len > 0) {
+                    // Take first one, put rest in queue
+                    var first = true;
+                    for (ready) |task| {
+                        if (first) {
+                            first = false;
+                            task.run();
+                            if (task.context_cleanup) |cleanup| {
+                                cleanup(task, self.allocator);
+                            }
+                            _ = self.active_threads.fetchSub(1, .release);
+                        } else {
+                            queue.push(task) catch {};
+                        }
+                    }
+                    self.allocator.free(ready);
+                    continue;
+                }
             }
 
             // Try stealing from other queues (FIFO)
