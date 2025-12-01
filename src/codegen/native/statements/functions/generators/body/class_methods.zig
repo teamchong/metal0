@@ -486,18 +486,31 @@ pub fn genInitMethodWithBuiltinBase(
                 try self.emit(param_type);
 
                 // Track anytype params for comptime type guard detection
-                std.debug.print("DEBUG genInitMethodWithBuiltinBase: arg.name = {s}, param_type = {s}\n", .{ arg.name, param_type });
                 if (std.mem.eql(u8, param_type, "anytype")) {
                     try self.anytype_params.put(arg.name, {});
-                    std.debug.print("DEBUG: Added {s} to anytype_params\n", .{arg.name});
                 }
             }
         }
     }
 
-    // Use @This() for self-referential return type - heap-allocate for nested classes
+    // Detect type-check-raise patterns at the start of the function body for anytype params
+    // These need comptime branching to prevent invalid type instantiations from being analyzed
+    // Do this BEFORE emitting return type since it affects whether we need error union
+    const type_checks = try function_gen.detectTypeCheckRaisePatterns(init.body, self.anytype_params, self.allocator);
+    const body_start_idx = type_checks.start_idx;
+    const has_type_checks = type_checks.checks.len > 0;
+
+    // Track class as having error-returning init for `try` in instantiation calls
+    if (has_type_checks) {
+        try self.error_init_classes.put(class_name, {});
+    }
+
+    // Use @This() or !@This() for self-referential return type
+    // Use error union if we have type checks that may return error.TypeError
     if (is_nested) {
         try self.emit(") !*@This() {\n");
+    } else if (has_type_checks) {
+        try self.emit(") !@This() {\n");
     } else {
         try self.emit(") @This() {\n");
     }
@@ -514,14 +527,6 @@ pub fn genInitMethodWithBuiltinBase(
     // This ensures variables like `g = gcd(...)` that are used in field assignments
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
     try usage_analysis.analyzeFunctionLocalUses(self, init);
-
-    // Detect type-check-raise patterns at the start of the function body for anytype params
-    // These need comptime branching to prevent invalid type instantiations from being analyzed
-    std.debug.print("DEBUG: Before detectTypeCheckRaisePatterns, anytype_params.count() = {}\n", .{self.anytype_params.count()});
-    const type_checks = try function_gen.detectTypeCheckRaisePatterns(init.body, self.anytype_params, self.allocator);
-    const body_start_idx = type_checks.start_idx;
-    const has_type_checks = type_checks.checks.len > 0;
-    std.debug.print("DEBUG: type_checks.checks.len = {}, body_start_idx = {}\n", .{ type_checks.checks.len, body_start_idx });
 
     if (has_type_checks) {
         // Generate comptime type guard: if (comptime istype(@TypeOf(p1), "int") and istype(@TypeOf(p2), "int")) {

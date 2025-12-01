@@ -5,7 +5,7 @@
 
 const std = @import("std");
 const Value = @import("value.zig").Value;
-const simd = @import("simd/dispatch.zig");
+const simd = @import("json_simd");
 
 // Use SIMD-accelerated whitespace skipping
 fn skipWhitespace(data: []const u8, offset: usize) usize {

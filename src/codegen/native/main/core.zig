@@ -172,6 +172,10 @@ pub const NativeCodegen = struct {
     // Track which classes have mutating methods (need var instances, not const)
     mutable_classes: FnvVoidMap,
 
+    // Track which classes have init methods that return error unions (!@This())
+    // These classes need `try` when instantiating due to comptime type checks
+    error_init_classes: FnvVoidMap,
+
     // Track unittest TestCase classes and their test methods
     unittest_classes: std.ArrayList(TestClassInfo),
 
@@ -450,6 +454,7 @@ pub const NativeCodegen = struct {
             .dict_vars = FnvVoidMap.init(allocator),
             .anytype_params = FnvVoidMap.init(allocator),
             .mutable_classes = FnvVoidMap.init(allocator),
+            .error_init_classes = FnvVoidMap.init(allocator),
             .unittest_classes = std.ArrayList(TestClassInfo){},
             .test_factories = hashmap_helper.StringHashMap(TestFactoryInfo).init(allocator),
             .comptime_evaluator = comptime_eval.ComptimeEvaluator.init(allocator),
@@ -631,6 +636,15 @@ pub const NativeCodegen = struct {
                 const func_name = node.call.func.name.id;
                 if (self.nested_class_names.contains(func_name)) {
                     return .{ .class_instance = func_name };
+                }
+                // Also check for top-level class constructors (uppercase names)
+                if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
+                    // Check if this is the current class being generated
+                    if (self.current_class_name) |ccn| {
+                        if (std.mem.eql(u8, func_name, ccn)) {
+                            return .{ .class_instance = func_name };
+                        }
+                    }
                 }
             }
         }

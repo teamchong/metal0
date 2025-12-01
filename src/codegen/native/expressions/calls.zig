@@ -548,7 +548,14 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (i > 0) try self.emit(", ");
                 const arg_type = self.inferExprScoped(arg) catch .unknown;
                 if (arg_type == .class_instance) {
-                    try self.emit("&");
+                    // Don't add & for renamed variables (param reassignment creates var, already a value)
+                    const is_renamed_var = if (arg == .name)
+                        self.var_renames.contains(arg.name.id)
+                    else
+                        false;
+                    if (!is_renamed_var) {
+                        try self.emit("&");
+                    }
                 }
                 try genExpr(self, arg);
             }
@@ -617,12 +624,15 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // Nested classes have init() returning !*@This() (error union with pointer)
             // So we need try for: nested class calls, or self-class calls when inside a nested class
+            // Also need try for classes with type-check patterns in __init__ (returns !@This())
             const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
             const needs_try_for_nested = in_nested_names or (is_self_class_call and current_class_is_nested);
+            const has_error_init = self.error_init_classes.contains(raw_func_name);
+            const needs_try = needs_try_for_nested or has_error_init;
 
             if (is_user_class) {
-                // User-defined class: nested classes need try (returns !*@This())
-                if (needs_try_for_nested) {
+                // User-defined class: nested classes and error init classes need try
+                if (needs_try) {
                     try self.emit("(try ");
                 }
                 if (is_self_class_call) {
@@ -827,8 +837,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // All paths here use single closing paren for .init(...)
             // Runtime exception path with (try ...) already returned earlier at line 588/592/603
             try self.emit(")");
-            // Close the (try ...) wrapper for nested class constructors
-            if (needs_try_for_nested) {
+            // Close the (try ...) wrapper for nested class or error-init constructors
+            if (needs_try) {
                 try self.emit(")");
             }
             return;
@@ -926,8 +936,15 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // Check if argument is a class instance - pass by pointer for Python semantics
                 const arg_type = self.inferExprScoped(arg) catch .unknown;
                 if (arg_type == .class_instance) {
-                    // Pass class instances by pointer to allow mutations to propagate
-                    try self.emit("&");
+                    // Don't add & for renamed variables (param reassignment creates var, already a value)
+                    const is_renamed_var = if (arg == .name)
+                        self.var_renames.contains(arg.name.id)
+                    else
+                        false;
+                    if (!is_renamed_var) {
+                        // Pass class instances by pointer to allow mutations to propagate
+                        try self.emit("&");
+                    }
                 }
                 try genExpr(self, arg);
             }

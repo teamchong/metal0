@@ -746,6 +746,39 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
+    // Generate method aliases (e.g., __radd__ = __add__, __rmul__ = __mul__)
+    // Python allows assigning one method to another name to create an alias
+    for (class.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                const alias_name = assign.targets[0].name.id;
+                // Check if value is a name referencing another method
+                if (assign.value.* == .name) {
+                    const target_method = assign.value.name.id;
+                    // Check if target is actually a method in this class
+                    var is_method = false;
+                    for (class.body) |method_stmt| {
+                        if (method_stmt == .function_def and
+                            std.mem.eql(u8, method_stmt.function_def.name, target_method))
+                        {
+                            is_method = true;
+                            break;
+                        }
+                    }
+                    if (is_method) {
+                        // Generate an alias method that delegates to the target
+                        try self.emit("\n");
+                        try self.emitIndent();
+                        try self.output.writer(self.allocator).print("// {s} = {s} (method alias)\n", .{ alias_name, target_method });
+                        try self.emitIndent();
+                        try self.output.writer(self.allocator).print("pub const {s} = {s};\n", .{ alias_name, target_method });
+                    }
+                }
+            }
+        }
+    }
+
     // Generate code for class-level type attributes (e.g., int_class = int)
     // Registration already done earlier, now just generate the function code
     for (class.body) |stmt| {

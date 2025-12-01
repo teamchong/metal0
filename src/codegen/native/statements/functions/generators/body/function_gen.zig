@@ -42,22 +42,16 @@ pub fn detectTypeCheckRaisePatterns(body: []ast.Node, anytype_params: anytype, a
         const if_stmt = stmt.if_stmt;
 
         // Body must be a single raise TypeError
-        std.debug.print("DEBUG: if_stmt.body.len = {}\n", .{if_stmt.body.len});
         if (if_stmt.body.len != 1) break;
-        std.debug.print("DEBUG: if_stmt.body[0] tag = {s}\n", .{@tagName(if_stmt.body[0])});
         if (if_stmt.body[0] != .raise_stmt) break;
         const raise = if_stmt.body[0].raise_stmt;
-        std.debug.print("DEBUG: raise.exc is null = {}\n", .{raise.exc == null});
         if (raise.exc == null) break;
 
         // Check the exception is TypeError
-        std.debug.print("DEBUG: raise.exc.?.* tag = {s}\n", .{@tagName(raise.exc.?.*)});
         const is_type_error = blk: {
             if (raise.exc.?.* == .call) {
                 const call = raise.exc.?.call;
-                std.debug.print("DEBUG: call.func.* tag = {s}\n", .{@tagName(call.func.*)});
                 if (call.func.* == .name) {
-                    std.debug.print("DEBUG: call.func.name.id = {s}\n", .{call.func.name.id});
                     break :blk std.mem.eql(u8, call.func.name.id, "TypeError");
                 }
             } else if (raise.exc.?.* == .name) {
@@ -65,7 +59,6 @@ pub fn detectTypeCheckRaisePatterns(body: []ast.Node, anytype_params: anytype, a
             }
             break :blk false;
         };
-        std.debug.print("DEBUG: is_type_error = {}\n", .{is_type_error});
         if (!is_type_error) break;
 
         // Condition must be: not isint(x) or not isinstance(x, type)
@@ -550,6 +543,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         try renamed_params.append(self.allocator, first_param_name.?);
     }
 
+    const var_tracking = @import("../../nested/var_tracking.zig");
     var is_first = true;
     for (method.args) |arg| {
         // Skip the first parameter (self/cls/test_self/etc.)
@@ -565,6 +559,21 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             try renamed_params.append(self.allocator, arg.name);
         }
         try self.declareVar(arg.name);
+
+        // Check if this parameter is reassigned in the method body
+        // Zig function parameters are const, so we need a mutable copy
+        if (var_tracking.isParamReassignedInStmts(arg.name, method.body)) {
+            // Create a mutable copy of the parameter
+            try self.emitIndent();
+            try self.emit("var ");
+            try self.emit(arg.name);
+            try self.emit("__mut = ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(";\n");
+            // Rename all references to use the mutable copy
+            try self.var_renames.put(arg.name, try std.fmt.allocPrint(self.allocator, "{s}__mut", .{arg.name}));
+            try renamed_params.append(self.allocator, arg.name);
+        }
     }
 
     // NOTE: Forward-referenced captured variables (class captures variable before it's declared)

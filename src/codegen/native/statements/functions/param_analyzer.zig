@@ -684,6 +684,21 @@ pub fn isParameterUsedInTypeCheck(body: []ast.Node, param_name: []const u8) bool
                     if (isTypeCheckCall(value.*, param_name)) return true;
                 }
             },
+            .for_stmt => |for_s| {
+                // Check for "for T in ...: if isinstance(x, T): return ..." pattern
+                for (for_s.body) |body_stmt| {
+                    if (body_stmt == .if_stmt) {
+                        if (isTypeCheckCall(body_stmt.if_stmt.condition.*, param_name)) return true;
+                    }
+                }
+            },
+            .if_stmt => |if_s| {
+                // Check for "if isinstance(x, T): ..." pattern
+                if (isTypeCheckCall(if_s.condition.*, param_name)) return true;
+                // Also check nested statements
+                if (isParameterUsedInTypeCheck(if_s.body, param_name)) return true;
+                if (isParameterUsedInTypeCheck(if_s.else_body, param_name)) return true;
+            },
             else => {},
         }
     }

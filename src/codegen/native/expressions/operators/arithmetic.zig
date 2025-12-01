@@ -916,6 +916,44 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // If mixing usize and i64, cast to i64 for the operation
     const needs_cast = (left_is_usize and right_is_int) or (left_is_int and right_is_usize);
 
+    // Handle mixed int/float multiplication - convert int to float
+    // Note: unknown types (like self.field) that are multiplied with float constants
+    // need runtime type dispatch
+    const left_is_float = (left_type == .float);
+    const right_is_float = (right_type == .float);
+    const left_is_unknown = (left_type == .unknown);
+    const right_is_unknown = (right_type == .unknown);
+    if (binop.op == .Mult and ((left_is_int and right_is_float) or (left_is_float and right_is_int))) {
+        try self.emit("(");
+        if (left_is_int) {
+            try self.emit("@as(f64, @floatFromInt(");
+            try genExprWrapped(self, binop.left.*);
+            try self.emit("))");
+        } else {
+            try genExprWrapped(self, binop.left.*);
+        }
+        try self.emit(" * ");
+        if (right_is_int) {
+            try self.emit("@as(f64, @floatFromInt(");
+            try genExprWrapped(self, binop.right.*);
+            try self.emit("))");
+        } else {
+            try genExprWrapped(self, binop.right.*);
+        }
+        try self.emit(")");
+        return;
+    }
+    // Handle unknown type * float: use runtime conversion
+    // Pattern: self.__num * 1.0 where __num could be int
+    if (binop.op == .Mult and ((left_is_unknown and right_is_float) or (left_is_float and right_is_unknown))) {
+        try self.emit("(runtime.toFloat(");
+        try genExprWrapped(self, binop.left.*);
+        try self.emit(") * runtime.toFloat(");
+        try genExprWrapped(self, binop.right.*);
+        try self.emit("))");
+        return;
+    }
+
     try self.emit("(");
 
     // Cast left operand if needed - bool or usize to i64

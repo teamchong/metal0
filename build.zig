@@ -50,21 +50,24 @@ pub fn build(b: *std.Build) void {
     });
     gzip_module.addIncludePath(b.path("vendor/libdeflate"));
 
+    // SIMD dispatch for JSON parsing (shared between runtime and shared/json)
+    // MUST be defined BEFORE json_mod since json_mod depends on it
+    const json_simd = b.addModule("json_simd", .{
+        .root_source_file = b.path("packages/shared/json/simd/dispatch.zig"),
+    });
+
     // Shared JSON library with SIMD acceleration
     const json_mod = b.addModule("json", .{
         .root_source_file = b.path("packages/shared/json/json.zig"),
     });
+    // json module imports simd via module dependency, not direct path
+    json_mod.addImport("json_simd", json_simd);
 
     // HTTP/2 module with TLS 1.3 (AES-NI accelerated) and gzip decompression
     const h2_mod = b.addModule("h2", .{
         .root_source_file = b.path("packages/shared/http/h2/h2.zig"),
     });
     h2_mod.addImport("gzip", gzip_module);
-
-    // SIMD dispatch for JSON parsing (shared between runtime and shared/json)
-    const json_simd = b.addModule("json_simd", .{
-        .root_source_file = b.path("packages/shared/json/simd/dispatch.zig"),
-    });
 
     // Regex module for re stdlib
     const regex_mod = b.addModule("regex", .{

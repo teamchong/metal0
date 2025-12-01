@@ -15,7 +15,7 @@
 const std = @import("std");
 const LazyValue = @import("lazy.zig").LazyValue;
 const LazyString = @import("lazy.zig").LazyString;
-const simd = @import("simd/dispatch.zig");
+const simd = @import("json_simd");
 
 pub const ParseError = error{
     UnexpectedToken,

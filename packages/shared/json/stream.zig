@@ -28,7 +28,7 @@
 //! ```
 
 const std = @import("std");
-const simd = @import("simd/dispatch.zig"); // SIMD-accelerated JSON utilities
+const simd = @import("json_simd"); // SIMD-accelerated JSON utilities
 
 /// Find a JSON string value after a key in the data.
 /// Returns the unescaped string content (without quotes).

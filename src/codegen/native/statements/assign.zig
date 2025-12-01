@@ -602,6 +602,38 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Normal reassignment
                     // Use renamed version if in var_renames map (for exception handling)
                     const actual_name = self.var_renames.get(var_name) orelse var_name;
+
+                    // Skip type-changing assignments for anytype parameters
+                    // Pattern: other = Rat(other) where other is anytype and RHS is constructor
+                    // This is incompatible with Zig's type system - will be handled by comptime branching
+                    const is_renamed = self.var_renames.contains(var_name);
+                    const is_anytype = self.anytype_params.contains(var_name);
+                    // Debug: emit comment to see if we're reaching this code
+                    // try self.emit("// DEBUG: checking ");
+                    // try self.emit(var_name);
+                    // try self.emit(" is_renamed=");
+                    // try self.emit(if (is_renamed) "true" else "false");
+                    // try self.emit(" is_anytype=");
+                    // try self.emit(if (is_anytype) "true" else "false");
+                    // try self.emit("\n");
+                    if (is_renamed and is_anytype) {
+                        // Check if RHS is a constructor call (class instantiation)
+                        if (assign.value.* == .call) {
+                            if (assign.value.call.func.* == .name) {
+                                const func_name = assign.value.call.func.name.id;
+                                // Check if it's a class constructor (starts with uppercase or is a known class)
+                                if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
+                                    // Skip this assignment - it would change the type
+                                    try self.emitIndent();
+                                    try self.emit("_ = ");
+                                    try self.genExpr(assign.value.*);
+                                    try self.emit("; // Type-changing assignment skipped\n");
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
                     // Use writeEscapedIdent to handle Zig keywords (e.g., "packed" -> @"packed")
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
                     try self.emit(" = ");

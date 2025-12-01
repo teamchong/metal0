@@ -1085,6 +1085,7 @@ pub fn genMethodSignatureWithSkip(
 
 /// Check if method returns a constructor call to a nested class
 /// Returns the class name if found, null otherwise
+/// Recursively searches inside if/elif/else blocks
 fn getReturnedNestedClassConstructor(body: []const ast.Node, self: *NativeCodegen) ?[]const u8 {
     for (body) |stmt| {
         if (stmt == .return_stmt) {
@@ -1105,6 +1106,15 @@ fn getReturnedNestedClassConstructor(body: []const ast.Node, self: *NativeCodege
                         }
                     }
                 }
+            }
+        } else if (stmt == .if_stmt) {
+            // Recursively search inside if/elif/else blocks
+            if (getReturnedNestedClassConstructor(stmt.if_stmt.body, self)) |found| {
+                return found;
+            }
+            // Search else_body (else/elif chain)
+            if (getReturnedNestedClassConstructor(stmt.if_stmt.else_body, self)) |found| {
+                return found;
             }
         }
     }
