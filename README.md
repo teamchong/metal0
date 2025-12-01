@@ -3,6 +3,7 @@
 **v0.1.0-alpha** - Early development, not production-ready
 
 Python Syntax. Native Speed. Zero Cold Starts.
+Deploy anywhere. Manage nothing.
 
 ## Key Features
 
