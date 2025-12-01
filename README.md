@@ -958,13 +958,9 @@ Detailed methodology and results: [benchmarks/RESULTS.md](benchmarks/RESULTS.md)
 - [x] Built-in package manager (install, uninstall, freeze, list, download, check) ✅
 
 **Phase 2: Dynamic Features (Self-Hosting)**
-- [ ] `eval()` and `exec()` support via AST executor
-  - **Architecture:** Reuse existing parser/runtime, skip codegen
-  - Parse string → AST → Execute directly (call existing runtime functions)
+- [x] `eval()` and `exec()` support via bytecode VM ✅
+  - Compiles expressions to bytecode at compile time, executes at runtime
   - Works in WASM + Native (no JIT needed)
-  - Binary size: +200KB for AST executor
-  - Performance: 2-5x faster than CPython (interpreted), static code unchanged (8-40x)
-  - Reuses 100% of existing runtime (512 C API functions, all stdlib modules)
 - [ ] `importlib.import_module()` support
   - Dynamic module loading at runtime
   - Compile-on-demand for pure Python modules

@@ -14,6 +14,7 @@ pub const OpCode = enum(u8) {
     FloorDiv,
     Mod,
     Pow,
+    Invert, // Bitwise NOT ~
     Eq,
     NotEq,
     Lt,

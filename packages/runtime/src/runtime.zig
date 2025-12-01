@@ -1127,6 +1127,12 @@ pub const builtinId = builtins.id;
 pub const builtinHash = builtins.hash;
 pub const bigIntDivmod = builtins.bigIntDivmod;
 pub const bigIntCompare = builtins.bigIntCompare;
+pub const operatorEq = builtins.operatorEq;
+pub const operatorNe = builtins.operatorNe;
+pub const operatorLt = builtins.operatorLt;
+pub const operatorLe = builtins.operatorLe;
+pub const operatorGt = builtins.operatorGt;
+pub const operatorGe = builtins.operatorGe;
 
 // Import and re-export float operations
 pub const float_ops = @import("runtime/float_ops.zig");
