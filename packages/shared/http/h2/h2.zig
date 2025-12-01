@@ -235,7 +235,16 @@ pub const Client = struct {
         defer headers.deinit(self.allocator);
 
         try headers.append(self.allocator, .{ .name = "user-agent", .value = "metal0/1.0" });
-        try headers.append(self.allocator, .{ .name = "accept", .value = "*/*" });
+
+        // Only add default accept if not provided in extra_headers
+        var has_accept = false;
+        for (extra_headers) |h| {
+            if (std.mem.eql(u8, h.name, "accept")) has_accept = true;
+        }
+        if (!has_accept) {
+            try headers.append(self.allocator, .{ .name = "accept", .value = "*/*" });
+        }
+
         try headers.append(self.allocator, .{ .name = "accept-encoding", .value = "gzip" });
 
         for (extra_headers) |h| {

@@ -54,6 +54,8 @@ pub const Requirement = union(enum) {
 pub const RequirementsFile = struct {
     requirements: []const Requirement,
     allocator: std.mem.Allocator,
+    /// Raw content backing the slices (null if parsed from memory)
+    content: ?[]const u8 = null,
 
     pub fn deinit(self: *RequirementsFile) void {
         for (self.requirements) |*req| {
@@ -63,6 +65,7 @@ pub const RequirementsFile = struct {
             }
         }
         self.allocator.free(self.requirements);
+        if (self.content) |c| self.allocator.free(c);
     }
 
     /// Get all package dependencies
@@ -285,9 +288,11 @@ pub fn parseFile(allocator: std.mem.Allocator, path: []const u8) !RequirementsFi
     defer file.close();
 
     const content = try file.readToEndAlloc(allocator, 1024 * 1024); // 1MB max
-    defer allocator.free(content);
+    errdefer allocator.free(content);
 
-    return parse(allocator, content);
+    var result = try parse(allocator, content);
+    result.content = content; // Transfer ownership to result
+    return result;
 }
 
 // ============================================================================

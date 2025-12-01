@@ -397,8 +397,9 @@ pub const PyPIClient = struct {
 
     /// Fetch URL with custom Accept header (using HTTP/2)
     fn fetchUrlWithAccept(self: *PyPIClient, url: []const u8, accept: []const u8) ![]const u8 {
-        _ = accept; // H2 client handles accept headers internally
-        var response = self.h2_client.get(url) catch return PyPIError.NetworkError;
+        var response = self.h2_client.request("GET", url, &[_]h2.ExtraHeader{
+            .{ .name = "accept", .value = accept },
+        }, null) catch return PyPIError.NetworkError;
         defer response.deinit();
 
         if (response.status != 200) return PyPIError.NetworkError;

@@ -6,31 +6,33 @@ set -e
 echo "🔧 Setting up metal0 development environment..."
 
 # Check prerequisites
-command -v uv >/dev/null 2>&1 || { echo "❌ Error: uv not installed. Install from https://docs.astral.sh/uv/"; exit 1; }
 command -v zig >/dev/null 2>&1 || { echo "❌ Error: zig not installed. Install from https://ziglang.org/"; exit 1; }
 
-# Sync workspace
-echo "📦 Installing workspace packages..."
-uv sync
+# Build metal0
+echo "⚙️  Building metal0 compiler..."
+zig build
 
-# Install all packages in editable mode
-echo "🔗 Installing packages in editable mode..."
-uv pip install -e packages/core -e packages/runtime -e packages/cli -e packages/web -e packages/http -e packages/ai -e packages/async -e packages/db
+# Create virtual environment if needed
+if [ ! -d ".venv" ]; then
+    echo "📁 Creating virtual environment..."
+    python3 -m venv .venv
+fi
 
-# Add venv bin to PATH (for current shell)
+# Add venv bin to PATH
 VENV_BIN="$(pwd)/.venv/bin"
+export PATH="$VENV_BIN:$PATH"
+
+# Install development dependencies using metal0
+echo "📦 Installing development packages..."
+./zig-out/bin/metal0 install pytest flask requests httpx
 
 echo ""
 echo "✅ Development environment ready!"
 echo ""
 echo "To use metal0 command, add to your shell:"
 echo ""
-echo "  export PATH=\"$VENV_BIN:\$PATH\""
+echo "  export PATH=\"$(pwd)/zig-out/bin:\$PATH\""
 echo ""
-echo "Or activate the virtual environment:"
-echo ""
-echo "  source .venv/bin/activate"
-echo ""
-echo "Then run:"
-echo "  metal0 examples/fibonacci.py --run"
+echo "Or run directly:"
+echo "  ./zig-out/bin/metal0 examples/fibonacci.py --run"
 echo ""

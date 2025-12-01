@@ -90,11 +90,11 @@ pub fn main() !void {
     else if (std.mem.eql(u8, command, "install")) {
         try cmdInstall(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "uninstall") or std.mem.eql(u8, command, "remove")) {
-        cmdUninstall(args[2..]);
+        try cmdUninstall(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "freeze")) {
-        cmdFreeze();
+        try cmdFreeze(allocator);
     } else if (std.mem.eql(u8, command, "list")) {
-        cmdList(args[2..]);
+        try cmdList(allocator);
     } else if (std.mem.eql(u8, command, "show")) {
         try cmdShow(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "cache")) {
@@ -121,14 +121,48 @@ fn cmdInstall(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len == 0) {
         printError("No packages specified", .{});
         std.debug.print("\nUsage: metal0 install <package> [package...] [options]\n", .{});
+        std.debug.print("       metal0 install -r requirements.txt\n", .{});
         return;
     }
 
     var packages = std.ArrayList([]const u8){};
     defer packages.deinit(allocator);
 
-    for (args) |arg| {
-        if (!std.mem.startsWith(u8, arg, "-")) {
+    // Track allocated strings for cleanup
+    var allocated_pkgs = std.ArrayList([]const u8){};
+    defer {
+        for (allocated_pkgs.items) |p| allocator.free(p);
+        allocated_pkgs.deinit(allocator);
+    }
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "-r") or std.mem.eql(u8, arg, "--requirement")) {
+            // Read requirements file
+            i += 1;
+            if (i >= args.len) {
+                printError("-r requires a filename argument", .{});
+                return;
+            }
+            const req_file = args[i];
+            var reqs = pkg.requirements.parseFile(allocator, req_file) catch |err| {
+                printError("Failed to parse {s}: {any}", .{ req_file, err });
+                return;
+            };
+            defer reqs.deinit();
+            // Add requirements as packages
+            for (reqs.requirements) |r| {
+                switch (r) {
+                    .package => |dep| {
+                        const name_copy = try allocator.dupe(u8, dep.name);
+                        try allocated_pkgs.append(allocator, name_copy);
+                        try packages.append(allocator, name_copy);
+                    },
+                    else => {}, // Skip options, editables, etc. for now
+                }
+            }
+        } else if (!std.mem.startsWith(u8, arg, "-")) {
             try packages.append(allocator, arg);
         }
     }
@@ -192,6 +226,17 @@ fn cmdInstall(allocator: std.mem.Allocator, args: []const []const u8) !void {
     });
 
     std.debug.print("\n{s}Packages to install:{s}\n", .{ Color.bold, Color.reset });
+
+    // Build package info for installer
+    var pkg_infos = std.ArrayList(pkg.installer.PackageInfo){};
+    defer {
+        for (pkg_infos.items) |p| {
+            allocator.free(p.version);
+            if (p.wheel_url) |url| allocator.free(url);
+        }
+        pkg_infos.deinit(allocator);
+    }
+
     for (resolution.packages) |p| {
         var version_buf: [128]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&version_buf);
@@ -206,33 +251,207 @@ fn cmdInstall(allocator: std.mem.Allocator, args: []const []const u8) !void {
             version_str,
             Color.reset,
         });
+
+        try pkg_infos.append(allocator, .{
+            .name = p.name,
+            .version = try allocator.dupe(u8, version_str),
+            .wheel_url = null, // Will be filled from Simple API
+            .sha256 = null,
+        });
     }
 
-    std.debug.print("\n{s}(Download and install coming soon){s}\n", .{ Color.dim, Color.reset });
+    // Fetch wheel URLs from Simple API (has wheel_url per version)
+    std.debug.print("\n{s}Fetching wheel URLs...{s}\n", .{ Color.dim, Color.reset });
+
+    for (pkg_infos.items) |*info| {
+        const simple_info = client.getSimplePackageInfo(info.name) catch continue;
+        defer {
+            var si = simple_info;
+            si.deinit(allocator);
+        }
+
+        // Find matching version with wheel URL
+        for (simple_info.versions) |v| {
+            if (std.mem.eql(u8, v.version, info.version)) {
+                if (v.wheel_url) |url| {
+                    info.wheel_url = allocator.dupe(u8, url) catch null;
+                }
+                break;
+            }
+        }
+    }
+
+    // Download and install wheels
+    std.debug.print("\n{s}Downloading wheels...{s}\n", .{ Color.dim, Color.reset });
+
+    var installer_inst = pkg.installer.Installer.init(allocator, .{
+        .show_progress = true,
+    }) catch |err| {
+        printError("Failed to initialize installer: {any}", .{err});
+        return;
+    };
+    defer installer_inst.deinit();
+
+    const install_results = installer_inst.installPackages(pkg_infos.items) catch |err| {
+        printError("Installation failed: {any}", .{err});
+        return;
+    };
+    defer {
+        for (install_results) |r| {
+            allocator.free(r.name);
+            allocator.free(r.version);
+        }
+        allocator.free(install_results);
+    }
+
+    const total_elapsed = @as(f64, @floatFromInt(std.time.nanoTimestamp() - start_time)) / 1_000_000_000.0;
+
+    std.debug.print("\n", .{});
+    if (install_results.len > 0) {
+        var total_files: usize = 0;
+        var total_size: u64 = 0;
+        for (install_results) |r| {
+            total_files += r.files_installed;
+            total_size += r.size_bytes;
+        }
+        printSuccess("Installed {s}{d}{s} packages ({d} files, {d:.1} MB) in {s}{d:.2}s{s}", .{
+            Color.bold,
+            install_results.len,
+            Color.reset,
+            total_files,
+            @as(f64, @floatFromInt(total_size)) / (1024.0 * 1024.0),
+            Color.dim,
+            total_elapsed,
+            Color.reset,
+        });
+    } else {
+        printWarn("No packages were installed (no wheel URLs available)", .{});
+    }
 }
 
-fn cmdUninstall(args: []const []const u8) void {
+fn cmdUninstall(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len == 0) {
         printError("No packages specified", .{});
         return;
     }
-    for (args) |pkg_name| {
-        if (!std.mem.startsWith(u8, pkg_name, "-")) {
-            printWarn("Uninstall not yet implemented: {s}", .{pkg_name});
+
+    // Collect package names (skip flags)
+    var packages = std.ArrayList([]const u8){};
+    defer packages.deinit(allocator);
+
+    for (args) |arg| {
+        if (!std.mem.startsWith(u8, arg, "-")) {
+            try packages.append(allocator, arg);
         }
+    }
+
+    if (packages.items.len == 0) {
+        printError("No packages specified", .{});
+        return;
+    }
+
+    var installer = pkg.installer.Installer.init(allocator, .{}) catch |err| {
+        printError("Failed to initialize installer: {any}", .{err});
+        return;
+    };
+    defer installer.deinit();
+
+    const results = installer.uninstallPackages(packages.items) catch |err| {
+        printError("Uninstall failed: {any}", .{err});
+        return;
+    };
+    defer {
+        for (results) |r| {
+            allocator.free(r.name);
+            allocator.free(r.version);
+        }
+        allocator.free(results);
+    }
+
+    if (results.len == 0) {
+        printWarn("No packages found to uninstall", .{});
+        return;
+    }
+
+    for (results) |r| {
+        std.debug.print("{s}✓{s} Uninstalled {s}{s}{s} {s}=={s}{s}\n", .{
+            Color.green,
+            Color.reset,
+            Color.bold,
+            r.name,
+            Color.reset,
+            Color.dim,
+            r.version,
+            Color.reset,
+        });
     }
 }
 
-fn cmdFreeze() void {
-    std.debug.print("# Installed packages (pip freeze format)\n", .{});
-    printWarn("Freeze not yet implemented", .{});
+fn cmdFreeze(allocator: std.mem.Allocator) !void {
+    var installer = pkg.installer.Installer.init(allocator, .{}) catch |err| {
+        printError("Failed to initialize installer: {any}", .{err});
+        return;
+    };
+    defer installer.deinit();
+
+    const packages = installer.listInstalled() catch |err| {
+        printError("Failed to list packages: {any}", .{err});
+        return;
+    };
+    defer {
+        for (packages) |p| {
+            allocator.free(p.name);
+            allocator.free(p.version);
+        }
+        allocator.free(packages);
+    }
+
+    for (packages) |p| {
+        std.debug.print("{s}=={s}\n", .{ p.name, p.version });
+    }
 }
 
-fn cmdList(args: []const []const u8) void {
-    _ = args;
-    std.debug.print("{s}Package       Version{s}\n", .{ Color.bold, Color.reset });
-    std.debug.print("{s}------------ --------{s}\n", .{ Color.dim, Color.reset });
-    printWarn("List not yet implemented", .{});
+fn cmdList(allocator: std.mem.Allocator) !void {
+    var installer = pkg.installer.Installer.init(allocator, .{}) catch |err| {
+        printError("Failed to initialize installer: {any}", .{err});
+        return;
+    };
+    defer installer.deinit();
+
+    const packages = installer.listInstalled() catch |err| {
+        printError("Failed to list packages: {any}", .{err});
+        return;
+    };
+    defer {
+        for (packages) |p| {
+            allocator.free(p.name);
+            allocator.free(p.version);
+        }
+        allocator.free(packages);
+    }
+
+    // Find max name length for formatting
+    var max_name_len: usize = 7; // "Package"
+    for (packages) |p| {
+        if (p.name.len > max_name_len) max_name_len = p.name.len;
+    }
+
+    std.debug.print("{s}Package", .{Color.bold});
+    var i: usize = 0;
+    while (i < max_name_len - 7 + 2) : (i += 1) std.debug.print(" ", .{});
+    std.debug.print("Version{s}\n", .{Color.reset});
+
+    std.debug.print("{s}", .{Color.dim});
+    i = 0;
+    while (i < max_name_len) : (i += 1) std.debug.print("-", .{});
+    std.debug.print("  -------{s}\n", .{Color.reset});
+
+    for (packages) |p| {
+        std.debug.print("{s}", .{p.name});
+        i = 0;
+        while (i < max_name_len - p.name.len + 2) : (i += 1) std.debug.print(" ", .{});
+        std.debug.print("{s}\n", .{p.version});
+    }
 }
 
 fn cmdShow(allocator: std.mem.Allocator, args: []const []const u8) !void {
@@ -380,7 +599,7 @@ fn cmdRunModule(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 try cmdInstall(allocator, args[2..]);
                 return;
             } else if (std.mem.eql(u8, args[1], "list")) {
-                cmdList(args[2..]);
+                try cmdList(allocator);
                 return;
             } else if (std.mem.eql(u8, args[1], "show")) {
                 try cmdShow(allocator, args[2..]);

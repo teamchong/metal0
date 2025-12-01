@@ -74,9 +74,12 @@ pub const InstalledFile = struct {
 pub const Record = struct {
     files: []const InstalledFile,
     allocator: std.mem.Allocator,
+    /// Raw content backing the slices (null if parsed from memory)
+    content: ?[]const u8 = null,
 
     pub fn deinit(self: *Record) void {
         self.allocator.free(self.files);
+        if (self.content) |c| self.allocator.free(c);
     }
 
     /// Find a file by path
@@ -247,9 +250,11 @@ pub fn parseFile(allocator: std.mem.Allocator, path: []const u8) !Record {
     defer file.close();
 
     const content = try file.readToEndAlloc(allocator, 10 * 1024 * 1024); // 10MB max
-    defer allocator.free(content);
+    errdefer allocator.free(content);
 
-    return parse(allocator, content);
+    var result = try parse(allocator, content);
+    result.content = content; // Transfer ownership to result
+    return result;
 }
 
 // ============================================================================

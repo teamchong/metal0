@@ -32,6 +32,9 @@ pub const scheduler = @import("fetch/scheduler.zig");
 // Phase 3: Resolver
 pub const resolver = @import("resolve/resolver.zig");
 
+// Phase 4: Installer
+pub const installer = @import("install/installer.zig");
+
 // Conformance tests (from Python packaging library)
 pub const pep440_conformance = @import("parse/pep440_conformance.zig");
 pub const pep508_conformance = @import("parse/pep508_conformance.zig");
@@ -56,6 +59,11 @@ pub const FetchScheduler = scheduler.FetchScheduler;
 // Re-export main types - Resolver
 pub const Resolver = resolver.Resolver;
 pub const Resolution = resolver.Resolution;
+
+// Re-export main types - Installer
+pub const Installer = installer.Installer;
+pub const PackageInfo = installer.PackageInfo;
+pub const InstallResult = installer.InstallResult;
 
 test {
     std.testing.refAllDecls(@This());
