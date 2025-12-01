@@ -275,7 +275,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("heapq", .zig_runtime, "std", null); // heapq module
     try registry.register("bisect", .zig_runtime, "std", null); // bisect module
     try registry.register("statistics", .zig_runtime, "std", null); // statistics module
-    try registry.register("decimal", .zig_runtime, "std", null); // decimal module
+    try registry.register("decimal", .zig_runtime, null, null); // decimal module - inline only (dispatch codegen)
     try registry.register("fractions", .zig_runtime, "std", null); // fractions module
     try registry.register("cmath", .zig_runtime, "std", null); // cmath module
     try registry.register("html", .zig_runtime, "std", null); // html module

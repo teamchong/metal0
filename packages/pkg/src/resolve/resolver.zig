@@ -178,6 +178,8 @@ pub const Resolver = struct {
 
     /// Resolve dependencies starting from root requirements
     pub fn resolve(self: *Resolver, requirements: []const pep508.Dependency) !Resolution {
+        var _total_timer = std.time.Timer.start() catch unreachable;
+
         // Add root requirements to pending
         for (requirements) |req| {
             const name = try self.allocator.dupe(u8, req.name);
@@ -189,6 +191,7 @@ pub const Resolver = struct {
         // Main resolution loop with DIRECT batch fetching + CACHE
         while (self.pending.count() > 0) {
             self.iterations += 1;
+            var _iter_timer = std.time.Timer.start() catch unreachable;
             if (self.iterations > self.config.max_iterations) {
                 return ResolverError.MaxIterationsExceeded;
             }
@@ -220,14 +223,70 @@ pub const Resolver = struct {
                 }
 
                 // CACHE CHECK: Try to get from cache first
+                // Check both fast path (meta:) and legacy JSON (pypi:json:) cache keys
                 if (self.cache) |c| {
-                    const cache_key = std.fmt.allocPrint(self.allocator, "pypi:json:{s}", .{name}) catch {
+                    // Try fast path cache key first (PEP 658 METADATA)
+                    const meta_key = std.fmt.allocPrint(self.allocator, "meta:{s}", .{name}) catch {
                         try batch_names.append(self.allocator, name);
                         continue;
                     };
-                    defer self.allocator.free(cache_key);
+                    defer self.allocator.free(meta_key);
 
-                    if (c.get(cache_key)) |cached_json| {
+                    if (c.get(meta_key)) |cached_meta| {
+                        // Parse cached METADATA text
+                        var metadata = pypi.PyPIClient.parseMetadataText(self.allocator, cached_meta, name) catch {
+                            // Cache corrupted, try JSON fallback
+                            const json_key = std.fmt.allocPrint(self.allocator, "pypi:json:{s}", .{name}) catch {
+                                try batch_names.append(self.allocator, name);
+                                continue;
+                            };
+                            defer self.allocator.free(json_key);
+
+                            if (c.get(json_key)) |cached_json| {
+                                var json_metadata = pypi.PyPIClient.parsePackageJsonStatic(self.allocator, cached_json, name) catch {
+                                    try batch_names.append(self.allocator, name);
+                                    continue;
+                                };
+                                defer json_metadata.deinit(self.allocator);
+                                self.cache_hits += 1;
+                                if (self.state.getPtr(name)) |s| s.* = .resolving;
+                                self.resolvePackageWithMetadata(name, json_metadata) catch |err| {
+                                    if (self.state.getPtr(name)) |s| s.* = .failed;
+                                    if (self.backtrack_count < self.config.max_backtrack) {
+                                        self.backtrack_count += 1;
+                                        continue;
+                                    }
+                                    return err;
+                                };
+                                continue;
+                            }
+                            try batch_names.append(self.allocator, name);
+                            continue;
+                        };
+                        defer metadata.deinit(self.allocator);
+
+                        // Process cached metadata
+                        self.cache_hits += 1;
+                        if (self.state.getPtr(name)) |s| s.* = .resolving;
+                        self.resolvePackageWithMetadata(name, metadata) catch |err| {
+                            if (self.state.getPtr(name)) |s| s.* = .failed;
+                            if (self.backtrack_count < self.config.max_backtrack) {
+                                self.backtrack_count += 1;
+                                continue;
+                            }
+                            return err;
+                        };
+                        continue;
+                    }
+
+                    // Fall back to legacy JSON cache key
+                    const json_key = std.fmt.allocPrint(self.allocator, "pypi:json:{s}", .{name}) catch {
+                        try batch_names.append(self.allocator, name);
+                        continue;
+                    };
+                    defer self.allocator.free(json_key);
+
+                    if (c.get(json_key)) |cached_json| {
                         // Parse cached JSON
                         var metadata = pypi.PyPIClient.parsePackageJsonStatic(self.allocator, cached_json, name) catch {
                             // Cache corrupted, fetch fresh
@@ -303,7 +362,13 @@ pub const Resolver = struct {
                 }
             }
             self.network_fetches += @intCast(batch_names.items.len);
+
+            const iter_ms = _iter_timer.read() / 1_000_000;
+            std.debug.print("[Resolve] iteration {d}: {d} packages in {d}ms\n", .{ self.iterations, batch_names.items.len, iter_ms });
         }
+
+        const total_ms = _total_timer.read() / 1_000_000;
+        _ = total_ms;
 
         // Build result - transfer ownership from self.resolved
         var packages = std.ArrayList(ResolvedPackage){};
