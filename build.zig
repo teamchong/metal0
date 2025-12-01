@@ -51,10 +51,15 @@ pub fn build(b: *std.Build) void {
     gzip_module.addIncludePath(b.path("vendor/libdeflate"));
 
     // Shared JSON library with SIMD acceleration
-    // Available for modules that need fast JSON parsing
-    _ = b.addModule("json", .{
+    const json_mod = b.addModule("json", .{
         .root_source_file = b.path("packages/shared/json/json.zig"),
     });
+
+    // HTTP/2 module with TLS 1.3 (AES-NI accelerated) and gzip decompression
+    const h2_mod = b.addModule("h2", .{
+        .root_source_file = b.path("packages/shared/http/h2/h2.zig"),
+    });
+    h2_mod.addImport("gzip", gzip_module);
 
     // SIMD dispatch for JSON parsing (shared between runtime and shared/json)
     const json_simd = b.addModule("json_simd", .{
@@ -75,6 +80,8 @@ pub fn build(b: *std.Build) void {
     const pkg_mod = b.addModule("pkg", .{
         .root_source_file = b.path("packages/pkg/src/pkg.zig"),
     });
+    pkg_mod.addImport("json", json_mod);
+    pkg_mod.addImport("h2", h2_mod);
 
     // Module dependencies
     runtime.addImport("hashmap_helper", hashmap_helper);
@@ -331,6 +338,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    pkg_module.addImport("json", json_mod);
+    pkg_module.addImport("h2", h2_mod);
 
     const resolve_exe = b.addExecutable(.{
         .name = "resolve",
@@ -343,6 +352,23 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    // Link libdeflate for gzip decompression
+    resolve_exe.root_module.addIncludePath(b.path("vendor/libdeflate"));
+    resolve_exe.root_module.addCSourceFiles(.{
+        .files = &.{
+            "vendor/libdeflate/lib/deflate_compress.c",
+            "vendor/libdeflate/lib/deflate_decompress.c",
+            "vendor/libdeflate/lib/utils.c",
+            "vendor/libdeflate/lib/gzip_compress.c",
+            "vendor/libdeflate/lib/gzip_decompress.c",
+            "vendor/libdeflate/lib/adler32.c",
+            "vendor/libdeflate/lib/crc32.c",
+            "vendor/libdeflate/lib/arm/cpu_features.c",
+            "vendor/libdeflate/lib/x86/cpu_features.c",
+        },
+        .flags = &[_][]const u8{ "-std=c99", "-O3" },
+    });
+    resolve_exe.linkLibC();
     b.installArtifact(resolve_exe);
 
     const run_resolve = b.addRunArtifact(resolve_exe);

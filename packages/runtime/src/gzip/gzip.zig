@@ -1,123 +1,179 @@
-// metal0 gzip module implementation
-// Implements Python's gzip.compress() and gzip.decompress() functions
-// Uses zlib C library for gzip compression
+//! Gzip compression/decompression using libdeflate
+//! Complete implementation - both compress and decompress
+//! libdeflate is 2-3x faster than zlib, self-contained (no system deps)
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const c = @cImport({
-    @cInclude("zlib.h");
+    @cInclude("libdeflate.h");
 });
 
-// Gzip header adds 10 bytes + 8 bytes trailer = 18 bytes overhead
-const GZIP_HEADER_SIZE = 10;
-const GZIP_TRAILER_SIZE = 8;
+pub const CompressError = error{
+    OutOfMemory,
+    InitFailed,
+    CompressFailed,
+};
+
+pub const DecompressError = error{
+    OutOfMemory,
+    BadData,
+    BadGzipHeader,
+    WrongGzipChecksum,
+    WrongGzipSize,
+    InsufficientSpace,
+    EndOfStream,
+};
 
 /// Compress data using gzip format
 /// Caller owns returned memory and must free it with allocator.free()
-pub fn compress(allocator: Allocator, data: []const u8) ![]u8 {
-    // Use deflateInit2 with gzip format (windowBits + 16)
-    var stream: c.z_stream = std.mem.zeroes(c.z_stream);
+pub fn compress(allocator: Allocator, data: []const u8) CompressError![]u8 {
+    const compressor = c.libdeflate_alloc_compressor(6) orelse return error.InitFailed;
+    defer c.libdeflate_free_compressor(compressor);
 
-    // windowBits = 15 + 16 = 31 for gzip format
-    const rc_init = c.deflateInit2(
-        &stream,
-        c.Z_DEFAULT_COMPRESSION,
-        c.Z_DEFLATED,
-        15 + 16, // gzip format
-        8,       // memLevel
-        c.Z_DEFAULT_STRATEGY,
-    );
-    if (rc_init != c.Z_OK) {
-        return error.InitFailed;
-    }
-    defer _ = c.deflateEnd(&stream);
-
-    // Allocate output buffer
-    const bound = c.deflateBound(&stream, @intCast(data.len));
-    var output = try allocator.alloc(u8, bound);
+    // Get worst-case bound
+    const bound = c.libdeflate_gzip_compress_bound(compressor, data.len);
+    var output = allocator.alloc(u8, bound) catch return error.OutOfMemory;
     errdefer allocator.free(output);
 
-    stream.next_in = @constCast(data.ptr);
-    stream.avail_in = @intCast(data.len);
-    stream.next_out = output.ptr;
-    stream.avail_out = @intCast(bound);
+    const actual_size = c.libdeflate_gzip_compress(
+        compressor,
+        data.ptr,
+        data.len,
+        output.ptr,
+        bound,
+    );
 
-    const rc = c.deflate(&stream, c.Z_FINISH);
-    if (rc != c.Z_STREAM_END) {
+    if (actual_size == 0) {
         return error.CompressFailed;
     }
 
-    const output_size = bound - stream.avail_out;
-    return allocator.realloc(output, output_size) catch output[0..output_size];
+    // Shrink to actual size
+    return allocator.realloc(output, actual_size) catch output[0..actual_size];
 }
 
 /// Decompress gzip-compressed data
 /// Caller owns returned memory and must free it with allocator.free()
-pub fn decompress(allocator: Allocator, data: []const u8) ![]u8 {
-    // Use inflateInit2 with gzip format (windowBits + 16)
-    var stream: c.z_stream = std.mem.zeroes(c.z_stream);
+pub fn decompress(allocator: Allocator, data: []const u8) DecompressError![]u8 {
+    if (data.len < 10) return error.EndOfStream;
 
-    // windowBits = 15 + 16 = 31 for gzip format (or 15 + 32 for auto-detect)
-    const rc_init = c.inflateInit2(&stream, 15 + 32); // auto-detect gzip/deflate
-    if (rc_init != c.Z_OK) {
-        return error.InitFailed;
-    }
-    defer _ = c.inflateEnd(&stream);
+    // Validate gzip header
+    if (data[0] != 0x1f or data[1] != 0x8b) return error.BadGzipHeader;
+    if (data[2] != 0x08) return error.BadGzipHeader; // Must be deflate
 
-    // Start with estimated output size
-    var output_size: usize = data.len * 4;
-    if (output_size < 1024) output_size = 1024;
+    const decompressor = c.libdeflate_alloc_decompressor() orelse return error.OutOfMemory;
+    defer c.libdeflate_free_decompressor(decompressor);
 
-    var output = try allocator.alloc(u8, output_size);
-    errdefer allocator.free(output);
-
-    stream.next_in = @constCast(data.ptr);
-    stream.avail_in = @intCast(data.len);
-    stream.next_out = output.ptr;
-    stream.avail_out = @intCast(output_size);
+    // Start with 4x compressed size estimate
+    var out_size: usize = data.len * 4;
+    if (out_size < 4096) out_size = 4096;
 
     while (true) {
-        const rc = c.inflate(&stream, c.Z_FINISH);
+        var output = allocator.alloc(u8, out_size) catch return error.OutOfMemory;
+        errdefer allocator.free(output);
 
-        if (rc == c.Z_STREAM_END) {
-            const actual_size = output_size - stream.avail_out;
-            return allocator.realloc(output, actual_size) catch output[0..actual_size];
-        } else if (rc == c.Z_BUF_ERROR or (rc == c.Z_OK and stream.avail_out == 0)) {
-            // Need more output space
-            const used = output_size - stream.avail_out;
-            output_size *= 2;
-            output = try allocator.realloc(output, output_size);
-            stream.next_out = output.ptr + used;
-            stream.avail_out = @intCast(output_size - used);
-        } else if (rc != c.Z_OK) {
-            return error.DecompressFailed;
+        var actual_size: usize = 0;
+        const result = c.libdeflate_gzip_decompress(
+            decompressor,
+            data.ptr,
+            data.len,
+            output.ptr,
+            out_size,
+            &actual_size,
+        );
+
+        switch (result) {
+            c.LIBDEFLATE_SUCCESS => {
+                // Shrink to actual size
+                if (actual_size < out_size) {
+                    return allocator.realloc(output, actual_size) catch output[0..actual_size];
+                }
+                return output;
+            },
+            c.LIBDEFLATE_INSUFFICIENT_SPACE => {
+                // Need more space - double and retry
+                allocator.free(output);
+                out_size *= 2;
+                if (out_size > 100 * 1024 * 1024) { // Max 100MB
+                    return error.InsufficientSpace;
+                }
+            },
+            c.LIBDEFLATE_BAD_DATA => return error.BadData,
+            else => return error.BadData,
         }
     }
 }
 
-test "gzip compress and decompress" {
-    const alloc = std.testing.allocator;
-    const data = "hello world hello world hello world";
+// ============================================================================
+// Tests
+// ============================================================================
 
-    const compressed = try compress(alloc, data);
-    defer alloc.free(compressed);
+test "gzip roundtrip - simple string" {
+    const allocator = std.testing.allocator;
+    const original = "Hello, World!";
 
-    const decompressed = try decompress(alloc, compressed);
-    defer alloc.free(decompressed);
+    const compressed = try compress(allocator, original);
+    defer allocator.free(compressed);
 
-    try std.testing.expectEqualStrings(data, decompressed);
+    // Verify gzip header
+    try std.testing.expectEqual(@as(u8, 0x1f), compressed[0]);
+    try std.testing.expectEqual(@as(u8, 0x8b), compressed[1]);
+
+    const decompressed = try decompress(allocator, compressed);
+    defer allocator.free(decompressed);
+
+    try std.testing.expectEqualStrings(original, decompressed);
 }
 
-test "gzip empty data" {
-    const alloc = std.testing.allocator;
-    const data = "";
+test "gzip roundtrip - empty string" {
+    const allocator = std.testing.allocator;
+    const original = "";
 
-    const compressed = try compress(alloc, data);
-    defer alloc.free(compressed);
+    const compressed = try compress(allocator, original);
+    defer allocator.free(compressed);
 
-    const decompressed = try decompress(alloc, compressed);
-    defer alloc.free(decompressed);
+    const decompressed = try decompress(allocator, compressed);
+    defer allocator.free(decompressed);
 
-    try std.testing.expectEqualStrings(data, decompressed);
+    try std.testing.expectEqualStrings(original, decompressed);
+}
+
+test "gzip roundtrip - large text" {
+    const allocator = std.testing.allocator;
+
+    var original_list = std.ArrayList(u8){};
+    defer original_list.deinit(allocator);
+
+    for (0..1000) |_| {
+        try original_list.appendSlice(allocator, "The quick brown fox jumps over the lazy dog. ");
+    }
+    const original = try original_list.toOwnedSlice(allocator);
+    defer allocator.free(original);
+
+    const compressed = try compress(allocator, original);
+    defer allocator.free(compressed);
+
+    // Verify compression reduced size
+    try std.testing.expect(compressed.len < original.len);
+
+    const decompressed = try decompress(allocator, compressed);
+    defer allocator.free(decompressed);
+
+    try std.testing.expectEqualStrings(original, decompressed);
+}
+
+test "gzip decompress - invalid magic bytes" {
+    const allocator = std.testing.allocator;
+    const invalid_data = [_]u8{ 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff };
+
+    const result = decompress(allocator, &invalid_data);
+    try std.testing.expectError(error.BadGzipHeader, result);
+}
+
+test "gzip decompress - too short" {
+    const allocator = std.testing.allocator;
+    const invalid_data = [_]u8{ 0x1f, 0x8b };
+
+    const result = decompress(allocator, &invalid_data);
+    try std.testing.expectError(error.EndOfStream, result);
 }

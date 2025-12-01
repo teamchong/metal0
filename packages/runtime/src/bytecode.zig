@@ -2,8 +2,10 @@
 /// Compact instruction set for dynamic execution
 const std = @import("std");
 const ast_executor = @import("ast_executor.zig");
-const PyObject = @import("runtime.zig").PyObject;
+const runtime = @import("runtime.zig");
+const PyObject = runtime.PyObject;
 const PyInt = @import("pyint.zig").PyInt;
+const PyFloat = @import("pyfloat.zig").PyFloat;
 const PyBool = @import("pybool.zig").PyBool;
 
 /// Bytecode instruction opcodes
@@ -43,6 +45,7 @@ pub const Instruction = struct {
 /// Constant pool value
 pub const Constant = union(enum) {
     int: i64,
+    float: f64,
     string: []const u8,
 };
 
@@ -78,6 +81,10 @@ pub const BytecodeProgram = struct {
                 .int => |i| {
                     try buffer.append(0); // type tag: int
                     try buffer.appendSlice(&std.mem.toBytes(i));
+                },
+                .float => |f| {
+                    try buffer.append(2); // type tag: float
+                    try buffer.appendSlice(&std.mem.toBytes(f));
                 },
                 .string => |s| {
                     try buffer.append(1); // type tag: string
@@ -139,6 +146,11 @@ pub const BytecodeProgram = struct {
                     if (pos + str_len > data.len) return error.UnexpectedEof;
                     constants[i] = .{ .string = try allocator.dupe(u8, data[pos..][0..str_len]) };
                     pos += str_len;
+                },
+                2 => { // float
+                    if (pos + 8 > data.len) return error.UnexpectedEof;
+                    constants[i] = .{ .float = @bitCast(std.mem.readInt(u64, data[pos..][0..8], .little)) };
+                    pos += 8;
                 },
                 else => return error.InvalidConstantType,
             }
@@ -261,8 +273,9 @@ pub const VM = struct {
             switch (inst.op) {
                 .LoadConst => {
                     const constant = program.constants[inst.arg];
-                    const obj = switch (constant) {
+                    const obj: *PyObject = switch (constant) {
                         .int => |i| try PyInt.create(self.allocator, i),
+                        .float => |f| try PyFloat.create(self.allocator, f),
                         .string => return error.NotImplemented,
                     };
                     try self.stack.append(self.allocator, obj);
@@ -303,23 +316,47 @@ pub const VM = struct {
         const right = self.stack.pop() orelse return error.StackUnderflow;
         const left = self.stack.pop() orelse return error.StackUnderflow;
 
-        // For MVP: assume both are PyInt
-        const left_val = PyInt.getValue(left);
-        const right_val = PyInt.getValue(right);
+        // Check if either operand is a float
+        const left_is_float = runtime.PyFloat_Check(left);
+        const right_is_float = runtime.PyFloat_Check(right);
 
-        const result_val: i64 = switch (op) {
-            .Add => left_val + right_val,
-            .Sub => left_val - right_val,
-            .Mult => left_val * right_val,
-            .Div => @divTrunc(left_val, right_val),
-            .FloorDiv => @divFloor(left_val, right_val),
-            .Mod => @mod(left_val, right_val),
-            .Pow => std.math.pow(i64, left_val, @intCast(right_val)),
-            else => return error.UnsupportedOp,
-        };
+        if (left_is_float or right_is_float) {
+            // Float arithmetic
+            const left_val: f64 = if (left_is_float) PyFloat.getValue(left) else @floatFromInt(PyInt.getValue(left));
+            const right_val: f64 = if (right_is_float) PyFloat.getValue(right) else @floatFromInt(PyInt.getValue(right));
 
-        const result = try PyInt.create(self.allocator, result_val);
-        try self.stack.append(self.allocator, result);
+            const result_val: f64 = switch (op) {
+                .Add => left_val + right_val,
+                .Sub => left_val - right_val,
+                .Mult => left_val * right_val,
+                .Div => left_val / right_val,
+                .FloorDiv => @floor(left_val / right_val),
+                .Mod => @mod(left_val, right_val),
+                .Pow => std.math.pow(f64, left_val, right_val),
+                else => return error.UnsupportedOp,
+            };
+
+            const result = try PyFloat.create(self.allocator, result_val);
+            try self.stack.append(self.allocator, result);
+        } else {
+            // Integer arithmetic
+            const left_val = PyInt.getValue(left);
+            const right_val = PyInt.getValue(right);
+
+            const result_val: i64 = switch (op) {
+                .Add => left_val + right_val,
+                .Sub => left_val - right_val,
+                .Mult => left_val * right_val,
+                .Div => @divTrunc(left_val, right_val),
+                .FloorDiv => @divFloor(left_val, right_val),
+                .Mod => @mod(left_val, right_val),
+                .Pow => std.math.pow(i64, left_val, @intCast(right_val)),
+                else => return error.UnsupportedOp,
+            };
+
+            const result = try PyInt.create(self.allocator, result_val);
+            try self.stack.append(self.allocator, result);
+        }
     }
 
     fn compareOp(self: *VM, op: OpCode) !void {
@@ -328,8 +365,12 @@ pub const VM = struct {
         const right = self.stack.pop() orelse return error.StackUnderflow;
         const left = self.stack.pop() orelse return error.StackUnderflow;
 
-        const left_val = PyInt.getValue(left);
-        const right_val = PyInt.getValue(right);
+        // Check if either operand is a float
+        const left_is_float = runtime.PyFloat_Check(left);
+        const right_is_float = runtime.PyFloat_Check(right);
+
+        const left_val: f64 = if (left_is_float) PyFloat.getValue(left) else @floatFromInt(PyInt.getValue(left));
+        const right_val: f64 = if (right_is_float) PyFloat.getValue(right) else @floatFromInt(PyInt.getValue(right));
 
         const result_val: bool = switch (op) {
             .Eq => left_val == right_val,
