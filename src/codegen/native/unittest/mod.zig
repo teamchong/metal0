@@ -64,6 +64,7 @@ pub const genAssertFloatsAreIdentical = assertions.genAssertFloatsAreIdentical;
 // Re-export lifecycle functions
 pub const genUnittestMain = lifecycle.genUnittestMain;
 pub const genUnittestFinalize = lifecycle.genUnittestFinalize;
+pub const genAddCleanup = lifecycle.genAddCleanup;
 
 // Re-export discovery functions
 pub const genSubTest = discovery.genSubTest;

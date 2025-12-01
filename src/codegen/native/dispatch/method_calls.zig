@@ -226,6 +226,7 @@ pub const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "fail", unittest_mod.genFail },
     .{ "skipTest", unittest_mod.genSkipTest },
     .{ "assertFloatsAreIdentical", unittest_mod.genAssertFloatsAreIdentical },
+    .{ "addCleanup", unittest_mod.genAddCleanup },
 });
 
 /// Try to dispatch method call (obj.method())
