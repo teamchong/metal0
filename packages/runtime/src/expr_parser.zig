@@ -440,16 +440,47 @@ pub const ExprParser = struct {
                 }
                 // Strip underscores from numeric literals (Python 3.6+)
                 const clean = stripUnderscores(num_text) catch return ParseError.OutOfMemory;
-                const value = std.fmt.parseInt(i64, clean, base) catch {
-                    if (base != 10) return ParseError.InvalidNumber;
-                    // Try float (only for base 10)
+                // Check if it's a float (has decimal point)
+                const is_float = std.mem.indexOfScalar(u8, clean, '.') != null or
+                    std.mem.indexOfScalar(u8, clean, 'e') != null or
+                    std.mem.indexOfScalar(u8, clean, 'E') != null;
+                if (is_float) {
+                    // Parse as float
                     const fval = std.fmt.parseFloat(f64, clean) catch return ParseError.InvalidNumber;
-                    // Emit float constant
                     const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
                     self.compiler.constants.append(self.allocator, .{ .float = fval }) catch return ParseError.OutOfMemory;
                     self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                     try self.advance();
                     return;
+                }
+                // Try integer first
+                const value = std.fmt.parseInt(i64, clean, base) catch |err| {
+                    if (err == error.Overflow) {
+                        // Integer overflow - store as BigInt decimal string
+                        // For non-base-10, we need to convert to decimal for storage
+                        const bigint_str = if (base == 10) clean else blk: {
+                            // Parse to BigInt and convert to decimal string
+                            // For now, store the original and let VM handle base conversion
+                            break :blk clean;
+                        };
+                        const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
+                        // Store as bigint with base info (base:value format for non-decimal)
+                        if (base != 10) {
+                            // For non-decimal bases, prefix with base info
+                            const prefix_char: u8 = if (base == 2) 'b' else if (base == 8) 'o' else 'x';
+                            var buf: [128]u8 = undefined;
+                            const formatted = std.fmt.bufPrint(&buf, "0{c}{s}", .{ prefix_char, bigint_str }) catch return ParseError.OutOfMemory;
+                            // Allocate copy of formatted string
+                            const str_copy = self.allocator.dupe(u8, formatted) catch return ParseError.OutOfMemory;
+                            self.compiler.constants.append(self.allocator, .{ .bigint = str_copy }) catch return ParseError.OutOfMemory;
+                        } else {
+                            self.compiler.constants.append(self.allocator, .{ .bigint = bigint_str }) catch return ParseError.OutOfMemory;
+                        }
+                        self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
+                        try self.advance();
+                        return;
+                    }
+                    return ParseError.InvalidNumber;
                 };
                 const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
                 self.compiler.constants.append(self.allocator, .{ .int = value }) catch return ParseError.OutOfMemory;

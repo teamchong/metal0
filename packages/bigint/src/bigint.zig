@@ -113,9 +113,16 @@ pub const BigInt = struct {
         return Self{ .managed = r };
     }
 
-    /// Negate
+    /// Negate (in-place)
     pub fn negate(self: *Self) void {
         self.managed.negate();
+    }
+
+    /// Return negated value (new BigInt)
+    pub fn neg(self: *const Self, allocator: Allocator) !Self {
+        var result = try self.clone(allocator);
+        result.managed.negate();
+        return result;
     }
 
     /// Absolute value
@@ -158,6 +165,17 @@ pub const BigInt = struct {
     /// Try to convert to i128 (returns null if too large)
     pub fn toInt128(self: *const Self) ?i128 {
         return self.managed.toConst().toInt(i128) catch return null;
+    }
+
+    /// Try to convert to i64 - alias for bytecode VM
+    pub fn toInt(self: *const Self, comptime T: type) !T {
+        return self.managed.toConst().toInt(T);
+    }
+
+    /// Convert to f64 (may lose precision for very large numbers)
+    pub fn toFloat(self: *const Self) f64 {
+        const result = self.managed.toConst().toFloat(f64, .trunc);
+        return result[0];
     }
 
     /// Convert to string in given base

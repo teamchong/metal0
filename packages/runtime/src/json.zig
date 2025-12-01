@@ -312,6 +312,13 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
 
             try buffer.append(allocator, '}');
         },
+        .bigint => {
+            // BigInt - serialize as number string
+            const bigint_obj: *runtime.PyBigIntObject = @ptrCast(@alignCast(obj));
+            const str = bigint_obj.value.toString(allocator, 10) catch return error.OutOfMemory;
+            defer allocator.free(str);
+            try buffer.appendSlice(allocator, str);
+        },
         .numpy_array, .bool_array, .regex, .file, .bytes => {
             // Not JSON serializable - output null
             try buffer.appendSlice(allocator, JSON_NULL);

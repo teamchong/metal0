@@ -420,6 +420,13 @@ pub const PyBoolObject = extern struct {
     ob_digit: i64, // 0 for False, 1 for True
 };
 
+/// PyBigIntObject - Python int for arbitrary precision (when > i64 range)
+/// Used by bytecode VM for eval() with large integers
+pub const PyBigIntObject = struct {
+    ob_base: PyVarObject,
+    value: BigInt, // Heap-allocated arbitrary precision integer
+};
+
 /// PyListObject - Python list (CPython compatible)
 pub const PyListObject = extern struct {
     ob_base: PyVarObject,
@@ -575,6 +582,7 @@ pub var PyType_Type: PyTypeObject = makeTypeObject("type", @sizeOf(PyTypeObject)
 pub var PyFile_Type: PyTypeObject = makeTypeObject("file", @sizeOf(PyFileObject), 0);
 pub var PyNumpyArray_Type: PyTypeObject = makeTypeObject("numpy.ndarray", @sizeOf(PyNumpyArrayObject), 0);
 pub var PyBoolArray_Type: PyTypeObject = makeTypeObject("numpy.ndarray[bool]", @sizeOf(PyBoolArrayObject), 0);
+pub var PyBigInt_Type: PyTypeObject = makeTypeObject("int", @sizeOf(PyBigIntObject), 0);
 
 // None singleton
 pub var _Py_NoneStruct: PyNoneStruct = .{
@@ -651,6 +659,10 @@ pub inline fn PyBytes_Check(op: *PyObject) bool {
     return Py_IS_TYPE(op, &PyBytes_Type);
 }
 
+pub inline fn PyBigInt_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyBigInt_Type);
+}
+
 /// Get ob_size from PyVarObject
 pub inline fn Py_SIZE(op: *PyObject) Py_ssize_t {
     const var_obj: *PyVarObject = @ptrCast(@alignCast(op));
@@ -701,6 +713,7 @@ pub const TypeId = enum {
     bool_array,
     regex,
     bytes,
+    bigint,
 
     /// Convert PyObject to legacy TypeId
     pub fn fromPyObject(obj: *PyObject) TypeId {
@@ -713,6 +726,7 @@ pub const TypeId = enum {
         if (Py_IS_TYPE(obj, &PyDict_Type)) return .dict;
         if (Py_IS_TYPE(obj, &PyNone_Type)) return .none;
         if (Py_IS_TYPE(obj, &PyBytes_Type)) return .bytes;
+        if (Py_IS_TYPE(obj, &PyBigInt_Type)) return .bigint;
         return .none; // Default fallback
     }
 };
@@ -1604,6 +1618,11 @@ pub fn pyObjToInt(obj: *PyObject) i64 {
 /// Extract BigInt value from PyObject (for eval() results with large integers)
 pub fn pyObjToBigInt(obj: *PyObject, allocator: std.mem.Allocator) BigInt {
     const type_id = getTypeId(obj);
+    if (type_id == .bigint) {
+        // PyBigIntObject - clone the BigInt value
+        const bigint_obj: *PyBigIntObject = @ptrCast(@alignCast(obj));
+        return bigint_obj.value.clone(allocator) catch BigInt.fromInt(allocator, 0) catch unreachable;
+    }
     if (type_id == .int) {
         const val = PyInt.getValue(obj);
         return BigInt.fromInt(allocator, val) catch BigInt.fromInt(allocator, 0) catch unreachable;
