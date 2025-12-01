@@ -4,6 +4,36 @@ const ast_types = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast_types.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "parse", genParse },
+    .{ "literal_eval", genLiteral_eval },
+    .{ "dump", genDump },
+    .{ "unparse", genUnparse },
+    .{ "fix_missing_locations", genFix_missing_locations },
+    .{ "increment_lineno", genIncrement_lineno },
+    .{ "copy_location", genCopy_location },
+    .{ "iter_fields", genIter_fields },
+    .{ "iter_child_nodes", genIter_child_nodes },
+    .{ "walk", genWalk },
+    .{ "get_docstring", genGet_docstring },
+    .{ "get_source_segment", genGet_source_segment },
+    .{ "AST", genAST },
+    .{ "Module", genModule },
+    .{ "Expression", genExpression },
+    .{ "Interactive", genInteractive },
+    .{ "FunctionDef", genFunctionDef },
+    .{ "AsyncFunctionDef", genAsyncFunctionDef },
+    .{ "ClassDef", genClassDef },
+    .{ "Return", genReturn },
+    .{ "Name", genName },
+    .{ "Constant", genConstant },
+    .{ "NodeVisitor", genNodeVisitor },
+    .{ "NodeTransformer", genNodeTransformer },
+    .{ "PyCF_ONLY_AST", genPyCF_ONLY_AST },
+    .{ "PyCF_TYPE_COMMENTS", genPyCF_TYPE_COMMENTS },
+});
+
 /// Generate ast.parse(source, filename, mode, ...)
 pub fn genParse(self: *NativeCodegen, args: []ast_types.Node) CodegenError!void {
     _ = args;

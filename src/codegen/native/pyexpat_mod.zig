@@ -4,6 +4,32 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ParserCreate", genParserCreate },
+    .{ "Parse", genParse },
+    .{ "ParseFile", genParseFile },
+    .{ "SetBase", genSetBase },
+    .{ "GetBase", genGetBase },
+    .{ "GetInputContext", genGetInputContext },
+    .{ "ExternalEntityParserCreate", genExternalEntityParserCreate },
+    .{ "SetParamEntityParsing", genSetParamEntityParsing },
+    .{ "UseForeignDTD", genUseForeignDTD },
+    .{ "ErrorString", genErrorString },
+    .{ "XMLParserType", genXMLParserType },
+    .{ "ExpatError", genExpatError },
+    .{ "error", genError },
+    .{ "XML_PARAM_ENTITY_PARSING_NEVER", genXmlParamEntityParsingNever },
+    .{ "XML_PARAM_ENTITY_PARSING_UNLESS_STANDALONE", genXmlParamEntityParsingUnlessStandalone },
+    .{ "XML_PARAM_ENTITY_PARSING_ALWAYS", genXmlParamEntityParsingAlways },
+    .{ "version_info", genVersionInfo },
+    .{ "EXPAT_VERSION", genExpatVersion },
+    .{ "native_encoding", genNativeEncoding },
+    .{ "features", genFeatures },
+    .{ "model", genModel },
+    .{ "errors", genErrors },
+});
+
 /// Generate pyexpat.ParserCreate(encoding=None, namespace_separator=None)
 pub fn genParserCreate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

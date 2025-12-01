@@ -4,6 +4,19 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Pdb", genPdb },
+    .{ "run", genRun },
+    .{ "runeval", genRuneval },
+    .{ "runcall", genRuncall },
+    .{ "set_trace", genSet_trace },
+    .{ "post_mortem", genPost_mortem },
+    .{ "pm", genPm },
+    .{ "help", genHelp },
+    .{ "Breakpoint", genBreakpoint },
+});
+
 /// Generate pdb.Pdb class
 pub fn genPdb(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

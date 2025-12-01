@@ -1,6 +1,17 @@
 /// Python _heapq module - C accelerator for heapq (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "heappush", genHeappush },
+    .{ "heappop", genHeappop },
+    .{ "heapify", genHeapify },
+    .{ "heapreplace", genHeapreplace },
+    .{ "heappushpop", genHeappushpop },
+    .{ "nlargest", genNlargest },
+    .{ "nsmallest", genNsmallest },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

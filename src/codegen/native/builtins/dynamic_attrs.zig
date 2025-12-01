@@ -13,13 +13,19 @@ pub fn genGetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("runtime.setattr_builtin(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
+    // For objects with __dict__, directly set the attribute
+    // Need to handle str subclasses - extract __base_value__ if present for key
+    // Zig 0.15: managed containers use put(key, value) not put(allocator, key, value)
+    // Use @constCast since the object may be declared as const (HashMap stores data via pointers,
+    // so @constCast works correctly - the internal data is heap-allocated)
+    try self.emit("blk: { const __sa_name = ");
     try self.genExpr(args[1]);
-    try self.emit(", ");
+    try self.emit("; const __sa_name_str: []const u8 = if (@hasField(@TypeOf(__sa_name), \"__base_value__\")) __sa_name.__base_value__ else __sa_name;");
+    try self.emit(" const __sa_val = ");
     try self.genExpr(args[2]);
-    try self.emit(")");
+    try self.emit("; try @constCast(&");
+    try self.genExpr(args[0]);
+    try self.emit(".__dict__).put(__sa_name_str, runtime.PyValue.from(__sa_val)); break :blk {}; }");
 }
 
 pub fn genHasattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

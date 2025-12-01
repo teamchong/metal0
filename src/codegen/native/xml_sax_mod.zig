@@ -1,6 +1,24 @@
 /// Python xml.sax module - SAX XML parsing
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "make_parser", genMake_parser },
+    .{ "parse", genParse },
+    .{ "parseString", genParseString },
+    .{ "ContentHandler", genContentHandler },
+    .{ "DTDHandler", genDTDHandler },
+    .{ "EntityResolver", genEntityResolver },
+    .{ "ErrorHandler", genErrorHandler },
+    .{ "InputSource", genInputSource },
+    .{ "AttributesImpl", genAttributesImpl },
+    .{ "AttributesNSImpl", genAttributesNSImpl },
+    .{ "SAXException", genSAXException },
+    .{ "SAXNotRecognizedException", genSAXNotRecognizedException },
+    .{ "SAXNotSupportedException", genSAXNotSupportedException },
+    .{ "SAXParseException", genSAXParseException },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -91,9 +91,10 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 try self.emit(")");
             } else if (std.mem.eql(u8, name_to_use, "object")) {
                 try self.emit("*runtime.PyObject");
-            } else if (isBuiltinFunction(name_to_use)) {
+            } else if (isBuiltinFunction(name_to_use) and !self.func_local_vars.contains(name_to_use)) {
                 // Builtin functions as first-class values: len, callable, etc.
                 // Emit a function reference that can be passed around
+                // But only if not shadowed by a local variable
                 try self.emit("runtime.builtins.");
                 try self.emit(name_to_use);
             } else if (self.closure_vars.contains(name_to_use)) {
@@ -337,7 +338,7 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
     for (fstring.parts) |part| {
         switch (part) {
             .literal => |lit| {
-                // Escape braces for Zig format strings and quotes for Zig string literals
+                // Escape braces for Zig format strings and special chars for Zig string literals
                 for (lit) |c| {
                     if (c == '{' or c == '}') {
                         try format_buf.append(self.allocator, c);
@@ -346,6 +347,12 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                         try format_buf.appendSlice(self.allocator, "\\\""); // Escape double quotes
                     } else if (c == '\\') {
                         try format_buf.appendSlice(self.allocator, "\\\\"); // Escape backslashes
+                    } else if (c == '\n') {
+                        try format_buf.appendSlice(self.allocator, "\\n"); // Escape newlines
+                    } else if (c == '\r') {
+                        try format_buf.appendSlice(self.allocator, "\\r"); // Escape carriage returns
+                    } else if (c == '\t') {
+                        try format_buf.appendSlice(self.allocator, "\\t"); // Escape tabs
                     } else {
                         try format_buf.append(self.allocator, c);
                     }
@@ -398,29 +405,45 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 self.output = saved_output;
             },
             .conv_expr => |ce| {
-                // Expression with conversion but no format spec
+                // Expression with conversion specifier (!r, !s, !a)
                 const expr_type = try self.type_inferrer.inferExpr(ce.expr.*);
-                const format_spec = switch (expr_type) {
-                    .int => "d",
-                    .float => "e",
-                    .string => "s",
-                    .bool => "any",
-                    else => "any",
-                };
 
-                try format_buf.writer(self.allocator).print("{{{s}}}", .{format_spec});
-
-                // Generate expression code
+                // Generate expression code first
                 const saved_output = self.output;
                 self.output = std.ArrayList(u8){};
-
-                // Handle conversion specifier (!r, !s, !a)
-                // For now, all conversions just pass the value - repr/str/ascii are TODO
                 try genExpr(self, ce.expr.*);
                 const expr_code = try self.output.toOwnedSlice(self.allocator);
-                try args_list.append(self.allocator, expr_code);
-
                 self.output = saved_output;
+
+                // Handle conversion: !r = repr, !s = str, !a = ascii
+                if (ce.conversion == 'r') {
+                    // repr() - for strings, wrap in quotes
+                    if (expr_type == .string) {
+                        try format_buf.writer(self.allocator).writeAll("'{s}'");
+                        try args_list.append(self.allocator, expr_code);
+                    } else {
+                        // For non-strings, just use default formatting
+                        const format_spec = switch (expr_type) {
+                            .int => "d",
+                            .float => "e",
+                            .bool => "any",
+                            else => "any",
+                        };
+                        try format_buf.writer(self.allocator).print("{{{s}}}", .{format_spec});
+                        try args_list.append(self.allocator, expr_code);
+                    }
+                } else {
+                    // !s (str) and !a (ascii) - just convert to string
+                    const format_spec = switch (expr_type) {
+                        .int => "d",
+                        .float => "e",
+                        .string => "s",
+                        .bool => "any",
+                        else => "any",
+                    };
+                    try format_buf.writer(self.allocator).print("{{{s}}}", .{format_spec});
+                    try args_list.append(self.allocator, expr_code);
+                }
             },
         }
     }

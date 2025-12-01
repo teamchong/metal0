@@ -1,6 +1,21 @@
 /// Python _pickle module - C accelerator for pickle (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "dumps", genDumps },
+    .{ "dump", genDump },
+    .{ "loads", genLoads },
+    .{ "load", genLoad },
+    .{ "Pickler", genPickler },
+    .{ "Unpickler", genUnpickler },
+    .{ "HIGHEST_PROTOCOL", genHIGHEST_PROTOCOL },
+    .{ "DEFAULT_PROTOCOL", genDEFAULT_PROTOCOL },
+    .{ "PickleError", genPickleError },
+    .{ "PicklingError", genPicklingError },
+    .{ "UnpicklingError", genUnpicklingError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

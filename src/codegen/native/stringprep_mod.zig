@@ -1,6 +1,29 @@
 /// Python stringprep module - Internet string preparation (RFC 3454)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "in_table_a1", genInTableA1 },
+    .{ "in_table_b1", genInTableB1 },
+    .{ "map_table_b2", genMapTableB2 },
+    .{ "map_table_b3", genMapTableB3 },
+    .{ "in_table_c11", genInTableC11 },
+    .{ "in_table_c12", genInTableC12 },
+    .{ "in_table_c11_c12", genInTableC11C12 },
+    .{ "in_table_c21", genInTableC21 },
+    .{ "in_table_c22", genInTableC22 },
+    .{ "in_table_c21_c22", genInTableC21C22 },
+    .{ "in_table_c3", genInTableC3 },
+    .{ "in_table_c4", genInTableC4 },
+    .{ "in_table_c5", genInTableC5 },
+    .{ "in_table_c6", genInTableC6 },
+    .{ "in_table_c7", genInTableC7 },
+    .{ "in_table_c8", genInTableC8 },
+    .{ "in_table_c9", genInTableC9 },
+    .{ "in_table_d1", genInTableD1 },
+    .{ "in_table_d2", genInTableD2 },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

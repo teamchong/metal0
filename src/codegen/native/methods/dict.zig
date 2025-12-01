@@ -143,7 +143,7 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Infer dict type to get value type
     const dict_type = try self.type_inferrer.inferExpr(obj);
-    const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType.int;
+    const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType{ .int = .bounded };
 
     const needs_temp = producesBlockExpression(obj);
 
@@ -203,7 +203,7 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Infer dict type to get value type (keys are always []const u8)
     const dict_type = try self.type_inferrer.inferExpr(obj);
-    const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType.int;
+    const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType{ .int = .bounded };
 
     const needs_temp = producesBlockExpression(obj);
 

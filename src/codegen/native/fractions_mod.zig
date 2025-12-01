@@ -4,8 +4,14 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate fractions.Fraction(numerator=0, denominator=1) -> Fraction
-pub fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Fraction", genFraction },
+    .{ "gcd", genGcd },
+});
+
+/// Generate fractions.Fraction struct type definition
+fn emitFractionStruct(self: *NativeCodegen) CodegenError!void {
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
@@ -38,7 +44,7 @@ pub fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn add(self: @This(), other: @This()) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return init(self.numerator * other.denominator + other.numerator * self.denominator, self.denominator * other.denominator);\n");
+    try self.emit("return @This().init(self.numerator * other.denominator + other.numerator * self.denominator, self.denominator * other.denominator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -46,7 +52,7 @@ pub fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn sub(self: @This(), other: @This()) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return init(self.numerator * other.denominator - other.numerator * self.denominator, self.denominator * other.denominator);\n");
+    try self.emit("return @This().init(self.numerator * other.denominator - other.numerator * self.denominator, self.denominator * other.denominator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -54,7 +60,7 @@ pub fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn mul(self: @This(), other: @This()) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return init(self.numerator * other.numerator, self.denominator * other.denominator);\n");
+    try self.emit("return @This().init(self.numerator * other.numerator, self.denominator * other.denominator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -62,7 +68,7 @@ pub fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("pub fn div(self: @This(), other: @This()) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return init(self.numerator * other.denominator, self.denominator * other.numerator);\n");
+    try self.emit("return @This().init(self.numerator * other.denominator, self.denominator * other.numerator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -72,7 +78,7 @@ pub fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("if (self.denominator <= max_denominator) return self;\n");
     try self.emitIndent();
-    try self.emit("return init(@divTrunc(self.numerator * max_denominator, self.denominator), max_denominator);\n");
+    try self.emit("return @This().init(@divTrunc(self.numerator * max_denominator, self.denominator), max_denominator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -86,16 +92,27 @@ pub fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("}\n");
     self.dedent();
     try self.emitIndent();
+    try self.emit("}");
+}
+
+/// Generate fractions.Fraction(numerator=0, denominator=1) -> Fraction
+/// When called with args, creates an instance. When called without args,
+/// just returns the type (for R = fractions.Fraction type aliasing)
+pub fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try emitFractionStruct(self);
 
     // Initialize based on args
+    // Note: When args.len == 0, this is typically a type reference (R = fractions.Fraction)
+    // so we DON'T call .init() - the caller will do that when constructing instances
     if (args.len == 0) {
-        try self.emit("}.init(0, 1)");
+        // Just the struct type - no init
+        return;
     } else if (args.len == 1) {
-        try self.emit("}.init(");
+        try self.emit(".init(");
         try self.genExpr(args[0]);
         try self.emit(", 1)");
     } else {
-        try self.emit("}.init(");
+        try self.emit(".init(");
         try self.genExpr(args[0]);
         try self.emit(", ");
         try self.genExpr(args[1]);

@@ -4,6 +4,38 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Telnet", genTelnet },
+    .{ "THEOPT", genTHEOPT },
+    .{ "SE", genSE },
+    .{ "NOP", genNOP },
+    .{ "DM", genDM },
+    .{ "BRK", genBRK },
+    .{ "IP", genIP },
+    .{ "AO", genAO },
+    .{ "AYT", genAYT },
+    .{ "EC", genEC },
+    .{ "EL", genEL },
+    .{ "GA", genGA },
+    .{ "SB", genSB },
+    .{ "WILL", genWILL },
+    .{ "WONT", genWONT },
+    .{ "DO", genDO },
+    .{ "DONT", genDONT },
+    .{ "IAC", genIAC },
+    .{ "ECHO", genECHO },
+    .{ "SGA", genSGA },
+    .{ "TTYPE", genTTYPE },
+    .{ "NAWS", genNAWS },
+    .{ "LINEMODE", genLINEMODE },
+    .{ "NEW_ENVIRON", genNEW_ENVIRON },
+    .{ "XDISPLOC", genXDISPLOC },
+    .{ "AUTHENTICATION", genAUTHENTICATION },
+    .{ "ENCRYPT", genENCRYPT },
+    .{ "TELNET_PORT", genTELNET_PORT },
+});
+
 /// Generate telnetlib.Telnet class
 pub fn genTelnet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

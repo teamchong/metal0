@@ -1,6 +1,43 @@
 /// Python urllib.request module - URL handling
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "urlopen", genUrlopen },
+    .{ "install_opener", genInstall_opener },
+    .{ "build_opener", genBuild_opener },
+    .{ "pathname2url", genPathname2url },
+    .{ "url2pathname", genUrl2pathname },
+    .{ "getproxies", genGetproxies },
+    .{ "Request", genRequest },
+    .{ "OpenerDirector", genOpenerDirector },
+    .{ "BaseHandler", genBaseHandler },
+    .{ "HTTPDefaultErrorHandler", genHTTPDefaultErrorHandler },
+    .{ "HTTPRedirectHandler", genHTTPRedirectHandler },
+    .{ "HTTPCookieProcessor", genHTTPCookieProcessor },
+    .{ "ProxyHandler", genProxyHandler },
+    .{ "HTTPPasswordMgr", genHTTPPasswordMgr },
+    .{ "HTTPPasswordMgrWithDefaultRealm", genHTTPPasswordMgrWithDefaultRealm },
+    .{ "HTTPPasswordMgrWithPriorAuth", genHTTPPasswordMgrWithPriorAuth },
+    .{ "AbstractBasicAuthHandler", genAbstractBasicAuthHandler },
+    .{ "HTTPBasicAuthHandler", genHTTPBasicAuthHandler },
+    .{ "ProxyBasicAuthHandler", genProxyBasicAuthHandler },
+    .{ "AbstractDigestAuthHandler", genAbstractDigestAuthHandler },
+    .{ "HTTPDigestAuthHandler", genHTTPDigestAuthHandler },
+    .{ "ProxyDigestAuthHandler", genProxyDigestAuthHandler },
+    .{ "HTTPHandler", genHTTPHandler },
+    .{ "HTTPSHandler", genHTTPSHandler },
+    .{ "FileHandler", genFileHandler },
+    .{ "FTPHandler", genFTPHandler },
+    .{ "CacheFTPHandler", genCacheFTPHandler },
+    .{ "DataHandler", genDataHandler },
+    .{ "UnknownHandler", genUnknownHandler },
+    .{ "HTTPErrorProcessor", genHTTPErrorProcessor },
+    .{ "URLError", genURLError },
+    .{ "HTTPError", genHTTPError },
+    .{ "ContentTooShortError", genContentTooShortError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

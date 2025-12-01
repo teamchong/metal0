@@ -4,6 +4,30 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "compile", genCompile },
+    .{ "c_o_d_e_s_i_z_e", genCODESIZE },
+    .{ "m_a_g_i_c", genMAGIC },
+    .{ "getlower", genGetlower },
+    .{ "getcodesize", genGetcodesize },
+    .{ "match", genMatch },
+    .{ "fullmatch", genFullmatch },
+    .{ "search", genSearch },
+    .{ "findall", genFindall },
+    .{ "finditer", genFinditer },
+    .{ "sub", genSub },
+    .{ "subn", genSubn },
+    .{ "split", genSplit },
+    .{ "group", genGroup },
+    .{ "groups", genGroups },
+    .{ "groupdict", genGroupdict },
+    .{ "start", genStart },
+    .{ "end", genEnd },
+    .{ "span", genSpan },
+    .{ "expand", genExpand },
+});
+
 /// Generate _sre.compile(pattern, flags, code, groups, groupindex, indexgroup)
 pub fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

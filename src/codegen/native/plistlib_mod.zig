@@ -1,6 +1,24 @@
 /// Python plistlib module - Apple plist file handling
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "load", genLoad },
+    .{ "loads", genLoads },
+    .{ "dump", genDump },
+    .{ "dumps", genDumps },
+    .{ "UID", genUID },
+    .{ "FMT_XML", genFMT_XML },
+    .{ "FMT_BINARY", genFMT_BINARY },
+    .{ "Dict", genDict },
+    .{ "Data", genData },
+    .{ "InvalidFileException", genInvalidFileException },
+    .{ "readPlist", genReadPlist },
+    .{ "writePlist", genWritePlist },
+    .{ "readPlistFromBytes", genReadPlistFromBytes },
+    .{ "writePlistToBytes", genWritePlistToBytes },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -106,3 +106,13 @@ pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("struct {}");
 }
+
+// Function map for module_functions.zig
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Counter", genCounter },
+    .{ "defaultdict", genDefaultdict },
+    .{ "deque", genDeque },
+    .{ "OrderedDict", genOrderedDict },
+    .{ "namedtuple", genNamedtuple },
+});

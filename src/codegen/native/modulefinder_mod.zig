@@ -1,6 +1,33 @@
 /// Python modulefinder module - Find modules used by a script
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ModuleFinder", genModuleFinder },
+    .{ "msg", genMsg },
+    .{ "msgin", genMsgin },
+    .{ "msgout", genMsgout },
+    .{ "run_script", genRunScript },
+    .{ "load_file", genLoadFile },
+    .{ "import_hook", genImportHook },
+    .{ "determine_parent", genDetermineParent },
+    .{ "find_head_package", genFindHeadPackage },
+    .{ "load_tail", genLoadTail },
+    .{ "ensure_fromlist", genEnsureFromlist },
+    .{ "find_all_submodules", genFindAllSubmodules },
+    .{ "import_module", genImportModule },
+    .{ "load_module", genLoadModule },
+    .{ "scan_code", genScanCode },
+    .{ "scan_opcodes", genScanOpcodes },
+    .{ "any_missing", genAnyMissing },
+    .{ "any_missing_maybe", genAnyMissingMaybe },
+    .{ "replace_paths_in_code", genReplacePathsInCode },
+    .{ "report", genReport },
+    .{ "Module", genModule },
+    .{ "ReplacePackage", genReplacePackage },
+    .{ "AddPackagePath", genAddPackagePath },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

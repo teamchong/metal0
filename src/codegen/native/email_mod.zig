@@ -4,6 +4,40 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// email module functions
+pub const EmailMessageFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "EmailMessage", genEmailMessage },
+    .{ "Message", genMessage },
+});
+
+/// email.mime.text module functions
+pub const EmailMimeTextFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "MIMEText", genMIMEText },
+});
+
+/// email.mime.multipart module functions
+pub const EmailMimeMultipartFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "MIMEMultipart", genMIMEMultipart },
+});
+
+/// email.mime.base module functions
+pub const EmailMimeBaseFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "MIMEBase", genMIMEBase },
+    .{ "MIMEApplication", genMIMEApplication },
+    .{ "MIMEImage", genMIMEImage },
+    .{ "MIMEAudio", genMIMEAudio },
+});
+
+/// email.utils module functions
+pub const EmailUtilsFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "formataddr", genFormataddr },
+    .{ "parseaddr", genParseaddr },
+    .{ "formatdate", genFormatdate },
+    .{ "make_msgid", genMakeMsgid },
+});
+
 /// Generate email.message.EmailMessage() -> EmailMessage
 pub fn genEmailMessage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

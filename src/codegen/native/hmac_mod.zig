@@ -4,6 +4,13 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "new", genNew },
+    .{ "digest", genDigest },
+    .{ "compare_digest", genCompareDigest },
+});
+
 /// Generate hmac.new(key, msg, digestmod) -> HMAC object
 /// For now, returns the computed HMAC directly (no object)
 pub fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

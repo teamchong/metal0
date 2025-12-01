@@ -4,6 +4,8 @@ const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
+const NativeType = @import("../../../analysis/native_types.zig").NativeType;
+const param_analyzer = @import("functions/param_analyzer.zig");
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
@@ -283,29 +285,38 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // If module X is unavailable, mark it as skipped so functions using it are skipped
     if (detectOptionalImportPattern(try_node, self)) |unavailable_module| {
         try self.markSkippedModule(unavailable_module);
-        // Generate simple: const X = null; (module is not available)
+        // Generate: const X: ?*void = null; _ = X; (module is not available)
+        // This allows code like `if X is None:` and `@unittest.skipIf(X is None, ...)`
+        // The _ = X; suppresses "unused constant" warning
         try self.emitIndent();
-        try self.emit("// Optional import: ");
+        try self.emit("const ");
         try self.emit(unavailable_module);
-        try self.emit(" not available\n");
+        try self.emit(": ?*void = null; _ = ");
+        try self.emit(unavailable_module);
+        try self.emit("; // Optional import: module not available\n");
         return; // Skip generating the full try/except structure
     }
 
     // First pass: collect variables declared in try block AND except handlers that need hoisting
     // Only hoist variables that aren't already declared in the current scope
-    var declared_vars = std.ArrayList([]const u8){};
+    // Store both name and the assignment expression value for type inference
+    const HoistedVar = struct {
+        name: []const u8,
+        value: ast.Node, // The RHS expression for type inference
+    };
+    var declared_vars = std.ArrayList(HoistedVar){};
     defer declared_vars.deinit(self.allocator);
 
     // Helper to add variable if not already declared
     const addVarIfNeeded = struct {
-        fn add(list: *std.ArrayList([]const u8), codegen: *NativeCodegen, var_name: []const u8) !void {
+        fn add(list: *std.ArrayList(HoistedVar), codegen: *NativeCodegen, var_name: []const u8, value: ast.Node) !void {
             // Only hoist if not already declared in scope or previously hoisted
             if (!codegen.isDeclared(var_name) and !codegen.hoisted_vars.contains(var_name)) {
                 // Check if already in list
                 for (list.items) |existing| {
-                    if (std.mem.eql(u8, existing, var_name)) return;
+                    if (std.mem.eql(u8, existing.name, var_name)) return;
                 }
-                try list.append(codegen.allocator, var_name);
+                try list.append(codegen.allocator, .{ .name = var_name, .value = value });
             }
         }
     }.add;
@@ -316,7 +327,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (stmt.assign.targets.len > 0) {
                 const target = stmt.assign.targets[0];
                 if (target == .name) {
-                    try addVarIfNeeded(&declared_vars, self, target.name.id);
+                    try addVarIfNeeded(&declared_vars, self, target.name.id, stmt.assign.value.*);
                 }
             }
         }
@@ -331,7 +342,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 if (stmt.assign.targets.len > 0) {
                     const target = stmt.assign.targets[0];
                     if (target == .name) {
-                        try addVarIfNeeded(&declared_vars, self, target.name.id);
+                        try addVarIfNeeded(&declared_vars, self, target.name.id, stmt.assign.value.*);
                     }
                 }
             }
@@ -339,13 +350,27 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     }
 
     // Hoist variable declarations BEFORE the block (so they're accessible after try)
-    for (declared_vars.items) |var_name| {
-        // Get the actual type from type inference (already computed)
-        const var_type = self.type_inferrer.var_types.get(var_name);
-        const zig_type = if (var_type) |vt| blk: {
+    for (declared_vars.items) |hoisted| {
+        const var_name = hoisted.name;
+
+        // Infer type directly from the RHS expression - this is more accurate than
+        // looking up by variable name which can confuse same-named vars in different methods
+        const var_type = self.type_inferrer.inferExpr(hoisted.value) catch null;
+        var zig_type = if (var_type) |vt| blk: {
             break :blk try self.nativeTypeToZigType(vt);
         } else "i64";
         defer if (var_type != null) self.allocator.free(zig_type);
+
+        // If it's a class instance type, check if the class was renamed (e.g., duplicate S classes)
+        if (var_type) |vt| {
+            if (@as(std.meta.Tag(NativeType), vt) == .class_instance) {
+                const class_name = vt.class_instance;
+                if (self.var_renames.get(class_name)) |renamed| {
+                    self.allocator.free(zig_type);
+                    zig_type = try self.allocator.dupe(u8, renamed);
+                }
+            }
+        }
 
         try self.emitIndent();
         try self.emit("var ");
@@ -388,8 +413,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         var declared_var_set = FnvVoidMap.init(self.allocator);
         defer declared_var_set.deinit();
-        for (declared_vars.items) |var_name| {
-            try declared_var_set.put(var_name, {});
+        for (declared_vars.items) |hoisted| {
+            try declared_var_set.put(hoisted.name, {});
         }
 
         // Find variables that are WRITTEN in try block body
@@ -483,16 +508,25 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.emit(zig_type); // Pointer for mutable access
             param_count += 1;
         }
-        for (declared_vars.items) |var_name| {
+        for (declared_vars.items) |hoisted| {
             if (param_count > 0) try self.emit(", ");
             try self.emit("p_");
-            try self.emit(var_name);
-            // Get actual type from type inference
-            const var_type = self.type_inferrer.var_types.get(var_name);
-            const zig_type = if (var_type) |vt| blk: {
+            try self.emit(hoisted.name);
+            // Infer type directly from the RHS expression
+            const var_type = self.type_inferrer.inferExpr(hoisted.value) catch null;
+            var zig_type = if (var_type) |vt| blk: {
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";
             defer if (var_type != null) self.allocator.free(zig_type);
+            // Check for class renames
+            if (var_type) |vt| {
+                if (@as(std.meta.Tag(NativeType), vt) == .class_instance) {
+                    if (self.var_renames.get(vt.class_instance)) |renamed| {
+                        self.allocator.free(zig_type);
+                        zig_type = try self.allocator.dupe(u8, renamed);
+                    }
+                }
+            }
             try self.emit(": *");
             try self.emit(zig_type); // Pointer for mutable access
             param_count += 1;
@@ -538,12 +572,24 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         }
 
         // Create aliases for declared variables (dereference pointers)
-        for (declared_vars.items) |var_name| {
+        // Also suppress unused parameter warnings since these vars may only be set in except block
+        for (declared_vars.items) |hoisted| {
+            // Check if variable is used in the try block body
+            const is_used_in_try_body = param_analyzer.isNameUsedInBody(try_node.body, hoisted.name);
+
+            // Suppress unused parameter warning only if var is NOT used in try block
+            if (!is_used_in_try_body) {
+                try self.emitIndent();
+                try self.emit("_ = p_");
+                try self.emit(hoisted.name);
+                try self.emit(";\n");
+            }
+
             // Add to rename map to use dereferenced pointer
             var buf = std.ArrayList(u8){};
-            try buf.writer(self.allocator).print("p_{s}.*", .{var_name});
+            try buf.writer(self.allocator).print("p_{s}.*", .{hoisted.name});
             const renamed = try buf.toOwnedSlice(self.allocator);
-            try self.var_renames.put(var_name, renamed);
+            try self.var_renames.put(hoisted.name, renamed);
         }
 
         // Generate try block body with renamed variables
@@ -562,8 +608,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 self.allocator.free(entry.value);
             }
         }
-        for (declared_vars.items) |var_name| {
-            if (self.var_renames.fetchSwapRemove(var_name)) |entry| {
+        for (declared_vars.items) |hoisted| {
+            if (self.var_renames.fetchSwapRemove(hoisted.name)) |entry| {
                 self.allocator.free(entry.value);
             }
         }
@@ -593,10 +639,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.emit(var_name);
             call_param_count += 1;
         }
-        for (declared_vars.items) |var_name| {
+        for (declared_vars.items) |hoisted| {
             if (call_param_count > 0) try self.emit(", ");
             try self.emit("&");
-            try self.emit(var_name);
+            try self.emit(hoisted.name);
             call_param_count += 1;
         }
 

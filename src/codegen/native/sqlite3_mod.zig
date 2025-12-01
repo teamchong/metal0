@@ -4,6 +4,28 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "connect", genConnect },
+    .{ "Connection", genConnection },
+    .{ "Cursor", genCursor },
+    .{ "Row", genRow },
+    .{ "Error", genError },
+    .{ "DatabaseError", genDatabaseError },
+    .{ "IntegrityError", genIntegrityError },
+    .{ "OperationalError", genOperationalError },
+    .{ "ProgrammingError", genProgrammingError },
+    .{ "PARSE_DECLTYPES", genPARSE_DECLTYPES },
+    .{ "PARSE_COLNAMES", genPARSE_COLNAMES },
+    .{ "SQLITE_OK", genSQLITE_OK },
+    .{ "SQLITE_DENY", genSQLITE_DENY },
+    .{ "SQLITE_IGNORE", genSQLITE_IGNORE },
+    .{ "version", genVersion },
+    .{ "sqlite_version", genSqliteVersion },
+    .{ "register_adapter", genRegisterAdapter },
+    .{ "register_converter", genRegisterConverter },
+});
+
 /// Generate sqlite3.connect(database) -> Connection
 /// Uses the C interop sqlite3 module
 pub fn genConnect(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

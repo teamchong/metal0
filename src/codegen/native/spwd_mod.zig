@@ -4,6 +4,13 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "getspnam", genGetspnam },
+    .{ "getspall", genGetspall },
+    .{ "struct_spwd", genStructSpwd },
+});
+
 /// Generate spwd.getspnam(name) - Get shadow password entry by username
 pub fn genGetspnam(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

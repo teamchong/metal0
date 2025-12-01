@@ -1,6 +1,37 @@
 /// Python audioop module - Audio operations
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "add", genAdd },
+    .{ "adpcm2lin", genAdpcm2lin },
+    .{ "alaw2lin", genAlaw2lin },
+    .{ "avg", genAvg },
+    .{ "avgpp", genAvgpp },
+    .{ "bias", genBias },
+    .{ "byteswap", genByteswap },
+    .{ "cross", genCross },
+    .{ "findfactor", genFindfactor },
+    .{ "findfit", genFindfit },
+    .{ "findmax", genFindmax },
+    .{ "getsample", genGetsample },
+    .{ "lin2adpcm", genLin2adpcm },
+    .{ "lin2alaw", genLin2alaw },
+    .{ "lin2lin", genLin2lin },
+    .{ "lin2ulaw", genLin2ulaw },
+    .{ "max", genMax },
+    .{ "maxpp", genMaxpp },
+    .{ "minmax", genMinmax },
+    .{ "mul", genMul },
+    .{ "ratecv", genRatecv },
+    .{ "reverse", genReverse },
+    .{ "rms", genRms },
+    .{ "tomono", genTomono },
+    .{ "tostereo", genTostereo },
+    .{ "ulaw2lin", genUlaw2lin },
+    .{ "error", genError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

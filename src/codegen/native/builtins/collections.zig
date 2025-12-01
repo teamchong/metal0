@@ -238,37 +238,163 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
+    // Infer element type from argument
+    const arg_type = try self.inferExprScoped(args[0]);
+    const elem_zig_type: []const u8 = switch (@as(std.meta.Tag(@TypeOf(arg_type)), arg_type)) {
+        .string => "u8", // Strings/bytes are []const u8
+        .list => blk: {
+            // Get element type from list
+            var type_buf = std.ArrayList(u8){};
+            try arg_type.list.*.toZigType(self.allocator, &type_buf);
+            break :blk try type_buf.toOwnedSlice(self.allocator);
+        },
+        else => "i64", // Default to i64 for unknown types
+    };
+
     // Generate: blk: {
-    //   var copy = try allocator.dupe(i64, items);
-    //   std.mem.reverse(i64, copy);
+    //   var copy = try allocator.dupe(elem_type, items);
+    //   std.mem.reverse(elem_type, copy);
     //   break :blk copy;
     // }
     const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
 
     try self.emit("blk: {\n");
-    try self.emitFmt("const copy = try {s}.dupe(i64, ", .{alloc_name});
+    try self.emitFmt("const copy = try {s}.dupe({s}, ", .{ alloc_name, elem_zig_type });
     try self.genExpr(args[0]);
     try self.emit(");\n");
-    try self.emit("std.mem.reverse(i64, copy);\n");
+    try self.emitFmt("std.mem.reverse({s}, copy);\n", .{elem_zig_type});
     try self.emit("break :blk copy;\n");
     try self.emit("}");
 }
 
 /// Generate code for map(func, iterable)
 /// Applies function to each element
-/// NOT SUPPORTED: Requires first-class functions/lambdas which need runtime function pointers
-/// For AOT compilation, use explicit loops instead:
-///   result = []
-///   for x in items:
-///       result.append(func(x))
+/// Supports common patterns like map(str.strip, items) and map(int, items)
 pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    // map() requires passing functions as values (function pointers)
-    // This needs either:
-    // 1. Function pointers (complex in Zig, needs comptime or anytype)
-    // 2. Lambda support (would need closure generation)
-    // For now, users should use explicit for loops
-    try self.emit("@compileError(\"map() not supported - use explicit for loop instead\")");
+    if (args.len < 2) {
+        try self.emit("@compileError(\"map() requires 2 arguments\")");
+        return;
+    }
+
+    const func = args[0];
+    const iterable = args[1];
+
+    // Check iterable type to determine if we need .items for ArrayList
+    const iterable_type = try self.inferExprScoped(iterable);
+    const needs_items = @as(std.meta.Tag(@TypeOf(iterable_type)), iterable_type) == .list;
+
+    // Check for known method patterns: map(str.strip, items) or map(str.split, items)
+    if (func == .attribute) {
+        const attr = func.attribute;
+        if (attr.value.* == .name) {
+            const type_name = attr.value.name.id;
+            const method_name = attr.attr;
+
+            // Handle str.strip, str.upper, str.lower, etc.
+            if (std.mem.eql(u8, type_name, "str")) {
+                try self.emit("__map_blk: {\n");
+                self.indent();
+                try self.emitIndent();
+                try self.emit("var __map_result = std.ArrayList([]const u8){};\n");
+                try self.emitIndent();
+                try self.emit("const __map_iterable = ");
+                try self.genExpr(iterable);
+                try self.emit(";\n");
+                try self.emitIndent();
+                if (needs_items) {
+                    try self.emit("for (__map_iterable.items) |__map_item| {\n");
+                } else {
+                    try self.emit("for (__map_iterable) |__map_item| {\n");
+                }
+                self.indent();
+                try self.emitIndent();
+
+                // Handle different string methods
+                if (std.mem.eql(u8, method_name, "strip")) {
+                    try self.emit("const __mapped = std.mem.trim(u8, __map_item, \" \\t\\r\\n\");\n");
+                } else if (std.mem.eql(u8, method_name, "upper")) {
+                    try self.emit("const __mapped = runtime.str.upper(__global_allocator, __map_item) catch __map_item;\n");
+                } else if (std.mem.eql(u8, method_name, "lower")) {
+                    try self.emit("const __mapped = runtime.str.lower(__global_allocator, __map_item) catch __map_item;\n");
+                } else if (std.mem.eql(u8, method_name, "lstrip")) {
+                    try self.emit("const __mapped = std.mem.trimLeft(u8, __map_item, \" \\t\\r\\n\");\n");
+                } else if (std.mem.eql(u8, method_name, "rstrip")) {
+                    try self.emit("const __mapped = std.mem.trimRight(u8, __map_item, \" \\t\\r\\n\");\n");
+                } else {
+                    try self.emit("const __mapped = __map_item; // unsupported str method\n");
+                }
+
+                try self.emitIndent();
+                try self.emit("__map_result.append(__global_allocator, __mapped) catch {};\n");
+                self.dedent();
+                try self.emitIndent();
+                try self.emit("}\n");
+                try self.emitIndent();
+                try self.emit("break :__map_blk __map_result;\n");
+                self.dedent();
+                try self.emitIndent();
+                try self.emit("}");
+                return;
+            }
+        }
+    }
+
+    // Handle type conversion: map(int, items), map(float, items), map(str, items)
+    if (func == .name) {
+        const func_name = func.name.id;
+
+        if (std.mem.eql(u8, func_name, "int") or
+            std.mem.eql(u8, func_name, "float") or
+            std.mem.eql(u8, func_name, "str"))
+        {
+            const result_type = if (std.mem.eql(u8, func_name, "int"))
+                "i64"
+            else if (std.mem.eql(u8, func_name, "float"))
+                "f64"
+            else
+                "[]const u8";
+
+            try self.emit("__map_blk: {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emitFmt("var __map_result = std.ArrayList({s}){{}};\n", .{result_type});
+            try self.emitIndent();
+            try self.emit("const __map_iterable = ");
+            try self.genExpr(iterable);
+            try self.emit(";\n");
+            try self.emitIndent();
+            if (needs_items) {
+                try self.emit("for (__map_iterable.items) |__map_item| {\n");
+            } else {
+                try self.emit("for (__map_iterable) |__map_item| {\n");
+            }
+            self.indent();
+            try self.emitIndent();
+
+            if (std.mem.eql(u8, func_name, "int")) {
+                try self.emit("const __mapped = std.fmt.parseInt(i64, __map_item, 10) catch 0;\n");
+            } else if (std.mem.eql(u8, func_name, "float")) {
+                try self.emit("const __mapped = std.fmt.parseFloat(f64, __map_item) catch 0.0;\n");
+            } else {
+                try self.emit("const __mapped = std.fmt.allocPrint(__global_allocator, \"{any}\", .{__map_item}) catch \"\";\n");
+            }
+
+            try self.emitIndent();
+            try self.emit("__map_result.append(__global_allocator, __mapped) catch {};\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            try self.emitIndent();
+            try self.emit("break :__map_blk __map_result;\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}");
+            return;
+        }
+    }
+
+    // Unsupported map() pattern
+    try self.emit("@compileError(\"map() not supported for this function - use explicit for loop instead\")");
 }
 
 /// Generate code for filter(func, iterable)
@@ -290,16 +416,25 @@ pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for iter(iterable)
-/// Returns an iterator over the iterable
+/// Returns a stateful iterator over the iterable
 pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
         try self.emit("@as(?*anyopaque, null)");
         return;
     }
 
-    // For now, just pass through the iterable
-    // Python's iter() returns an iterator object, but since we iterate directly
-    // over iterables, we can just return the iterable itself
+    // Infer the type of the iterable to choose the right iterator
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // For strings, create a stateful StringIterator
+    if (arg_type == .string) {
+        try self.emit("runtime.builtins.strIterator(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
+
+    // For other types, pass through (they handle iteration differently)
     try self.genExpr(args[0]);
 }
 
@@ -319,8 +454,9 @@ pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // For ArrayLists and other built-in iterables, use runtime function
-    try self.emit("runtime.builtins.next(");
+    // For StringIterator and other stateful iterators, pass pointer for mutation
+    // The runtime.builtins.next() function handles both pointers and values
+    try self.emit("runtime.builtins.next(&");
     try self.genExpr(args[0]);
     try self.emit(")");
 }

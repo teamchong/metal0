@@ -4,6 +4,27 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Mock", genMock },
+    .{ "MagicMock", genMagicMock },
+    .{ "AsyncMock", genAsyncMock },
+    .{ "NonCallableMock", genNonCallableMock },
+    .{ "NonCallableMagicMock", genNonCallableMagicMock },
+    .{ "patch", genPatch },
+    .{ "patch.object", genPatch_object },
+    .{ "patch.dict", genPatch_dict },
+    .{ "patch.multiple", genPatch_multiple },
+    .{ "create_autospec", genCreate_autospec },
+    .{ "call", genCall },
+    .{ "ANY", genANY },
+    .{ "FILTER_DIR", genFILTER_DIR },
+    .{ "sentinel", genSentinel },
+    .{ "DEFAULT", genDEFAULT },
+    .{ "seal", genSeal },
+    .{ "PropertyMock", genPropertyMock },
+});
+
 /// Generate unittest.mock.Mock class
 pub fn genMock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

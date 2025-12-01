@@ -1,6 +1,23 @@
 /// Python sysconfig module - Python configuration information
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "get_config_vars", genGetConfigVars },
+    .{ "get_config_var", genGetConfigVar },
+    .{ "get_scheme_names", genGetSchemeNames },
+    .{ "get_default_scheme", genGetDefaultScheme },
+    .{ "get_preferred_scheme", genGetPreferredScheme },
+    .{ "get_path_names", genGetPathNames },
+    .{ "get_paths", genGetPaths },
+    .{ "get_path", genGetPath },
+    .{ "get_python_lib", genGetPythonLib },
+    .{ "get_platform", genGetPlatform },
+    .{ "get_makefile_filename", genGetMakefileFilename },
+    .{ "parse_config_h", genParseConfigH },
+    .{ "is_python_build", genIsPythonBuild },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

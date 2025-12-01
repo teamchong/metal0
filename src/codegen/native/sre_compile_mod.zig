@@ -1,6 +1,29 @@
 /// Python sre_compile module - Internal support module for sre
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "compile", genCompile },
+    .{ "isstring", genIsstring },
+    .{ "MAXCODE", genMaxcode },
+    .{ "MAXGROUPS", genMaxgroups },
+    .{ "_code", genCode },
+    .{ "_compile", genInternalCompile },
+    .{ "_compile_charset", genCompileCharset },
+    .{ "_optimize_charset", genOptimizeCharset },
+    .{ "_generate_overlap_table", genGenerateOverlapTable },
+    .{ "_compile_info", genCompileInfo },
+    .{ "SRE_FLAG_TEMPLATE", genSreFlagTemplate },
+    .{ "SRE_FLAG_IGNORECASE", genSreFlagIgnorecase },
+    .{ "SRE_FLAG_LOCALE", genSreFlagLocale },
+    .{ "SRE_FLAG_MULTILINE", genSreFlagMultiline },
+    .{ "SRE_FLAG_DOTALL", genSreFlagDotall },
+    .{ "SRE_FLAG_UNICODE", genSreFlagUnicode },
+    .{ "SRE_FLAG_VERBOSE", genSreFlagVerbose },
+    .{ "SRE_FLAG_DEBUG", genSreFlagDebug },
+    .{ "SRE_FLAG_ASCII", genSreFlagAscii },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -1,6 +1,45 @@
 /// Python _operator module - C accelerator for operator (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "itemgetter", genItemgetter },
+    .{ "attrgetter", genAttrgetter },
+    .{ "methodcaller", genMethodcaller },
+    .{ "lt", genLt },
+    .{ "le", genLe },
+    .{ "eq", genEq },
+    .{ "ne", genNe },
+    .{ "ge", genGe },
+    .{ "gt", genGt },
+    .{ "add", genAdd },
+    .{ "sub", genSub },
+    .{ "mul", genMul },
+    .{ "truediv", genTruediv },
+    .{ "floordiv", genFloordiv },
+    .{ "mod", genMod },
+    .{ "neg", genNeg },
+    .{ "pos", genPos },
+    .{ "abs", genAbs },
+    .{ "and_", genAnd_ },
+    .{ "or_", genOr_ },
+    .{ "xor", genXor },
+    .{ "invert", genInvert },
+    .{ "lshift", genLshift },
+    .{ "rshift", genRshift },
+    .{ "not_", genNot_ },
+    .{ "truth", genTruth },
+    .{ "concat", genConcat },
+    .{ "contains", genContains },
+    .{ "countOf", genCountOf },
+    .{ "indexOf", genIndexOf },
+    .{ "getitem", genGetitem },
+    .{ "length_hint", genLength_hint },
+    .{ "is_", genIs_ },
+    .{ "is_not", genIs_not },
+    .{ "index", genIndex },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

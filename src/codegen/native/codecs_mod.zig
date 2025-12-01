@@ -4,6 +4,47 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "encode", genEncode },
+    .{ "decode", genDecode },
+    .{ "lookup", genLookup },
+    .{ "getencoder", genGetencoder },
+    .{ "getdecoder", genGetdecoder },
+    .{ "getincrementalencoder", genGetincrementalencoder },
+    .{ "getincrementaldecoder", genGetincrementaldecoder },
+    .{ "getreader", genGetreader },
+    .{ "getwriter", genGetwriter },
+    .{ "register", genRegister },
+    .{ "unregister", genUnregister },
+    .{ "register_error", genRegisterError },
+    .{ "lookup_error", genLookupError },
+    .{ "strict_errors", genStrictErrors },
+    .{ "ignore_errors", genIgnoreErrors },
+    .{ "replace_errors", genReplaceErrors },
+    .{ "xmlcharrefreplace_errors", genXmlcharrefreplaceErrors },
+    .{ "backslashreplace_errors", genBackslashreplaceErrors },
+    .{ "namereplace_errors", genNamereplaceErrors },
+    .{ "open", genOpen },
+    .{ "EncodedFile", genEncodedFile },
+    .{ "iterencode", genIterencode },
+    .{ "iterdecode", genIterdecode },
+    .{ "BOM", genBOM },
+    .{ "BOM_UTF8", genBOM_UTF8 },
+    .{ "BOM_UTF16", genBOM_UTF16 },
+    .{ "BOM_UTF16_LE", genBOM_UTF16_LE },
+    .{ "BOM_UTF16_BE", genBOM_UTF16_BE },
+    .{ "BOM_UTF32", genBOM_UTF32 },
+    .{ "BOM_UTF32_LE", genBOM_UTF32_LE },
+    .{ "BOM_UTF32_BE", genBOM_UTF32_BE },
+    .{ "Codec", genCodec },
+    .{ "IncrementalEncoder", genIncrementalEncoder },
+    .{ "IncrementalDecoder", genIncrementalDecoder },
+    .{ "StreamWriter", genStreamWriter },
+    .{ "StreamReader", genStreamReader },
+    .{ "StreamReaderWriter", genStreamReaderWriter },
+});
+
 /// Generate codecs.encode(obj, encoding='utf-8', errors='strict') -> bytes
 pub fn genEncode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {

@@ -157,3 +157,11 @@ pub fn isArraySlice(self: *NativeCodegen, value: ast.Node) bool {
     }
     return false;
 }
+
+/// Check if value is an iter() call - iterators need to be mutable for next() to work
+pub fn isIteratorCall(value: ast.Node) bool {
+    if (value != .call) return false;
+    if (value.call.func.* != .name) return false;
+    const func_name = value.call.func.name.id;
+    return std.mem.eql(u8, func_name, "iter");
+}

@@ -1,6 +1,37 @@
 /// Python readline module - GNU readline interface
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "parse_and_bind", genParse_and_bind },
+    .{ "read_init_file", genRead_init_file },
+    .{ "get_line_buffer", genGet_line_buffer },
+    .{ "insert_text", genInsert_text },
+    .{ "redisplay", genRedisplay },
+    .{ "read_history_file", genRead_history_file },
+    .{ "write_history_file", genWrite_history_file },
+    .{ "append_history_file", genAppend_history_file },
+    .{ "get_history_length", genGet_history_length },
+    .{ "set_history_length", genSet_history_length },
+    .{ "clear_history", genClear_history },
+    .{ "get_current_history_length", genGet_current_history_length },
+    .{ "get_history_item", genGet_history_item },
+    .{ "remove_history_item", genRemove_history_item },
+    .{ "replace_history_item", genReplace_history_item },
+    .{ "add_history", genAdd_history },
+    .{ "set_auto_history", genSet_auto_history },
+    .{ "set_startup_hook", genSet_startup_hook },
+    .{ "set_pre_input_hook", genSet_pre_input_hook },
+    .{ "set_completer", genSet_completer },
+    .{ "get_completer", genGet_completer },
+    .{ "get_completion_type", genGet_completion_type },
+    .{ "get_begidx", genGet_begidx },
+    .{ "get_endidx", genGet_endidx },
+    .{ "set_completer_delims", genSet_completer_delims },
+    .{ "get_completer_delims", genGet_completer_delims },
+    .{ "set_completion_display_matches_hook", genSet_completion_display_matches_hook },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

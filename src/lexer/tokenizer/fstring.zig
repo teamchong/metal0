@@ -9,10 +9,27 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
     var parts = std.ArrayList(FStringPart){};
     errdefer parts.deinit(self.allocator);
 
+    // Check for triple quotes
+    const is_triple = (self.peek() == quote and self.peekAhead(1) == quote);
+    if (is_triple) {
+        _ = self.advance(); // consume second quote
+        _ = self.advance(); // consume third quote
+    }
+
     var literal_start = self.current;
 
     // Parse f-string content
-    while (self.peek() != quote and !self.isAtEnd()) {
+    while (!self.isAtEnd()) {
+        // Check for closing quotes
+        if (is_triple) {
+            if (self.peek() == quote and self.peekAhead(1) == quote and self.peekAhead(2) == quote) {
+                break;
+            }
+        } else {
+            if (self.peek() == quote) {
+                break;
+            }
+        }
         if (self.peek() == '{') {
             // Save any pending literal
             if (self.current > literal_start) {
@@ -142,8 +159,13 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
         try parts.append(self.allocator, .{ .literal = literal_text });
     }
 
+    // Consume closing quote(s)
     if (!self.isAtEnd() and self.peek() == quote) {
-        _ = self.advance(); // Consume closing quote
+        _ = self.advance(); // Consume first closing quote
+        if (is_triple) {
+            if (self.peek() == quote) _ = self.advance(); // Consume second closing quote
+            if (self.peek() == quote) _ = self.advance(); // Consume third closing quote
+        }
     }
 
     const lexeme = self.source[start..self.current];

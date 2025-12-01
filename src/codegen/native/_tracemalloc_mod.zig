@@ -4,6 +4,21 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "start", genStart },
+    .{ "stop", genStop },
+    .{ "is_tracing", genIsTracing },
+    .{ "clear_traces", genClearTraces },
+    .{ "get_traceback_limit", genGetTracebackLimit },
+    .{ "get_traced_memory", genGetTracedMemory },
+    .{ "reset_peak", genResetPeak },
+    .{ "get_tracemalloc_memory", genGetTracemallocMemory },
+    .{ "get_object_traceback", genGetObjectTraceback },
+    .{ "get_traces", genGetTraces },
+    .{ "get_object_traceback_internal", genGetObjectTracebackInternal },
+});
+
 /// Generate _tracemalloc.start(nframe=1)
 pub fn genStart(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

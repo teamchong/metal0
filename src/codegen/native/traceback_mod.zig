@@ -4,6 +4,29 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "print_tb", genPrintTb },
+    .{ "print_exception", genPrintException },
+    .{ "print_exc", genPrintExc },
+    .{ "print_last", genPrintLast },
+    .{ "print_stack", genPrintStack },
+    .{ "extract_tb", genExtractTb },
+    .{ "extract_stack", genExtractStack },
+    .{ "format_list", genFormatList },
+    .{ "format_exception_only", genFormatExceptionOnly },
+    .{ "format_exception", genFormatException },
+    .{ "format_exc", genFormatExc },
+    .{ "format_tb", genFormatTb },
+    .{ "format_stack", genFormatStack },
+    .{ "clear_frames", genClearFrames },
+    .{ "walk_tb", genWalkTb },
+    .{ "walk_stack", genWalkStack },
+    .{ "TracebackException", genTracebackException },
+    .{ "StackSummary", genStackSummary },
+    .{ "FrameSummary", genFrameSummary },
+});
+
 /// Generate traceback.print_tb(tb, limit=None, file=None) -> None
 pub fn genPrintTb(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

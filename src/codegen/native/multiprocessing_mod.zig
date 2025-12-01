@@ -4,6 +4,31 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Process", genProcess },
+    .{ "Pool", genPool },
+    .{ "Queue", genQueue },
+    .{ "Pipe", genPipe },
+    .{ "Value", genValue },
+    .{ "Array", genArray },
+    .{ "Manager", genManager },
+    .{ "Lock", genLock },
+    .{ "RLock", genRLock },
+    .{ "Semaphore", genSemaphore },
+    .{ "Event", genEvent },
+    .{ "Condition", genCondition },
+    .{ "Barrier", genBarrier },
+    .{ "cpu_count", genCpuCount },
+    .{ "current_process", genCurrentProcess },
+    .{ "parent_process", genParentProcess },
+    .{ "active_children", genActiveChildren },
+    .{ "set_start_method", genSetStartMethod },
+    .{ "get_start_method", genGetStartMethod },
+    .{ "get_all_start_methods", genGetAllStartMethods },
+    .{ "get_context", genGetContext },
+});
+
 /// Generate multiprocessing.Process(target=None, args=(), kwargs={}, name=None, daemon=None)
 pub fn genProcess(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

@@ -4,6 +4,15 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "cmp", genCmp },
+    .{ "cmpfiles", genCmpfiles },
+    .{ "dircmp", genDircmp },
+    .{ "clear_cache", genClearCache },
+    .{ "DEFAULT_IGNORES", genDEFAULT_IGNORES },
+});
+
 /// Generate filecmp.cmp(f1, f2, shallow=True) -> bool
 pub fn genCmp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

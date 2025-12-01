@@ -4,6 +4,37 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "setlocale", genSetlocale },
+    .{ "getlocale", genGetlocale },
+    .{ "getdefaultlocale", genGetdefaultlocale },
+    .{ "getpreferredencoding", genGetpreferredencoding },
+    .{ "getencoding", genGetencoding },
+    .{ "normalize", genNormalize },
+    .{ "resetlocale", genResetlocale },
+    .{ "localeconv", genLocaleconv },
+    .{ "strcoll", genStrcoll },
+    .{ "strxfrm", genStrxfrm },
+    .{ "format_string", genFormatString },
+    .{ "currency", genCurrency },
+    .{ "str", genStr },
+    .{ "atof", genAtof },
+    .{ "atoi", genAtoi },
+    .{ "delocalize", genDelocalize },
+    .{ "localize", genLocalize },
+    .{ "nl_langinfo", genNlLanginfo },
+    .{ "gettext", genGettext },
+    .{ "LC_CTYPE", genLC_CTYPE },
+    .{ "LC_COLLATE", genLC_COLLATE },
+    .{ "LC_TIME", genLC_TIME },
+    .{ "LC_MONETARY", genLC_MONETARY },
+    .{ "LC_MESSAGES", genLC_MESSAGES },
+    .{ "LC_NUMERIC", genLC_NUMERIC },
+    .{ "LC_ALL", genLC_ALL },
+    .{ "Error", genError },
+});
+
 /// Generate locale.setlocale(category, locale=None) -> str
 pub fn genSetlocale(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

@@ -4,6 +4,23 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "zone_info", genZoneInfo },
+    .{ "from_file", genFromFile },
+    .{ "no_cache", genNoCache },
+    .{ "clear_cache", genClearCache },
+    .{ "key", genKey },
+    .{ "utcoffset", genUtcoffset },
+    .{ "tzname", genTzname },
+    .{ "dst", genDst },
+    .{ "t_z_p_a_t_h", genTZPATH },
+    .{ "reset_tzpath", genResetTzpath },
+    .{ "available_timezones", genAvailableTimezones },
+    .{ "zone_info_not_found_error", genZoneInfoNotFoundError },
+    .{ "invalid_t_z_path_warning", genInvalidTZPathWarning },
+});
+
 /// Generate _zoneinfo.ZoneInfo(key)
 pub fn genZoneInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

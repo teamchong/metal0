@@ -4,6 +4,27 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "new_panel", genNewPanel },
+    .{ "bottom_panel", genBottomPanel },
+    .{ "top_panel", genTopPanel },
+    .{ "update_panels", genUpdatePanels },
+    .{ "above", genAbove },
+    .{ "below", genBelow },
+    .{ "bottom", genBottom },
+    .{ "hidden", genHidden },
+    .{ "hide", genHide },
+    .{ "move", genMove },
+    .{ "replace", genReplace },
+    .{ "set_userptr", genSetUserptr },
+    .{ "show", genShow },
+    .{ "top", genTop },
+    .{ "userptr", genUserptr },
+    .{ "window", genWindow },
+    .{ "error", genError },
+});
+
 /// Generate _curses_panel.new_panel(win)
 pub fn genNewPanel(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

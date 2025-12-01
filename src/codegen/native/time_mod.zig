@@ -4,6 +4,26 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "time", genTime },
+    .{ "time_ns", genTimeNs },
+    .{ "sleep", genSleep },
+    .{ "perf_counter", genPerfCounter },
+    .{ "perf_counter_ns", genPerfCounterNs },
+    .{ "monotonic", genMonotonic },
+    .{ "monotonic_ns", genMonotonicNs },
+    .{ "process_time", genProcessTime },
+    .{ "process_time_ns", genProcessTimeNs },
+    .{ "ctime", genCtime },
+    .{ "gmtime", genGmtime },
+    .{ "localtime", genLocaltime },
+    .{ "mktime", genMktime },
+    .{ "strftime", genStrftime },
+    .{ "strptime", genStrptime },
+    .{ "get_clock_info", genGetClockInfo },
+});
+
 /// Generate time.time() -> float (seconds since epoch)
 pub fn genTime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
@@ -20,8 +40,20 @@ pub fn genTimeNs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
 
+    // Check if argument is a class instance (needs .__float__() call)
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const is_class_instance = (arg_type == .class_instance) or (args[0] == .call and args[0].call.func.* == .name and std.ascii.isUpper(args[0].call.func.name.id[0]));
+
     try self.emit("std.Thread.sleep(@as(u64, @intFromFloat(");
-    try self.genExpr(args[0]);
+    if (is_class_instance) {
+        // Class instance needs .__float__() or value extraction
+        // Wrap in block to handle error union
+        try self.emit("(runtime.floatBuiltinCall(");
+        try self.genExpr(args[0]);
+        try self.emit(", .{}) catch 0.0)");
+    } else {
+        try self.genExpr(args[0]);
+    }
     try self.emit(" * 1_000_000_000)))");
 }
 

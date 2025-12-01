@@ -1,6 +1,40 @@
 /// Python xml.dom module - DOM support for XML
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "registerDOMImplementation", genRegisterDOMImplementation },
+    .{ "getDOMImplementation", genGetDOMImplementation },
+    .{ "ELEMENT_NODE", genELEMENT_NODE },
+    .{ "ATTRIBUTE_NODE", genATTRIBUTE_NODE },
+    .{ "TEXT_NODE", genTEXT_NODE },
+    .{ "CDATA_SECTION_NODE", genCDATA_SECTION_NODE },
+    .{ "ENTITY_REFERENCE_NODE", genENTITY_REFERENCE_NODE },
+    .{ "ENTITY_NODE", genENTITY_NODE },
+    .{ "PROCESSING_INSTRUCTION_NODE", genPROCESSING_INSTRUCTION_NODE },
+    .{ "COMMENT_NODE", genCOMMENT_NODE },
+    .{ "DOCUMENT_NODE", genDOCUMENT_NODE },
+    .{ "DOCUMENT_TYPE_NODE", genDOCUMENT_TYPE_NODE },
+    .{ "DOCUMENT_FRAGMENT_NODE", genDOCUMENT_FRAGMENT_NODE },
+    .{ "NOTATION_NODE", genNOTATION_NODE },
+    .{ "DomstringSizeErr", genDomstringSizeErr },
+    .{ "HierarchyRequestErr", genHierarchyRequestErr },
+    .{ "IndexSizeErr", genIndexSizeErr },
+    .{ "InuseAttributeErr", genInuseAttributeErr },
+    .{ "InvalidAccessErr", genInvalidAccessErr },
+    .{ "InvalidCharacterErr", genInvalidCharacterErr },
+    .{ "InvalidModificationErr", genInvalidModificationErr },
+    .{ "InvalidStateErr", genInvalidStateErr },
+    .{ "NamespaceErr", genNamespaceErr },
+    .{ "NoDataAllowedErr", genNoDataAllowedErr },
+    .{ "NoModificationAllowedErr", genNoModificationAllowedErr },
+    .{ "NotFoundErr", genNotFoundErr },
+    .{ "NotSupportedErr", genNotSupportedErr },
+    .{ "SyntaxErr", genSyntaxErr },
+    .{ "ValidationErr", genValidationErr },
+    .{ "WrongDocumentErr", genWrongDocumentErr },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

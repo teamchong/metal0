@@ -4,6 +4,18 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ABC", genABC },
+    .{ "ABCMeta", genABCMeta },
+    .{ "abstractmethod", genAbstractmethod },
+    .{ "abstractclassmethod", genAbstractclassmethod },
+    .{ "abstractstaticmethod", genAbstractstaticmethod },
+    .{ "abstractproperty", genAbstractproperty },
+    .{ "get_cache_token", genGetCacheToken },
+    .{ "update_abstractmethods", genUpdateAbstractmethods },
+});
+
 /// Generate abc.ABC - Abstract Base Class base
 pub fn genABC(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

@@ -4,6 +4,24 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "blake2b", genBlake2b },
+    .{ "blake2s", genBlake2s },
+    .{ "update", genUpdate },
+    .{ "digest", genDigest },
+    .{ "hexdigest", genHexdigest },
+    .{ "copy", genCopy },
+    .{ "BLAKE2B_SALT_SIZE", genBlake2bSaltSize },
+    .{ "BLAKE2B_PERSON_SIZE", genBlake2bPersonSize },
+    .{ "BLAKE2B_MAX_KEY_SIZE", genBlake2bMaxKeySize },
+    .{ "BLAKE2B_MAX_DIGEST_SIZE", genBlake2bMaxDigestSize },
+    .{ "BLAKE2S_SALT_SIZE", genBlake2sSaltSize },
+    .{ "BLAKE2S_PERSON_SIZE", genBlake2sPersonSize },
+    .{ "BLAKE2S_MAX_KEY_SIZE", genBlake2sMaxKeySize },
+    .{ "BLAKE2S_MAX_DIGEST_SIZE", genBlake2sMaxDigestSize },
+});
+
 /// Generate _blake2.blake2b(data=b'', *, digest_size=64, key=b'', salt=b'', person=b'', fanout=1, depth=1, leaf_size=0, node_offset=0, node_depth=0, inner_size=0, last_node=False)
 pub fn genBlake2b(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

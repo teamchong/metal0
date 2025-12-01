@@ -1,6 +1,46 @@
 /// Python _socket module - C accelerator for socket (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "socket", genSocket },
+    .{ "getaddrinfo", genGetaddrinfo },
+    .{ "getnameinfo", genGetnameinfo },
+    .{ "gethostname", genGethostname },
+    .{ "gethostbyname", genGethostbyname },
+    .{ "gethostbyname_ex", genGethostbynameEx },
+    .{ "gethostbyaddr", genGethostbyaddr },
+    .{ "getfqdn", genGetfqdn },
+    .{ "getservbyname", genGetservbyname },
+    .{ "getservbyport", genGetservbyport },
+    .{ "getprotobyname", genGetprotobyname },
+    .{ "getdefaulttimeout", genGetdefaulttimeout },
+    .{ "setdefaulttimeout", genSetdefaulttimeout },
+    .{ "ntohs", genNtohs },
+    .{ "ntohl", genNtohl },
+    .{ "htons", genHtons },
+    .{ "htonl", genHtonl },
+    .{ "inet_aton", genInetAton },
+    .{ "inet_ntoa", genInetNtoa },
+    .{ "inet_pton", genInetPton },
+    .{ "inet_ntop", genInetNtop },
+    .{ "AF_INET", genAF_INET },
+    .{ "AF_INET6", genAF_INET6 },
+    .{ "AF_UNIX", genAF_UNIX },
+    .{ "SOCK_STREAM", genSOCK_STREAM },
+    .{ "SOCK_DGRAM", genSOCK_DGRAM },
+    .{ "SOCK_RAW", genSOCK_RAW },
+    .{ "SOL_SOCKET", genSOL_SOCKET },
+    .{ "SO_REUSEADDR", genSO_REUSEADDR },
+    .{ "SO_KEEPALIVE", genSO_KEEPALIVE },
+    .{ "IPPROTO_TCP", genIPPROTO_TCP },
+    .{ "IPPROTO_UDP", genIPPROTO_UDP },
+    .{ "error", genSocketError },
+    .{ "timeout", genSocketTimeout },
+    .{ "gaierror", genSocketGaierror },
+    .{ "herror", genSocketHerror },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

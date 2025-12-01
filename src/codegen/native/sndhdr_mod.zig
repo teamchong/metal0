@@ -1,6 +1,14 @@
 /// Python sndhdr module - Sound file type determination
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "what", genWhat },
+    .{ "whathdr", genWhathdr },
+    .{ "SndHeaders", genSndHeaders },
+    .{ "tests", genTests },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -4,6 +4,40 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "isleap", genIsleap },
+    .{ "leapdays", genLeapdays },
+    .{ "weekday", genWeekday },
+    .{ "monthrange", genMonthrange },
+    .{ "month", genMonth },
+    .{ "monthcalendar", genMonthcalendar },
+    .{ "prmonth", genPrmonth },
+    .{ "calendar", genCalendar },
+    .{ "prcal", genPrcal },
+    .{ "setfirstweekday", genSetfirstweekday },
+    .{ "firstweekday", genFirstweekday },
+    .{ "timegm", genTimegm },
+    .{ "Calendar", genCalendarClass },
+    .{ "TextCalendar", genTextCalendar },
+    .{ "HTMLCalendar", genHTMLCalendar },
+    .{ "LocaleTextCalendar", genLocaleTextCalendar },
+    .{ "LocaleHTMLCalendar", genLocaleHTMLCalendar },
+    .{ "MONDAY", genMONDAY },
+    .{ "TUESDAY", genTUESDAY },
+    .{ "WEDNESDAY", genWEDNESDAY },
+    .{ "THURSDAY", genTHURSDAY },
+    .{ "FRIDAY", genFRIDAY },
+    .{ "SATURDAY", genSATURDAY },
+    .{ "SUNDAY", genSUNDAY },
+    .{ "day_name", genDay_name },
+    .{ "day_abbr", genDay_abbr },
+    .{ "month_name", genMonth_name },
+    .{ "month_abbr", genMonth_abbr },
+    .{ "IllegalMonthError", genIllegalMonthError },
+    .{ "IllegalWeekdayError", genIllegalWeekdayError },
+});
+
 /// Generate calendar.isleap(year) - check if year is leap year
 pub fn genIsleap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

@@ -6,6 +6,18 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 const async_complexity = @import("../../analysis/async_complexity.zig");
 const bridge = @import("stdlib_bridge.zig");
 
+/// Handler function type
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// Module function map - exported for dispatch
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "run", genAsyncioRun },
+    .{ "gather", genAsyncioGather },
+    .{ "create_task", genAsyncioCreateTask },
+    .{ "sleep", genAsyncioSleep },
+    .{ "Queue", genAsyncioQueue },
+});
+
 /// Generate code for asyncio.run(main())
 /// Maps to: initialize scheduler once, spawn main, wait for completion
 pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

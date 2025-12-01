@@ -1,6 +1,25 @@
 /// Python unicodedata module - Unicode character database
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "lookup", genLookup },
+    .{ "name", genName },
+    .{ "decimal", genDecimal },
+    .{ "digit", genDigit },
+    .{ "numeric", genNumeric },
+    .{ "category", genCategory },
+    .{ "bidirectional", genBidirectional },
+    .{ "combining", genCombining },
+    .{ "east_asian_width", genEastAsianWidth },
+    .{ "mirrored", genMirrored },
+    .{ "decomposition", genDecomposition },
+    .{ "normalize", genNormalize },
+    .{ "is_normalized", genIsNormalized },
+    .{ "unidata_version", genUnidataVersion },
+    .{ "ucd_3_2_0", genUcd320 },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

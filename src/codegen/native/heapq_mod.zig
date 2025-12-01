@@ -4,6 +4,18 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "heappush", genHeappush },
+    .{ "heappop", genHeappop },
+    .{ "heapify", genHeapify },
+    .{ "heapreplace", genHeapreplace },
+    .{ "heappushpop", genHeappushpop },
+    .{ "nlargest", genNlargest },
+    .{ "nsmallest", genNsmallest },
+    .{ "merge", genMerge },
+});
+
 /// Generate heapq.heappush(heap, item) -> None
 pub fn genHeappush(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;

@@ -4,6 +4,30 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "sem_lock", genSemLock },
+    .{ "sem_unlink", genSemUnlink },
+    .{ "address_of_buffer", genAddressOfBuffer },
+    .{ "flags", genFlags },
+    .{ "connection", genConnection },
+    .{ "send", genSend },
+    .{ "recv", genRecv },
+    .{ "poll", genPoll },
+    .{ "send_bytes", genSendBytes },
+    .{ "recv_bytes", genRecvBytes },
+    .{ "recv_bytes_into", genRecvBytesInto },
+    .{ "close", genClose },
+    .{ "fileno", genFileno },
+    .{ "acquire", genAcquire },
+    .{ "release", genRelease },
+    .{ "count", genCount },
+    .{ "is_mine", genIsMine },
+    .{ "get_value", genGetValue },
+    .{ "is_zero", genIsZero },
+    .{ "rebuild", genRebuild },
+});
+
 /// Generate _multiprocessing.SemLock(kind, value, maxvalue, name, unlink)
 pub fn genSemLock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

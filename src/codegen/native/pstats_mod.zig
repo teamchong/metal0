@@ -1,6 +1,23 @@
 /// Python pstats module - Statistics object for the profiler
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Stats", genStats },
+    .{ "SortKey", genSortKey },
+    .{ "strip_dirs", genStripDirs },
+    .{ "add", genAdd },
+    .{ "dump_stats", genDumpStats },
+    .{ "sort_stats", genSortStats },
+    .{ "reverse_order", genReverseOrder },
+    .{ "print_stats", genPrintStats },
+    .{ "print_callers", genPrintCallers },
+    .{ "print_callees", genPrintCallees },
+    .{ "get_stats_profile", genGetStatsProfile },
+    .{ "FunctionProfile", genFunctionProfile },
+    .{ "StatsProfile", genStatsProfile },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

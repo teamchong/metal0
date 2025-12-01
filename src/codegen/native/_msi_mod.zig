@@ -4,6 +4,31 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "open_database", genOpenDatabase },
+    .{ "create_record", genCreateRecord },
+    .{ "uuid_create", genUuidCreate },
+    .{ "f_c_i_create", genFCICreate },
+    .{ "m_s_i_d_b_o_p_e_n__r_e_a_d_o_n_l_y", genMSIDBOPEN_READONLY },
+    .{ "m_s_i_d_b_o_p_e_n__t_r_a_n_s_a_c_t", genMSIDBOPEN_TRANSACT },
+    .{ "m_s_i_d_b_o_p_e_n__c_r_e_a_t_e", genMSIDBOPEN_CREATE },
+    .{ "m_s_i_d_b_o_p_e_n__c_r_e_a_t_e_d_i_r_e_c_t", genMSIDBOPEN_CREATEDIRECT },
+    .{ "m_s_i_d_b_o_p_e_n__d_i_r_e_c_t", genMSIDBOPEN_DIRECT },
+    .{ "p_i_d__c_o_d_e_p_a_g_e", genPID_CODEPAGE },
+    .{ "p_i_d__t_i_t_l_e", genPID_TITLE },
+    .{ "p_i_d__s_u_b_j_e_c_t", genPID_SUBJECT },
+    .{ "p_i_d__a_u_t_h_o_r", genPID_AUTHOR },
+    .{ "p_i_d__k_e_y_w_o_r_d_s", genPID_KEYWORDS },
+    .{ "p_i_d__c_o_m_m_e_n_t_s", genPID_COMMENTS },
+    .{ "p_i_d__t_e_m_p_l_a_t_e", genPID_TEMPLATE },
+    .{ "p_i_d__r_e_v_n_u_m_b_e_r", genPID_REVNUMBER },
+    .{ "p_i_d__p_a_g_e_c_o_u_n_t", genPID_PAGECOUNT },
+    .{ "p_i_d__w_o_r_d_c_o_u_n_t", genPID_WORDCOUNT },
+    .{ "p_i_d__a_p_p_n_a_m_e", genPID_APPNAME },
+    .{ "p_i_d__s_e_c_u_r_i_t_y", genPID_SECURITY },
+});
+
 /// Generate _msi.OpenDatabase(path, persist) - Open MSI database
 pub fn genOpenDatabase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

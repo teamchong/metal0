@@ -1,6 +1,27 @@
 /// Python mailbox module - Mailbox handling
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Mailbox", genMailbox },
+    .{ "Maildir", genMaildir },
+    .{ "mbox", genMbox },
+    .{ "MH", genMH },
+    .{ "Babyl", genBabyl },
+    .{ "MMDF", genMMDF },
+    .{ "Message", genMessage },
+    .{ "MaildirMessage", genMaildirMessage },
+    .{ "mboxMessage", genMboxMessage },
+    .{ "MHMessage", genMHMessage },
+    .{ "BabylMessage", genBabylMessage },
+    .{ "MMDFMessage", genMMDFMessage },
+    .{ "Error", genError },
+    .{ "NoSuchMailboxError", genNoSuchMailboxError },
+    .{ "NotEmptyError", genNotEmptyError },
+    .{ "ExternalClashError", genExternalClashError },
+    .{ "FormatError", genFormatError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

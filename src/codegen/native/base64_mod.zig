@@ -4,6 +4,26 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "b64encode", genB64encode },
+    .{ "b64decode", genB64decode },
+    .{ "urlsafe_b64encode", genUrlsafeB64encode },
+    .{ "urlsafe_b64decode", genUrlsafeB64decode },
+    .{ "standard_b64encode", genStandardB64encode },
+    .{ "standard_b64decode", genStandardB64decode },
+    .{ "encodebytes", genEncodebytes },
+    .{ "decodebytes", genDecodebytes },
+    .{ "b32encode", genB32encode },
+    .{ "b32decode", genB32decode },
+    .{ "b16encode", genB16encode },
+    .{ "b16decode", genB16decode },
+    .{ "a85encode", genA85encode },
+    .{ "a85decode", genA85decode },
+    .{ "z85encode", genZ85encode },
+    .{ "z85decode", genZ85decode },
+});
+
 /// Generate base64.b64encode(data) -> bytes
 pub fn genB64encode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

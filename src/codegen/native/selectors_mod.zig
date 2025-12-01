@@ -4,6 +4,18 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "DefaultSelector", genDefaultSelector },
+    .{ "SelectSelector", genSelectSelector },
+    .{ "PollSelector", genPollSelector },
+    .{ "EpollSelector", genEpollSelector },
+    .{ "KqueueSelector", genKqueueSelector },
+    .{ "DevpollSelector", genDevpollSelector },
+    .{ "EVENT_READ", genEVENT_READ },
+    .{ "EVENT_WRITE", genEVENT_WRITE },
+});
+
 /// Generate selectors.DefaultSelector class
 pub fn genDefaultSelector(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

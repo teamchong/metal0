@@ -1,6 +1,39 @@
 /// Python _locale module - C accelerator for locale (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "setlocale", genSetlocale },
+    .{ "localeconv", genLocaleconv },
+    .{ "getlocale", genGetlocale },
+    .{ "getdefaultlocale", genGetdefaultlocale },
+    .{ "getpreferredencoding", genGetpreferredencoding },
+    .{ "nl_langinfo", genNlLanginfo },
+    .{ "strcoll", genStrcoll },
+    .{ "strxfrm", genStrxfrm },
+    .{ "LC_CTYPE", genLC_CTYPE },
+    .{ "LC_COLLATE", genLC_COLLATE },
+    .{ "LC_TIME", genLC_TIME },
+    .{ "LC_NUMERIC", genLC_NUMERIC },
+    .{ "LC_MONETARY", genLC_MONETARY },
+    .{ "LC_MESSAGES", genLC_MESSAGES },
+    .{ "LC_ALL", genLC_ALL },
+    .{ "CODESET", genCODESET },
+    .{ "D_T_FMT", genD_T_FMT },
+    .{ "D_FMT", genD_FMT },
+    .{ "T_FMT", genT_FMT },
+    .{ "RADIXCHAR", genRADIXCHAR },
+    .{ "THOUSEP", genTHOUSEP },
+    .{ "YESEXPR", genYESEXPR },
+    .{ "NOEXPR", genNOEXPR },
+    .{ "CRNCYSTR", genCRNCYSTR },
+    .{ "ERA", genERA },
+    .{ "ERA_D_T_FMT", genERA_D_T_FMT },
+    .{ "ERA_D_FMT", genERA_D_FMT },
+    .{ "ERA_T_FMT", genERA_T_FMT },
+    .{ "ALT_DIGITS", genALT_DIGITS },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

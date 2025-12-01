@@ -1,6 +1,14 @@
 /// Python html.entities module - HTML entity definitions
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "html5", genHtml5 },
+    .{ "name2codepoint", genName2codepoint },
+    .{ "codepoint2name", genCodepoint2name },
+    .{ "entitydefs", genEntitydefs },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

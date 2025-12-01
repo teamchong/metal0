@@ -1,6 +1,14 @@
 /// Python py_compile module - Compile Python source files
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "compile", genCompile },
+    .{ "main", genMain },
+    .{ "PyCompileError", genPyCompileError },
+    .{ "PycInvalidationMode", genPycInvalidationMode },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

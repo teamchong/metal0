@@ -93,18 +93,43 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
         switch (subscript.slice) {
             .index => {
                 // Simple index access on the temp variable
-                const index_type = self.type_inferrer.inferExpr(subscript.slice.index.*) catch .unknown;
-                const needs_cast = (index_type == .int);
+                const index = subscript.slice.index.*;
+                const index_type = self.type_inferrer.inferExpr(index) catch .unknown;
 
-                try self.emit("__base[");
-                if (needs_cast) {
-                    try self.emit("@as(usize, @intCast(");
+                // Check if the index is a string constant - use field access for struct-like access
+                // This handles patterns like locale.localeconv()['decimal_point'] -> __base.decimal_point
+                if (index == .constant and index.constant.value == .string) {
+                    const key_str = index.constant.value.string;
+                    // Strip quotes from string literal: "field" -> field
+                    if (key_str.len >= 2 and (key_str[0] == '"' or key_str[0] == '\'')) {
+                        try self.emit("__base.");
+                        try self.emit(key_str[1 .. key_str.len - 1]);
+                    } else {
+                        try self.emit("__base.");
+                        try self.emit(key_str);
+                    }
+                } else {
+                    // Check if the base is a tuple type - use .@"N" instead of [N]
+                    const base_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
+                    const is_tuple = @as(std.meta.Tag(@TypeOf(base_type)), base_type) == .tuple;
+
+                    if (is_tuple and index == .constant and index.constant.value == .int) {
+                        // Tuple indexing with constant integer: __base.@"0"
+                        try self.output.writer(self.allocator).print("__base.@\"{d}\"", .{index.constant.value.int});
+                    } else {
+                        const needs_cast = (index_type == .int);
+
+                        try self.emit("__base[");
+                        if (needs_cast) {
+                            try self.emit("@as(usize, @intCast(");
+                        }
+                        try genExpr(self, index);
+                        if (needs_cast) {
+                            try self.emit("))");
+                        }
+                        try self.emit("]");
+                    }
                 }
-                try genExpr(self, subscript.slice.index.*);
-                if (needs_cast) {
-                    try self.emit("))");
-                }
-                try self.emit("]");
             },
             .slice => |slice| {
                 // Slice access on temp variable
@@ -312,25 +337,18 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 const is_tracked_arraylist = is_tracked_arraylist_early;
 
                 if (is_array_slice or !is_tracked_arraylist) {
-                    // Array slice or generic array: direct indexing without bounds check
+                    // Array slice or generic array: use runtime check for ArrayList vs array
+                    // This handles cases where type inference is stale (e.g., after list(tuple))
                     const needs_cast = (index_type == .int);
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
 
+                    try self.emitFmt("idx_{d}: {{ const __list = ", .{label_id});
+                    try genExpr(self, subscript.value.*);
+                    try self.emit("; const __idx = ");
                     if (isNegativeConstant(subscript.slice.index.*)) {
-                        const label_id = self.block_label_counter;
-                        self.block_label_counter += 1;
-                        try self.emitFmt("idx_{d}: {{ const __list = ", .{label_id});
-                        try genExpr(self, subscript.value.*);
-                        try self.emit("; const __idx = ");
                         try genSliceIndex(self, subscript.slice.index.*, true, false);
-                        // No bounds check for arrays (Zig provides safety in debug mode)
-                        try self.emitFmt("; break :idx_{d} __list[__idx]; }}", .{label_id});
                     } else {
-                        // Runtime bounds check for positive index (skip for parameters)
-                        const label_id = self.block_label_counter;
-                        self.block_label_counter += 1;
-                        try self.emitFmt("idx_{d}: {{ const __list = ", .{label_id});
-                        try genExpr(self, subscript.value.*);
-                        try self.emit("; const __idx = ");
                         if (needs_cast) {
                             try self.emit("@as(usize, @intCast(");
                         }
@@ -338,9 +356,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         if (needs_cast) {
                             try self.emit("))");
                         }
-                        // No bounds check for arrays (Zig provides safety in debug mode)
-                        try self.emitFmt("; break :idx_{d} __list[__idx]; }}", .{label_id});
                     }
+                    // Runtime check: if __list has .items field, use it; otherwise direct index
+                    try self.emitFmt("; break :idx_{d} if (@hasField(@TypeOf(__list), \"items\")) __list.items[__idx] else __list[__idx]; }}", .{label_id});
                 } else {
                     // ArrayList indexing - use .items with runtime bounds check
                     const needs_cast = (index_type == .int);

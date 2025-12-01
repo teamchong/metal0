@@ -9,6 +9,9 @@ const allocator_analyzer = @import("allocator_analyzer.zig");
 const signature = @import("generators/signature.zig");
 const body = @import("generators/body.zig");
 
+// Re-export module-level mutation analysis
+pub const analyzeModuleLevelMutations = body.analyzeModuleLevelMutations;
+
 /// Builtin types that can be inherited from
 pub const BuiltinBaseInfo = struct {
     zig_type: []const u8,
@@ -35,37 +38,37 @@ pub fn getBuiltinBaseInfo(base_name: []const u8) ?BuiltinBaseInfo {
         } },
         .{ "int", BuiltinBaseInfo{
             .zig_type = "i64",
-            .zig_init = "value",
+            .zig_init = "__value",
             .init_args = &.{
-                .{ .name = "value", .zig_type = "i64", .default = "0" },
+                .{ .name = "__value", .zig_type = "i64", .default = "0" },
             },
         } },
         .{ "float", BuiltinBaseInfo{
             .zig_type = "f64",
-            .zig_init = "value",
+            .zig_init = "__value",
             .init_args = &.{
-                .{ .name = "value", .zig_type = "f64", .default = "0.0" },
+                .{ .name = "__value", .zig_type = "f64", .default = "0.0" },
             },
         } },
         .{ "str", BuiltinBaseInfo{
             .zig_type = "[]const u8",
-            .zig_init = "value",
+            .zig_init = "__value",
             .init_args = &.{
-                .{ .name = "value", .zig_type = "[]const u8", .default = "\"\"" },
+                .{ .name = "__value", .zig_type = "[]const u8", .default = "\"\"" },
             },
         } },
         .{ "bool", BuiltinBaseInfo{
             .zig_type = "bool",
-            .zig_init = "value",
+            .zig_init = "__value",
             .init_args = &.{
-                .{ .name = "value", .zig_type = "bool", .default = "false" },
+                .{ .name = "__value", .zig_type = "bool", .default = "false" },
             },
         } },
         .{ "bytes", BuiltinBaseInfo{
             .zig_type = "[]const u8",
-            .zig_init = "value",
+            .zig_init = "__value",
             .init_args = &.{
-                .{ .name = "value", .zig_type = "[]const u8", .default = "\"\"" },
+                .{ .name = "__value", .zig_type = "[]const u8", .default = "\"\"" },
             },
         } },
     });
@@ -225,13 +228,16 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
 /// Generate class definition with __init__ constructor
 pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!void {
-    // Find __init__ and setUp methods to determine struct fields
+    // Find __init__, __new__, and setUp methods to determine struct fields
     var init_method: ?ast.Node.FunctionDef = null;
+    var new_method: ?ast.Node.FunctionDef = null;
     var setUp_method: ?ast.Node.FunctionDef = null;
     for (class.body) |stmt| {
         if (stmt == .function_def) {
             if (std.mem.eql(u8, stmt.function_def.name, "__init__")) {
                 init_method = stmt.function_def;
+            } else if (std.mem.eql(u8, stmt.function_def.name, "__new__")) {
+                new_method = stmt.function_def;
             } else if (std.mem.eql(u8, stmt.function_def.name, "setUp")) {
                 setUp_method = stmt.function_def;
             }
@@ -284,16 +290,47 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     // 1. @support.cpython_only - tests CPython implementation details
                     // 2. @unittest.skipUnless(_pylong, ...) - requires CPython's _pylong module
                     // 3. @unittest.skipUnless(_decimal, ...) - requires CPython's _decimal module
+                    // 4. Parameters with type defaults (cls=float) - requires runtime type manipulation
+                    // 5. Calls self.method(ClassName) - passes class as runtime argument
                     // This is NOT us artificially skipping tests - it's respecting Python's own test annotations
+
+                    // Collect all registered class names for type argument detection
+                    var class_names_list = std.ArrayList([]const u8){};
+                    var classes_iter = self.class_registry.classes.iterator();
+                    while (classes_iter.next()) |entry| {
+                        try class_names_list.append(self.allocator, entry.key_ptr.*);
+                    }
+                    const class_names = class_names_list.items;
+
                     const skip_reason: ?[]const u8 = if (hasCPythonOnlyDecorator(method.decorators))
                         "CPython implementation test (not applicable to metal0)"
                     else if (hasSkipUnlessCPythonModule(method.decorators))
                         "Requires CPython-only module (_pylong or _decimal)"
+                    else if (hasTypeParameterDefault(method.args))
+                        "Test uses runtime type parameters (cls=float)"
+                    else if (callsSelfMethodWithClassArg(method.body, class_names))
+                        "Test passes class as runtime argument (self.method(ClassName))"
                     else
                         null;
 
                     // Count @mock.patch.object decorators (each injects a mock param)
                     const mock_count = countMockPatchDecorators(method.decorators);
+
+                    // Collect default parameters for test runner to pass
+                    var default_params = std.ArrayList(core.TestDefaultParam){};
+                    for (method.args) |arg| {
+                        if (std.mem.eql(u8, arg.name, "self")) continue;
+                        if (arg.default) |default_expr| {
+                            // Convert Python default value to Zig code
+                            const default_code = convertDefaultToZig(default_expr.*);
+                            if (default_code) |code| {
+                                try default_params.append(self.allocator, .{
+                                    .name = arg.name,
+                                    .default_code = code,
+                                });
+                            }
+                        }
+                    }
 
                     try test_methods.append(self.allocator, core.TestMethodInfo{
                         .name = method_name,
@@ -301,6 +338,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         .needs_allocator = method_needs_allocator,
                         .is_skipped = skip_reason != null,
                         .mock_patch_count = mock_count,
+                        .default_params = default_params.toOwnedSlice(self.allocator) catch &.{},
                     });
                 } else if (std.mem.eql(u8, method_name, "setUp")) {
                     has_setUp = true;
@@ -386,9 +424,23 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Check if this class captures outer mutable variables
     const captured_vars = self.nested_class_captures.get(class.name);
 
+    // Generate unique class name if this name is already declared in current scope
+    // This handles Python's ability to redefine a class name in the same function:
+    // class S(str): def __add__(self, o): return "3"
+    // class S(str): def __iadd__(self, o): return "3"  # redefines S
+    // We also need to update var_renames so references to S use the new name
+    var effective_class_name: []const u8 = class.name;
+    if (self.isDeclared(class.name)) {
+        // Generate a unique name based on pointer address
+        const unique_name = try std.fmt.allocPrint(self.allocator, "{s}_{d}", .{ class.name, @intFromPtr(class.name.ptr) });
+        effective_class_name = unique_name;
+        // Store the rename so references to this class name use the new name
+        try self.var_renames.put(class.name, unique_name);
+    }
+
     // Generate: const ClassName = struct {
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{class.name});
+    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{effective_class_name});
     self.indent();
 
     // Add pointer fields for captured outer variables
@@ -423,8 +475,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     }
 
     // Extract fields from __init__ body (self.x = ...)
+    // If no __init__, extract from __new__ body (since __new__ can also set attributes)
     if (init_method) |init| {
         try body.genClassFields(self, class.name, init);
+    } else if (new_method) |new| {
+        try body.genClassFields(self, class.name, new);
     }
 
     // For unittest classes, also extract fields from setUp method (without adding __dict__ again)
@@ -434,11 +489,15 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
-    // Generate init() method from __init__, or default init if no __init__
+    // Generate init() method from __init__, __new__, or default
+    // Priority: __init__ > __new__ > default
     if (init_method) |init| {
         try body.genInitMethodWithBuiltinBase(self, class.name, init, builtin_base, complex_parent, captured_vars);
+    } else if (new_method) |new| {
+        // No __init__ but has __new__ - use __new__'s parameters for init
+        try body.genInitMethodFromNew(self, class.name, new, builtin_base, complex_parent, captured_vars);
     } else {
-        // No __init__ defined, generate default init method
+        // No __init__ or __new__ defined, generate default init method
         try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base, complex_parent, captured_vars);
     }
 
@@ -581,12 +640,131 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
+
+    // Declare the class name in current scope to detect redefinitions
+    try self.declareVar(effective_class_name);
+
     // For nested classes (inside functions), suppress unused warning only if truly unused
     // Note: class_nesting_depth > 1 means we're inside a method/function
     if (self.class_nesting_depth > 1 and self.isVarUnused(class.name)) {
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("_ = {s};\n", .{class.name});
+        try self.output.writer(self.allocator).print("_ = {s};\n", .{effective_class_name});
     }
+}
+
+/// Convert Python default value to Zig code for test method parameters
+/// Returns null if the conversion is not supported
+fn convertDefaultToZig(default_expr: ast.Node) ?[]const u8 {
+    switch (default_expr) {
+        .name => |name| {
+            const id = name.id;
+            // Python builtin types to Zig type names
+            if (std.mem.eql(u8, id, "float")) return "f64";
+            if (std.mem.eql(u8, id, "int")) return "i64";
+            if (std.mem.eql(u8, id, "str")) return "[]const u8";
+            if (std.mem.eql(u8, id, "bool")) return "bool";
+            if (std.mem.eql(u8, id, "None")) return "null";
+            if (std.mem.eql(u8, id, "True")) return "true";
+            if (std.mem.eql(u8, id, "False")) return "false";
+            if (std.mem.eql(u8, id, "complex")) return "runtime.Complex";
+            if (std.mem.eql(u8, id, "repr")) return "runtime.repr";
+            // Class name - return as-is (caller should know to use the struct)
+            if (id.len > 0 and std.ascii.isUpper(id[0])) return id;
+            return null;
+        },
+        .constant => |constant| {
+            // Numeric constants
+            if (constant.value == .int) return null; // Would need to format
+            if (constant.value == .float) return null; // Would need to format
+            if (constant.value == .none) return "null";
+            if (constant.value == .bool) {
+                return if (constant.value.bool) "true" else "false";
+            }
+            return null;
+        },
+        else => return null,
+    }
+}
+
+/// Check if a test method has a parameter with a type as its default value
+/// e.g., def test_from_number(self, cls=float): - these can't be represented in Zig
+fn hasTypeParameterDefault(args: []const ast.Arg) bool {
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg.name, "self")) continue;
+        if (arg.default) |default_expr| {
+            if (default_expr.* == .name) {
+                const name = default_expr.name.id;
+                // Check if default is a Python builtin type
+                if (std.mem.eql(u8, name, "float") or
+                    std.mem.eql(u8, name, "int") or
+                    std.mem.eql(u8, name, "str") or
+                    std.mem.eql(u8, name, "bool") or
+                    std.mem.eql(u8, name, "complex") or
+                    std.mem.eql(u8, name, "list") or
+                    std.mem.eql(u8, name, "dict") or
+                    std.mem.eql(u8, name, "set") or
+                    std.mem.eql(u8, name, "tuple") or
+                    std.mem.eql(u8, name, "bytes") or
+                    std.mem.eql(u8, name, "type"))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Check if a test method calls self.method() with a class/type as argument
+/// e.g., self.test_from_number(FloatSubclass) - where FloatSubclass is a class
+fn callsSelfMethodWithClassArg(stmts: []const ast.Node, class_names: []const []const u8) bool {
+    for (stmts) |stmt| {
+        if (stmtCallsSelfMethodWithClassArg(stmt, class_names)) return true;
+    }
+    return false;
+}
+
+fn stmtCallsSelfMethodWithClassArg(stmt: ast.Node, class_names: []const []const u8) bool {
+    return switch (stmt) {
+        .expr_stmt => |e| exprCallsSelfMethodWithClassArg(e.value.*, class_names),
+        .assign => |a| exprCallsSelfMethodWithClassArg(a.value.*, class_names),
+        .return_stmt => |r| if (r.value) |v| exprCallsSelfMethodWithClassArg(v.*, class_names) else false,
+        .if_stmt => |i| blk: {
+            for (i.body) |s| {
+                if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            }
+            for (i.else_body) |s| {
+                if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+fn exprCallsSelfMethodWithClassArg(expr: ast.Node, class_names: []const []const u8) bool {
+    return switch (expr) {
+        .call => |c| blk: {
+            // Check if this is self.method(...) with a class as argument
+            if (c.func.* == .attribute) {
+                const attr = c.func.attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                    // Check if any argument is a class name
+                    for (c.args) |arg| {
+                        if (arg == .name) {
+                            for (class_names) |cn| {
+                                if (std.mem.eql(u8, arg.name.id, cn)) {
+                                    break :blk true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        },
+        else => false,
+    };
 }
 
 /// Check if test has @support.cpython_only decorator

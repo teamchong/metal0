@@ -1,6 +1,29 @@
 /// Python token module - Token constants and utilities
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ENDMARKER", genENDMARKER },
+    .{ "NAME", genNAME },
+    .{ "NUMBER", genNUMBER },
+    .{ "STRING", genSTRING },
+    .{ "NEWLINE", genNEWLINE },
+    .{ "INDENT", genINDENT },
+    .{ "DEDENT", genDEDENT },
+    .{ "OP", genOP },
+    .{ "ERRORTOKEN", genERRORTOKEN },
+    .{ "COMMENT", genCOMMENT },
+    .{ "NL", genNL },
+    .{ "ENCODING", genENCODING },
+    .{ "N_TOKENS", genN_TOKENS },
+    .{ "NT_OFFSET", genNT_OFFSET },
+    .{ "tok_name", genTok_name },
+    .{ "EXACT_TOKEN_TYPES", genEXACT_TOKEN_TYPES },
+    .{ "ISTERMINAL", genISTERMINAL },
+    .{ "ISNONTERMINAL", genISNONTERMINAL },
+    .{ "ISEOF", genISEOF },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

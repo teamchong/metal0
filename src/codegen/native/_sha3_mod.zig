@@ -4,6 +4,22 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "sha3_224", genSha3_224 },
+    .{ "sha3_256", genSha3_256 },
+    .{ "sha3_384", genSha3_384 },
+    .{ "sha3_512", genSha3_512 },
+    .{ "shake128", genShake128 },
+    .{ "shake256", genShake256 },
+    .{ "update", genUpdate },
+    .{ "digest", genDigest },
+    .{ "hexdigest", genHexdigest },
+    .{ "copy", genCopy },
+    .{ "shake_digest", genShakeDigest },
+    .{ "shake_hexdigest", genShakeHexdigest },
+});
+
 /// Generate _sha3.sha3_224(data=b'', *, usedforsecurity=True)
 pub fn genSha3_224(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

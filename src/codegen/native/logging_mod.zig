@@ -4,6 +4,30 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "debug", genDebug },
+    .{ "info", genInfo },
+    .{ "warning", genWarning },
+    .{ "error", genError },
+    .{ "critical", genCritical },
+    .{ "exception", genException },
+    .{ "log", genLog },
+    .{ "basicConfig", genBasicConfig },
+    .{ "getLogger", genGetLogger },
+    .{ "Logger", genLogger },
+    .{ "Handler", genHandler },
+    .{ "StreamHandler", genStreamHandler },
+    .{ "FileHandler", genFileHandler },
+    .{ "Formatter", genFormatter },
+    .{ "DEBUG", genDEBUG },
+    .{ "INFO", genINFO },
+    .{ "WARNING", genWARNING },
+    .{ "ERROR", genERROR },
+    .{ "CRITICAL", genCRITICAL },
+    .{ "NOTSET", genNOTSET },
+});
+
 /// Generate logging.debug(msg, *args) -> None
 pub fn genDebug(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

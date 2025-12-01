@@ -26,6 +26,12 @@ const FuncSignature = struct {
 };
 const FnvFuncSigMap = hashmap_helper.StringHashMap(FuncSignature);
 
+/// Default parameter for test methods
+pub const TestDefaultParam = struct {
+    name: []const u8,
+    default_code: []const u8, // Zig code for the default value (e.g., "f64" for cls=float)
+};
+
 /// Info about a single test method
 pub const TestMethodInfo = struct {
     name: []const u8,
@@ -33,6 +39,7 @@ pub const TestMethodInfo = struct {
     needs_allocator: bool = false, // true if method needs allocator param (has fallible ops)
     is_skipped: bool = false, // true if method is skipped for any reason (docstring, refs skipped module, decorator)
     mock_patch_count: usize = 0, // number of @mock.patch.object decorators (each injects a mock param)
+    default_params: []const TestDefaultParam = &.{}, // params with default values
 };
 
 /// Unittest TestCase class info
@@ -294,6 +301,11 @@ pub const NativeCodegen = struct {
     // Used to decide whether to increment method_nesting_depth when entering a nested class
     inside_method_with_self: bool,
 
+    // Current scope ID for scope-aware mutation tracking
+    // 0 = function scope, unique pointer address = loop/block scope
+    // Used to determine if a variable is mutated within the current scope
+    current_scope_id: usize,
+
     // Current function being generated (for tail-call optimization)
     // Set during function generation, null otherwise
     current_function_name: ?[]const u8,
@@ -317,6 +329,16 @@ pub const NativeCodegen = struct {
     // Maps symbol name -> module name (e.g., "getrandbits" -> "random")
     // Used to route calls like getrandbits(...) to random.getrandbits dispatch
     local_from_imports: FnvStringMap,
+
+    // Track for-loop capture variables (immutable in Zig, but Python allows reassignment)
+    // Maps variable name -> void (e.g., "line" -> {})
+    // When assigning to a loop capture, we rename to __loop_<varname> and track in var_renames
+    loop_capture_vars: FnvVoidMap,
+
+    // Track callable global variables (function references like float.fromhex)
+    // These need to be emitted at module level, not inside main()
+    // Maps variable name -> void (e.g., "fromHex" -> {})
+    callable_global_vars: FnvVoidMap,
 
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
@@ -400,11 +422,14 @@ pub const NativeCodegen = struct {
             .class_nesting_depth = 0,
             .method_nesting_depth = 0,
             .inside_method_with_self = false,
+            .current_scope_id = 0,
             .current_function_name = null,
             .skipped_modules = FnvVoidMap.init(allocator),
             .skipped_functions = FnvVoidMap.init(allocator),
             .local_var_types = hashmap_helper.StringHashMap(NativeType).init(allocator),
             .local_from_imports = FnvStringMap.init(allocator),
+            .loop_capture_vars = FnvVoidMap.init(allocator),
+            .callable_global_vars = FnvVoidMap.init(allocator),
         };
         return self;
     }
@@ -458,7 +483,9 @@ pub const NativeCodegen = struct {
     pub fn inferExprScoped(self: *NativeCodegen, node: ast.Node) !NativeType {
         // For name nodes, check local scope first
         if (node == .name) {
-            const name = node.name.id;
+            const original_name = node.name.id;
+            // Check if variable has been renamed (e.g., loop capture line -> __loop_line)
+            const name = self.var_renames.get(original_name) orelse original_name;
             // Check if this variable was assigned from a BigInt expression
             if (self.bigint_vars.contains(name)) {
                 return .bigint;
@@ -475,6 +502,12 @@ pub const NativeCodegen = struct {
             if (self.type_inferrer.getScopedVar(name)) |scoped_type| {
                 if (scoped_type != .unknown) {
                     return scoped_type;
+                }
+            }
+            // Also check type inferrer's var_types map (for renamed variables)
+            if (self.type_inferrer.var_types.get(name)) |var_type| {
+                if (var_type != .unknown) {
+                    return var_type;
                 }
             }
             // If name wasn't found in local scope with a known type, it might be
@@ -589,7 +622,34 @@ pub const NativeCodegen = struct {
     /// Check if a variable is mutated (reassigned after first assignment)
     /// Checks both module-level semantic info AND function-local mutations
     pub fn isVarMutated(self: *NativeCodegen, var_name: []const u8) bool {
-        // Check function-local mutations first (when inside function body)
+        // When inside a non-function scope (loop body), check scope-specific mutations first
+        // Variables declared inside loops are fresh each iteration, so they're not mutated
+        // unless there's a mutation (aug_assign or multiple assignments) in the SAME scope
+        if (self.current_scope_id != 0) {
+            // Check for scope-specific mutation: "varname:scope_id"
+            var scoped_key_buf: [256]u8 = undefined;
+            const scoped_key = std.fmt.bufPrint(&scoped_key_buf, "{s}:{d}", .{ var_name, self.current_scope_id }) catch var_name;
+            if (self.func_local_mutations.contains(scoped_key)) {
+                return true;
+            }
+            // Also check if variable has aug_assign (stored without scope suffix)
+            // because aug_assign always means mutation regardless of where we declare
+            if (self.func_local_mutations.contains(var_name)) {
+                // But only if the mutation is from aug_assign, not from multi-assign at different scope
+                // Check if there's a scoped entry at function scope (scope 0)
+                var func_scope_key_buf: [256]u8 = undefined;
+                const func_scope_key = std.fmt.bufPrint(&func_scope_key_buf, "{s}:0", .{var_name}) catch var_name;
+                if (self.func_local_mutations.contains(func_scope_key)) {
+                    // Multi-assign at function scope - doesn't affect loop-scope vars
+                    return false;
+                }
+                // Must be aug_assign - applies to all scopes
+                return true;
+            }
+            return false;
+        }
+
+        // At function scope (current_scope_id == 0), use original logic
         if (self.func_local_mutations.contains(var_name)) {
             return true;
         }
@@ -683,8 +743,16 @@ pub const NativeCodegen = struct {
     }
 
     /// Get the parent class name for a given class (for super() support)
+    /// Only returns parent if it's a known class in the registry (not external modules)
     pub fn getParentClassName(self: *NativeCodegen, class_name: []const u8) ?[]const u8 {
-        return self.class_registry.inheritance.get(class_name);
+        const parent = self.class_registry.inheritance.get(class_name) orelse return null;
+        // Only return parent if it's actually in the class registry (locally defined)
+        // External parents like "unittest.TestCase" or "string_tests.StringLikeTest"
+        // won't have methods we can call, so they're treated as having no known parent
+        if (self.class_registry.classes.contains(parent)) {
+            return parent;
+        }
+        return null;
     }
 
     /// Get the class name from a variable's type

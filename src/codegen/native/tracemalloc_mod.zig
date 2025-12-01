@@ -1,6 +1,28 @@
 /// Python tracemalloc module - Trace memory allocations
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "start", genStart },
+    .{ "stop", genStop },
+    .{ "is_tracing", genIsTracing },
+    .{ "clear_traces", genClearTraces },
+    .{ "get_object_traceback", genGetObjectTraceback },
+    .{ "get_traceback_limit", genGetTracebackLimit },
+    .{ "get_traced_memory", genGetTracedMemory },
+    .{ "reset_peak", genResetPeak },
+    .{ "get_tracemalloc_memory", genGetTracemallocMemory },
+    .{ "take_snapshot", genTakeSnapshot },
+    .{ "Snapshot", genSnapshot },
+    .{ "Statistic", genStatistic },
+    .{ "StatisticDiff", genStatisticDiff },
+    .{ "Trace", genTrace },
+    .{ "Traceback", genTraceback },
+    .{ "Frame", genFrame },
+    .{ "Filter", genFilter },
+    .{ "DomainFilter", genDomainFilter },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

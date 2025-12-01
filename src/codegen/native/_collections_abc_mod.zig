@@ -1,6 +1,36 @@
 /// Python _collections_abc module - Abstract Base Classes for containers
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Awaitable", genAwaitable },
+    .{ "Coroutine", genCoroutine },
+    .{ "AsyncIterable", genAsyncIterable },
+    .{ "AsyncIterator", genAsyncIterator },
+    .{ "AsyncGenerator", genAsyncGenerator },
+    .{ "Hashable", genHashable },
+    .{ "Iterable", genIterable },
+    .{ "Iterator", genIterator },
+    .{ "Generator", genGenerator },
+    .{ "Reversible", genReversible },
+    .{ "Container", genContainer },
+    .{ "Collection", genCollection },
+    .{ "Callable", genCallable },
+    .{ "Set", genSet },
+    .{ "MutableSet", genMutableSet },
+    .{ "Mapping", genMapping },
+    .{ "MutableMapping", genMutableMapping },
+    .{ "Sequence", genSequence },
+    .{ "MutableSequence", genMutableSequence },
+    .{ "ByteString", genByteString },
+    .{ "MappingView", genMappingView },
+    .{ "KeysView", genKeysView },
+    .{ "ItemsView", genItemsView },
+    .{ "ValuesView", genValuesView },
+    .{ "Sized", genSized },
+    .{ "Buffer", genBuffer },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

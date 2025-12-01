@@ -26,6 +26,11 @@ const StringMethodsMap = std.StaticStringMap(void).initComptime(.{
     .{ "endswith", {} },
     .{ "find", {} },
     .{ "index", {} },
+    .{ "decode", {} },
+    .{ "encode", {} },
+    .{ "lstrip", {} },
+    .{ "rstrip", {} },
+    .{ "join", {} },
 });
 
 const ListMethodsMap = std.StaticStringMap(void).initComptime(.{
@@ -38,7 +43,7 @@ const ListMethodsMap = std.StaticStringMap(void).initComptime(.{
 });
 
 const TypeStrToNativeMap = std.StaticStringMap(NativeType).initComptime(.{
-    .{ "i64", NativeType.int },
+    .{ "i64", NativeType{ .int = .bounded } },
     .{ "f64", NativeType.float },
     .{ "bool", NativeType.bool },
     .{ "[]const u8", NativeType{ .string = .runtime } },
@@ -225,7 +230,10 @@ fn findCapturedVars(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!
         if (!is_param) {
             // Check if this variable is actually declared in outer scope
             // Also treat "self" as a captured variable when inside a class method
+            // Check both symbol_table (via isDeclared) and type_inferrer.var_types
+            // because for loop variables are only in var_types, not symbol_table
             if (self.isDeclared(var_name) or
+                self.type_inferrer.var_types.contains(var_name) or
                 (std.mem.eql(u8, var_name, "self") and self.current_class_name != null))
             {
                 try filtered.append(self.allocator, var_name);

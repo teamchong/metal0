@@ -4,6 +4,17 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "getline", genGetline },
+    .{ "getlines", genGetlines },
+    .{ "clearcache", genClearcache },
+    .{ "checkcache", genCheckcache },
+    .{ "updatecache", genUpdatecache },
+    .{ "lazycache", genLazycache },
+    .{ "cache", genCache },
+});
+
 /// Generate linecache.getline(filename, lineno, module_globals=None) -> str
 pub fn genGetline(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

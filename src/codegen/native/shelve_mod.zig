@@ -4,6 +4,14 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "open", genOpen },
+    .{ "Shelf", genShelf },
+    .{ "BsdDbShelf", genBsdDbShelf },
+    .{ "DbfilenameShelf", genDbfilenameShelf },
+});
+
 /// Generate shelve.open(filename, flag='c', protocol=None, writeback=False) -> Shelf
 pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

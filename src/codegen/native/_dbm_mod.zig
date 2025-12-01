@@ -4,6 +4,16 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "open", genOpen },
+    .{ "error", genError },
+    .{ "close", genClose },
+    .{ "keys", genKeys },
+    .{ "get", genGet },
+    .{ "setdefault", genSetdefault },
+});
+
 /// Generate _dbm.open(filename, flag='r', mode=0o666)
 pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

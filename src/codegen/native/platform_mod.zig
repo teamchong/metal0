@@ -4,6 +4,32 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "system", genSystem },
+    .{ "machine", genMachine },
+    .{ "node", genNode },
+    .{ "release", genRelease },
+    .{ "version", genVersion },
+    .{ "platform", genPlatform },
+    .{ "processor", genProcessor },
+    .{ "python_implementation", genPythonImplementation },
+    .{ "python_version", genPythonVersion },
+    .{ "python_version_tuple", genPythonVersionTuple },
+    .{ "python_branch", genPythonBranch },
+    .{ "python_revision", genPythonRevision },
+    .{ "python_build", genPythonBuild },
+    .{ "python_compiler", genPythonCompiler },
+    .{ "uname", genUname },
+    .{ "architecture", genArchitecture },
+    .{ "mac_ver", genMacVer },
+    .{ "win32_ver", genWin32Ver },
+    .{ "win32_edition", genWin32Edition },
+    .{ "win32_is_iot", genWin32IsIot },
+    .{ "libc_ver", genLibcVer },
+    .{ "freedesktop_os_release", genFreedesktopOsRelease },
+});
+
 /// Generate platform.system() -> str
 pub fn genSystem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

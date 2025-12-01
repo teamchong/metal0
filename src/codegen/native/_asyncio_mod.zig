@@ -4,6 +4,22 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Task", genTask },
+    .{ "Future", genFuture },
+    .{ "get_event_loop", genGetEventLoop },
+    .{ "get_running_loop", genGetRunningLoop },
+    .{ "_get_running_loop", genInternalGetRunningLoop },
+    .{ "_set_running_loop", genSetRunningLoop },
+    .{ "_register_task", genRegisterTask },
+    .{ "_unregister_task", genUnregisterTask },
+    .{ "_enter_task", genEnterTask },
+    .{ "_leave_task", genLeaveTask },
+    .{ "current_task", genCurrentTask },
+    .{ "all_tasks", genAllTasks },
+});
+
 /// Generate _asyncio.Task(coro, *, loop=None, name=None, context=None)
 pub fn genTask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

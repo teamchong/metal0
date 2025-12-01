@@ -4,6 +4,15 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "decimal", genDecimal },
+    .{ "context", genContext },
+    .{ "localcontext", genLocalcontext },
+    .{ "getcontext", genGetcontext },
+    .{ "setcontext", genSetcontext },
+});
+
 /// Generate _pydecimal.Decimal(value=0, context=None)
 pub fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

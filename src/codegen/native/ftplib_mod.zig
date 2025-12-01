@@ -4,6 +4,19 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "FTP", genFTP },
+    .{ "FTP_TLS", genFTP_TLS },
+    .{ "FTP_PORT", genFTP_PORT },
+    .{ "error", genError },
+    .{ "error_reply", genError_reply },
+    .{ "error_temp", genError_temp },
+    .{ "error_perm", genError_perm },
+    .{ "error_proto", genError_proto },
+    .{ "all_errors", genAll_errors },
+});
+
 /// Generate ftplib.FTP class
 pub fn genFTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

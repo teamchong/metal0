@@ -5,6 +5,16 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "pack", genPack },
+    .{ "unpack", genUnpack },
+    .{ "calcsize", genCalcsize },
+    .{ "pack_into", genPackInto },
+    .{ "unpack_from", genUnpackFrom },
+    .{ "iter_unpack", genIterUnpack },
+});
+
 /// Helper to emit a number
 fn emitNum(self: *NativeCodegen, n: usize) CodegenError!void {
     var buf: [20]u8 = undefined;
@@ -39,12 +49,24 @@ pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("var _pos: usize = 0;\n");
 
     // Pack each value according to format
+    // Skip byte order prefix characters (< > @ = !) when indexing format
+    const format_offset: usize = if (format_str) |fmt| blk: {
+        if (fmt.len > 0) {
+            const first = fmt[0];
+            if (first == '<' or first == '>' or first == '@' or first == '=' or first == '!') {
+                break :blk 1;
+            }
+        }
+        break :blk 0;
+    } else 0;
+
     for (args[1..], 0..) |arg, i| {
         try self.emitIndent();
 
-        // Determine type from format string if available
+        // Determine type from format string if available (accounting for byte order prefix)
         const format_char: u8 = if (format_str) |fmt| blk2: {
-            if (i < fmt.len) break :blk2 fmt[i] else break :blk2 'i';
+            const idx = i + format_offset;
+            if (idx < fmt.len) break :blk2 fmt[idx] else break :blk2 'i';
         } else 'i';
 
         // Choose type based on format character

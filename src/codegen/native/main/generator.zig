@@ -423,6 +423,19 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         for (analysis.global_vars) |var_name| {
             // Get type from type inferrer, default to i64 for integers
             const var_type = self.type_inferrer.var_types.get(var_name);
+
+            // Callable types (function references like float.fromhex) are handled specially:
+            // They're emitted at module level directly when encountered as module-level assignments
+            // Skip pre-declaration here to avoid type mismatch
+            if (var_type) |vt| {
+                if (vt == .callable) {
+                    // Track as callable global - will be emitted as const at module level in statements
+                    try self.markGlobalVar(var_name);
+                    try self.callable_global_vars.put(try self.allocator.dupe(u8, var_name), {});
+                    continue;
+                }
+            }
+
             const zig_type = if (var_type) |vt| blk: {
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";
@@ -435,10 +448,39 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             try self.emit(" = undefined;\n");
 
             // Mark these as declared at module level (scope 0)
-            try self.symbol_table.declare(var_name, var_type orelse .int, true);
+            try self.symbol_table.declare(var_name, var_type orelse .{ .int = .bounded }, true);
 
             // Also track them as global vars in codegen for assignment handling
             try self.markGlobalVar(var_name);
+        }
+        try self.emit("\n");
+    }
+
+    // PHASE 5.7: Generate callable global assignments at module level
+    // These are function references like `fromHex = float.fromhex` that need to be
+    // accessible from class methods (which are defined outside main())
+    if (self.callable_global_vars.count() > 0) {
+        try self.emit("\n// Module-level callable references\n");
+        for (module.body) |stmt| {
+            if (stmt == .assign) {
+                const assign = stmt.assign;
+                // Check if this is a callable global assignment
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        const var_name = target.name.id;
+                        if (self.callable_global_vars.contains(var_name)) {
+                            // Emit at module level: const fromHex = runtime.floatFromHex;
+                            try self.emit("const ");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                            try self.emit(" = ");
+                            try self.genExpr(assign.value.*);
+                            try self.emit(";\n");
+                            // Mark as declared so we skip it in main()
+                            try self.declareVar(var_name);
+                        }
+                    }
+                }
+            }
         }
         try self.emit("\n");
     }
@@ -500,6 +542,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // This will populate self.lambda_functions
     // Clear hoisted_vars before generating main body (for proper try/except variable tracking)
     self.hoisted_vars.clearRetainingCapacity();
+
+    // Analyze module-level mutations for scope-aware var/const determination
+    // This populates func_local_mutations with aug_assign and multi-assign info
+    try statements.analyzeModuleLevelMutations(self, module.body);
+
     for (module.body) |stmt| {
         if (stmt != .function_def and stmt != .class_def and stmt != .import_stmt and stmt != .import_from) {
             try self.generateStmt(stmt);

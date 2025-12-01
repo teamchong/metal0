@@ -1,6 +1,23 @@
 /// Python sunau module - Sun AU audio file handling
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "open", genOpen },
+    .{ "Au_read", genAu_read },
+    .{ "Au_write", genAu_write },
+    .{ "AUDIO_FILE_MAGIC", genAUDIO_FILE_MAGIC },
+    .{ "AUDIO_FILE_ENCODING_MULAW_8", genAUDIO_FILE_ENCODING_MULAW_8 },
+    .{ "AUDIO_FILE_ENCODING_LINEAR_8", genAUDIO_FILE_ENCODING_LINEAR_8 },
+    .{ "AUDIO_FILE_ENCODING_LINEAR_16", genAUDIO_FILE_ENCODING_LINEAR_16 },
+    .{ "AUDIO_FILE_ENCODING_LINEAR_24", genAUDIO_FILE_ENCODING_LINEAR_24 },
+    .{ "AUDIO_FILE_ENCODING_LINEAR_32", genAUDIO_FILE_ENCODING_LINEAR_32 },
+    .{ "AUDIO_FILE_ENCODING_FLOAT", genAUDIO_FILE_ENCODING_FLOAT },
+    .{ "AUDIO_FILE_ENCODING_DOUBLE", genAUDIO_FILE_ENCODING_DOUBLE },
+    .{ "AUDIO_FILE_ENCODING_ALAW_8", genAUDIO_FILE_ENCODING_ALAW_8 },
+    .{ "Error", genError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

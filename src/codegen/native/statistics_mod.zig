@@ -4,6 +4,30 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "mean", genMean },
+    .{ "fmean", genFmean },
+    .{ "geometric_mean", genGeometricMean },
+    .{ "harmonic_mean", genHarmonicMean },
+    .{ "median", genMedian },
+    .{ "median_low", genMedianLow },
+    .{ "median_high", genMedianHigh },
+    .{ "median_grouped", genMedianGrouped },
+    .{ "mode", genMode },
+    .{ "multimode", genMultimode },
+    .{ "pstdev", genPstdev },
+    .{ "pvariance", genPvariance },
+    .{ "stdev", genStdev },
+    .{ "variance", genVariance },
+    .{ "quantiles", genQuantiles },
+    .{ "covariance", genCovariance },
+    .{ "correlation", genCorrelation },
+    .{ "linear_regression", genLinearRegression },
+    .{ "NormalDist", genNormalDist },
+    .{ "StatisticsError", genStatisticsError },
+});
+
 /// Generate statistics.mean(data) -> arithmetic mean
 pub fn genMean(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {

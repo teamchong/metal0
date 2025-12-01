@@ -6,6 +6,16 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "log10_base256", genLog10Base256 },
+    .{ "spread", genSpread },
+    .{ "int_to_decimal_string", genIntToDecimalString },
+    .{ "int_from_string", genIntFromString },
+    .{ "dec_str_to_int_inner", genDecStrToIntInner },
+    .{ "compute_powers", genComputePowers },
+});
+
 /// Generate _pylong._LOG_10_BASE_256 constant
 /// This is log10(256) ≈ 0.4150374992788438 used for estimating decimal digits
 pub fn genLog10Base256(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

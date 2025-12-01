@@ -1,6 +1,41 @@
 /// Python zlib module - Compression/decompression using zlib library
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "compress", genCompress },
+    .{ "decompress", genDecompress },
+    .{ "compressobj", genCompressobj },
+    .{ "decompressobj", genDecompressobj },
+    .{ "crc32", genCrc32 },
+    .{ "adler32", genAdler32 },
+    .{ "MAX_WBITS", genMAX_WBITS },
+    .{ "DEFLATED", genDEFLATED },
+    .{ "DEF_BUF_SIZE", genDEF_BUF_SIZE },
+    .{ "DEF_MEM_LEVEL", genDEF_MEM_LEVEL },
+    .{ "Z_DEFAULT_STRATEGY", genZ_DEFAULT_STRATEGY },
+    .{ "Z_FILTERED", genZ_FILTERED },
+    .{ "Z_HUFFMAN_ONLY", genZ_HUFFMAN_ONLY },
+    .{ "Z_RLE", genZ_RLE },
+    .{ "Z_FIXED", genZ_FIXED },
+    .{ "Z_NO_COMPRESSION", genZ_NO_COMPRESSION },
+    .{ "Z_BEST_SPEED", genZ_BEST_SPEED },
+    .{ "Z_BEST_COMPRESSION", genZ_BEST_COMPRESSION },
+    .{ "Z_DEFAULT_COMPRESSION", genZ_DEFAULT_COMPRESSION },
+    .{ "ZLIB_VERSION", genZLIB_VERSION },
+    .{ "ZLIB_RUNTIME_VERSION", genZLIB_RUNTIME_VERSION },
+    .{ "error", genError },
+    .{ "crc32_combine", genCrc32Combine },
+    .{ "adler32_combine", genAdler32Combine },
+    .{ "Z_NO_FLUSH", genZ_NO_FLUSH },
+    .{ "Z_PARTIAL_FLUSH", genZ_PARTIAL_FLUSH },
+    .{ "Z_SYNC_FLUSH", genZ_SYNC_FLUSH },
+    .{ "Z_FULL_FLUSH", genZ_FULL_FLUSH },
+    .{ "Z_FINISH", genZ_FINISH },
+    .{ "Z_BLOCK", genZ_BLOCK },
+    .{ "Z_TREES", genZ_TREES },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

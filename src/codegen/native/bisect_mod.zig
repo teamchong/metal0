@@ -4,6 +4,16 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "bisect_left", genBisectLeft },
+    .{ "bisect_right", genBisectRight },
+    .{ "bisect", genBisect },
+    .{ "insort_left", genInsortLeft },
+    .{ "insort_right", genInsortRight },
+    .{ "insort", genInsort },
+});
+
 /// Generate bisect.bisect_left(a, x, lo=0, hi=len(a)) -> index
 pub fn genBisectLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {

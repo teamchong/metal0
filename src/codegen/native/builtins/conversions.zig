@@ -216,10 +216,23 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // str(bytes, encoding) - decode bytes to string
     // In Zig, bytes are already []const u8, so just return the bytes
+    // But we need to "use" the encoding arg to avoid unused variable errors
     if (args.len >= 2) {
         // str(bytes, "ascii") or str(bytes, "utf-8") etc.
-        // Just return the bytes as-is since Zig strings are UTF-8
-        try self.genExpr(args[0]);
+        // If encoding is a variable, we need to "use" it to avoid unused variable errors
+        // Generate: dec_N: { _ = encoding; break :dec_N bytes; }
+        if (args[1] == .name) {
+            const label = self.block_label_counter;
+            self.block_label_counter += 1;
+            try self.output.writer(self.allocator).print("dec_{d}: {{ _ = ", .{label});
+            try self.genExpr(args[1]); // Generate the encoding variable reference
+            try self.output.writer(self.allocator).print("; break :dec_{d} ", .{label});
+            try self.genExpr(args[0]);
+            try self.emit("; }");
+        } else {
+            // Encoding is a constant - just return the bytes
+            try self.genExpr(args[0]);
+        }
         return;
     }
 
@@ -247,6 +260,20 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitFmt("str_{d}: {{\n", .{str_label_id});
     try self.emit("var buf = std.ArrayList(u8){};\n");
 
+    // Check if this is a float() call that might return error union
+    // float(string_var) generates runtime.floatBuiltinCall which returns !f64
+    const is_float_error_union = if (args[0] == .call) blk: {
+        const call = args[0].call;
+        if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "float")) {
+            // Check if the argument to float() is not already a float
+            if (call.args.len > 0) {
+                const inner_arg_type = self.type_inferrer.inferExpr(call.args[0]) catch .unknown;
+                break :blk inner_arg_type != .float;
+            }
+        }
+        break :blk false;
+    } else false;
+
     if (arg_type == .bigint) {
         // BigInt needs special formatting via toDecimalString
         try self.emitFmt("break :str_{d} (", .{str_label_id});
@@ -255,7 +282,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     } else if (arg_type == .int) {
         try self.emitFmt("try buf.writer({s}).print(\"{{}}\", .{{", .{alloc_name});
-    } else if (arg_type == .float) {
+    } else if (arg_type == .float and !is_float_error_union) {
         try self.emitFmt("try buf.writer({s}).print(\"{{d}}\", .{{", .{alloc_name});
     } else if (arg_type == .bool) {
         // Python bool to string: True/False
@@ -501,7 +528,19 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    var arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // For variable names, also check local var types (from for-loop, assignment, etc.)
+    // which may have more accurate scoped type info
+    if (args[0] == .name) {
+        const var_name = args[0].name.id;
+        if (self.getVarType(var_name)) |local_type| {
+            // Prefer local type if it's more specific (not int/unknown)
+            if (local_type == .string or @as(std.meta.Tag(@TypeOf(local_type)), local_type) == .class_instance) {
+                arg_type = local_type;
+            }
+        }
+    }
 
     // Already a float - just return it
     if (arg_type == .float) {
@@ -547,7 +586,16 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Cast int to float
+    // BUT only if we're confident it's an int (not a variable that might be bytes/string)
     if (arg_type == .int) {
+        // If this is a variable, be cautious - type inference may be wrong for loop vars
+        // Use runtime fallback instead which handles all types
+        if (args[0] == .name) {
+            try self.emit("runtime.floatBuiltinCall(");
+            try self.genExpr(args[0]);
+            try self.emit(", .{})");
+            return;
+        }
         try self.emit("@as(f64, @floatFromInt(");
         try self.genExpr(args[0]);
         try self.emit("))");
@@ -562,14 +610,17 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Check if the object has __float__ magic method (custom class support)
+    // Check if the object is a class instance with __float__ magic method
     const has_magic_method = blk: {
         if (args[0] == .name) {
-            // Check all registered classes to see if any have __float__
-            var class_iter = self.class_registry.iterator();
-            while (class_iter.next()) |entry| {
-                if (self.classHasMethod(entry.key_ptr.*, "__float__")) {
-                    break :blk true;
+            const var_name = args[0].name.id;
+            // First check if this variable's type is a class instance
+            if (self.getVarType(var_name)) |var_type| {
+                if (var_type == .class_instance) {
+                    const class_name = var_type.class_instance;
+                    if (self.classHasMethod(class_name, "__float__")) {
+                        break :blk true;
+                    }
                 }
             }
         }
@@ -583,10 +634,18 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Generic cast for unknown types
-    try self.emit("@as(f64, @floatCast(");
+    // For strings, use parseFloat
+    if (arg_type == .string) {
+        try self.emit("(std.fmt.parseFloat(f64, ");
+        try self.genExpr(args[0]);
+        try self.emit(") catch 0.0)");
+        return;
+    }
+
+    // Generic fallback for unknown types - use runtime.floatBuiltinCall which handles all types
+    try self.emit("runtime.floatBuiltinCall(");
     try self.genExpr(args[0]);
-    try self.emit("))");
+    try self.emit(", .{})");
 }
 
 /// Generate code for bytes(obj) or bytes(str, encoding)
@@ -767,15 +826,13 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (args.len != 1) return;
 
-    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-
-    // Already an ArrayList - just return it
-    switch (arg_type) {
-        .list => {
-            try self.genExpr(args[0]);
-            return;
-        },
-        else => {},
+    // Check AST node type to determine if arg already produces an ArrayList
+    // List literals and comprehensions produce ArrayList directly
+    // Function calls (even if type inference says .list) may return slices
+    if (args[0] == .list) {
+        // List literal - already generates ArrayList
+        try self.genExpr(args[0]);
+        return;
     }
 
     // Handle generator expressions specially - they already generate ArrayList
@@ -793,27 +850,86 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Convert iterable to ArrayList
-    // Assign iterable to intermediate variable first to avoid issues with block expressions
-    // (Zig doesn't allow subscripting block expressions directly)
+    // Special handling for:
+    // 1. Tuples: use PyValue tagged union for heterogeneous elements
+    // 2. PyValue: extract the list/tuple inside and convert
+    // 3. Dicts (ArrayHashMap): iterate over keys
+    // For homogeneous iterables: infer element type from first element
     //
-    // Use @hasField to detect if input is an ArrayList (has .items field)
-    // If so, use .items[0] for element type; otherwise use [0] directly
+    // IMPORTANT: For dict attribute access (o.__dict__), we need to use @constCast
+    // because the dict may have been mutated via @constCast (e.g., by setattr).
+    // Copying a const dict after @constCast mutation gives stale data.
+    const is_dict_attr = args[0] == .attribute and std.mem.eql(u8, args[0].attribute.attr, "__dict__");
     try self.emit("list_blk: {\n");
-    try self.emit("const _iterable = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emit("const _ElemType = if (@typeInfo(@TypeOf(_iterable)) == .@\"struct\" and @hasField(@TypeOf(_iterable), \"items\")) @TypeOf(_iterable.items[0]) else @TypeOf(_iterable[0]);\n");
+    if (is_dict_attr) {
+        // Use pointer access to see @constCast mutations
+        try self.emit("const _raw_iterable = @constCast(&");
+        try self.genExpr(args[0]);
+        try self.emit(");\n");
+    } else {
+        try self.emit("const _raw_iterable = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+    }
+    // For __dict__ attribute access, _raw_iterable is a pointer (from @constCast)
+    // Handle this specially to avoid type-checking issues with .* on non-pointers
+    if (is_dict_attr) {
+        // _raw_iterable is a pointer to the dict - iterate directly via pointer
+        try self.emit("var _list = std.ArrayList([]const u8){};\n");
+        try self.emit("for (_raw_iterable.keys()) |_key| {\n");
+        try self.emitFmt("try _list.append({s}, _key);\n", .{alloc_name});
+        try self.emit("}\n");
+        try self.emit("break :list_blk _list;\n");
+        try self.emit("}"); // Close list_blk block
+        return;
+    }
+    try self.emit("const _iterable = if (@typeInfo(@TypeOf(_raw_iterable)) == .error_union) try _raw_iterable else _raw_iterable;\n");
+    try self.emit("const _IterType = @TypeOf(_iterable);\n");
+    // Check if input is already a PyValue (from heterogeneous list element access)
+    try self.emit("const _is_pyvalue = _IterType == runtime.PyValue;\n");
+    try self.emit("if (_is_pyvalue) {\n");
+    // For PyValue input, extract contents and wrap result back as PyValue
+    try self.emit("const _result_list: runtime.PyValue = switch (_iterable) {\n");
+    try self.emit(".list => |_pv_items| .{ .list = _pv_items },\n"); // Already a list, keep as PyValue
+    try self.emit(".tuple => |_pv_items| .{ .list = _pv_items },\n"); // Tuple to list
+    try self.emit("else => .{ .list = &[_]runtime.PyValue{} },\n"); // Empty list for other types
+    try self.emit("};\n");
+    try self.emit("break :list_blk _result_list;\n");
+    try self.emit("} else {\n");
+    try self.emit("const _type_info = @typeInfo(_IterType);\n");
+    // Check for dict types (ArrayHashMap) - they have keys() method
+    try self.emit("const _is_dict = _type_info == .@\"struct\" and @hasDecl(_IterType, \"keys\");\n");
+    try self.emit("const _is_tuple = _type_info == .@\"struct\" and _type_info.@\"struct\".is_tuple;\n");
+    // Handle dict by iterating keys
+    try self.emit("if (_is_dict) {\n");
+    try self.emit("var _list = std.ArrayList([]const u8){};\n");
+    try self.emit("for (_iterable.keys()) |_key| {\n");
+    try self.emitFmt("try _list.append({s}, _key);\n", .{alloc_name});
+    try self.emit("}\n");
+    try self.emit("break :list_blk _list;\n");
+    try self.emit("} else {\n");
+    // Tuples use PyValue for heterogeneous elements; others infer from first element
+    try self.emit("const _ElemType = if (_is_tuple) runtime.PyValue else if (_type_info == .@\"struct\" and @hasField(_IterType, \"items\")) @TypeOf(_iterable.items[0]) else @TypeOf(_iterable[0]);\n");
     try self.emit("var _list = std.ArrayList(_ElemType){};\n");
-    try self.emit("const _slice = if (@typeInfo(@TypeOf(_iterable)) == .@\"struct\" and @hasField(@TypeOf(_iterable), \"items\")) _iterable.items else _iterable;\n");
+    try self.emit("if (_is_tuple) {\n");
+    try self.emit("inline for (0.._type_info.@\"struct\".fields.len) |_i| {\n");
+    try self.emitFmt("try _list.append({s}, try runtime.PyValue.fromAlloc({s}, _iterable[_i]));\n", .{ alloc_name, alloc_name });
+    try self.emit("}\n");
+    try self.emit("} else {\n");
+    try self.emit("const _slice = if (_type_info == .@\"struct\" and @hasField(_IterType, \"items\")) _iterable.items else _iterable;\n");
     try self.emit("for (_slice) |_item| {\n");
     try self.emitFmt("try _list.append({s}, _item);\n", .{alloc_name});
     try self.emit("}\n");
+    try self.emit("}\n");
     try self.emit("break :list_blk _list;\n");
+    try self.emit("}\n");
+    try self.emit("}\n");
     try self.emit("}");
 }
 
 /// Generate code for tuple(iterable)
 /// Converts an iterable to a tuple (fixed-size)
+/// For iterators, this exhausts them (consumes all remaining items)
 pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // tuple() with no args returns empty tuple
     if (args.len == 0) {
@@ -832,6 +948,33 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             return;
         },
         else => {},
+    }
+
+    // For name references to iterators, exhaust them by calling next until done
+    // This produces a runtime tuple and properly exhausts stateful iterators
+    if (args[0] == .name) {
+        const label = self.block_label_counter;
+        self.block_label_counter += 1;
+        // Generate a block that exhausts the iterator
+        // For StringIterator and similar, we iterate until next() returns null
+        try self.output.writer(self.allocator).print("tup_{d}: {{\n", .{label});
+        try self.emitIndent();
+        try self.emit("    // Exhaust iterator by consuming all elements\n");
+        try self.emitIndent();
+        try self.emit("    while (");
+        try self.genExpr(args[0]);
+        try self.emit(".next()) |_| {}\n");
+        try self.emitIndent();
+        try self.emit("    // Return original data (iterator is now exhausted)\n");
+        try self.emitIndent();
+        try self.emit("    break :tup_");
+        try self.output.writer(self.allocator).print("{d}", .{label});
+        try self.emit(" ");
+        try self.genExpr(args[0]);
+        try self.emit(".data;\n");
+        try self.emitIndent();
+        try self.emit("}");
+        return;
     }
 
     // For other iterables, generate inline tuple
@@ -995,11 +1138,26 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("blk: {\n");
     try self.emit("var buf = std.ArrayList(u8){};\n");
 
+    // Check if this is a float() call that might return error union
+    // float(string_var) generates runtime.floatBuiltinCall which returns !f64
+    const is_float_error_union = if (args[0] == .call) blk: {
+        const call = args[0].call;
+        if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "float")) {
+            // Check if the argument to float() is not already a float
+            if (call.args.len > 0) {
+                const inner_arg_type = self.type_inferrer.inferExpr(call.args[0]) catch .unknown;
+                break :blk inner_arg_type != .float;
+            }
+        }
+        break :blk false;
+    } else false;
+
     if (arg_type == .int) {
         try self.emitFmt("try buf.writer({s}).print(\"{{}}\", .{{", .{alloc_name});
-    } else if (arg_type == .float) {
+    } else if (arg_type == .float and !is_float_error_union) {
         try self.emitFmt("try buf.writer({s}).print(\"{{d}}\", .{{", .{alloc_name});
     } else {
+        // Use {any} for error unions and unknown types
         try self.emitFmt("try buf.writer({s}).print(\"{{any}}\", .{{", .{alloc_name});
     }
 
@@ -1114,4 +1272,91 @@ pub fn genObject(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // In Python, object() returns a base object that can be used as a sentinel
     // We use runtime.createObject() which returns a unique *PyObject
     try self.emit("runtime.createObject()");
+}
+
+/// Generate code for ascii(obj)
+/// Returns a string containing a printable representation of an object,
+/// but escape non-ASCII characters using \x, \u, or \U escapes
+pub fn genAscii(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("\"\"");
+        return;
+    }
+
+    // Get the repr and escape non-ASCII
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    if (arg_type == .string) {
+        // For strings, wrap in quotes and escape non-ASCII
+        try self.emit("runtime.asciiStr(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    } else {
+        // For other types, get repr first
+        try self.emit("runtime.asciiRepr(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    }
+}
+
+/// Generate code for format(value, format_spec)
+/// Returns value.__format__(format_spec)
+pub fn genFormat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("\"\"");
+        return;
+    }
+
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+
+    if (args.len == 1) {
+        // format(value) - use default format spec
+        try self.emit("std.fmt.allocPrint(");
+        try self.emit(alloc_name);
+        try self.emit(", \"{any}\", .{");
+        try self.genExpr(args[0]);
+        try self.emit("}) catch \"\"");
+    } else {
+        // format(value, format_spec)
+        // Use runtime.pyFormat for proper Python format handling
+        try self.emit("runtime.pyFormat(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(")");
+    }
+}
+
+/// Generate code for id(obj)
+/// Returns the "identity" of an object (memory address as integer)
+pub fn genId(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("@as(i64, 0)");
+        return;
+    }
+
+    // Return the pointer address as an integer
+    try self.emit("@as(i64, @intCast(@intFromPtr(&(");
+    try self.genExpr(args[0]);
+    try self.emit("))))");
+}
+
+/// Generate code for delattr(obj, name)
+/// Deletes an attribute from an object
+pub fn genDelattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) {
+        try self.emit("{}");
+        return;
+    }
+
+    // For objects with __dict__, remove the key (use swapRemove for Zig 0.15 ArrayHashMap)
+    // Need @constCast because object may be captured as const in assertRaises context
+    // Need to handle str subclasses - extract __base_value__ if present
+    try self.emit("blk: { const __da_key = ");
+    try self.genExpr(args[1]);
+    try self.emit("; const __da_key_str = if (@hasField(@TypeOf(__da_key), \"__base_value__\")) __da_key.__base_value__ else __da_key; _ = @constCast(&");
+    try self.genExpr(args[0]);
+    try self.emit(".__dict__).swapRemove(__da_key_str); break :blk {}; }");
 }

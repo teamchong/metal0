@@ -4,6 +4,40 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "sqrt", genSqrt },
+    .{ "exp", genExp },
+    .{ "log", genLog },
+    .{ "log10", genLog10 },
+    .{ "sin", genSin },
+    .{ "cos", genCos },
+    .{ "tan", genTan },
+    .{ "asin", genAsin },
+    .{ "acos", genAcos },
+    .{ "atan", genAtan },
+    .{ "sinh", genSinh },
+    .{ "cosh", genCosh },
+    .{ "tanh", genTanh },
+    .{ "asinh", genAsinh },
+    .{ "acosh", genAcosh },
+    .{ "atanh", genAtanh },
+    .{ "phase", genPhase },
+    .{ "polar", genPolar },
+    .{ "rect", genRect },
+    .{ "isfinite", genIsfinite },
+    .{ "isinf", genIsinf },
+    .{ "isnan", genIsnan },
+    .{ "isclose", genIsclose },
+    .{ "pi", genPi },
+    .{ "e", genE },
+    .{ "tau", genTau },
+    .{ "inf", genInf },
+    .{ "infj", genInfj },
+    .{ "nan", genNan },
+    .{ "nanj", genNanj },
+});
+
 /// Generate cmath.sqrt(x) -> complex square root
 pub fn genSqrt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {

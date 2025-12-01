@@ -4,6 +4,31 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Enum", genEnum },
+    .{ "IntEnum", genIntEnum },
+    .{ "StrEnum", genStrEnum },
+    .{ "Flag", genFlag },
+    .{ "IntFlag", genIntFlag },
+    .{ "auto", genAuto },
+    .{ "unique", genUnique },
+    .{ "verify", genVerify },
+    .{ "member", genMember },
+    .{ "nonmember", genNonmember },
+    .{ "global_enum", genGlobalEnum },
+    .{ "EJECT", genEJECT },
+    .{ "KEEP", genKEEP },
+    .{ "STRICT", genSTRICT },
+    .{ "CONFORM", genCONFORM },
+    .{ "CONTINUOUS", genCONTINUOUS },
+    .{ "NAMED_FLAGS", genNAMED_FLAGS },
+    .{ "EnumType", genEnumType },
+    .{ "EnumCheck", genEnumCheck },
+    .{ "FlagBoundary", genFlagBoundary },
+    .{ "property", genProperty },
+});
+
 /// Generate enum.Enum base class
 pub fn genEnum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

@@ -4,6 +4,24 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Thread", genThread },
+    .{ "Lock", genLock },
+    .{ "RLock", genRLock },
+    .{ "Condition", genCondition },
+    .{ "Semaphore", genSemaphore },
+    .{ "BoundedSemaphore", genBoundedSemaphore },
+    .{ "Event", genEvent },
+    .{ "Barrier", genBarrier },
+    .{ "Timer", genTimer },
+    .{ "current_thread", genCurrentThread },
+    .{ "main_thread", genMainThread },
+    .{ "active_count", genActiveCount },
+    .{ "enumerate", genEnumerate },
+    .{ "local", genLocal },
+});
+
 /// Generate threading.Thread(target=None, args=(), kwargs={}) -> Thread
 pub fn genThread(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

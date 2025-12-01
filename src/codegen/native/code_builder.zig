@@ -108,7 +108,9 @@ pub const CodeBuilder = struct {
     }
 
     /// Generate else clause
+    /// Closes the previous block and starts else (dedents then writes "} else")
     pub fn elseClause(self: *CodeBuilder) CodegenError!*CodeBuilder {
+        self.codegen.dedent();
         try self.codegen.emitIndent();
         _ = try self.write("} else");
         return self;

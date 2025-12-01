@@ -20,6 +20,12 @@ fn findCapturedVars(
 
     try collectReferencedVars(self, func.body, &referenced);
 
+    // Collect all variables that are locally assigned in function body
+    // These shadow outer scope and should NOT be captured
+    var locally_assigned = std.ArrayList([]const u8){};
+    defer locally_assigned.deinit(self.allocator);
+    collectLocallyAssignedVars(func.body, &locally_assigned) catch {};
+
     // Check which referenced vars are in outer scope (not params or local)
     for (referenced.items) |var_name| {
         // Skip if it's a function parameter
@@ -31,6 +37,16 @@ fn findCapturedVars(
             }
         }
         if (is_param) continue;
+
+        // Skip if it's locally assigned (shadows outer scope)
+        var is_local = false;
+        for (locally_assigned.items) |local_var| {
+            if (std.mem.eql(u8, local_var, var_name)) {
+                is_local = true;
+                break;
+            }
+        }
+        if (is_local) continue;
 
         // Check if variable is in outer scope
         if (self.symbol_table.lookup(var_name) != null) {
@@ -51,6 +67,103 @@ fn findCapturedVars(
     return captured.toOwnedSlice(self.allocator);
 }
 
+/// Collect all variable names that are assigned (as targets) in statements
+/// These are local variables that shadow outer scope
+fn collectLocallyAssignedVars(stmts: []ast.Node, assigned: *std.ArrayList([]const u8)) !void {
+    for (stmts) |stmt| {
+        try collectLocallyAssignedVarsInNode(stmt, assigned);
+    }
+}
+
+fn collectLocallyAssignedVarsInNode(node: ast.Node, assigned: *std.ArrayList([]const u8)) !void {
+    switch (node) {
+        .assign => |a| {
+            for (a.targets) |target| {
+                try collectAssignTargetVars(target, assigned);
+            }
+        },
+        .aug_assign => |a| {
+            try collectAssignTargetVars(a.target.*, assigned);
+        },
+        .for_stmt => |f| {
+            // for loop target is a local variable
+            try collectAssignTargetVars(f.target.*, assigned);
+            for (f.body) |s| {
+                try collectLocallyAssignedVarsInNode(s, assigned);
+            }
+        },
+        .if_stmt => |i| {
+            for (i.body) |s| {
+                try collectLocallyAssignedVarsInNode(s, assigned);
+            }
+            for (i.else_body) |s| {
+                try collectLocallyAssignedVarsInNode(s, assigned);
+            }
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| {
+                try collectLocallyAssignedVarsInNode(s, assigned);
+            }
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| {
+                try collectLocallyAssignedVarsInNode(s, assigned);
+            }
+            for (t.handlers) |h| {
+                // Exception variable is local
+                if (h.name) |name| {
+                    try addUniqueVar(assigned, name);
+                }
+                for (h.body) |s| {
+                    try collectLocallyAssignedVarsInNode(s, assigned);
+                }
+            }
+            for (t.else_body) |s| {
+                try collectLocallyAssignedVarsInNode(s, assigned);
+            }
+            for (t.finalbody) |s| {
+                try collectLocallyAssignedVarsInNode(s, assigned);
+            }
+        },
+        .with_stmt => |w| {
+            // with ... as var: introduces local var
+            if (w.optional_var) |var_node| {
+                try collectAssignTargetVars(var_node.*, assigned);
+            }
+            for (w.body) |s| {
+                try collectLocallyAssignedVarsInNode(s, assigned);
+            }
+        },
+        else => {},
+    }
+}
+
+fn collectAssignTargetVars(target: ast.Node, assigned: *std.ArrayList([]const u8)) !void {
+    switch (target) {
+        .name => |n| {
+            try addUniqueVar(assigned, n.id);
+        },
+        .tuple => |t| {
+            for (t.elements) |elem| {
+                try collectAssignTargetVars(elem, assigned);
+            }
+        },
+        .list => |l| {
+            for (l.elements) |elem| {
+                try collectAssignTargetVars(elem, assigned);
+            }
+        },
+        else => {},
+    }
+}
+
+fn addUniqueVar(list: *std.ArrayList([]const u8), name: []const u8) !void {
+    for (list.items) |existing| {
+        if (std.mem.eql(u8, existing, name)) return;
+    }
+    try list.append(list.allocator, name);
+}
+
 /// Collect all variable names referenced in statements
 fn collectReferencedVars(
     self: *NativeCodegen,
@@ -68,6 +181,70 @@ fn isParamUsedInStmts(param_name: []const u8, stmts: []ast.Node) bool {
         if (isParamUsedInNode(param_name, stmt)) return true;
     }
     return false;
+}
+
+/// Check if a parameter is reassigned in a list of statements
+fn isParamReassignedInStmts(param_name: []const u8, stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        if (isParamReassignedInNode(param_name, stmt)) return true;
+    }
+    return false;
+}
+
+/// Check if a parameter is reassigned in a node
+fn isParamReassignedInNode(param_name: []const u8, node: ast.Node) bool {
+    return switch (node) {
+        .assign => |a| blk: {
+            for (a.targets) |target| {
+                if (target == .name and std.mem.eql(u8, target.name.id, param_name)) {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .aug_assign => |a| blk: {
+            if (a.target.* == .name and std.mem.eql(u8, a.target.name.id, param_name)) {
+                break :blk true;
+            }
+            break :blk false;
+        },
+        .if_stmt => |i| blk: {
+            for (i.body) |s| {
+                if (isParamReassignedInNode(param_name, s)) break :blk true;
+            }
+            for (i.else_body) |s| {
+                if (isParamReassignedInNode(param_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            for (f.body) |s| {
+                if (isParamReassignedInNode(param_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (isParamReassignedInNode(param_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| {
+                if (isParamReassignedInNode(param_name, s)) break :blk true;
+            }
+            for (t.handlers) |h| {
+                for (h.body) |s| {
+                    if (isParamReassignedInNode(param_name, s)) break :blk true;
+                }
+            }
+            for (t.finalbody) |s| {
+                if (isParamReassignedInNode(param_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
 }
 
 /// Check if any of the captured variables are actually used in the function body
@@ -356,13 +533,36 @@ fn genRecursiveClosure(
     var param_renames = std.ArrayList([]const u8){};
     defer param_renames.deinit(self.allocator);
 
+    // Track which parameters are reassigned and need var copies
+    var reassigned_params = std.ArrayList([]const u8){};
+    defer reassigned_params.deinit(self.allocator);
+
     for (func.args) |arg| {
         try self.declareVar(arg.name);
         const is_used = isParamUsedInStmts(arg.name, func.body);
+        const is_reassigned = isParamReassignedInStmts(arg.name, func.body);
+
         if (is_used) {
             const rename = try std.fmt.allocPrint(self.allocator, "__p_{s}_{d}", .{ arg.name, saved_counter });
             try param_renames.append(self.allocator, rename);
-            try self.var_renames.put(arg.name, rename);
+
+            // If the parameter is reassigned, we need a var copy
+            if (is_reassigned) {
+                // Create a mutable variable name
+                const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ arg.name, saved_counter });
+                try reassigned_params.append(self.allocator, var_name);
+                try self.var_renames.put(arg.name, var_name);
+            } else {
+                try self.var_renames.put(arg.name, rename);
+            }
+        }
+    }
+
+    // Emit var copies for reassigned parameters
+    for (func.args) |arg| {
+        if (isParamReassignedInStmts(arg.name, func.body)) {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ arg.name, saved_counter, arg.name, saved_counter });
         }
     }
 
@@ -371,6 +571,11 @@ fn genRecursiveClosure(
 
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
+    }
+
+    // Free the reassigned param var names
+    for (reassigned_params.items) |var_name| {
+        self.allocator.free(var_name);
     }
 
     // Clean up renames
@@ -437,17 +642,19 @@ pub fn genNestedFunctionDef(
     // Check if this is a recursive function
     const is_recursive = isRecursiveFunction(func.name, func.body);
 
-    if (captured_vars.len == 0) {
-        // No captures - use ZeroClosure comptime pattern
-        try self.emitIndent();
-        try genZeroCaptureClosure(self, func);
+    // Recursive functions need special handling (even with zero captures)
+    // because the function name must be defined before the body is generated
+    if (is_recursive) {
+        // Recursive closures need special handling - generate as a struct with
+        // the function name defined at struct scope level (accessible during body generation)
+        try genRecursiveClosure(self, func, captured_vars);
         return;
     }
 
-    if (is_recursive) {
-        // Recursive closures need special handling - generate as a regular function
-        // with captures passed as parameters, avoiding the closure struct pattern
-        try genRecursiveClosure(self, func, captured_vars);
+    if (captured_vars.len == 0) {
+        // No captures and not recursive - use ZeroClosure comptime pattern
+        try self.emitIndent();
+        try genZeroCaptureClosure(self, func);
         return;
     }
 
@@ -992,12 +1199,29 @@ fn genZeroCaptureClosure(
                 .{ arg.name, saved_counter },
             );
             try param_renames.put(arg.name, unique_param_name);
-            try self.output.writer(self.allocator).print("{s}: i64", .{unique_param_name});
+            // Use anytype to allow flexible parameter types (supports string, int, etc.)
+            try self.output.writer(self.allocator).print("{s}: anytype", .{unique_param_name});
         } else {
-            try self.output.writer(self.allocator).print("_: i64", .{});
+            try self.output.writer(self.allocator).print("_: anytype", .{});
         }
     }
-    try self.emit(") i64 {\n");
+    // Look up the function's inferred return type from type inference
+    // Use it for proper type safety, falling back to anytype workaround via @TypeOf
+    const return_type = self.type_inferrer.func_return_types.get(func.name);
+    if (return_type) |rt| {
+        // We have a known return type from inference - use it
+        try self.emit(") !");
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+        const native_types = @import("../../../../analysis/native_types.zig");
+        try native_types.NativeType.toZigType(rt, self.allocator, &type_buf);
+        try self.emit(type_buf.items);
+        try self.emit(" {\n");
+    } else {
+        // No inferred type - use anyerror!anytype pattern wouldn't work in Zig
+        // Fall back to i64 but this may fail for non-integer returns
+        try self.emit(") !i64 {\n");
+    }
 
     self.indent();
     try self.pushScope();
@@ -1013,16 +1237,70 @@ fn genZeroCaptureClosure(
     // Populate func_local_uses with variables used in this function body
     try collectUsedNames(func.body, &self.func_local_uses);
 
+    // Track which parameters need mutable copies due to reassignment
+    var reassigned_param_vars = std.ArrayList([]const u8){};
+    defer reassigned_param_vars.deinit(self.allocator);
+
     for (func.args) |arg| {
         try self.declareVar(arg.name);
+        const is_reassigned = isParamReassignedInStmts(arg.name, func.body);
+
         // Add rename mapping for parameter access in body
         if (param_renames.get(arg.name)) |renamed| {
-            try self.var_renames.put(arg.name, renamed);
+            if (is_reassigned) {
+                // Create mutable var copy name
+                const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ arg.name, saved_counter });
+                try reassigned_param_vars.append(self.allocator, var_name);
+                try self.var_renames.put(arg.name, var_name);
+            } else {
+                try self.var_renames.put(arg.name, renamed);
+            }
         }
     }
 
+    // Emit var copies for reassigned parameters
+    for (func.args) |arg| {
+        if (isParamReassignedInStmts(arg.name, func.body) and param_renames.get(arg.name) != null) {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ arg.name, saved_counter, arg.name, saved_counter });
+        }
+    }
+
+    // Mark as closure BEFORE generating body so recursive calls use .call() syntax
+    // We'll add it again at the end (duplicate put is OK for the hashmap)
+    const func_name_copy_early = try self.allocator.dupe(u8, func.name);
+    try self.closure_vars.put(func_name_copy_early, {});
+
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
+    }
+
+    // Free the reassigned param var names
+    for (reassigned_param_vars.items) |var_name| {
+        self.allocator.free(var_name);
+    }
+
+    // If function has non-void return type but no explicit return, add default return
+    const has_explicit_return = blk: {
+        for (func.body) |stmt| {
+            if (stmt == .return_stmt) break :blk true;
+        }
+        break :blk false;
+    };
+    if (!has_explicit_return and return_type != null) {
+        // Add default return based on return type
+        try self.emitIndent();
+        if (return_type) |rt| {
+            if (rt == .int or rt == .usize) {
+                try self.emit("return 0;\n");
+            } else if (@as(std.meta.Tag(@TypeOf(rt)), rt) == .class_instance) {
+                try self.emit("return undefined;\n");
+            } else {
+                try self.emit("return undefined;\n");
+            }
+        } else {
+            try self.emit("return 0;\n");
+        }
     }
 
     // Remove param renames after body generation
@@ -1046,13 +1324,55 @@ fn genZeroCaptureClosure(
     try self.emitIndent();
     try self.emit("};\n");
 
-    // Use ZeroClosure for single arg, or struct wrapper for multiple
+    // Create wrapper struct for the closure
     // Use the original function name so that references resolve correctly
+    // Get return type string for the wrapper
+    const native_types = @import("../../../../analysis/native_types.zig");
+    var return_type_str = std.ArrayList(u8){};
+    defer return_type_str.deinit(self.allocator);
+    if (return_type) |rt| {
+        try native_types.NativeType.toZigType(rt, self.allocator, &return_type_str);
+    } else {
+        try return_type_str.appendSlice(self.allocator, "i64");
+    }
+
     try self.emitIndent();
     try self.emit("const ");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
+    // Check if function name shadows an imported module name (e.g., "test" shadows "import test")
+    // If so, use a unique name to avoid redefinition error
+    const shadows_import = self.imported_modules.contains(func.name);
+    const wrapper_name = if (shadows_import)
+        try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
+    else
+        func.name;
+    // Don't defer free - the name is stored in var_renames for later reference
+    // Register rename so references use the correct name
+    if (shadows_import) {
+        try self.var_renames.put(func.name, wrapper_name);
+    }
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), wrapper_name);
     if (func.args.len == 1) {
-        try self.output.writer(self.allocator).print(" = runtime.ZeroClosure(i64, i64, {s}.{s}){{}};\n", .{ impl_name, inner_fn_name });
+        // Single arg - create simple wrapper struct
+        const unique_param = try std.fmt.allocPrint(
+            self.allocator,
+            "__p_{s}_{d}",
+            .{ func.args[0].name, saved_counter },
+        );
+        defer self.allocator.free(unique_param);
+
+        try self.emit(" = struct {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("pub fn call(_: @This(), {s}: anytype) !{s} {{\n", .{ unique_param, return_type_str.items });
+        self.indent();
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("return try {s}.{s}({s});\n", .{ impl_name, inner_fn_name, unique_param });
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}{};\n");
     } else {
         // Multiple args - create wrapper struct with unique parameter names
         // Use a different counter for wrapper params (saved_counter is already used above)
@@ -1082,12 +1402,14 @@ fn genZeroCaptureClosure(
         try self.emitIndent();
         try self.emit("pub fn call(_: @This()");
         for (param_names.items) |unique_name| {
-            try self.output.writer(self.allocator).print(", {s}: i64", .{unique_name});
+            // Use anytype for flexible parameter types
+            try self.output.writer(self.allocator).print(", {s}: anytype", .{unique_name});
         }
-        try self.output.writer(self.allocator).print(") i64 {{\n", .{});
+        // Use inferred return type
+        try self.output.writer(self.allocator).print(") !{s} {{\n", .{return_type_str.items});
         self.indent();
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("return {s}.{s}(", .{ impl_name, inner_fn_name });
+        try self.output.writer(self.allocator).print("return try {s}.{s}(", .{ impl_name, inner_fn_name });
         for (param_names.items, 0..) |unique_name, i| {
             if (i > 0) try self.emit(", ");
             try self.emit(unique_name);

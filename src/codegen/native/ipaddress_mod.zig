@@ -4,6 +4,26 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ip_address", genIp_address },
+    .{ "ip_network", genIp_network },
+    .{ "ip_interface", genIp_interface },
+    .{ "IPv4Address", genIPv4Address },
+    .{ "IPv4Network", genIPv4Network },
+    .{ "IPv4Interface", genIPv4Interface },
+    .{ "IPv6Address", genIPv6Address },
+    .{ "IPv6Network", genIPv6Network },
+    .{ "IPv6Interface", genIPv6Interface },
+    .{ "v4_int_to_packed", genV4_int_to_packed },
+    .{ "v6_int_to_packed", genV6_int_to_packed },
+    .{ "summarize_address_range", genSummarize_address_range },
+    .{ "collapse_addresses", genCollapse_addresses },
+    .{ "get_mixed_type_key", genGet_mixed_type_key },
+    .{ "AddressValueError", genAddressValueError },
+    .{ "NetmaskValueError", genNetmaskValueError },
+});
+
 /// Generate ipaddress.ip_address(address) - factory function
 pub fn genIp_address(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

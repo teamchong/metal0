@@ -4,6 +4,64 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "add", genAdd },
+    .{ "sub", genSub },
+    .{ "mul", genMul },
+    .{ "truediv", genTruediv },
+    .{ "floordiv", genFloordiv },
+    .{ "mod", genMod },
+    .{ "pow", genPow },
+    .{ "neg", genNeg },
+    .{ "pos", genPos },
+    .{ "abs", genAbs },
+    .{ "invert", genInvert },
+    .{ "lshift", genLshift },
+    .{ "rshift", genRshift },
+    .{ "and_", genAnd },
+    .{ "or_", genOr },
+    .{ "xor", genXor },
+    .{ "not_", genNot },
+    .{ "truth", genTruth },
+    .{ "eq", genEq },
+    .{ "ne", genNe },
+    .{ "lt", genLt },
+    .{ "le", genLe },
+    .{ "gt", genGt },
+    .{ "ge", genGe },
+    .{ "is_", genIs },
+    .{ "is_not", genIsNot },
+    .{ "concat", genConcat },
+    .{ "contains", genContains },
+    .{ "countOf", genCountOf },
+    .{ "indexOf", genIndexOf },
+    .{ "getitem", genGetitem },
+    .{ "setitem", genSetitem },
+    .{ "delitem", genDelitem },
+    .{ "length_hint", genLengthHint },
+    .{ "attrgetter", genAttrgetter },
+    .{ "itemgetter", genItemgetter },
+    .{ "methodcaller", genMethodcaller },
+    .{ "matmul", genMatmul },
+    .{ "index", genIndex },
+    .{ "iadd", genIadd },
+    .{ "isub", genIsub },
+    .{ "imul", genImul },
+    .{ "itruediv", genItruediv },
+    .{ "ifloordiv", genIfloordiv },
+    .{ "imod", genImod },
+    .{ "ipow", genIpow },
+    .{ "ilshift", genIlshift },
+    .{ "irshift", genIrshift },
+    .{ "iand", genIand },
+    .{ "ior", genIor },
+    .{ "ixor", genIxor },
+    .{ "iconcat", genIconcat },
+    .{ "imatmul", genImatmul },
+    .{ "__call__", genCall },
+});
+
 /// Generate operator.add(a, b) -> a + b
 pub fn genAdd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
@@ -70,7 +128,13 @@ pub fn genFloordiv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate operator.mod(a, b) -> a % b
+/// When accessed without calling (args.len == 0), returns a callable struct
 pub fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        // Return callable struct for function reference: mod = operator.mod
+        try self.emit("runtime.builtins.OperatorMod{}");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 0)");
         return;
@@ -83,7 +147,13 @@ pub fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate operator.pow(a, b) -> a ** b
+/// When accessed without calling (args.len == 0), returns a callable struct
 pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        // Return callable struct for function reference: pow_op = operator.pow
+        try self.emit("runtime.builtins.OperatorPow{}");
+        return;
+    }
     if (args.len < 2) {
         try self.emit("@as(i64, 1)");
         return;

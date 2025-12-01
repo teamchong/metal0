@@ -1,6 +1,18 @@
 /// Python tokenize module - Tokenizer for Python source
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "tokenize", genTokenize },
+    .{ "generate_tokens", genGenerate_tokens },
+    .{ "detect_encoding", genDetect_encoding },
+    .{ "open", genOpen },
+    .{ "untokenize", genUntokenize },
+    .{ "TokenInfo", genTokenInfo },
+    .{ "TokenError", genTokenError },
+    .{ "StopTokenizing", genStopTokenizing },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

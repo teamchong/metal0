@@ -81,3 +81,20 @@ pub fn genGetTypeHints(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     _ = args;
     try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
 }
+
+// Function map for module_functions.zig
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Optional", genOptional },
+    .{ "List", genList },
+    .{ "Dict", genDict },
+    .{ "Set", genSet },
+    .{ "Tuple", genTuple },
+    .{ "Union", genUnion },
+    .{ "Any", genAny },
+    .{ "Callable", genCallable },
+    .{ "TypeVar", genTypeVar },
+    .{ "Generic", genGeneric },
+    .{ "cast", genCast },
+    .{ "get_type_hints", genGetTypeHints },
+});

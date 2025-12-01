@@ -1,6 +1,16 @@
 /// Python _random module - C accelerator for random (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Random", genRandom },
+    .{ "random", genRandomRandom },
+    .{ "seed", genSeed },
+    .{ "getstate", genGetstate },
+    .{ "setstate", genSetstate },
+    .{ "getrandbits", genGetrandbits },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -1,6 +1,22 @@
 /// Python _csv module - C accelerator for csv (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "reader", genReader },
+    .{ "writer", genWriter },
+    .{ "register_dialect", genRegisterDialect },
+    .{ "unregister_dialect", genUnregisterDialect },
+    .{ "get_dialect", genGetDialect },
+    .{ "list_dialects", genListDialects },
+    .{ "field_size_limit", genFieldSizeLimit },
+    .{ "QUOTE_ALL", genQUOTE_ALL },
+    .{ "QUOTE_MINIMAL", genQUOTE_MINIMAL },
+    .{ "QUOTE_NONNUMERIC", genQUOTE_NONNUMERIC },
+    .{ "QUOTE_NONE", genQUOTE_NONE },
+    .{ "Error", genError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

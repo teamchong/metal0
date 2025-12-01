@@ -4,6 +4,22 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ref", genRef },
+    .{ "proxy", genProxy },
+    .{ "getweakrefcount", genGetweakrefcount },
+    .{ "getweakrefs", genGetweakrefs },
+    .{ "WeakSet", genWeakSet },
+    .{ "WeakKeyDictionary", genWeakKeyDictionary },
+    .{ "WeakValueDictionary", genWeakValueDictionary },
+    .{ "WeakMethod", genWeakMethod },
+    .{ "finalize", genFinalize },
+    .{ "ReferenceType", genReferenceType },
+    .{ "ProxyType", genProxyType },
+    .{ "CallableProxyType", genCallableProxyType },
+});
+
 /// Generate weakref.ref(object, callback=None) -> weak reference
 pub fn genRef(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {

@@ -4,6 +4,46 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "idle", genIdle },
+    .{ "py_shell", genPyShell },
+    .{ "editor_window", genEditorWindow },
+    .{ "file_list", genFileList },
+    .{ "output_window", genOutputWindow },
+    .{ "color_delegator", genColorDelegator },
+    .{ "undo_delegator", genUndoDelegator },
+    .{ "percolator", genPercolator },
+    .{ "auto_complete", genAutoComplete },
+    .{ "auto_expand", genAutoExpand },
+    .{ "call_tips", genCallTips },
+    .{ "debugger", genDebugger },
+    .{ "stack_viewer", genStackViewer },
+    .{ "object_browser", genObjectBrowser },
+    .{ "path_browser", genPathBrowser },
+    .{ "class_browser", genClassBrowser },
+    .{ "module_browser", genModuleBrowser },
+    .{ "search_dialog", genSearchDialog },
+    .{ "search_dialog_base", genSearchDialogBase },
+    .{ "search_engine", genSearchEngine },
+    .{ "replace_dialog", genReplaceDialog },
+    .{ "grep_dialog", genGrepDialog },
+    .{ "bindings", genBindings },
+    .{ "config_handler", genConfigHandler },
+    .{ "config_dialog", genConfigDialog },
+    .{ "i_o_binding", genIOBinding },
+    .{ "multi_call", genMultiCall },
+    .{ "widget_redirector", genWidgetRedirector },
+    .{ "delegator", genDelegator },
+    .{ "rpc", genRpc },
+    .{ "run", genRun },
+    .{ "remote_debugger", genRemoteDebugger },
+    .{ "remote_object_browser", genRemoteObjectBrowser },
+    .{ "tool_tip", genToolTip },
+    .{ "tree_widget", genTreeWidget },
+    .{ "zoom_height", genZoomHeight },
+});
+
 /// Generate idlelib.idle - Main IDLE entry point
 pub fn genIdle(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

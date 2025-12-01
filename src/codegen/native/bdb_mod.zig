@@ -1,6 +1,49 @@
 /// Python bdb module - Debugger framework
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Bdb", genBdb },
+    .{ "Breakpoint", genBreakpoint },
+    .{ "effective", genEffective },
+    .{ "checkfuncname", genCheckfuncname },
+    .{ "set_trace", genSetTrace },
+    .{ "BdbQuit", genBdbQuit },
+    .{ "reset", genReset },
+    .{ "trace_dispatch", genTraceDispatch },
+    .{ "dispatch_line", genDispatchLine },
+    .{ "dispatch_call", genDispatchCall },
+    .{ "dispatch_return", genDispatchReturn },
+    .{ "dispatch_exception", genDispatchException },
+    .{ "is_skipped_module", genIsSkippedModule },
+    .{ "stop_here", genStopHere },
+    .{ "break_here", genBreakHere },
+    .{ "break_anywhere", genBreakAnywhere },
+    .{ "set_step", genSetStep },
+    .{ "set_next", genSetNext },
+    .{ "set_return", genSetReturn },
+    .{ "set_until", genSetUntil },
+    .{ "set_continue", genSetContinue },
+    .{ "set_quit", genSetQuit },
+    .{ "set_break", genSetBreak },
+    .{ "clear_break", genClearBreak },
+    .{ "clear_bpbynumber", genClearBpbynumber },
+    .{ "clear_all_file_breaks", genClearAllFileBreaks },
+    .{ "clear_all_breaks", genClearAllBreaks },
+    .{ "get_bpbynumber", genGetBpbynumber },
+    .{ "get_break", genGetBreak },
+    .{ "get_breaks", genGetBreaks },
+    .{ "get_file_breaks", genGetFileBreaks },
+    .{ "get_all_breaks", genGetAllBreaks },
+    .{ "get_stack", genGetStack },
+    .{ "format_stack_entry", genFormatStackEntry },
+    .{ "run", genRun },
+    .{ "runeval", genRuneval },
+    .{ "runctx", genRunctx },
+    .{ "runcall", genRuncall },
+    .{ "canonic", genCanonic },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

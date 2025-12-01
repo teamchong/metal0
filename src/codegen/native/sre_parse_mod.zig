@@ -1,6 +1,30 @@
 /// Python sre_parse module - Internal support module for sre
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "parse", genParse },
+    .{ "parse_template", genParseTemplate },
+    .{ "expand_template", genExpandTemplate },
+    .{ "SubPattern", genSubPattern },
+    .{ "Pattern", genPattern },
+    .{ "Tokenizer", genTokenizer },
+    .{ "getwidth", genGetwidth },
+    .{ "SPECIAL_CHARS", genSpecialChars },
+    .{ "REPEAT_CHARS", genRepeatChars },
+    .{ "DIGITS", genDigits },
+    .{ "OCTDIGITS", genOctdigits },
+    .{ "HEXDIGITS", genHexdigits },
+    .{ "ASCIILETTERS", genAsciiletters },
+    .{ "WHITESPACE", genWhitespace },
+    .{ "ESCAPES", genEscapes },
+    .{ "CATEGORIES", genCategories },
+    .{ "FLAGS", genFlags },
+    .{ "TYPE_FLAGS", genTypeFlags },
+    .{ "GLOBAL_FLAGS", genGlobalFlags },
+    .{ "Verbose", genVerbose },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

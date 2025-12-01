@@ -4,6 +4,26 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "CookieJar", genCookieJar },
+    .{ "FileCookieJar", genFileCookieJar },
+    .{ "MozillaCookieJar", genMozillaCookieJar },
+    .{ "LWPCookieJar", genLWPCookieJar },
+    .{ "Cookie", genCookie },
+    .{ "DefaultCookiePolicy", genDefaultCookiePolicy },
+    .{ "BlockingPolicy", genBlockingPolicy },
+    .{ "BlockAllCookies", genBlockAllCookies },
+    .{ "DomainStrictNoDots", genDomainStrictNoDots },
+    .{ "DomainStrictNonDomain", genDomainStrictNonDomain },
+    .{ "DomainRFC2965Match", genDomainRFC2965Match },
+    .{ "DomainLiberal", genDomainLiberal },
+    .{ "DomainStrict", genDomainStrict },
+    .{ "LoadError", genLoadError },
+    .{ "time2isoz", genTime2isoz },
+    .{ "time2netscape", genTime2netscape },
+});
+
 /// Generate http.cookiejar.CookieJar class
 pub fn genCookieJar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

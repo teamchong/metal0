@@ -4,6 +4,15 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "date", genDate },
+    .{ "time", genTime },
+    .{ "datetime", genDatetime },
+    .{ "timedelta", genTimedelta },
+    .{ "timezone", genTimezone },
+});
+
 /// Generate _pydatetime.date(year, month, day)
 pub fn genDate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 3) {

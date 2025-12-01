@@ -4,6 +4,23 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "NNTP", genNNTP },
+    .{ "NNTP_SSL", genNNTP_SSL },
+    .{ "NNTP_PORT", genNNTP_PORT },
+    .{ "NNTP_SSL_PORT", genNNTP_SSL_PORT },
+    .{ "NNTPError", genNNTPError },
+    .{ "NNTPReplyError", genNNTPReplyError },
+    .{ "NNTPTemporaryError", genNNTPTemporaryError },
+    .{ "NNTPPermanentError", genNNTPPermanentError },
+    .{ "NNTPProtocolError", genNNTPProtocolError },
+    .{ "NNTPDataError", genNNTPDataError },
+    .{ "GroupInfo", genGroupInfo },
+    .{ "ArticleInfo", genArticleInfo },
+    .{ "decode_header", genDecode_header },
+});
+
 /// Generate nntplib.NNTP class
 pub fn genNNTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

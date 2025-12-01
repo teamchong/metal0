@@ -4,6 +4,12 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "escape", genEscape },
+    .{ "unescape", genUnescape },
+});
+
 /// Generate html.escape(s, quote=True) -> escaped string
 pub fn genEscape(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

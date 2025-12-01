@@ -4,6 +4,23 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "IMAP4", genIMAP4 },
+    .{ "IMAP4_SSL", genIMAP4_SSL },
+    .{ "IMAP4_stream", genIMAP4_stream },
+    .{ "IMAP4_PORT", genIMAP4_PORT },
+    .{ "IMAP4_SSL_PORT", genIMAP4_SSL_PORT },
+    .{ "Commands", genCommands },
+    .{ "IMAP4.error", genIMAP4_error },
+    .{ "IMAP4.abort", genIMAP4_abort },
+    .{ "IMAP4.readonly", genIMAP4_readonly },
+    .{ "Internaldate2tuple", genInternaldate2tuple },
+    .{ "Int2AP", genInt2AP },
+    .{ "ParseFlags", genParseFlags },
+    .{ "Time2Internaldate", genTime2Internaldate },
+});
+
 /// Generate imaplib.IMAP4 class
 pub fn genIMAP4(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

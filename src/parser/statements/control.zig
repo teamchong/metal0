@@ -63,11 +63,20 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
         return ParseError.UnexpectedEof;
     }
 
-    // Check for elif/else
-    var else_stmts = std.ArrayList(ast.Node){};
+    // Collect elif branches - we'll chain them in reverse order later
+    const ElifBranch = struct {
+        condition: *ast.Node,
+        body: []ast.Node,
+    };
+    var elif_branches = std.ArrayList(ElifBranch){};
     errdefer {
-        for (else_stmts.items) |*stmt| stmt.deinit(self.allocator);
-        else_stmts.deinit(self.allocator);
+        for (elif_branches.items) |branch| {
+            branch.condition.deinit(self.allocator);
+            self.allocator.destroy(branch.condition);
+            for (branch.body) |*stmt| stmt.deinit(self.allocator);
+            self.allocator.free(branch.body);
+        }
+        elif_branches.deinit(self.allocator);
     }
 
     while (self.match(.Elif)) {
@@ -125,18 +134,17 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
             return ParseError.UnexpectedEof;
         }
 
-        // Transfer ownership to else_stmts
-        try else_stmts.append(self.allocator, ast.Node{
-            .if_stmt = .{
-                .condition = elif_condition_ptr.?,
-                .body = elif_body.?,
-                .else_body = &[_]ast.Node{},
-            },
+        // Store the elif branch for later chaining
+        try elif_branches.append(self.allocator, .{
+            .condition = elif_condition_ptr.?,
+            .body = elif_body.?,
         });
         elif_body = null; // Ownership transferred
         elif_condition_ptr = null; // Ownership transferred
     }
 
+    // Parse final else clause if present
+    var final_else_body: []ast.Node = &[_]ast.Node{};
     if (self.match(.Else)) {
         _ = try self.expect(.Colon);
 
@@ -177,27 +185,46 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
             return ParseError.UnexpectedEof;
         }
 
-        // Transfer ownership to else_stmts
-        for (else_body.?) |stmt| {
-            try else_stmts.append(self.allocator, stmt);
-        }
-        self.allocator.free(else_body.?); // Free the slice wrapper, items transferred
+        final_else_body = else_body.?;
         else_body = null;
     }
+
+    // Now build the nested if/elif/else structure from inside-out
+    // Start with the final else_body, then wrap each elif around it in reverse order
+    var current_else: []ast.Node = final_else_body;
+
+    // Chain elif branches from last to first
+    var i: usize = elif_branches.items.len;
+    while (i > 0) {
+        i -= 1;
+        const branch = elif_branches.items[i];
+
+        // Create a single-element slice containing the nested if_stmt
+        const nested_if_slice = try self.allocator.alloc(ast.Node, 1);
+        nested_if_slice[0] = ast.Node{
+            .if_stmt = .{
+                .condition = branch.condition,
+                .body = branch.body,
+                .else_body = current_else,
+            },
+        };
+        current_else = nested_if_slice;
+    }
+
+    // Clear the elif_branches list without freeing (ownership transferred)
+    elif_branches.items.len = 0;
 
     // Success - transfer ownership
     const final_condition = condition_ptr.?;
     condition_ptr = null;
     const final_if_body = if_body.?;
     if_body = null;
-    const final_else_body = try else_stmts.toOwnedSlice(self.allocator);
-    else_stmts = std.ArrayList(ast.Node){}; // Reset
 
     return ast.Node{
         .if_stmt = .{
             .condition = final_condition,
             .body = final_if_body,
-            .else_body = final_else_body,
+            .else_body = current_else,
         },
     };
 }

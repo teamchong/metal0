@@ -1,8 +1,9 @@
-/// String/List/Dict/File methods - Re-export hub for method implementations
+/// String/List/Dict/File/Float methods - Re-export hub for method implementations
 const string = @import("methods/string.zig");
 const list = @import("methods/list.zig");
 const dict = @import("methods/dict.zig");
 const file = @import("methods/file.zig");
+const float = @import("methods/float.zig");
 
 // String methods
 pub const genSplit = string.genSplit;
@@ -66,3 +67,17 @@ pub const genItems = dict.genItems;
 pub const genFileRead = file.genFileRead;
 pub const genFileWrite = file.genFileWrite;
 pub const genFileClose = file.genFileClose;
+
+// Float methods
+pub const genFloatIsInteger = float.genIsInteger;
+pub const genFloatAsIntegerRatio = float.genAsIntegerRatio;
+pub const genFloatHex = float.genHex;
+pub const genFloatConjugate = float.genConjugate;
+pub const genFloatTruediv = float.genTruediv;
+pub const genFloatRtruediv = float.genRtruediv;
+pub const genFloatFloordiv = float.genFloordiv;
+pub const genFloatMod = float.genMod;
+pub const genFloatFloor = float.genFloor;
+pub const genFloatCeil = float.genCeil;
+pub const genFloatTrunc = float.genTrunc;
+pub const genFloatRound = float.genRound;

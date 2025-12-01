@@ -1,6 +1,7 @@
 /// Miscellaneous statement code generation (return, import, assert, global, del, raise)
 const std = @import("std");
 const ast = @import("ast");
+const zig_keywords = @import("zig_keywords");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
@@ -73,10 +74,19 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
 
     // Look up in registry
     if (self.import_registry.lookup(module_name)) |info| {
+        // Skip generating local import if the module is a well-known module
+        // that's typically imported at module level - Python allows redundant imports
+        // but Zig doesn't allow shadowing
+        // Note: This is a heuristic - we skip stdlib modules since they're usually
+        // imported at module level and would cause shadowing errors
+        if (info.strategy == .zig_runtime) {
+            return;
+        }
+
         if (info.zig_import) |zig_import| {
             try self.emitIndent();
             try self.emit("const ");
-            try self.emit(alias);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias);
             try self.emit(" = ");
             try self.emit(zig_import);
             try self.emit(";\n");
@@ -513,9 +523,15 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         const is_hoisted = self.hoisted_vars.contains(var_name);
         const needs_var = !is_declared and !is_hoisted;
 
+        // Infer and register the type of the context expression
+        // This is critical for operations like `for line in file:` to work correctly
+        const context_type = try self.type_inferrer.inferExpr(with_node.context_expr.*);
+        try self.type_inferrer.var_types.put(var_name, context_type);
+
         try self.emitIndent();
         if (needs_var) {
-            try self.emit("var ");
+            // Use const for context manager variables (they're not reassigned)
+            try self.emit("const ");
         }
         try self.emit(var_name);
         try self.emit(" = ");
@@ -523,11 +539,18 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         try self.emit(";\n");
 
         // Add defer for cleanup (close, __exit__, etc.)
-        // For file objects, emit f.close(); for context managers, emit __exit__
+        // For file objects, emit runtime.PyFile.close(f) as static method
+        // For other context managers, emit f.close()
         try self.emitIndent();
-        try self.emit("defer ");
-        try self.emit(var_name);
-        try self.emit(".close();\n");
+        if (context_type == .file) {
+            try self.emit("defer runtime.PyFile.close(");
+            try self.emit(var_name);
+            try self.emit(");\n");
+        } else {
+            try self.emit("defer ");
+            try self.emit(var_name);
+            try self.emit(".close();\n");
+        }
 
         // Mark as declared for body (unless hoisted)
         if (needs_var) {

@@ -1,6 +1,14 @@
 /// Python compileall module - Byte-compile Python libraries
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "compile_dir", genCompile_dir },
+    .{ "compile_file", genCompile_file },
+    .{ "compile_path", genCompile_path },
+    .{ "PycInvalidationMode", genPycInvalidationMode },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -4,6 +4,33 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "open", genOpen },
+    .{ "is_tarfile", genIs_tarfile },
+    .{ "TarFile", genTarFile },
+    .{ "TarInfo", genTarInfo },
+    .{ "REGTYPE", genREGTYPE },
+    .{ "AREGTYPE", genAREGTYPE },
+    .{ "LNKTYPE", genLNKTYPE },
+    .{ "SYMTYPE", genSYMTYPE },
+    .{ "CHRTYPE", genCHRTYPE },
+    .{ "BLKTYPE", genBLKTYPE },
+    .{ "DIRTYPE", genDIRTYPE },
+    .{ "FIFOTYPE", genFIFOTYPE },
+    .{ "CONTTYPE", genCONTTYPE },
+    .{ "GNUTYPE_LONGNAME", genGNUTYPE_LONGNAME },
+    .{ "GNUTYPE_LONGLINK", genGNUTYPE_LONGLINK },
+    .{ "GNUTYPE_SPARSE", genGNUTYPE_SPARSE },
+    .{ "USTAR_FORMAT", genUSTAR_FORMAT },
+    .{ "GNU_FORMAT", genGNU_FORMAT },
+    .{ "PAX_FORMAT", genPAX_FORMAT },
+    .{ "DEFAULT_FORMAT", genDEFAULT_FORMAT },
+    .{ "BLOCKSIZE", genBLOCKSIZE },
+    .{ "RECORDSIZE", genRECORDSIZE },
+    .{ "ENCODING", genENCODING },
+});
+
 /// Generate tarfile.open(name=None, mode='r', fileobj=None, ...)
 pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

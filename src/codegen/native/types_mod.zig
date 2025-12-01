@@ -4,6 +4,43 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "FunctionType", genFunctionType },
+    .{ "LambdaType", genLambdaType },
+    .{ "GeneratorType", genGeneratorType },
+    .{ "CoroutineType", genCoroutineType },
+    .{ "AsyncGeneratorType", genAsyncGeneratorType },
+    .{ "CodeType", genCodeType },
+    .{ "CellType", genCellType },
+    .{ "MethodType", genMethodType },
+    .{ "BuiltinFunctionType", genBuiltinFunctionType },
+    .{ "BuiltinMethodType", genBuiltinMethodType },
+    .{ "ModuleType", genModuleType },
+    .{ "TracebackType", genTracebackType },
+    .{ "FrameType", genFrameType },
+    .{ "GetSetDescriptorType", genGetSetDescriptorType },
+    .{ "MemberDescriptorType", genMemberDescriptorType },
+    .{ "MappingProxyType", genMappingProxyType },
+    .{ "SimpleNamespace", genSimpleNamespace },
+    .{ "DynamicClassAttribute", genDynamicClassAttribute },
+    .{ "NoneType", genNoneType },
+    .{ "NotImplementedType", genNotImplementedType },
+    .{ "EllipsisType", genEllipsisType },
+    .{ "UnionType", genUnionType },
+    .{ "GenericAlias", genGenericAlias },
+    .{ "new_class", genNewClass },
+    .{ "resolve_bases", genResolveBases },
+    .{ "prepare_class", genPrepareClass },
+    .{ "get_original_bases", genGetOriginalBases },
+    .{ "coroutine", genCoroutine },
+    .{ "WrapperDescriptorType", genWrapperDescriptorType },
+    .{ "MethodWrapperType", genMethodWrapperType },
+    .{ "ClassMethodDescriptorType", genClassMethodDescriptorType },
+    .{ "MethodDescriptorType", genMethodDescriptorType },
+    .{ "CapsuleType", genCapsuleType },
+});
+
 /// Generate types.FunctionType constant
 pub fn genFunctionType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

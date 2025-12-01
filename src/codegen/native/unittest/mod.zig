@@ -1,7 +1,20 @@
 /// unittest module code generation - re-exports all submodules
+const std = @import("std");
+const ast = @import("ast");
+const CodegenError = @import("../main.zig").CodegenError;
+const NativeCodegen = @import("../main.zig").NativeCodegen;
+
 pub const assertions = @import("assertions.zig");
 pub const lifecycle = @import("lifecycle.zig");
 pub const discovery = @import("discovery.zig");
+
+/// Handler function type
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// Module function map - exported for dispatch
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "main", genUnittestMain },
+});
 
 // Re-export assertion functions
 pub const genAssertEqual = assertions.genAssertEqual;
@@ -46,6 +59,7 @@ pub const genAssertLogs = assertions.genAssertLogs;
 pub const genAssertNoLogs = assertions.genAssertNoLogs;
 pub const genFail = assertions.genFail;
 pub const genSkipTest = assertions.genSkipTest;
+pub const genAssertFloatsAreIdentical = assertions.genAssertFloatsAreIdentical;
 
 // Re-export lifecycle functions
 pub const genUnittestMain = lifecycle.genUnittestMain;

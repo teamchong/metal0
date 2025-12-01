@@ -4,6 +4,16 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "multibyte_codec", genMultibyteCodec },
+    .{ "multibyte_incremental_encoder", genMultibyteIncrementalEncoder },
+    .{ "multibyte_incremental_decoder", genMultibyteIncrementalDecoder },
+    .{ "multibyte_stream_reader", genMultibyteStreamReader },
+    .{ "multibyte_stream_writer", genMultibyteStreamWriter },
+    .{ "create_codec", genCreateCodec },
+});
+
 /// Generate _multibytecodec.MultibyteCodec class
 pub fn genMultibyteCodec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

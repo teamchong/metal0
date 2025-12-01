@@ -4,6 +4,23 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "open", genOpen },
+    .{ "file_i_o", genFileIO },
+    .{ "bytes_i_o", genBytesIO },
+    .{ "string_i_o", genStringIO },
+    .{ "buffered_reader", genBufferedReader },
+    .{ "buffered_writer", genBufferedWriter },
+    .{ "buffered_random", genBufferedRandom },
+    .{ "buffered_r_w_pair", genBufferedRWPair },
+    .{ "text_i_o_wrapper", genTextIOWrapper },
+    .{ "incremental_newline_decoder", genIncrementalNewlineDecoder },
+    .{ "d_e_f_a_u_l_t__b_u_f_f_e_r__s_i_z_e", genDEFAULT_BUFFER_SIZE },
+    .{ "blocking_i_o_error", genBlockingIOError },
+    .{ "unsupported_operation", genUnsupportedOperation },
+});
+
 /// Generate _pyio.open(file, mode='r', buffering=-1, encoding=None, errors=None, newline=None, closefd=True, opener=None)
 pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

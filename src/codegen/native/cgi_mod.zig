@@ -1,6 +1,24 @@
 /// Python cgi module - CGI utilities
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "parse", genParse },
+    .{ "parse_qs", genParse_qs },
+    .{ "parse_qsl", genParse_qsl },
+    .{ "parse_multipart", genParse_multipart },
+    .{ "parse_header", genParse_header },
+    .{ "test", genTest },
+    .{ "print_environ", genPrint_environ },
+    .{ "print_form", genPrint_form },
+    .{ "print_directory", genPrint_directory },
+    .{ "print_environ_usage", genPrint_environ_usage },
+    .{ "escape", genEscape },
+    .{ "FieldStorage", genFieldStorage },
+    .{ "MiniFieldStorage", genMiniFieldStorage },
+    .{ "maxlen", genMaxlen },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

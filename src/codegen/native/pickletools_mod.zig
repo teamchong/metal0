@@ -1,6 +1,21 @@
 /// Python pickletools module - Tools for working with pickle data streams
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "dis", genDis },
+    .{ "genops", genGenops },
+    .{ "optimize", genOptimize },
+    .{ "OpcodeInfo", genOpcodeInfo },
+    .{ "opcodes", genOpcodes },
+    .{ "bytes_types", genBytesTypes },
+    .{ "UP_TO_NEWLINE", genUpToNewline },
+    .{ "TAKEN_FROM_ARGUMENT1", genTakenFromArgument1 },
+    .{ "TAKEN_FROM_ARGUMENT4", genTakenFromArgument4 },
+    .{ "TAKEN_FROM_ARGUMENT4U", genTakenFromArgument4U },
+    .{ "TAKEN_FROM_ARGUMENT8U", genTakenFromArgument8U },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

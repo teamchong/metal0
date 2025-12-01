@@ -1,6 +1,14 @@
 /// Python getopt module - C-style parser for command line options
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "getopt", genGetopt },
+    .{ "gnu_getopt", genGnuGetopt },
+    .{ "GetoptError", genGetoptError },
+    .{ "error", genError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

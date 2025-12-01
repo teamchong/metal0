@@ -4,6 +4,23 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "source_file_loader", genSourceFileLoader },
+    .{ "sourceless_file_loader", genSourcelessFileLoader },
+    .{ "extension_file_loader", genExtensionFileLoader },
+    .{ "file_finder", genFileFinder },
+    .{ "path_finder", genPathFinder },
+    .{ "get_supported_file_loaders", genGetSupportedFileLoaders },
+    .{ "install", genInstall },
+    .{ "cache_from_source", genCacheFromSource },
+    .{ "source_from_cache", genSourceFromCache },
+    .{ "spec_from_file_location", genSpecFromFileLocation },
+    .{ "b_y_t_e_c_o_d_e__s_u_f_f_i_x_e_s", genBYTECODE_SUFFIXES },
+    .{ "s_o_u_r_c_e__s_u_f_f_i_x_e_s", genSOURCE_SUFFIXES },
+    .{ "e_x_t_e_n_s_i_o_n__s_u_f_f_i_x_e_s", genEXTENSION_SUFFIXES },
+});
+
 /// Generate _frozen_importlib_external.SourceFileLoader(fullname, path)
 pub fn genSourceFileLoader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {

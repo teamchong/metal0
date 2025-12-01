@@ -4,6 +4,34 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "testmod", genTestmod },
+    .{ "testfile", genTestfile },
+    .{ "run_docstring_examples", genRun_docstring_examples },
+    .{ "DocTestSuite", genDocTestSuite },
+    .{ "DocFileSuite", genDocFileSuite },
+    .{ "DocTestParser", genDocTestParser },
+    .{ "DocTestRunner", genDocTestRunner },
+    .{ "DocTestFinder", genDocTestFinder },
+    .{ "DocTest", genDocTest },
+    .{ "Example", genExample },
+    .{ "OutputChecker", genOutputChecker },
+    .{ "DebugRunner", genDebugRunner },
+    .{ "OPTIONFLAGS", genOPTIONFLAGS },
+    .{ "ELLIPSIS", genELLIPSIS },
+    .{ "NORMALIZE_WHITESPACE", genNORMALIZE_WHITESPACE },
+    .{ "DONT_ACCEPT_TRUE_FOR_1", genDONT_ACCEPT_TRUE_FOR_1 },
+    .{ "DONT_ACCEPT_BLANKLINE", genDONT_ACCEPT_BLANKLINE },
+    .{ "SKIP", genSKIP },
+    .{ "IGNORE_EXCEPTION_DETAIL", genIGNORE_EXCEPTION_DETAIL },
+    .{ "REPORT_UDIFF", genREPORT_UDIFF },
+    .{ "REPORT_CDIFF", genREPORT_CDIFF },
+    .{ "REPORT_NDIFF", genREPORT_NDIFF },
+    .{ "REPORT_ONLY_FIRST_FAILURE", genREPORT_ONLY_FIRST_FAILURE },
+    .{ "FAIL_FAST", genFAIL_FAST },
+});
+
 /// Generate doctest.testmod(m=None, verbose=None, report=True, ...)
 pub fn genTestmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

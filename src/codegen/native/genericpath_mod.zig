@@ -1,6 +1,22 @@
 /// Python genericpath module - Common path operations (shared by os.path implementations)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "exists", genExists },
+    .{ "isfile", genIsfile },
+    .{ "isdir", genIsdir },
+    .{ "getsize", genGetsize },
+    .{ "getatime", genGetatime },
+    .{ "getmtime", genGetmtime },
+    .{ "getctime", genGetctime },
+    .{ "commonprefix", genCommonprefix },
+    .{ "samestat", genSamestat },
+    .{ "samefile", genSamefile },
+    .{ "sameopenfile", genSameopenfile },
+    .{ "islink", genIslink },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

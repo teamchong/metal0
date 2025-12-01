@@ -4,6 +4,33 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "l_z_m_a_compressor", genLZMACompressor },
+    .{ "l_z_m_a_decompressor", genLZMADecompressor },
+    .{ "compress", genCompress },
+    .{ "flush", genFlush },
+    .{ "decompress", genDecompress },
+    .{ "is_check_supported", genIsCheckSupported },
+    .{ "encode_filter_properties", genEncodeFilterProperties },
+    .{ "decode_filter_properties", genDecodeFilterProperties },
+    .{ "f_o_r_m_a_t__a_u_t_o", genFORMAT_AUTO },
+    .{ "f_o_r_m_a_t__x_z", genFORMAT_XZ },
+    .{ "f_o_r_m_a_t__a_l_o_n_e", genFORMAT_ALONE },
+    .{ "f_o_r_m_a_t__r_a_w", genFORMAT_RAW },
+    .{ "c_h_e_c_k__n_o_n_e", genCHECK_NONE },
+    .{ "c_h_e_c_k__c_r_c32", genCHECK_CRC32 },
+    .{ "c_h_e_c_k__c_r_c64", genCHECK_CRC64 },
+    .{ "c_h_e_c_k__s_h_a256", genCHECK_SHA256 },
+    .{ "p_r_e_s_e_t__d_e_f_a_u_l_t", genPRESET_DEFAULT },
+    .{ "p_r_e_s_e_t__e_x_t_r_e_m_e", genPRESET_EXTREME },
+    .{ "f_i_l_t_e_r__l_z_m_a1", genFILTER_LZMA1 },
+    .{ "f_i_l_t_e_r__l_z_m_a2", genFILTER_LZMA2 },
+    .{ "f_i_l_t_e_r__d_e_l_t_a", genFILTER_DELTA },
+    .{ "f_i_l_t_e_r__x86", genFILTER_X86 },
+    .{ "l_z_m_a_error", genLZMAError },
+});
+
 /// Generate _lzma.LZMACompressor(format=FORMAT_XZ, check=-1, preset=None, filters=None)
 pub fn genLZMACompressor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

@@ -4,6 +4,24 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "dis", genDis },
+    .{ "disassemble", genDisassemble },
+    .{ "distb", genDistb },
+    .{ "disco", genDisco },
+    .{ "code_info", genCode_info },
+    .{ "show_code", genShow_code },
+    .{ "get_instructions", genGet_instructions },
+    .{ "findlinestarts", genFindlinestarts },
+    .{ "findlabels", genFindlabels },
+    .{ "stack_effect", genStack_effect },
+    .{ "Bytecode", genBytecode },
+    .{ "Instruction", genInstruction },
+    .{ "HAVE_ARGUMENT", genHAVE_ARGUMENT },
+    .{ "EXTENDED_ARG", genEXTENDED_ARG },
+});
+
 /// Generate dis.dis(x=None, file=None, depth=None, ...)
 pub fn genDis(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

@@ -410,6 +410,16 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try genStringFormat(self, binop);
             return;
         }
+        // If type is unknown (e.g., anytype parameter), use runtime dispatch
+        if (left_type == .unknown) {
+            // Generate runtime type check: if type is string, do formatting; else do modulo
+            try self.emit("runtime.pyMod(__global_allocator, ");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+            return;
+        }
         // Numeric modulo
         try self.emit("@rem(");
         try genExpr(self, binop.left.*);
@@ -448,12 +458,21 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
                 try self.emit(") catch unreachable");
                 return;
             }
+            // Small constant positive exponent - use i64
+            try self.emit("std.math.pow(i64, ");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+            return;
         }
-        try self.emit("std.math.pow(i64, ");
+        // Runtime exponent (could be negative) - use f64 for safety
+        // Python: 10 ** -1 = 0.1 (float), 10 ** random.randint(-100, 100) could be negative
+        try self.emit("std.math.pow(f64, @as(f64, @floatFromInt(");
         try genExpr(self, binop.left.*);
-        try self.emit(", ");
+        try self.emit(")), @as(f64, @floatFromInt(");
         try genExpr(self, binop.right.*);
-        try self.emit(")");
+        try self.emit(")))");
         return;
     }
 
@@ -634,9 +653,27 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     switch (unaryop.op) {
         .Not => {
-            try self.emit("!(");
-            try genExpr(self, unaryop.operand.*);
-            try self.emit(")");
+            // Python `not x` semantics depend on type:
+            // - strings: empty string is falsy -> x.len == 0
+            // - lists: empty list is falsy -> x.items.len == 0
+            // - int/float: 0 is falsy -> x == 0
+            // - bool: just negate
+            const operand_type = try self.inferExprScoped(unaryop.operand.*);
+            if (@as(std.meta.Tag(@TypeOf(operand_type)), operand_type) == .string) {
+                // not string -> string.len == 0
+                try self.emit("(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(").len == 0");
+            } else if (operand_type == .list) {
+                // not list -> list.items.len == 0
+                try self.emit("(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(").items.len == 0");
+            } else {
+                try self.emit("!(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(")");
+            }
         },
         .USub => {
             // In Python, -bool converts to int first: -True = -1, -False = 0
@@ -893,27 +930,49 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // Fallback for arrays and unrecognized types
                 // Infer element type from the item being searched for
 
-                // String arrays need special handling - can't use indexOfScalar
+                // String arrays/tuples need special handling - can't use indexOfScalar
                 // because strings require std.mem.eql for comparison, not ==
-                if (current_left_type == .string) {
+                // Also check if comparator is a tuple of strings
+                const is_string_search = current_left_type == .string or
+                    (compare.comparators[i] == .tuple and compare.comparators[i].tuple.elts.len > 0 and
+                    compare.comparators[i].tuple.elts[0] == .constant and
+                    compare.comparators[i].tuple.elts[0].constant.value == .string);
+
+                if (is_string_search) {
                     // For 'not in', wrap in negation by emitting ! first
                     if (op == .NotIn) {
                         try self.emit("!");
                     }
-                    // Generate inline block expression that loops through array
-                    // Use unique label to avoid collisions with nested expressions
-                    const in_label_id = self.block_label_counter;
-                    self.block_label_counter += 1;
-                    try self.output.writer(self.allocator).print("(in_{d}: {{\n", .{in_label_id});
-                    try self.emit("for (");
-                    try genExpr(self, compare.comparators[i]); // array
-                    try self.emit(") |__item| {\n");
-                    try self.emit("if (std.mem.eql(u8, __item, ");
-                    try genExpr(self, current_left); // search string
-                    try self.output.writer(self.allocator).print(")) break :in_{d} true;\n", .{in_label_id});
-                    try self.emit("}\n");
-                    try self.output.writer(self.allocator).print("break :in_{d} false;\n", .{in_label_id});
-                    try self.emit("})");
+
+                    // Check if container is a tuple - need inline comparisons (can't iterate tuples at runtime)
+                    if (compare.comparators[i] == .tuple) {
+                        const tuple_elts = compare.comparators[i].tuple.elts;
+                        try self.emit("(");
+                        for (tuple_elts, 0..) |elt, j| {
+                            if (j > 0) try self.emit(" or ");
+                            try self.emit("std.mem.eql(u8, ");
+                            try genExpr(self, current_left);
+                            try self.emit(", ");
+                            try genExpr(self, elt);
+                            try self.emit(")");
+                        }
+                        try self.emit(")");
+                    } else {
+                        // Generate inline block expression that loops through array
+                        // Use unique label to avoid collisions with nested expressions
+                        const in_label_id = self.block_label_counter;
+                        self.block_label_counter += 1;
+                        try self.output.writer(self.allocator).print("(in_{d}: {{\n", .{in_label_id});
+                        try self.emit("for (");
+                        try genExpr(self, compare.comparators[i]); // array
+                        try self.emit(") |__item| {\n");
+                        try self.emit("if (std.mem.eql(u8, __item, ");
+                        try genExpr(self, current_left); // search string
+                        try self.output.writer(self.allocator).print(")) break :in_{d} true;\n", .{in_label_id});
+                        try self.emit("}\n");
+                        try self.output.writer(self.allocator).print("break :in_{d} false;\n", .{in_label_id});
+                        try self.emit("})");
+                    }
                 } else {
                     // Integer and float arrays use indexOfScalar
                     // Use std.meta.Elem to get element type - works for both arrays and slices
@@ -1067,6 +1126,123 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             }
             try genExpr(self, compare.comparators[i]);
         }
+        // Handle tuple comparisons (anonymous structs don't support ==)
+        else if ((current_left_type == .tuple or current_left == .tuple) and
+            (right_type == .tuple or compare.comparators[i] == .tuple))
+        {
+            // Use std.meta.eql for deep comparison of tuples
+            if (op == .NotEq) {
+                try self.emit("!");
+            }
+            try self.emit("std.meta.eql(");
+            try genExpr(self, current_left);
+            try self.emit(", ");
+            try genExpr(self, compare.comparators[i]);
+            try self.emit(")");
+        }
+        // Handle set comparisons (HashMaps don't support ==)
+        else if ((current_left_type == .set or current_left == .set) and
+            (right_type == .set or compare.comparators[i] == .set))
+        {
+            // For sets, compare count and all keys match
+            // This is a simplified comparison - full Python would check symmetric difference
+            const set_label = self.block_label_counter;
+            self.block_label_counter += 1;
+
+            if (op == .NotEq) {
+                try self.emit("!");
+            }
+            try self.output.writer(self.allocator).print("set_cmp_{d}: {{ const __s1 = (", .{set_label});
+            try genExpr(self, current_left);
+            try self.emit("); const __s2 = (");
+            try genExpr(self, compare.comparators[i]);
+            try self.emit("); if (__s1.count() != __s2.count()) break :set_cmp_");
+            try self.output.writer(self.allocator).print("{d} false; ", .{set_label});
+            try self.emit("var __all_match = true; var __it = __s1.keyIterator(); ");
+            try self.emit("while (__it.next()) |k| { if (!__s2.contains(k.*)) { __all_match = false; break; } } ");
+            try self.output.writer(self.allocator).print("break :set_cmp_{d} __all_match; }}", .{set_label});
+        }
+        // Handle dict comparisons (HashMaps don't support ==)
+        else if ((current_left_type == .dict or current_left == .dict) and
+            (right_type == .dict or compare.comparators[i] == .dict))
+        {
+            // For dicts, compare count, all keys match, and all values equal
+            const dict_label = self.block_label_counter;
+            self.block_label_counter += 1;
+
+            if (op == .NotEq) {
+                try self.emit("!");
+            }
+            try self.output.writer(self.allocator).print("dict_cmp_{d}: {{ const __d1 = (", .{dict_label});
+            try genExpr(self, current_left);
+            try self.emit("); const __d2 = (");
+            try genExpr(self, compare.comparators[i]);
+            try self.emit("); if (__d1.count() != __d2.count()) break :dict_cmp_");
+            try self.output.writer(self.allocator).print("{d} false; ", .{dict_label});
+            try self.emit("var __all_match = true; var __it = __d1.iterator(); ");
+            try self.emit("while (__it.next()) |entry| { ");
+            try self.emit("if (__d2.get(entry.key_ptr.*)) |v2| { if (!std.meta.eql(entry.value_ptr.*, v2)) { __all_match = false; break; } } ");
+            try self.emit("else { __all_match = false; break; } ");
+            try self.emit("} ");
+            try self.output.writer(self.allocator).print("break :dict_cmp_{d} __all_match; }}", .{dict_label});
+        }
+        // Handle list comparisons (ArrayList structs don't support ==)
+        else if ((current_left_type == .list or current_left == .list) and
+            (right_type == .list or compare.comparators[i] == .list))
+        {
+            // Use std.meta.eql for deep comparison
+            // Need to wrap block expressions in parentheses
+            const left_needs_wrap = current_left == .list;
+            const right_needs_wrap = compare.comparators[i] == .list;
+
+            if (op == .NotEq) {
+                try self.emit("!");
+            }
+            try self.emit("std.meta.eql(");
+            if (left_needs_wrap) {
+                try self.emit("(");
+                try genExpr(self, current_left);
+                try self.emit(").items");
+            } else {
+                try genExpr(self, current_left);
+                try self.emit(".items");
+            }
+            try self.emit(", ");
+            if (right_needs_wrap) {
+                try self.emit("(");
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(").items");
+            } else {
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(".items");
+            }
+            try self.emit(")");
+        }
+        // Handle set comparisons - sets are HashMaps and don't support direct ==
+        else if (@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .set or
+            @as(std.meta.Tag(@TypeOf(right_type)), right_type) == .set)
+        {
+            // Set comparison: use runtime.setCompare
+            // For s == s (identity), both sides are the same HashMap pointer
+            if (op == .Eq) {
+                try self.emit("runtime.setEqual(");
+                try genExpr(self, current_left);
+                try self.emit(", ");
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(")");
+            } else if (op == .NotEq) {
+                try self.emit("!runtime.setEqual(");
+                try genExpr(self, current_left);
+                try self.emit(", ");
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(")");
+            } else {
+                // Other comparisons not supported for sets, emit identity check
+                try genExpr(self, current_left);
+                try self.emit(" == ");
+                try genExpr(self, compare.comparators[i]);
+            }
+        }
         // Handle BigInt or unknown type comparisons (anytype parameters)
         else if (current_left_type == .bigint or right_type == .bigint or
             current_left_type == .unknown or right_type == .unknown)
@@ -1182,6 +1358,9 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         const a = boolop.values[0];
         const b = boolop.values[1];
 
+        // Infer type of first value to generate appropriate truthiness check
+        const a_type = try self.inferExprScoped(a);
+
         try self.emit("blk: {\n");
         try self.emit("const _a = ");
         try genExpr(self, a);
@@ -1190,13 +1369,23 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         try genExpr(self, b);
         try self.emit(";\n");
 
+        // Generate type-appropriate truthiness check
+        // Note: string is a tagged union with payload StringKind, so we check the tag
+        const truthy_check: []const u8 = switch (@as(std.meta.Tag(@TypeOf(a_type)), a_type)) {
+            .string => "_a.len > 0",
+            .int, .usize => "_a != 0",
+            .float => "_a != 0.0",
+            .bool => "_a",
+            .bigint => "!_a.isZero()",
+            else => "runtime.pyTruthy(_a)",
+        };
+
         if (boolop.op == .Or) {
             // "a or b": return a if truthy, else b
-            // For strings: len > 0 is truthy
-            try self.emit("break :blk if (runtime.pyTruthy(_a)) _a else _b;\n");
+            try self.emitFmt("break :blk if ({s}) _a else _b;\n", .{truthy_check});
         } else {
             // "a and b": return a if falsy, else b
-            try self.emit("break :blk if (!runtime.pyTruthy(_a)) _a else _b;\n");
+            try self.emitFmt("break :blk if (!({s})) _a else _b;\n", .{truthy_check});
         }
         try self.emit("}");
         return;
@@ -1259,11 +1448,15 @@ fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!voi
                     }
                     i += 2;
                 } else {
-                    // Escape braces for Zig format string
+                    // Escape special chars for Zig format string
                     if (fmt[i] == '{') {
                         try self.emit("{{");
                     } else if (fmt[i] == '}') {
                         try self.emit("}}");
+                    } else if (fmt[i] == '"') {
+                        try self.emit("\\\"");
+                    } else if (fmt[i] == '\\') {
+                        try self.emit("\\\\");
                     } else {
                         try self.emitFmt("{c}", .{fmt[i]});
                     }
@@ -1307,10 +1500,15 @@ fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!voi
                     }
                     i += 2;
                 } else {
+                    // Escape special chars for Zig format string
                     if (fmt[i] == '{') {
                         try self.emit("{{");
                     } else if (fmt[i] == '}') {
                         try self.emit("}}");
+                    } else if (fmt[i] == '"') {
+                        try self.emit("\\\"");
+                    } else if (fmt[i] == '\\') {
+                        try self.emit("\\\\");
                     } else {
                         try self.emitFmt("{c}", .{fmt[i]});
                     }

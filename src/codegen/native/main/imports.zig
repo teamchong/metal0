@@ -14,12 +14,12 @@ const FnvVoidMap = hashmap_helper.StringHashMap(void);
 fn inferReturnTypeFromString(
     type_name: []const u8,
 ) @import("../../../analysis/native_types.zig").NativeType {
-    if (std.mem.eql(u8, type_name, "int")) return .int;
+    if (std.mem.eql(u8, type_name, "int")) return .{ .int = .bounded };
     if (std.mem.eql(u8, type_name, "float")) return .float;
     if (std.mem.eql(u8, type_name, "str")) return .{ .string = .runtime };
     if (std.mem.eql(u8, type_name, "bool")) return .bool;
 
-    return .int;
+    return .{ .int = .bounded };
 }
 
 /// Compile a Python module as an inlined Zig struct
@@ -131,7 +131,7 @@ fn compileModuleAsStructWithPrefix(
                 const return_type = if (func.return_type) |ret_type_name|
                     inferReturnTypeFromString(ret_type_name)
                 else
-                    native_types_mod.NativeType.int;
+                    native_types_mod.NativeType{ .int = .bounded };
 
                 // Format: "module.function" or "parent.module.function" -> return type
                 const qualified_name = if (parent_prefix) |prefix|

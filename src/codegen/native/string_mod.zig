@@ -4,6 +4,22 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ascii_lowercase", genAsciiLowercase },
+    .{ "ascii_uppercase", genAsciiUppercase },
+    .{ "ascii_letters", genAsciiLetters },
+    .{ "digits", genDigits },
+    .{ "hexdigits", genHexdigits },
+    .{ "octdigits", genOctdigits },
+    .{ "punctuation", genPunctuation },
+    .{ "whitespace", genWhitespace },
+    .{ "printable", genPrintable },
+    .{ "capwords", genCapwords },
+    .{ "Formatter", genFormatter },
+    .{ "Template", genTemplate },
+});
+
 // String constants as defined in Python's string module
 
 /// Generate string.ascii_lowercase -> "abcdefghijklmnopqrstuvwxyz"

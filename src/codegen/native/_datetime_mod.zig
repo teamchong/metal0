@@ -1,6 +1,18 @@
 /// Python _datetime module - C accelerator for datetime (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "datetime", genDatetime },
+    .{ "date", genDate },
+    .{ "time", genTime },
+    .{ "timedelta", genTimedelta },
+    .{ "timezone", genTimezone },
+    .{ "MINYEAR", genMINYEAR },
+    .{ "MAXYEAR", genMAXYEAR },
+    .{ "timezone_utc", genTimezoneUtc },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

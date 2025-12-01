@@ -4,6 +4,25 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "create", genCreate },
+    .{ "setbusywaitinterval", genSetbusywaitinterval },
+    .{ "getbusywaitinterval", genGetbusywaitinterval },
+    .{ "tcl_error", genTclError },
+    .{ "t_k__v_e_r_s_i_o_n", genTK_VERSION },
+    .{ "t_c_l__v_e_r_s_i_o_n", genTCL_VERSION },
+    .{ "r_e_a_d_a_b_l_e", genREADABLE },
+    .{ "w_r_i_t_a_b_l_e", genWRITABLE },
+    .{ "e_x_c_e_p_t_i_o_n", genEXCEPTION },
+    .{ "d_o_n_t__w_a_i_t", genDONT_WAIT },
+    .{ "w_i_n_d_o_w__e_v_e_n_t_s", genWINDOW_EVENTS },
+    .{ "f_i_l_e__e_v_e_n_t_s", genFILE_EVENTS },
+    .{ "t_i_m_e_r__e_v_e_n_t_s", genTIMER_EVENTS },
+    .{ "i_d_l_e__e_v_e_n_t_s", genIDLE_EVENTS },
+    .{ "a_l_l__e_v_e_n_t_s", genALL_EVENTS },
+});
+
 /// Generate _tkinter.create(screenName, baseName, className, interactive, wantobjects, wantTk, sync, use) - Create Tk app
 pub fn genCreate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

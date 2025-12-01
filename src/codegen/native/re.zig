@@ -5,6 +5,41 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const bridge = @import("stdlib_bridge.zig");
 
+/// Handler function type
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// Module function map - exported for dispatch
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "search", genReSearch },
+    .{ "match", genReMatch },
+    .{ "fullmatch", genReFullmatch },
+    .{ "sub", genReSub },
+    .{ "subn", genReSubn },
+    .{ "findall", genReFindall },
+    .{ "finditer", genReFinditer },
+    .{ "compile", genReCompile },
+    .{ "split", genReSplit },
+    .{ "escape", genReEscape },
+    .{ "purge", genRePurge },
+    .{ "IGNORECASE", genIGNORECASE },
+    .{ "I", genI },
+    .{ "MULTILINE", genMULTILINE },
+    .{ "M", genM },
+    .{ "DOTALL", genDOTALL },
+    .{ "S", genS },
+    .{ "VERBOSE", genVERBOSE },
+    .{ "X", genX },
+    .{ "ASCII", genASCII },
+    .{ "A", genA },
+    .{ "LOCALE", genLOCALE },
+    .{ "L", genL },
+    .{ "UNICODE", genUNICODE },
+    .{ "U", genU },
+    .{ "error", genError },
+    .{ "Pattern", genPattern },
+    .{ "Match", genMatch },
+});
+
 // Comptime-generated handlers with variable args support for flags
 // re.search(pattern, string[, flags]) - 2-3 args
 pub const genReSearch = bridge.genVarArgCall(.{ .runtime_path = "runtime.re.search", .min_args = 2, .max_args = 3 });

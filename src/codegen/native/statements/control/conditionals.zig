@@ -5,14 +5,26 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const CodeBuilder = @import("../../code_builder.zig").CodeBuilder;
 
+/// Information about a variable to be hoisted
+const HoistedVar = struct {
+    name: []const u8,
+    node: ast.Node,
+};
+
 /// Check if a condition is a comptime constant and return its boolean value
 /// Returns null if not comptime constant, true/false otherwise
 fn isComptimeConstantCondition(node: ast.Node) ?bool {
     switch (node) {
-        // Literal True/False
+        // Literal True/False or numeric constants
         .constant => |c| {
             switch (c.value) {
                 .bool => |b| return b,
+                // Python truthy: 0 is False, any other int is True
+                .int => |i| return i != 0,
+                .float => |f| return f != 0.0,
+                // Empty string is falsy
+                .string => |s| return s.len > 0,
+                .none => return false,
                 else => return null,
             }
         },
@@ -97,8 +109,50 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
     }
 }
 
+/// Collect variables assigned in a statement body that are not yet declared
+/// These need to be hoisted before the if statement
+fn collectAssignedVars(self: *NativeCodegen, stmts: []const ast.Node, vars: *std.ArrayList(HoistedVar)) CodegenError!void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .assign => |assign| {
+                // Check each target for simple variable assignments
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        const var_name = target.name.id;
+                        if (!self.isDeclared(var_name)) {
+                            // Check if already in our list
+                            var found = false;
+                            for (vars.items) |v| {
+                                if (std.mem.eql(u8, v.name, var_name)) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                try vars.append(self.allocator, HoistedVar{ .name = var_name, .node = assign.value.* });
+                            }
+                        }
+                    }
+                }
+            },
+            .if_stmt => |nested_if| {
+                // Recursively scan nested if statements
+                try collectAssignedVars(self, nested_if.body, vars);
+                try collectAssignedVars(self, nested_if.else_body, vars);
+            },
+            else => {},
+        }
+    }
+}
+
 /// Generate if statement
 pub fn genIf(self: *NativeCodegen, if_stmt: ast.Node.If) CodegenError!void {
+    return genIfImpl(self, if_stmt, false, true);
+}
+
+/// Internal if generation with option to skip initial indent (for elif chains)
+/// hoist_vars: whether to pre-scan and hoist variable declarations (only for top-level if)
+fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hoist_vars: bool) CodegenError!void {
     // Check for comptime constant conditions - eliminate dead branches
     if (isComptimeConstantCondition(if_stmt.condition.*)) |comptime_value| {
         if (comptime_value) {
@@ -121,7 +175,37 @@ pub fn genIf(self: *NativeCodegen, if_stmt: ast.Node.If) CodegenError!void {
     // Pre-scan condition for walrus operators and emit variable declarations
     try emitWalrusDeclarations(self, if_stmt.condition.*);
 
-    try self.emitIndent();
+    // For top-level if, hoist variables assigned in any branch
+    if (hoist_vars) {
+        var assigned_vars = std.ArrayList(HoistedVar){};
+        defer assigned_vars.deinit(self.allocator);
+
+        // Collect variables from all branches
+        try collectAssignedVars(self, if_stmt.body, &assigned_vars);
+        try collectAssignedVars(self, if_stmt.else_body, &assigned_vars);
+
+        // Emit declarations for variables that will be assigned in branches
+        for (assigned_vars.items) |v| {
+            const var_type = self.type_inferrer.inferExpr(v.node) catch .unknown;
+            var type_buf = std.ArrayList(u8){};
+            defer type_buf.deinit(self.allocator);
+            var_type.toZigType(self.allocator, &type_buf) catch {
+                try type_buf.writer(self.allocator).writeAll("i64");
+            };
+
+            try self.emitIndent();
+            try self.emit("var ");
+            try self.emit(v.name);
+            try self.emit(": ");
+            try self.emit(type_buf.items);
+            try self.emit(" = undefined;\n");
+            try self.declareVar(v.name);
+        }
+    }
+
+    if (!skip_indent) {
+        try self.emitIndent();
+    }
     _ = try builder.write("if (");
 
     // Check condition type - need to handle PyObject truthiness
@@ -147,12 +231,26 @@ pub fn genIf(self: *NativeCodegen, if_stmt: ast.Node.If) CodegenError!void {
     }
 
     if (if_stmt.else_body.len > 0) {
-        _ = try builder.elseClause();
-        _ = try builder.beginBlock();
-        for (if_stmt.else_body) |stmt| {
-            try self.generateStmt(stmt);
+        // Check if else_body is a single If statement (elif pattern)
+        const is_elif = if_stmt.else_body.len == 1 and if_stmt.else_body[0] == .if_stmt;
+        if (is_elif) {
+            // elif: emit "} else " then recursively generate the nested if (without indent)
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("} else ");
+            // Recursively generate the elif chain (skip_indent=true avoids double indentation)
+            // hoist_vars=false since top-level if already hoisted all variables
+            try genIfImpl(self, if_stmt.else_body[0].if_stmt, true, false);
+        } else {
+            // Regular else block
+            // elseClause() now handles dedent internally
+            _ = try builder.elseClause();
+            _ = try builder.beginBlock();
+            for (if_stmt.else_body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+            _ = try builder.endBlock();
         }
-        _ = try builder.endBlock();
     } else {
         _ = try builder.endBlock();
     }

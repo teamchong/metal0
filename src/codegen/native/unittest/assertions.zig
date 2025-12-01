@@ -173,6 +173,17 @@ pub fn genAssertIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
         return;
     }
     try self.emit("runtime.unittest.assertIn(");
+
+    // Check if item is a call that might return error union (like float.__getformat__)
+    if (args[0] == .call and args[0].call.func.* == .attribute) {
+        const attr = args[0].call.func.attribute;
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "float")) {
+            if (std.mem.eql(u8, attr.attr, "__getformat__")) {
+                // float.__getformat__ returns ![]const u8, need to try
+                try self.emit("try ");
+            }
+        }
+    }
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     try parent.genExpr(self, args[1]);
@@ -400,19 +411,65 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         } else if (attr.value.* == .call) {
             // Attribute on a call result (e.g., zlib.decompressobj().flush)
             // Need to store the call result first, then access the method
-            // Generate: __ar_obj_blk: { const __ar_obj = <call>; break :__ar_obj_blk __ar_obj.<method>(<args>); }
-            try self.emit("__ar_obj_blk: { const __ar_obj = ");
-            try parent.genExpr(self, attr.value.*);
-            try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
-            try self.emit(attr.attr);
-            try self.emit("\"(");
-            if (args.len > 2) {
-                for (args[2..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
+            // Check if this is a float method that needs special dispatch
+            const is_float_method = std.mem.eql(u8, attr.attr, "as_integer_ratio") or
+                std.mem.eql(u8, attr.attr, "is_integer") or
+                std.mem.eql(u8, attr.attr, "hex") or
+                std.mem.eql(u8, attr.attr, "conjugate") or
+                std.mem.eql(u8, attr.attr, "__floor__") or
+                std.mem.eql(u8, attr.attr, "__ceil__") or
+                std.mem.eql(u8, attr.attr, "__trunc__") or
+                std.mem.eql(u8, attr.attr, "__round__");
+            if (is_float_method) {
+                // Float method dispatch: runtime.floatAsIntegerRatio(value)
+                try self.emit("__ar_obj_blk: { const __ar_obj = ");
+                try parent.genExpr(self, attr.value.*);
+                try self.emit("; break :__ar_obj_blk runtime.float");
+                // Convert method name to function name (as_integer_ratio -> AsIntegerRatio)
+                if (std.mem.eql(u8, attr.attr, "as_integer_ratio")) {
+                    try self.emit("AsIntegerRatio");
+                } else if (std.mem.eql(u8, attr.attr, "is_integer")) {
+                    try self.emit("IsInteger");
+                } else if (std.mem.eql(u8, attr.attr, "hex")) {
+                    try self.emit("Hex(__global_allocator, ");
+                } else if (std.mem.eql(u8, attr.attr, "__floor__")) {
+                    try self.emit("Floor(__global_allocator, ");
+                } else if (std.mem.eql(u8, attr.attr, "__ceil__")) {
+                    try self.emit("Ceil(__global_allocator, ");
+                } else if (std.mem.eql(u8, attr.attr, "__trunc__")) {
+                    try self.emit("Trunc(__global_allocator, ");
+                } else if (std.mem.eql(u8, attr.attr, "__round__")) {
+                    try self.emit("Round(__global_allocator, ");
+                } else {
+                    // conjugate - just return the value
+                    try self.emit("Conjugate");
                 }
+                const needs_alloc = std.mem.eql(u8, attr.attr, "hex") or
+                    std.mem.eql(u8, attr.attr, "__floor__") or
+                    std.mem.eql(u8, attr.attr, "__ceil__") or
+                    std.mem.eql(u8, attr.attr, "__trunc__") or
+                    std.mem.eql(u8, attr.attr, "__round__");
+                if (!needs_alloc) {
+                    try self.emit("(__ar_obj)");
+                } else {
+                    try self.emit("__ar_obj)");
+                }
+                try self.emit("; }");
+            } else {
+                // Generate: __ar_obj_blk: { const __ar_obj = <call>; break :__ar_obj_blk __ar_obj.<method>(<args>); }
+                try self.emit("__ar_obj_blk: { const __ar_obj = ");
+                try parent.genExpr(self, attr.value.*);
+                try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
+                try self.emit(attr.attr);
+                try self.emit("\"(");
+                if (args.len > 2) {
+                    for (args[2..], 0..) |arg, i| {
+                        if (i > 0) try self.emit(", ");
+                        try parent.genExpr(self, arg);
+                    }
+                }
+                try self.emit("); }");
             }
-            try self.emit("); }");
         } else {
             // Local variable attribute - dynamic object method
             // Generate the call expression
@@ -470,6 +527,54 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             try self.emit("{}, .{}");
         }
         try self.emit(")");
+    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "next")) {
+        // Handle next() builtin specially - iterators need to be passed by pointer
+        try self.emit("runtime.builtins.next(&");
+        if (args.len > 2) {
+            try parent.genExpr(self, args[2]);
+        }
+        try self.emit(")");
+    } else if (args[1] == .name and self.callable_vars.contains(args[1].name.id)) {
+        // Callable variable (e.g., pow_op from iterating over operator structs)
+        // Needs .call() syntax: pow_op.call(args...)
+        try parent.genExpr(self, args[1]);
+        try self.emit(".call(");
+        if (args.len > 2) {
+            for (args[2..], 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try parent.genExpr(self, arg);
+            }
+        }
+        try self.emit(")");
+    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "format")) {
+        // format builtin is a callable struct - needs .call() and allocator
+        try self.emit("runtime.builtins.format.call(__global_allocator, ");
+        if (args.len > 2) {
+            for (args[2..], 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try parent.genExpr(self, arg);
+            }
+        }
+        try self.emit(")");
+    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "round")) {
+        // Handle round() builtin specially - it takes (value, .{ndigits...})
+        try self.emit("runtime.builtins.round(");
+        if (args.len > 2) {
+            try parent.genExpr(self, args[2]); // first arg (value)
+            try self.emit(", .{");
+            // Remaining args as tuple (ndigits)
+            if (args.len > 3) {
+                for (args[3..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            // No args to round() - this is an error but pass empty values
+            try self.emit("0, .{}");
+        }
+        try self.emit(")");
     } else {
         // Simple name or other callable
         try parent.genExpr(self, args[1]);
@@ -501,15 +606,76 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
     try self.emit("__ar_blk: { _ = ");
     try parent.genExpr(self, args[1]); // regex parameter
     try self.emit("; const __ar_call = ");
-    try parent.genExpr(self, args[2]);
-    try self.emit("(");
-    if (args.len > 3) {
-        for (args[3..], 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
-            try parent.genExpr(self, arg);
+
+    // Handle special callables that need runtime wrappers
+    if (args[2] == .name and std.mem.eql(u8, args[2].name.id, "int")) {
+        // Handle int() builtin specially
+        try self.emit("runtime.intBuiltinCall(");
+        if (args.len > 3) {
+            try parent.genExpr(self, args[3]); // first arg
+            try self.emit(", .{");
+            // Remaining args as tuple
+            if (args.len > 4) {
+                for (args[4..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            try self.emit("{}, .{}");
         }
+        try self.emit(")");
+    } else if (args[2] == .name and std.mem.eql(u8, args[2].name.id, "float")) {
+        // Handle float() builtin specially
+        try self.emit("runtime.floatBuiltinCall(");
+        if (args.len > 3) {
+            try parent.genExpr(self, args[3]); // first arg
+            try self.emit(", .{");
+            // Remaining args as tuple
+            if (args.len > 4) {
+                for (args[4..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            try self.emit("{}, .{}");
+        }
+        try self.emit(")");
+    } else if (args[2] == .name and std.mem.eql(u8, args[2].name.id, "round")) {
+        // Handle round() builtin specially - it takes (value, .{ndigits...})
+        try self.emit("runtime.builtins.round(");
+        if (args.len > 3) {
+            try parent.genExpr(self, args[3]); // first arg (value)
+            try self.emit(", .{");
+            // Remaining args as tuple (ndigits)
+            if (args.len > 4) {
+                for (args[4..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            // No args to round() - this is an error but pass empty values
+            try self.emit("0, .{}");
+        }
+        try self.emit(")");
+    } else {
+        // Generic callable
+        try parent.genExpr(self, args[2]);
+        try self.emit("(");
+        if (args.len > 3) {
+            for (args[3..], 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try parent.genExpr(self, arg);
+            }
+        }
+        try self.emit(")");
     }
-    try self.emit("); if (@typeInfo(@TypeOf(__ar_call)) == .error_union) { _ = __ar_call catch break :__ar_blk {}; @panic(\"assertRaisesRegex: expected exception\"); } }");
+    try self.emit("; if (@typeInfo(@TypeOf(__ar_call)) == .error_union) { _ = __ar_call catch break :__ar_blk {}; @panic(\"assertRaisesRegex: expected exception\"); } }");
 }
 
 /// Generate code for self.assertWarns(warning, callable, *args)
@@ -735,4 +901,19 @@ pub fn genSkipTest(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
     _ = args;
     // For AOT, we can't skip tests at runtime - just return
     try self.emit("return");
+}
+
+/// Generate code for self.assertFloatsAreIdentical(a, b)
+/// Checks that two floats are identical (same value and same sign for zeros)
+pub fn genAssertFloatsAreIdentical(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertFloatsAreIdentical requires 2 arguments\")");
+        return;
+    }
+    try self.emit("runtime.unittest.assertFloatsAreIdentical(");
+    try parent.genExpr(self, args[0]);
+    try self.emit(", ");
+    try parent.genExpr(self, args[1]);
+    try self.emit(")");
 }

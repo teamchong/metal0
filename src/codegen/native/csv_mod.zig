@@ -4,6 +4,19 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "reader", genReader },
+    .{ "writer", genWriter },
+    .{ "DictReader", genDictReader },
+    .{ "DictWriter", genDictWriter },
+    .{ "field_size_limit", genFieldSizeLimit },
+    .{ "QUOTE_ALL", genQuoteAll },
+    .{ "QUOTE_MINIMAL", genQuoteMinimal },
+    .{ "QUOTE_NONNUMERIC", genQuoteNonnumeric },
+    .{ "QUOTE_NONE", genQuoteNone },
+});
+
 /// Generate csv.reader(csvfile, delimiter=',', quotechar='"') -> reader object
 pub fn genReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

@@ -4,6 +4,51 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "tcgetattr", genTcgetattr },
+    .{ "tcsetattr", genTcsetattr },
+    .{ "tcsendbreak", genTcsendbreak },
+    .{ "tcdrain", genTcdrain },
+    .{ "tcflush", genTcflush },
+    .{ "tcflow", genTcflow },
+    .{ "tcgetwinsize", genTcgetwinsize },
+    .{ "tcsetwinsize", genTcsetwinsize },
+    .{ "TCSANOW", genTCSANOW },
+    .{ "TCSADRAIN", genTCSADRAIN },
+    .{ "TCSAFLUSH", genTCSAFLUSH },
+    .{ "TCIFLUSH", genTCIFLUSH },
+    .{ "TCOFLUSH", genTCOFLUSH },
+    .{ "TCIOFLUSH", genTCIOFLUSH },
+    .{ "TCOOFF", genTCOOFF },
+    .{ "TCOON", genTCOON },
+    .{ "TCIOFF", genTCIOFF },
+    .{ "TCION", genTCION },
+    .{ "ECHO", genECHO },
+    .{ "ECHOE", genECHOE },
+    .{ "ECHOK", genECHOK },
+    .{ "ECHONL", genECHONL },
+    .{ "ICANON", genICANON },
+    .{ "ISIG", genISIG },
+    .{ "IEXTEN", genIEXTEN },
+    .{ "ICRNL", genICRNL },
+    .{ "IXON", genIXON },
+    .{ "IXOFF", genIXOFF },
+    .{ "OPOST", genOPOST },
+    .{ "ONLCR", genONLCR },
+    .{ "CS8", genCS8 },
+    .{ "CREAD", genCREAD },
+    .{ "CLOCAL", genCLOCAL },
+    .{ "B9600", genB9600 },
+    .{ "B19200", genB19200 },
+    .{ "B38400", genB38400 },
+    .{ "B57600", genB57600 },
+    .{ "B115200", genB115200 },
+    .{ "VMIN", genVMIN },
+    .{ "VTIME", genVTIME },
+    .{ "NCCS", genNCCS },
+});
+
 /// Generate termios.tcgetattr(fd)
 pub fn genTcgetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

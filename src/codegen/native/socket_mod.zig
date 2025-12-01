@@ -4,6 +4,22 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "socket", genSocket },
+    .{ "create_connection", genCreateConnection },
+    .{ "gethostname", genGethostname },
+    .{ "getfqdn", genGetfqdn },
+    .{ "inet_aton", genInetAton },
+    .{ "inet_ntoa", genInetNtoa },
+    .{ "htons", genHtons },
+    .{ "htonl", genHtonl },
+    .{ "ntohs", genNtohs },
+    .{ "ntohl", genNtohl },
+    .{ "setdefaulttimeout", genSetdefaulttimeout },
+    .{ "getdefaulttimeout", genGetdefaulttimeout },
+});
+
 /// Generate socket.socket(family, type) -> socket object
 /// Creates a new socket (returns file descriptor as integer)
 pub fn genSocket(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

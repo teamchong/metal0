@@ -14,6 +14,13 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
     defer self.allocator.free(tmp_name);
     self.unpack_counter += 1;
 
+    // Infer the type of the source tuple to track element types
+    const source_type = try self.type_inferrer.inferExpr(assign.value.*);
+
+    // Check if source is a list/array type (uses [N] indexing) vs tuple (uses .@"N")
+    const source_tag = @as(std.meta.Tag(@TypeOf(source_type)), source_type);
+    const is_list_type = source_tag == .list or source_tag == .array;
+
     // Generate: const __unpack_tmp_N = value_expr;
     try self.emitIndent();
     try self.emit("const ");
@@ -22,12 +29,24 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
     try self.genExpr(assign.value.*);
     try self.emit(";\n");
 
-    // Generate: const a = __unpack_tmp_N.@"0";
-    //           const b = __unpack_tmp_N.@"1";
+    // Generate: const a = __unpack_tmp_N.@"0";  (for tuples)
+    // or:       const a = __unpack_tmp_N[0];    (for lists/arrays)
     for (target_tuple.elts, 0..) |target, i| {
         if (target == .name) {
             const var_name = target.name.id;
             const is_first_assignment = !self.isDeclared(var_name);
+
+            // Register the type for this unpacked variable
+            // Extract element type from source tuple if available
+            if (source_tag == .tuple) {
+                if (i < source_type.tuple.len) {
+                    try self.type_inferrer.var_types.put(var_name, source_type.tuple[i]);
+                }
+            } else if (source_tag == .list) {
+                try self.type_inferrer.var_types.put(var_name, source_type.list.*);
+            } else if (source_tag == .array) {
+                try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
+            }
 
             try self.emitIndent();
             if (is_first_assignment) {
@@ -38,7 +57,13 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             const actual_name = self.var_renames.get(var_name) orelse var_name;
             // Use writeLocalVarName to handle keywords AND method shadowing
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
-            try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+            if (is_list_type) {
+                // Use .items[i] for ArrayLists: __unpack_tmp_N.items[i]
+                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+            } else {
+                // Use tuple field access: __unpack_tmp_N.@"i"
+                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+            }
         }
     }
 }
@@ -50,6 +75,11 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
     defer self.allocator.free(tmp_name);
     self.unpack_counter += 1;
 
+    // Infer the type of the source to determine indexing style
+    const source_type = try self.type_inferrer.inferExpr(assign.value.*);
+    const source_tag = @as(std.meta.Tag(@TypeOf(source_type)), source_type);
+    const is_list_type = source_tag == .list or source_tag == .array;
+
     // Generate: const __unpack_tmp_N = value_expr;
     try self.emitIndent();
     try self.emit("const ");
@@ -58,12 +88,23 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
     try self.genExpr(assign.value.*);
     try self.emit(";\n");
 
-    // Generate: const a = __unpack_tmp_N.@"0";
-    //           const b = __unpack_tmp_N.@"1";
+    // Generate: const a = __unpack_tmp_N.@"0";  (for tuples)
+    // or:       const a = __unpack_tmp_N[0];    (for lists/arrays)
     for (target_list.elts, 0..) |target, i| {
         if (target == .name) {
             const var_name = target.name.id;
             const is_first_assignment = !self.isDeclared(var_name);
+
+            // Register element type for unpacked variable
+            if (source_tag == .tuple) {
+                if (i < source_type.tuple.len) {
+                    try self.type_inferrer.var_types.put(var_name, source_type.tuple[i]);
+                }
+            } else if (source_tag == .list) {
+                try self.type_inferrer.var_types.put(var_name, source_type.list.*);
+            } else if (source_tag == .array) {
+                try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
+            }
 
             try self.emitIndent();
             if (is_first_assignment) {
@@ -74,7 +115,13 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             const actual_name = self.var_renames.get(var_name) orelse var_name;
             // Use writeLocalVarName to handle keywords AND method shadowing
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
-            try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+            if (is_list_type) {
+                // Use .items[i] for ArrayLists: __unpack_tmp_N.items[i]
+                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+            } else {
+                // Use tuple field access: __unpack_tmp_N.@"i"
+                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+            }
         }
     }
 }
@@ -88,6 +135,7 @@ pub fn emitVarDeclaration(
     is_dict: bool,
     is_mutable_class_instance: bool,
     is_listcomp: bool,
+    is_iterator: bool,
 ) CodegenError!void {
     // Check if variable is mutated (reassigned later)
     // This checks both module-level analysis AND function-local mutations
@@ -98,8 +146,19 @@ pub fn emitVarDeclaration(
     const is_mutable_collection = (value_type == .deque or value_type == .counter or value_type == .hash_object);
 
     // List comprehensions return ArrayLists which need var for deinit()
+    // Iterators need var because next() mutates them
     // Note: hash_object types can use const unless explicitly mutated (is_mutated check)
-    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or is_mutated or is_listcomp or is_mutable_collection;
+    // Note: We do NOT check hasAttrMutation here because the mutation analyzer is module-scoped,
+    // not function-scoped. Different variables named 'o' in different functions would collide.
+    // Instead, setattr/delattr codegen uses the object directly (not copying it).
+    //
+    // Special case for class instances: If the class doesn't have mutating methods, even if
+    // the variable is "mutated" (reassigned to different types), those reassignments become
+    // shadowed variables (const with unique suffix), not actual mutations of this variable.
+    // So we use const unless the class itself has mutating methods.
+    const is_immutable_class_instance = (value_type == .class_instance) and !is_mutable_class_instance;
+    const effective_is_mutated = if (is_immutable_class_instance) false else is_mutated;
+    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or effective_is_mutated or is_listcomp or is_mutable_collection or is_iterator;
 
     if (needs_var) {
         try self.emit("var ");
@@ -158,12 +217,14 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     var elem_type: NativeType = if (list.elts.len > 0)
         try self.type_inferrer.inferExpr(list.elts[0])
     else
-        .int; // Default to int for empty lists
+        .{ .int = .bounded }; // Default to int for empty lists
 
     // Widen type to accommodate all elements
-    for (list.elts[1..]) |elem| {
-        const this_type = try self.type_inferrer.inferExpr(elem);
-        elem_type = elem_type.widen(this_type);
+    if (list.elts.len > 1) {
+        for (list.elts[1..]) |elem| {
+            const this_type = try self.type_inferrer.inferExpr(elem);
+            elem_type = elem_type.widen(this_type);
+        }
     }
 
     if (has_predeclared_type) {

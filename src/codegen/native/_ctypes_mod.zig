@@ -2,6 +2,57 @@
 const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "CDLL", genCDLL },
+    .{ "PyDLL", genPyDLL },
+    .{ "WinDLL", genWinDLL },
+    .{ "OleDLL", genOleDLL },
+    .{ "dlopen", genDlopen },
+    .{ "dlclose", genDlclose },
+    .{ "dlsym", genDlsym },
+    .{ "FUNCFLAG_CDECL", genFuncflagCdecl },
+    .{ "FUNCFLAG_USE_ERRNO", genFuncflagUseErrno },
+    .{ "FUNCFLAG_USE_LASTERROR", genFuncflagUseLastError },
+    .{ "FUNCFLAG_PYTHONAPI", genFuncflagPythonapi },
+    .{ "sizeof", genSizeof },
+    .{ "alignment", genAlignment },
+    .{ "byref", genByref },
+    .{ "addressof", genAddressof },
+    .{ "POINTER", genPOINTER },
+    .{ "pointer", genPointer },
+    .{ "cast", genCast },
+    .{ "set_errno", genSetErrno },
+    .{ "get_errno", genGetErrno },
+    .{ "resize", genResize },
+    .{ "c_void_p", genCVoidP },
+    .{ "c_char_p", genCCharP },
+    .{ "c_wchar_p", genCWcharP },
+    .{ "c_bool", genCBool },
+    .{ "c_char", genCChar },
+    .{ "c_wchar", genCWchar },
+    .{ "c_byte", genCByte },
+    .{ "c_ubyte", genCUbyte },
+    .{ "c_short", genCShort },
+    .{ "c_ushort", genCUshort },
+    .{ "c_int", genCInt },
+    .{ "c_uint", genCUint },
+    .{ "c_long", genCLong },
+    .{ "c_ulong", genCUlong },
+    .{ "c_longlong", genCLonglong },
+    .{ "c_ulonglong", genCUlonglong },
+    .{ "c_size_t", genCSizeT },
+    .{ "c_ssize_t", genCSSizeT },
+    .{ "c_float", genCFloat },
+    .{ "c_double", genCDouble },
+    .{ "c_longdouble", genCLongdouble },
+    .{ "Structure", genStructure },
+    .{ "Union", genUnion },
+    .{ "Array", genArray },
+    .{ "ArgumentError", genArgumentError },
+});
+
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 /// Generate _ctypes.CDLL(name, mode=DEFAULT_MODE, handle=None, use_errno=False, use_last_error=False, winmode=None)

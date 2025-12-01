@@ -4,6 +4,24 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+/// Handler function type
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// datetime.datetime module functions (for datetime.datetime.now())
+pub const DatetimeFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "now", genDatetimeNow },
+});
+
+/// datetime.date module functions (for datetime.date.today())
+pub const DateFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "today", genDateToday },
+});
+
+/// datetime module functions (for datetime.timedelta())
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "timedelta", genTimedelta },
+});
+
 /// Generate code for datetime.datetime.now()
 /// Returns current datetime as string
 pub fn genDatetimeNow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

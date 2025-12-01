@@ -318,6 +318,19 @@ pub fn visitStmtScoped(
                             }
                         }
                     }
+                } else if (for_stmt.iter.* == .list and for_stmt.iter.list.elts.len > 0) {
+                    // Tuple unpacking from list literal: for f, ratio in [(0.875, (7, 8)), ...]
+                    // Infer element types from first tuple in the list
+                    const first_elem = for_stmt.iter.list.elts[0];
+                    if (first_elem == .tuple and first_elem.tuple.elts.len >= targets.len) {
+                        // Infer type of each target from corresponding tuple element
+                        for (targets, 0..) |target, i| {
+                            if (target == .name) {
+                                const elem_type = inferExprFn(allocator, var_types, class_fields, func_return_types, first_elem.tuple.elts[i]) catch .unknown;
+                                try var_types.put(target.name.id, elem_type);
+                            }
+                        }
+                    }
                 }
             } else if (for_stmt.target.* == .name) {
                 // Single loop var: for item in items or for i in range(...)
@@ -365,7 +378,16 @@ pub fn visitStmtScoped(
                         .sqlite_rows => .sqlite_row, // []sqlite3.Row -> sqlite3.Row
                         // If iterator is typed as .int (common when param has no annotation),
                         // it's likely actually a list of ints. Use .int for elements.
-                        .int => .int,
+                        .int => |kind| NativeType{ .int = kind },
+                        // Iterating over a tuple variable: widen all element types to get common type
+                        .tuple => |tuple_types| blk: {
+                            if (tuple_types.len == 0) break :blk .unknown;
+                            var widened = tuple_types[0];
+                            for (tuple_types[1..]) |t| {
+                                widened = widened.widen(t);
+                            }
+                            break :blk widened;
+                        },
                         else => .unknown,
                     };
                     try var_types.put(target_name, elem_type);
@@ -440,7 +462,7 @@ pub fn visitStmtScoped(
 /// Infer type from constant literal
 fn inferConstant(value: ast.Value) InferError!NativeType {
     return switch (value) {
-        .int => .int,
+        .int => .{ .int = .bounded },
         .bigint => .bigint, // Large integers are BigInt
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants

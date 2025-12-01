@@ -4,6 +4,25 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "SMTP", genSMTP },
+    .{ "SMTP_SSL", genSMTP_SSL },
+    .{ "LMTP", genLMTP },
+    .{ "SMTP_PORT", genSMTP_PORT },
+    .{ "SMTP_SSL_PORT", genSMTP_SSL_PORT },
+    .{ "SMTPException", genSMTPException },
+    .{ "SMTPServerDisconnected", genSMTPServerDisconnected },
+    .{ "SMTPResponseException", genSMTPResponseException },
+    .{ "SMTPSenderRefused", genSMTPSenderRefused },
+    .{ "SMTPRecipientsRefused", genSMTPRecipientsRefused },
+    .{ "SMTPDataError", genSMTPDataError },
+    .{ "SMTPConnectError", genSMTPConnectError },
+    .{ "SMTPHeloError", genSMTPHeloError },
+    .{ "SMTPAuthenticationError", genSMTPAuthenticationError },
+    .{ "SMTPNotSupportedError", genSMTPNotSupportedError },
+});
+
 /// Generate smtplib.SMTP class
 pub fn genSMTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

@@ -1,6 +1,21 @@
 /// Python copyreg module - Register pickle support functions
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "pickle", genPickle },
+    .{ "constructor", genConstructor },
+    .{ "dispatch_table", genDispatch_table },
+    .{ "_extension_registry", gen_extension_registry },
+    .{ "_inverted_registry", gen_inverted_registry },
+    .{ "_extension_cache", gen_extension_cache },
+    .{ "add_extension", genAdd_extension },
+    .{ "remove_extension", genRemove_extension },
+    .{ "clear_extension_cache", genClear_extension_cache },
+    .{ "__newobj__", gen__newobj__ },
+    .{ "__newobj_ex__", gen__newobj_ex__ },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

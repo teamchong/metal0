@@ -137,3 +137,15 @@ pub fn genTotalOrdering(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     _ = args;
     try self.emit("struct { pub fn wrap(cls: anytype) @TypeOf(cls) { return cls; } }.wrap");
 }
+
+// Function map for module_functions.zig
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "partial", genPartial },
+    .{ "reduce", genReduce },
+    .{ "lru_cache", genLruCache },
+    .{ "cache", genCache },
+    .{ "wraps", genWraps },
+    .{ "cmp_to_key", genCmpToKey },
+    .{ "total_ordering", genTotalOrdering },
+});

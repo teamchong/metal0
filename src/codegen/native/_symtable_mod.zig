@@ -4,6 +4,21 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "symtable", genSymtable },
+    .{ "s_c_o_p_e__o_f_f", genSCOPE_OFF },
+    .{ "s_c_o_p_e__m_a_s_k", genSCOPE_MASK },
+    .{ "l_o_c_a_l", genLOCAL },
+    .{ "g_l_o_b_a_l__e_x_p_l_i_c_i_t", genGLOBAL_EXPLICIT },
+    .{ "g_l_o_b_a_l__i_m_p_l_i_c_i_t", genGLOBAL_IMPLICIT },
+    .{ "f_r_e_e", genFREE },
+    .{ "c_e_l_l", genCELL },
+    .{ "t_y_p_e__f_u_n_c_t_i_o_n", genTYPE_FUNCTION },
+    .{ "t_y_p_e__c_l_a_s_s", genTYPE_CLASS },
+    .{ "t_y_p_e__m_o_d_u_l_e", genTYPE_MODULE },
+});
+
 /// Generate _symtable.symtable(code, filename, compile_type)
 pub fn genSymtable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

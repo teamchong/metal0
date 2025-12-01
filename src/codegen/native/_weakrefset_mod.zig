@@ -4,6 +4,26 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "WeakSet", genWeakSet },
+    .{ "add", genAdd },
+    .{ "discard", genDiscard },
+    .{ "remove", genRemove },
+    .{ "pop", genPop },
+    .{ "clear", genClear },
+    .{ "copy", genCopy },
+    .{ "update", genUpdate },
+    .{ "__len__", genLen },
+    .{ "__contains__", genContains },
+    .{ "issubset", genIssubset },
+    .{ "issuperset", genIssuperset },
+    .{ "union", genUnion },
+    .{ "intersection", genIntersection },
+    .{ "difference", genDifference },
+    .{ "symmetric_difference", genSymmetricDifference },
+});
+
 /// Generate _weakrefset.WeakSet(data=None)
 pub fn genWeakSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

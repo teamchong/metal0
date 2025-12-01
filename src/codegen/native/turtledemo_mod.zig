@@ -4,6 +4,30 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "main", genMain },
+    .{ "bytedesign", genBytedesign },
+    .{ "chaos", genChaos },
+    .{ "clock", genClock },
+    .{ "colormixer", genColormixer },
+    .{ "forest", genForest },
+    .{ "fractalcurves", genFractalcurves },
+    .{ "lindenmayer", genLindenmayer },
+    .{ "minimal_hanoi", genMinimalHanoi },
+    .{ "nim", genNim },
+    .{ "paint", genPaint },
+    .{ "peace", genPeace },
+    .{ "penrose", genPenrose },
+    .{ "planet_and_moon", genPlanetAndMoon },
+    .{ "rosette", genRosette },
+    .{ "round_dance", genRoundDance },
+    .{ "sorting_animate", genSortingAnimate },
+    .{ "tree", genTree },
+    .{ "two_canvases", genTwoCanvases },
+    .{ "yinyang", genYinyang },
+});
+
 /// Generate turtledemo.main() - Run demo main
 pub fn genMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

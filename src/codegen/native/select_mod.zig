@@ -4,6 +4,51 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "select", genSelect },
+    .{ "poll", genPoll },
+    .{ "epoll", genEpoll },
+    .{ "devpoll", genDevpoll },
+    .{ "kqueue", genKqueue },
+    .{ "kevent", genKevent },
+    .{ "POLLIN", genPOLLIN },
+    .{ "POLLPRI", genPOLLPRI },
+    .{ "POLLOUT", genPOLLOUT },
+    .{ "POLLERR", genPOLLERR },
+    .{ "POLLHUP", genPOLLHUP },
+    .{ "POLLNVAL", genPOLLNVAL },
+    .{ "EPOLLIN", genEPOLLIN },
+    .{ "EPOLLOUT", genEPOLLOUT },
+    .{ "EPOLLPRI", genEPOLLPRI },
+    .{ "EPOLLERR", genEPOLLERR },
+    .{ "EPOLLHUP", genEPOLLHUP },
+    .{ "EPOLLET", genEPOLLET },
+    .{ "EPOLLONESHOT", genEPOLLONESHOT },
+    .{ "EPOLLEXCLUSIVE", genEPOLLEXCLUSIVE },
+    .{ "EPOLLRDHUP", genEPOLLRDHUP },
+    .{ "EPOLLRDNORM", genEPOLLRDNORM },
+    .{ "EPOLLRDBAND", genEPOLLRDBAND },
+    .{ "EPOLLWRNORM", genEPOLLWRNORM },
+    .{ "EPOLLWRBAND", genEPOLLWRBAND },
+    .{ "EPOLLMSG", genEPOLLMSG },
+    .{ "KQ_FILTER_READ", genKQ_FILTER_READ },
+    .{ "KQ_FILTER_WRITE", genKQ_FILTER_WRITE },
+    .{ "KQ_FILTER_AIO", genKQ_FILTER_AIO },
+    .{ "KQ_FILTER_VNODE", genKQ_FILTER_VNODE },
+    .{ "KQ_FILTER_PROC", genKQ_FILTER_PROC },
+    .{ "KQ_FILTER_SIGNAL", genKQ_FILTER_SIGNAL },
+    .{ "KQ_FILTER_TIMER", genKQ_FILTER_TIMER },
+    .{ "KQ_EV_ADD", genKQ_EV_ADD },
+    .{ "KQ_EV_DELETE", genKQ_EV_DELETE },
+    .{ "KQ_EV_ENABLE", genKQ_EV_ENABLE },
+    .{ "KQ_EV_DISABLE", genKQ_EV_DISABLE },
+    .{ "KQ_EV_ONESHOT", genKQ_EV_ONESHOT },
+    .{ "KQ_EV_CLEAR", genKQ_EV_CLEAR },
+    .{ "KQ_EV_EOF", genKQ_EV_EOF },
+    .{ "KQ_EV_ERROR", genKQ_EV_ERROR },
+});
+
 /// Generate select.select(rlist, wlist, xlist, timeout=None)
 pub fn genSelect(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

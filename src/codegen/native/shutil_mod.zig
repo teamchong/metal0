@@ -4,6 +4,23 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "copy", genCopy },
+    .{ "copy2", genCopy2 },
+    .{ "copyfile", genCopyfile },
+    .{ "copystat", genCopystat },
+    .{ "copymode", genCopymode },
+    .{ "move", genMove },
+    .{ "rmtree", genRmtree },
+    .{ "copytree", genCopytree },
+    .{ "disk_usage", genDiskUsage },
+    .{ "which", genWhich },
+    .{ "get_terminal_size", genGetTerminalSize },
+    .{ "make_archive", genMakeArchive },
+    .{ "unpack_archive", genUnpackArchive },
+});
+
 /// Generate shutil.copy(src, dst) -> dst
 pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;

@@ -4,6 +4,22 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "dataclass", genDataclass },
+    .{ "field", genField },
+    .{ "Field", genFieldClass },
+    .{ "fields", genFields },
+    .{ "asdict", genAsdict },
+    .{ "astuple", genAstuple },
+    .{ "make_dataclass", genMakeDataclass },
+    .{ "replace", genReplace },
+    .{ "is_dataclass", genIsDataclass },
+    .{ "MISSING", genMISSING },
+    .{ "KW_ONLY", genKW_ONLY },
+    .{ "FrozenInstanceError", genFrozenInstanceError },
+});
+
 /// Generate @dataclasses.dataclass decorator
 pub fn genDataclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Decorator returns the class as-is (transformation is compile-time)

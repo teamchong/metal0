@@ -4,6 +4,17 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "_idfunc", genIdfunc },
+    .{ "TypeVar", genTypeVar },
+    .{ "ParamSpec", genParamSpec },
+    .{ "TypeVarTuple", genTypeVarTuple },
+    .{ "ParamSpecArgs", genParamSpecArgs },
+    .{ "ParamSpecKwargs", genParamSpecKwargs },
+    .{ "Generic", genGeneric },
+});
+
 /// Generate _typing._idfunc(x)
 pub fn genIdfunc(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

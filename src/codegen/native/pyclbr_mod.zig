@@ -1,6 +1,14 @@
 /// Python pyclbr module - Python class browser support
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "readmodule", genReadmodule },
+    .{ "readmodule_ex", genReadmoduleEx },
+    .{ "Class", genClass },
+    .{ "Function", genFunction },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

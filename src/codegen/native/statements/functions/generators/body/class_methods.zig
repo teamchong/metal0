@@ -235,12 +235,33 @@ pub fn genInitMethod(
                 if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
                     const field_name = attr.attr;
 
+                    // Check if this is a passthrough field (value comes from untyped parameter)
+                    const is_passthrough = blk: {
+                        if (assign.value.* == .name) {
+                            const param_name = assign.value.name.id;
+                            for (init.args) |arg| {
+                                if (std.mem.eql(u8, arg.name, param_name) and arg.type_annotation == null) {
+                                    break :blk true;
+                                }
+                            }
+                        }
+                        break :blk false;
+                    };
+
                     try self.emitIndent();
                     // Escape field name if it's a Zig keyword (e.g., "test")
                     try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
-                    try self.genExpr(assign.value.*);
+
+                    if (is_passthrough) {
+                        // Wrap passthrough value in PyValue using runtime helper
+                        try self.emit("runtime.PyValue.from(");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(")");
+                    } else {
+                        try self.genExpr(assign.value.*);
+                    }
                     try self.emit(",\n");
                 }
             }
@@ -300,6 +321,7 @@ pub fn genInitMethodWithBuiltinBase(
     } else {
         // Use user-defined __init__ parameters (skip 'self')
         const param_analyzer = @import("../../param_analyzer.zig");
+        var is_first_param = true;
         for (init.args) |arg| {
             if (std.mem.eql(u8, arg.name, "self")) continue;
 
@@ -307,16 +329,22 @@ pub fn genInitMethodWithBuiltinBase(
 
             // Check if parameter is used in init body (excluding parent __init__ calls)
             // Parent calls are skipped in codegen, so params only used there are unused
-            const is_used = param_analyzer.isNameUsedInInitBody(init.body, arg.name);
+            // EXCEPTION: For builtin subclasses, the first parameter is always used for __base_value__
+            const is_base_value_param = is_first_param and builtin_base != null;
+            const is_used = is_base_value_param or param_analyzer.isNameUsedInInitBody(init.body, arg.name);
             if (!is_used) {
                 try self.emit("_");
             }
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
             try self.emit(": ");
+            is_first_param = false;
 
             // Type annotation: prefer type hints, fallback to inference
             if (arg.type_annotation) |_| {
                 try self.emit(signature.pythonTypeToZig(arg.type_annotation));
+            } else if (is_base_value_param and builtin_base != null) {
+                // For builtin subclass, first param type matches the builtin type
+                try self.emit(builtin_base.?.zig_type);
             } else {
                 const param_type = try class_fields.inferParamType(self, class_name, init, arg.name);
                 defer self.allocator.free(param_type);
@@ -372,9 +400,24 @@ pub fn genInitMethodWithBuiltinBase(
     }
 
     // Initialize builtin base value first if present
-    if (builtin_base) |base_info| {
+    if (builtin_base) |_| {
         try self.emitIndent();
-        try self.output.writer(self.allocator).print(".__base_value__ = {s},\n", .{base_info.zig_init});
+        // For user-defined __init__, use the first non-self parameter as the base value
+        // (e.g., class MyFloat(float): def __init__(self, arg): ... -> use arg as base value)
+        // For default init without user params, use the builtin's zig_init (e.g., "value")
+        if (has_user_params) {
+            // Find first non-self parameter
+            for (init.args) |arg| {
+                if (std.mem.eql(u8, arg.name, "self")) continue;
+                // Use the escaped parameter name (handles Zig keywords)
+                try self.emit(".__base_value__ = ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                try self.emit(",\n");
+                break;
+            }
+        } else {
+            try self.output.writer(self.allocator).print(".__base_value__ = {s},\n", .{builtin_base.?.zig_init});
+        }
     }
 
     // Initialize complex parent fields (e.g., array.array fields)
@@ -412,11 +455,249 @@ pub fn genInitMethodWithBuiltinBase(
                 if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
                     const field_name = attr.attr;
 
+                    // Check if this is a passthrough field (value comes from untyped parameter)
+                    const is_passthrough = blk: {
+                        if (assign.value.* == .name) {
+                            const param_name = assign.value.name.id;
+                            for (init.args) |arg| {
+                                if (std.mem.eql(u8, arg.name, param_name) and arg.type_annotation == null) {
+                                    break :blk true;
+                                }
+                            }
+                        }
+                        break :blk false;
+                    };
+
                     try self.emitIndent();
                     try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
-                    try self.genExpr(assign.value.*);
+
+                    if (is_passthrough) {
+                        // Wrap passthrough value in PyValue
+                        try self.emit("runtime.PyValue.from(");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(")");
+                    } else {
+                        try self.genExpr(assign.value.*);
+                    }
+                    try self.emit(",\n");
+                }
+            }
+        }
+    }
+
+    // Initialize __dict__ for dynamic attributes
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init({s}),\n", .{alloc_name});
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+}
+
+/// Generate init() method from __new__ when no __init__ exists
+/// Python's __new__ is a class method that creates the instance, but metal0 needs
+/// a regular init() function. We use __new__'s parameters (skipping cls) for init.
+pub fn genInitMethodFromNew(
+    self: *NativeCodegen,
+    class_name: []const u8,
+    new_method: ast.Node.FunctionDef,
+    builtin_base: ?BuiltinBaseInfo,
+    complex_parent: ?generators.ComplexParentInfo,
+    captured_vars: ?[][]const u8,
+) CodegenError!void {
+    // Use __alloc for nested classes to avoid shadowing outer allocator
+    const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
+
+    try self.emit("\n");
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
+
+    // Add captured variable pointer parameters
+    if (captured_vars) |vars| {
+        for (vars) |var_name| {
+            try self.emit(", ");
+            try self.output.writer(self.allocator).print("__cap_{s}: *std.ArrayList(i64)", .{var_name});
+        }
+    }
+
+    // Use __new__ parameters (skip 'cls' - first param)
+    // __new__ signature: def __new__(cls, arg, newarg=None): ...
+    // init signature should be: init(allocator, arg, newarg)
+    const param_analyzer = @import("../../param_analyzer.zig");
+    var is_first_non_cls = true;
+    for (new_method.args) |arg| {
+        // Skip 'cls' (first param of __new__)
+        if (std.mem.eql(u8, arg.name, "cls")) continue;
+
+        try self.emit(", ");
+
+        // For builtin subclass, the first non-cls parameter is the base value
+        const is_base_value_param = is_first_non_cls and builtin_base != null;
+        const is_used = is_base_value_param or param_analyzer.isNameUsedInInitBody(new_method.body, arg.name);
+        if (!is_used) {
+            try self.emit("_");
+        }
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+        try self.emit(": ");
+        is_first_non_cls = false;
+
+        // Type annotation: prefer type hints, fallback to inference
+        if (arg.type_annotation) |_| {
+            try self.emit(signature.pythonTypeToZig(arg.type_annotation));
+        } else if (is_base_value_param and builtin_base != null) {
+            // For builtin subclass, first param type matches the builtin type
+            try self.emit(builtin_base.?.zig_type);
+        } else {
+            const param_type = try class_fields.inferParamType(self, class_name, new_method, arg.name);
+            defer self.allocator.free(param_type);
+            try self.emit(param_type);
+        }
+    }
+
+    // Use @This() for self-referential return type
+    try self.emit(") @This() {\n");
+    self.indent();
+
+    // Set captured vars context for expression generation
+    self.current_class_captures = captured_vars;
+    self.inside_init_method = true;
+    defer self.current_class_captures = null;
+    defer self.inside_init_method = false;
+
+    // First pass: generate non-field statements from __new__ body
+    // Skip super().__new__() calls and return statements
+    for (new_method.body) |stmt| {
+        const is_field_assign = blk: {
+            if (stmt == .assign) {
+                const assign = stmt.assign;
+                if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                    const attr = assign.targets[0].attribute;
+                    // Check for self.x = ... (where self might be named differently)
+                    if (attr.value.* == .name) {
+                        const target_name = attr.value.name.id;
+                        // In __new__, 'self' is typically assigned from super().__new__()
+                        if (std.mem.eql(u8, target_name, "self")) {
+                            break :blk true;
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        };
+
+        const is_super_new_or_return = blk: {
+            // Skip: self = super().__new__(cls, arg)
+            if (stmt == .assign) {
+                const assign = stmt.assign;
+                if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                    if (std.mem.eql(u8, assign.targets[0].name.id, "self")) {
+                        break :blk true;
+                    }
+                }
+            }
+            // Skip: return self
+            if (stmt == .return_stmt) {
+                break :blk true;
+            }
+            break :blk false;
+        };
+
+        // Generate non-field, non-super-new statements
+        if (!is_field_assign and !is_super_new_or_return) {
+            try self.generateStmt(stmt);
+        }
+    }
+
+    // Generate return statement with field initializers
+    try self.emitIndent();
+    try self.emit("return @This(){\n");
+    self.indent();
+
+    // Initialize captured variable pointers first
+    if (captured_vars) |vars| {
+        for (vars) |var_name| {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print(".__captured_{s} = __cap_{s},\n", .{ var_name, var_name });
+        }
+    }
+
+    // Initialize builtin base value first if present
+    if (builtin_base) |_| {
+        try self.emitIndent();
+        // Use the first non-cls parameter as the base value
+        for (new_method.args) |arg| {
+            if (std.mem.eql(u8, arg.name, "cls")) continue;
+            try self.emit(".__base_value__ = ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(",\n");
+            break;
+        }
+    }
+
+    // Initialize complex parent fields
+    if (complex_parent) |parent_info| {
+        for (parent_info.fields) |field| {
+            const is_user_initialized = for (new_method.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                        const attr = assign.targets[0].attribute;
+                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                            if (std.mem.eql(u8, attr.attr, field.name)) {
+                                break true;
+                            }
+                        }
+                    }
+                }
+            } else false;
+
+            if (!is_user_initialized) {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print(".{s} = {s},\n", .{ field.name, field.default });
+            }
+        }
+    }
+
+    // Second pass: extract field assignments from __new__ body (self.x = value)
+    for (new_method.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                const attr = assign.targets[0].attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                    const field_name = attr.attr;
+
+                    // Check if this is a passthrough field
+                    const is_passthrough = blk: {
+                        if (assign.value.* == .name) {
+                            const param_name = assign.value.name.id;
+                            for (new_method.args) |arg| {
+                                if (std.mem.eql(u8, arg.name, param_name) and arg.type_annotation == null) {
+                                    break :blk true;
+                                }
+                            }
+                        }
+                        break :blk false;
+                    };
+
+                    try self.emitIndent();
+                    try self.emit(".");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
+                    try self.emit(" = ");
+
+                    if (is_passthrough) {
+                        try self.emit("runtime.PyValue.from(");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(")");
+                    } else {
+                        try self.genExpr(assign.value.*);
+                    }
                     try self.emit(",\n");
                 }
             }
@@ -442,20 +723,25 @@ pub fn genClassMethods(
     class: ast.Node.ClassDef,
     captured_vars: ?[][]const u8,
 ) CodegenError!void {
-    // Set current class name for super() support
+    // Save previous class context (for nested classes inside methods)
+    const prev_class_name = self.current_class_name;
+    const prev_captures = self.current_class_captures;
+    const prev_parent = self.current_class_parent;
+
+    // Set current class name for super() support and self.method() allocator detection
     self.current_class_name = class.name;
-    defer self.current_class_name = null;
+    defer self.current_class_name = prev_class_name;
 
     // Set current class's captured variables for expression generation
     // This allows the expression generator to convert `var_name` to `self.__captured_var_name.*`
     self.current_class_captures = captured_vars;
-    defer self.current_class_captures = null;
+    defer self.current_class_captures = prev_captures;
 
     // Set current class parent for parent method call resolution (e.g., array.array.__getitem__(self, i))
     if (class.bases.len > 0) {
         self.current_class_parent = class.bases[0];
     }
-    defer self.current_class_parent = null;
+    defer self.current_class_parent = prev_parent;
 
     for (class.body) |stmt| {
         if (stmt == .function_def) {

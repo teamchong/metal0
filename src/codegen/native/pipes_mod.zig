@@ -1,6 +1,23 @@
 /// Python pipes module - Interface to shell pipelines (deprecated in 3.11)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Template", genTemplate },
+    .{ "reset", genReset },
+    .{ "clone", genClone },
+    .{ "debug", genDebug },
+    .{ "append", genAppend },
+    .{ "prepend", genPrepend },
+    .{ "open", genOpen },
+    .{ "copy", genCopy },
+    .{ "FILEIN_FILEOUT", genFileInFileOut },
+    .{ "STDIN_FILEOUT", genStdinFileOut },
+    .{ "FILEIN_STDOUT", genFileInStdout },
+    .{ "STDIN_STDOUT", genStdinStdout },
+    .{ "quote", genQuote },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

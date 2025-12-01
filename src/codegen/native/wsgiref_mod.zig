@@ -1,6 +1,18 @@
 /// Python wsgiref module - WSGI utilities and reference implementation
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "validator", genValidator },
+    .{ "assert_", genAssert_ },
+    .{ "check_status", genCheck_status },
+    .{ "check_headers", genCheck_headers },
+    .{ "check_content_type", genCheck_content_type },
+    .{ "check_exc_info", genCheck_exc_info },
+    .{ "check_environ", genCheck_environ },
+    .{ "WSGIWarning", genWSGIWarning },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

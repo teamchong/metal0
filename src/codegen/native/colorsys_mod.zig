@@ -1,6 +1,16 @@
 /// Python colorsys module - Color system conversions
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "rgb_to_yiq", genRgb_to_yiq },
+    .{ "yiq_to_rgb", genYiq_to_rgb },
+    .{ "rgb_to_hls", genRgb_to_hls },
+    .{ "hls_to_rgb", genHls_to_rgb },
+    .{ "rgb_to_hsv", genRgb_to_hsv },
+    .{ "hsv_to_rgb", genHsv_to_rgb },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

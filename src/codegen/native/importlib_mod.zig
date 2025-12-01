@@ -1,6 +1,22 @@
 /// Python importlib module - Import system utilities
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ModuleSpec", genModuleSpec },
+    .{ "BuiltinImporter", genBuiltinImporter },
+    .{ "FrozenImporter", genFrozenImporter },
+    .{ "PathFinder", genPathFinder },
+    .{ "FileFinder", genFileFinder },
+    .{ "SourceFileLoader", genSourceFileLoader },
+    .{ "SourcelessFileLoader", genSourcelessFileLoader },
+    .{ "ExtensionFileLoader", genExtensionFileLoader },
+    .{ "SOURCE_SUFFIXES", genSOURCE_SUFFIXES },
+    .{ "BYTECODE_SUFFIXES", genBYTECODE_SUFFIXES },
+    .{ "EXTENSION_SUFFIXES", genEXTENSION_SUFFIXES },
+    .{ "all_suffixes", genAll_suffixes },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

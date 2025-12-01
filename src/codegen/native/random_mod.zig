@@ -4,6 +4,23 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "random", genRandom },
+    .{ "randint", genRandint },
+    .{ "randrange", genRandrange },
+    .{ "choice", genChoice },
+    .{ "choices", genChoices },
+    .{ "shuffle", genShuffle },
+    .{ "sample", genSample },
+    .{ "uniform", genUniform },
+    .{ "gauss", genGauss },
+    .{ "seed", genSeed },
+    .{ "getstate", genGetstate },
+    .{ "setstate", genSetstate },
+    .{ "getrandbits", genGetrandbits },
+});
+
 /// Generate random.random() -> float in [0.0, 1.0)
 pub fn genRandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

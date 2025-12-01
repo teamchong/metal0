@@ -4,6 +4,15 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "POP3", genPOP3 },
+    .{ "POP3_SSL", genPOP3_SSL },
+    .{ "POP3_PORT", genPOP3_PORT },
+    .{ "POP3_SSL_PORT", genPOP3_SSL_PORT },
+    .{ "error_proto", genError_proto },
+});
+
 /// Generate poplib.POP3 class
 pub fn genPOP3(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

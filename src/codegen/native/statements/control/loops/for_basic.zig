@@ -308,6 +308,12 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
 /// Generate for loop
 pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
+    // Set scope ID for scope-aware mutation tracking
+    // Each loop body is a unique scope (using pointer address)
+    const saved_scope_id = self.current_scope_id;
+    self.current_scope_id = @intFromPtr(for_stmt.body.ptr);
+    defer self.current_scope_id = saved_scope_id;
+
     // Check if iterating over a function call (range, enumerate, etc.)
     if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .name) {
         const func_name = for_stmt.iter.call.func.name.id;
@@ -376,6 +382,56 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.indent();
         try self.pushScope();
 
+        // Register loop variable type as widened tuple element type
+        // This allows type inference inside the loop body to know f's type
+        if (iter_type.tuple.len > 0) {
+            var elem_type = iter_type.tuple[0];
+            for (iter_type.tuple[1..]) |t| {
+                elem_type = elem_type.widen(t);
+            }
+            try self.type_inferrer.putScopedVar(for_stmt.target.name.id, elem_type);
+
+            // If any tuple element is a callable type, register loop variable as callable
+            // This enables .call() syntax for calls like pow_op(a, b) -> pow_op.call(a, b)
+            // where the tuple is (pow, operator.pow) - both callable structs
+            if (elem_type == .callable) {
+                const owned_name = try self.allocator.dupe(u8, var_name);
+                try self.callable_vars.put(owned_name, {});
+            }
+        }
+
+        // Check if iterating over tuple containing callable builtin references
+        // e.g., for pow_op in pow, operator.pow:
+        // Both pow and operator.pow are callable structs, need .call() syntax
+        if (for_stmt.iter.* == .tuple) {
+            const tuple_elts = for_stmt.iter.tuple.elts;
+            for (tuple_elts) |elt| {
+                // Check for builtin references: pow, operator.pow, etc.
+                if (elt == .name) {
+                    const name = elt.name.id;
+                    if (std.mem.eql(u8, name, "pow")) {
+                        // Loop variable iterates over callable structs
+                        const owned_name = try self.allocator.dupe(u8, var_name);
+                        try self.callable_vars.put(owned_name, {});
+                        break;
+                    }
+                } else if (elt == .attribute) {
+                    const attr = elt.attribute;
+                    if (attr.value.* == .name) {
+                        const mod_name = attr.value.name.id;
+                        if (std.mem.eql(u8, mod_name, "operator")) {
+                            if (std.mem.eql(u8, attr.attr, "pow") or std.mem.eql(u8, attr.attr, "mod")) {
+                                // Loop variable iterates over callable structs
+                                const owned_name = try self.allocator.dupe(u8, var_name);
+                                try self.callable_vars.put(owned_name, {});
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         for (for_stmt.body) |stmt| {
             try self.generateStmt(stmt);
         }
@@ -409,6 +465,49 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         for (for_stmt.body) |stmt| {
             try self.generateStmt(stmt);
         }
+
+        self.popScope();
+        self.dedent();
+
+        try self.emitIndent();
+        try self.emit("}\n");
+        return;
+    }
+
+    // Handle file iteration - read lines using while loop with runtime.PyFile.readlines
+    // Python: for line in file: -> Zig: for ((try runtime.PyFile.readlines(file, alloc)).items) |line|
+    if (iter_type == .file) {
+        // Generate: for ((try runtime.PyFile.readlines(file, allocator)).items) |line| {
+        try self.emit("for ((try runtime.PyFile.readlines(");
+        try self.genExpr(for_stmt.iter.*);
+        try self.emit(", __global_allocator)).items) |");
+        if (!tuple_var_used) {
+            try self.emit("_");
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        }
+        try self.emit("| {\n");
+
+        self.indent();
+        try self.pushScope();
+
+        // Register loop variable as string type (runtime since from file)
+        try self.type_inferrer.var_types.put(var_name, .{ .string = .runtime });
+
+        // Track loop capture variable for shadowing detection
+        // When Python code does `line = line.strip()` inside `for line in file:`,
+        // we need to rename the new variable to avoid shadowing the immutable Zig capture
+        if (tuple_var_used) {
+            try self.loop_capture_vars.put(var_name, {});
+        }
+
+        for (for_stmt.body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+
+        // Clean up loop capture tracking and renames when exiting loop
+        _ = self.loop_capture_vars.swapRemove(var_name);
+        _ = self.var_renames.swapRemove(var_name);
 
         self.popScope();
         self.dedent();
@@ -514,19 +613,26 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Push new scope for loop body
     try self.pushScope();
 
+    // Track loop capture variable for shadowing detection
+    // When Python code does `line = line.strip()` inside `for line in file:`,
+    // we need to rename the new variable to avoid shadowing the immutable Zig capture
+    if (var_used) {
+        try self.loop_capture_vars.put(var_name, {});
+    }
+
     // If iterating over a vararg param (e.g., args in *args), register loop var as i64
     // This enables correct type inference for print(x) inside the loop
     if (for_stmt.iter.* == .name) {
         const iter_var_name = for_stmt.iter.name.id;
         if (self.vararg_params.contains(iter_var_name)) {
             // Register loop variable as i64 type
-            try self.type_inferrer.var_types.put(var_name, .int);
+            try self.type_inferrer.var_types.put(var_name, .{ .int = .bounded });
         }
     }
 
     // If iterating over a deque (ArrayList from itertools, etc.), loop variable is i64
     if (iter_type == .deque) {
-        try self.type_inferrer.var_types.put(var_name, .int);
+        try self.type_inferrer.var_types.put(var_name, .{ .int = .bounded });
     }
 
     // If iterating over a list of callables (PyCallable), register loop var as callable
@@ -545,6 +651,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     for (for_stmt.body) |stmt| {
         try self.generateStmt(stmt);
     }
+
+    // Clean up loop capture tracking and renames when exiting loop
+    _ = self.loop_capture_vars.swapRemove(var_name);
+    _ = self.var_renames.swapRemove(var_name);
 
     // Pop scope when exiting loop
     self.popScope();
@@ -589,11 +699,43 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     try self.emit("{\n");
     self.indent();
 
+    // Determine if we need signed type (start or stop can be negative)
+    // Check if start value is a negative literal
+    const needs_signed = blk: {
+        if (start_expr) |start| {
+            // Check for negative unary expression: -(value)
+            if (start == .unaryop and start.unaryop.op == .USub) {
+                break :blk true;
+            }
+            // Check for negative constant
+            if (start == .constant and start.constant.value == .int) {
+                if (start.constant.value.int < 0) {
+                    break :blk true;
+                }
+            }
+        }
+        // Check stop value too
+        if (stop_expr == .unaryop and stop_expr.unaryop.op == .USub) {
+            break :blk true;
+        }
+        if (stop_expr == .constant and stop_expr.constant.value == .int) {
+            if (stop_expr.constant.value.int < 0) {
+                break :blk true;
+            }
+        }
+        break :blk false;
+    };
+
+    // Use i64 for signed, isize for unsigned (compatible with len operations)
+    const loop_type = if (needs_signed) "i64" else "isize";
+
     // Generate initialization (always declare as new variable in block scope)
     try self.emitIndent();
     try self.emit("var ");
     try self.emit(var_name);
-    try self.emit(": usize = ");
+    try self.emit(": ");
+    try self.emit(loop_type);
+    try self.emit(" = ");
     if (start_expr) |start| {
         try self.genExpr(start);
     } else {

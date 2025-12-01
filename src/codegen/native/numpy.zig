@@ -5,6 +5,187 @@ const ast = @import("ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 
+/// Handler function type
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// Module function map - exported for dispatch
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    // Array creation
+    .{ "array", genArray },
+    .{ "zeros", genZeros },
+    .{ "ones", genOnes },
+    .{ "empty", genEmpty },
+    .{ "full", genFull },
+    .{ "eye", genEye },
+    .{ "identity", genEye },
+    .{ "arange", genArange },
+    .{ "linspace", genLinspace },
+    .{ "logspace", genLogspace },
+    // Array manipulation
+    .{ "reshape", genReshape },
+    .{ "ravel", genRavel },
+    .{ "flatten", genRavel },
+    .{ "transpose", genTranspose },
+    .{ "squeeze", genSqueeze },
+    .{ "expand_dims", genExpandDims },
+    // Element-wise math
+    .{ "add", genAdd },
+    .{ "subtract", genSubtract },
+    .{ "multiply", genMultiply },
+    .{ "divide", genDivide },
+    .{ "power", genPower },
+    .{ "sqrt", genSqrt },
+    .{ "exp", genExp },
+    .{ "log", genLog },
+    .{ "sin", genSin },
+    .{ "cos", genCos },
+    .{ "abs", genAbs },
+    // Reductions
+    .{ "sum", genSum },
+    .{ "mean", genMean },
+    .{ "std", genStd },
+    .{ "var", genVar },
+    .{ "min", genMin },
+    .{ "max", genMax },
+    .{ "argmin", genArgmin },
+    .{ "argmax", genArgmax },
+    .{ "prod", genProd },
+    // Linear algebra
+    .{ "dot", genDot },
+    .{ "matmul", genMatmul },
+    .{ "inner", genInner },
+    .{ "outer", genOuter },
+    .{ "vdot", genVdot },
+    .{ "trace", genTrace },
+    // Statistics
+    .{ "median", genMedian },
+    .{ "percentile", genPercentile },
+    // Array manipulation
+    .{ "concatenate", genConcatenate },
+    .{ "vstack", genVstack },
+    .{ "hstack", genHstack },
+    .{ "stack", genStack },
+    .{ "split", genSplit },
+    // Conditional and rounding
+    .{ "where", genWhere },
+    .{ "clip", genClip },
+    .{ "floor", genFloor },
+    .{ "ceil", genCeil },
+    .{ "round", genRound },
+    .{ "rint", genRound },
+    // Sorting and searching
+    .{ "sort", genSort },
+    .{ "argsort", genArgsort },
+    .{ "unique", genUnique },
+    .{ "searchsorted", genSearchsorted },
+    // Array copying
+    .{ "copy", genCopy },
+    .{ "asarray", genAsarray },
+    // Repeating and flipping
+    .{ "tile", genTile },
+    .{ "repeat", genRepeat },
+    .{ "flip", genFlip },
+    .{ "flipud", genFlipud },
+    .{ "fliplr", genFliplr },
+    // Cumulative operations
+    .{ "cumsum", genCumsum },
+    .{ "cumprod", genCumprod },
+    .{ "diff", genDiff },
+    // Comparison
+    .{ "allclose", genAllclose },
+    .{ "array_equal", genArrayEqual },
+    // Matrix construction
+    .{ "diag", genDiag },
+    .{ "triu", genTriu },
+    .{ "tril", genTril },
+    // Additional math
+    .{ "tan", genTan },
+    .{ "arcsin", genArcsin },
+    .{ "arccos", genArccos },
+    .{ "arctan", genArctan },
+    .{ "sinh", genSinh },
+    .{ "cosh", genCosh },
+    .{ "tanh", genTanh },
+    .{ "log10", genLog10 },
+    .{ "log2", genLog2 },
+    .{ "exp2", genExp2 },
+    .{ "expm1", genExpm1 },
+    .{ "log1p", genLog1p },
+    .{ "sign", genSign },
+    .{ "negative", genNegative },
+    .{ "reciprocal", genReciprocal },
+    .{ "square", genSquare },
+    .{ "cbrt", genCbrt },
+    .{ "maximum", genMaximum },
+    .{ "minimum", genMinimum },
+    .{ "mod", genMod },
+    .{ "remainder", genMod },
+    // Array manipulation (roll, rot90, pad, take, put, cross)
+    .{ "roll", genRoll },
+    .{ "rot90", genRot90 },
+    .{ "pad", genPad },
+    .{ "take", genTake },
+    .{ "put", genPut },
+    .{ "cross", genCross },
+    // Logical functions
+    .{ "any", genAny },
+    .{ "all", genAll },
+    .{ "logical_and", genLogicalAnd },
+    .{ "logical_or", genLogicalOr },
+    .{ "logical_not", genLogicalNot },
+    .{ "logical_xor", genLogicalXor },
+    // Set functions
+    .{ "setdiff1d", genSetdiff1d },
+    .{ "union1d", genUnion1d },
+    .{ "intersect1d", genIntersect1d },
+    .{ "isin", genIsin },
+    // Numerical functions
+    .{ "gradient", genGradient },
+    .{ "trapz", genTrapz },
+    .{ "interp", genInterp },
+    .{ "convolve", genConvolve },
+    .{ "correlate", genCorrelate },
+    // Utility functions
+    .{ "nonzero", genNonzero },
+    .{ "count_nonzero", genCountNonzero },
+    .{ "flatnonzero", genFlatnonzero },
+    .{ "meshgrid", genMeshgrid },
+    .{ "histogram", genHistogram },
+    .{ "bincount", genBincount },
+    .{ "digitize", genDigitize },
+    .{ "nan_to_num", genNanToNum },
+    .{ "isnan", genIsnan },
+    .{ "isinf", genIsinf },
+    .{ "isfinite", genIsfinite },
+    .{ "absolute", genAbsolute },
+    .{ "fabs", genAbsolute },
+});
+
+/// NumPy linalg module functions
+pub const LinalgFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "norm", genNorm },
+    .{ "det", genDet },
+    .{ "inv", genInv },
+    .{ "solve", genSolve },
+    .{ "qr", genQr },
+    .{ "cholesky", genCholesky },
+    .{ "eig", genEig },
+    .{ "svd", genSvd },
+    .{ "lstsq", genLstsq },
+});
+
+/// NumPy random module functions
+pub const RandomFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "seed", genRandomSeed },
+    .{ "rand", genRandomRand },
+    .{ "randn", genRandomRandn },
+    .{ "randint", genRandomRandint },
+    .{ "uniform", genRandomUniform },
+    .{ "choice", genRandomChoice },
+    .{ "shuffle", genRandomShuffle },
+    .{ "permutation", genRandomPermutation },
+});
+
 /// Generate numpy.array() call
 /// Converts Python list to NumPy array (f64 slice)
 pub fn genArray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

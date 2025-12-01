@@ -1,6 +1,15 @@
 /// Python marshal module - Internal Python object serialization
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "dump", genDump },
+    .{ "dumps", genDumps },
+    .{ "load", genLoad },
+    .{ "loads", genLoads },
+    .{ "version", genVersion },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

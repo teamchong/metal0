@@ -1,6 +1,41 @@
 /// Python optparse module - Parser for command line options (deprecated, use argparse)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "OptionParser", genOptionParser },
+    .{ "add_option", genAddOption },
+    .{ "parse_args", genParseArgs },
+    .{ "set_usage", genSetUsage },
+    .{ "set_defaults", genSetDefaults },
+    .{ "get_default_values", genGetDefaultValues },
+    .{ "get_option", genGetOption },
+    .{ "has_option", genHasOption },
+    .{ "remove_option", genRemoveOption },
+    .{ "add_option_group", genAddOptionGroup },
+    .{ "get_option_group", genGetOptionGroup },
+    .{ "print_help", genPrintHelp },
+    .{ "print_usage", genPrintUsage },
+    .{ "print_version", genPrintVersion },
+    .{ "format_help", genFormatHelp },
+    .{ "format_usage", genFormatUsage },
+    .{ "error", genError },
+    .{ "Option", genOption },
+    .{ "OptionGroup", genOptionGroup },
+    .{ "Values", genValues },
+    .{ "OptionError", genOptionError },
+    .{ "OptionConflictError", genOptionConflictError },
+    .{ "OptionValueError", genOptionValueError },
+    .{ "BadOptionError", genBadOptionError },
+    .{ "AmbiguousOptionError", genAmbiguousOptionError },
+    .{ "HelpFormatter", genHelpFormatter },
+    .{ "IndentedHelpFormatter", genIndentedHelpFormatter },
+    .{ "TitledHelpFormatter", genTitledHelpFormatter },
+    .{ "SUPPRESS_HELP", genSuppressHelp },
+    .{ "SUPPRESS_USAGE", genSuppressUsage },
+    .{ "NO_DEFAULT", genNoDefault },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

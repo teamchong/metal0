@@ -4,6 +4,19 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ZipFile", genZipFile },
+    .{ "is_zipfile", genIsZipfile },
+    .{ "ZipInfo", genZipInfo },
+    .{ "ZIP_STORED", genZIP_STORED },
+    .{ "ZIP_DEFLATED", genZIP_DEFLATED },
+    .{ "ZIP_BZIP2", genZIP_BZIP2 },
+    .{ "ZIP_LZMA", genZIP_LZMA },
+    .{ "BadZipFile", genBadZipFile },
+    .{ "LargeZipFile", genLargeZipFile },
+});
+
 /// Generate zipfile.ZipFile(file, mode='r') -> ZipFile object
 pub fn genZipFile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

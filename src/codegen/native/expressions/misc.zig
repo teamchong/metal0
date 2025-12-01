@@ -6,9 +6,9 @@ const CodegenError = @import("../main.zig").CodegenError;
 const subscript_mod = @import("subscript.zig");
 const zig_keywords = @import("zig_keywords");
 
-/// Generate tuple literal as Zig array/tuple
-/// Uses anonymous tuple syntax (.{ elem1, elem2 }) for iteration compatibility
-/// For tuple unpacking in for loops, this creates a proper Zig tuple that can be iterated
+/// Generate tuple literal as Zig anonymous struct
+/// Always uses anonymous tuple syntax (.{ elem1, elem2 }) for type compatibility
+/// This matches the type inference which generates struct types for tuples
 pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
     // Forward declare genExpr - it's in parent module
     const parent = @import("../expressions.zig");
@@ -20,35 +20,15 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
         return;
     }
 
-    // Generate as array literal for homogeneous tuples (allows inline for iteration)
-    // Check if all elements are the same type
-    const first_type = self.type_inferrer.inferExpr(tuple.elts[0]) catch .unknown;
-    var all_same_type = true;
-    for (tuple.elts[1..]) |elem| {
-        const elem_type = self.type_inferrer.inferExpr(elem) catch .unknown;
-        if (!std.meta.eql(elem_type, first_type)) {
-            all_same_type = false;
-            break;
-        }
+    // Always generate anonymous tuple syntax for consistency with type inference
+    // Type inference generates struct types: struct { @"0": T, @"1": T, ... }
+    // So we must generate struct literals: .{ elem1, elem2, ... }
+    try self.emit(".{ ");
+    for (tuple.elts, 0..) |elem, i| {
+        if (i > 0) try self.emit(", ");
+        try genExpr(self, elem);
     }
-
-    if (all_same_type and first_type == .string) {
-        // Homogeneous string tuple: generate as array for iteration
-        try self.emit("[_][]const u8{ ");
-        for (tuple.elts, 0..) |elem, i| {
-            if (i > 0) try self.emit(", ");
-            try genExpr(self, elem);
-        }
-        try self.emit(" }");
-    } else {
-        // Heterogeneous tuple: use anonymous tuple syntax
-        try self.emit(".{ ");
-        for (tuple.elts, 0..) |elem, i| {
-            if (i > 0) try self.emit(", ");
-            try genExpr(self, elem);
-        }
-        try self.emit(" }");
-    }
+    try self.emit(" }");
 }
 
 /// Generate array/dict subscript with tuple support (a[b])
@@ -61,14 +41,28 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
     // Check if this is tuple indexing (only for index, not slice)
     if (subscript.slice == .index) {
         const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
+        const value_type_tag = @as(std.meta.Tag(@TypeOf(value_type)), value_type);
 
-        if (value_type == .tuple) {
-            // Tuple indexing: t[0] -> t[0] (array index for anonymous tuples)
+        if (value_type_tag == .tuple) {
+            // Tuple indexing: t[0] -> t.@"0" (field access for Zig tuples)
             // Only constant indices supported for tuples
             if (subscript.slice.index.* == .constant and subscript.slice.index.constant.value == .int) {
                 const index = subscript.slice.index.constant.value.int;
-                try genExpr(self, subscript.value.*);
-                try self.output.writer(self.allocator).print("[{d}]", .{index});
+
+                // Check if value produces a block expression - need to wrap
+                const base_is_block = producesBlockExpression(subscript.value.*);
+                if (base_is_block) {
+                    // Wrap in block to allow field access on block result
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.output.writer(self.allocator).print("sub_{d}: {{ const __base = ", .{label_id});
+                    try genExpr(self, subscript.value.*);
+                    try self.output.writer(self.allocator).print("; break :sub_{d} __base.@\"{d}\"; }}", .{ label_id, index });
+                } else {
+                    // Direct field access
+                    try genExpr(self, subscript.value.*);
+                    try self.output.writer(self.allocator).print(".@\"{d}\"", .{index});
+                }
             } else {
                 // Non-constant tuple index - error
                 try self.emit("@compileError(\"Tuple indexing requires constant index\")");
@@ -120,6 +114,24 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     if (attr.value.* == .name) {
         const module_name = attr.value.name.id;
         const attr_name = attr.attr;
+
+        // Handle builtin type class methods (float.fromhex, float.hex, etc.)
+        if (std.mem.eql(u8, module_name, "float")) {
+            if (std.mem.eql(u8, attr_name, "fromhex")) {
+                try self.emit("runtime.floatFromHex");
+                return;
+            }
+            if (std.mem.eql(u8, attr_name, "hex")) {
+                try self.emit("runtime.floatToHex");
+                return;
+            }
+            if (std.mem.eql(u8, attr_name, "__getformat__")) {
+                // float.__getformat__(typestr) -> returns IEEE format string
+                // Since Zig uses IEEE 754 on modern platforms, return the appropriate string
+                try self.emit("runtime.floatGetFormat");
+                return;
+            }
+        }
 
         // Try module attribute dispatch FIRST (handles string.*, math.*, sys.*, etc.)
         // This correctly handles constants like math.pi, math.e which need inline values
@@ -262,10 +274,16 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         try self.emit("()");
     } else if (is_dynamic) {
-        // Dynamic attribute: use __dict__.get() and extract value
-        // For now, assume int type. TODO: Add runtime type checking
-        try genExpr(self, attr.value.*);
-        try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.int", .{attr.attr});
+        // Special case: __dict__ attribute is the dict itself, not a key in the dict
+        if (std.mem.eql(u8, attr.attr, "__dict__")) {
+            try genExpr(self, attr.value.*);
+            try self.emit(".__dict__");
+        } else {
+            // Dynamic attribute: use __dict__.get() and extract value
+            // For now, assume int type. TODO: Add runtime type checking
+            try genExpr(self, attr.value.*);
+            try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.int", .{attr.attr});
+        }
     } else {
         // Known attribute: direct field access
         // Escape attribute name if it's a Zig keyword (e.g., "test")

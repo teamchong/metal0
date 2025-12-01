@@ -56,10 +56,40 @@ fn genExprWithSubs(
                 .none => try self.emit("null"),
             }
         },
-        .call => {
-            // Fallback to regular genExpr for complex expressions
+        .call => |c| {
+            // Handle call expressions with substitution for arguments
             const parent = @import("../expressions.zig");
-            try parent.genExpr(self, expr);
+            // Generate function part
+            try parent.genExpr(self, c.func.*);
+            try self.emit("(");
+            // Generate arguments with substitution
+            for (c.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try genExprWithSubs(self, arg, subs);
+            }
+            try self.emit(")");
+        },
+        .list => |l| {
+            // Handle list literals with substitution
+            // Python: [x] in comprehension element -> generate inline array or ArrayList
+            // For single-element lists like bytes([x]), generate Zig array: &[_]u8{x}
+            try self.emit("list_");
+            const list_id = self.output.items.len;
+            try self.output.writer(self.allocator).print("{d}: {{\n", .{list_id});
+            self.indent();
+            try self.emitIndent();
+            try self.emit("var _list = std.ArrayList(i64){};\n");
+            for (l.elts) |elt| {
+                try self.emitIndent();
+                try self.emit("try _list.append(__global_allocator, ");
+                try genExprWithSubs(self, elt, subs);
+                try self.emit(");\n");
+            }
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("break :list_{d} _list;\n", .{list_id});
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}");
         },
         else => {
             // For other expressions, fallback to regular genExpr

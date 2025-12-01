@@ -1,6 +1,13 @@
 /// Python tomllib module - Parse TOML files (Python 3.11+)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "load", genLoad },
+    .{ "loads", genLoads },
+    .{ "TOMLDecodeError", genTOMLDecodeError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -4,6 +4,48 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "SSLContext", genSSLContext },
+    .{ "create_default_context", genCreate_default_context },
+    .{ "wrap_socket", genWrap_socket },
+    .{ "get_default_verify_paths", genGet_default_verify_paths },
+    .{ "cert_time_to_seconds", genCert_time_to_seconds },
+    .{ "get_server_certificate", genGet_server_certificate },
+    .{ "DER_cert_to_PEM_cert", genDER_cert_to_PEM_cert },
+    .{ "PEM_cert_to_DER_cert", genPEM_cert_to_DER_cert },
+    .{ "match_hostname", genMatch_hostname },
+    .{ "RAND_status", genRAND_status },
+    .{ "RAND_add", genRAND_add },
+    .{ "RAND_bytes", genRAND_bytes },
+    .{ "RAND_pseudo_bytes", genRAND_pseudo_bytes },
+    .{ "PROTOCOL_SSLv23", genPROTOCOL_SSLv23 },
+    .{ "PROTOCOL_TLS", genPROTOCOL_TLS },
+    .{ "PROTOCOL_TLS_CLIENT", genPROTOCOL_TLS_CLIENT },
+    .{ "PROTOCOL_TLS_SERVER", genPROTOCOL_TLS_SERVER },
+    .{ "CERT_NONE", genCERT_NONE },
+    .{ "CERT_OPTIONAL", genCERT_OPTIONAL },
+    .{ "CERT_REQUIRED", genCERT_REQUIRED },
+    .{ "OP_ALL", genOP_ALL },
+    .{ "OP_NO_SSLv2", genOP_NO_SSLv2 },
+    .{ "OP_NO_SSLv3", genOP_NO_SSLv3 },
+    .{ "OP_NO_TLSv1", genOP_NO_TLSv1 },
+    .{ "OP_NO_TLSv1_1", genOP_NO_TLSv1_1 },
+    .{ "OP_NO_TLSv1_2", genOP_NO_TLSv1_2 },
+    .{ "OP_NO_TLSv1_3", genOP_NO_TLSv1_3 },
+    .{ "HAS_SNI", genHAS_SNI },
+    .{ "HAS_ECDH", genHAS_ECDH },
+    .{ "HAS_NPN", genHAS_NPN },
+    .{ "HAS_ALPN", genHAS_ALPN },
+    .{ "HAS_TLSv1_3", genHAS_TLSv1_3 },
+    .{ "SSLError", genSSLError },
+    .{ "SSLZeroReturnError", genSSLZeroReturnError },
+    .{ "SSLWantReadError", genSSLWantReadError },
+    .{ "SSLWantWriteError", genSSLWantWriteError },
+    .{ "SSLSyscallError", genSSLSyscallError },
+    .{ "SSLEOFError", genSSLEOFError },
+});
+
 /// Generate ssl.SSLContext(protocol=None)
 pub fn genSSLContext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
@@ -239,6 +281,11 @@ pub fn genOPENSSL_VERSION_NUMBER(self: *NativeCodegen, args: []ast.Node) Codegen
 pub fn genHAS_SNI(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("true");
+}
+
+pub fn genHAS_NPN(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("false");
 }
 
 pub fn genHAS_ALPN(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

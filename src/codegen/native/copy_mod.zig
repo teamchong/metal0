@@ -100,3 +100,11 @@ pub fn genReplace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Full replace semantics would need field replacement based on kwargs
     try self.genExpr(args[0]);
 }
+
+// Function map for module_functions.zig
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "copy", genCopy },
+    .{ "deepcopy", genDeepcopy },
+    .{ "replace", genReplace },
+});

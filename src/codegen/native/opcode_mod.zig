@@ -4,6 +4,28 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "opname", genOpname },
+    .{ "opmap", genOpmap },
+    .{ "cmp_op", genCmpOp },
+    .{ "hasarg", genHasarg },
+    .{ "hasconst", genHasconst },
+    .{ "hasname", genHasname },
+    .{ "hasjrel", genHasjrel },
+    .{ "hasjabs", genHasjabs },
+    .{ "haslocal", genHaslocal },
+    .{ "hascompare", genHascompare },
+    .{ "hasfree", genHasfree },
+    .{ "hasexc", genHasexc },
+    .{ "HAVE_ARGUMENT", genHaveArgument },
+    .{ "EXTENDED_ARG", genExtendedArg },
+    .{ "stack_effect", genStackEffect },
+    .{ "_specialized_opmap", genSpecializedOpmap },
+    .{ "_intrinsic_1_descs", genIntrinsic1Descs },
+    .{ "_intrinsic_2_descs", genIntrinsic2Descs },
+});
+
 /// Generate opcode.opname list
 pub fn genOpname(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

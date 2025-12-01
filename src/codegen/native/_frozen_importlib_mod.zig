@@ -4,6 +4,21 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "module_spec", genModuleSpec },
+    .{ "builtin_importer", genBuiltinImporter },
+    .{ "frozen_importer", genFrozenImporter },
+    .{ "init_module_attrs", genInitModuleAttrs },
+    .{ "call_with_frames_removed", genCallWithFramesRemoved },
+    .{ "find_and_load", genFindAndLoad },
+    .{ "find_and_load_unlocked", genFindAndLoadUnlocked },
+    .{ "gcd_import", genGcdImport },
+    .{ "handle_fromlist", genHandleFromlist },
+    .{ "lock_unlock_module", genLockUnlockModule },
+    .{ "import", genImport },
+});
+
 /// Generate _frozen_importlib.ModuleSpec(name, loader, *, origin=None, loader_state=None, is_package=None)
 pub fn genModuleSpec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

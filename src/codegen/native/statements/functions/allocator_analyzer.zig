@@ -694,6 +694,11 @@ fn stmtNeedsAllocator(stmt: ast.Node) bool {
             }
             return false;
         },
+        .function_def => {
+            // Nested functions (closures) require allocator for the Closure struct init
+            // Even if the closure body doesn't need allocator, creating the closure does
+            return true;
+        },
         .with_stmt => |w| {
             // Check context expression
             if (exprNeedsAllocator(w.context_expr.*)) return true;

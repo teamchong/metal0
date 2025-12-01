@@ -4,6 +4,14 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "getpwnam", genGetpwnam },
+    .{ "getpwuid", genGetpwuid },
+    .{ "getpwall", genGetpwall },
+    .{ "struct_passwd", genStruct_passwd },
+});
+
 /// Generate pwd.getpwnam(name) - get user by username
 /// Returns struct_passwd(pw_name, pw_passwd, pw_uid, pw_gid, pw_gecos, pw_dir, pw_shell)
 pub fn genGetpwnam(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

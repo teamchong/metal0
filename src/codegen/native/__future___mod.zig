@@ -1,6 +1,19 @@
 /// Python __future__ module - Future statement definitions
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "annotations", genAnnotations },
+    .{ "division", genDivision },
+    .{ "absolute_import", genAbsolute_import },
+    .{ "with_statement", genWith_statement },
+    .{ "print_function", genPrint_function },
+    .{ "unicode_literals", genUnicode_literals },
+    .{ "generator_stop", genGenerator_stop },
+    .{ "nested_scopes", genNested_scopes },
+    .{ "generators", genGenerators },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

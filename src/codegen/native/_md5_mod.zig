@@ -4,6 +4,15 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "md5", genMd5 },
+    .{ "update", genUpdate },
+    .{ "digest", genDigest },
+    .{ "hexdigest", genHexdigest },
+    .{ "copy", genCopy },
+});
+
 /// Generate _md5.md5(data=b'', *, usedforsecurity=True)
 pub fn genMd5(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

@@ -4,6 +4,17 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "fork", genFork },
+    .{ "openpty", genOpenpty },
+    .{ "spawn", genSpawn },
+    .{ "STDIN_FILENO", genSTDIN_FILENO },
+    .{ "STDOUT_FILENO", genSTDOUT_FILENO },
+    .{ "STDERR_FILENO", genSTDERR_FILENO },
+    .{ "CHILD", genCHILD },
+});
+
 /// Generate pty.fork()
 /// Returns (pid, fd) - fork and connect to pty
 pub fn genFork(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

@@ -1,6 +1,21 @@
 /// Python _thread module - Low-level threading primitives
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "start_new_thread", genStart_new_thread },
+    .{ "interrupt_main", genInterrupt_main },
+    .{ "exit", genExit },
+    .{ "allocate_lock", genAllocate_lock },
+    .{ "get_ident", genGet_ident },
+    .{ "get_native_id", genGet_native_id },
+    .{ "stack_size", genStack_size },
+    .{ "TIMEOUT_MAX", genTIMEOUT_MAX },
+    .{ "LockType", genLockType },
+    .{ "RLock", genRLock },
+    .{ "error", genError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

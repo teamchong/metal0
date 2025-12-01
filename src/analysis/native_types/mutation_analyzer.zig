@@ -28,6 +28,9 @@ pub const MutationType = enum {
     list_reverse,
     dict_setitem,
     reassignment,
+    attr_setattr, // setattr(obj, name, value)
+    attr_delattr, // delattr(obj, name)
+    attr_direct_assign, // obj.name = value
 };
 
 pub const MutationInfo = struct {
@@ -76,6 +79,12 @@ fn collectMutations(
                         try recordMutation(obj_name, .dict_setitem, mutations, allocator);
                     }
                 }
+                // Note: We intentionally do NOT track direct attribute assignment (o.attr = value) here.
+                // Direct attribute assignment works fine on const class instances in Zig because
+                // fields are part of the struct definition. The issue is specifically with __dict__
+                // mutations via setattr/delattr builtin functions, which we track separately.
+                // Tracking o.attr = value would cause scoping issues (different variables named 'o'
+                // in different methods would interfere with each other).
             }
         },
         .aug_assign => |a| {
@@ -119,6 +128,12 @@ fn collectMutations(
                 try collectMutations(s, mutations, allocator);
             }
         },
+        .class_def => |class| {
+            // Check class body for mutations (methods, etc.)
+            for (class.body) |s| {
+                try collectMutations(s, mutations, allocator);
+            }
+        },
         .return_stmt => |r| {
             if (r.value) |v| {
                 try checkExprForMutation(v.*, mutations, allocator);
@@ -156,6 +171,21 @@ fn checkExprForMutation(
 ) error{OutOfMemory}!void {
     switch (expr) {
         .call => |c| {
+            // Check if this is a setattr/delattr call
+            if (c.func.* == .name) {
+                const func_name = c.func.name.id;
+                if (std.mem.eql(u8, func_name, "setattr") and c.args.len >= 1) {
+                    // setattr(obj, name, value) - first arg is the object being mutated
+                    if (c.args[0] == .name) {
+                        try recordMutation(c.args[0].name.id, .attr_setattr, mutations, allocator);
+                    }
+                } else if (std.mem.eql(u8, func_name, "delattr") and c.args.len >= 1) {
+                    // delattr(obj, name) - first arg is the object being mutated
+                    if (c.args[0] == .name) {
+                        try recordMutation(c.args[0].name.id, .attr_delattr, mutations, allocator);
+                    }
+                }
+            }
             // Check if this is a mutating method call
             if (c.func.* == .attribute) {
                 const attr = c.func.attribute;
@@ -274,6 +304,20 @@ pub fn hasDictMutation(mutations: hashmap_helper.StringHashMap(MutationInfo), va
 
     for (info.mutation_types.items) |mut_type| {
         if (mut_type == .dict_setitem) return true;
+    }
+    return false;
+}
+
+/// Check if a variable has any attribute mutations (setattr, delattr, or direct assignment)
+pub fn hasAttrMutation(mutations: hashmap_helper.StringHashMap(MutationInfo), var_name: []const u8) bool {
+    const info = mutations.get(var_name) orelse return false;
+    if (!info.is_mutated) return false;
+
+    for (info.mutation_types.items) |mut_type| {
+        switch (mut_type) {
+            .attr_setattr, .attr_delattr, .attr_direct_assign => return true,
+            else => {},
+        }
     }
     return false;
 }

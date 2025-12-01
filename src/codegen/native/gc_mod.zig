@@ -4,6 +4,35 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "enable", genEnable },
+    .{ "disable", genDisable },
+    .{ "isenabled", genIsenabled },
+    .{ "collect", genCollect },
+    .{ "set_debug", genSet_debug },
+    .{ "get_debug", genGet_debug },
+    .{ "get_stats", genGet_stats },
+    .{ "set_threshold", genSet_threshold },
+    .{ "get_threshold", genGet_threshold },
+    .{ "get_count", genGet_count },
+    .{ "get_objects", genGet_objects },
+    .{ "get_referrers", genGet_referrers },
+    .{ "get_referents", genGet_referents },
+    .{ "is_tracked", genIs_tracked },
+    .{ "is_finalized", genIs_finalized },
+    .{ "freeze", genFreeze },
+    .{ "unfreeze", genUnfreeze },
+    .{ "get_freeze_count", genGet_freeze_count },
+    .{ "garbage", genGarbage },
+    .{ "callbacks", genCallbacks },
+    .{ "DEBUG_STATS", genDEBUG_STATS },
+    .{ "DEBUG_COLLECTABLE", genDEBUG_COLLECTABLE },
+    .{ "DEBUG_UNCOLLECTABLE", genDEBUG_UNCOLLECTABLE },
+    .{ "DEBUG_SAVEALL", genDEBUG_SAVEALL },
+    .{ "DEBUG_LEAK", genDEBUG_LEAK },
+});
+
 /// Generate gc.enable() - enable automatic garbage collection
 pub fn genEnable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

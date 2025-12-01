@@ -4,6 +4,40 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "isclass", genIsclass },
+    .{ "isfunction", genIsfunction },
+    .{ "ismethod", genIsmethod },
+    .{ "ismodule", genIsmodule },
+    .{ "isbuiltin", genIsbuiltin },
+    .{ "isroutine", genIsroutine },
+    .{ "isabstract", genIsabstract },
+    .{ "isgenerator", genIsgenerator },
+    .{ "iscoroutine", genIscoroutine },
+    .{ "isasyncgen", genIsasyncgen },
+    .{ "isdatadescriptor", genIsdatadescriptor },
+    .{ "getmembers", genGetmembers },
+    .{ "getmodule", genGetmodule },
+    .{ "getfile", genGetfile },
+    .{ "getsourcefile", genGetsourcefile },
+    .{ "getsourcelines", genGetsourcelines },
+    .{ "getsource", genGetsource },
+    .{ "getdoc", genGetdoc },
+    .{ "getcomments", genGetcomments },
+    .{ "signature", genSignature },
+    .{ "Parameter", genParameter },
+    .{ "currentframe", genCurrentframe },
+    .{ "stack", genStack },
+    .{ "getargspec", genGetargspec },
+    .{ "getfullargspec", genGetfullargspec },
+    .{ "iscoroutinefunction", genIscoroutinefunction },
+    .{ "isgeneratorfunction", genIsgeneratorfunction },
+    .{ "isasyncgenfunction", genIsasyncgenfunction },
+    .{ "getattr_static", genGetattrStatic },
+    .{ "unwrap", genUnwrap },
+});
+
 /// Generate inspect.isclass(object) -> bool
 pub fn genIsclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

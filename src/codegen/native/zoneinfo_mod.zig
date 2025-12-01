@@ -1,6 +1,23 @@
 /// Python zoneinfo module - IANA time zone support
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ZoneInfo", genZoneInfo },
+    .{ "available_timezones", genAvailableTimezones },
+    .{ "reset_tzpath", genResetTzpath },
+    .{ "TZPATH", genTZPATH },
+    .{ "key", genKey },
+    .{ "utcoffset", genUtcoffset },
+    .{ "tzname", genTzname },
+    .{ "dst", genDst },
+    .{ "fromutc", genFromutc },
+    .{ "no_cache", genNoCache },
+    .{ "clear_cache", genClearCache },
+    .{ "ZoneInfoNotFoundError", genZoneInfoNotFoundError },
+    .{ "InvalidTZPathWarning", genInvalidTZPathWarning },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

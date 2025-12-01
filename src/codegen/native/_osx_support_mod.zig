@@ -4,6 +4,21 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "find_build_tool", genFindBuildTool },
+    .{ "read_output", genReadOutput },
+    .{ "find_appropriate_compiler", genFindAppropriateCompiler },
+    .{ "remove_original_values", genRemoveOriginalValues },
+    .{ "save_modified_value", genSaveModifiedValue },
+    .{ "supports_universal_builds", genSupportsUniversalBuilds },
+    .{ "find_sdk_root", genFindSdkRoot },
+    .{ "get_system_version", genGetSystemVersion },
+    .{ "customize_config_vars", genCustomizeConfigVars },
+    .{ "customize_compiler", genCustomizeCompiler },
+    .{ "get_platform_osx", genGetPlatformOsx },
+});
+
 /// Generate _osx_support._find_build_tool(toolname) - Find build tool path
 pub fn genFindBuildTool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

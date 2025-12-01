@@ -4,6 +4,18 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "main", genMain },
+    .{ "refactoring_tool", genRefactoringTool },
+    .{ "base_fix", genBaseFix },
+    .{ "base", genBase },
+    .{ "node", genNode },
+    .{ "leaf", genLeaf },
+    .{ "python_grammar", genPythonGrammar },
+    .{ "python_grammar_no_print_statement", genPythonGrammarNoPrintStatement },
+});
+
 /// Generate lib2to3.main(fixer_pkg, args=None) - Main entry point
 pub fn genMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

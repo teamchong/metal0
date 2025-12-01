@@ -4,6 +4,36 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+// xmlrpc.client functions
+pub const ClientFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "ServerProxy", genServerProxy },
+    .{ "Transport", genTransport },
+    .{ "SafeTransport", genSafeTransport },
+    .{ "dumps", genDumps },
+    .{ "loads", genLoads },
+    .{ "gzip_encode", genGzip_encode },
+    .{ "gzip_decode", genGzip_decode },
+    .{ "Fault", genFault },
+    .{ "ProtocolError", genProtocolError },
+    .{ "ResponseError", genResponseError },
+    .{ "Boolean", genBoolean },
+    .{ "DateTime", genDateTime },
+    .{ "Binary", genBinary },
+    .{ "MAXINT", genMAXINT },
+    .{ "MININT", genMININT },
+});
+
+// xmlrpc.server functions
+pub const ServerFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "SimpleXMLRPCServer", genSimpleXMLRPCServer },
+    .{ "CGIXMLRPCRequestHandler", genCGIXMLRPCRequestHandler },
+    .{ "SimpleXMLRPCRequestHandler", genSimpleXMLRPCRequestHandler },
+    .{ "DocXMLRPCServer", genDocXMLRPCServer },
+    .{ "DocCGIXMLRPCRequestHandler", genDocCGIXMLRPCRequestHandler },
+});
+
 // ============================================================================
 // xmlrpc.client
 // ============================================================================

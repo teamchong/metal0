@@ -48,11 +48,13 @@ pub fn isNameUsedInInitBody(body: []ast.Node, name: []const u8) bool {
 fn isNameUsedInStmtExcludingParentInit(stmt: ast.Node, name: []const u8) bool {
     return switch (stmt) {
         .expr_stmt => |expr| {
-            // Check if this is a parent __init__ call - if so, skip it
+            // Check if this is a parent __init__/__new__ call - if so, skip it
             if (isParentInitCall(expr.value.*)) return false;
             return isNameUsedInExpr(expr.value.*, name);
         },
         .assign => |assign| {
+            // Check if this is `self = Parent.__new__(cls, ...)` - skip parent __new__ calls
+            if (isParentInitCall(assign.value.*)) return false;
             // Check target first - if it's self.field = ..., params in value are used
             for (assign.targets) |target| {
                 if (target == .attribute) {
@@ -86,17 +88,17 @@ fn isNameUsedInStmtExcludingParentInit(stmt: ast.Node, name: []const u8) bool {
     };
 }
 
-/// Check if an expression is a parent __init__ call
-/// Matches: Parent.__init__(self, ...) or super().__init__(...)
+/// Check if an expression is a parent __init__ or __new__ call
+/// Matches: Parent.__init__(self, ...) or super().__init__(...) or str.__new__(cls, ...)
 fn isParentInitCall(expr: ast.Node) bool {
     if (expr != .call) return false;
     const call = expr.call;
 
-    // Check for Parent.__init__ pattern
+    // Check for Parent.__init__ or Parent.__new__ pattern
     if (call.func.* == .attribute) {
         const attr = call.func.attribute;
-        if (std.mem.eql(u8, attr.attr, "__init__")) {
-            // Could be Parent.__init__ or super().__init__
+        if (std.mem.eql(u8, attr.attr, "__init__") or std.mem.eql(u8, attr.attr, "__new__")) {
+            // Could be Parent.__init__ or super().__init__ or Parent.__new__
             return true;
         }
     }
@@ -272,6 +274,10 @@ fn isNameUsedInExpr(expr: ast.Node, name: []const u8) bool {
                 }
             }
             return false;
+        },
+        .starred => |starred| {
+            // Handle *args unpacking - check the inner value (e.g., `args` in `*args`)
+            return isNameUsedInExpr(starred.value.*, name);
         },
         else => false,
     };

@@ -18,6 +18,12 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
     // Push new scope for loop body
     try self.pushScope();
 
+    // Set scope ID for scope-aware mutation tracking
+    // Each loop body is a unique scope (using pointer address)
+    const saved_scope_id = self.current_scope_id;
+    self.current_scope_id = @intFromPtr(while_stmt.body.ptr);
+    defer self.current_scope_id = saved_scope_id;
+
     for (while_stmt.body) |stmt| {
         try self.generateStmt(stmt);
     }

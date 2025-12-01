@@ -2,15 +2,287 @@
 const std = @import("std");
 const runner = @import("runner.zig");
 
+/// Helper to compare two ArrayList instances element by element
+fn equalArrayList(a: anytype, b: anytype) bool {
+    // Check length first
+    if (a.items.len != b.items.len) return false;
+
+    // Compare elements one by one
+    const ElemA = @TypeOf(a.items[0]);
+    const ElemB = @TypeOf(b.items[0]);
+    const a_elem_info = @typeInfo(ElemA);
+    const b_elem_info = @typeInfo(ElemB);
+
+    for (a.items, b.items) |a_elem, b_elem| {
+        // Compare elements based on their type
+        if ((a_elem_info == .@"struct" and a_elem_info.@"struct".is_tuple) or
+            (b_elem_info == .@"struct" and b_elem_info.@"struct".is_tuple))
+        {
+            // Tuple elements - compare field by field
+            if (!equalTuples(a_elem, b_elem)) return false;
+        } else if (a_elem_info == .@"union") {
+            // Union types (like PyValue) - compare using deepEqualUnion
+            if (!deepEqualUnion(a_elem, b_elem)) return false;
+        } else if (@TypeOf(a_elem) == @TypeOf(b_elem)) {
+            if (!std.meta.eql(a_elem, b_elem)) return false;
+        } else {
+            // Different types - try string comparison with __base_value__
+            if (!equalWithBaseValue(a_elem, b_elem)) return false;
+        }
+    }
+    return true;
+}
+
+/// Compare values where one might be a string and the other a str subclass with __base_value__
+fn equalWithBaseValue(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    const a_info = @typeInfo(A);
+    const b_info = @typeInfo(B);
+
+    // Helper to check if type is string-like
+    const a_is_string = comptime blk: {
+        if (A == []const u8 or A == []u8) break :blk true;
+        if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) break :blk true;
+        break :blk false;
+    };
+    const b_is_string = comptime blk: {
+        if (B == []const u8 or B == []u8) break :blk true;
+        if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) break :blk true;
+        break :blk false;
+    };
+
+    // Check if a is a string and b has __base_value__
+    if (a_is_string and b_info == .@"struct" and @hasField(B, "__base_value__")) {
+        const b_str: []const u8 = b.__base_value__;
+        return std.mem.eql(u8, a, b_str);
+    }
+    // Check if b is a string and a has __base_value__
+    if (b_is_string and a_info == .@"struct" and @hasField(A, "__base_value__")) {
+        const a_str: []const u8 = a.__base_value__;
+        return std.mem.eql(u8, a_str, b);
+    }
+    return false;
+}
+
+/// Deep equality for union types
+fn deepEqualUnion(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    if (A != B) return false;
+
+    const info = @typeInfo(A);
+    if (info != .@"union") return false;
+
+    const a_tag = std.meta.activeTag(a);
+    const b_tag = std.meta.activeTag(b);
+    if (a_tag != b_tag) return false;
+
+    // Compare payload based on active tag
+    inline for (info.@"union".fields) |field| {
+        if (a_tag == @field(std.meta.Tag(A), field.name)) {
+            const a_payload = @field(a, field.name);
+            const b_payload = @field(b, field.name);
+            const PayloadType = @TypeOf(a_payload);
+            const payload_info = @typeInfo(PayloadType);
+
+            // Handle slices specially - compare contents not pointers
+            if (payload_info == .pointer and payload_info.pointer.size == .slice) {
+                if (a_payload.len != b_payload.len) return false;
+                const ChildType = payload_info.pointer.child;
+                const child_info = @typeInfo(ChildType);
+                // For slices of unions (like []const PyValue), recursively compare
+                if (child_info == .@"union") {
+                    for (a_payload, b_payload) |a_item, b_item| {
+                        if (!deepEqualUnion(a_item, b_item)) return false;
+                    }
+                    return true;
+                }
+                // For simple slices, use mem.eql
+                if (ChildType == u8) {
+                    return std.mem.eql(u8, a_payload, b_payload);
+                }
+                // For other types, compare element by element
+                for (a_payload, b_payload) |a_item, b_item| {
+                    if (!std.meta.eql(a_item, b_item)) return false;
+                }
+                return true;
+            }
+            return std.meta.eql(a_payload, b_payload);
+        }
+    }
+    return false;
+}
+
+/// Helper to compare two tuple structs
+fn equalTuples(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    const a_info = @typeInfo(A);
+    const b_info = @typeInfo(B);
+
+    if (a_info != .@"struct" or b_info != .@"struct") return false;
+
+    const a_fields = a_info.@"struct".fields;
+    const b_fields = b_info.@"struct".fields;
+
+    if (a_fields.len != b_fields.len) return false;
+
+    inline for (0..a_fields.len) |i| {
+        const a_field = @field(a, a_fields[i].name);
+        const b_field = @field(b, b_fields[i].name);
+
+        const FA = @TypeOf(a_field);
+        const FB = @TypeOf(b_field);
+        const fa_info = @typeInfo(FA);
+        const fb_info = @typeInfo(FB);
+
+        // Handle optional types - use comptime if for type-based decisions
+        const field_equal = comptime if (fa_info == .optional and fb_info == .optional) blk: {
+            // Both optional
+            break :blk true;
+        } else if (fa_info == .optional) blk: {
+            // a optional, b not
+            break :blk false;
+        } else if (fb_info == .optional) blk: {
+            // b optional, a not
+            break :blk false;
+        } else blk: {
+            // Neither optional
+            break :blk false;
+        };
+
+        _ = field_equal; // silence unused
+
+        // Runtime comparison
+        // Handle bare null type (@Type(.null).null) - it's always null
+        const a_is_bare_null = comptime fa_info == .null;
+        const b_is_bare_null = comptime fb_info == .null;
+
+        if (comptime fa_info == .optional and fb_info == .optional) {
+            // Both optional
+            const a_null = a_field == null;
+            const b_null = b_field == null;
+            if (a_null and b_null) {
+                // Both null, this field matches, check next
+            } else if (a_null or b_null) {
+                return false;
+            } else {
+                // Both non-null, compare inner values
+                if (!equalValues(a_field.?, b_field.?)) return false;
+            }
+        } else if (comptime fa_info == .optional and b_is_bare_null) {
+            // a is optional, b is bare null - a must be null to match
+            if (a_field != null) return false;
+        } else if (comptime a_is_bare_null and fb_info == .optional) {
+            // a is bare null, b is optional - b must be null to match
+            if (b_field != null) return false;
+        } else if (comptime a_is_bare_null and b_is_bare_null) {
+            // Both are bare null - they match
+        } else if (comptime fa_info == .optional) {
+            // a is optional, b is not - check if a is null or if values match
+            if (a_field) |a_val| {
+                if (!equalValues(a_val, b_field)) return false;
+            } else {
+                return false;
+            }
+        } else if (comptime fb_info == .optional) {
+            // b is optional, a is not
+            if (b_field) |b_val| {
+                if (!equalValues(a_field, b_val)) return false;
+            } else {
+                return false;
+            }
+        } else {
+            // For non-optional fields, use equalValues which handles string type coercion
+            if (!equalValues(a_field, b_field)) return false;
+        }
+    }
+    return true;
+}
+
+/// Check if a type is a string-like type (slice or string literal pointer)
+fn isStringType(comptime T: type) bool {
+    const info = @typeInfo(T);
+    if (info == .pointer) {
+        if (info.pointer.size == .slice and info.pointer.child == u8) return true;
+        if (info.pointer.size == .one) {
+            const child_info = @typeInfo(info.pointer.child);
+            if (child_info == .array and child_info.array.child == u8) return true;
+        }
+    }
+    return false;
+}
+
+/// Helper to compare two values of potentially different but compatible types
+fn equalValues(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    const a_info = @typeInfo(A);
+    const b_info = @typeInfo(B);
+
+    // String comparisons - handle []const u8 vs *const [N:0]u8
+    if (comptime isStringType(A) and isStringType(B)) {
+        const a_slice: []const u8 = a;
+        const b_slice: []const u8 = b;
+        return std.mem.eql(u8, a_slice, b_slice);
+    }
+
+    // Handle optional string types
+    if (comptime a_info == .optional and b_info == .optional) {
+        const AChild = a_info.optional.child;
+        const BChild = b_info.optional.child;
+        if (comptime isStringType(AChild) and isStringType(BChild)) {
+            if (a == null and b == null) return true;
+            if (a == null or b == null) return false;
+            const a_slice: []const u8 = a.?;
+            const b_slice: []const u8 = b.?;
+            return std.mem.eql(u8, a_slice, b_slice);
+        }
+    }
+
+    // Same type - direct compare
+    if (A == B) {
+        if (comptime a_info == .@"struct") {
+            return std.meta.eql(a, b);
+        }
+        return a == b;
+    }
+
+    return false;
+}
+
 /// Assertion: assertEqual(a, b) - values must be equal
 pub fn assertEqual(a: anytype, b: anytype) void {
     const runtime = @import("../runtime.zig");
     const A = @TypeOf(a);
     const B = @TypeOf(b);
+    const a_info = @typeInfo(A);
+    const b_info = @typeInfo(B);
+
+    // Unwrap error unions before comparison
+    if (a_info == .error_union) {
+        const unwrapped = a catch {
+            std.debug.print("AssertionError: first argument is error\n", .{});
+            if (runner.global_result) |result| {
+                result.addFail("assertEqual failed - error value") catch {};
+            }
+            @panic("assertEqual failed");
+        };
+        return assertEqual(unwrapped, b);
+    }
+    if (b_info == .error_union) {
+        const unwrapped = b catch {
+            std.debug.print("AssertionError: second argument is error\n", .{});
+            if (runner.global_result) |result| {
+                result.addFail("assertEqual failed - error value") catch {};
+            }
+            @panic("assertEqual failed");
+        };
+        return assertEqual(a, unwrapped);
+    }
 
     const equal = blk: {
-        const a_info = @typeInfo(A);
-        const b_info = @typeInfo(B);
 
         // Same type - direct comparison
         if (A == B) {
@@ -27,7 +299,24 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (a_info == .@"struct" and @hasDecl(A, "eql")) {
                 break :blk a.eql(&b);
             }
+            // ArrayList comparison - compare items element by element
+            if (a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity")) {
+                break :blk equalArrayList(a, b);
+            }
+            // Generic struct comparison using std.meta.eql
+            if (a_info == .@"struct") {
+                break :blk std.meta.eql(a, b);
+            }
             break :blk a == b;
+        }
+
+        // ArrayList comparison - different ArrayList types but same-structured items
+        if (a_info == .@"struct" and b_info == .@"struct") {
+            if (@hasField(A, "items") and @hasField(A, "capacity") and
+                @hasField(B, "items") and @hasField(B, "capacity"))
+            {
+                break :blk equalArrayList(a, b);
+            }
         }
 
         // Integer comparisons (handle i64 vs comptime_int)
@@ -495,10 +784,51 @@ pub fn assertIn(item: anytype, container: anytype) void {
         break :string_blk std.mem.indexOf(u8, container_slice, item_slice) != null;
     } else elem_blk: {
         // Element search for other containers
-        for (container) |elem| {
-            if (elem == item) break :elem_blk true;
+        // Handle different container types at comptime
+        const container_info = @typeInfo(ContainerType);
+
+        // Check for struct types (ArrayList, HashMap, etc.)
+        if (comptime container_info == .@"struct") {
+            // ArrayList: use .items slice
+            if (comptime @hasField(ContainerType, "items")) {
+                for (container.items) |elem| {
+                    if (std.meta.eql(elem, item)) break :elem_blk true;
+                }
+                break :elem_blk false;
+            }
+            // HashMap: check keys using contains()
+            else if (comptime @hasDecl(ContainerType, "contains")) {
+                // For float key hashmaps (u64 bit representation), convert item to bits
+                // Get the key type from the contains() function signature
+                const contains_info = @typeInfo(@TypeOf(ContainerType.contains));
+                const KeyType = if (contains_info == .@"fn" and contains_info.@"fn".params.len >= 2)
+                    contains_info.@"fn".params[1].type orelse void
+                else
+                    void;
+                if (comptime @TypeOf(item) == f64 and KeyType == u64) {
+                    break :elem_blk container.contains(@bitCast(item));
+                } else {
+                    // Try direct contains (may fail at compile time if types don't match)
+                    break :elem_blk container.contains(item);
+                }
+            }
+            // Tuple: use inline for
+            else if (comptime container_info.@"struct".is_tuple) {
+                inline for (container) |elem| {
+                    if (std.meta.eql(elem, item)) break :elem_blk true;
+                }
+                break :elem_blk false;
+            } else {
+                @compileError("assertIn: unsupported struct container type");
+            }
         }
-        break :elem_blk false;
+        // Arrays and slices - iterate directly
+        else {
+            for (container) |elem| {
+                if (std.meta.eql(elem, item)) break :elem_blk true;
+            }
+            break :elem_blk false;
+        }
     };
 
     if (!found) {
@@ -535,10 +865,51 @@ pub fn assertNotIn(item: anytype, container: anytype) void {
         break :string_blk std.mem.indexOf(u8, container_slice, item_slice) != null;
     } else elem_blk: {
         // Element search for other containers
-        for (container) |elem| {
-            if (elem == item) break :elem_blk true;
+        // Handle different container types at comptime
+        const container_info = @typeInfo(ContainerType);
+
+        // Check for struct types (ArrayList, HashMap, etc.)
+        if (comptime container_info == .@"struct") {
+            // ArrayList: use .items slice
+            if (comptime @hasField(ContainerType, "items")) {
+                for (container.items) |elem| {
+                    if (std.meta.eql(elem, item)) break :elem_blk true;
+                }
+                break :elem_blk false;
+            }
+            // HashMap: check keys using contains()
+            else if (comptime @hasDecl(ContainerType, "contains")) {
+                // For float key hashmaps (u64 bit representation), convert item to bits
+                // Get the key type from the contains() function signature
+                const contains_info = @typeInfo(@TypeOf(ContainerType.contains));
+                const KeyType = if (contains_info == .@"fn" and contains_info.@"fn".params.len >= 2)
+                    contains_info.@"fn".params[1].type orelse void
+                else
+                    void;
+                if (comptime @TypeOf(item) == f64 and KeyType == u64) {
+                    break :elem_blk container.contains(@bitCast(item));
+                } else {
+                    // Try direct contains (may fail at compile time if types don't match)
+                    break :elem_blk container.contains(item);
+                }
+            }
+            // Tuple: use inline for
+            else if (comptime container_info.@"struct".is_tuple) {
+                inline for (container) |elem| {
+                    if (std.meta.eql(elem, item)) break :elem_blk true;
+                }
+                break :elem_blk false;
+            } else {
+                @compileError("assertNotIn: unsupported struct container type");
+            }
         }
-        break :elem_blk false;
+        // Arrays and slices - iterate directly
+        else {
+            for (container) |elem| {
+                if (std.meta.eql(elem, item)) break :elem_blk true;
+            }
+            break :elem_blk false;
+        }
     };
 
     if (found) {
@@ -717,6 +1088,27 @@ pub fn assertNotAlmostEqual(a: anytype, b: anytype) void {
             result.addFail("assertNotAlmostEqual failed") catch {};
         }
         @panic("assertNotAlmostEqual failed");
+    } else {
+        if (runner.global_result) |result| {
+            result.addPass();
+        }
+    }
+}
+
+/// Assertion: assertFloatsAreIdentical(a, b) - floats must be identical (same value and same sign for zeros)
+/// This is stricter than assertEqual - it distinguishes between +0.0 and -0.0
+pub fn assertFloatsAreIdentical(a: f64, b: f64) void {
+    // Check for identical values including NaN and signed zeros
+    // Two floats are identical if their bit representations are equal
+    const a_bits = @as(u64, @bitCast(a));
+    const b_bits = @as(u64, @bitCast(b));
+
+    if (a_bits != b_bits) {
+        std.debug.print("AssertionError: {d} is not identical to {d}\n", .{ a, b });
+        if (runner.global_result) |result| {
+            result.addFail("assertFloatsAreIdentical failed") catch {};
+        }
+        @panic("assertFloatsAreIdentical failed");
     } else {
         if (runner.global_result) |result| {
             result.addPass();

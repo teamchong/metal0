@@ -1,6 +1,18 @@
 /// Python faulthandler module - Dump Python tracebacks on fault signals
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "enable", genEnable },
+    .{ "disable", genDisable },
+    .{ "is_enabled", genIsEnabled },
+    .{ "dump_traceback", genDumpTraceback },
+    .{ "dump_traceback_later", genDumpTracebackLater },
+    .{ "cancel_dump_traceback_later", genCancelDumpTracebackLater },
+    .{ "register", genRegister },
+    .{ "unregister", genUnregister },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

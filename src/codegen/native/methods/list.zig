@@ -192,10 +192,22 @@ pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: @as(i64, @intCast(std.mem.count(T, list.items, &[_]T{item})))
-    try self.emit("@as(i64, @intCast(std.mem.count(i64, ");
+    // Infer element type from the search item
+    const item_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    var type_buf = std.ArrayList(u8){};
+    defer type_buf.deinit(self.allocator);
+    item_type.toZigType(self.allocator, &type_buf) catch {};
+    const elem_type = if (type_buf.items.len > 0) type_buf.items else "i64";
+
+    // Generate: @as(i64, @intCast(std.mem.count(T, (list).items, &[_]T{item})))
+    // Parentheses around list are needed for list literal blocks
+    try self.emit("@as(i64, @intCast(std.mem.count(");
+    try self.emit(elem_type);
+    try self.emit(", (");
     try self.genExpr(obj);
-    try self.emit(".items, &[_]i64{");
+    try self.emit(").items, &[_]");
+    try self.emit(elem_type);
+    try self.emit("{");
     try self.genExpr(args[0]);
     try self.emit("})))");
 }

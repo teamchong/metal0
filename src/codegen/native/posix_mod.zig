@@ -2,6 +2,45 @@
 /// This module re-exports os functions for POSIX compatibility
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "getcwd", genGetcwd },
+    .{ "chdir", genChdir },
+    .{ "listdir", genListdir },
+    .{ "mkdir", genMkdir },
+    .{ "rmdir", genRmdir },
+    .{ "unlink", genUnlink },
+    .{ "rename", genRename },
+    .{ "stat", genStat },
+    .{ "lstat", genLstat },
+    .{ "fstat", genFstat },
+    .{ "getenv", genGetenv },
+    .{ "getpid", genGetpid },
+    .{ "getppid", genGetppid },
+    .{ "getuid", genGetuid },
+    .{ "getgid", genGetgid },
+    .{ "geteuid", genGeteuid },
+    .{ "getegid", genGetegid },
+    .{ "fork", genFork },
+    .{ "kill", genKill },
+    .{ "open", genOpen },
+    .{ "close", genClose },
+    .{ "read", genRead },
+    .{ "write", genWrite },
+    .{ "pipe", genPipe },
+    .{ "dup", genDup },
+    .{ "dup2", genDup2 },
+    .{ "access", genAccess },
+    .{ "chmod", genChmod },
+    .{ "chown", genChown },
+    .{ "umask", genUmask },
+    .{ "symlink", genSymlink },
+    .{ "readlink", genReadlink },
+    .{ "uname", genUname },
+    .{ "urandom", genUrandom },
+    .{ "error", genError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

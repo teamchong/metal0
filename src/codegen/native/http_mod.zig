@@ -4,6 +4,26 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const HttpClientFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "HTTPConnection", genHTTPConnection },
+    .{ "HTTPSConnection", genHTTPSConnection },
+    .{ "HTTPResponse", genHTTPResponse },
+});
+
+pub const HttpServerFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "HTTPServer", genHTTPServer },
+    .{ "ThreadingHTTPServer", genThreadingHTTPServer },
+    .{ "BaseHTTPRequestHandler", genBaseHTTPRequestHandler },
+    .{ "SimpleHTTPRequestHandler", genSimpleHTTPRequestHandler },
+    .{ "CGIHTTPRequestHandler", genCGIHTTPRequestHandler },
+});
+
+pub const HttpCookiesFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "SimpleCookie", genSimpleCookie },
+    .{ "BaseCookie", genBaseCookie },
+});
+
 // ============================================================================
 // http.client - HTTP and HTTPS protocol client
 // ============================================================================

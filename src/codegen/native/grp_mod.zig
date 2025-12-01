@@ -4,6 +4,14 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "getgrnam", genGetgrnam },
+    .{ "getgrgid", genGetgrgid },
+    .{ "getgrall", genGetgrall },
+    .{ "struct_group", genStruct_group },
+});
+
 /// Generate grp.getgrnam(name) - get group by name
 /// Returns struct_group(gr_name, gr_passwd, gr_gid, gr_mem)
 pub fn genGetgrnam(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

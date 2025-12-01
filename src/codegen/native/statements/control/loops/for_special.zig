@@ -4,6 +4,7 @@ const ast = @import("ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const zig_keywords = @import("zig_keywords");
+const param_analyzer = @import("../../functions/param_analyzer.zig");
 
 /// Generate enumerate loop
 pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node) CodegenError!void {
@@ -120,6 +121,13 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     try self.emit("const ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), idx_var);
     try self.output.writer(self.allocator).print(" = __enum_idx_{d};\n", .{unique_id});
+    // Suppress unused warning only if idx_var is NOT used in body
+    if (!param_analyzer.isNameUsedInBody(body, idx_var)) {
+        try self.emitIndent();
+        try self.emit("_ = ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), idx_var);
+        try self.emit(";\n");
+    }
 
     // Generate: __enum_idx_N += 1;
     try self.emitIndent();
@@ -136,6 +144,13 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
                 try self.emit(" = ");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), item_var);
                 try self.output.writer(self.allocator).print(".@\"{d}\";\n", .{i});
+                // Only suppress unused warning if variable is NOT used in body
+                if (!param_analyzer.isNameUsedInBody(body, elt.name.id)) {
+                    try self.emitIndent();
+                    try self.emit("_ = ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), elt.name.id);
+                    try self.emit(";\n");
+                }
             }
         }
     }

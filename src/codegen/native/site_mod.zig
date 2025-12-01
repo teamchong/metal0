@@ -1,6 +1,20 @@
 /// Python site module - Site-specific configuration hook
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "PREFIXES", genPREFIXES },
+    .{ "ENABLE_USER_SITE", genENABLE_USER_SITE },
+    .{ "USER_SITE", genUSER_SITE },
+    .{ "USER_BASE", genUSER_BASE },
+    .{ "main", genMain },
+    .{ "addsitedir", genAddsitedir },
+    .{ "getsitepackages", genGetsitepackages },
+    .{ "getuserbase", genGetuserbase },
+    .{ "getusersitepackages", genGetusersitepackages },
+    .{ "removeduppaths", genRemoveduppaths },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

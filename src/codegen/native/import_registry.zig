@@ -257,6 +257,8 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("typing", .zig_runtime, "std", null); // typing module (no-ops)
     try registry.register("contextlib", .zig_runtime, "std", null); // contextlib module
     try registry.register("string", .zig_runtime, "std", null); // string module
+    try registry.register("_string", .zig_runtime, "std", null); // _string module (internal string formatting)
+    try registry.register("_testcapi", .zig_runtime, "std", null); // _testcapi module (CPython test internals)
     try registry.register("shutil", .zig_runtime, "std", null); // shutil module
     try registry.register("glob", .zig_runtime, "std", null); // glob module
     try registry.register("fnmatch", .zig_runtime, "std", null); // fnmatch module

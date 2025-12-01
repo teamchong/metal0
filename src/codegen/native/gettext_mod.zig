@@ -4,6 +4,23 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "gettext", genGettext },
+    .{ "ngettext", genNgettext },
+    .{ "pgettext", genPgettext },
+    .{ "npgettext", genNpgettext },
+    .{ "dgettext", genDgettext },
+    .{ "dngettext", genDngettext },
+    .{ "bindtextdomain", genBindtextdomain },
+    .{ "textdomain", genTextdomain },
+    .{ "install", genInstall },
+    .{ "translation", genTranslation },
+    .{ "find", genFind },
+    .{ "GNUTranslations", genGNUTranslations },
+    .{ "NullTranslations", genNullTranslations },
+});
+
 /// Generate gettext.gettext(message) - return localized message
 pub fn genGettext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

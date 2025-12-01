@@ -4,6 +4,14 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "timeit", genTimeit },
+    .{ "repeat", genRepeat },
+    .{ "default_timer", genDefault_timer },
+    .{ "Timer", genTimer },
+});
+
 /// Generate timeit.timeit(stmt='pass', setup='pass', timer=<default>, number=1000000, globals=None)
 pub fn genTimeit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

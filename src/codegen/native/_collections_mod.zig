@@ -1,6 +1,14 @@
 /// Python _collections module - C accelerator for collections (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "deque", genDeque },
+    .{ "_deque_iterator", genDequeIterator },
+    .{ "_deque_reverse_iterator", genDequeReverseIterator },
+    .{ "_count_elements", genCountElements },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

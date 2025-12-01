@@ -5,6 +5,19 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const NativeType = @import("../../analysis/native_types.zig").NativeType;
 
+/// Handler function type
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// JSON module function map - exported for dispatch
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "loads", genJsonLoads },
+    .{ "dumps", genJsonDumps },
+    .{ "load", genJsonLoad },
+    .{ "dump", genJsonDump },
+    .{ "JSONEncoder", genJSONEncoder },
+    .{ "JSONDecoder", genJSONDecoder },
+});
+
 /// Generate code for json.loads(json_string)
 /// Parses JSON and returns a PyObject (dict/list/etc)
 pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -13,8 +26,9 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Use the appropriate allocator based on context (module level uses __global_allocator)
-    const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
+    // Always use __global_allocator since it's always available
+    // (method allocator param may be discarded as "_" if not used elsewhere)
+    const alloc_name = "__global_allocator";
 
     // Check if argument is already a PyObject (e.g., from file.read())
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
@@ -49,8 +63,9 @@ pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Use the appropriate allocator based on context (module level uses __global_allocator)
-    const alloc_name = if (self.current_function_name != null) "allocator" else "__global_allocator";
+    // Always use __global_allocator since it's always available
+    // (method allocator param may be discarded as "_" if not used elsewhere)
+    const alloc_name = "__global_allocator";
 
     // Check if argument is a dict type that needs conversion
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;

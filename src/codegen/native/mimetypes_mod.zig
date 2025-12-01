@@ -1,6 +1,23 @@
 /// Python mimetypes module - MIME type mapping
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "guess_type", genGuess_type },
+    .{ "guess_all_extensions", genGuess_all_extensions },
+    .{ "guess_extension", genGuess_extension },
+    .{ "init", genInit },
+    .{ "read_mime_types", genRead_mime_types },
+    .{ "add_type", genAdd_type },
+    .{ "MimeTypes", genMimeTypes },
+    .{ "knownfiles", genKnownfiles },
+    .{ "inited", genInited },
+    .{ "suffix_map", genSuffix_map },
+    .{ "encodings_map", genEncodings_map },
+    .{ "types_map", genTypes_map },
+    .{ "common_types", genCommon_types },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

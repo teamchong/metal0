@@ -4,6 +4,44 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "s_s_l_context", genSSLContext },
+    .{ "s_s_l_socket", genSSLSocket },
+    .{ "memory_b_i_o", genMemoryBIO },
+    .{ "r_a_n_d_status", genRAND_status },
+    .{ "r_a_n_d_add", genRAND_add },
+    .{ "r_a_n_d_bytes", genRAND_bytes },
+    .{ "r_a_n_d_pseudo_bytes", genRAND_pseudo_bytes },
+    .{ "txt2obj", genTxt2obj },
+    .{ "nid2obj", genNid2obj },
+    .{ "o_p_e_n_s_s_l__v_e_r_s_i_o_n", genOPENSSL_VERSION },
+    .{ "o_p_e_n_s_s_l__v_e_r_s_i_o_n__n_u_m_b_e_r", genOPENSSL_VERSION_NUMBER },
+    .{ "o_p_e_n_s_s_l__v_e_r_s_i_o_n__i_n_f_o", genOPENSSL_VERSION_INFO },
+    .{ "p_r_o_t_o_c_o_l__s_s_lv23", genPROTOCOL_SSLv23 },
+    .{ "p_r_o_t_o_c_o_l__t_l_s", genPROTOCOL_TLS },
+    .{ "p_r_o_t_o_c_o_l__t_l_s__c_l_i_e_n_t", genPROTOCOL_TLS_CLIENT },
+    .{ "p_r_o_t_o_c_o_l__t_l_s__s_e_r_v_e_r", genPROTOCOL_TLS_SERVER },
+    .{ "c_e_r_t__n_o_n_e", genCERT_NONE },
+    .{ "c_e_r_t__o_p_t_i_o_n_a_l", genCERT_OPTIONAL },
+    .{ "c_e_r_t__r_e_q_u_i_r_e_d", genCERT_REQUIRED },
+    .{ "h_a_s__s_n_i", genHAS_SNI },
+    .{ "h_a_s__e_c_d_h", genHAS_ECDH },
+    .{ "h_a_s__n_p_n", genHAS_NPN },
+    .{ "h_a_s__a_l_p_n", genHAS_ALPN },
+    .{ "h_a_s__t_l_sv1", genHAS_TLSv1 },
+    .{ "h_a_s__t_l_sv1_1", genHAS_TLSv1_1 },
+    .{ "h_a_s__t_l_sv1_2", genHAS_TLSv1_2 },
+    .{ "h_a_s__t_l_sv1_3", genHAS_TLSv1_3 },
+    .{ "s_s_l_error", genSSLError },
+    .{ "s_s_l_zero_return_error", genSSLZeroReturnError },
+    .{ "s_s_l_want_read_error", genSSLWantReadError },
+    .{ "s_s_l_want_write_error", genSSLWantWriteError },
+    .{ "s_s_l_syscall_error", genSSLSyscallError },
+    .{ "s_s_l_e_o_f_error", genSSLEOFError },
+    .{ "s_s_l_cert_verification_error", genSSLCertVerificationError },
+});
+
 /// Generate _ssl._SSLContext(protocol)
 pub fn genSSLContext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

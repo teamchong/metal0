@@ -4,6 +4,24 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "lock_held", genLockHeld },
+    .{ "acquire_lock", genAcquireLock },
+    .{ "release_lock", genReleaseLock },
+    .{ "get_frozen_object", genGetFrozenObject },
+    .{ "is_frozen", genIsFrozen },
+    .{ "is_builtin", genIsBuiltin },
+    .{ "is_frozen_package", genIsFrozenPackage },
+    .{ "create_builtin", genCreateBuiltin },
+    .{ "create_dynamic", genCreateDynamic },
+    .{ "exec_builtin", genExecBuiltin },
+    .{ "exec_dynamic", genExecDynamic },
+    .{ "extension_suffixes", genExtensionSuffixes },
+    .{ "source_hash", genSourceHash },
+    .{ "check_hash_based_pycs", genCheckHashBasedPycs },
+});
+
 /// Generate _imp.lock_held()
 pub fn genLockHeld(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

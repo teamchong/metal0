@@ -1,6 +1,18 @@
 /// Python crypt module - Function to check Unix passwords
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "crypt", genCrypt },
+    .{ "mksalt", genMksalt },
+    .{ "METHOD_SHA512", genMETHOD_SHA512 },
+    .{ "METHOD_SHA256", genMETHOD_SHA256 },
+    .{ "METHOD_BLOWFISH", genMETHOD_BLOWFISH },
+    .{ "METHOD_MD5", genMETHOD_MD5 },
+    .{ "METHOD_CRYPT", genMETHOD_CRYPT },
+    .{ "methods", genMethods },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -4,6 +4,48 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "openlog", genOpenlog },
+    .{ "syslog", genSyslog },
+    .{ "closelog", genCloselog },
+    .{ "setlogmask", genSetlogmask },
+    .{ "LOG_EMERG", genLOG_EMERG },
+    .{ "LOG_ALERT", genLOG_ALERT },
+    .{ "LOG_CRIT", genLOG_CRIT },
+    .{ "LOG_ERR", genLOG_ERR },
+    .{ "LOG_WARNING", genLOG_WARNING },
+    .{ "LOG_NOTICE", genLOG_NOTICE },
+    .{ "LOG_INFO", genLOG_INFO },
+    .{ "LOG_DEBUG", genLOG_DEBUG },
+    .{ "LOG_KERN", genLOG_KERN },
+    .{ "LOG_USER", genLOG_USER },
+    .{ "LOG_MAIL", genLOG_MAIL },
+    .{ "LOG_DAEMON", genLOG_DAEMON },
+    .{ "LOG_AUTH", genLOG_AUTH },
+    .{ "LOG_SYSLOG", genLOG_SYSLOG },
+    .{ "LOG_LPR", genLOG_LPR },
+    .{ "LOG_NEWS", genLOG_NEWS },
+    .{ "LOG_UUCP", genLOG_UUCP },
+    .{ "LOG_CRON", genLOG_CRON },
+    .{ "LOG_LOCAL0", genLOG_LOCAL0 },
+    .{ "LOG_LOCAL1", genLOG_LOCAL1 },
+    .{ "LOG_LOCAL2", genLOG_LOCAL2 },
+    .{ "LOG_LOCAL3", genLOG_LOCAL3 },
+    .{ "LOG_LOCAL4", genLOG_LOCAL4 },
+    .{ "LOG_LOCAL5", genLOG_LOCAL5 },
+    .{ "LOG_LOCAL6", genLOG_LOCAL6 },
+    .{ "LOG_LOCAL7", genLOG_LOCAL7 },
+    .{ "LOG_PID", genLOG_PID },
+    .{ "LOG_CONS", genLOG_CONS },
+    .{ "LOG_ODELAY", genLOG_ODELAY },
+    .{ "LOG_NDELAY", genLOG_NDELAY },
+    .{ "LOG_NOWAIT", genLOG_NOWAIT },
+    .{ "LOG_PERROR", genLOG_PERROR },
+    .{ "LOG_MASK", genLOG_MASK },
+    .{ "LOG_UPTO", genLOG_UPTO },
+});
+
 /// Generate syslog.openlog(ident, logoption, facility)
 pub fn genOpenlog(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

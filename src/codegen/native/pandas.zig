@@ -24,6 +24,14 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 const NativeType = @import("../../analysis/native_types.zig").NativeType;
 
+/// Handler function type
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// Module function map - exported for dispatch
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "DataFrame", genDataFrame },
+});
+
 /// Generate pd.DataFrame() call
 /// Creates DataFrame from dict literal: pd.DataFrame({'A': [1,2,3], 'B': [4,5,6]})
 pub fn genDataFrame(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

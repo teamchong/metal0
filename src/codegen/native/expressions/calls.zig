@@ -190,6 +190,33 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     if (call.func.* == .attribute) {
         const attr = call.func.attribute;
 
+        // Handle object.__hash__(value) - Python's base hash implementation
+        // This is equivalent to runtime.pyHash(value) or id(value) for identity hash
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "object")) {
+            if (std.mem.eql(u8, attr.attr, "__hash__")) {
+                // object.__hash__(x) -> runtime.pyHash(x) for consistency with hash()
+                try self.emit("runtime.pyHash(");
+                if (call.args.len > 0) {
+                    try genExpr(self, call.args[0]);
+                }
+                try self.emit(")");
+                return;
+            }
+        }
+
+        // Handle float.__getformat__(typestr) - Python float format introspection
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "float")) {
+            if (std.mem.eql(u8, attr.attr, "__getformat__")) {
+                // float.__getformat__('double') -> runtime.floatGetFormat("double")
+                try self.emit("runtime.floatGetFormat(");
+                if (call.args.len > 0) {
+                    try genExpr(self, call.args[0]);
+                }
+                try self.emit(")");
+                return;
+            }
+        }
+
         // Check if this is a class-level type attribute call (e.g., self.int_class(...))
         // Type attributes are static functions, not methods, so we call them via @This()
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
@@ -248,24 +275,49 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         var class_method_needs_alloc = false;
         var is_nested_class_method_call = false;
         {
-            const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch .unknown;
-            if (obj_type == .class_instance) {
-                const class_name = obj_type.class_instance;
-                // Look up method in class registry
-                if (self.class_registry.findMethod(class_name, attr.attr)) |method_info| {
-                    is_class_method_call = true;
-                    // Get the method's FunctionDef from the class and check if it needs allocator
-                    if (self.class_registry.getClass(method_info.class_name)) |class_def| {
+            // FIRST: Check if this is a self.method() call within the current class
+            // This must be checked BEFORE the generic type inferrer check because
+            // var_types["self"] may contain the wrong class when multiple classes exist
+            // (it stores the LAST class analyzed, not the current one).
+            // When we're inside a class, self always refers to the current class.
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                if (self.current_class_name) |class_name| {
+                    // Look up method in class registry for current class
+                    if (self.class_registry.getClass(class_name)) |class_def| {
                         for (class_def.body) |stmt| {
                             if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
-                                class_method_needs_alloc = allocator_analyzer.functionNeedsAllocator(stmt.function_def);
+                                is_class_method_call = true;
+                                // Use methodNeedsAllocatorInClass (same as signature generation)
+                                // to ensure call-site allocator passing matches method signature
+                                class_method_needs_alloc = allocator_analyzer.methodNeedsAllocatorInClass(stmt.function_def, class_name);
                                 break;
                             }
                         }
                     }
                 }
             }
-            // Check if this is a nested class instance method call (obj.method() where obj = Inner())
+            // SECOND: Check generic class instance method calls (f.run() where f is a Foo instance)
+            if (!is_class_method_call) {
+                const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch .unknown;
+                if (obj_type == .class_instance) {
+                    const class_name = obj_type.class_instance;
+                    // Look up method in class registry
+                    if (self.class_registry.findMethod(class_name, attr.attr)) |method_info| {
+                        is_class_method_call = true;
+                        // Get the method's FunctionDef from the class and check if it needs allocator
+                        // Use methodNeedsAllocatorInClass to match method signature generation
+                        if (self.class_registry.getClass(method_info.class_name)) |class_def| {
+                            for (class_def.body) |stmt| {
+                                if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
+                                    class_method_needs_alloc = allocator_analyzer.methodNeedsAllocatorInClass(stmt.function_def, class_name);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // THIRD: Check if this is a nested class instance method call (obj.method() where obj = Inner())
             // Nested classes aren't in class_registry, so check nested_class_instances
             if (!is_class_method_call and attr.value.* == .name) {
                 const obj_name = attr.value.name.id;
@@ -273,24 +325,6 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     // This is a method call on a nested class instance - always pass allocator
                     is_nested_class_method_call = true;
                     class_method_needs_alloc = true;
-                }
-            }
-            // Check if this is a self.method() call within the current class
-            // These need allocator if the method signature requires it
-            if (!is_class_method_call and attr.value.* == .name and
-                std.mem.eql(u8, attr.value.name.id, "self"))
-            {
-                if (self.current_class_name) |class_name| {
-                    // Look up method in class registry for current class
-                    if (self.class_registry.getClass(class_name)) |class_def| {
-                        for (class_def.body) |stmt| {
-                            if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
-                                is_class_method_call = true;
-                                class_method_needs_alloc = allocator_analyzer.functionNeedsAllocator(stmt.function_def);
-                                break;
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -450,22 +484,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (self.closure_vars.contains(raw_func_name)) {
             // Closure call: add_five(3) -> add_five.call(3)
             // Use the variable name which was already assigned the closure
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
+            // Use writeEscapedIdent (not writeLocalVarName) to match how the closure was defined
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
             try self.emit(".call(");
 
-            // Wrap args in runtime.pyIntFromAny() to handle type coercion from usize/comptime_int/bool
+            // Pass args directly - closure fn params are anytype so accept all types
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
-                try self.emit("runtime.pyIntFromAny(");
                 try genExpr(self, arg);
-                try self.emit(")");
             }
 
             for (call.keyword_args, 0..) |kwarg, i| {
                 if (i > 0 or call.args.len > 0) try self.emit(", ");
-                try self.emit("runtime.pyIntFromAny(");
                 try genExpr(self, kwarg.value);
-                try self.emit(")");
             }
 
             try self.emit(")");
@@ -519,15 +550,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             else
                 false;
 
+            // Determine if allocator should be passed to init
+            // User-defined classes (in class_registry or nested_names) need allocator
+            // Local structs (namedtuples, etc.) don't need allocator
+            const needs_allocator = in_class_registry or in_nested_names or is_self_reference;
+
             if (is_user_class or is_self_reference) {
                 // User-defined class: init returns struct directly, no try needed
-                // Always use __global_allocator since the method may not have allocator param
                 if (is_self_reference) {
                     try self.emit("@This()");
                 } else {
                     try self.emit(func_name);
                 }
-                try self.emit(".init(__global_allocator");
+                if (needs_allocator) {
+                    try self.emit(".init(__global_allocator");
+                } else {
+                    try self.emit(".init(");
+                }
             } else if (is_runtime_exception) {
                 // Runtime exception type: Exception(arg) -> runtime.Exception.initWithArg(__global_allocator, arg)
                 try self.emit("(try runtime.");
@@ -603,13 +642,75 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             } else {
                 // User-provided args
-                if (call.args.len > 0 or call.keyword_args.len > 0) {
+                // Only add comma if allocator was emitted
+                if ((call.args.len > 0 or call.keyword_args.len > 0) and needs_allocator) {
                     try self.emit(", ");
                 }
 
+                // Check if class inherits from builtin type (int, float, etc.)
+                // If so, we need to convert class instance args to primitive type
+                const inherits_float = blk: {
+                    if (self.class_registry.getClass(raw_func_name)) |class_def| {
+                        if (class_def.bases.len > 0) {
+                            if (std.mem.eql(u8, class_def.bases[0], "float")) {
+                                break :blk true;
+                            }
+                        }
+                    }
+                    if (self.nested_class_bases.get(raw_func_name)) |base_name| {
+                        if (std.mem.eql(u8, base_name, "float")) {
+                            break :blk true;
+                        }
+                    }
+                    break :blk false;
+                };
+
                 for (call.args, 0..) |arg, i| {
                     if (i > 0) try self.emit(", ");
-                    try genExpr(self, arg);
+
+                    // Handle starred expression: *tuple unpacks to tuple.@"0", tuple.@"1", ...
+                    if (arg == .starred) {
+                        // For starred expressions in class constructors, unpack the tuple
+                        // Generate: tuple.@"0", tuple.@"1" (assuming 2-element tuple for Fraction)
+                        // We use block expressions with unique labels
+                        const label1 = self.block_label_counter;
+                        self.block_label_counter += 1;
+                        const label2 = self.block_label_counter;
+                        self.block_label_counter += 1;
+                        try self.emitFmt("unpack_{d}: {{ const __t = ", .{label1});
+                        try genExpr(self, arg.starred.value.*);
+                        try self.emitFmt("; break :unpack_{d} __t.@\"0\"; }}, unpack_{d}: {{ const __t = ", .{ label1, label2 });
+                        try genExpr(self, arg.starred.value.*);
+                        try self.emitFmt("; break :unpack_{d} __t.@\"1\"; }}", .{label2});
+                        continue;
+                    }
+
+                    // Check if arg type is known at compile time
+                    const arg_type = self.type_inferrer.inferExpr(arg) catch .unknown;
+
+                    // For float subclass constructors, we may need runtime conversion
+                    // of class instances to float values
+                    if (inherits_float) {
+                        // Check if arg is definitely a float/number - no conversion needed
+                        const is_definitely_float = (arg_type == .float) or (arg_type == .int) or
+                            (arg == .constant and (arg.constant.value == .float or arg.constant.value == .int));
+
+                        if (is_definitely_float) {
+                            try genExpr(self, arg);
+                        } else if (arg_type == .class_instance) {
+                            // Known class instance - use floatBuiltinCall
+                            try self.emit("(runtime.floatBuiltinCall(");
+                            try genExpr(self, arg);
+                            try self.emit(", .{}) catch 0.0)");
+                        } else {
+                            // Unknown type - use runtime conversion that handles both
+                            try self.emit("runtime.toFloat(");
+                            try genExpr(self, arg);
+                            try self.emit(")");
+                        }
+                    } else {
+                        try genExpr(self, arg);
+                    }
                 }
 
                 for (call.keyword_args, 0..) |kwarg, i| {

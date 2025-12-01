@@ -4,6 +4,20 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "run", genRun },
+    .{ "call", genCall },
+    .{ "check_call", genCheckCall },
+    .{ "check_output", genCheckOutput },
+    .{ "Popen", genPopen },
+    .{ "getoutput", genGetoutput },
+    .{ "getstatusoutput", genGetstatusoutput },
+    .{ "PIPE", genPIPE },
+    .{ "STDOUT", genSTDOUT },
+    .{ "DEVNULL", genDEVNULL },
+});
+
 /// Generate subprocess.run(args, **kwargs) -> CompletedProcess
 pub fn genRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

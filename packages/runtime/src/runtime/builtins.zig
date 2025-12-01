@@ -289,17 +289,66 @@ pub fn minIterable(iterable: anytype) i64 {
     return min_val;
 }
 
-/// Get next item from an iterator
-pub fn next(iterator: anytype) @TypeOf(iterator).Item {
+/// Get next item from an iterator (takes pointer for mutation)
+pub fn next(iterator: anytype) IteratorItem(@TypeOf(iterator)) {
     const T = @TypeOf(iterator);
+    const info = @typeInfo(T);
+
+    // Handle pointer to iterator struct
+    if (info == .pointer) {
+        const Child = info.pointer.child;
+        if (@hasDecl(Child, "next")) {
+            if (iterator.next()) |item| {
+                return item;
+            }
+            return error.StopIteration;
+        }
+        if (@hasDecl(Child, "__next__")) {
+            return iterator.__next__();
+        }
+    }
+
+    // Handle iterator struct directly (legacy)
     if (@hasDecl(T, "__next__")) {
         return iterator.__next__();
     }
-    // For standard iterators
-    if (iterator.next()) |item| {
-        return item;
+    if (@hasDecl(T, "next")) {
+        if (iterator.next()) |item| {
+            return item;
+        }
+        return error.StopIteration;
     }
-    @panic("StopIteration");
+
+    @compileError("Type does not have next() or __next__() method");
+}
+
+/// Helper to get the item type from an iterator
+fn IteratorItem(comptime T: type) type {
+    const info = @typeInfo(T);
+    if (info == .pointer) {
+        const Child = info.pointer.child;
+        if (@hasDecl(Child, "Item")) {
+            return error{StopIteration}!Child.Item;
+        }
+        if (@hasDecl(Child, "next")) {
+            const next_fn = @typeInfo(@TypeOf(@field(Child, "next")));
+            if (next_fn == .@"fn") {
+                const ReturnType = next_fn.@"fn".return_type.?;
+                if (@typeInfo(ReturnType) == .optional) {
+                    return error{StopIteration}!@typeInfo(ReturnType).optional.child;
+                }
+            }
+        }
+    }
+    if (@hasDecl(T, "Item")) {
+        return error{StopIteration}!T.Item;
+    }
+    return error{StopIteration}!void;
+}
+
+/// iter() for strings - creates a stateful StringIterator
+pub fn strIterator(s: []const u8) StringIterator {
+    return StringIterator.init(s);
 }
 
 /// iter() - return iterator over iterable (identity for already-iterable types)
@@ -343,6 +392,91 @@ pub const RangeIterator = struct {
 /// rangeLazy(start, stop, step) - creates a lightweight range iterator
 pub fn rangeLazy(start: i64, stop: i64, step: i64) RangeIterator {
     return RangeIterator.init(start, stop, step);
+}
+
+/// StringIterator struct - stateful iterator over string characters (Unicode codepoints)
+/// This matches Python's iter(str) behavior where the iterator tracks its position
+pub const StringIterator = struct {
+    data: []const u8,
+    pos: usize,
+
+    pub const Item = []const u8;
+
+    pub fn init(s: []const u8) StringIterator {
+        return .{ .data = s, .pos = 0 };
+    }
+
+    /// Get next Unicode character as a string slice
+    /// Returns null when exhausted (signals StopIteration)
+    pub fn next(self: *StringIterator) ?[]const u8 {
+        if (self.pos >= self.data.len) return null;
+
+        // Decode UTF-8 codepoint length
+        const byte = self.data[self.pos];
+        const cp_len: usize = if (byte < 0x80)
+            1
+        else if (byte < 0xE0)
+            2
+        else if (byte < 0xF0)
+            3
+        else
+            4;
+
+        // Safety check
+        if (self.pos + cp_len > self.data.len) {
+            self.pos = self.data.len;
+            return null;
+        }
+
+        const start = self.pos;
+        self.pos += cp_len;
+        return self.data[start..self.pos];
+    }
+
+    /// Check if iterator is exhausted
+    pub fn isExhausted(self: StringIterator) bool {
+        return self.pos >= self.data.len;
+    }
+};
+
+/// strIter(s) - creates a stateful string iterator
+pub fn strIter(s: []const u8) StringIterator {
+    return StringIterator.init(s);
+}
+
+/// Generic iterator wrapper that can wrap different types
+/// This provides a uniform interface for iter() on various types
+pub fn GenericIterator(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        pub const Item = switch (@typeInfo(T)) {
+            .pointer => |ptr| if (ptr.size == .slice) ptr.child else T,
+            else => T,
+        };
+
+        data: T,
+        pos: usize,
+
+        pub fn init(data: T) Self {
+            return .{ .data = data, .pos = 0 };
+        }
+
+        pub fn next(self: *Self) ?Item {
+            const info = @typeInfo(T);
+            if (info == .pointer and info.pointer.size == .slice) {
+                if (self.pos >= self.data.len) return null;
+                const item = self.data[self.pos];
+                self.pos += 1;
+                return item;
+            }
+            // For other types, just return the data once
+            if (self.pos == 0) {
+                self.pos = 1;
+                return self.data;
+            }
+            return null;
+        }
+    };
 }
 
 /// Maximum value from any iterable (generic)
@@ -821,6 +955,20 @@ pub fn bigIntCompare(a: anytype, b: anytype, op: CompareOp) bool {
             };
         }
     } else {
+        // Check if these are complex types (ArrayList, tuple, HashMap, etc.)
+        const a_is_complex = @typeInfo(AT) == .@"struct";
+        const b_is_complex = @typeInfo(BT) == .@"struct";
+
+        if (a_is_complex or b_is_complex) {
+            // For complex types, only eq and ne are supported
+            const equal = std.meta.eql(a, b);
+            return switch (op) {
+                .eq => equal,
+                .ne => !equal,
+                .lt, .le, .gt, .ge => false, // Not comparable
+            };
+        }
+
         // Both are regular integers
         return switch (op) {
             .eq => a == b,
@@ -838,3 +986,148 @@ pub const bytes_factory: PyCallable = PyCallable.fromFn(&bytes_callable);
 pub const bytearray_factory: PyCallable = PyCallable.fromFn(&bytearray_callable);
 pub const str_factory: PyCallable = PyCallable.fromFn(&str_callable);
 pub const memoryview_factory: PyCallable = PyCallable.fromFn(&memoryview_callable);
+
+// Operator module callable structs - these can be stored as values and called later
+// Example: mod = operator.mod; mod(-1.0, 1.0)
+
+/// operator.mod callable - Python modulo operation
+/// Called as: OperatorMod{}.call(a, b) where self is ignored
+/// Named 'call' to match callable_vars system
+pub const OperatorMod = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
+        const T = @TypeOf(a);
+        const BT = @TypeOf(b);
+        // For floats, use @rem (Zig's floating-point remainder)
+        // For ints, use @mod
+        if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
+            return @rem(a, if (@typeInfo(BT) == .float) b else @as(T, @floatFromInt(b)));
+        } else if (@typeInfo(BT) == .float or @typeInfo(BT) == .comptime_float) {
+            return @rem(@as(BT, @floatFromInt(a)), b);
+        } else {
+            return @mod(a, b);
+        }
+    }
+};
+
+/// operator.pow callable - Python power operation
+/// Called as: OperatorPow{}.call(a, b) where self is ignored
+/// Named 'call' to match callable_vars system
+pub const OperatorPow = struct {
+    pub fn call(_: @This(), a: anytype, b: anytype) f64 {
+        const af: f64 = switch (@typeInfo(@TypeOf(a))) {
+            .float, .comptime_float => @as(f64, a),
+            .int, .comptime_int => @as(f64, @floatFromInt(a)),
+            else => 0.0,
+        };
+        const bf: f64 = switch (@typeInfo(@TypeOf(b))) {
+            .float, .comptime_float => @as(f64, b),
+            .int, .comptime_int => @as(f64, @floatFromInt(b)),
+            else => 0.0,
+        };
+        return std.math.pow(f64, af, bf);
+    }
+};
+
+/// Builtin pow callable - for when pow is used as first-class value
+/// This is the same as OperatorPow but named 'pow' for direct access
+/// e.g., `for pow_op in pow, operator.pow:`
+pub const pow = OperatorPow{};
+
+/// Python type name constants for type() comparisons
+/// These are used when comparing `type(x) == complex`, `type(x) == int`, etc.
+/// They need to match the Zig type names returned by @typeName
+pub const complex = "complex"; // Note: Zig doesn't have native complex; this is for API compatibility
+pub const int = "i64";
+pub const float = "f64";
+pub const @"bool" = "bool";
+pub const @"type" = "type";
+
+/// Builtin format callable - for when format is used as first-class value
+/// format(value, format_spec) -> str
+pub const FormatBuiltin = struct {
+    pub fn call(_: @This(), allocator: std.mem.Allocator, value: anytype, format_spec: anytype) PythonError![]const u8 {
+        // Convert format_spec to slice if it's a single char
+        const spec_slice: []const u8 = blk: {
+            const SpecType = @TypeOf(format_spec);
+            if (SpecType == []const u8 or SpecType == []u8) {
+                break :blk format_spec;
+            } else if (SpecType == u8) {
+                // Single char - create a slice
+                const buf = allocator.alloc(u8, 1) catch return PythonError.TypeError;
+                buf[0] = format_spec;
+                break :blk buf;
+            } else {
+                return PythonError.TypeError;
+            }
+        };
+
+        // Check if format_spec is "s" but value is not a string
+        // Python raises TypeError for format(3.0, "s")
+        const T = @TypeOf(value);
+        if (std.mem.eql(u8, spec_slice, "s")) {
+            // "s" format is only valid for strings
+            if (T != []const u8 and T != []u8) {
+                return PythonError.TypeError;
+            }
+            return value;
+        }
+        // For numbers, format as string
+        return std.fmt.allocPrint(allocator, "{any}", .{value}) catch return PythonError.TypeError;
+    }
+};
+pub const format = FormatBuiltin{};
+
+/// Python round() builtin - rounds a float to the nearest integer or to ndigits
+/// For infinity or NaN, raises OverflowError like Python does
+/// round(x) -> int, round(x, ndigits) -> float
+/// This version handles both 1 and 2 argument cases via variadic args tuple
+pub fn round(value: anytype, args: anytype) PythonError!f64 {
+    const T = @TypeOf(value);
+    const ArgsT = @TypeOf(args);
+
+    // Get ndigits from args tuple (if provided)
+    const digits: i64 = blk: {
+        // Check if args is a tuple type with fields
+        if (@typeInfo(ArgsT) == .@"struct" and @typeInfo(ArgsT).@"struct".fields.len > 0) {
+            // Get the first field (ndigits)
+            const ndigits = args.@"0";
+            const NdigitsT = @TypeOf(ndigits);
+            if (@typeInfo(NdigitsT) == .float) {
+                break :blk @as(i64, @intFromFloat(ndigits));
+            } else if (@typeInfo(NdigitsT) == .int or @typeInfo(NdigitsT) == .comptime_int) {
+                break :blk @as(i64, @intCast(ndigits));
+            } else {
+                break :blk 0;
+            }
+        } else {
+            // No ndigits provided
+            break :blk 0;
+        }
+    };
+
+    // Check if ndigits was explicitly provided
+    const has_ndigits = @typeInfo(ArgsT) == .@"struct" and @typeInfo(ArgsT).@"struct".fields.len > 0;
+
+    if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
+        // Check for special float values
+        if (std.math.isNan(value)) {
+            return PythonError.ValueError;
+        }
+        if (std.math.isInf(value)) {
+            return PythonError.OverflowError;
+        }
+
+        if (!has_ndigits or digits == 0) {
+            // Round to nearest integer
+            return @round(value);
+        } else {
+            // Round to ndigits decimal places
+            const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(digits)));
+            return @round(value * multiplier) / multiplier;
+        }
+    } else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+        return @as(f64, @floatFromInt(value));
+    } else {
+        return PythonError.TypeError;
+    }
+}

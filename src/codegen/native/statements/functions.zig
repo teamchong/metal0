@@ -5,3 +5,4 @@ const nested = @import("functions/nested.zig");
 pub const genFunctionDef = generators.genFunctionDef;
 pub const genClassDef = generators.genClassDef;
 pub const genNestedFunctionDef = nested.genNestedFunctionDef;
+pub const analyzeModuleLevelMutations = generators.analyzeModuleLevelMutations;

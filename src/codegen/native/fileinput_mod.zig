@@ -1,6 +1,22 @@
 /// Python fileinput module - Iterate over lines from multiple input streams
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "input", genInput },
+    .{ "filename", genFilename },
+    .{ "fileno", genFileno },
+    .{ "lineno", genLineno },
+    .{ "filelineno", genFilelineno },
+    .{ "isfirstline", genIsfirstline },
+    .{ "isstdin", genIsstdin },
+    .{ "nextfile", genNextfile },
+    .{ "close", genClose },
+    .{ "FileInput", genFileInput },
+    .{ "hook_compressed", genHookCompressed },
+    .{ "hook_encoded", genHookEncoded },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

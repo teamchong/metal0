@@ -4,6 +4,32 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "warn", genWarn },
+    .{ "warn_explicit", genWarnExplicit },
+    .{ "showwarning", genShowwarning },
+    .{ "formatwarning", genFormatwarning },
+    .{ "filterwarnings", genFilterwarnings },
+    .{ "simplefilter", genSimplefilter },
+    .{ "resetwarnings", genResetwarnings },
+    .{ "catch_warnings", genCatchWarnings },
+    .{ "Warning", genWarning },
+    .{ "UserWarning", genUserWarning },
+    .{ "DeprecationWarning", genDeprecationWarning },
+    .{ "PendingDeprecationWarning", genPendingDeprecationWarning },
+    .{ "SyntaxWarning", genSyntaxWarning },
+    .{ "RuntimeWarning", genRuntimeWarning },
+    .{ "FutureWarning", genFutureWarning },
+    .{ "ImportWarning", genImportWarning },
+    .{ "UnicodeWarning", genUnicodeWarning },
+    .{ "BytesWarning", genBytesWarning },
+    .{ "ResourceWarning", genResourceWarning },
+    .{ "filters", genFilters },
+    .{ "_filters_mutated", genFiltersMutated },
+    .{ "WarningMessage", genWarningMessage },
+});
+
 /// Generate warnings.warn(message, category=UserWarning, stacklevel=1) -> None
 pub fn genWarn(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {

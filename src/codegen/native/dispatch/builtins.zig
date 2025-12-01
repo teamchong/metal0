@@ -62,6 +62,11 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     // String/char
     .{ "chr", builtins.genChr },
     .{ "ord", builtins.genOrd },
+    .{ "ascii", builtins.genAscii },
+    .{ "format", builtins.genFormat },
+    // Object functions
+    .{ "id", builtins.genId },
+    .{ "delattr", builtins.genDelattr },
     // Type functions
     .{ "type", builtins.genType },
     .{ "isinstance", builtins.genIsinstance },

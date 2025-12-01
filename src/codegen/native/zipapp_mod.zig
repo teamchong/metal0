@@ -1,6 +1,12 @@
 /// Python zipapp module - Manage executable Python zip archives
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "create_archive", genCreateArchive },
+    .{ "get_interpreter", genGetInterpreter },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

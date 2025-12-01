@@ -1,6 +1,16 @@
 /// Python mailcap module - Mailcap file handling
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "findmatch", genFindmatch },
+    .{ "getcaps", genGetcaps },
+    .{ "listmailcapfiles", genListmailcapfiles },
+    .{ "readmailcapfile", genReadmailcapfile },
+    .{ "lookup", genLookup },
+    .{ "subst", genSubst },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

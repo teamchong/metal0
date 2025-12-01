@@ -4,6 +4,36 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "getrusage", genGetrusage },
+    .{ "getrlimit", genGetrlimit },
+    .{ "setrlimit", genSetrlimit },
+    .{ "prlimit", genPrlimit },
+    .{ "getpagesize", genGetpagesize },
+    .{ "RUSAGE_SELF", genRUSAGE_SELF },
+    .{ "RUSAGE_CHILDREN", genRUSAGE_CHILDREN },
+    .{ "RUSAGE_BOTH", genRUSAGE_BOTH },
+    .{ "RUSAGE_THREAD", genRUSAGE_THREAD },
+    .{ "RLIMIT_CPU", genRLIMIT_CPU },
+    .{ "RLIMIT_FSIZE", genRLIMIT_FSIZE },
+    .{ "RLIMIT_DATA", genRLIMIT_DATA },
+    .{ "RLIMIT_STACK", genRLIMIT_STACK },
+    .{ "RLIMIT_CORE", genRLIMIT_CORE },
+    .{ "RLIMIT_RSS", genRLIMIT_RSS },
+    .{ "RLIMIT_NPROC", genRLIMIT_NPROC },
+    .{ "RLIMIT_NOFILE", genRLIMIT_NOFILE },
+    .{ "RLIMIT_MEMLOCK", genRLIMIT_MEMLOCK },
+    .{ "RLIMIT_AS", genRLIMIT_AS },
+    .{ "RLIMIT_LOCKS", genRLIMIT_LOCKS },
+    .{ "RLIMIT_SIGPENDING", genRLIMIT_SIGPENDING },
+    .{ "RLIMIT_MSGQUEUE", genRLIMIT_MSGQUEUE },
+    .{ "RLIMIT_NICE", genRLIMIT_NICE },
+    .{ "RLIMIT_RTPRIO", genRLIMIT_RTPRIO },
+    .{ "RLIMIT_RTTIME", genRLIMIT_RTTIME },
+    .{ "RLIM_INFINITY", genRLIM_INFINITY },
+});
+
 /// Generate resource.getrusage(who) - return resource usage
 pub fn genGetrusage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

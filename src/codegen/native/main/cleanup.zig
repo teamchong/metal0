@@ -176,6 +176,10 @@ pub fn deinit(self: *NativeCodegen) void {
     // Note: Keys and values are references to AST data, not owned
     self.local_from_imports.deinit();
 
+    // Clean up callable_global_vars tracking
+    freeMapKeys(self.allocator, &self.callable_global_vars);
+    self.callable_global_vars.deinit();
+
     self.allocator.destroy(self);
 }
 

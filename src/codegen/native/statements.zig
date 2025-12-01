@@ -16,6 +16,7 @@ const try_except = @import("statements/try_except.zig");
 pub const genFunctionDef = functions.genFunctionDef;
 pub const genClassDef = functions.genClassDef;
 pub const genNestedFunctionDef = functions.genNestedFunctionDef;
+pub const analyzeModuleLevelMutations = functions.analyzeModuleLevelMutations;
 pub const genReturn = misc.genReturn;
 pub const genImport = misc.genImport;
 pub const genImportFrom = misc.genImportFrom;

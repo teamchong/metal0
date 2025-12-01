@@ -1,6 +1,47 @@
 /// Python posixpath module - POSIX pathname functions
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "abspath", genAbspath },
+    .{ "basename", genBasename },
+    .{ "commonpath", genCommonpath },
+    .{ "commonprefix", genCommonprefix },
+    .{ "dirname", genDirname },
+    .{ "exists", genExists },
+    .{ "expanduser", genExpanduser },
+    .{ "expandvars", genExpandvars },
+    .{ "getatime", genGetatime },
+    .{ "getctime", genGetctime },
+    .{ "getmtime", genGetmtime },
+    .{ "getsize", genGetsize },
+    .{ "isabs", genIsabs },
+    .{ "isdir", genIsdir },
+    .{ "isfile", genIsfile },
+    .{ "islink", genIslink },
+    .{ "ismount", genIsmount },
+    .{ "join", genJoin },
+    .{ "lexists", genLexists },
+    .{ "normcase", genNormcase },
+    .{ "normpath", genNormpath },
+    .{ "realpath", genRealpath },
+    .{ "relpath", genRelpath },
+    .{ "samefile", genSamefile },
+    .{ "sameopenfile", genSameopenfile },
+    .{ "samestat", genSamestat },
+    .{ "split", genSplit },
+    .{ "splitdrive", genSplitdrive },
+    .{ "splitext", genSplitext },
+    .{ "sep", genSep },
+    .{ "altsep", genAltsep },
+    .{ "extsep", genExtsep },
+    .{ "pathsep", genPathsep },
+    .{ "defpath", genDefpath },
+    .{ "devnull", genDevnull },
+    .{ "curdir", genCurdir },
+    .{ "pardir", genPardir },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -7,6 +7,20 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const json = @import("json.zig");
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "dumps", genDumps },
+    .{ "loads", genLoads },
+    .{ "dump", genDump },
+    .{ "load", genLoad },
+    .{ "HIGHEST_PROTOCOL", genHIGHEST_PROTOCOL },
+    .{ "DEFAULT_PROTOCOL", genDEFAULT_PROTOCOL },
+    .{ "PicklingError", genPicklingError },
+    .{ "UnpicklingError", genUnpicklingError },
+    .{ "Pickler", genPickler },
+    .{ "Unpickler", genUnpickler },
+});
+
 /// Generate pickle.dumps(obj) -> bytes
 /// Serializes object to bytes using JSON format
 /// Returns []const u8 directly (not wrapped in PyObject)

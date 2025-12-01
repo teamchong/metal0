@@ -4,6 +4,15 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "register", genRegister },
+    .{ "unregister", genUnregister },
+    .{ "_run_exitfuncs", genRunExitfuncs },
+    .{ "_clear", genClear },
+    .{ "_ncallbacks", genNcallbacks },
+});
+
 /// Generate atexit.register(func, *args, **kwargs) -> func
 pub fn genRegister(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Return the function as-is (registration is no-op in AOT)

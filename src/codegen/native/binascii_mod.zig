@@ -4,6 +4,24 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "hexlify", genHexlify },
+    .{ "unhexlify", genUnhexlify },
+    .{ "b2a_hex", genB2a_hex },
+    .{ "a2b_hex", genA2b_hex },
+    .{ "b2a_base64", genB2a_base64 },
+    .{ "a2b_base64", genA2b_base64 },
+    .{ "b2a_uu", genB2a_uu },
+    .{ "a2b_uu", genA2b_uu },
+    .{ "b2a_qp", genB2a_qp },
+    .{ "a2b_qp", genA2b_qp },
+    .{ "crc32", genCrc32 },
+    .{ "crc_hqx", genCrc_hqx },
+    .{ "Error", genError },
+    .{ "Incomplete", genIncomplete },
+});
+
 /// Generate binascii.hexlify(data, sep=None, bytes_per_sep=1)
 pub fn genHexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

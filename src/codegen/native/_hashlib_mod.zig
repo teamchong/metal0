@@ -1,6 +1,28 @@
 /// Python _hashlib module - C accelerator for hashlib (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "new", genNew },
+    .{ "openssl_md5", genOpensslMd5 },
+    .{ "openssl_sha1", genOpensslSha1 },
+    .{ "openssl_sha224", genOpensslSha224 },
+    .{ "openssl_sha256", genOpensslSha256 },
+    .{ "openssl_sha384", genOpensslSha384 },
+    .{ "openssl_sha512", genOpensslSha512 },
+    .{ "openssl_sha3_224", genOpensslSha3_224 },
+    .{ "openssl_sha3_256", genOpensslSha3_256 },
+    .{ "openssl_sha3_384", genOpensslSha3_384 },
+    .{ "openssl_sha3_512", genOpensslSha3_512 },
+    .{ "openssl_shake_128", genOpensslShake128 },
+    .{ "openssl_shake_256", genOpensslShake256 },
+    .{ "pbkdf2_hmac", genPbkdf2Hmac },
+    .{ "scrypt", genScrypt },
+    .{ "hmac_digest", genHmacDigest },
+    .{ "compare_digest", genCompareDigest },
+    .{ "openssl_md_meth_names", genOpensslMdMethNames },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

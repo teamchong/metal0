@@ -1,6 +1,16 @@
 /// Python _bisect module - C accelerator for bisect (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "bisect_left", genBisectLeft },
+    .{ "bisect_right", genBisectRight },
+    .{ "bisect", genBisectRight },
+    .{ "insort_left", genInsortLeft },
+    .{ "insort_right", genInsortRight },
+    .{ "insort", genInsortRight },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

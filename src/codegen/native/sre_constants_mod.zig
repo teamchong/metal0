@@ -1,6 +1,57 @@
 /// Python sre_constants module - Internal support module for sre
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "MAGIC", genMagic },
+    .{ "MAXREPEAT", genMaxrepeat },
+    .{ "MAXGROUPS", genMaxgroups },
+    .{ "OPCODES", genOpcodes },
+    .{ "ATCODES", genAtcodes },
+    .{ "CHCODES", genChcodes },
+    .{ "FAILURE", genFailure },
+    .{ "SUCCESS", genSuccess },
+    .{ "ANY", genAny },
+    .{ "ANY_ALL", genAnyAll },
+    .{ "ASSERT", genAssert },
+    .{ "ASSERT_NOT", genAssertNot },
+    .{ "AT", genAt },
+    .{ "BRANCH", genBranch },
+    .{ "CALL", genCall },
+    .{ "CATEGORY", genCategory },
+    .{ "CHARSET", genCharset },
+    .{ "BIGCHARSET", genBigcharset },
+    .{ "GROUPREF", genGroupref },
+    .{ "GROUPREF_EXISTS", genGrouprefExists },
+    .{ "IN", genIn },
+    .{ "INFO", genInfo },
+    .{ "JUMP", genJump },
+    .{ "LITERAL", genLiteral },
+    .{ "MARK", genMark },
+    .{ "MAX_UNTIL", genMaxUntil },
+    .{ "MIN_UNTIL", genMinUntil },
+    .{ "NOT_LITERAL", genNotLiteral },
+    .{ "NEGATE", genNegate },
+    .{ "RANGE", genRange },
+    .{ "REPEAT", genRepeat },
+    .{ "REPEAT_ONE", genRepeatOne },
+    .{ "SUBPATTERN", genSubpattern },
+    .{ "MIN_REPEAT_ONE", genMinRepeatOne },
+    .{ "SRE_FLAG_TEMPLATE", genSreFlagTemplate },
+    .{ "SRE_FLAG_IGNORECASE", genSreFlagIgnorecase },
+    .{ "SRE_FLAG_LOCALE", genSreFlagLocale },
+    .{ "SRE_FLAG_MULTILINE", genSreFlagMultiline },
+    .{ "SRE_FLAG_DOTALL", genSreFlagDotall },
+    .{ "SRE_FLAG_UNICODE", genSreFlagUnicode },
+    .{ "SRE_FLAG_VERBOSE", genSreFlagVerbose },
+    .{ "SRE_FLAG_DEBUG", genSreFlagDebug },
+    .{ "SRE_FLAG_ASCII", genSreFlagAscii },
+    .{ "SRE_INFO_PREFIX", genSreInfoPrefix },
+    .{ "SRE_INFO_LITERAL", genSreInfoLiteral },
+    .{ "SRE_INFO_CHARSET", genSreInfoCharset },
+    .{ "error", genError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

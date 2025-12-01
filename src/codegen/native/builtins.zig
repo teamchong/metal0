@@ -28,6 +28,10 @@ pub const genDict = conversions.genDict;
 pub const genSet = conversions.genSet;
 pub const genFrozenset = conversions.genFrozenset;
 pub const genObject = conversions.genObject;
+pub const genAscii = conversions.genAscii;
+pub const genFormat = conversions.genFormat;
+pub const genId = conversions.genId;
+pub const genDelattr = conversions.genDelattr;
 
 // Dynamic execution
 pub const genEval = eval_exec.genEval;

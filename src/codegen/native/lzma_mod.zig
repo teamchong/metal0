@@ -4,6 +4,36 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "compress", genCompress },
+    .{ "decompress", genDecompress },
+    .{ "open", genOpen },
+    .{ "LZMAFile", genLZMAFile },
+    .{ "LZMACompressor", genLZMACompressor },
+    .{ "LZMADecompressor", genLZMADecompressor },
+    .{ "is_check_supported", genIs_check_supported },
+    .{ "FORMAT_AUTO", genFORMAT_AUTO },
+    .{ "FORMAT_XZ", genFORMAT_XZ },
+    .{ "FORMAT_ALONE", genFORMAT_ALONE },
+    .{ "FORMAT_RAW", genFORMAT_RAW },
+    .{ "CHECK_NONE", genCHECK_NONE },
+    .{ "CHECK_CRC32", genCHECK_CRC32 },
+    .{ "CHECK_CRC64", genCHECK_CRC64 },
+    .{ "CHECK_SHA256", genCHECK_SHA256 },
+    .{ "CHECK_ID_MAX", genCHECK_ID_MAX },
+    .{ "CHECK_UNKNOWN", genCHECK_UNKNOWN },
+    .{ "PRESET_DEFAULT", genPRESET_DEFAULT },
+    .{ "PRESET_EXTREME", genPRESET_EXTREME },
+    .{ "FILTER_LZMA1", genFILTER_LZMA1 },
+    .{ "FILTER_LZMA2", genFILTER_LZMA2 },
+    .{ "FILTER_DELTA", genFILTER_DELTA },
+    .{ "FILTER_X86", genFILTER_X86 },
+    .{ "FILTER_ARM", genFILTER_ARM },
+    .{ "FILTER_ARMTHUMB", genFILTER_ARMTHUMB },
+    .{ "FILTER_SPARC", genFILTER_SPARC },
+});
+
 /// Generate lzma.compress(data, format=FORMAT_XZ, ...)
 pub fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

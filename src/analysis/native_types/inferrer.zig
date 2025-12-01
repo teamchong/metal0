@@ -295,7 +295,7 @@ pub const TypeInferrer = struct {
             var param_type = try core.pythonTypeHintToNative(arg.type_annotation, arena_alloc);
             // Default to int if no type annotation (most common Python numeric type)
             if (param_type == .unknown) {
-                param_type = .int;
+                param_type = .{ .int = .bounded };
             }
             try self.putScopedVar(arg.name, param_type);
         }

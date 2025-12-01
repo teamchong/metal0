@@ -4,6 +4,49 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "connect", genConnect },
+    .{ "connection", genConnection },
+    .{ "cursor", genCursor },
+    .{ "row", genRow },
+    .{ "cursor_method", genCursorMethod },
+    .{ "commit", genCommit },
+    .{ "rollback", genRollback },
+    .{ "close", genClose },
+    .{ "execute", genExecute },
+    .{ "executemany", genExecutemany },
+    .{ "executescript", genExecutescript },
+    .{ "create_function", genCreateFunction },
+    .{ "create_aggregate", genCreateAggregate },
+    .{ "create_collation", genCreateCollation },
+    .{ "set_authorizer", genSetAuthorizer },
+    .{ "set_progress_handler", genSetProgressHandler },
+    .{ "set_trace_callback", genSetTraceCallback },
+    .{ "enable_load_extension", genEnableLoadExtension },
+    .{ "load_extension", genLoadExtension },
+    .{ "interrupt", genInterrupt },
+    .{ "iterdump", genIterdump },
+    .{ "backup", genBackup },
+    .{ "fetchone", genFetchone },
+    .{ "fetchmany", genFetchmany },
+    .{ "fetchall", genFetchall },
+    .{ "setinputsizes", genSetinputsizes },
+    .{ "setoutputsize", genSetoutputsize },
+    .{ "version", genVersion },
+    .{ "version_info", genVersionInfo },
+    .{ "sqlite_version", genSqliteVersion },
+    .{ "sqlite_version_info", genSqliteVersionInfo },
+    .{ "p_a_r_s_e__d_e_c_l_t_y_p_e_s", genPARSE_DECLTYPES },
+    .{ "p_a_r_s_e__c_o_l_n_a_m_e_s", genPARSE_COLNAMES },
+    .{ "error", genError },
+    .{ "database_error", genDatabaseError },
+    .{ "integrity_error", genIntegrityError },
+    .{ "programming_error", genProgrammingError },
+    .{ "operational_error", genOperationalError },
+    .{ "not_supported_error", genNotSupportedError },
+});
+
 /// Generate _sqlite3.connect(database, timeout=5.0, detect_types=0, isolation_level="", check_same_thread=True, factory=None, cached_statements=128, uri=False)
 pub fn genConnect(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

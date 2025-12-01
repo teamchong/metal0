@@ -1,6 +1,19 @@
 /// Python chunk module - Read IFF chunked data
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Chunk", genChunk },
+    .{ "getname", genGetname },
+    .{ "getsize", genGetsize },
+    .{ "close", genClose },
+    .{ "isatty", genIsatty },
+    .{ "seek", genSeek },
+    .{ "tell", genTell },
+    .{ "read", genRead },
+    .{ "skip", genSkip },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -1,6 +1,30 @@
 /// Python socketserver module - Framework for network servers
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "BaseServer", genBaseServer },
+    .{ "TCPServer", genTCPServer },
+    .{ "UDPServer", genUDPServer },
+    .{ "UnixStreamServer", genUnixStreamServer },
+    .{ "UnixDatagramServer", genUnixDatagramServer },
+    .{ "ForkingMixIn", genForkingMixIn },
+    .{ "ThreadingMixIn", genThreadingMixIn },
+    .{ "ForkingTCPServer", genForkingTCPServer },
+    .{ "ForkingUDPServer", genForkingUDPServer },
+    .{ "ThreadingTCPServer", genThreadingTCPServer },
+    .{ "ThreadingUDPServer", genThreadingUDPServer },
+    .{ "ThreadingUnixStreamServer", genThreadingUnixStreamServer },
+    .{ "ThreadingUnixDatagramServer", genThreadingUnixDatagramServer },
+    .{ "BaseRequestHandler", genBaseRequestHandler },
+    .{ "StreamRequestHandler", genStreamRequestHandler },
+    .{ "DatagramRequestHandler", genDatagramRequestHandler },
+    .{ "serve_forever", genServeForever },
+    .{ "shutdown", genShutdown },
+    .{ "handle_request", genHandleRequest },
+    .{ "server_close", genServerClose },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

@@ -1,6 +1,14 @@
 /// Python encodings module - Standard Encodings Package
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "search_function", genSearchFunction },
+    .{ "normalize_encoding", genNormalizeEncoding },
+    .{ "CodecInfo", genCodecInfo },
+    .{ "aliases", genAliases },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

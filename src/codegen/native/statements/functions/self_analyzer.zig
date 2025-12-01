@@ -46,7 +46,9 @@ pub const unittest_assertion_methods = std.StaticStringMap(void).initComptime(.{
     .{ "assertNotStartsWith", {} },
     .{ "assertEndsWith", {} },
     .{ "assertNotEndsWith", {} },
-    .{ "addCleanup", {} },
+    .{ "assertFloatsAreIdentical", {} },
+    // Note: addCleanup is NOT in this list because it needs self in generated code
+    // (unlike assertions which dispatch to runtime.unittest without self)
     .{ "subTest", {} },
     .{ "fail", {} },
     .{ "skipTest", {} },
@@ -56,60 +58,72 @@ pub const unittest_assertion_methods = std.StaticStringMap(void).initComptime(.{
 /// NOTE: Excludes unittest assertion methods like self.assertEqual() because
 /// they're dispatched to runtime.unittest and don't actually use self
 pub fn usesSelf(body: []ast.Node) bool {
+    return usesSelfWithContext(body, true);
+}
+
+/// Check if 'self' is used in method body, with context about parent class
+/// @param has_parent: whether the class has a known parent class for super() calls
+/// If has_parent is false, super() calls don't count as using self because
+/// they will be compiled to no-ops ({})
+pub fn usesSelfWithContext(body: []ast.Node, has_parent: bool) bool {
     for (body) |stmt| {
-        if (stmtUsesSelf(stmt)) return true;
+        if (stmtUsesSelfWithContext(stmt, has_parent)) return true;
     }
     return false;
 }
 
 fn stmtUsesSelf(node: ast.Node) bool {
+    return stmtUsesSelfWithContext(node, true);
+}
+
+fn stmtUsesSelfWithContext(node: ast.Node, has_parent: bool) bool {
     return switch (node) {
         .assign => |assign| {
             // Check if target is self.attr
             for (assign.targets) |target| {
-                if (exprUsesSelf(target)) return true;
+                if (exprUsesSelfWithContext(target, has_parent)) return true;
             }
             // Check if value uses self
-            return exprUsesSelf(assign.value.*);
+            return exprUsesSelfWithContext(assign.value.*, has_parent);
         },
         .aug_assign => |aug| {
             // Check if target is self.attr (e.g., self.count += 1)
-            if (exprUsesSelf(aug.target.*)) return true;
-            return exprUsesSelf(aug.value.*);
+            if (exprUsesSelfWithContext(aug.target.*, has_parent)) return true;
+            return exprUsesSelfWithContext(aug.value.*, has_parent);
         },
-        .expr_stmt => |expr| exprUsesSelf(expr.value.*),
-        .return_stmt => |ret| if (ret.value) |val| exprUsesSelf(val.*) else false,
+        .expr_stmt => |expr| exprUsesSelfWithContext(expr.value.*, has_parent),
+        .return_stmt => |ret| if (ret.value) |val| exprUsesSelfWithContext(val.*, has_parent) else false,
         .if_stmt => |if_stmt| {
-            if (exprUsesSelf(if_stmt.condition.*)) return true;
-            if (usesSelf(if_stmt.body)) return true;
-            if (usesSelf(if_stmt.else_body)) return true;
+            if (exprUsesSelfWithContext(if_stmt.condition.*, has_parent)) return true;
+            if (usesSelfWithContext(if_stmt.body, has_parent)) return true;
+            if (usesSelfWithContext(if_stmt.else_body, has_parent)) return true;
             return false;
         },
         .while_stmt => |while_stmt| {
-            if (exprUsesSelf(while_stmt.condition.*)) return true;
-            return usesSelf(while_stmt.body);
+            if (exprUsesSelfWithContext(while_stmt.condition.*, has_parent)) return true;
+            return usesSelfWithContext(while_stmt.body, has_parent);
         },
         .for_stmt => |for_stmt| {
             // Check both the iterator expression AND the body
-            if (exprUsesSelf(for_stmt.iter.*)) return true;
-            return usesSelf(for_stmt.body);
+            if (exprUsesSelfWithContext(for_stmt.iter.*, has_parent)) return true;
+            return usesSelfWithContext(for_stmt.body, has_parent);
         },
         .try_stmt => |try_stmt| {
             // Check try body
-            if (usesSelf(try_stmt.body)) return true;
+            if (usesSelfWithContext(try_stmt.body, has_parent)) return true;
             // Check exception handlers
             for (try_stmt.handlers) |handler| {
-                if (usesSelf(handler.body)) return true;
+                if (usesSelfWithContext(handler.body, has_parent)) return true;
             }
             // Check else body
-            if (usesSelf(try_stmt.else_body)) return true;
+            if (usesSelfWithContext(try_stmt.else_body, has_parent)) return true;
             // Check finally body
-            if (usesSelf(try_stmt.finalbody)) return true;
+            if (usesSelfWithContext(try_stmt.finalbody, has_parent)) return true;
             return false;
         },
         .function_def => |func_def| {
             // Check if nested function body uses self (closures that capture self)
-            return usesSelf(func_def.body);
+            return usesSelfWithContext(func_def.body, has_parent);
         },
         .with_stmt => |with_stmt| {
             // Check if context expression uses self
@@ -130,9 +144,9 @@ fn stmtUsesSelf(node: ast.Node) bool {
                 }
                 break :blk false;
             };
-            if (!is_unittest_context and exprUsesSelf(with_stmt.context_expr.*)) return true;
+            if (!is_unittest_context and exprUsesSelfWithContext(with_stmt.context_expr.*, has_parent)) return true;
             // Check if body uses self
-            return usesSelf(with_stmt.body);
+            return usesSelfWithContext(with_stmt.body, has_parent);
         },
         else => false,
     };
@@ -158,6 +172,10 @@ fn exprUsesSelfForWith(node: ast.Node) bool {
 }
 
 fn exprUsesSelf(node: ast.Node) bool {
+    return exprUsesSelfWithContext(node, true);
+}
+
+fn exprUsesSelfWithContext(node: ast.Node, has_parent: bool) bool {
     return switch (node) {
         .name => |name| std.mem.eql(u8, name.id, "self"),
         .attribute => |attr| {
@@ -169,13 +187,13 @@ fn exprUsesSelf(node: ast.Node) bool {
             {
                 return false;
             }
-            return exprUsesSelf(attr.value.*);
+            return exprUsesSelfWithContext(attr.value.*, has_parent);
         },
         .call => |call| {
-            // Check for super() calls - they need self because super().foo()
-            // translates to ParentClass.foo(self)
+            // Check for super() calls - they need self ONLY if parent class is known
+            // If no parent, super() compiles to no-op {} and doesn't use self
             if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "super")) {
-                return true;
+                return has_parent; // Only uses self if parent exists
             }
             // Also check for super().method() pattern (attribute on super() result)
             if (call.func.* == .attribute) {
@@ -184,7 +202,7 @@ fn exprUsesSelf(node: ast.Node) bool {
                 if (func_attr.value.* == .call) {
                     const inner_call = func_attr.value.call;
                     if (inner_call.func.* == .name and std.mem.eql(u8, inner_call.func.name.id, "super")) {
-                        return true;
+                        return has_parent; // Only uses self if parent exists
                     }
                 }
                 // Check for unittest assertion methods (self.assertEqual, etc.)
@@ -196,69 +214,69 @@ fn exprUsesSelf(node: ast.Node) bool {
                     // This is a unittest assertion - self isn't actually used
                     // But still check the arguments
                     for (call.args) |arg| {
-                        if (exprUsesSelf(arg)) return true;
+                        if (exprUsesSelfWithContext(arg, has_parent)) return true;
                     }
                     return false;
                 }
             }
-            if (exprUsesSelf(call.func.*)) return true;
+            if (exprUsesSelfWithContext(call.func.*, has_parent)) return true;
             for (call.args) |arg| {
-                if (exprUsesSelf(arg)) return true;
+                if (exprUsesSelfWithContext(arg, has_parent)) return true;
             }
             return false;
         },
-        .binop => |binop| exprUsesSelf(binop.left.*) or exprUsesSelf(binop.right.*),
+        .binop => |binop| exprUsesSelfWithContext(binop.left.*, has_parent) or exprUsesSelfWithContext(binop.right.*, has_parent),
         .compare => |comp| {
-            if (exprUsesSelf(comp.left.*)) return true;
+            if (exprUsesSelfWithContext(comp.left.*, has_parent)) return true;
             for (comp.comparators) |c| {
-                if (exprUsesSelf(c)) return true;
+                if (exprUsesSelfWithContext(c, has_parent)) return true;
             }
             return false;
         },
         .subscript => |sub| {
-            if (exprUsesSelf(sub.value.*)) return true;
+            if (exprUsesSelfWithContext(sub.value.*, has_parent)) return true;
             return switch (sub.slice) {
-                .index => |idx| exprUsesSelf(idx.*),
+                .index => |idx| exprUsesSelfWithContext(idx.*, has_parent),
                 .slice => |sl| {
-                    if (sl.lower) |l| if (exprUsesSelf(l.*)) return true;
-                    if (sl.upper) |u| if (exprUsesSelf(u.*)) return true;
-                    if (sl.step) |s| if (exprUsesSelf(s.*)) return true;
+                    if (sl.lower) |l| if (exprUsesSelfWithContext(l.*, has_parent)) return true;
+                    if (sl.upper) |u| if (exprUsesSelfWithContext(u.*, has_parent)) return true;
+                    if (sl.step) |s| if (exprUsesSelfWithContext(s.*, has_parent)) return true;
                     return false;
                 },
             };
         },
         .tuple => |tup| {
             for (tup.elts) |elt| {
-                if (exprUsesSelf(elt)) return true;
+                if (exprUsesSelfWithContext(elt, has_parent)) return true;
             }
             return false;
         },
         .list => |list| {
             for (list.elts) |elt| {
-                if (exprUsesSelf(elt)) return true;
+                if (exprUsesSelfWithContext(elt, has_parent)) return true;
             }
             return false;
         },
         .dict => |dict| {
             for (dict.keys) |key| {
-                if (exprUsesSelf(key)) return true;
+                if (exprUsesSelfWithContext(key, has_parent)) return true;
             }
             for (dict.values) |val| {
-                if (exprUsesSelf(val)) return true;
+                if (exprUsesSelfWithContext(val, has_parent)) return true;
             }
             return false;
         },
-        .unaryop => |unary| exprUsesSelf(unary.operand.*),
+        .unaryop => |unary| exprUsesSelfWithContext(unary.operand.*, has_parent),
         .if_expr => |if_expr| {
-            if (exprUsesSelf(if_expr.condition.*)) return true;
-            if (exprUsesSelf(if_expr.body.*)) return true;
-            if (exprUsesSelf(if_expr.orelse_value.*)) return true;
+            if (exprUsesSelfWithContext(if_expr.condition.*, has_parent)) return true;
+            if (exprUsesSelfWithContext(if_expr.body.*, has_parent)) return true;
+            if (exprUsesSelfWithContext(if_expr.orelse_value.*, has_parent)) return true;
             return false;
         },
         .lambda => |lambda| {
             // Check if self is used in the lambda body
             // This is critical for closures that capture self
-            return exprUsesSelf(lambda.body.*);
+            return exprUsesSelfWithContext(lambda.body.*, has_parent);
         },
         else => false,
     };

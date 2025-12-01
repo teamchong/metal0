@@ -89,3 +89,15 @@ pub fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(")");
     }
 }
+
+// Function map for module_functions.zig
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "md5", genMd5 },
+    .{ "sha1", genSha1 },
+    .{ "sha224", genSha224 },
+    .{ "sha256", genSha256 },
+    .{ "sha384", genSha384 },
+    .{ "sha512", genSha512 },
+    .{ "new", genNew },
+});

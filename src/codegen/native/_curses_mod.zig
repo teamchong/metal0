@@ -5,6 +5,32 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 /// Generate _curses.initscr()
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "initscr", genInitscr },
+    .{ "endwin", genEndwin },
+    .{ "newwin", genNewwin },
+    .{ "newpad", genNewpad },
+    .{ "start_color", genStartColor },
+    .{ "init_pair", genInitPair },
+    .{ "color_pair", genColorPair },
+    .{ "cbreak", genCbreak },
+    .{ "nocbreak", genNocbreak },
+    .{ "echo", genEcho },
+    .{ "noecho", genNoecho },
+    .{ "raw", genRaw },
+    .{ "noraw", genNoraw },
+    .{ "curs_set", genCursSet },
+    .{ "has_colors", genHasColors },
+    .{ "can_change_color", genCanChangeColor },
+    .{ "COLORS", genCOLORS },
+    .{ "COLOR_PAIRS", genCOLOR_PAIRS },
+    .{ "LINES", genLINES },
+    .{ "COLS", genCOLS },
+    .{ "error", genError },
+});
+
 pub fn genInitscr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit(".{ .lines = 24, .cols = 80 }");

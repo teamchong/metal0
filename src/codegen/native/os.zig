@@ -9,6 +9,49 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 // const bridge = @import("stdlib_bridge.zig"); // Future: for any runtime passthrough functions
 
+/// Handler function type
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// Module function map - exported for dispatch
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "getcwd", genGetcwd },
+    .{ "chdir", genChdir },
+    .{ "listdir", genListdir },
+    .{ "getenv", genGetenv },
+    .{ "mkdir", genMkdir },
+    .{ "makedirs", genMakedirs },
+    .{ "name", genName },
+    .{ "curdir", genCurdir },
+    .{ "pardir", genPardir },
+    .{ "sep", genSep },
+    .{ "remove", genRemove },
+    .{ "unlink", genUnlink },
+    .{ "rename", genRename },
+    .{ "rmdir", genRmdir },
+    .{ "removedirs", genRemovedirs },
+    .{ "stat", genStat },
+    .{ "environ", genEnviron },
+    .{ "linesep", genLinesep },
+    .{ "altsep", genAltsep },
+    .{ "extsep", genExtsep },
+    .{ "pathsep", genPathsep },
+    .{ "devnull", genDevnull },
+});
+
+/// OS.path module functions
+pub const PathFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "exists", genPathExists },
+    .{ "isdir", genPathIsdir },
+    .{ "isfile", genPathIsfile },
+    .{ "abspath", genPathAbspath },
+    .{ "join", genPathJoin },
+    .{ "dirname", genPathDirname },
+    .{ "basename", genPathBasename },
+    .{ "split", genPathSplit },
+    .{ "splitext", genPathSplitext },
+    .{ "getsize", genPathGetsize },
+});
+
 /// Generate code for os.getcwd()
 /// Returns current working directory as []const u8
 pub fn genGetcwd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

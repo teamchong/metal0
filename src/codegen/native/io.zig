@@ -140,3 +140,25 @@ pub fn genSEEK_END(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("@as(i64, 2)");
 }
+
+// Function map for module_functions.zig
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "StringIO", genStringIO },
+    .{ "BytesIO", genBytesIO },
+    .{ "open", genOpen },
+    .{ "TextIOWrapper", genTextIOWrapper },
+    .{ "BufferedReader", genBufferedReader },
+    .{ "BufferedWriter", genBufferedWriter },
+    .{ "BufferedRandom", genBufferedRandom },
+    .{ "BufferedRWPair", genBufferedRWPair },
+    .{ "FileIO", genFileIO },
+    .{ "RawIOBase", genRawIOBase },
+    .{ "IOBase", genIOBase },
+    .{ "TextIOBase", genTextIOBase },
+    .{ "UnsupportedOperation", genUnsupportedOperation },
+    .{ "DEFAULT_BUFFER_SIZE", genDEFAULT_BUFFER_SIZE },
+    .{ "SEEK_SET", genSEEK_SET },
+    .{ "SEEK_CUR", genSEEK_CUR },
+    .{ "SEEK_END", genSEEK_END },
+});

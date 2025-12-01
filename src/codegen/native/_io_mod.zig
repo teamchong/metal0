@@ -1,6 +1,29 @@
 /// Python _io module - Core I/O implementation (underlying io module)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "FileIO", genFileIO },
+    .{ "BytesIO", genBytesIO },
+    .{ "StringIO", genStringIO },
+    .{ "BufferedReader", genBufferedReader },
+    .{ "BufferedWriter", genBufferedWriter },
+    .{ "BufferedRandom", genBufferedRandom },
+    .{ "BufferedRWPair", genBufferedRWPair },
+    .{ "TextIOWrapper", genTextIOWrapper },
+    .{ "IncrementalNewlineDecoder", genIncrementalNewlineDecoder },
+    .{ "open", genOpen },
+    .{ "open_code", genOpen_code },
+    .{ "text_encoding", genText_encoding },
+    .{ "IOBase", genIOBase },
+    .{ "RawIOBase", genRawIOBase },
+    .{ "BufferedIOBase", genBufferedIOBase },
+    .{ "TextIOBase", genTextIOBase },
+    .{ "DEFAULT_BUFFER_SIZE", genDEFAULT_BUFFER_SIZE },
+    .{ "UnsupportedOperation", genUnsupportedOperation },
+    .{ "BlockingIOError", genBlockingIOError },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

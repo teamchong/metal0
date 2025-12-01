@@ -559,3 +559,27 @@ pub fn genBatched(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(" }");
 }
+
+// Function map for module_functions.zig
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "chain", genChain },
+    .{ "repeat", genRepeat },
+    .{ "count", genCount },
+    .{ "cycle", genCycle },
+    .{ "islice", genIslice },
+    .{ "zip_longest", genZipLongest },
+    .{ "product", genProduct },
+    .{ "permutations", genPermutations },
+    .{ "combinations", genCombinations },
+    .{ "groupby", genGroupby },
+    .{ "takewhile", genTakewhile },
+    .{ "dropwhile", genDropwhile },
+    .{ "filterfalse", genFilterfalse },
+    .{ "accumulate", genAccumulate },
+    .{ "starmap", genStarmap },
+    .{ "compress", genCompress },
+    .{ "tee", genTee },
+    .{ "pairwise", genPairwise },
+    .{ "batched", genBatched },
+});

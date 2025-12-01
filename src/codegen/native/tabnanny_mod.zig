@@ -1,6 +1,15 @@
 /// Python tabnanny module - Detection of ambiguous indentation
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "check", genCheck },
+    .{ "process_tokens", genProcessTokens },
+    .{ "NannyNag", genNannyNag },
+    .{ "verbose", genVerbose },
+    .{ "filename_only", genFilenameOnly },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

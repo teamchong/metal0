@@ -4,6 +4,35 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Decimal", genDecimal },
+    .{ "getcontext", genGetcontext },
+    .{ "setcontext", genSetcontext },
+    .{ "localcontext", genLocalcontext },
+    .{ "BasicContext", genBasicContext },
+    .{ "ExtendedContext", genExtendedContext },
+    .{ "DefaultContext", genDefaultContext },
+    .{ "ROUND_CEILING", genROUND_CEILING },
+    .{ "ROUND_DOWN", genROUND_DOWN },
+    .{ "ROUND_FLOOR", genROUND_FLOOR },
+    .{ "ROUND_HALF_DOWN", genROUND_HALF_DOWN },
+    .{ "ROUND_HALF_EVEN", genROUND_HALF_EVEN },
+    .{ "ROUND_HALF_UP", genROUND_HALF_UP },
+    .{ "ROUND_UP", genROUND_UP },
+    .{ "ROUND_05UP", genROUND_05UP },
+    .{ "DecimalException", genDecimalException },
+    .{ "InvalidOperation", genInvalidOperation },
+    .{ "DivisionByZero", genDivisionByZero },
+    .{ "Overflow", genOverflow },
+    .{ "Underflow", genUnderflow },
+    .{ "Inexact", genInexact },
+    .{ "Rounded", genRounded },
+    .{ "Subnormal", genSubnormal },
+    .{ "FloatOperation", genFloatOperation },
+    .{ "Clamped", genClamped },
+});
+
 /// Generate decimal.Decimal(value) -> Decimal
 pub fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {

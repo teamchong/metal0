@@ -1,6 +1,22 @@
 /// Python pkgutil module - Package utilities
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "extend_path", genExtend_path },
+    .{ "find_loader", genFind_loader },
+    .{ "get_importer", genGet_importer },
+    .{ "get_loader", genGet_loader },
+    .{ "iter_importers", genIter_importers },
+    .{ "iter_modules", genIter_modules },
+    .{ "walk_packages", genWalk_packages },
+    .{ "get_data", genGet_data },
+    .{ "resolve_name", genResolve_name },
+    .{ "ModuleInfo", genModuleInfo },
+    .{ "ImpImporter", genImpImporter },
+    .{ "ImpLoader", genImpLoader },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

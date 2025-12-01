@@ -23,6 +23,7 @@ pub const genDefaultInitMethod = class_methods.genDefaultInitMethod;
 pub const genDefaultInitMethodWithBuiltinBase = class_methods.genDefaultInitMethodWithBuiltinBase;
 pub const genInitMethod = class_methods.genInitMethod;
 pub const genInitMethodWithBuiltinBase = class_methods.genInitMethodWithBuiltinBase;
+pub const genInitMethodFromNew = class_methods.genInitMethodFromNew;
 pub const genClassMethods = class_methods.genClassMethods;
 pub const genInheritedMethods = class_methods.genInheritedMethods;
 
@@ -202,23 +203,191 @@ fn usesRegularSelf(node: ast.Node, class_name: []const u8, class_type_attrs: any
     }
 }
 
-/// Analyze function body for mutated variables (variables assigned more than once)
+/// Analyze function body for mutated variables (variables assigned more than once in same scope)
+///
+/// Key insight: In Zig, each loop iteration creates a fresh block scope.
+/// A variable declared inside a loop is NEW each iteration, so it should use `const`
+/// unless it's mutated WITHIN THE SAME ITERATION (aug_assign or multiple assigns).
+///
+/// We track:
+/// 1. aug_assign_vars: Variables with += -= etc. - ALWAYS need var
+/// 2. Scope-aware assignment counts: Only count as "mutated" if assigned multiple times
+///    at the SAME scope level (not across loop iterations)
 fn analyzeFunctionLocalMutations(self: *NativeCodegen, func: ast.Node.FunctionDef) !void {
-    // Track how many times each variable is assigned
-    var assign_counts = hashmap_helper.StringHashMap(usize).init(self.allocator);
-    defer assign_counts.deinit();
+    // Track variables that have aug_assign (+=, -=, etc.) - these always need var
+    var aug_assign_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer aug_assign_vars.deinit();
 
-    // Count assignments in the function body
+    // Track assignment counts with scope awareness
+    // Key: "varname:scope_depth", Value: count at that scope
+    var scoped_counts = hashmap_helper.StringHashMap(usize).init(self.allocator);
+    defer scoped_counts.deinit();
+
+    // Collect aug_assign vars and scoped assignment counts
     for (func.body) |stmt| {
-        try countAssignmentsInStmt(&assign_counts, stmt, self.allocator);
+        try countAssignmentsWithScope(&aug_assign_vars, &scoped_counts, stmt, 0, self.allocator);
     }
 
-    // Variables assigned more than once are mutated
-    var iter = assign_counts.iterator();
-    while (iter.next()) |entry| {
+    // Mark aug_assign variables as mutated (with scope 0 - function level)
+    // aug_assign means mutation regardless of scope
+    var aug_iter = aug_assign_vars.iterator();
+    while (aug_iter.next()) |entry| {
+        try self.func_local_mutations.put(entry.key_ptr.*, {});
+    }
+
+    // Mark variables with multiple assignments at same scope as mutated
+    // Store the full scoped key so codegen can query by scope
+    var scope_iter = scoped_counts.iterator();
+    while (scope_iter.next()) |entry| {
         if (entry.value_ptr.* > 1) {
-            try self.func_local_mutations.put(entry.key_ptr.*, {});
+            // Extract variable name from "varname:scope_id" key
+            const key = entry.key_ptr.*;
+            if (std.mem.lastIndexOf(u8, key, ":")) |colon_idx| {
+                const var_name = key[0..colon_idx];
+                // Mark the base variable name as mutated (for function-scope queries)
+                try self.func_local_mutations.put(var_name, {});
+                // Also store the scoped key for scope-aware queries
+                try self.func_local_mutations.put(try self.allocator.dupe(u8, key), {});
+            }
         }
+    }
+}
+
+/// Analyze module-level code for mutated variables (for script mode main function)
+/// This is similar to analyzeFunctionLocalMutations but works on module body
+pub fn analyzeModuleLevelMutations(self: *NativeCodegen, module_body: []const ast.Node) !void {
+    // Track variables that have aug_assign (+=, -=, etc.) - these always need var
+    var aug_assign_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer aug_assign_vars.deinit();
+
+    // Track assignment counts with scope awareness
+    // Key: "varname:scope_depth", Value: count at that scope
+    var scoped_counts = hashmap_helper.StringHashMap(usize).init(self.allocator);
+    defer scoped_counts.deinit();
+
+    // Collect aug_assign vars and scoped assignment counts for module-level statements
+    // Skip function_def, class_def, import_stmt, import_from (not executed in main)
+    for (module_body) |stmt| {
+        if (stmt != .function_def and stmt != .class_def and stmt != .import_stmt and stmt != .import_from) {
+            try countAssignmentsWithScope(&aug_assign_vars, &scoped_counts, stmt, 0, self.allocator);
+        }
+    }
+
+    // Mark aug_assign variables as mutated (with scope 0 - module level)
+    // aug_assign means mutation regardless of scope
+    var aug_iter = aug_assign_vars.iterator();
+    while (aug_iter.next()) |entry| {
+        try self.func_local_mutations.put(entry.key_ptr.*, {});
+    }
+
+    // Mark variables with multiple assignments at same scope as mutated
+    // Store the full scoped key so codegen can query by scope
+    var scope_iter = scoped_counts.iterator();
+    while (scope_iter.next()) |entry| {
+        if (entry.value_ptr.* > 1) {
+            // Extract variable name from "varname:scope_id" key
+            const key = entry.key_ptr.*;
+            if (std.mem.lastIndexOf(u8, key, ":")) |colon_idx| {
+                const var_name = key[0..colon_idx];
+                // Mark the base variable name as mutated (for module-scope queries)
+                try self.func_local_mutations.put(var_name, {});
+                // Also store the scoped key for scope-aware queries
+                try self.func_local_mutations.put(try self.allocator.dupe(u8, key), {});
+            }
+        }
+    }
+}
+
+/// Count assignments with scope awareness
+/// scope_id: unique identifier for each scope (using pointer address of the AST node)
+pub fn countAssignmentsWithScope(
+    aug_vars: *hashmap_helper.StringHashMap(void),
+    scoped_counts: *hashmap_helper.StringHashMap(usize),
+    stmt: ast.Node,
+    scope_id: usize,
+    allocator: std.mem.Allocator,
+) !void {
+    switch (stmt) {
+        .assign => |assign| {
+            for (assign.targets) |target| {
+                if (target == .name) {
+                    const name = target.name.id;
+                    // Create scoped key: "varname:scope_id"
+                    // Each unique scope (different loop) gets different ID
+                    const scoped_key = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ name, scope_id });
+                    defer allocator.free(scoped_key);
+                    const current = scoped_counts.get(scoped_key) orelse 0;
+                    try scoped_counts.put(try allocator.dupe(u8, scoped_key), current + 1);
+                } else if (target == .subscript) {
+                    // Subscript assignment: x[0] = value mutates x
+                    const subscript = target.subscript;
+                    if (subscript.value.* == .name) {
+                        const name = subscript.value.name.id;
+                        try aug_vars.put(name, {}); // subscript assign is mutation
+                    }
+                }
+            }
+        },
+        .aug_assign => |aug| {
+            // Augmented assignment (+=, -=, etc.) ALWAYS means mutation
+            if (aug.target.* == .name) {
+                try aug_vars.put(aug.target.name.id, {});
+            } else if (aug.target.* == .subscript) {
+                const subscript = aug.target.subscript;
+                if (subscript.value.* == .name) {
+                    try aug_vars.put(subscript.value.name.id, {});
+                }
+            }
+        },
+        .if_stmt => |if_stmt| {
+            // if/else bodies are same scope level as containing block
+            for (if_stmt.body) |body_stmt| {
+                try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, scope_id, allocator);
+            }
+            for (if_stmt.else_body) |else_stmt| {
+                try countAssignmentsWithScope(aug_vars, scoped_counts, else_stmt, scope_id, allocator);
+            }
+        },
+        .while_stmt => |while_stmt| {
+            // Loop body is a NEW scope - use pointer address as unique scope ID
+            const new_scope_id = @intFromPtr(while_stmt.body.ptr);
+            for (while_stmt.body) |body_stmt| {
+                try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, new_scope_id, allocator);
+            }
+        },
+        .for_stmt => |for_stmt| {
+            // Loop variable itself is mutated (assigned each iteration in outer scope)
+            if (for_stmt.target.* == .name) {
+                try aug_vars.put(for_stmt.target.name.id, {});
+            }
+            // Loop body is a NEW scope - use pointer address as unique scope ID
+            const new_scope_id = @intFromPtr(for_stmt.body.ptr);
+            for (for_stmt.body) |body_stmt| {
+                try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, new_scope_id, allocator);
+            }
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |body_stmt| {
+                try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, scope_id, allocator);
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |body_stmt| {
+                    try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, scope_id, allocator);
+                }
+            }
+            for (try_stmt.else_body) |body_stmt| {
+                try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, scope_id, allocator);
+            }
+            for (try_stmt.finalbody) |body_stmt| {
+                try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, scope_id, allocator);
+            }
+        },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |body_stmt| {
+                try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, scope_id, allocator);
+            }
+        },
+        else => {},
     }
 }
 
@@ -448,91 +617,6 @@ fn collectUsesInNode(self: *NativeCodegen, node: ast.Node) !void {
         .import_stmt, .import_from, .global_stmt, .nonlocal_stmt,
         .function_def, .class_def, .del_stmt => {},
         // Catch-all for other node types
-        else => {},
-    }
-}
-
-/// Count assignments in a statement (recursive)
-fn countAssignmentsInStmt(counts: *hashmap_helper.StringHashMap(usize), stmt: ast.Node, allocator: std.mem.Allocator) !void {
-    switch (stmt) {
-        .assign => |assign| {
-            for (assign.targets) |target| {
-                if (target == .name) {
-                    const name = target.name.id;
-                    const current = counts.get(name) orelse 0;
-                    try counts.put(name, current + 1);
-                } else if (target == .subscript) {
-                    // Subscript assignment: x[0] = value mutates x
-                    const subscript = target.subscript;
-                    if (subscript.value.* == .name) {
-                        const name = subscript.value.name.id;
-                        const current = counts.get(name) orelse 0;
-                        try counts.put(name, current + 2); // Mark as mutated
-                    }
-                }
-            }
-        },
-        .aug_assign => |aug| {
-            // Augmented assignment (+=, -=, etc.) counts as a mutation
-            if (aug.target.* == .name) {
-                const name = aug.target.name.id;
-                const current = counts.get(name) orelse 0;
-                // Count as 2 (initial + mutation) to ensure it's marked as mutated
-                try counts.put(name, current + 2);
-            } else if (aug.target.* == .subscript) {
-                // Subscript mutation: x[0] += 1 mutates x
-                const subscript = aug.target.subscript;
-                if (subscript.value.* == .name) {
-                    const name = subscript.value.name.id;
-                    const current = counts.get(name) orelse 0;
-                    try counts.put(name, current + 2);
-                }
-            }
-        },
-        .if_stmt => |if_stmt| {
-            for (if_stmt.body) |body_stmt| {
-                try countAssignmentsInStmt(counts, body_stmt, allocator);
-            }
-            for (if_stmt.else_body) |else_stmt| {
-                try countAssignmentsInStmt(counts, else_stmt, allocator);
-            }
-        },
-        .while_stmt => |while_stmt| {
-            for (while_stmt.body) |body_stmt| {
-                try countAssignmentsInStmt(counts, body_stmt, allocator);
-            }
-        },
-        .for_stmt => |for_stmt| {
-            // Loop variable is assigned each iteration
-            if (for_stmt.target.* == .name) {
-                const name = for_stmt.target.name.id;
-                try counts.put(name, 2); // Mark as mutated
-            }
-            for (for_stmt.body) |body_stmt| {
-                try countAssignmentsInStmt(counts, body_stmt, allocator);
-            }
-        },
-        .try_stmt => |try_stmt| {
-            for (try_stmt.body) |body_stmt| {
-                try countAssignmentsInStmt(counts, body_stmt, allocator);
-            }
-            for (try_stmt.handlers) |handler| {
-                for (handler.body) |body_stmt| {
-                    try countAssignmentsInStmt(counts, body_stmt, allocator);
-                }
-            }
-            for (try_stmt.else_body) |body_stmt| {
-                try countAssignmentsInStmt(counts, body_stmt, allocator);
-            }
-            for (try_stmt.finalbody) |body_stmt| {
-                try countAssignmentsInStmt(counts, body_stmt, allocator);
-            }
-        },
-        .with_stmt => |with_stmt| {
-            for (with_stmt.body) |body_stmt| {
-                try countAssignmentsInStmt(counts, body_stmt, allocator);
-            }
-        },
         else => {},
     }
 }

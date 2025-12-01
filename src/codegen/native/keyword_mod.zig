@@ -1,6 +1,14 @@
 /// Python keyword module - Test whether strings are Python keywords
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "iskeyword", genIskeyword },
+    .{ "kwlist", genKwlist },
+    .{ "softkwlist", genSoftkwlist },
+    .{ "issoftkeyword", genIssoftkeyword },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

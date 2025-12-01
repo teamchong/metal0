@@ -1,6 +1,32 @@
 /// Python webbrowser module - Convenient web browser controller
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "open", genOpen },
+    .{ "open_new", genOpenNew },
+    .{ "open_new_tab", genOpenNewTab },
+    .{ "get", genGet },
+    .{ "register", genRegister },
+    .{ "Error", genError },
+    .{ "BaseBrowser", genBaseBrowser },
+    .{ "GenericBrowser", genGenericBrowser },
+    .{ "BackgroundBrowser", genBackgroundBrowser },
+    .{ "UnixBrowser", genUnixBrowser },
+    .{ "Mozilla", genMozilla },
+    .{ "Netscape", genNetscape },
+    .{ "Galeon", genGaleon },
+    .{ "Chrome", genChrome },
+    .{ "Chromium", genChromium },
+    .{ "Opera", genOpera },
+    .{ "Elinks", genElinks },
+    .{ "Konqueror", genKonqueror },
+    .{ "Grail", genGrail },
+    .{ "MacOSX", genMacOSX },
+    .{ "MacOSXOSAScript", genMacOSXOSAScript },
+    .{ "WindowsDefault", genWindowsDefault },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

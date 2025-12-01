@@ -77,6 +77,11 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
                 for (0..method_info.mock_patch_count) |i| {
                     try self.output.writer(self.allocator).print(", &__mock_{s}_{s}_{d}", .{ class_info.class_name, method_name, i });
                 }
+                // Pass default parameter values for test method
+                for (method_info.default_params) |default_param| {
+                    try self.emit(", ");
+                    try self.emit(default_param.default_code);
+                }
                 try self.emit(");\n");
             } else if (method_info.mock_patch_count > 0) {
                 // Method has mock params but no allocator
@@ -88,6 +93,19 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
                 for (0..method_info.mock_patch_count) |i| {
                     if (i > 0) try self.emit(", ");
                     try self.output.writer(self.allocator).print("&__mock_{s}_{s}_{d}", .{ class_info.class_name, method_name, i });
+                }
+                // Pass default parameter values for test method
+                for (method_info.default_params) |default_param| {
+                    try self.emit(", ");
+                    try self.emit(default_param.default_code);
+                }
+                try self.emit(");\n");
+            } else if (method_info.default_params.len > 0) {
+                // Method has default params but no allocator or mocks
+                try self.output.writer(self.allocator).print("_test_instance_{s}.{s}(", .{ class_info.class_name, method_name });
+                for (method_info.default_params, 0..) |default_param, i| {
+                    if (i > 0) try self.emit(", ");
+                    try self.emit(default_param.default_code);
                 }
                 try self.emit(");\n");
             } else {

@@ -96,17 +96,12 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // round(n, ndigits) - round to ndigits decimal places
     // For ndigits=0, just use @round
     // Otherwise use: @round(n * 10^ndigits) / 10^ndigits
-    try self.emit("round_blk: {\n");
-    try self.emit("const _val = @as(f64, @floatFromInt(");
+    // Use runtime round function to handle both int and float values
+    try self.emit("(try runtime.builtins.round(");
     try self.genExpr(args[0]);
-    try self.emit("));\n");
-    try self.emit("const _ndigits = ");
+    try self.emit(", .{");
     try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emit("if (_ndigits == 0) break :round_blk @as(i64, @intFromFloat(@round(_val)));\n");
-    try self.emit("const _factor = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(_ndigits)));\n");
-    try self.emit("break :round_blk @as(i64, @intFromFloat(@round(_val * _factor) / _factor));\n");
-    try self.emit("}");
+    try self.emit("}))");
 }
 
 /// Generate code for pow(base, exp) or pow(base, exp, mod)
@@ -199,9 +194,34 @@ pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check the type of the argument to generate appropriate code
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
+    // Check if argument is a float() call with variable arg that returns error union
+    // Note: float(string_literal) uses 'catch', float(int_var) uses runtime.floatBuiltinCall (!f64)
+    // int() already adds 'try' in genInt, so don't add another
+    const is_float_error_union = if (args[0] == .call) blk: {
+        const call = args[0].call;
+        if (call.func.* == .name) {
+            const name = call.func.name.id;
+            if (std.mem.eql(u8, name, "float") and call.args.len == 1) {
+                // Only returns error union (!f64) if arg is a variable name
+                // String literals use 'catch 0.0' and return f64 directly
+                if (call.args[0] == .name) {
+                    break :blk true;
+                }
+                // If arg is a constant, it doesn't return error union
+                if (call.args[0] == .constant) {
+                    break :blk false;
+                }
+                // For other expressions, be safe and assume it might need try
+                break :blk true;
+            }
+        }
+        break :blk false;
+    } else false;
+
     switch (arg_type) {
         .int => {
             // For integers: hash is the value itself (Python behavior)
+            // Note: if arg is int(x), genInt already adds 'try', so don't add another
             try self.emit("@as(i64, ");
             try self.genExpr(args[0]);
             try self.emit(")");
@@ -214,9 +234,16 @@ pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         },
         .float => {
             // For floats: hash the bit representation
-            try self.emit("@as(i64, @bitCast(@as(u64, @bitCast(");
-            try self.genExpr(args[0]);
-            try self.emit("))))");
+            if (is_float_error_union) {
+                // float(x) returns !f64 - need to try it first
+                try self.emit("@as(i64, @bitCast(@as(u64, @bitCast(try ");
+                try self.genExpr(args[0]);
+                try self.emit("))))");
+            } else {
+                try self.emit("@as(i64, @bitCast(@as(u64, @bitCast(");
+                try self.genExpr(args[0]);
+                try self.emit("))))");
+            }
         },
         .string => {
             // For strings: use std.hash.Wyhash

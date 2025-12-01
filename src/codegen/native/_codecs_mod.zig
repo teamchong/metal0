@@ -1,6 +1,34 @@
 /// Python _codecs module - C accelerator for codecs (internal)
 const std = @import("std");
 const ast = @import("ast");
+
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "encode", genEncode },
+    .{ "decode", genDecode },
+    .{ "register", genRegister },
+    .{ "lookup", genLookup },
+    .{ "register_error", genRegisterError },
+    .{ "lookup_error", genLookupError },
+    .{ "utf_8_encode", genUtf8Encode },
+    .{ "utf_8_decode", genUtf8Decode },
+    .{ "ascii_encode", genAsciiEncode },
+    .{ "ascii_decode", genAsciiDecode },
+    .{ "latin_1_encode", genLatin1Encode },
+    .{ "latin_1_decode", genLatin1Decode },
+    .{ "escape_encode", genEscapeEncode },
+    .{ "escape_decode", genEscapeDecode },
+    .{ "raw_unicode_escape_encode", genRawUnicodeEscapeEncode },
+    .{ "raw_unicode_escape_decode", genRawUnicodeEscapeDecode },
+    .{ "unicode_escape_encode", genUnicodeEscapeEncode },
+    .{ "unicode_escape_decode", genUnicodeEscapeDecode },
+    .{ "charmap_encode", genCharmapEncode },
+    .{ "charmap_decode", genCharmapDecode },
+    .{ "charmap_build", genCharmapBuild },
+    .{ "mbcs_encode", genMbcsEncode },
+    .{ "mbcs_decode", genMbcsDecode },
+    .{ "readbuffer_encode", genReadbufferEncode },
+});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

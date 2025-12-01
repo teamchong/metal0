@@ -5,6 +5,31 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 /// Generate _decimal.Decimal(value=0, context=None)
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Decimal", genDecimal },
+    .{ "Context", genContext },
+    .{ "localcontext", genLocalcontext },
+    .{ "getcontext", genGetcontext },
+    .{ "setcontext", genSetcontext },
+    .{ "BasicContext", genBasicContext },
+    .{ "ExtendedContext", genExtendedContext },
+    .{ "DefaultContext", genDefaultContext },
+    .{ "MAX_PREC", genMaxPrec },
+    .{ "MAX_EMAX", genMaxEmax },
+    .{ "MIN_EMIN", genMinEmin },
+    .{ "MIN_ETINY", genMinEtiny },
+    .{ "ROUND_CEILING", genRoundCeiling },
+    .{ "ROUND_DOWN", genRoundDown },
+    .{ "ROUND_FLOOR", genRoundFloor },
+    .{ "ROUND_HALF_DOWN", genRoundHalfDown },
+    .{ "ROUND_HALF_EVEN", genRoundHalfEven },
+    .{ "ROUND_HALF_UP", genRoundHalfUp },
+    .{ "ROUND_UP", genRoundUp },
+    .{ "ROUND_05UP", genRound05Up },
+});
+
 pub fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("blk: { const v = ");

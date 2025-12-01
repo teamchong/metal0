@@ -4,6 +4,14 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+/// Handler function type
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// Module function map - exported for dispatch
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Path", genPath },
+});
+
 /// Generate code for pathlib.Path(str)
 /// Creates a Path object from a string path
 pub fn genPath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

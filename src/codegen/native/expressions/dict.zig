@@ -13,6 +13,20 @@ pub fn isComptimeConstant(node: ast.Node) bool {
         .constant => true,
         .unaryop => |u| isComptimeConstant(u.operand.*),
         .binop => |b| isComptimeConstant(b.left.*) and isComptimeConstant(b.right.*),
+        .tuple => |t| {
+            // Tuple is comptime if all elements are comptime
+            for (t.elts) |elt| {
+                if (!isComptimeConstant(elt)) return false;
+            }
+            return true;
+        },
+        .list => |l| {
+            // List is comptime if all elements are comptime
+            for (l.elts) |elt| {
+                if (!isComptimeConstant(elt)) return false;
+            }
+            return true;
+        },
         else => false,
     };
 }
@@ -223,10 +237,12 @@ fn getEntryValueType(self: *NativeCodegen, key: ast.Node, value: ast.Node) Codeg
 fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const u8) CodegenError!void {
     // Infer key type from first key (for non-unpacking entries)
     var uses_int_keys = false;
+    var uses_float_keys = false;
     for (dict.keys) |key| {
         if (key != .constant or key.constant.value != .none) {
             const key_type = try self.type_inferrer.inferExpr(key);
             uses_int_keys = key_type == .int;
+            uses_float_keys = key_type == .float;
             break;
         }
     }
@@ -258,6 +274,9 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     try self.emitIndent();
     if (uses_int_keys) {
         try self.emit("var map = std.AutoHashMap(i64, ");
+    } else if (uses_float_keys) {
+        // Floats can't be hashed directly in Zig, use u64 bit representation
+        try self.emit("var map = std.AutoHashMap(u64, ");
     } else {
         try self.emit("var map = hashmap_helper.StringHashMap(");
     }
@@ -310,7 +329,14 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
 
         try self.emitIndent();
         try self.emit("try map.put(");
-        try genExpr(self, key);
+        if (uses_float_keys) {
+            // Convert float key to bits for hashing
+            try self.emit("@bitCast(");
+            try genExpr(self, key);
+            try self.emit(")");
+        } else {
+            try genExpr(self, key);
+        }
         try self.emit(", ");
 
         // If dict values are string type and this value isn't string, convert it
