@@ -364,6 +364,57 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             break :blk b.eql(a);
         }
 
+        // Python class struct with __eq__ method (for custom __eq__ implementations)
+        // NOTE: Some Python __eq__ methods take allocator as first arg, some don't
+        // The result can be bool, NotImplemented (struct), or error union of either
+        if (a_info == .@"struct" and @hasDecl(A, "__eq__")) {
+            const eq_info = @typeInfo(@TypeOf(A.__eq__));
+            if (eq_info == .@"fn") {
+                const params = eq_info.@"fn".params;
+                // Check arg count: self + allocator + other = 3, or self + other = 2
+                const result = if (params.len == 3)
+                    a.__eq__(std.heap.page_allocator, b)
+                else
+                    a.__eq__(b);
+                // Handle error union
+                const ResultType = @TypeOf(result);
+                if (@typeInfo(ResultType) == .error_union) {
+                    const eq_result = result catch break :blk false;
+                    // Check if result is bool or NotImplemented (struct)
+                    if (@TypeOf(eq_result) == bool) {
+                        break :blk eq_result;
+                    }
+                    // NotImplemented means comparison not supported
+                    break :blk false;
+                } else if (ResultType == bool) {
+                    break :blk result;
+                }
+                // Result is NotImplemented type or other - treat as not equal
+            }
+            break :blk false;
+        }
+        if (b_info == .@"struct" and @hasDecl(B, "__eq__")) {
+            const eq_info = @typeInfo(@TypeOf(B.__eq__));
+            if (eq_info == .@"fn") {
+                const params = eq_info.@"fn".params;
+                const result = if (params.len == 3)
+                    b.__eq__(std.heap.page_allocator, a)
+                else
+                    b.__eq__(a);
+                const ResultType = @TypeOf(result);
+                if (@typeInfo(ResultType) == .error_union) {
+                    const eq_result = result catch break :blk false;
+                    if (@TypeOf(eq_result) == bool) {
+                        break :blk eq_result;
+                    }
+                    break :blk false;
+                } else if (ResultType == bool) {
+                    break :blk result;
+                }
+            }
+            break :blk false;
+        }
+
         // Integer comparisons (handle i64 vs comptime_int)
         if ((a_info == .int or a_info == .comptime_int) and (b_info == .int or b_info == .comptime_int)) {
             break :blk a == b;

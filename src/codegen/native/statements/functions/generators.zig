@@ -267,32 +267,59 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     // Register nested class fields in type_inferrer.class_fields
     // This is needed so isDynamicAttribute() can find fields of nested classes
+    // IMPORTANT: Only do this if analysis phase didn't already populate the class info
+    // (analysis phase populates property_methods/property_getters which we must preserve)
     if (init_method) |init| {
-        const native_types = @import("../../../../analysis/native_types/core.zig");
-        var fields = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
-        const methods = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
-        const property_methods = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
-
-        // Extract field types from __init__ body
-        for (init.body) |stmt| {
-            if (stmt == .assign) {
-                const assign = stmt.assign;
-                if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
-                    const attr = assign.targets[0].attribute;
-                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
-                        // Register the field name - type doesn't matter for isDynamicAttribute check
-                        // Use .unknown as a placeholder type
-                        try fields.put(attr.attr, .unknown);
+        // Check if class_fields was already populated by analysis phase
+        if (self.type_inferrer.class_fields.get(class.name)) |existing_info| {
+            // Analysis phase already populated this class - merge fields only
+            // Extract field types from __init__ body and add to existing fields
+            for (init.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                        const attr = assign.targets[0].attribute;
+                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                            // Only add if not already known
+                            if (!existing_info.fields.contains(attr.attr)) {
+                                const native_types = @import("../../../../analysis/native_types/core.zig");
+                                var fields = existing_info.fields;
+                                try fields.put(attr.attr, native_types.NativeType.unknown);
+                            }
+                        }
                     }
                 }
             }
-        }
+        } else {
+            // Analysis phase didn't populate this class - create new entry
+            const native_types = @import("../../../../analysis/native_types/core.zig");
+            var fields = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
+            const methods = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
+            const property_methods = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
+            const property_getters = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
 
-        try self.type_inferrer.class_fields.put(class.name, .{
-            .fields = fields,
-            .methods = methods,
-            .property_methods = property_methods,
-        });
+            // Extract field types from __init__ body
+            for (init.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                        const attr = assign.targets[0].attribute;
+                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                            // Register the field name - type doesn't matter for isDynamicAttribute check
+                            // Use .unknown as a placeholder type
+                            try fields.put(attr.attr, .unknown);
+                        }
+                    }
+                }
+            }
+
+            try self.type_inferrer.class_fields.put(class.name, .{
+                .fields = fields,
+                .methods = methods,
+                .property_methods = property_methods,
+                .property_getters = property_getters,
+            });
+        }
 
         // Also register 'self' as a class_instance of this class
         // This is needed for type inference during method body generation
@@ -703,6 +730,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             }
         }
     }
+
+    // Generate polymorphic return type helper functions (before methods that use them)
+    try body.genPolymorphicReturnHelpers(self, class);
 
     // Generate regular methods (non-__init__)
     try body.genClassMethods(self, class, captured_vars);

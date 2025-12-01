@@ -49,10 +49,13 @@ pub fn allSameType(elements: []ast.Node) bool {
 /// Class field and method information
 const FnvTypeMap = hashmap_helper.StringHashMap(NativeType);
 
+const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
+
 pub const ClassInfo = struct {
     fields: FnvTypeMap,
     methods: FnvTypeMap, // method_name -> return type
     property_methods: FnvTypeMap, // methods decorated with @property
+    property_getters: FnvStringMap, // property_name -> getter_method_name (for property() calls)
     allow_dynamic_attrs: bool = true, // Enable __dict__ for dynamic attributes
 };
 

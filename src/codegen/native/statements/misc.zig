@@ -49,11 +49,33 @@ fn getMagicMethodConversion(method_name: []const u8) ?MagicMethodConversion {
     return converters.get(method_name);
 }
 
+/// Comparison magic methods that return bool
+const ComparisonMagicMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "__eq__", {} },
+    .{ "__ne__", {} },
+    .{ "__lt__", {} },
+    .{ "__le__", {} },
+    .{ "__gt__", {} },
+    .{ "__ge__", {} },
+});
+
 /// Generate return statement with tail-call optimization
 pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
     try self.emitIndent();
 
     if (ret.value) |value| {
+        // Check if returning NotImplemented from a comparison method
+        // In Python, comparison methods can return NotImplemented to signal fallback
+        // But in our compiled code, these methods return bool, so convert to false
+        if (value.* == .name and std.mem.eql(u8, value.name.id, "NotImplemented")) {
+            if (self.current_function_name) |fn_name| {
+                if (ComparisonMagicMethods.has(fn_name)) {
+                    try self.emit("return false;\n");
+                    return;
+                }
+            }
+        }
+
         // Check if returning a pre-generated closure (e.g., return with_metaclass where with_metaclass is a nested function)
         if (value.* == .name) {
             const name = value.name.id;
@@ -673,8 +695,10 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 }
 
 /// Generate raise statement
-/// raise ValueError("msg") => std.debug.panic("ValueError: {s}", .{"msg"})
-/// raise => std.debug.panic("Unhandled exception", .{})
+/// raise ValueError("msg") => return error.ValueError
+/// raise => return error.Exception
+/// NOTE: We use Zig errors so try/except can catch them. The error message is lost,
+/// but exception handling works correctly.
 pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!void {
     try self.emitIndent();
 
@@ -686,16 +710,10 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                 const exc_name = call.func.name.id;
                 // Check if it's a known exception type
                 if (ExceptionTypes.has(exc_name)) {
-                    // Generate: std.debug.panic("ValueError: {s}", .{"msg"})
-                    try self.emit("std.debug.panic(\"");
+                    // Generate: return error.ValueError
+                    try self.emit("return error.");
                     try self.emit(exc_name);
-                    if (call.args.len > 0) {
-                        try self.emit(": {s}\", .{");
-                        try self.genExpr(call.args[0]);
-                        try self.emit("});\n");
-                    } else {
-                        try self.emit("\", .{});\n");
-                    }
+                    try self.emit(";\n");
                     return;
                 }
             }
@@ -704,19 +722,17 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         if (exc.* == .name) {
             const exc_name = exc.name.id;
             if (ExceptionTypes.has(exc_name)) {
-                // Generate: std.debug.panic("TypeError", .{})
-                try self.emit("std.debug.panic(\"");
+                // Generate: return error.TypeError
+                try self.emit("return error.");
                 try self.emit(exc_name);
-                try self.emit("\", .{});\n");
+                try self.emit(";\n");
                 return;
             }
         }
-        // Fallback for other raise expressions
-        try self.emit("std.debug.panic(\"Exception: {any}\", .{");
-        try self.genExpr(exc.*);
-        try self.emit("});\n");
+        // Fallback for other raise expressions - use generic error
+        try self.emit("return error.Exception;\n");
     } else {
-        // bare raise
-        try self.emit("std.debug.panic(\"Unhandled exception\", .{});\n");
+        // bare raise - use generic error
+        try self.emit("return error.Exception;\n");
     }
 }

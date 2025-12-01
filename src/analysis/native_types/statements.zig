@@ -96,6 +96,8 @@ pub fn visitStmtScoped(
             var fields = FnvHashMap.init(allocator);
             var methods = FnvHashMap.init(allocator);
             var property_methods = FnvHashMap.init(allocator);
+            const hm_helper = @import("hashmap_helper");
+            var property_getters = hm_helper.StringHashMap([]const u8).init(allocator);
 
             // Get constructor arg types if available
             const constructor_arg_types = class_constructor_args.get(class_def.name);
@@ -107,6 +109,42 @@ pub fn visitStmtScoped(
                     const assign = stmt.assign;
                     if (assign.targets.len > 0 and assign.targets[0] == .name) {
                         const field_name = assign.targets[0].name.id;
+
+                        // Check if this is a property() assignment: num = property(_get_num, None)
+                        if (assign.value.* == .call and assign.value.call.func.* == .name) {
+                            if (std.mem.eql(u8, assign.value.call.func.name.id, "property")) {
+                                // This is a property descriptor - register it as a property method
+                                // The first argument is the getter function name
+                                if (assign.value.call.args.len > 0 and assign.value.call.args[0] == .name) {
+                                    const getter_name = assign.value.call.args[0].name.id;
+                                    // Store the getter name for this property
+                                    try property_getters.put(field_name, getter_name);
+                                    // Find the getter method and use its return type
+                                    for (class_def.body) |method_stmt| {
+                                        if (method_stmt == .function_def and std.mem.eql(u8, method_stmt.function_def.name, getter_name)) {
+                                            const getter = method_stmt.function_def;
+                                            // Infer return type from getter
+                                            var return_type: NativeType = .unknown;
+                                            if (getter.return_type) |type_str| {
+                                                return_type = try core.pythonTypeHintToNative(type_str, allocator);
+                                            }
+                                            if (return_type == .unknown) {
+                                                for (getter.body) |body_stmt| {
+                                                    if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
+                                                        return_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            try property_methods.put(field_name, return_type);
+                                            break;
+                                        }
+                                    }
+                                }
+                                continue; // Don't add to fields
+                            }
+                        }
+
                         // Infer type from value
                         const field_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
                         try fields.put(field_name, field_type);
@@ -177,7 +215,7 @@ pub fn visitStmtScoped(
             }
 
             // Register class fields early so self.field lookups work during method return type inference
-            try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods, .property_methods = property_methods });
+            try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods, .property_methods = property_methods, .property_getters = property_getters });
 
             // Register 'self' as class_instance so expressions like self.val can be inferred
             try var_types.put("self", .{ .class_instance = class_def.name });
@@ -214,7 +252,7 @@ pub fn visitStmtScoped(
                 }
             }
 
-            try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods, .property_methods = property_methods });
+            try class_fields.put(class_def.name, .{ .fields = fields, .methods = methods, .property_methods = property_methods, .property_getters = property_getters });
 
             // Visit method bodies to register local variable types
             // Each method gets its own named scope to prevent cross-method type pollution

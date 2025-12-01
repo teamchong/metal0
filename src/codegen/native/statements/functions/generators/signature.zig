@@ -23,6 +23,8 @@ const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
 
 /// Magic method return types - these have fixed return types in Python
 /// regardless of what the method body might suggest
+/// NOTE: Comparison methods return bool. `return NotImplemented` is converted
+/// to `return false` during code generation.
 const MagicMethodReturnTypes = std.StaticStringMap([]const u8).initComptime(.{
     .{ "__bool__", "runtime.PythonError!bool" },  // Must return bool or error
     .{ "__len__", "runtime.PythonError!i64" },  // Must return non-negative int or error
@@ -46,6 +48,54 @@ const MagicMethodReturnTypes = std.StaticStringMap([]const u8).initComptime(.{
     // the type at compile time, especially for metaclasses. Default to i64.
     .{ "__new__", "i64" },
 });
+
+/// Check if a method has type-changing patterns that require polymorphic return type
+/// Pattern: methods that return different types based on input (Rat for int/Rat, f64 for float)
+fn hasPolymorphicReturnPattern(method: ast.Node.FunctionDef, anytype_params: anytype) bool {
+    _ = anytype_params;
+    // Look for pattern: if isnum(other): return float(self) + other <- returns f64
+    // when other branches return Rat via Rat.init() or @This().init()
+
+    var has_class_return = false;
+    var has_float_return = false;
+
+    for (method.body) |stmt| {
+        if (stmt != .if_stmt) continue;
+        const if_stmt = stmt.if_stmt;
+        if (if_stmt.condition.* != .call) continue;
+        const call = if_stmt.condition.call;
+        if (call.func.* != .name) continue;
+        const func_name = call.func.name.id;
+
+        // Check for isint/isRat returning class instance
+        if (std.mem.eql(u8, func_name, "isint") or std.mem.eql(u8, func_name, "isRat") or std.mem.eql(u8, func_name, "isinstance")) {
+            for (if_stmt.body) |body_stmt| {
+                if (body_stmt == .return_stmt) {
+                    if (body_stmt.return_stmt.value) |val| {
+                        // Check if returning class constructor call
+                        if (val.* == .call and val.call.func.* == .name) {
+                            has_class_return = true;
+                        }
+                    }
+                }
+            }
+        } else if (std.mem.eql(u8, func_name, "isnum")) {
+            // Check if body returns float operation
+            for (if_stmt.body) |body_stmt| {
+                if (body_stmt != .return_stmt) continue;
+                if (body_stmt.return_stmt.value) |val| {
+                    if (val.* == .binop or val.* == .call) {
+                        // float(self) + other or runtime.divideFloat(...) or similar
+                        has_float_return = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Polymorphic pattern: both class return AND float return paths exist
+    return has_class_return and has_float_return;
+}
 
 /// Get the fixed return type for a magic method, or null if not a special method
 pub fn getMagicMethodReturnType(method_name: []const u8) ?[]const u8 {
@@ -939,6 +989,29 @@ pub fn genMethodSignatureWithSkip(
     }
 
     try self.emit(") ");
+
+    // Check for polymorphic return pattern - methods that return different types
+    // based on input type (e.g., Rat.__add__ returns Rat for int/Rat, f64 for float)
+    if (hasPolymorphicReturnPattern(method, self.anytype_params)) {
+        // Generate comptime-computed return type based on anytype param
+        // Find the anytype param name
+        var anytype_param: ?[]const u8 = null;
+        for (method.args) |arg| {
+            if (self.anytype_params.contains(arg.name)) {
+                anytype_param = arg.name;
+                break;
+            }
+        }
+        if (anytype_param) |param_name| {
+            // Generate: PolymorphicReturn(@TypeOf(param))
+            try self.emit("PolymorphicReturn__");
+            try self.emit(method.name);
+            try self.emit("(@TypeOf(");
+            try self.emit(param_name);
+            try self.emit(")) {\n");
+            return;
+        }
+    }
 
     // Determine return type (add error union if allocator needed)
     if (needs_allocator) {

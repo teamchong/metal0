@@ -648,6 +648,62 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try genExpr(self, compare.comparators[i]);
             }
         }
+        // Handle class instance comparisons - call __eq__/__ne__/__lt__ etc. methods
+        else if (@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .class_instance or
+            @as(std.meta.Tag(@TypeOf(right_type)), right_type) == .class_instance)
+        {
+            // Class instance comparison - call the appropriate dunder method
+            // For ==, call left.__eq__(right) - if it returns NotImplemented, try right.__eq__(left)
+            // For !=, call left.__ne__(right) - if not defined, use not left.__eq__(right)
+            // Note: Our __eq__/__ne__ return bool (NotImplemented is converted to false in genReturn)
+
+            // Check if left operand is a class instance
+            const left_is_class = @as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .class_instance;
+
+            if (left_is_class) {
+                // For __ne__, if class doesn't define it, we need to negate __eq__
+                if (op == .NotEq) {
+                    // Check if class has __ne__
+                    const class_name = current_left_type.class_instance;
+                    const has_ne = if (self.type_inferrer.class_fields.get(class_name)) |info|
+                        info.methods.contains("__ne__")
+                    else
+                        false;
+
+                    if (!has_ne) {
+                        // Use !(a.__eq__(b)) as fallback
+                        // Generate: !(runtime.classInstanceEq(a, b))
+                        try self.emit("!runtime.classInstanceEq(");
+                        try genExpr(self, current_left);
+                        try self.emit(", ");
+                        try genExpr(self, compare.comparators[i]);
+                        try self.emit(", __global_allocator)");
+                    } else {
+                        // Generate: runtime.classInstanceCompare(a, "__ne__", b, allocator)
+                        try self.emit("runtime.classInstanceNe(");
+                        try genExpr(self, current_left);
+                        try self.emit(", ");
+                        try genExpr(self, compare.comparators[i]);
+                        try self.emit(", __global_allocator)");
+                    }
+                } else {
+                    // Generate: runtime.classInstanceEq(a, b, allocator)
+                    // The runtime function will check method signature at comptime
+                    try self.emit("runtime.classInstanceEq(");
+                    try genExpr(self, current_left);
+                    try self.emit(", ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(", __global_allocator)");
+                }
+            } else {
+                // Right is class instance - use reflected method
+                try self.emit("runtime.classInstanceEq(");
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(", ");
+                try genExpr(self, current_left);
+                try self.emit(", __global_allocator)");
+            }
+        }
         // Handle BigInt or unknown type comparisons (anytype parameters)
         else if (current_left_type == .bigint or right_type == .bigint or
             current_left_type == .unknown or right_type == .unknown)
