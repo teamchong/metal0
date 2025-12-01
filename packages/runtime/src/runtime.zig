@@ -900,6 +900,7 @@ pub const floatIsInteger = float_ops.floatIsInteger;
 // Import and re-export integer operations
 pub const int_ops = @import("runtime/int_ops.zig");
 pub const toInt = int_ops.toInt;
+pub const int__new__ = int_ops.int__new__;
 pub const divideInt = int_ops.divideInt;
 pub const moduloInt = int_ops.moduloInt;
 pub const pyIntFromAny = int_ops.pyIntFromAny;
