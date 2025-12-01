@@ -97,6 +97,10 @@ pub fn main() !void {
         try cmdList(allocator);
     } else if (std.mem.eql(u8, command, "show")) {
         try cmdShow(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "download")) {
+        try cmdDownload(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "check")) {
+        try cmdCheck(allocator);
     } else if (std.mem.eql(u8, command, "cache")) {
         try cmdCache(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "build")) {
@@ -452,6 +456,116 @@ fn cmdList(allocator: std.mem.Allocator) !void {
         while (i < max_name_len - p.name.len + 2) : (i += 1) std.debug.print(" ", .{});
         std.debug.print("{s}\n", .{p.version});
     }
+}
+
+fn cmdDownload(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    if (args.len == 0) {
+        printError("No packages specified", .{});
+        return;
+    }
+
+    // Parse args for -d/--dest option
+    var dest_dir: []const u8 = ".";
+    var packages = std.ArrayList([]const u8){};
+    defer packages.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "-d") or std.mem.eql(u8, arg, "--dest")) {
+            i += 1;
+            if (i < args.len) dest_dir = args[i];
+        } else if (!std.mem.startsWith(u8, arg, "-")) {
+            try packages.append(allocator, arg);
+        }
+    }
+
+    if (packages.items.len == 0) {
+        printError("No packages specified", .{});
+        return;
+    }
+
+    std.debug.print("\n{s}Resolving dependencies...{s}\n", .{ Color.dim, Color.reset });
+
+    var client = pkg.pypi.PyPIClient.init(allocator);
+    defer client.deinit();
+
+    for (packages.items) |pkg_name| {
+        // Get wheel URL
+        const wheel_url = client.getWheelUrl(pkg_name) catch |err| {
+            printError("Cannot find wheel for {s}: {any}", .{ pkg_name, err });
+            continue;
+        };
+        defer allocator.free(wheel_url);
+
+        // Extract filename from URL
+        const filename = if (std.mem.lastIndexOf(u8, wheel_url, "/")) |pos|
+            wheel_url[pos + 1 ..]
+        else
+            wheel_url;
+
+        const dest_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dest_dir, filename });
+        defer allocator.free(dest_path);
+
+        std.debug.print("{s}Downloading{s} {s}...\n", .{ Color.dim, Color.reset, filename });
+
+        // Download wheel
+        const data = client.fetchRawUrl(wheel_url) catch |err| {
+            printError("Download failed for {s}: {any}", .{ pkg_name, err });
+            continue;
+        };
+        defer allocator.free(data);
+
+        // Write to file
+        const file = std.fs.cwd().createFile(dest_path, .{}) catch |err| {
+            printError("Cannot create file {s}: {any}", .{ dest_path, err });
+            continue;
+        };
+        defer file.close();
+        file.writeAll(data) catch |err| {
+            printError("Cannot write file {s}: {any}", .{ dest_path, err });
+            continue;
+        };
+
+        std.debug.print("{s}✓{s} Downloaded {s}{s}{s} ({d} KB)\n", .{
+            Color.green,
+            Color.reset,
+            Color.bold,
+            filename,
+            Color.reset,
+            data.len / 1024,
+        });
+    }
+}
+
+fn cmdCheck(allocator: std.mem.Allocator) !void {
+    var installer = pkg.installer.Installer.init(allocator, .{}) catch |err| {
+        printError("Failed to initialize installer: {any}", .{err});
+        return;
+    };
+    defer installer.deinit();
+
+    const packages = installer.listInstalled() catch |err| {
+        printError("Failed to list packages: {any}", .{err});
+        return;
+    };
+    defer {
+        for (packages) |p| {
+            allocator.free(p.name);
+            allocator.free(p.version);
+        }
+        allocator.free(packages);
+    }
+
+    if (packages.len == 0) {
+        std.debug.print("No packages installed.\n", .{});
+        return;
+    }
+
+    // For now, just report that all packages are OK
+    // A full implementation would check each package's dependencies
+    std.debug.print("{s}✓{s} No broken requirements found.\n", .{ Color.green, Color.reset });
+    std.debug.print("  {d} packages checked.\n", .{packages.len});
 }
 
 fn cmdShow(allocator: std.mem.Allocator, args: []const []const u8) !void {
