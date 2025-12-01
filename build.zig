@@ -324,4 +324,32 @@ pub fn build(b: *std.Build) void {
     const run_pkg_tests = b.addRunArtifact(pkg_tests);
     const pkg_test_step = b.step("test-pkg", "Run package manager parser tests");
     pkg_test_step.dependOn(&run_pkg_tests.step);
+
+    // Package resolver CLI tool (for testing)
+    const pkg_module = b.createModule(.{
+        .root_source_file = b.path("packages/pkg/src/pkg.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const resolve_exe = b.addExecutable(.{
+        .name = "resolve",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/pkg/src/resolve/test_resolve.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "pkg", .module = pkg_module },
+            },
+        }),
+    });
+    b.installArtifact(resolve_exe);
+
+    const run_resolve = b.addRunArtifact(resolve_exe);
+    run_resolve.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_resolve.addArgs(args);
+    }
+    const resolve_step = b.step("resolve", "Run package resolver (usage: zig build resolve -- numpy pandas)");
+    resolve_step.dependOn(&run_resolve.step);
 }

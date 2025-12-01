@@ -28,6 +28,9 @@ pub const pypi = @import("fetch/pypi.zig");
 pub const wheel = @import("fetch/wheel.zig");
 pub const cache = @import("fetch/cache.zig");
 
+// Phase 3: Resolver
+pub const resolver = @import("resolve/resolver.zig");
+
 // Conformance tests (from Python packaging library)
 pub const pep440_conformance = @import("parse/pep440_conformance.zig");
 pub const pep508_conformance = @import("parse/pep508_conformance.zig");
@@ -47,6 +50,10 @@ pub const WheelInfo = wheel.WheelInfo;
 pub const Platform = wheel.Platform;
 pub const Cache = cache.Cache;
 pub const MemoryCache = cache.MemoryCache;
+
+// Re-export main types - Resolver
+pub const Resolver = resolver.Resolver;
+pub const Resolution = resolver.Resolution;
 
 test {
     std.testing.refAllDecls(@This());

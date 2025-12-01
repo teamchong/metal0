@@ -93,6 +93,7 @@ pub const PackageMetadata = struct {
     latest_version: []const u8,
     summary: ?[]const u8 = null,
     releases: []ReleaseInfo = &[_]ReleaseInfo{},
+    requires_dist: []const []const u8 = &[_][]const u8{}, // Dependency strings from PyPI
 
     pub fn deinit(self: *PackageMetadata, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
@@ -102,6 +103,10 @@ pub const PackageMetadata = struct {
             @constCast(r).deinit(allocator);
         }
         if (self.releases.len > 0) allocator.free(self.releases);
+        for (self.requires_dist) |dep| {
+            allocator.free(dep);
+        }
+        if (self.requires_dist.len > 0) allocator.free(self.requires_dist);
     }
 };
 
@@ -264,7 +269,7 @@ pub const PyPIClient = struct {
             for (batch_start..batch_end) |i| {
                 threads[i - batch_start] = std.Thread.spawn(.{}, FetchContext.fetch, .{&contexts[i]}) catch {
                     // If thread spawn fails, do it synchronously
-                    contexts[i].fetch(&contexts[i]);
+                    FetchContext.fetch(&contexts[i]);
                     continue;
                 };
                 spawned += 1;
@@ -295,7 +300,7 @@ pub const PyPIClient = struct {
                 // Exponential backoff
                 if (retries + 1 < self.config.max_retries) {
                     const delay_ms: u64 = @as(u64, 100) << @intCast(retries);
-                    std.time.sleep(delay_ms * std.time.ns_per_ms);
+                    std.Thread.sleep(delay_ms * std.time.ns_per_ms);
                 }
             }
         }
@@ -303,46 +308,42 @@ pub const PyPIClient = struct {
         return last_err;
     }
 
-    /// Perform actual HTTP fetch using std.http.Client
+    /// Perform actual HTTP fetch using std.http.Client (Zig 0.15 API)
     fn doFetch(self: *PyPIClient, url: []const u8) PyPIError![]const u8 {
         var client = std.http.Client{ .allocator = self.allocator };
         defer client.deinit();
 
-        // Prepare request
-        const uri = std.Uri.parse(url) catch return PyPIError.NetworkError;
+        // Use Zig 0.15 fetch API with allocating writer
+        var response_writer = std.Io.Writer.Allocating.init(self.allocator);
+        // Note: we'll return the buffer so don't free it on success
+        errdefer if (response_writer.writer.buffer.len > 0) self.allocator.free(response_writer.writer.buffer);
 
-        var header_buf: [4096]u8 = undefined;
-        var req = client.open(.GET, uri, .{
-            .server_header_buffer = &header_buf,
+        const result = client.fetch(.{
+            .location = .{ .url = url },
             .extra_headers = &.{
                 .{ .name = "User-Agent", .value = self.config.user_agent },
                 .{ .name = "Accept", .value = "application/json" },
             },
+            .response_writer = &response_writer.writer,
         }) catch return PyPIError.NetworkError;
-        defer req.deinit();
-
-        req.send() catch return PyPIError.NetworkError;
-        req.wait() catch return PyPIError.NetworkError;
 
         // Check status
-        const status = req.status;
+        const status = result.status;
         if (status == .not_found) return PyPIError.PackageNotFound;
         if (status == .too_many_requests) return PyPIError.TooManyRequests;
         if (@intFromEnum(status) >= 500) return PyPIError.ServerError;
         if (status != .ok) return PyPIError.NetworkError;
 
-        // Read body
-        var body_list = std.ArrayList(u8){};
-        errdefer body_list.deinit(self.allocator);
+        // Get body from writer buffer - dupe to owned slice
+        const body = response_writer.writer.buffer[0..response_writer.writer.end];
+        const result_body = self.allocator.dupe(u8, body) catch return PyPIError.OutOfMemory;
 
-        var buf: [8192]u8 = undefined;
-        while (true) {
-            const n = req.read(&buf) catch return PyPIError.NetworkError;
-            if (n == 0) break;
-            body_list.appendSlice(self.allocator, buf[0..n]) catch return PyPIError.OutOfMemory;
+        // Free the original buffer
+        if (response_writer.writer.buffer.len > 0) {
+            self.allocator.free(response_writer.writer.buffer);
         }
 
-        return body_list.toOwnedSlice(self.allocator) catch return PyPIError.OutOfMemory;
+        return result_body;
     }
 
     /// Parse PyPI JSON API response
@@ -382,6 +383,24 @@ pub const PyPIClient = struct {
             }
         }
         errdefer if (summary) |s| self.allocator.free(s);
+
+        // Extract requires_dist (dependencies)
+        var requires_dist_list = std.ArrayList([]const u8){};
+        errdefer {
+            for (requires_dist_list.items) |dep| self.allocator.free(dep);
+            requires_dist_list.deinit(self.allocator);
+        }
+
+        if (info.get("requires_dist")) |req_val| {
+            if (req_val == .array) {
+                for (req_val.array.items) |item| {
+                    if (item == .string) {
+                        const dep_str = try self.allocator.dupe(u8, item.string);
+                        try requires_dist_list.append(self.allocator, dep_str);
+                    }
+                }
+            }
+        }
 
         // Parse releases
         var releases_list = std.ArrayList(ReleaseInfo){};
@@ -426,6 +445,7 @@ pub const PyPIClient = struct {
             .latest_version = version,
             .summary = summary,
             .releases = try releases_list.toOwnedSlice(self.allocator),
+            .requires_dist = try requires_dist_list.toOwnedSlice(self.allocator),
         };
     }
 
