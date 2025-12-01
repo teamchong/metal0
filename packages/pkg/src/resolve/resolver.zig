@@ -186,14 +186,14 @@ pub const Resolver = struct {
             try self.state.put(state_name, .pending);
         }
 
-        // Main resolution loop with DIRECT batch fetching
+        // Main resolution loop with DIRECT batch fetching + CACHE
         while (self.pending.count() > 0) {
             self.iterations += 1;
             if (self.iterations > self.config.max_iterations) {
                 return ResolverError.MaxIterationsExceeded;
             }
 
-            // Collect ALL pending package names for batch fetch
+            // Collect pending packages, checking cache first
             var batch_names = std.ArrayList([]const u8){};
             defer batch_names.deinit(self.allocator);
 
@@ -204,6 +204,38 @@ pub const Resolver = struct {
                 // Skip if already resolved
                 if (self.state.get(name)) |s| {
                     if (s == .resolved) continue;
+                }
+
+                // CACHE CHECK: Try to get from cache first
+                if (self.cache) |c| {
+                    const cache_key = std.fmt.allocPrint(self.allocator, "pypi:json:{s}", .{name}) catch {
+                        try batch_names.append(self.allocator, name);
+                        continue;
+                    };
+                    defer self.allocator.free(cache_key);
+
+                    if (c.get(cache_key)) |cached_json| {
+                        // Parse cached JSON
+                        var metadata = pypi.PyPIClient.parsePackageJsonStatic(self.allocator, cached_json, name) catch {
+                            // Cache corrupted, fetch fresh
+                            try batch_names.append(self.allocator, name);
+                            continue;
+                        };
+                        defer metadata.deinit(self.allocator);
+
+                        // Process cached metadata
+                        self.cache_hits += 1;
+                        if (self.state.getPtr(name)) |s| s.* = .resolving;
+                        self.resolvePackageWithMetadata(name, metadata) catch |err| {
+                            if (self.state.getPtr(name)) |s| s.* = .failed;
+                            if (self.backtrack_count < self.config.max_backtrack) {
+                                self.backtrack_count += 1;
+                                continue;
+                            }
+                            return err;
+                        };
+                        continue;
+                    }
                 }
 
                 try batch_names.append(self.allocator, name);
@@ -218,9 +250,8 @@ pub const Resolver = struct {
                 }
             }
 
-            // DIRECT batch fetch via HTTP/2 - ALL packages in ONE request!
-            // TODO: Switch to fast path (Simple API + PEP 658) once fixed
-            const fetch_results = try self.client.getPackagesParallel(batch_names.items);
+            // DIRECT batch fetch via HTTP/2 - only non-cached packages
+            const fetch_results = try self.client.getPackagesParallelWithCache(batch_names.items, self.cache);
             defer self.allocator.free(fetch_results);
 
             // Process results
