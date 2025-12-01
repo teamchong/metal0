@@ -144,3 +144,17 @@ pub fn genUnittestFinalize(self: *NativeCodegen, args: []ast.Node) CodegenError!
     _ = args;
     try self.emit("runtime.unittest.finalize()");
 }
+
+/// Generate code for self.addCleanup(func, *args)
+/// For now, this is a no-op - cleanups would need to be stored and called after test
+/// TODO: Implement proper cleanup registration and execution
+pub fn genAddCleanup(cg: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+    // No-op: emit code that suppresses unused variable warnings
+    // In proper implementation, we would register cleanup functions to be called after test
+    // Reference the self/obj to prevent unused variable errors in caller
+    if (obj == .name) {
+        try cg.emit("_ = ");
+        try cg.emit(obj.name.id);
+    }
+}
