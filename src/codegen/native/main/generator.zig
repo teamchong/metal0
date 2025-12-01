@@ -21,6 +21,8 @@ const MAIN_NAME = "__main__";
 
 /// Generate native Zig code for module
 pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
+    std.debug.print("\n[DEBUG generate] source_file_path={?s}, mode={}\n", .{ self.source_file_path, @intFromEnum(self.mode) });
+
     // PHASE 1: Analyze module to determine requirements
     const analysis = try analyzer.analyzeModule(module, self.allocator);
     defer if (analysis.global_vars.len > 0) self.allocator.free(analysis.global_vars);
@@ -146,11 +148,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     try self.emit("const allocator_helper = @import(\"./utils/allocator_helper.zig\");\n");
 
     // Emit @import statements for compiled user/stdlib modules (collected in PHASE 1.6)
-    std.debug.print("[DEBUG] Emitting {d} inlined module imports\n", .{inlined_modules.items.len});
+    std.debug.print("[DEBUG] Emitting {d} inlined module imports, output.len before={d}\n", .{ inlined_modules.items.len, self.output.items.len });
     for (inlined_modules.items) |import_stmt| {
         std.debug.print("[DEBUG] Emitting: {s}", .{import_stmt});
         try self.emit(import_stmt);
     }
+    std.debug.print("[DEBUG] After emit, output.len={d}\n", .{self.output.items.len});
 
     // PHASE 3.5: Generate C library imports (if any detected)
     if (self.import_ctx) |ctx| {
@@ -679,8 +682,21 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("const allocator_helper = @import(\"./utils/allocator_helper.zig\");\n");
 
         // Add module imports (Phase 3.7 copy for lambda path)
+        // First, emit @import for compiled Python modules
+        var lambda_imported_roots = hashmap_helper.StringHashMap(void).init(self.allocator);
+        defer lambda_imported_roots.deinit();
+
         for (self.imported_modules.keys()) |mod_name| {
-            if (self.import_registry.lookup(mod_name)) |info| {
+            // Extract root module name from dotted path
+            const root_mod_name = if (std.mem.indexOfScalar(u8, mod_name, '.')) |dot_idx|
+                mod_name[0..dot_idx]
+            else
+                mod_name;
+
+            // Skip if already imported
+            if (lambda_imported_roots.contains(root_mod_name)) continue;
+
+            if (self.import_registry.lookup(root_mod_name)) |info| {
                 switch (info.strategy) {
                     .zig_runtime, .c_library => {
                         try self.emit("const ");
@@ -696,6 +712,25 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     },
                     else => {},
                 }
+            } else {
+                // Compiled Python module - emit @import if .build file exists
+                const build_path = try std.fmt.allocPrint(self.allocator, BUILD_DIR ++ "/{s}" ++ MODULE_EXT, .{root_mod_name});
+                defer self.allocator.free(build_path);
+
+                std.fs.cwd().access(build_path, .{}) catch continue;
+
+                // Emit @import for compiled module
+                const escaped_name = try zig_keywords.escapeIfKeyword(self.allocator, root_mod_name);
+                defer if (escaped_name.ptr != root_mod_name.ptr) self.allocator.free(escaped_name);
+                try self.emit("const ");
+                try self.emit(escaped_name);
+                try self.emit(" = @import(\"");
+                try self.emit(IMPORT_PREFIX);
+                try self.emit(root_mod_name);
+                try self.emit(MODULE_EXT);
+                try self.emit("\");\n");
+
+                try lambda_imported_roots.put(root_mod_name, {});
             }
         }
         try self.emit("\n");
