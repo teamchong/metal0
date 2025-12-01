@@ -164,19 +164,46 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
 
         // Check if this module is imported (fallback for function references)
         if (self.imported_modules.contains(module_name)) {
-            // For module function references (used as values, not calls),
-            // emit a reference to the runtime function
-            // e.g., copy.copy -> &runtime.copy.copy, zlib.compress -> &runtime.zlib.compress
-            try self.emit("&runtime.");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
-            try self.emit(".");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+            // Check if this is a runtime module or a compiled Python module
+            const is_runtime_module = if (self.import_registry.lookup(module_name)) |info|
+                info.strategy == .zig_runtime or info.strategy == .c_library
+            else
+                false;
+
+            if (is_runtime_module) {
+                // For runtime module function references (used as values, not calls),
+                // emit a reference to the runtime function
+                // e.g., copy.copy -> &runtime.copy.copy, zlib.compress -> &runtime.zlib.compress
+                try self.emit("&runtime.");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
+                try self.emit(".");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+            } else {
+                // For compiled Python modules, reference directly
+                // e.g., _py_abc.ABCMeta -> _py_abc._py_abc.ABCMeta (module const has nested struct)
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
+                try self.emit(".");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
+                try self.emit(".");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+            }
+            return;
+        }
+    }
+
+    // Check if this is a file property access
+    const value_type = try self.type_inferrer.inferExpr(attr.value.*);
+    if (value_type == .file) {
+        if (std.mem.eql(u8, attr.attr, "closed")) {
+            // File.closed property - call getClosed helper
+            try self.emit("runtime.PyFile.getClosed(");
+            try genExpr(self, attr.value.*);
+            try self.emit(")");
             return;
         }
     }
 
     // Check if this is a numpy array property access
-    const value_type = try self.type_inferrer.inferExpr(attr.value.*);
     if (value_type == .numpy_array) {
         // NumPy array properties: .shape, .size, .T, .ndim, .dtype
         if (std.mem.eql(u8, attr.attr, "shape")) {
