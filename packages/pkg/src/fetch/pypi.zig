@@ -931,7 +931,12 @@ pub const PyPIClient = struct {
                 pos = end;
                 continue;
             };
-            const href = tag[href_content_start..href_end];
+            // Strip fragment (#sha256=...) from href for clean URL
+            const href_full = tag[href_content_start..href_end];
+            const href = if (std.mem.indexOf(u8, href_full, "#")) |hash_pos|
+                href_full[0..hash_pos]
+            else
+                href_full;
 
             // Extract filename (between > and </a>)
             const text_start = std.mem.indexOf(u8, tag, ">") orelse {
