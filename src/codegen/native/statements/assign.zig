@@ -508,6 +508,22 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 return;
             }
 
+            // Special handling for y = x where x is ArrayList
+            // In Python, y = x makes y an alias to the same list, so y should also be ArrayList
+            if (assign.value.* == .name) {
+                const rhs_name = assign.value.name.id;
+                if (self.isArrayListVar(rhs_name)) {
+                    // Track the new variable as ArrayList too
+                    const var_name_copy = try self.allocator.dupe(u8, var_name);
+                    try self.arraylist_vars.put(var_name_copy, {});
+
+                    // Generate the assignment (no special code needed, just emit y = x)
+                    try self.genExpr(assign.value.*);
+                    try self.emit(";\n");
+                    return;
+                }
+            }
+
             // Special handling for bigint variable assignments
             // When variable is typed as bigint OR has unbounded int (could overflow i64),
             // we need to convert values to BigInt

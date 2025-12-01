@@ -13,7 +13,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const GreenThread = @import("green_thread.zig").GreenThread;
+const GreenThread = @import("green_thread").GreenThread;
 
 /// I/O operation type
 pub const IoOp = enum {
