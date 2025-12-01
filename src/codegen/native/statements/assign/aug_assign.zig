@@ -23,12 +23,21 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 // Check if attribute is dynamic (stored in __dict__) vs static (struct field)
                 // A field is static if:
                 // 1. It's in class_fields registry for current class, OR
-                // 2. We're in a nested class inside method and it was initialized in __init__
+                // 2. It's in parent class fields (for nested classes)
                 const is_static = blk: {
                     if (self.current_class_name) |class_name| {
+                        // Check own class fields
                         if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
                             if (class_info.fields.contains(attr.attr)) {
                                 break :blk true;
+                            }
+                        }
+                        // Check parent class fields for nested classes
+                        if (self.nested_class_bases.get(class_name)) |parent_name| {
+                            if (self.type_inferrer.class_fields.get(parent_name)) |parent_info| {
+                                if (parent_info.fields.contains(attr.attr)) {
+                                    break :blk true;
+                                }
                             }
                         }
                     }
@@ -535,11 +544,12 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 // x += val => x = x.__iadd__(allocator, val)
                 // For nested classes, use @hasDecl runtime check to fallback to __add__
                 if (is_nested_class) {
-                    // Generate: x = if (@hasDecl(@TypeOf(x), "__iadd__")) try x.__iadd__(allocator, val) else try x.__add__(allocator, val);
+                    // Generate: x = if (@hasDecl(@TypeOf(x.*), "__iadd__")) try x.__iadd__(allocator, val) else try x.__add__(allocator, val);
+                    // Note: x is a pointer (*ClassName) for heap-allocated nested classes, so use x.* to get struct type
                     try self.genExpr(aug.target.*);
                     try self.emit(" = if (@hasDecl(@TypeOf(");
                     try self.genExpr(aug.target.*);
-                    try self.emitFmt("), \"{s}\")) try ", .{iadd_method.?});
+                    try self.emitFmt(".*), \"{s}\")) try ", .{iadd_method.?});
                     try self.genExpr(aug.target.*);
                     try self.emitFmt(".{s}(__global_allocator, ", .{iadd_method.?});
                     try self.genExpr(aug.value.*);

@@ -793,9 +793,15 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 // Check if assigned to None
                 if (assign.value.* == .constant and assign.value.constant.value == .none) {
                     // Generate a stub method that raises TypeError
+                    // Nested classes use pointer return types
+                    const is_nested = self.nested_class_names.contains(class.name);
                     try self.emit("\n");
                     try self.emitIndent();
-                    try self.output.writer(self.allocator).print("pub fn {s}(_: *const @This(), _: std.mem.Allocator, _: anytype) !@This() {{\n", .{attr_name});
+                    if (is_nested) {
+                        try self.output.writer(self.allocator).print("pub fn {s}(_: *const @This(), _: std.mem.Allocator, _: anytype) !*@This() {{\n", .{attr_name});
+                    } else {
+                        try self.output.writer(self.allocator).print("pub fn {s}(_: *const @This(), _: std.mem.Allocator, _: anytype) !@This() {{\n", .{attr_name});
+                    }
                     self.indent();
                     try self.emitIndent();
                     try self.emit("return error.TypeError; // 'NoneType' object is not callable\n");

@@ -774,7 +774,8 @@ pub fn genMethodSignatureWithSkip(
         // (This handles cases where Python code explicitly uses allocator, though rare)
         const allocator_literally_used = param_analyzer.isNameUsedInBody(method.body, "allocator");
         if (actually_uses_allocator and allocator_literally_used) {
-            const alloc_name = if (self.class_nesting_depth > 1) "__alloc" else "allocator";
+            const is_nested = self.nested_class_names.contains(class_name);
+            const alloc_name = if (is_nested) "__alloc" else "allocator";
             try self.output.writer(self.allocator).print(", {s}: std.mem.Allocator", .{alloc_name});
         } else {
             try self.emit(", _: std.mem.Allocator");
@@ -936,6 +937,32 @@ pub fn genMethodSignatureWithSkip(
             }
         }
 
+        // Check if method returns 'self' - for nested classes this should be pointer type
+        const returns_self = blk: {
+            for (method.body) |stmt| {
+                if (stmt == .return_stmt) {
+                    if (stmt.return_stmt.value) |val| {
+                        if (val.* == .name and std.mem.eql(u8, val.name.id, "self")) {
+                            break :blk true;
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        };
+
+        if (returns_self) {
+            // For nested classes, self is a pointer, so returning self returns a pointer
+            const current_class_is_nested = self.nested_class_names.contains(class_name);
+            if (current_class_is_nested) {
+                try self.emit("*@This() {\n");
+                return;
+            }
+            // Top-level classes return value type
+            try self.emit("@This() {\n");
+            return;
+        }
+
         // Check if method returns a parameter directly (for anytype params)
         var returned_param_name: ?[]const u8 = null;
         for (method.body) |stmt| {
@@ -968,6 +995,13 @@ pub fn genMethodSignatureWithSkip(
             // This handles inherited methods like aug_test.__add__ returning aug_test(...)
             const returned_class = getReturnedNestedClassConstructor(method.body, self);
             if (returned_class) |rc| {
+                // Nested classes are heap-allocated and return pointers
+                // Check if the returned class OR the current class is nested
+                const current_class_is_nested = self.nested_class_names.contains(class_name);
+                const is_nested = self.nested_class_names.contains(rc) or current_class_is_nested;
+                if (is_nested) {
+                    try self.emit("*");
+                }
                 // If returning same class, use @This() for self-reference
                 if (std.mem.eql(u8, rc, class_name)) {
                     try self.emit("@This()");

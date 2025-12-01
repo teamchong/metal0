@@ -110,12 +110,10 @@ pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         return;
     }
 
-    try self.emit("{\n");
-    try self.emit("    const __ns = @as(u64, @intFromFloat(");
+    // Emit inline sleep - convert seconds to nanoseconds
+    try self.emit("std.Thread.sleep(@as(u64, @intFromFloat(");
     try self.genExpr(args[0]);
-    try self.emit(" * 1_000_000_000.0));\n");
-    try self.emit("    std.Thread.sleep(__ns);\n");
-    try self.emit("}");
+    try self.emit(" * 1_000_000_000.0)))");
 }
 
 /// Generate code for asyncio.Queue(maxsize)
@@ -139,6 +137,20 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Spawn as goroutine and wait for result
     if (expr == .call) {
         const call = expr.call;
+
+        // Check for asyncio.sleep - emit inline, no thread/wait
+        if (call.func.* == .attribute) {
+            const attr = call.func.*.attribute;
+            if (attr.value.* == .name) {
+                const mod_name = attr.value.*.name.id;
+                if (std.mem.eql(u8, mod_name, "asyncio") and std.mem.eql(u8, attr.attr, "sleep")) {
+                    // Just emit the sleep directly - it's not a spawned task
+                    try genAsyncioSleep(self, call.args);
+                    return;
+                }
+            }
+        }
+
         if (call.func.* == .name) {
             const func_name = call.func.*.name.id;
             try self.emit("blk: {\n");

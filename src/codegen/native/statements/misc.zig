@@ -102,9 +102,18 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             null;
 
         if (needs_self_deref) {
-            // Dereference the mutable self pointer
+            // For nested classes, return the pointer directly
+            // since init() returns *@This() and methods returning self also return *@This()
+            // For top-level classes, dereference to return @This() value
             const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
-            try self.output.writer(self.allocator).print("{s}.*", .{self_name});
+            const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
+            if (current_class_is_nested) {
+                // Nested class: return pointer directly
+                try self.emit(self_name);
+            } else {
+                // Top-level class: dereference to get value
+                try self.output.writer(self.allocator).print("{s}.*", .{self_name});
+            }
         } else if (conversion) |conv| {
             try self.emit(conv.prefix);
             try self.genExpr(value.*);

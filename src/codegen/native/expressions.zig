@@ -273,17 +273,22 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
 
 /// Generate await expression
 fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!void {
-    // Check if awaiting asyncio.gather - it returns results directly
+    // Check if awaiting asyncio.gather or asyncio.sleep
     if (await_node.value.* == .call) {
         const call = await_node.value.*.call;
         if (call.func.* == .attribute) {
             const attr = call.func.*.attribute;
-            if (attr.value.* == .name and std.mem.eql(u8, attr.value.*.name.id, "asyncio") and
-                std.mem.eql(u8, attr.attr, "gather"))
-            {
-                // asyncio.gather returns results directly (no thread wrapping)
-                try genExpr(self, await_node.value.*);
-                return;
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.*.name.id, "asyncio")) {
+                if (std.mem.eql(u8, attr.attr, "gather")) {
+                    // asyncio.gather returns results directly (no thread wrapping)
+                    try genExpr(self, await_node.value.*);
+                    return;
+                }
+                if (std.mem.eql(u8, attr.attr, "sleep")) {
+                    // asyncio.sleep is inline - just emit the sleep, no thread
+                    try genExpr(self, await_node.value.*);
+                    return;
+                }
             }
         }
     }

@@ -6,9 +6,19 @@ const CodegenError = @import("../../../../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
 
 /// Check if a method mutates self (assigns to self.field or self.field[key])
+/// Also returns true if method returns self (needed for nested classes where returning self
+/// requires mutable pointer since return type is *@This() not *const @This())
 pub fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
     for (method.body) |stmt| {
         if (stmtMutatesSelf(stmt)) return true;
+        // Check if method returns self - this requires mutable self for nested classes
+        if (stmt == .return_stmt) {
+            if (stmt.return_stmt.value) |val| {
+                if (val.* == .name and std.mem.eql(u8, val.name.id, "self")) {
+                    return true;
+                }
+            }
+        }
     }
     return false;
 }

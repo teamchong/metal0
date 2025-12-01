@@ -295,10 +295,14 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Track local variables and analyze nested class captures for closure support
     // Clear all maps for each method to avoid pollution from sibling methods
     // (e.g., class A in test_sane_len should not affect class A in test_blocked)
+    // BUT: For nested classes (class_nesting_depth > 1), preserve nested_class_names/bases
+    // so sibling class relationships are maintained (e.g., aug_test2's parent aug_test)
     self.func_local_vars.clearRetainingCapacity();
     self.nested_class_captures.clearRetainingCapacity();
-    self.nested_class_names.clearRetainingCapacity();
-    self.nested_class_bases.clearRetainingCapacity();
+    if (self.class_nesting_depth <= 1) {
+        self.nested_class_names.clearRetainingCapacity();
+        self.nested_class_bases.clearRetainingCapacity();
+    }
     try nested_captures.analyzeNestedClassCaptures(self, method);
 
     // Add extra class names (for inherited method bodies that call parent class constructors)
