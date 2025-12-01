@@ -63,6 +63,14 @@ pub fn isConstantArray(self: *NativeCodegen, assign: ast.Node.Assign, var_name: 
 
 /// Check if assignment value should be an ArrayList
 pub fn isArrayList(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []const u8) bool {
+    // Check if RHS is a variable that is already an ArrayList
+    // y = x where x is ArrayList -> y should also be ArrayList
+    if (assign.value.* == .name) {
+        if (self.isArrayListVar(assign.value.name.id)) {
+            return true;
+        }
+    }
+
     if (assign.value.* != .list) return false;
     const list = assign.value.list;
 
