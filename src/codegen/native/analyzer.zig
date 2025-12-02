@@ -36,6 +36,10 @@ const NumpyAllocFuncs = std.StaticStringMap(void).initComptime(.{
     .{ "matmul", {} },
 });
 
+const CollectionsDictTypes = std.StaticStringMap(void).initComptime(.{
+    .{ "Counter", {} }, .{ "defaultdict", {} }, .{ "OrderedDict", {} },
+});
+
 /// Analysis result - what the module needs
 pub const ModuleAnalysis = struct {
     needs_json: bool = false,
@@ -362,11 +366,7 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                             analysis.needs_allocator = true;
                         }
                     } else if (std.mem.eql(u8, module_name, "collections")) {
-                        // collections module functions need hashmap_helper
-                        if (std.mem.eql(u8, attr.attr, "Counter") or
-                            std.mem.eql(u8, attr.attr, "defaultdict") or
-                            std.mem.eql(u8, attr.attr, "OrderedDict"))
-                        {
+                        if (CollectionsDictTypes.has(attr.attr)) {
                             analysis.needs_hashmap_helper = true;
                             analysis.needs_allocator = true;
                         } else if (std.mem.eql(u8, attr.attr, "deque")) {
@@ -397,16 +397,10 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                 }
 
                 // collections module functions need hashmap_helper
-                if (std.mem.eql(u8, func_name, "Counter") or
-                    std.mem.eql(u8, func_name, "defaultdict") or
-                    std.mem.eql(u8, func_name, "OrderedDict"))
-                {
+                if (CollectionsDictTypes.has(func_name)) {
                     analysis.needs_hashmap_helper = true;
                     analysis.needs_allocator = true;
-                }
-
-                // collections.deque needs std ArrayList
-                if (std.mem.eql(u8, func_name, "deque")) {
+                } else if (std.mem.eql(u8, func_name, "deque")) {
                     analysis.needs_std = true;
                     analysis.needs_allocator = true;
                 }
