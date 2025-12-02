@@ -5,16 +5,14 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "pack", genPack }, .{ "pack_into", genUnit }, .{ "unpack", genUnpack }, .{ "unpack_from", genUnpack },
-    .{ "iter_unpack", genIterUnpack }, .{ "calcsize", genCalcsize }, .{ "Struct", genStruct }, .{ "error", genErr },
-});
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
-fn genIterUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]@TypeOf(.{}){}"); }
-fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.StructError"); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "pack", genPack }, .{ "pack_into", genConst("{}") }, .{ "unpack", genUnpack }, .{ "unpack_from", genUnpack },
+    .{ "iter_unpack", genConst("&[_]@TypeOf(.{}){}") }, .{ "calcsize", genCalcsize }, .{ "Struct", genStruct }, .{ "error", genConst("error.StructError") },
+});
 
 fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) { try self.emit("blk: { const fmt = "); try self.genExpr(args[0]); try self.emit("; _ = fmt; var result: std.ArrayList(u8) = .{}; break :blk result.items; }"); } else { try self.emit("\"\""); }

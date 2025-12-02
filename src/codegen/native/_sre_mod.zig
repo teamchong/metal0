@@ -5,23 +5,19 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "compile", genCompile }, .{ "c_o_d_e_s_i_z_e", genI32_4 }, .{ "m_a_g_i_c", genMagic }, .{ "getlower", genGetlower }, .{ "getcodesize", genI32_4 },
-    .{ "match", genNull }, .{ "fullmatch", genNull }, .{ "search", genNull }, .{ "findall", genStrArr }, .{ "finditer", genNullArr },
-    .{ "sub", genSub }, .{ "subn", genSubn }, .{ "split", genStrArr }, .{ "group", genEmptyStr }, .{ "groups", genEmpty }, .{ "groupdict", genEmpty },
-    .{ "start", genI64_0 }, .{ "end", genI64_0 }, .{ "span", genSpan }, .{ "expand", genEmptyStr },
-});
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
-fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
-fn genStrArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{}"); }
-fn genNullArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]@TypeOf(null){}"); }
-fn genI32_4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 4)"); }
-fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
-fn genMagic(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 20171005)"); }
-fn genSpan(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i64, 0), @as(i64, 0) }"); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "compile", genCompile }, .{ "c_o_d_e_s_i_z_e", genConst("@as(i32, 4)") }, .{ "m_a_g_i_c", genConst("@as(i32, 20171005)") },
+    .{ "getlower", genGetlower }, .{ "getcodesize", genConst("@as(i32, 4)") },
+    .{ "match", genConst("null") }, .{ "fullmatch", genConst("null") }, .{ "search", genConst("null") },
+    .{ "findall", genConst("&[_][]const u8{}") }, .{ "finditer", genConst("&[_]@TypeOf(null){}") },
+    .{ "sub", genSub }, .{ "subn", genSubn }, .{ "split", genConst("&[_][]const u8{}") },
+    .{ "group", genConst("\"\"") }, .{ "groups", genConst(".{}") }, .{ "groupdict", genConst(".{}") },
+    .{ "start", genConst("@as(i64, 0)") }, .{ "end", genConst("@as(i64, 0)") }, .{ "span", genConst(".{ @as(i64, 0), @as(i64, 0) }") }, .{ "expand", genConst("\"\"") },
+});
 
 fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) { try self.emit("blk: { const pat = "); try self.genExpr(args[0]); try self.emit("; _ = pat; break :blk .{ .pattern = pat, .flags = 0, .groups = 0 }; }"); } else { try self.emit(".{ .pattern = \"\", .flags = 0, .groups = 0 }"); }
