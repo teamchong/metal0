@@ -103,6 +103,11 @@ pub const FunctionTraits = struct {
     /// If return value aliases a parameter, which one? (for ownership tracking)
     return_aliases_param: ?usize = null,
 
+    // ========== PRECISE ERROR TYPES ==========
+    /// Precise error types this function can raise (KeyError, IndexError, etc.)
+    /// Use getErrorSet() to query, toZigErrorSet() to generate code
+    error_types: ErrorSet = .{},
+
     pub fn deinit(self: *FunctionTraits, allocator: std.mem.Allocator) void {
         if (self.mutates_params.len > 0) allocator.free(self.mutates_params);
         if (self.captured_vars.len > 0) allocator.free(self.captured_vars);
@@ -131,6 +136,176 @@ pub const TypeHint = enum {
     none,
     object,
     any,
+};
+
+// ============================================================================
+// Precise Error Types - Generate error{KeyError,IndexError}!T not anyerror!T
+// ============================================================================
+
+/// Python exception types mapped to Zig error enum values
+pub const PreciseError = enum {
+    // Lookup errors
+    KeyError, // dict[missing_key]
+    IndexError, // list[out_of_bounds]
+    AttributeError, // obj.missing_attr
+
+    // Type errors
+    TypeError, // type mismatch
+    ValueError, // invalid value (e.g., int("abc"))
+
+    // Arithmetic errors
+    ZeroDivisionError, // x / 0
+    OverflowError, // integer overflow
+
+    // I/O errors
+    FileNotFoundError, // open() missing file
+    PermissionError, // access denied
+    IOError, // general I/O
+
+    // Runtime errors
+    RuntimeError, // generic
+    StopIteration, // iterator exhausted
+    AssertionError, // assert failed
+    NotImplementedError, // abstract method
+
+    /// Generate Zig error set string from a slice of errors
+    pub fn toErrorSet(errors: []const PreciseError) []const u8 {
+        if (errors.len == 0) return "error{}";
+        // For now, return a static representation
+        // In practice, we'd build this dynamically
+        return switch (errors[0]) {
+            .KeyError => "error{KeyError}",
+            .IndexError => "error{IndexError}",
+            .ValueError => "error{ValueError}",
+            .TypeError => "error{TypeError}",
+            .ZeroDivisionError => "error{DivisionByZero}",
+            .OverflowError => "error{Overflow}",
+            .FileNotFoundError => "error{FileNotFound}",
+            .AssertionError => "error{AssertionFailed}",
+            else => "error{RuntimeError}",
+        };
+    }
+};
+
+/// Packed error set using bit flags for efficient storage (16 errors = 16 bits)
+pub const ErrorSet = packed struct {
+    KeyError: bool = false,
+    IndexError: bool = false,
+    AttributeError: bool = false,
+    TypeError: bool = false,
+    ValueError: bool = false,
+    ZeroDivisionError: bool = false,
+    OverflowError: bool = false,
+    FileNotFoundError: bool = false,
+    PermissionError: bool = false,
+    IOError: bool = false,
+    RuntimeError: bool = false,
+    StopIteration: bool = false,
+    AssertionError: bool = false,
+    NotImplementedError: bool = false,
+    _padding: u2 = 0,
+
+    pub fn isEmpty(self: ErrorSet) bool {
+        return @as(u16, @bitCast(self)) == 0;
+    }
+
+    pub fn merge(self: ErrorSet, other: ErrorSet) ErrorSet {
+        return @bitCast(@as(u16, @bitCast(self)) | @as(u16, @bitCast(other)));
+    }
+
+    /// Generate Zig error set string like "error{KeyError,IndexError}"
+    pub fn toZigErrorSet(self: ErrorSet, buf: []u8) []const u8 {
+        if (self.isEmpty()) return "error{}";
+        var pos: usize = 0;
+        const prefix = "error{";
+        @memcpy(buf[pos..][0..prefix.len], prefix);
+        pos += prefix.len;
+
+        var first = true;
+        if (self.KeyError) {
+            if (!first) {
+                buf[pos] = ',';
+                pos += 1;
+            }
+            const s = "KeyError";
+            @memcpy(buf[pos..][0..s.len], s);
+            pos += s.len;
+            first = false;
+        }
+        if (self.IndexError) {
+            if (!first) {
+                buf[pos] = ',';
+                pos += 1;
+            }
+            const s = "IndexError";
+            @memcpy(buf[pos..][0..s.len], s);
+            pos += s.len;
+            first = false;
+        }
+        if (self.ValueError) {
+            if (!first) {
+                buf[pos] = ',';
+                pos += 1;
+            }
+            const s = "ValueError";
+            @memcpy(buf[pos..][0..s.len], s);
+            pos += s.len;
+            first = false;
+        }
+        if (self.TypeError) {
+            if (!first) {
+                buf[pos] = ',';
+                pos += 1;
+            }
+            const s = "TypeError";
+            @memcpy(buf[pos..][0..s.len], s);
+            pos += s.len;
+            first = false;
+        }
+        if (self.ZeroDivisionError) {
+            if (!first) {
+                buf[pos] = ',';
+                pos += 1;
+            }
+            const s = "DivisionByZero";
+            @memcpy(buf[pos..][0..s.len], s);
+            pos += s.len;
+            first = false;
+        }
+        if (self.FileNotFoundError or self.IOError or self.PermissionError) {
+            if (!first) {
+                buf[pos] = ',';
+                pos += 1;
+            }
+            const s = "IoError";
+            @memcpy(buf[pos..][0..s.len], s);
+            pos += s.len;
+            first = false;
+        }
+        if (self.AssertionError) {
+            if (!first) {
+                buf[pos] = ',';
+                pos += 1;
+            }
+            const s = "AssertionFailed";
+            @memcpy(buf[pos..][0..s.len], s);
+            pos += s.len;
+            first = false;
+        }
+        if (self.RuntimeError or self.NotImplementedError or self.AttributeError or self.OverflowError or self.StopIteration) {
+            if (!first) {
+                buf[pos] = ',';
+                pos += 1;
+            }
+            const s = "RuntimeError";
+            @memcpy(buf[pos..][0..s.len], s);
+            pos += s.len;
+            first = false;
+        }
+        buf[pos] = '}';
+        pos += 1;
+        return buf[0..pos];
+    }
 };
 
 // ============================================================================
@@ -485,6 +660,9 @@ const AnalyzerContext = struct {
     local_vars: hashmap_helper.StringHashMap(void), // Track locally defined vars
     return_aliases_param: ?usize = null,
 
+    // Precise error types
+    error_types: ErrorSet = .{},
+
     pub fn init(allocator: std.mem.Allocator) AnalyzerContext {
         return .{
             .allocator = allocator,
@@ -529,6 +707,7 @@ const AnalyzerContext = struct {
         self.await_count = 0;
         self.has_loops = false;
         self.return_aliases_param = null;
+        self.error_types = .{};
     }
 };
 
@@ -587,15 +766,17 @@ const ListMutationMethods = std.StaticStringMap(void).initComptime(.{
     .{ "reverse", {} },
 });
 
-/// Functions that can raise errors
-const ErrorFunctions = std.StaticStringMap(void).initComptime(.{
-    .{ "raise", {} },
-    .{ "assert", {} },
-    .{ "open", {} },
-    .{ "int", {} },
-    .{ "float", {} },
-    .{ "eval", {} },
-    .{ "exec", {} },
+/// Functions that can raise errors - maps to specific error types for precise error unions
+const ErrorFunctions = std.StaticStringMap(ErrorSet).initComptime(.{
+    .{ "raise", ErrorSet{ .RuntimeError = true } }, // Generic raise
+    .{ "assert", ErrorSet{ .AssertionError = true } },
+    .{ "open", ErrorSet{ .FileNotFoundError = true, .PermissionError = true, .IOError = true } },
+    .{ "int", ErrorSet{ .ValueError = true } }, // int("abc") raises ValueError
+    .{ "float", ErrorSet{ .ValueError = true } },
+    .{ "eval", ErrorSet{ .RuntimeError = true } },
+    .{ "exec", ErrorSet{ .RuntimeError = true } },
+    .{ "next", ErrorSet{ .StopIteration = true } },
+    .{ "getattr", ErrorSet{ .AttributeError = true } },
 });
 
 /// Functions that require allocator
@@ -740,6 +921,9 @@ fn analyzeStatement(stmt: ast.Node, graph: *CallGraph, ctx: *AnalyzerContext) !v
             }
             traits.return_aliases_param = ctx.return_aliases_param;
 
+            // Copy precise error types
+            traits.error_types = ctx.error_types;
+
             try graph.functions.put(func.name, traits);
         },
         .class_def => |class| {
@@ -812,6 +996,7 @@ fn analyzeStmtForTraits(stmt: ast.Node, ctx: *AnalyzerContext) !void {
         },
         .raise_stmt => {
             ctx.can_error = true;
+            ctx.error_types.RuntimeError = true; // Default, could be refined by analyzing raised exception
             ctx.is_pure = false;
         },
         .if_stmt => |if_stmt| {
@@ -888,9 +1073,10 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
                     ctx.is_pure = false;
                 }
 
-                // Error-raising functions
-                if (ErrorFunctions.has(func_name)) {
+                // Error-raising functions with precise error types
+                if (ErrorFunctions.get(func_name)) |errors| {
                     ctx.can_error = true;
+                    ctx.error_types = ctx.error_types.merge(errors);
                 }
 
                 // Allocator-requiring functions
@@ -964,11 +1150,21 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
         .subscript => |sub| {
             try analyzeExprForTraits(sub.value.*, ctx);
             switch (sub.slice) {
-                .index => |idx| try analyzeExprForTraits(idx.*, ctx),
+                .index => |idx| {
+                    try analyzeExprForTraits(idx.*, ctx);
+                    // Subscript with index can raise KeyError (dict) or IndexError (list)
+                    // We conservatively mark both since we don't track types here
+                    ctx.can_error = true;
+                    ctx.error_types.KeyError = true;
+                    ctx.error_types.IndexError = true;
+                },
                 .slice => |rng| {
                     if (rng.lower) |l| try analyzeExprForTraits(l.*, ctx);
                     if (rng.upper) |u| try analyzeExprForTraits(u.*, ctx);
                     if (rng.step) |st| try analyzeExprForTraits(st.*, ctx);
+                    // Slice can raise IndexError for invalid ranges
+                    ctx.can_error = true;
+                    ctx.error_types.IndexError = true;
                 },
             }
             ctx.op_count += 1;
@@ -1203,6 +1399,14 @@ pub fn needsErrorUnion(graph: *const CallGraph, name: []const u8) bool {
         return traits.can_error;
     }
     return false;
+}
+
+/// Get precise error types for a function (for generating error{X,Y}!T instead of anyerror!T)
+pub fn getErrorSet(graph: *const CallGraph, name: []const u8) ErrorSet {
+    if (graph.functions.get(name)) |traits| {
+        return traits.error_types;
+    }
+    return .{};
 }
 
 /// Check if function needs allocator parameter (for error union return type)
