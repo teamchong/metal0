@@ -14,7 +14,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Unpickler", h.c("try runtime.io.BytesIO.create(__global_allocator)") },
 });
 
-pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     if (arg_type == .dict) {
@@ -46,7 +46,7 @@ pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 const genLoads = h.wrap("runtime.pickleLoads(", ")", "null");
 
-pub fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
     try self.emit("pickle_dump_blk: { const _json_str = ");
     try json.genJsonDumps(self, args[0..1]);
