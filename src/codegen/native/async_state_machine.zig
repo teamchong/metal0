@@ -17,24 +17,18 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
+/// Binary operator to Zig operator string mapping
+const BinOpStrings = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", " + " }, .{ "Sub", " - " }, .{ "Mult", " * " },
+    .{ "Div", " / " }, .{ "FloorDiv", " / " }, .{ "Mod", " % " },
+    .{ "BitAnd", " & " }, .{ "BitOr", " | " }, .{ "BitXor", " ^ " },
+    .{ "LShift", " << " }, .{ "RShift", " >> " },
+    .{ "MatMul", " * " }, .{ "Pow", " * " },
+});
+
 /// Emit binary operator string (DRY helper)
 fn emitBinOp(self: *NativeCodegen, op: ast.Operator) CodegenError!void {
-    const op_str = switch (op) {
-        .Add => " + ",
-        .Sub => " - ",
-        .Mult => " * ",
-        .Div => " / ",
-        .Mod => " % ",
-        .BitAnd => " & ",
-        .BitOr => " | ",
-        .BitXor => " ^ ",
-        .LShift => " << ",
-        .RShift => " >> ",
-        .FloorDiv => " / ",  // TODO: proper floor div
-        .MatMul => " * ",    // TODO: matrix mul
-        .Pow => " * ",       // TODO: power
-    };
-    try self.emit(op_str);
+    try self.emit(BinOpStrings.get(@tagName(op)) orelse " ? ");
 }
 
 /// Check if name is a frame field (DRY helper)
