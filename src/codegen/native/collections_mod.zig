@@ -1,9 +1,6 @@
 /// Python collections module - Counter, defaultdict, deque
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 // Public exports for dispatch/builtins.zig
 pub const genDefaultdict = h.discard("hashmap_helper.StringHashMap(i64).init(__global_allocator)");

@@ -1,9 +1,6 @@
 /// Python urllib.request module - URL handling
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "urlopen", h.c(".{ .status = @as(i32, 200), .reason = \"OK\", .headers = .{}, .url = \"\" }") },

@@ -1,9 +1,6 @@
 /// Python ctypes module - Foreign function library
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const NativeCodegen = h.NativeCodegen;
-const CodegenError = h.CodegenError;
 
 fn genCType(comptime zig_type: []const u8, comptime default: []const u8, comptime pre: []const u8, comptime suf: []const u8) h.H {
     return h.wrap(pre, suf, "@as(" ++ zig_type ++ ", " ++ default ++ ")");
