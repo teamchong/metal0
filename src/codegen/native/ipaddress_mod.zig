@@ -1,25 +1,21 @@
 /// Python ipaddress module - IPv4/IPv6 manipulation library
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "ip_address", genIpAddress }, .{ "ip_network", genIpNetwork }, .{ "ip_interface", genIpInterface },
-    .{ "IPv4Address", genIPv4Address }, .{ "IPv4Network", genConst(".{ .network_address = \"0.0.0.0\", .broadcast_address = \"0.0.0.0\", .netmask = \"0.0.0.0\", .hostmask = \"255.255.255.255\", .prefixlen = @as(i32, 0), .num_addresses = @as(i64, 1), .version = @as(i32, 4) }") },
-    .{ "IPv4Interface", genConst(".{ .ip = .{ .address = \"0.0.0.0\" }, .network = .{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) } }") },
-    .{ "IPv6Address", genIPv6Address }, .{ "IPv6Network", genConst(".{ .network_address = \"::\", .broadcast_address = \"::\", .netmask = \"::\", .hostmask = \"::\", .prefixlen = @as(i32, 0), .num_addresses = @as(i128, 1), .version = @as(i32, 6) }") },
-    .{ "IPv6Interface", genConst(".{ .ip = .{ .address = \"::\" }, .network = .{ .network_address = \"::\", .prefixlen = @as(i32, 0) } }") },
-    .{ "v4_int_to_packed", genConst("&[_]u8{0, 0, 0, 0}") }, .{ "v6_int_to_packed", genConst("&[_]u8{0} ** 16") },
-    .{ "summarize_address_range", genConst("&[_]@TypeOf(.{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) }){}") },
-    .{ "collapse_addresses", genConst("&[_]@TypeOf(.{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) }){}") },
-    .{ "get_mixed_type_key", genConst(".{ @as(i32, 4), @as(?*anyopaque, null) }") },
-    .{ "AddressValueError", genConst("error.AddressValueError") }, .{ "NetmaskValueError", genConst("error.NetmaskValueError") },
+    .{ "IPv4Address", genIPv4Address }, .{ "IPv4Network", h.c(".{ .network_address = \"0.0.0.0\", .broadcast_address = \"0.0.0.0\", .netmask = \"0.0.0.0\", .hostmask = \"255.255.255.255\", .prefixlen = @as(i32, 0), .num_addresses = @as(i64, 1), .version = @as(i32, 4) }") },
+    .{ "IPv4Interface", h.c(".{ .ip = .{ .address = \"0.0.0.0\" }, .network = .{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) } }") },
+    .{ "IPv6Address", genIPv6Address }, .{ "IPv6Network", h.c(".{ .network_address = \"::\", .broadcast_address = \"::\", .netmask = \"::\", .hostmask = \"::\", .prefixlen = @as(i32, 0), .num_addresses = @as(i128, 1), .version = @as(i32, 6) }") },
+    .{ "IPv6Interface", h.c(".{ .ip = .{ .address = \"::\" }, .network = .{ .network_address = \"::\", .prefixlen = @as(i32, 0) } }") },
+    .{ "v4_int_to_packed", h.c("&[_]u8{0, 0, 0, 0}") }, .{ "v6_int_to_packed", h.c("&[_]u8{0} ** 16") },
+    .{ "summarize_address_range", h.c("&[_]@TypeOf(.{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) }){}") },
+    .{ "collapse_addresses", h.c("&[_]@TypeOf(.{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) }){}") },
+    .{ "get_mixed_type_key", h.c(".{ @as(i32, 4), @as(?*anyopaque, null) }") },
+    .{ "AddressValueError", h.err("AddressValueError") }, .{ "NetmaskValueError", h.err("NetmaskValueError") },
 });
 
 fn genIpAddress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
