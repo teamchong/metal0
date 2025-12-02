@@ -6,6 +6,23 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 const zig_keywords = @import("zig_keywords");
 
+/// Python type/constant names to Zig code
+const PyTypeNames = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "int", "i64" },
+    .{ "float", "f64" },
+    .{ "bool", "bool" },
+    .{ "True", "true" },
+    .{ "False", "false" },
+    .{ "str", "runtime.builtins.str_factory" },
+    .{ "bytes", "runtime.builtins.bytes_factory" },
+    .{ "bytearray", "runtime.builtins.bytearray_factory" },
+    .{ "memoryview", "runtime.builtins.memoryview_factory" },
+    .{ "None", "null" },
+    .{ "NoneType", "null" },
+    .{ "NotImplemented", "runtime.NotImplemented" },
+    .{ "object", "*runtime.PyObject" },
+});
+
 // Import submodules
 const constants = @import("expressions/constants.zig");
 const operators = @import("expressions/operators.zig");
@@ -69,41 +86,14 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             }
 
             // Handle Python type names as type values
-            if (std.mem.eql(u8, name_to_use, "int")) {
-                try self.emit("i64");
-            } else if (std.mem.eql(u8, name_to_use, "float")) {
-                try self.emit("f64");
-            } else if (std.mem.eql(u8, name_to_use, "bool")) {
-                try self.emit("bool");
-            } else if (std.mem.eql(u8, name_to_use, "True")) {
-                try self.emit("true");
-            } else if (std.mem.eql(u8, name_to_use, "False")) {
-                try self.emit("false");
-            } else if (std.mem.eql(u8, name_to_use, "str")) {
-                // str type as value - emit a PyCallable factory for list storage
-                try self.emit("runtime.builtins.str_factory");
-            } else if (std.mem.eql(u8, name_to_use, "bytes")) {
-                // bytes type as value - emit a PyCallable factory for list storage
-                try self.emit("runtime.builtins.bytes_factory");
-            } else if (std.mem.eql(u8, name_to_use, "bytearray")) {
-                // bytearray type as value - emit a PyCallable factory for list storage
-                try self.emit("runtime.builtins.bytearray_factory");
-            } else if (std.mem.eql(u8, name_to_use, "memoryview")) {
-                // memoryview type as value - emit a PyCallable factory for list storage
-                try self.emit("runtime.builtins.memoryview_factory");
-            } else if (std.mem.eql(u8, name_to_use, "None") or std.mem.eql(u8, name_to_use, "NoneType")) {
-                try self.emit("null");
-            } else if (std.mem.eql(u8, name_to_use, "NotImplemented")) {
-                // Python's NotImplemented singleton - used by binary operations
-                try self.emit("runtime.NotImplemented");
+            if (PyTypeNames.get(name_to_use)) |zig_code| {
+                try self.emit(zig_code);
             } else if (isPythonExceptionType(name_to_use)) {
                 // Python exception types - emit as integer enum value for storage in lists/tuples
                 // E.g., ValueError -> @intFromEnum(runtime.ExceptionTypeId.ValueError)
                 try self.emit("@intFromEnum(runtime.ExceptionTypeId.");
                 try self.emit(name_to_use);
                 try self.emit(")");
-            } else if (std.mem.eql(u8, name_to_use, "object")) {
-                try self.emit("*runtime.PyObject");
             } else if (isBuiltinFunction(name_to_use) and !self.func_local_vars.contains(name_to_use)) {
                 // Builtin functions as first-class values: len, callable, etc.
                 // Emit a function reference that can be passed around
