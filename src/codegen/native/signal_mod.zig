@@ -1,15 +1,12 @@
 /// Python signal module - Set handlers for asynchronous events
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "signal", h.c("@as(?*const fn(i32) callconv(.C) void, null)") },
     .{ "getsignal", h.c("@as(?*const fn(i32) callconv(.C) void, null)") },
     .{ "strsignal", h.c("\"Unknown signal\"") }, .{ "valid_signals", h.c("&[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 }") },
-    .{ "raise_signal", genRaiseSignal }, .{ "alarm", h.I32(0) },
+    .{ "raise_signal", h.wrap("blk: { const sig = @as(u6, @intCast(", ")); _ = std.posix.raise(sig); break :blk {}; }", "{}") }, .{ "alarm", h.I32(0) },
     .{ "pause", h.c("{}") }, .{ "setitimer", h.c(".{ 0.0, 0.0 }") }, .{ "getitimer", h.c(".{ 0.0, 0.0 }") },
     .{ "set_wakeup_fd", h.I32(-1) }, .{ "sigwait", h.I32(0) },
     .{ "sigwaitinfo", h.c("struct { si_signo: i32 = 0, si_code: i32 = 0, si_errno: i32 = 0, si_pid: i32 = 0, si_uid: u32 = 0, si_status: i32 = 0 }{}") },
@@ -29,7 +26,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "SIG_BLOCK", h.I32(0) }, .{ "SIG_UNBLOCK", h.I32(1) }, .{ "SIG_SETMASK", h.I32(2) },
     .{ "ITIMER_REAL", h.I32(0) }, .{ "ITIMER_VIRTUAL", h.I32(1) }, .{ "ITIMER_PROF", h.I32(2) },
 });
-
-fn genRaiseSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const sig = @as(u6, @intCast("); try self.genExpr(args[0]); try self.emit(")); _ = std.posix.raise(sig); break :blk {}; }"); } else try self.emit("{}");
-}

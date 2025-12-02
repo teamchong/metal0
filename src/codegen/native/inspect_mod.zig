@@ -1,9 +1,6 @@
 /// Python inspect module - Runtime inspection
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const genIsabstract = h.c("false");
 
@@ -28,9 +25,5 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "getargspec", h.c(".{ .args = &[_][]const u8{}, .varargs = null, .varkw = null, .defaults = null }") },
     .{ "getfullargspec", h.c("struct { args: [][]const u8 = &[_][]const u8{}, varargs: ?[]const u8 = null, varkw: ?[]const u8 = null, defaults: ?[][]const u8 = null, kwonlyargs: [][]const u8 = &[_][]const u8{}, kwonlydefaults: ?hashmap_helper.StringHashMap([]const u8) = null, annotations: hashmap_helper.StringHashMap([]const u8) = .{} }{}") },
     .{ "getattr_static", h.c("@as(?*anyopaque, null)") },
-    .{ "unwrap", genUnwrap },
+    .{ "unwrap", h.pass("@as(?*anyopaque, null)") },
 });
-
-fn genUnwrap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("@as(?*anyopaque, null)");
-}

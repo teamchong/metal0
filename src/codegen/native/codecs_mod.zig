@@ -1,12 +1,9 @@
 /// Python codecs module - Codec registry and base classes
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "encode", genPassthrough }, .{ "decode", genPassthrough },
+    .{ "encode", h.pass("\"\"") }, .{ "decode", h.pass("\"\"") },
     .{ "lookup", h.c("struct { name: []const u8 = \"utf-8\", encode: ?*anyopaque = null, decode: ?*anyopaque = null, incrementalencoder: ?*anyopaque = null, incrementaldecoder: ?*anyopaque = null, streamreader: ?*anyopaque = null, streamwriter: ?*anyopaque = null }{}") },
     .{ "getencoder", h.c("@as(?*anyopaque, null)") }, .{ "getdecoder", h.c("@as(?*anyopaque, null)") },
     .{ "getincrementalencoder", h.c("@as(?*anyopaque, null)") }, .{ "getincrementaldecoder", h.c("@as(?*anyopaque, null)") },
@@ -28,7 +25,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "StreamReader", h.c("struct { stream: ?*anyopaque = null, errors: []const u8 = \"strict\", pub fn read(self: @This(), size: i64) []const u8 { _ = size; return \"\"; } pub fn readline(self: @This()) []const u8 { return \"\"; } pub fn readlines(self: @This()) [][]const u8 { return &[_][]const u8{}; } pub fn reset(__self: *@This()) void { } }{}") },
     .{ "StreamReaderWriter", h.c("struct {}{}") },
 });
-
-fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\"");
-}

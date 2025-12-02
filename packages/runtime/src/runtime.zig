@@ -151,6 +151,10 @@ pub fn istype(comptime T: type, comptime type_name: []const u8) bool {
     }
 }
 
+/// Discard a value (consume it to prevent unused variable errors)
+/// This is a no-op function that accepts any value
+pub inline fn discard(_: anytype) void {}
+
 /// Generic bool conversion for Python truthiness semantics
 /// Returns false for: 0, 0.0, false, empty strings, empty slices
 /// Returns true for everything else

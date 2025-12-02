@@ -387,14 +387,15 @@ pub const genStrIndex = genIndex;
 /// In Zig, strings are already UTF-8, so this just returns the string as bytes
 pub fn genEncode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // Just return the string - Zig strings are UTF-8 bytes already
-    // The encoding argument is discarded but we generate code to prevent "unused" errors
+    // The encoding argument is consumed via runtime.discard to prevent "unused" errors
+    // and avoid "pointless discard of local constant" when arg is already a variable
     if (args.len > 0) {
-        // Generate: encode_blk: { _ = encoding_arg; break :encode_blk text; }
+        // Generate: encode_blk: { runtime.discard(encoding_arg); break :encode_blk text; }
         const id = self.block_label_counter;
         self.block_label_counter += 1;
-        try self.emitFmt("encode_{d}: {{ _ = ", .{id});
+        try self.emitFmt("encode_{d}: {{ runtime.discard(", .{id});
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :encode_{d} ", .{id});
+        try self.emitFmt("); break :encode_{d} ", .{id});
         try self.genExpr(obj);
         try self.emit("; }");
     } else {
@@ -406,9 +407,19 @@ pub fn genEncode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 /// In Zig, bytes and strings are already UTF-8, so this just returns the bytes as string
 pub fn genDecode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // Just return the bytes - Zig bytes are UTF-8 strings already
-    // The encoding argument is ignored (UTF-8 is the only encoding we support)
-    _ = args;
-    try self.genExpr(obj);
+    // The encoding argument is consumed via runtime.discard to prevent "unused" errors
+    if (args.len > 0) {
+        // Generate: decode_blk: { runtime.discard(encoding_arg); break :decode_blk bytes; }
+        const id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("decode_{d}: {{ runtime.discard(", .{id});
+        try self.genExpr(args[0]);
+        try self.emitFmt("); break :decode_{d} ", .{id});
+        try self.genExpr(obj);
+        try self.emit("; }");
+    } else {
+        try self.genExpr(obj);
+    }
 }
 
 /// Generate code for text.splitlines([keepends])
