@@ -11,7 +11,6 @@ fn needsItems(self: *NativeCodegen, arg: ast.Node) bool {
 }
 
 const pt = h.pass("std.ArrayList(i64){}");
-pub const genCycle = pt;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "chain", genChain }, .{ "repeat", genRepeat }, .{ "count", genCount },
