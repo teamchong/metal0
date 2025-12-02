@@ -2,8 +2,8 @@
 use std::time::Instant;
 use tokio::time::{sleep, Duration};
 
-const NUM_TASKS: i64 = 100000;
-const SLEEP_MS: u64 = 1;
+const NUM_TASKS: i64 = 10000;
+const SLEEP_MS: u64 = 100;  // 100ms simulated I/O latency
 
 async fn worker(task_id: i64) -> i64 {
     sleep(Duration::from_millis(SLEEP_MS)).await;

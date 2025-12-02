@@ -1063,6 +1063,103 @@ pub fn genInheritedMethods(
     try inheritMethodsFromClass(self, class, parent, &generated_methods);
 }
 
+/// Generate PolymorphicReturn__ helper functions for methods that need them
+/// These functions compute return type at comptime based on the input parameter type
+pub fn genPolymorphicReturnHelpers(
+    self: *NativeCodegen,
+    class: ast.Node.ClassDef,
+) CodegenError!void {
+    // First pass: collect all method parameter types we'll need
+    // We need to detect which methods have polymorphic return patterns
+    for (class.body) |stmt| {
+        if (stmt != .function_def) continue;
+        const method = stmt.function_def;
+        if (std.mem.eql(u8, method.name, "__init__")) continue;
+
+        // Check if this method has the polymorphic pattern
+        if (!hasPolymorphicReturnPatternForClass(method, class.name)) continue;
+
+        // Generate the PolymorphicReturn__ helper function
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Comptime return type for polymorphic method\n");
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("fn PolymorphicReturn__{s}(comptime T: type) type {{\n", .{method.name});
+        self.indent();
+
+        // Generate comptime type dispatch
+        // All branches return error union for consistency (self.__float__() can fail)
+        try self.emitIndent();
+        try self.emit("if (comptime @typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("return anyerror!f64;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("} else {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("return anyerror!@This();\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+}
+
+/// Check if a method has polymorphic return pattern (for class context)
+/// This detects methods that return different types based on input:
+/// - Rat for int/Rat inputs
+/// - f64 for float inputs
+fn hasPolymorphicReturnPatternForClass(method: ast.Node.FunctionDef, class_name: []const u8) bool {
+    _ = class_name;
+    // Look for pattern: if isnum(other): return float(self) + other <- returns f64
+    // when other branches return Rat via Rat.init() or @This().init()
+
+    var has_class_return = false;
+    var has_float_return = false;
+
+    for (method.body) |stmt| {
+        if (stmt != .if_stmt) continue;
+        const if_stmt = stmt.if_stmt;
+        if (if_stmt.condition.* != .call) continue;
+        const call = if_stmt.condition.call;
+        if (call.func.* != .name) continue;
+        const func_name = call.func.name.id;
+
+        // Check for isint/isRat returning class instance
+        if (std.mem.eql(u8, func_name, "isint") or std.mem.eql(u8, func_name, "isRat") or std.mem.eql(u8, func_name, "isinstance")) {
+            for (if_stmt.body) |body_stmt| {
+                if (body_stmt == .return_stmt) {
+                    if (body_stmt.return_stmt.value) |val| {
+                        // Check if returning class constructor call
+                        if (val.* == .call and val.call.func.* == .name) {
+                            has_class_return = true;
+                        }
+                    }
+                }
+            }
+        } else if (std.mem.eql(u8, func_name, "isnum")) {
+            // Check if body returns float operation
+            for (if_stmt.body) |body_stmt| {
+                if (body_stmt != .return_stmt) continue;
+                if (body_stmt.return_stmt.value) |val| {
+                    if (val.* == .binop or val.* == .call) {
+                        // float(self) + other or runtime.divideFloat(...) or similar
+                        has_float_return = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Polymorphic pattern: both class return AND float return paths exist
+    return has_class_return and has_float_return;
+}
+
 /// Recursively inherit methods from a class and its parents
 fn inheritMethodsFromClass(
     self: *NativeCodegen,

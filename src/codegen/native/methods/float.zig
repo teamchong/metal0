@@ -153,7 +153,7 @@ pub fn genFloordiv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 /// Generate float.__mod__(other) - modulo
 /// Python: (10.0).__mod__(3) -> 1.0
 pub fn genMod(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    try self.emit("@rem(");
+    try self.emit("@mod(");
     try self.genExpr(obj);
     try self.emit(", @as(f64, @floatFromInt(");
     if (args.len > 0) {

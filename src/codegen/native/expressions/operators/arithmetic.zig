@@ -449,7 +449,13 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
     // Check for custom class with dunder methods (e.g., x + 1 calls x.__add__(1))
     // Must check before other type-specific handling
-    if (bigint_left_type == .class_instance or bigint_right_type == .class_instance) {
+    // IMPORTANT: Only call dunder methods if the CLASS operand is a KNOWN class instance (not anytype)
+    // If left is a KNOWN class instance (e.g., self), call left.__add__(right) regardless of right's type
+    const left_is_anytype = if (binop.left.* == .name) self.anytype_params.contains(binop.left.name.id) else false;
+    const right_is_anytype = if (binop.right.* == .name) self.anytype_params.contains(binop.right.name.id) else false;
+
+    // If left operand is a known class instance (not anytype), call dunder method on left
+    if (bigint_left_type == .class_instance and !left_is_anytype) {
         const dunder_method = switch (binop.op) {
             .Add => "__add__",
             .Sub => "__sub__",
@@ -463,8 +469,20 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             .BitXor => "__xor__",
             .LShift => "__lshift__",
             .RShift => "__rshift__",
-            .MatMul => "__matmul__", // Already handled below, but included for completeness
+            .MatMul => "__matmul__",
         };
+        try self.emit("try ");
+        try genExpr(self, binop.left.*);
+        try self.emit(".");
+        try self.emit(dunder_method);
+        try self.emit("(__global_allocator, ");
+        try genExpr(self, binop.right.*);
+        try self.emit(")");
+        return;
+    }
+
+    // If right operand is a known class instance (not anytype) and left is not class, call __radd__ etc.
+    if (bigint_right_type == .class_instance and !right_is_anytype and bigint_left_type != .class_instance) {
         const rdunder_method = switch (binop.op) {
             .Add => "__radd__",
             .Sub => "__rsub__",
@@ -480,26 +498,13 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             .RShift => "__rrshift__",
             .MatMul => "__rmatmul__",
         };
-
-        if (bigint_left_type == .class_instance) {
-            // Left is class, call left.__add__(right) etc.
-            try self.emit("try ");
-            try genExpr(self, binop.left.*);
-            try self.emit(".");
-            try self.emit(dunder_method);
-            try self.emit("(__global_allocator, ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
-        } else {
-            // Right is class, call right.__radd__(left) etc.
-            try self.emit("try ");
-            try genExpr(self, binop.right.*);
-            try self.emit(".");
-            try self.emit(rdunder_method);
-            try self.emit("(__global_allocator, ");
-            try genExpr(self, binop.left.*);
-            try self.emit(")");
-        }
+        try self.emit("try ");
+        try genExpr(self, binop.right.*);
+        try self.emit(".");
+        try self.emit(rdunder_method);
+        try self.emit("(__global_allocator, ");
+        try genExpr(self, binop.left.*);
+        try self.emit(")");
         return;
     }
 
@@ -631,9 +636,9 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try self.emit(")");
             return;
         }
-        // Numeric modulo - handle bool operands
+        // Numeric modulo - use @mod for Python semantics (sign follows divisor)
         const right_type = try self.inferExprScoped(binop.right.*);
-        try self.emit("@rem(");
+        try self.emit("@mod(");
         if (left_type == .bool) {
             try self.emit("@as(i64, @intFromBool(");
             try genExpr(self, binop.left.*);

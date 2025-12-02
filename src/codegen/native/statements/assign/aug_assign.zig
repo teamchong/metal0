@@ -307,7 +307,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     try self.genExpr(subscript.value.*);
                     try self.emit(".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))] = @rem(");
+                    try self.emit("))] = @mod(");
                     try self.genExpr(subscript.value.*);
                     try self.emit(".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
@@ -373,7 +373,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     return;
                 }
                 if (aug.op == .Mod) {
-                    try self.emit("@rem(");
+                    try self.emit("@mod(");
                     try self.genExpr(subscript.value.*);
                     try self.emit(".get(");
                     try self.genExpr(subscript.slice.index.*);
@@ -626,7 +626,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     }
 
     if (aug.op == .Mod) {
-        try self.emit("@rem(");
+        try self.emit("@mod(");
         try self.genExpr(aug.target.*);
         try self.emit(", ");
         try self.genExpr(aug.value.*);

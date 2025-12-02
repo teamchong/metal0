@@ -17,6 +17,320 @@ pub const TypeCheckInfo = struct {
     check_type: []const u8,
 };
 
+/// Info about type-changing pattern detection
+pub const TypeDispatchInfo = struct {
+    needs_dispatch: bool,
+    param_name: []const u8, // The anytype parameter involved
+    target_class: []const u8, // The class it converts to (e.g., "Rat")
+    // Indices of relevant if-statements in the body
+    type_check_indices: []usize,
+};
+
+/// Detect type-changing pattern in method body
+/// Patterns supported:
+/// 1. Type-changing assignment: if isint(param): param = ClassName(param)
+/// 2. Polymorphic return: if isRat(other): return Rat(...); if isnum(other): return float(...)
+fn detectTypeChangingPattern(self: *NativeCodegen, method: ast.Node.FunctionDef) !TypeDispatchInfo {
+    const empty_result = TypeDispatchInfo{
+        .needs_dispatch = false,
+        .param_name = "",
+        .target_class = "",
+        .type_check_indices = &[_]usize{},
+    };
+
+    // Only process if we have anytype params
+    if (self.anytype_params.count() == 0) return empty_result;
+
+    // Detect polymorphic return pattern (different return types based on input type)
+    var has_class_return = false;
+    var has_float_return = false;
+    var detected_param: ?[]const u8 = null;
+    var detected_class: ?[]const u8 = null;
+
+    for (method.body) |stmt| {
+        if (stmt != .if_stmt) continue;
+        const if_stmt = stmt.if_stmt;
+        if (if_stmt.condition.* != .call) continue;
+        const call = if_stmt.condition.call;
+        if (call.func.* != .name) continue;
+        const func_name = call.func.name.id;
+
+        // Get param from the type check call
+        if (call.args.len > 0 and call.args[0] == .name) {
+            const arg_name = call.args[0].name.id;
+            if (self.anytype_params.contains(arg_name)) {
+                detected_param = arg_name;
+            }
+        }
+
+        // Check for isint/isRat returning class instance or type-changing assignment
+        if (std.mem.eql(u8, func_name, "isint") or std.mem.eql(u8, func_name, "isinstance")) {
+            for (if_stmt.body) |body_stmt| {
+                // Pattern 1: Type-changing assignment
+                if (body_stmt == .assign) {
+                    const assign = body_stmt.assign;
+                    if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                        if (assign.value.* == .call and assign.value.call.func.* == .name) {
+                            const class_name = assign.value.call.func.name.id;
+                            if (class_name.len > 0 and std.ascii.isUpper(class_name[0])) {
+                                detected_class = class_name;
+                                has_class_return = true;
+                            }
+                        }
+                    }
+                }
+                // Pattern 2: Direct class return
+                if (body_stmt == .return_stmt) {
+                    if (body_stmt.return_stmt.value) |val| {
+                        if (val.* == .call and val.call.func.* == .name) {
+                            const class_name = val.call.func.name.id;
+                            if (class_name.len > 0 and std.ascii.isUpper(class_name[0])) {
+                                detected_class = class_name;
+                                has_class_return = true;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (std.mem.startsWith(u8, func_name, "is") and func_name.len > 2 and std.ascii.isUpper(func_name[2])) {
+            // isRat, isClassName patterns - check for class return
+            for (if_stmt.body) |body_stmt| {
+                if (body_stmt == .return_stmt) {
+                    if (body_stmt.return_stmt.value) |val| {
+                        if (val.* == .call and val.call.func.* == .name) {
+                            const class_name = val.call.func.name.id;
+                            if (class_name.len > 0 and std.ascii.isUpper(class_name[0])) {
+                                detected_class = class_name;
+                                has_class_return = true;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (std.mem.eql(u8, func_name, "isnum")) {
+            // Check for float return
+            for (if_stmt.body) |body_stmt| {
+                if (body_stmt == .return_stmt) {
+                    if (body_stmt.return_stmt.value) |val| {
+                        if (val.* == .binop or val.* == .call) {
+                            has_float_return = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Trigger comptime dispatch for:
+    // 1. Polymorphic pattern: both class return AND float return paths exist
+    // 2. Type-changing assignment pattern: if isint(x): x = Class(x); ...uses x as class...
+    if (has_class_return and detected_param != null and detected_class != null) {
+        return TypeDispatchInfo{
+            .needs_dispatch = true,
+            .param_name = detected_param.?,
+            .target_class = detected_class.?,
+            .type_check_indices = &[_]usize{},
+        };
+    }
+
+    return empty_result;
+}
+
+/// Generate comptime type dispatch for methods with type-changing patterns
+/// Handles two patterns:
+/// 1. Type-changing: if isint(x): x = Class(x); if isClass(x): use x
+/// 2. Direct return: if isRat(x): return...; if isint(x): return...; if isnum(x): return...
+fn generateComptimeTypeDispatch(
+    self: *NativeCodegen,
+    method: ast.Node.FunctionDef,
+    info: TypeDispatchInfo,
+) CodegenError!void {
+    const param_name = info.param_name;
+    const class_name = info.target_class;
+
+    // Detect which pattern we're dealing with
+    const has_type_changing_assign = hasTypeChangingAssignment(method, param_name);
+
+    // Generate: const __T = @TypeOf(param);
+    try self.emitIndent();
+    try self.emit("const __T = @TypeOf(");
+    try self.emit(param_name);
+    try self.emit(");\n");
+
+    // Generate int/comptime_int branch
+    try self.emitIndent();
+    try self.emit("if (comptime @typeInfo(__T) == .int or @typeInfo(__T) == .comptime_int) {\n");
+    self.indent();
+
+    // Push scope for int branch (each comptime branch needs independent variable tracking)
+    try self.pushScope();
+
+    if (has_type_changing_assign) {
+        // Pattern 1: Convert param and use isClassName body
+        try self.emitIndent();
+        try self.emit("const ");
+        try self.emit(param_name);
+        try self.emit("_converted = try ");
+        try self.emit(class_name);
+        try self.emit(".init(__global_allocator, ");
+        try self.emit(param_name);
+        try self.emit(", 1);\n");
+
+        // Find isClassName body and emit with substitution
+        try self.var_renames.put(param_name, try std.fmt.allocPrint(self.allocator, "{s}_converted", .{param_name}));
+        try generateBodyForTypeCheck(self, method, class_name, true);
+        if (self.var_renames.fetchSwapRemove(param_name)) |entry| {
+            self.allocator.free(entry.value);
+        }
+    } else {
+        // Pattern 2: Directly emit isint body
+        try generateBodyForTypeCheck(self, method, "int", false);
+    }
+
+    self.popScope();
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("} else if (comptime __T == ");
+    try self.emit(class_name);
+    try self.emit(" or __T == *");
+    try self.emit(class_name);
+    try self.emit(" or __T == *const ");
+    try self.emit(class_name);
+    try self.emit(") {\n");
+    self.indent();
+
+    // Push scope for class branch
+    try self.pushScope();
+    // Generate the class case body directly
+    try generateBodyForTypeCheck(self, method, class_name, true);
+    self.popScope();
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("} else if (comptime @typeInfo(__T) == .float or @typeInfo(__T) == .comptime_float) {\n");
+    self.indent();
+
+    // Generate float case - look for isnum block
+    for (method.body) |stmt| {
+        if (stmt != .if_stmt) continue;
+        const if_stmt = stmt.if_stmt;
+        if (if_stmt.condition.* != .call) continue;
+        const call = if_stmt.condition.call;
+        if (call.func.* != .name) continue;
+
+        const func_name = call.func.name.id;
+        if (!std.mem.eql(u8, func_name, "isnum")) continue;
+
+        // Generate float case body
+        for (if_stmt.body) |body_stmt| {
+            try self.generateStmt(body_stmt);
+        }
+        break;
+    }
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("} else {\n");
+    self.indent();
+
+    // Generate fallback
+    try self.emitIndent();
+    try self.emit("return error.NotImplemented;\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+}
+
+/// Check if method has type-changing assignment: param = ClassName(param)
+fn hasTypeChangingAssignment(method: ast.Node.FunctionDef, param_name: []const u8) bool {
+    for (method.body) |stmt| {
+        if (stmt != .if_stmt) continue;
+        const if_stmt = stmt.if_stmt;
+        for (if_stmt.body) |body_stmt| {
+            if (body_stmt != .assign) continue;
+            const assign = body_stmt.assign;
+            if (assign.targets.len == 0) continue;
+            if (assign.targets[0] != .name) continue;
+            if (!std.mem.eql(u8, assign.targets[0].name.id, param_name)) continue;
+            if (assign.value.* == .call and assign.value.call.func.* == .name) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// Generate body for a specific type check (isClassName or isint)
+/// Also handles fallthrough pattern: if isint: ...; elif not isRat: return; <rest>
+fn generateBodyForTypeCheck(
+    self: *NativeCodegen,
+    method: ast.Node.FunctionDef,
+    check_type: []const u8,
+    is_class: bool,
+) CodegenError!void {
+    // First try to find the explicit block
+    for (method.body) |stmt| {
+        if (stmt != .if_stmt) continue;
+        const if_stmt = stmt.if_stmt;
+        if (if_stmt.condition.* != .call) continue;
+        const call = if_stmt.condition.call;
+        if (call.func.* != .name) continue;
+
+        const func_name = call.func.name.id;
+
+        if (is_class) {
+            // Looking for isClassName (e.g., isRat)
+            var class_check_name_buf: [64]u8 = undefined;
+            const expected_func = std.fmt.bufPrint(&class_check_name_buf, "is{s}", .{check_type}) catch continue;
+            if (!std.mem.eql(u8, func_name, expected_func)) continue;
+        } else {
+            // Looking for isint
+            if (!std.mem.eql(u8, func_name, "isint") and !std.mem.eql(u8, func_name, "isinstance")) continue;
+        }
+
+        // Generate body
+        for (if_stmt.body) |body_stmt| {
+            try self.generateStmt(body_stmt);
+        }
+        return;
+    }
+
+    // No explicit block found - generate remaining statements (fallthrough pattern)
+    // Pattern: if isint: ...; elif not isRat: return NotImplemented; x = self/other; return ...
+    // We generate all statements after the type-checking if blocks
+    var found_type_checks = false;
+    for (method.body) |stmt| {
+        if (stmt == .if_stmt) {
+            const if_stmt = stmt.if_stmt;
+            if (if_stmt.condition.* == .call) {
+                const call = if_stmt.condition.call;
+                if (call.func.* == .name) {
+                    const func_name = call.func.name.id;
+                    if (std.mem.startsWith(u8, func_name, "is")) {
+                        found_type_checks = true;
+                        continue; // Skip type-checking if blocks
+                    }
+                }
+            }
+            // Also skip "elif not isRat" pattern (unaryop with Not)
+            if (if_stmt.condition.* == .unaryop) {
+                const unary = if_stmt.condition.unaryop;
+                if (unary.op == .Not and unary.operand.* == .call) {
+                    const call = unary.operand.call;
+                    if (call.func.* == .name and std.mem.startsWith(u8, call.func.name.id, "is")) {
+                        found_type_checks = true;
+                        continue;
+                    }
+                }
+            }
+        }
+        if (found_type_checks) {
+            try self.generateStmt(stmt);
+        }
+    }
+}
+
 /// Detect type-check-raise pattern at the start of a function body
 /// Pattern: if not isint(param): raise TypeError  OR  if not isinstance(param, type): raise TypeError
 /// Returns the checks found and the index of the first non-type-check statement
@@ -603,9 +917,19 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // are a complex edge case that requires runtime type erasure. For now, these patterns
     // may fail to compile. See test_equal_operator_modifying_operand for an example.
 
-    // Generate method body
-    for (method.body) |method_stmt| {
-        try self.generateStmt(method_stmt);
+    // Check if we need comptime type dispatch for anytype params with type-changing patterns
+    // Pattern: if isint(param): param = ClassName(param); if isClassName(param): ... use param.__field ...
+    // This pattern requires generating separate code paths for each type to avoid Zig type errors
+    const type_dispatch_info = try detectTypeChangingPattern(self, method);
+
+    if (type_dispatch_info.needs_dispatch) {
+        // Generate comptime type dispatch
+        try generateComptimeTypeDispatch(self, method, type_dispatch_info);
+    } else {
+        // Generate method body normally
+        for (method.body) |method_stmt| {
+            try self.generateStmt(method_stmt);
+        }
     }
 
     // NOTE: Nested class unused suppression (e.g., _ = &ClassName;) is now handled
