@@ -6,7 +6,7 @@ const zig_keywords = @import("zig_keywords");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const DecoratedFunction = @import("../../main.zig").DecoratedFunction;
 const CodegenError = @import("../../main.zig").CodegenError;
-const function_traits = @import("../../../../analysis/function_traits.zig");
+const function_traits = @import("function_traits");
 const signature = @import("generators/signature.zig");
 const body = @import("generators/body.zig");
 const builtin_types = @import("generators/builtin_types.zig");
@@ -771,14 +771,18 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         try self.emitIndent();
                         // For int type, support optional base parameter: int(value, base=None)
                         if (std.mem.eql(u8, type_name, "int")) {
-                            try self.output.writer(self.allocator).print("pub fn {s}(value: anytype, base: ?i64) i64 {{\n", .{attr_name});
+                            try self.emit("pub fn ");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                            try self.emit("(value: anytype, base: ?i64) i64 {\n");
                             self.indent();
                             try self.emitIndent();
                             try self.emit("_ = base; // TODO: support base conversion\n");
                             try self.emitIndent();
                             try self.emit("return runtime.pyIntFromAny(value);\n");
                         } else {
-                            try self.output.writer(self.allocator).print("pub fn {s}(value: anytype) i64 {{\n", .{attr_name});
+                            try self.emit("pub fn ");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                            try self.emit("(value: anytype) i64 {\n");
                             self.indent();
                             try self.emitIndent();
                             try self.emit("return runtime.pyIntFromAny(value);\n");
@@ -810,9 +814,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     try self.emit("\n");
                     try self.emitIndent();
                     if (is_nested) {
-                        try self.output.writer(self.allocator).print("pub fn {s}(_: *const @This(), _: std.mem.Allocator, _: anytype) !*@This() {{\n", .{attr_name});
+                        try self.emit("pub fn ");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                        try self.emit("(_: *const @This(), _: std.mem.Allocator, _: anytype) !*@This() {\n");
                     } else {
-                        try self.output.writer(self.allocator).print("pub fn {s}(_: *const @This(), _: std.mem.Allocator, _: anytype) !@This() {{\n", .{attr_name});
+                        try self.emit("pub fn ");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                        try self.emit("(_: *const @This(), _: std.mem.Allocator, _: anytype) !@This() {\n");
                     }
                     self.indent();
                     try self.emitIndent();

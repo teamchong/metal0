@@ -817,21 +817,12 @@ pub fn genMethodSignatureWithSkip(
         }
         break :blk false;
     } else false;
-    // Also check if the first parameter is used when it's NOT named "self"
+    // Check if the first parameter is used in the method body
     // This handles methods like def foo(test_self): test_self.assertEqual(...)
-    // For params named "self", usesSelfWithContext handles it properly
-    // IMPORTANT: Use isFirstParamUsedNonUnittest to exclude unittest method calls
-    // which get dispatched to runtime.unittest.* and don't actually use the Zig self param
-    const first_param_name = if (method.args.len > 0) method.args[0].name else null;
-    const first_param_is_non_self = if (first_param_name) |name|
-        !std.mem.eql(u8, name, "self")
-    else
-        false;
-    const first_param_used = if (first_param_is_non_self)
-        param_analyzer.isFirstParamUsedNonUnittest(method.body, first_param_name.?)
-    else
-        false;
-    const uses_self = if (is_skipped) false else (method_uses_captures or first_param_used or self_analyzer.usesSelfWithContext(method.body, has_known_parent));
+    // where Python allows any name for the first parameter (not just "self")
+    // Use usesFirstParamWithContext to properly detect usage of non-"self" names
+    const first_param_name = if (method.args.len > 0) method.args[0].name else "self";
+    const uses_self = if (is_skipped) false else (method_uses_captures or self_analyzer.usesFirstParamWithContext(method.body, first_param_name, has_known_parent));
 
     // For __new__ methods, the first Python parameter is 'cls' not 'self', and the body often
     // does 'self = super().__new__(cls)' which would shadow a 'self' parameter.

@@ -45,14 +45,20 @@ pub fn tokenizePrefixedString(self: *Lexer, start: usize, start_column: usize, k
         _ = self.advance();
 
         // Consume until closing triple quotes
+        // Handle escape sequences: \' or \" should not close the string
         while (!self.isAtEnd()) {
-            if (self.peek() == quote and self.peekAhead(1) == quote and self.peekAhead(2) == quote) {
+            if (self.peek() == '\\' and kind != .raw) {
+                // Escape sequence - consume backslash and next char
+                _ = self.advance(); // consume backslash
+                if (!self.isAtEnd()) _ = self.advance(); // consume escaped char
+            } else if (self.peek() == quote and self.peekAhead(1) == quote and self.peekAhead(2) == quote) {
                 _ = self.advance();
                 _ = self.advance();
                 _ = self.advance();
                 break;
+            } else {
+                _ = self.advance();
             }
-            _ = self.advance();
         }
     } else {
         // Single or double quoted string

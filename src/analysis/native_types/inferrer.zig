@@ -15,6 +15,33 @@ const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 const FnvArgsMap = hashmap_helper.StringHashMap([]const NativeType);
 
+/// Common Python builtin function names (lowercase) - used to distinguish from class constructors
+const CommonBuiltins = std.StaticStringMap(void).initComptime(.{
+    // Core builtins that look like function calls
+    .{ "print", {} }, .{ "len", {} }, .{ "range", {} }, .{ "str", {} },
+    .{ "int", {} }, .{ "float", {} }, .{ "bool", {} }, .{ "list", {} },
+    .{ "dict", {} }, .{ "set", {} }, .{ "tuple", {} }, .{ "type", {} },
+    .{ "abs", {} }, .{ "min", {} }, .{ "max", {} }, .{ "sum", {} },
+    .{ "any", {} }, .{ "all", {} }, .{ "zip", {} }, .{ "map", {} },
+    .{ "filter", {} }, .{ "sorted", {} }, .{ "reversed", {} },
+    .{ "enumerate", {} }, .{ "open", {} }, .{ "input", {} },
+    .{ "repr", {} }, .{ "ord", {} }, .{ "chr", {} }, .{ "hex", {} },
+    .{ "bin", {} }, .{ "oct", {} }, .{ "hash", {} }, .{ "id", {} },
+    .{ "getattr", {} }, .{ "setattr", {} }, .{ "hasattr", {} }, .{ "delattr", {} },
+    .{ "isinstance", {} }, .{ "issubclass", {} }, .{ "callable", {} },
+    .{ "iter", {} }, .{ "next", {} }, .{ "super", {} }, .{ "object", {} },
+    .{ "round", {} }, .{ "pow", {} }, .{ "divmod", {} }, .{ "format", {} },
+    .{ "vars", {} }, .{ "dir", {} }, .{ "globals", {} }, .{ "locals", {} },
+    .{ "eval", {} }, .{ "exec", {} }, .{ "compile", {} },
+    .{ "bytes", {} }, .{ "bytearray", {} }, .{ "memoryview", {} },
+    .{ "frozenset", {} }, .{ "slice", {} }, .{ "property", {} },
+    .{ "staticmethod", {} }, .{ "classmethod", {} },
+});
+
+fn isCommonBuiltin(name: []const u8) bool {
+    return CommonBuiltins.has(name);
+}
+
 /// Type inferrer - analyzes AST to determine native Zig types
 pub const TypeInferrer = struct {
     allocator: std.mem.Allocator,
@@ -262,8 +289,14 @@ pub const TypeInferrer = struct {
     fn checkConstructorCall(self: *TypeInferrer, call: ast.Node.Call, arena_alloc: std.mem.Allocator) InferError!void {
         if (call.func.* == .name) {
             const func_name = call.func.name.id;
-            // Class names start with uppercase
-            if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
+            // Class names often start with uppercase, but we also accept lowercase
+            // (Python allows lowercase class names, e.g., nested classes in tests)
+            // We check for uppercase OR if the name is not a known builtin function
+            const is_likely_class = func_name.len > 0 and
+                (std.ascii.isUpper(func_name[0]) or
+                // Lowercase names that look like class names (not common builtins)
+                !isCommonBuiltin(func_name));
+            if (is_likely_class) {
                 // Infer types of all arguments (positional + keyword)
                 const total_args = call.args.len + call.keyword_args.len;
                 const arg_types = try arena_alloc.alloc(NativeType, total_args);

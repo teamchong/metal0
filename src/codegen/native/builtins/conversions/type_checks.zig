@@ -6,15 +6,27 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const shared = @import("../../shared_maps.zig");
 const PythonBuiltinTypes = shared.PythonBuiltinTypes;
 
-/// Generate code for type(obj)
-/// Returns compile-time type name as string
+/// Generate code for type(obj) or type(name, bases, dict)
+/// For 1 arg: Returns compile-time type name as string
+/// For 3 args: Dynamically creates a class (uses runtime.DynamicClass)
 pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
-
-    // Generate: @typeName(@TypeOf(obj))
-    try self.emit("@typeName(@TypeOf(");
-    try self.genExpr(args[0]);
-    try self.emit("))");
+    if (args.len == 1) {
+        // Generate: @typeName(@TypeOf(obj))
+        try self.emit("@typeName(@TypeOf(");
+        try self.genExpr(args[0]);
+        try self.emit("))");
+    } else if (args.len == 3) {
+        // 3-argument form: type(name, bases, dict) - dynamic class creation
+        // Generate: runtime.dynamicType(name, bases, dict)
+        try self.emit("(try runtime.dynamicType(__global_allocator, ");
+        try self.genExpr(args[0]); // name
+        try self.emit(", ");
+        try self.genExpr(args[1]); // bases tuple
+        try self.emit(", ");
+        try self.genExpr(args[2]); // dict
+        try self.emit("))");
+    }
+    // 0 args or other counts - return nothing (error case in Python too)
 }
 
 /// Generate code for isinstance(obj, type)

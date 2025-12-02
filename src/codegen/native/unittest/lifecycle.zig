@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
+const zig_keywords = @import("zig_keywords");
 
 /// Generate code for unittest.main()
 /// Runs all test methods in parallel using metal0 scheduler (thread pool)
@@ -127,21 +128,27 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             // Run test
             try self.emitIndent();
             if (method_info.needs_allocator and !method_info.is_skipped) {
-                try self.output.writer(self.allocator).print("ctx.instance.{s}(ctx.allocator", .{method_info.name});
+                try self.emit("ctx.instance.");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_info.name);
+                try self.emit("(ctx.allocator");
                 for (method_info.default_params) |default_param| {
                     try self.emit(", ");
                     try self.emit(default_param.default_code);
                 }
                 try self.emit(") catch {\n");
             } else if (method_info.default_params.len > 0) {
-                try self.output.writer(self.allocator).print("ctx.instance.{s}(", .{method_info.name});
+                try self.emit("ctx.instance.");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_info.name);
+                try self.emit("(");
                 for (method_info.default_params, 0..) |default_param, i| {
                     if (i > 0) try self.emit(", ");
                     try self.emit(default_param.default_code);
                 }
                 try self.emit(") catch {\n");
             } else {
-                try self.output.writer(self.allocator).print("ctx.instance.{s}() catch {{\n", .{method_info.name});
+                try self.emit("ctx.instance.");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_info.name);
+                try self.emit("() catch {\n");
             }
             self.indent();
             // tearDown on failure

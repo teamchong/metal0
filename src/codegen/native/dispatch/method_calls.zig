@@ -383,6 +383,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // unittest assertion methods (self.assertEqual, etc.)
     // Check if obj is 'self' - unittest methods called on self
     // Also check for renamed self (e.g., test_self -> self via var_renames)
+    // Also check if obj is the current method's first param (Python allows any name for self)
     const is_self_obj = if (obj == .name) blk: {
         const obj_name = obj.name.id;
         // Direct check for "self"
@@ -390,6 +391,13 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         // Check if obj_name is renamed to "self" or "__self"
         if (self.var_renames.get(obj_name)) |renamed| {
             if (std.mem.eql(u8, renamed, "self") or std.mem.eql(u8, renamed, "__self")) {
+                break :blk true;
+            }
+        }
+        // Check if obj_name is the current method's first param (e.g., "test_self")
+        // Python allows any name for the first param of a method
+        if (self.current_method_first_param) |first_param| {
+            if (std.mem.eql(u8, obj_name, first_param)) {
                 break :blk true;
             }
         }

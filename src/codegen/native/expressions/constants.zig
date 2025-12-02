@@ -5,7 +5,12 @@ const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
+/// Minimum string length to consider for interning
+/// Short strings are faster to compare inline
+const MIN_INTERN_LENGTH = 4;
+
 /// Generate constant values (int, float, bool, string, none)
+/// String literals are interned for O(1) equality comparison
 pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenError!void {
     switch (constant.value) {
         .int => try self.output.writer(self.allocator).print("{d}", .{constant.value.int}),
@@ -29,8 +34,27 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
             try self.output.writer(self.allocator).print("runtime.PyComplex.create(0.0, {d})", .{imag});
         },
         .string => |s| {
-            // Strip Python quotes
-            const content = if (s.len >= 2) s[1 .. s.len - 1] else s;
+            // Strip Python quotes (handle both single/double and triple quotes)
+            const content = blk: {
+                if (s.len >= 6 and (std.mem.startsWith(u8, s, "'''") or std.mem.startsWith(u8, s, "\"\"\""))) {
+                    // Triple-quoted string - strip 3 chars from each end
+                    var inner = s[3 .. s.len - 3];
+                    // Handle line continuation at start: '''\<newline> means content starts on next line
+                    if (inner.len > 0 and inner[0] == '\\') {
+                        if (inner.len > 1 and inner[1] == '\n') {
+                            inner = inner[2..];
+                        } else if (inner.len > 2 and inner[1] == '\r' and inner[2] == '\n') {
+                            inner = inner[3..];
+                        }
+                    }
+                    break :blk inner;
+                } else if (s.len >= 2) {
+                    // Single/double quoted - strip 1 char from each end
+                    break :blk s[1 .. s.len - 1];
+                } else {
+                    break :blk s;
+                }
+            };
 
             // Process Python escape sequences and emit Zig string
             try self.emit("\"");

@@ -124,7 +124,6 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         if (self.nested_class_names.contains(class_name)) {
             for (assign.targets) |target| {
                 if (target == .name) {
-                    std.debug.print("DEBUG: Registering {s} as instance of {s}\n", .{ target.name.id, class_name });
                     try self.nested_class_instances.put(target.name.id, class_name);
                     // Also register in type_inferrer's scoped variables for proper type lookup
                     try self.type_inferrer.putScopedVar(target.name.id, .{ .class_instance = class_name });
@@ -868,8 +867,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             try self.emitIndent();
 
-            // Check for sys.stdout/stderr assignment - these are not assignable in Zig
-            // Just discard the value and emit a comment
+            // Check for sys.stdout/stderr/argv assignment - these need special handling
             if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "sys")) {
                 if (std.mem.eql(u8, attr.attr, "stdout") or std.mem.eql(u8, attr.attr, "stderr")) {
                     try self.emit("runtime.discard(");
@@ -877,6 +875,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit("); // sys.");
                     try self.emit(attr.attr);
                     try self.emit(" assignment is a no-op in metal0\n");
+                    return;
+                }
+                // sys.argv assignment: store in mutable global __sys_argv
+                if (std.mem.eql(u8, attr.attr, "argv")) {
+                    try self.emit("__sys_argv = ");
+                    try self.genExpr(assign.value.*);
+                    try self.emit(";\n");
                     return;
                 }
             }

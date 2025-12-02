@@ -6,7 +6,7 @@ const NativeType = native_types.NativeType;
 const TypeInferrer = native_types.TypeInferrer;
 const SemanticInfo = @import("../../../analysis/types.zig").SemanticInfo;
 const comptime_eval = @import("../../../analysis/comptime_eval.zig");
-const function_traits = @import("../../../analysis/function_traits.zig");
+const function_traits = @import("function_traits");
 const symbol_table_mod = @import("../symbol_table.zig");
 const SymbolTable = symbol_table_mod.SymbolTable;
 const ClassRegistry = symbol_table_mod.ClassRegistry;
@@ -258,6 +258,14 @@ pub const NativeCodegen = struct {
     // Maps source code string -> void (e.g., "1 + 2" -> {})
     comptime_evals: FnvVoidMap,
 
+    // String interning - collect all string literals for O(1) equality comparison
+    // Maps string content (without quotes) -> intern index
+    interned_strings: hashmap_helper.StringHashMap(usize),
+    // Ordered list of interned strings for table generation
+    intern_list: std.ArrayList([]const u8),
+    // Counter for intern indices
+    intern_counter: usize,
+
     // Track function-local mutated variables (populated before genFunctionBody)
     // Maps variable name -> void for variables that are reassigned within current function
     func_local_mutations: FnvVoidMap,
@@ -345,6 +353,11 @@ pub const NativeCodegen = struct {
     // True when current method has mutable self (*@This() vs *const @This())
     // Used to dereference self when returning from methods that mutate and return self
     method_self_is_mutable: bool,
+
+    // The actual first parameter name of the current method (e.g., "self", "test_self", "cls")
+    // Used to recognize unittest method calls like test_self.assertEqual()
+    // Python allows any name for the first parameter of a method
+    current_method_first_param: ?[]const u8,
 
     // Current class's parent name (for parent method call resolution)
     // E.g., "array.array" when class inherits from array.array
@@ -486,6 +499,9 @@ pub const NativeCodegen = struct {
             .in_assert_raises_context = false,
             .c_libraries = std.ArrayList([]const u8){},
             .comptime_evals = FnvVoidMap.init(allocator),
+            .interned_strings = hashmap_helper.StringHashMap(usize).init(allocator),
+            .intern_list = std.ArrayList([]const u8){},
+            .intern_counter = 0,
             .func_local_mutations = FnvVoidMap.init(allocator),
             .func_local_aug_assigns = FnvVoidMap.init(allocator),
             .func_local_uses = FnvVoidMap.init(allocator),
@@ -506,6 +522,7 @@ pub const NativeCodegen = struct {
             .current_class_captures = null,
             .inside_init_method = false,
             .method_self_is_mutable = false,
+            .current_method_first_param = null,
             .current_class_parent = null,
             .class_nesting_depth = 0,
             .method_nesting_depth = 0,
@@ -531,6 +548,43 @@ pub const NativeCodegen = struct {
 
     pub fn setSourceFilePath(self: *NativeCodegen, path: []const u8) void {
         self.source_file_path = path;
+    }
+
+    /// Intern a string literal and return its index
+    /// Returns existing index if already interned, or creates new entry
+    pub fn internString(self: *NativeCodegen, content: []const u8) !usize {
+        // Check if already interned
+        if (self.interned_strings.get(content)) |idx| {
+            return idx;
+        }
+
+        // Add new interned string
+        const idx = self.intern_counter;
+        const duped = try self.allocator.dupe(u8, content);
+        try self.interned_strings.put(duped, idx);
+        try self.intern_list.append(self.allocator, duped);
+        self.intern_counter += 1;
+        return idx;
+    }
+
+    /// Generate the intern table at module level
+    /// Called at the start of code generation
+    pub fn genInternTable(self: *NativeCodegen) !void {
+        if (self.intern_list.items.len == 0) return;
+
+        try self.emit("\n// Interned string literals (O(1) equality via pointer comparison)\n");
+        try self.emit("const __intern = struct {\n");
+
+        for (self.intern_list.items, 0..) |str, i| {
+            try self.output.writer(self.allocator).print("    pub const s{d}: []const u8 = \"{s}\";\n", .{ i, str });
+        }
+
+        try self.emit("};\n\n");
+    }
+
+    /// Get the reference to an interned string by index
+    pub fn getInternRef(self: *NativeCodegen, idx: usize) !void {
+        try self.output.writer(self.allocator).print("__intern.s{d}", .{idx});
     }
 
     /// Build call graph from module AST for unified function analysis

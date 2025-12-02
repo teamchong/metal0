@@ -43,6 +43,7 @@ pub const InplaceDunders = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Div", "__itruediv__" }, .{ "FloorDiv", "__ifloordiv__" }, .{ "Mod", "__imod__" },
     .{ "Pow", "__ipow__" }, .{ "BitAnd", "__iand__" }, .{ "BitOr", "__ior__" },
     .{ "BitXor", "__ixor__" }, .{ "LShift", "__ilshift__" }, .{ "RShift", "__irshift__" },
+    .{ "MatMul", "__imatmul__" },
 });
 
 /// Python builtin types (int, str, list, etc.) for type checking

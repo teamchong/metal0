@@ -99,7 +99,8 @@ pub fn parseLambda(self: *Parser) ParseError!ast.Node {
                         .type_annotation = null,
                         .default = null,
                     });
-                    // **kwargs must be last, break out
+                    // **kwargs must be last - consume optional trailing comma, then break
+                    _ = self.match(.Comma);
                     break;
                 }
                 // Handle *args or bare * (keyword-only marker) in lambda
