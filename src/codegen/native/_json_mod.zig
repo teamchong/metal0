@@ -5,12 +5,13 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "encode_basestring", genEncodeBase }, .{ "encode_basestring_ascii", genEncodeAscii }, .{ "scanstring", genScan }, .{ "make_encoder", genEmpty }, .{ "make_scanner", genEmpty },
-});
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "encode_basestring", genEncodeBase }, .{ "encode_basestring_ascii", genEncodeAscii }, .{ "scanstring", genScan }, .{ "make_encoder", genConst(".{}") }, .{ "make_scanner", genConst(".{}") },
+});
 
 fn genEncodeBase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) { try self.emit("blk: { const s = "); try self.genExpr(args[0]); try self.emit("; var result: std.ArrayList(u8) = .{}; result.append('\"') catch {}; for (s) |c| { switch (c) { '\"' => result.appendSlice(\"\\\\\\\"\") catch {}, '\\\\' => result.appendSlice(\"\\\\\\\\\") catch {}, '\\n' => result.appendSlice(\"\\\\n\") catch {}, '\\r' => result.appendSlice(\"\\\\r\") catch {}, '\\t' => result.appendSlice(\"\\\\t\") catch {}, else => result.append(c) catch {}, } } result.append('\"') catch {}; break :blk result.items; }"); } else { try self.emit("\"\\\"\\\"\""); }

@@ -5,16 +5,15 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "module_spec", genModuleSpec }, .{ "builtin_importer", genEmpty }, .{ "frozen_importer", genEmpty },
-    .{ "init_module_attrs", genUnit }, .{ "call_with_frames_removed", genNull }, .{ "find_and_load", genNull },
-    .{ "find_and_load_unlocked", genNull }, .{ "gcd_import", genNull }, .{ "handle_fromlist", genNull },
-    .{ "lock_unlock_module", genEmpty }, .{ "import", genNull },
+    .{ "module_spec", genModuleSpec }, .{ "builtin_importer", genConst(".{}") }, .{ "frozen_importer", genConst(".{}") },
+    .{ "init_module_attrs", genConst("{}") }, .{ "call_with_frames_removed", genConst("null") }, .{ "find_and_load", genConst("null") },
+    .{ "find_and_load_unlocked", genConst("null") }, .{ "gcd_import", genConst("null") }, .{ "handle_fromlist", genConst("null") },
+    .{ "lock_unlock_module", genConst(".{}") }, .{ "import", genConst("null") },
 });
 
 fn genModuleSpec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
