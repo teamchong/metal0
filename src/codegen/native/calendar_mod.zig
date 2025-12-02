@@ -1,33 +1,24 @@
 /// Python calendar module - Calendar-related functions
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct {
-        fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-            _ = args; // Ignore arguments for stubs - they're not needed
-            try self.emit(v);
-        }
-    }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "isleap", genIsleap }, .{ "leapdays", genLeapdays },
-    .{ "weekday", genConst("@as(i32, 0)") }, .{ "monthrange", genConst(".{ @as(i32, 0), @as(i32, 30) }") },
-    .{ "month", genConst("\"\"") }, .{ "monthcalendar", genConst("&[_][]const i32{}") }, .{ "prmonth", genConst("{}") }, .{ "calendar", genConst("\"\"") },
-    .{ "prcal", genConst("{}") }, .{ "setfirstweekday", genConst("{}") }, .{ "firstweekday", genConst("@as(i32, 0)") }, .{ "timegm", genConst("@as(i64, 0)") },
-    .{ "Calendar", genConst(".{ .firstweekday = @as(i32, 0) }") }, .{ "TextCalendar", genConst(".{ .firstweekday = @as(i32, 0) }") }, .{ "HTMLCalendar", genConst(".{ .firstweekday = @as(i32, 0) }") },
-    .{ "LocaleTextCalendar", genConst(".{ .firstweekday = @as(i32, 0), .locale = null }") }, .{ "LocaleHTMLCalendar", genConst(".{ .firstweekday = @as(i32, 0), .locale = null }") },
-    .{ "MONDAY", genConst("@as(i32, 0)") }, .{ "TUESDAY", genConst("@as(i32, 1)") }, .{ "WEDNESDAY", genConst("@as(i32, 2)") }, .{ "THURSDAY", genConst("@as(i32, 3)") },
-    .{ "FRIDAY", genConst("@as(i32, 4)") }, .{ "SATURDAY", genConst("@as(i32, 5)") }, .{ "SUNDAY", genConst("@as(i32, 6)") },
-    .{ "day_name", genConst("&[_][]const u8{ \"Monday\", \"Tuesday\", \"Wednesday\", \"Thursday\", \"Friday\", \"Saturday\", \"Sunday\" }") },
-    .{ "day_abbr", genConst("&[_][]const u8{ \"Mon\", \"Tue\", \"Wed\", \"Thu\", \"Fri\", \"Sat\", \"Sun\" }") },
-    .{ "month_name", genConst("&[_][]const u8{ \"\", \"January\", \"February\", \"March\", \"April\", \"May\", \"June\", \"July\", \"August\", \"September\", \"October\", \"November\", \"December\" }") },
-    .{ "month_abbr", genConst("&[_][]const u8{ \"\", \"Jan\", \"Feb\", \"Mar\", \"Apr\", \"May\", \"Jun\", \"Jul\", \"Aug\", \"Sep\", \"Oct\", \"Nov\", \"Dec\" }") },
-    .{ "IllegalMonthError", genConst("error.IllegalMonth") }, .{ "IllegalWeekdayError", genConst("error.IllegalWeekday") },
+    .{ "weekday", h.I32(0) }, .{ "monthrange", h.c(".{ @as(i32, 0), @as(i32, 30) }") },
+    .{ "month", h.c("\"\"") }, .{ "monthcalendar", h.c("&[_][]const i32{}") }, .{ "prmonth", h.c("{}") }, .{ "calendar", h.c("\"\"") },
+    .{ "prcal", h.c("{}") }, .{ "setfirstweekday", h.c("{}") }, .{ "firstweekday", h.I32(0) }, .{ "timegm", h.I64(0) },
+    .{ "Calendar", h.c(".{ .firstweekday = @as(i32, 0) }") }, .{ "TextCalendar", h.c(".{ .firstweekday = @as(i32, 0) }") }, .{ "HTMLCalendar", h.c(".{ .firstweekday = @as(i32, 0) }") },
+    .{ "LocaleTextCalendar", h.c(".{ .firstweekday = @as(i32, 0), .locale = null }") }, .{ "LocaleHTMLCalendar", h.c(".{ .firstweekday = @as(i32, 0), .locale = null }") },
+    .{ "MONDAY", h.I32(0) }, .{ "TUESDAY", h.I32(1) }, .{ "WEDNESDAY", h.I32(2) }, .{ "THURSDAY", h.I32(3) },
+    .{ "FRIDAY", h.I32(4) }, .{ "SATURDAY", h.I32(5) }, .{ "SUNDAY", h.I32(6) },
+    .{ "day_name", h.c("&[_][]const u8{ \"Monday\", \"Tuesday\", \"Wednesday\", \"Thursday\", \"Friday\", \"Saturday\", \"Sunday\" }") },
+    .{ "day_abbr", h.c("&[_][]const u8{ \"Mon\", \"Tue\", \"Wed\", \"Thu\", \"Fri\", \"Sat\", \"Sun\" }") },
+    .{ "month_name", h.c("&[_][]const u8{ \"\", \"January\", \"February\", \"March\", \"April\", \"May\", \"June\", \"July\", \"August\", \"September\", \"October\", \"November\", \"December\" }") },
+    .{ "month_abbr", h.c("&[_][]const u8{ \"\", \"Jan\", \"Feb\", \"Mar\", \"Apr\", \"May\", \"Jun\", \"Jul\", \"Aug\", \"Sep\", \"Oct\", \"Nov\", \"Dec\" }") },
+    .{ "IllegalMonthError", h.err("IllegalMonth") }, .{ "IllegalWeekdayError", h.err("IllegalWeekday") },
 });
 
 fn genIsleap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

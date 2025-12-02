@@ -1,29 +1,25 @@
 /// Python bdb module - Debugger framework
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Bdb", genConst(".{ .skip = null, .breaks = .{}, .fncache = .{}, .frame_returning = null }") },
-    .{ "Breakpoint", genBreakpoint }, .{ "effective", genConst(".{ null, false }") },
-    .{ "checkfuncname", genConst("true") }, .{ "set_trace", genConst("{}") }, .{ "BdbQuit", genConst("error.BdbQuit") },
-    .{ "reset", genConst("{}") }, .{ "trace_dispatch", genConst("null") }, .{ "dispatch_line", genConst("null") },
-    .{ "dispatch_call", genConst("null") }, .{ "dispatch_return", genConst("null") }, .{ "dispatch_exception", genConst("null") },
-    .{ "is_skipped_module", genConst("false") }, .{ "stop_here", genConst("false") }, .{ "break_here", genConst("false") },
-    .{ "break_anywhere", genConst("false") }, .{ "set_step", genConst("{}") }, .{ "set_next", genConst("{}") },
-    .{ "set_return", genConst("{}") }, .{ "set_until", genConst("{}") }, .{ "set_continue", genConst("{}") },
-    .{ "set_quit", genConst("{}") }, .{ "set_break", genConst("null") }, .{ "clear_break", genConst("null") },
-    .{ "clear_bpbynumber", genConst("null") }, .{ "clear_all_file_breaks", genConst("null") }, .{ "clear_all_breaks", genConst("null") },
-    .{ "get_bpbynumber", genConst("null") }, .{ "get_break", genConst("false") }, .{ "get_breaks", genConst("&[_]@TypeOf(.{}){}") },
-    .{ "get_file_breaks", genConst("&[_]i64{}") }, .{ "get_all_breaks", genConst(".{}") },
-    .{ "get_stack", genConst(".{ &[_]@TypeOf(.{}){}, 0 }") }, .{ "format_stack_entry", genConst("\"\"") },
-    .{ "run", genConst("{}") }, .{ "runeval", genConst("null") }, .{ "runctx", genConst("{}") }, .{ "runcall", genConst("null") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "Bdb", h.c(".{ .skip = null, .breaks = .{}, .fncache = .{}, .frame_returning = null }") },
+    .{ "Breakpoint", genBreakpoint }, .{ "effective", h.c(".{ null, false }") },
+    .{ "checkfuncname", h.c("true") }, .{ "set_trace", h.c("{}") }, .{ "BdbQuit", h.err("BdbQuit") },
+    .{ "reset", h.c("{}") }, .{ "trace_dispatch", h.c("null") }, .{ "dispatch_line", h.c("null") },
+    .{ "dispatch_call", h.c("null") }, .{ "dispatch_return", h.c("null") }, .{ "dispatch_exception", h.c("null") },
+    .{ "is_skipped_module", h.c("false") }, .{ "stop_here", h.c("false") }, .{ "break_here", h.c("false") },
+    .{ "break_anywhere", h.c("false") }, .{ "set_step", h.c("{}") }, .{ "set_next", h.c("{}") },
+    .{ "set_return", h.c("{}") }, .{ "set_until", h.c("{}") }, .{ "set_continue", h.c("{}") },
+    .{ "set_quit", h.c("{}") }, .{ "set_break", h.c("null") }, .{ "clear_break", h.c("null") },
+    .{ "clear_bpbynumber", h.c("null") }, .{ "clear_all_file_breaks", h.c("null") }, .{ "clear_all_breaks", h.c("null") },
+    .{ "get_bpbynumber", h.c("null") }, .{ "get_break", h.c("false") }, .{ "get_breaks", h.c("&[_]@TypeOf(.{}){}") },
+    .{ "get_file_breaks", h.c("&[_]i64{}") }, .{ "get_all_breaks", h.c(".{}") },
+    .{ "get_stack", h.c(".{ &[_]@TypeOf(.{}){}, 0 }") }, .{ "format_stack_entry", h.c("\"\"") },
+    .{ "run", h.c("{}") }, .{ "runeval", h.c("null") }, .{ "runctx", h.c("{}") }, .{ "runcall", h.c("null") },
     .{ "canonic", genCanonic },
 });
 

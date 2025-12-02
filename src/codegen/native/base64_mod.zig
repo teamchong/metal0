@@ -1,11 +1,11 @@
 /// Python base64 module - base64 encoding/decoding
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "b64encode", genB64encode }, .{ "b64decode", genB64decode },
     .{ "urlsafe_b64encode", genUrlsafeB64encode }, .{ "urlsafe_b64decode", genUrlsafeB64decode },
     .{ "standard_b64encode", genB64encode }, .{ "standard_b64decode", genB64decode },
@@ -16,7 +16,7 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "z85encode", genZ85encode }, .{ "z85decode", genZ85decode },
 });
 
-fn genEncHelper(comptime encoder: []const u8) ModuleHandler {
+fn genEncHelper(comptime encoder: []const u8) h.H {
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len == 0) return;
@@ -26,7 +26,7 @@ fn genEncHelper(comptime encoder: []const u8) ModuleHandler {
     }.f;
 }
 
-fn genDecHelper(comptime decoder: []const u8) ModuleHandler {
+fn genDecHelper(comptime decoder: []const u8) h.H {
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len == 0) return;

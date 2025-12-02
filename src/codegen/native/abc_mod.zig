@@ -1,19 +1,15 @@
 /// Python abc module - Abstract Base Classes
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "ABC", genConst("struct { _is_abc: bool = true }{}") }, .{ "ABCMeta", genConst("\"ABCMeta\"") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "ABC", h.c("struct { _is_abc: bool = true }{}") }, .{ "ABCMeta", h.c("\"ABCMeta\"") },
     .{ "abstractmethod", genAbstractmethod }, .{ "abstractclassmethod", genAbstractmethod },
     .{ "abstractstaticmethod", genAbstractmethod }, .{ "abstractproperty", genAbstractmethod },
-    .{ "get_cache_token", genConst("@as(i64, 0)") }, .{ "update_abstractmethods", genUpdate },
+    .{ "get_cache_token", h.I64(0) }, .{ "update_abstractmethods", genUpdate },
 });
 
 fn genAbstractmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

@@ -27,6 +27,9 @@ pub fn U8(comptime n: comptime_int) H { return c(std.fmt.comptimePrint("@as(u8, 
 /// Generates a handler that emits @as(u32, N)
 pub fn U32(comptime n: comptime_int) H { return c(std.fmt.comptimePrint("@as(u32, {})", .{n})); }
 
+/// Generates a handler that emits @as(i32, 0xNN) in hex format
+pub fn hex32(comptime n: comptime_int) H { return c(std.fmt.comptimePrint("@as(i32, 0x{x})", .{n})); }
+
 /// Generates a handler that emits @as(f64, N)
 pub fn F64(comptime n: comptime_float) H { return c(std.fmt.comptimePrint("@as(f64, {})", .{n})); }
 
@@ -38,4 +41,17 @@ pub fn pass(comptime default: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) try self.genExpr(args[0]) else try self.emit(default);
     } }.f;
+}
+
+/// Emit a unique labeled block start and return the label ID for break
+pub fn emitUniqueBlockStart(self: *NativeCodegen, prefix: []const u8) CodegenError!u64 {
+    const id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("{s}_{d}: {{ ", .{ prefix, id });
+    return id;
+}
+
+/// Emit a break with unique label
+pub fn emitBlockBreak(self: *NativeCodegen, prefix: []const u8, id: u64) CodegenError!void {
+    try self.emitFmt("; break :{s}_{d} ", .{ prefix, id });
 }
