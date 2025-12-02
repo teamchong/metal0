@@ -1,32 +1,28 @@
 /// Python ctypes module - Foreign function library
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-fn genCType(comptime zig_type: []const u8, comptime default: []const u8, comptime pre: []const u8, comptime suf: []const u8) ModuleHandler {
+fn genCType(comptime zig_type: []const u8, comptime default: []const u8, comptime pre: []const u8, comptime suf: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); }
         else try self.emit("@as(" ++ zig_type ++ ", " ++ default ++ ")");
     } }.f;
 }
-fn genPtr(comptime default: []const u8, comptime pre: []const u8, comptime suf: []const u8) ModuleHandler {
+fn genPtr(comptime default: []const u8, comptime pre: []const u8, comptime suf: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); } else try self.emit(default);
     } }.f;
 }
-fn genUnaryOp(comptime pre: []const u8, comptime suf: []const u8, comptime default: []const u8) ModuleHandler {
+fn genUnaryOp(comptime pre: []const u8, comptime suf: []const u8, comptime default: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); } else try self.emit(default);
     } }.f;
 }
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // DLLs
     .{ "CDLL", genDLL }, .{ "WinDLL", genDLL }, .{ "OleDLL", genDLL }, .{ "PyDLL", genDLL },
     // C types
@@ -53,10 +49,10 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "c_wchar_p", genPtr("@as(?[*:0]const u32, null)", "", "") },
     .{ "c_void_p", genPtr("@as(?*anyopaque, null)", "@as(*anyopaque, @ptrFromInt(@as(usize, @intCast(", "))))") },
     // Structures
-    .{ "Structure", genConst("struct {}{}") }, .{ "Union", genConst("union {}{}") },
-    .{ "BigEndianStructure", genConst("struct {}{}") }, .{ "LittleEndianStructure", genConst("struct {}{}") },
+    .{ "Structure", h.c("struct {}{}") }, .{ "Union", h.c("union {}{}") },
+    .{ "BigEndianStructure", h.c("struct {}{}") }, .{ "LittleEndianStructure", h.c("struct {}{}") },
     // Arrays/pointers
-    .{ "Array", genConst("[]anyopaque") }, .{ "POINTER", genConst("*anyopaque") },
+    .{ "Array", h.c("[]anyopaque") }, .{ "POINTER", h.c("*anyopaque") },
     .{ "pointer", genPtr("@as(?*anyopaque, null)", "@as(*anyopaque, @ptrCast(&", "))") },
     // Utility
     .{ "sizeof", genUnaryOp("@sizeOf(@TypeOf(", "))", "0") },
@@ -64,16 +60,16 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "addressof", genUnaryOp("@intFromPtr(&", ")", "0") },
     .{ "byref", genUnaryOp("&", "", "null") },
     .{ "cast", genUnaryOp("@as(*anyopaque, @ptrCast(", "))", "null") },
-    .{ "create_string_buffer", genConst("@as([]u8, __global_allocator.alloc(u8, 256) catch &[_]u8{})") },
-    .{ "create_unicode_buffer", genConst("@as([]u32, __global_allocator.alloc(u32, 256) catch &[_]u32{})") },
-    .{ "get_errno", genConst("@as(i32, 0)") }, .{ "set_errno", genConst("@as(i32, 0)") },
-    .{ "get_last_error", genConst("@as(i32, 0)") }, .{ "set_last_error", genConst("@as(i32, 0)") },
-    .{ "memmove", genConst("{}") }, .{ "memset", genConst("{}") },
-    .{ "string_at", genConst("\"\"") }, .{ "wstring_at", genConst("\"\"") },
+    .{ "create_string_buffer", h.c("@as([]u8, __global_allocator.alloc(u8, 256) catch &[_]u8{})") },
+    .{ "create_unicode_buffer", h.c("@as([]u32, __global_allocator.alloc(u32, 256) catch &[_]u32{})") },
+    .{ "get_errno", h.I32(0) }, .{ "set_errno", h.I32(0) },
+    .{ "get_last_error", h.I32(0) }, .{ "set_last_error", h.I32(0) },
+    .{ "memmove", h.c("{}") }, .{ "memset", h.c("{}") },
+    .{ "string_at", h.c("\"\"") }, .{ "wstring_at", h.c("\"\"") },
     // Function types
-    .{ "CFUNCTYPE", genConst("*const fn() callconv(.c) void") },
-    .{ "WINFUNCTYPE", genConst("*const fn() callconv(.stdcall) void") },
-    .{ "PYFUNCTYPE", genConst("*const fn() void") },
+    .{ "CFUNCTYPE", h.c("*const fn() callconv(.c) void") },
+    .{ "WINFUNCTYPE", h.c("*const fn() callconv(.stdcall) void") },
+    .{ "PYFUNCTYPE", h.c("*const fn() void") },
 });
 
 fn genDLL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

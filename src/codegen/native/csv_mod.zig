@@ -1,19 +1,15 @@
 /// Python csv module - CSV file reading and writing
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "reader", genReader }, .{ "writer", genWriter }, .{ "DictReader", genDictReader }, .{ "DictWriter", genDictWriter },
-    .{ "field_size_limit", genConst("@as(i64, 131072)") }, .{ "QUOTE_ALL", genConst("@as(i64, 1)") },
-    .{ "QUOTE_MINIMAL", genConst("@as(i64, 0)") }, .{ "QUOTE_NONNUMERIC", genConst("@as(i64, 2)") },
-    .{ "QUOTE_NONE", genConst("@as(i64, 3)") },
+    .{ "field_size_limit", h.I64(131072) }, .{ "QUOTE_ALL", h.I64(1) },
+    .{ "QUOTE_MINIMAL", h.I64(0) }, .{ "QUOTE_NONNUMERIC", h.I64(2) },
+    .{ "QUOTE_NONE", h.I64(3) },
 });
 
 pub fn genReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

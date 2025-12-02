@@ -1,18 +1,14 @@
 /// Python contextvars module - Context Variables
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "ContextVar", genContextVar }, .{ "Token", genConst(".{ .var = null, .old_value = null }") },
-    .{ "Context", genConst(".{ .data = metal0_runtime.PyDict([]const u8, ?anyopaque).init() }") },
-    .{ "copy_context", genConst(".{ .data = metal0_runtime.PyDict([]const u8, ?anyopaque).init() }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "ContextVar", genContextVar }, .{ "Token", h.c(".{ .var = null, .old_value = null }") },
+    .{ "Context", h.c(".{ .data = metal0_runtime.PyDict([]const u8, ?anyopaque).init() }") },
+    .{ "copy_context", h.c(".{ .data = metal0_runtime.PyDict([]const u8, ?anyopaque).init() }") },
 });
 
 fn genContextVar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
