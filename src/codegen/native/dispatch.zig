@@ -10,6 +10,10 @@ const module_functions = @import("dispatch/module_functions.zig");
 const method_calls = @import("dispatch/method_calls.zig");
 const builtin_dispatch = @import("dispatch/builtins.zig");
 
+const NumbersAbcTypes = std.StaticStringMap(void).initComptime(.{
+    .{ "Number", {} }, .{ "Complex", {} }, .{ "Real", {} }, .{ "Rational", {} }, .{ "Integral", {} },
+});
+
 /// Dispatch call to appropriate handler based on function/method name
 /// Returns true if dispatched, false if should use fallback
 pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
@@ -28,16 +32,9 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
 
                 // Handle numbers ABC registration: numbers.Rational.register(cls) -> no-op
                 // ABC.register() is a runtime-only concept with no meaning at compile time
-                if (std.mem.eql(u8, root_module, "numbers") and std.mem.eql(u8, func_name, "register")) {
-                    // Check if sub_module is a valid ABC type
-                    const abc_types = [_][]const u8{ "Number", "Complex", "Real", "Rational", "Integral" };
-                    for (abc_types) |abc| {
-                        if (std.mem.eql(u8, sub_module, abc)) {
-                            // Emit no-op (void expression)
-                            try self.emit("{}");
-                            return true;
-                        }
-                    }
+                if (std.mem.eql(u8, root_module, "numbers") and std.mem.eql(u8, func_name, "register") and NumbersAbcTypes.has(sub_module)) {
+                    try self.emit("{}");
+                    return true;
                 }
 
                 // Build compound module name: "datetime.datetime" or "datetime.date"

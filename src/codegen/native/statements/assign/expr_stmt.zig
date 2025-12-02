@@ -4,6 +4,29 @@ const ast = @import("ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 
+const ValueReturningBuiltins = std.StaticStringMap(void).initComptime(.{
+    .{ "list", {} }, .{ "dict", {} }, .{ "set", {} }, .{ "tuple", {} }, .{ "frozenset", {} },
+    .{ "str", {} }, .{ "int", {} }, .{ "float", {} }, .{ "bool", {} }, .{ "bytes", {} }, .{ "bytearray", {} },
+    .{ "range", {} }, .{ "enumerate", {} }, .{ "zip", {} }, .{ "map", {} }, .{ "filter", {} }, .{ "sorted", {} }, .{ "reversed", {} },
+    .{ "len", {} }, .{ "abs", {} }, .{ "min", {} }, .{ "max", {} }, .{ "sum", {} }, .{ "round", {} }, .{ "pow", {} },
+    .{ "ord", {} }, .{ "chr", {} }, .{ "hex", {} }, .{ "oct", {} }, .{ "bin", {} },
+    .{ "type", {} }, .{ "id", {} }, .{ "hash", {} }, .{ "repr", {} }, .{ "ascii", {} },
+    .{ "iter", {} }, .{ "next", {} }, .{ "slice", {} }, .{ "object", {} },
+    .{ "vars", {} }, .{ "dir", {} }, .{ "locals", {} }, .{ "globals", {} },
+    .{ "callable", {} }, .{ "isinstance", {} }, .{ "issubclass", {} }, .{ "hasattr", {} }, .{ "getattr", {} },
+    .{ "format", {} }, .{ "input", {} },
+});
+
+const ValueReturningModules = std.StaticStringMap(void).initComptime(.{
+    .{ "secrets", {} }, .{ "base64", {} }, .{ "hashlib", {} }, .{ "json", {} }, .{ "pickle", {} },
+    .{ "zlib", {} }, .{ "gzip", {} }, .{ "binascii", {} }, .{ "struct", {} }, .{ "math", {} },
+    .{ "random", {} }, .{ "re", {} }, .{ "os", {} }, .{ "sys", {} }, .{ "io", {} }, .{ "string", {} },
+});
+
+const VoidFunctions = std.StaticStringMap(void).initComptime(.{
+    .{ "main", {} }, .{ "exit", {} }, .{ "seed", {} },
+});
+
 /// Generate expression statement (expression with semicolon)
 pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     try self.emitIndent();
@@ -63,28 +86,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         const func_name = expr.call.func.name.id;
 
         // Builtin functions that return non-void values need _ = prefix
-        const value_returning_builtins = [_][]const u8{
-            "list", "dict", "set", "tuple", "frozenset",
-            "str", "int", "float", "bool", "bytes", "bytearray",
-            "range", "enumerate", "zip", "map", "filter", "sorted", "reversed",
-            "len", "abs", "min", "max", "sum", "round", "pow",
-            "ord", "chr", "hex", "oct", "bin",
-            "type", "id", "hash", "repr", "ascii",
-            "iter", "next", "slice", "object",
-            "vars", "dir", "locals", "globals",
-            "callable", "isinstance", "issubclass", "hasattr", "getattr",
-            "format", "input",
-        };
-
-        var is_value_returning_builtin = false;
-        for (value_returning_builtins) |builtin| {
-            if (std.mem.eql(u8, func_name, builtin)) {
-                is_value_returning_builtin = true;
-                break;
-            }
-        }
-
-        if (is_value_returning_builtin) {
+        if (ValueReturningBuiltins.has(func_name)) {
             try self.emit("_ = ");
             added_discard_prefix = true;
         } else if (self.closure_vars.contains(func_name)) {
@@ -147,35 +149,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             const module_name = attr.value.name.id;
             const func_name = attr.attr;
 
-            // Modules with value-returning functions
-            const value_returning_modules = [_][]const u8{
-                "secrets", "base64", "hashlib", "json", "pickle",
-                "zlib", "gzip", "binascii", "struct", "math",
-                "random", "re", "os", "sys", "io", "string",
-            };
-
-            var is_value_module = false;
-            for (value_returning_modules) |mod| {
-                if (std.mem.eql(u8, module_name, mod)) {
-                    is_value_module = true;
-                    break;
-                }
-            }
-
-            // Exclude known void-returning functions
-            const void_functions = [_][]const u8{
-                "main", "exit", "seed",
-            };
-
-            var is_void_func = false;
-            for (void_functions) |vf| {
-                if (std.mem.eql(u8, func_name, vf)) {
-                    is_void_func = true;
-                    break;
-                }
-            }
-
-            if (is_value_module and !is_void_func) {
+            if (ValueReturningModules.has(module_name) and !VoidFunctions.has(func_name)) {
                 try self.emit("_ = ");
                 added_discard_prefix = true;
             }
