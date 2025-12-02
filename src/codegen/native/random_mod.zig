@@ -6,18 +6,14 @@ const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "random", genRandom }, .{ "randint", genRandint }, .{ "randrange", genRandrange },
+    .{ "random", h.c("blk: { " ++ prng ++ "break :blk @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); }") },
+    .{ "randint", genRandint }, .{ "randrange", genRandrange },
     .{ "choice", genChoice }, .{ "choices", genChoices }, .{ "shuffle", genShuffle },
     .{ "sample", genSample }, .{ "uniform", genUniform }, .{ "gauss", genGauss },
     .{ "seed", h.c("{}") }, .{ "getstate", h.c(".{}") }, .{ "setstate", h.c("{}") }, .{ "getrandbits", genGetrandbits },
 });
 
 const prng = "var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); const _r = _prng.random(); ";
-
-fn genRandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("blk: { " ++ prng ++ "break :blk @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); }");
-}
 
 pub fn genRandint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
