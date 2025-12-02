@@ -25,17 +25,8 @@ fn genUnhexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("; const _result = __global_allocator.alloc(u8, _hexstr.len / 2) catch break :blk \"\"; for (0..(_hexstr.len / 2)) |i| { const _hi = if (_hexstr[i * 2] >= 'a') _hexstr[i * 2] - 'a' + 10 else if (_hexstr[i * 2] >= 'A') _hexstr[i * 2] - 'A' + 10 else _hexstr[i * 2] - '0'; const _lo = if (_hexstr[i * 2 + 1] >= 'a') _hexstr[i * 2 + 1] - 'a' + 10 else if (_hexstr[i * 2 + 1] >= 'A') _hexstr[i * 2 + 1] - 'A' + 10 else _hexstr[i * 2 + 1] - '0'; _result[i] = (_hi << 4) | _lo; } break :blk _result; }");
 }
 
-fn genB2a_base64(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("\"\""); return; }
-    try self.emit("blk: { const _data = "); try self.genExpr(args[0]);
-    try self.emit("; const _encoder = std.base64.standard.Encoder; const _len = _encoder.calcSize(_data.len); const _buf = __global_allocator.alloc(u8, _len + 1) catch break :blk \"\"; _ = _encoder.encode(_buf[0.._len], _data); _buf[_len] = '\\n'; break :blk _buf; }");
-}
-
-fn genA2b_base64(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("\"\""); return; }
-    try self.emit("blk: { const _input = "); try self.genExpr(args[0]);
-    try self.emit("; const _decoder = std.base64.standard.Decoder; const _len = _decoder.calcSizeForSlice(_input) catch break :blk \"\"; const _buf = __global_allocator.alloc(u8, _len) catch break :blk \"\"; _decoder.decode(_buf, _input) catch break :blk \"\"; break :blk _buf; }");
-}
+const genB2a_base64 = h.b64enc("standard");
+const genA2b_base64 = h.b64dec("standard");
 
 fn genCrc32(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("@as(u32, 0)"); return; }
