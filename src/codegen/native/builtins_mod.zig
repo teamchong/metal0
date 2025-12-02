@@ -30,7 +30,8 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "pow", builtins.genPow }, .{ "round", builtins.genRound }, .{ "divmod", builtins.genDivmod }, .{ "hash", builtins.genHash },
     // Simple implementations
     .{ "open", h.c("@as(?*anyopaque, null)") }, .{ "print", h.c("{}") },
-    .{ "len", genLen }, .{ "abs", genAbs },
+    .{ "len", h.wrap("@as(i64, ", ".len)", "@as(i64, 0)") },
+    .{ "abs", h.wrap("@abs(", ")", "@as(i64, 0)") },
     .{ "isinstance", genIsinstance }, .{ "issubclass", genTrueWithSideEffect }, .{ "hasattr", genTrueWithSideEffect },
     .{ "getattr", genGetattr }, .{ "setattr", genVoidWithSideEffect }, .{ "delattr", genVoidWithSideEffect }, .{ "callable", genTrueWithSideEffect },
     .{ "repr", h.c("\"\"") }, .{ "ascii", h.c("\"\"") },
@@ -79,14 +80,6 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "True", h.c("true") }, .{ "False", h.c("false") }, .{ "None", h.c("null") },
     .{ "Ellipsis", h.c(".{}") }, .{ "NotImplemented", h.c(".{}") },
 });
-
-fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("@as(i64, "); try self.genExpr(args[0]); try self.emit(".len)"); } else try self.emit("@as(i64, 0)");
-}
-
-fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("@abs("); try self.genExpr(args[0]); try self.emit(")"); } else try self.emit("@as(i64, 0)");
-}
 
 pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
