@@ -394,31 +394,18 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                                     try temp_args.writer(self.allocator).writeAll(arg_code);
                                     self.allocator.free(arg_code);
                                 }
-                                // Call the unittest assertion generator directly
-                                const unittest_mod = @import("../unittest/mod.zig");
-                                // Manually dispatch to assertion generator based on method name
-                                if (std.mem.eql(u8, func_attr.attr, "assertRaises")) {
-                                    try unittest_mod.genAssertRaises(self, func_attr.value.*, c.args);
-                                } else if (std.mem.eql(u8, func_attr.attr, "assertEqual")) {
-                                    try unittest_mod.genAssertEqual(self, func_attr.value.*, c.args);
-                                } else if (std.mem.eql(u8, func_attr.attr, "assertTrue")) {
-                                    try unittest_mod.genAssertTrue(self, func_attr.value.*, c.args);
-                                } else if (std.mem.eql(u8, func_attr.attr, "assertFalse")) {
-                                    try unittest_mod.genAssertFalse(self, func_attr.value.*, c.args);
+                                // Call the unittest assertion generator via dispatch
+                                if (method_calls.UnittestMethods.get(func_attr.attr)) |handler| {
+                                    try handler(self, func_attr.value.*, c.args);
                                 } else {
-                                    // Fallback for other assertions - use generic dispatch
-                                    if (method_calls.UnittestMethods.get(func_attr.attr)) |handler| {
-                                        try handler(self, func_attr.value.*, c.args);
-                                    } else {
-                                        // Unknown unittest method - generate as-is
-                                        try genExprWithCapture(self, c.func.*, captured_vars);
-                                        try self.emit("(");
-                                        for (c.args, 0..) |arg, i| {
-                                            if (i > 0) try self.emit(", ");
-                                            try genExprWithCapture(self, arg, captured_vars);
-                                        }
-                                        try self.emit(")");
+                                    // Unknown unittest method - generate as-is
+                                    try genExprWithCapture(self, c.func.*, captured_vars);
+                                    try self.emit("(");
+                                    for (c.args, 0..) |arg, i| {
+                                        if (i > 0) try self.emit(", ");
+                                        try genExprWithCapture(self, arg, captured_vars);
                                     }
+                                    try self.emit(")");
                                 }
                                 temp_args.deinit(self.allocator);
                                 return;
