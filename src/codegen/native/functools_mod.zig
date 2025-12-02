@@ -1,18 +1,15 @@
 /// Python functools module - partial, reduce, lru_cache, wraps
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-pub const genLruCache = genConst("struct { pub fn wrap(f: anytype) @TypeOf(f) { return f; } }.wrap");
+pub const genLruCache = h.c("struct { pub fn wrap(f: anytype) @TypeOf(f) { return f; } }.wrap");
 pub const genCache = genLruCache;
 pub const genWraps = genLruCache;
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "partial", genPartial }, .{ "reduce", genReduce },
     .{ "lru_cache", genLruCache }, .{ "cache", genLruCache },
     .{ "wraps", genLruCache }, .{ "total_ordering", genLruCache },
