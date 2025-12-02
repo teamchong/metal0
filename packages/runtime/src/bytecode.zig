@@ -109,6 +109,8 @@ pub const OpCode = enum(u8) {
 
     // Unary operations
     Invert, // Bitwise NOT ~
+    UAdd, // Unary + (type check only)
+    USub, // Unary - (negate)
 
     // Comparisons
     Eq,
@@ -405,6 +407,8 @@ pub const VM = struct {
                 .Pow => try self.binaryOp(.Pow),
 
                 .Invert => try self.unaryInvert(),
+                .UAdd => try self.unaryAdd(),
+                .USub => try self.unarySub(),
 
                 .Eq => try self.compareOp(.Eq),
                 .NotEq => try self.compareOp(.NotEq),
@@ -602,6 +606,52 @@ pub const VM = struct {
             try self.stack.append(self.allocator, result);
         } else {
             // Unknown type - raise TypeError
+            return error.TypeError;
+        }
+    }
+
+    fn unaryAdd(self: *VM) !void {
+        if (self.stack.items.len < 1) return error.StackUnderflow;
+
+        const val = self.stack.items[self.stack.items.len - 1];
+
+        // Unary + only works on numbers - raise TypeError for strings/bytes
+        if (runtime.PyUnicode_Check(val) or runtime.PyBytes_Check(val)) {
+            return error.TypeError;
+        }
+
+        // For numbers, +x is just x - leave on stack
+        // (int, float, bool, bigint all just pass through)
+    }
+
+    fn unarySub(self: *VM) !void {
+        if (self.stack.items.len < 1) return error.StackUnderflow;
+
+        const val = self.stack.pop() orelse return error.StackUnderflow;
+
+        // Unary - raises TypeError for strings/bytes
+        if (runtime.PyUnicode_Check(val) or runtime.PyBytes_Check(val)) {
+            return error.TypeError;
+        }
+
+        if (runtime.PyFloat_Check(val)) {
+            const float_val = PyFloat.getValue(val);
+            const result = try PyFloat.create(self.allocator, -float_val);
+            try self.stack.append(self.allocator, result);
+        } else if (runtime.PyBigInt_Check(val)) {
+            const big_val = PyBigInt.getValue(val);
+            const result_big = try big_val.neg(self.allocator);
+            const result = try PyBigInt.createFromBigInt(self.allocator, result_big);
+            try self.stack.append(self.allocator, result);
+        } else if (runtime.PyBool_Check(val)) {
+            const int_val: i64 = if (PyBool.getValue(val)) 1 else 0;
+            const result = try PyInt.create(self.allocator, -int_val);
+            try self.stack.append(self.allocator, result);
+        } else if (runtime.PyLong_Check(val)) {
+            const int_val = PyInt.getValue(val);
+            const result = try PyInt.create(self.allocator, -int_val);
+            try self.stack.append(self.allocator, result);
+        } else {
             return error.TypeError;
         }
     }
