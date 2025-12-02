@@ -5,44 +5,26 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "isleap", genIsleap }, .{ "leapdays", genLeapdays }, .{ "weekday", genI32_0 }, .{ "monthrange", genMonthrange },
-    .{ "month", genEmptyStr }, .{ "monthcalendar", genEmptyMatrix }, .{ "prmonth", genUnit }, .{ "calendar", genEmptyStr },
-    .{ "prcal", genUnit }, .{ "setfirstweekday", genUnit }, .{ "firstweekday", genI32_0 }, .{ "timegm", genI64_0 },
-    .{ "Calendar", genCalendarClass }, .{ "TextCalendar", genCalendarClass }, .{ "HTMLCalendar", genCalendarClass },
-    .{ "LocaleTextCalendar", genLocaleCalendar }, .{ "LocaleHTMLCalendar", genLocaleCalendar },
-    .{ "MONDAY", genI32_0 }, .{ "TUESDAY", genI32_1 }, .{ "WEDNESDAY", genI32_2 }, .{ "THURSDAY", genI32_3 },
-    .{ "FRIDAY", genI32_4 }, .{ "SATURDAY", genI32_5 }, .{ "SUNDAY", genI32_6 },
-    .{ "day_name", genDayName }, .{ "day_abbr", genDayAbbr }, .{ "month_name", genMonthName }, .{ "month_abbr", genMonthAbbr },
-    .{ "IllegalMonthError", genIllegalMonth }, .{ "IllegalWeekdayError", genIllegalWeekday },
+    .{ "isleap", genIsleap }, .{ "leapdays", genLeapdays },
+    .{ "weekday", genConst("@as(i32, 0)") }, .{ "monthrange", genConst(".{ @as(i32, 0), @as(i32, 30) }") },
+    .{ "month", genConst("\"\"") }, .{ "monthcalendar", genConst("&[_][]const i32{}") }, .{ "prmonth", genConst("{}") }, .{ "calendar", genConst("\"\"") },
+    .{ "prcal", genConst("{}") }, .{ "setfirstweekday", genConst("{}") }, .{ "firstweekday", genConst("@as(i32, 0)") }, .{ "timegm", genConst("@as(i64, 0)") },
+    .{ "Calendar", genConst(".{ .firstweekday = @as(i32, 0) }") }, .{ "TextCalendar", genConst(".{ .firstweekday = @as(i32, 0) }") }, .{ "HTMLCalendar", genConst(".{ .firstweekday = @as(i32, 0) }") },
+    .{ "LocaleTextCalendar", genConst(".{ .firstweekday = @as(i32, 0), .locale = null }") }, .{ "LocaleHTMLCalendar", genConst(".{ .firstweekday = @as(i32, 0), .locale = null }") },
+    .{ "MONDAY", genConst("@as(i32, 0)") }, .{ "TUESDAY", genConst("@as(i32, 1)") }, .{ "WEDNESDAY", genConst("@as(i32, 2)") }, .{ "THURSDAY", genConst("@as(i32, 3)") },
+    .{ "FRIDAY", genConst("@as(i32, 4)") }, .{ "SATURDAY", genConst("@as(i32, 5)") }, .{ "SUNDAY", genConst("@as(i32, 6)") },
+    .{ "day_name", genConst("&[_][]const u8{ \"Monday\", \"Tuesday\", \"Wednesday\", \"Thursday\", \"Friday\", \"Saturday\", \"Sunday\" }") },
+    .{ "day_abbr", genConst("&[_][]const u8{ \"Mon\", \"Tue\", \"Wed\", \"Thu\", \"Fri\", \"Sat\", \"Sun\" }") },
+    .{ "month_name", genConst("&[_][]const u8{ \"\", \"January\", \"February\", \"March\", \"April\", \"May\", \"June\", \"July\", \"August\", \"September\", \"October\", \"November\", \"December\" }") },
+    .{ "month_abbr", genConst("&[_][]const u8{ \"\", \"Jan\", \"Feb\", \"Mar\", \"Apr\", \"May\", \"Jun\", \"Jul\", \"Aug\", \"Sep\", \"Oct\", \"Nov\", \"Dec\" }") },
+    .{ "IllegalMonthError", genConst("error.IllegalMonth") }, .{ "IllegalWeekdayError", genConst("error.IllegalWeekday") },
 });
 
-// Helpers
-fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
-fn genEmptyMatrix(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const i32{}"); }
-fn genMonthrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i32, 0), @as(i32, 30) }"); }
-fn genCalendarClass(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .firstweekday = @as(i32, 0) }"); }
-fn genLocaleCalendar(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .firstweekday = @as(i32, 0), .locale = null }"); }
-fn genIllegalMonth(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.IllegalMonth"); }
-fn genIllegalWeekday(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.IllegalWeekday"); }
-fn genDayName(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{ \"Monday\", \"Tuesday\", \"Wednesday\", \"Thursday\", \"Friday\", \"Saturday\", \"Sunday\" }"); }
-fn genDayAbbr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{ \"Mon\", \"Tue\", \"Wed\", \"Thu\", \"Fri\", \"Sat\", \"Sun\" }"); }
-fn genMonthName(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{ \"\", \"January\", \"February\", \"March\", \"April\", \"May\", \"June\", \"July\", \"August\", \"September\", \"October\", \"November\", \"December\" }"); }
-fn genMonthAbbr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{ \"\", \"Jan\", \"Feb\", \"Mar\", \"Apr\", \"May\", \"Jun\", \"Jul\", \"Aug\", \"Sep\", \"Oct\", \"Nov\", \"Dec\" }"); }
-
-// Integer constants
-fn genI32_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
-fn genI32_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 1)"); }
-fn genI32_2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 2)"); }
-fn genI32_3(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 3)"); }
-fn genI32_4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 4)"); }
-fn genI32_5(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 5)"); }
-fn genI32_6(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 6)"); }
-fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
-
-// Functions with logic
 fn genIsleap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("false"); return; }
     try self.emit("blk: { const y = "); try self.genExpr(args[0]);

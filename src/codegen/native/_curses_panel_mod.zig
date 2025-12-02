@@ -5,18 +5,14 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
-fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "new_panel", genNewPanel }, .{ "bottom_panel", genNull }, .{ "top_panel", genNull }, .{ "update_panels", genUnit },
-    .{ "above", genNull }, .{ "below", genNull }, .{ "bottom", genUnit }, .{ "hidden", genFalse },
-    .{ "hide", genUnit }, .{ "move", genUnit }, .{ "replace", genUnit }, .{ "set_userptr", genUnit },
-    .{ "show", genUnit }, .{ "top", genUnit }, .{ "userptr", genNull }, .{ "window", genNull },
-    .{ "error", genErr },
+    .{ "new_panel", genConst(".{ .window = null }") }, .{ "bottom_panel", genConst("null") }, .{ "top_panel", genConst("null") }, .{ "update_panels", genConst("{}") },
+    .{ "above", genConst("null") }, .{ "below", genConst("null") }, .{ "bottom", genConst("{}") }, .{ "hidden", genConst("false") },
+    .{ "hide", genConst("{}") }, .{ "move", genConst("{}") }, .{ "replace", genConst("{}") }, .{ "set_userptr", genConst("{}") },
+    .{ "show", genConst("{}") }, .{ "top", genConst("{}") }, .{ "userptr", genConst("null") }, .{ "window", genConst("null") },
+    .{ "error", genConst("error.PanelError") },
 });
-
-fn genNewPanel(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .window = null }"); }
-fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.PanelError"); }
