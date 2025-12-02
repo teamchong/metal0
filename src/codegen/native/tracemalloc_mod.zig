@@ -1,24 +1,17 @@
 /// Python tracemalloc module - Trace memory allocations
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "start", genConst("{}") }, .{ "stop", genConst("{}") }, .{ "is_tracing", genConst("false") }, .{ "clear_traces", genConst("{}") },
-    .{ "get_object_traceback", genConst("null") }, .{ "get_traceback_limit", genConst("@as(i32, 1)") },
-    .{ "get_traced_memory", genConst(".{ @as(i64, 0), @as(i64, 0) }") }, .{ "reset_peak", genConst("{}") }, .{ "get_tracemalloc_memory", genConst("@as(i64, 0)") },
-    .{ "take_snapshot", genConst(".{ .traces = &[_]@TypeOf(.{}){} }") }, .{ "Snapshot", genConst(".{ .traces = &[_]@TypeOf(.{}){} }") },
-    .{ "Statistic", genConst(".{ .traceback = null, .size = 0, .count = 0 }") },
-    .{ "StatisticDiff", genConst(".{ .traceback = null, .size = 0, .size_diff = 0, .count = 0, .count_diff = 0 }") },
-    .{ "Trace", genConst(".{ .traceback = null, .size = 0 }") },
-    .{ "Traceback", genConst(".{ .frames = &[_]@TypeOf(.{}){} }") },
-    .{ "Frame", genConst(".{ .filename = \"\", .lineno = 0 }") },
-    .{ "Filter", genConst(".{ .inclusive = true, .filename_pattern = \"*\", .lineno = null, .all_frames = false, .domain = null }") },
-    .{ "DomainFilter", genConst(".{ .inclusive = true, .domain = 0 }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "start", h.c("{}") }, .{ "stop", h.c("{}") }, .{ "is_tracing", h.c("false") }, .{ "clear_traces", h.c("{}") },
+    .{ "get_object_traceback", h.c("null") }, .{ "get_traceback_limit", h.I32(1) },
+    .{ "get_traced_memory", h.c(".{ @as(i64, 0), @as(i64, 0) }") }, .{ "reset_peak", h.c("{}") }, .{ "get_tracemalloc_memory", h.I64(0) },
+    .{ "take_snapshot", h.c(".{ .traces = &[_]@TypeOf(.{}){} }") }, .{ "Snapshot", h.c(".{ .traces = &[_]@TypeOf(.{}){} }") },
+    .{ "Statistic", h.c(".{ .traceback = null, .size = 0, .count = 0 }") },
+    .{ "StatisticDiff", h.c(".{ .traceback = null, .size = 0, .size_diff = 0, .count = 0, .count_diff = 0 }") },
+    .{ "Trace", h.c(".{ .traceback = null, .size = 0 }") },
+    .{ "Traceback", h.c(".{ .frames = &[_]@TypeOf(.{}){} }") },
+    .{ "Frame", h.c(".{ .filename = \"\", .lineno = 0 }") },
+    .{ "Filter", h.c(".{ .inclusive = true, .filename_pattern = \"*\", .lineno = null, .all_frames = false, .domain = null }") },
+    .{ "DomainFilter", h.c(".{ .inclusive = true, .domain = 0 }") },
 });

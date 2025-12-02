@@ -1,18 +1,11 @@
 /// Python _weakrefset module - Internal WeakSet support
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "WeakSet", genConst(".{ .data = .{} }") }, .{ "add", genConst("{}") }, .{ "discard", genConst("{}") }, .{ "remove", genConst("{}") },
-    .{ "pop", genConst("null") }, .{ "clear", genConst("{}") }, .{ "copy", genConst(".{ .data = .{} }") }, .{ "update", genConst("{}") },
-    .{ "__len__", genConst("@as(usize, 0)") }, .{ "__contains__", genConst("false") }, .{ "issubset", genConst("true") }, .{ "issuperset", genConst("true") },
-    .{ "union", genConst(".{ .data = .{} }") }, .{ "intersection", genConst(".{ .data = .{} }") }, .{ "difference", genConst(".{ .data = .{} }") },
-    .{ "symmetric_difference", genConst(".{ .data = .{} }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "WeakSet", h.c(".{ .data = .{} }") }, .{ "add", h.c("{}") }, .{ "discard", h.c("{}") }, .{ "remove", h.c("{}") },
+    .{ "pop", h.c("null") }, .{ "clear", h.c("{}") }, .{ "copy", h.c(".{ .data = .{} }") }, .{ "update", h.c("{}") },
+    .{ "__len__", h.c("@as(usize, 0)") }, .{ "__contains__", h.c("false") }, .{ "issubset", h.c("true") }, .{ "issuperset", h.c("true") },
+    .{ "union", h.c(".{ .data = .{} }") }, .{ "intersection", h.c(".{ .data = .{} }") }, .{ "difference", h.c(".{ .data = .{} }") },
+    .{ "symmetric_difference", h.c(".{ .data = .{} }") },
 });

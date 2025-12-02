@@ -1,26 +1,19 @@
 /// Python unittest.mock module - Mock object library
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
+const h = @import("mod_helper.zig");
 
 const mock_full = ".{ .return_value = @as(?*anyopaque, null), .side_effect = @as(?*anyopaque, null), .called = false, .call_count = @as(i64, 0), .call_args = @as(?*anyopaque, null), .call_args_list = &[_]*anyopaque{}, .method_calls = &[_]*anyopaque{}, .mock_calls = &[_]*anyopaque{} }";
 const mock_async = ".{ .return_value = @as(?*anyopaque, null), .side_effect = @as(?*anyopaque, null), .called = false, .call_count = @as(i64, 0) }";
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Mock", genConst(mock_full) }, .{ "MagicMock", genConst(mock_full) }, .{ "AsyncMock", genConst(mock_async) },
-    .{ "NonCallableMock", genConst(".{ .return_value = @as(?*anyopaque, null) }") }, .{ "NonCallableMagicMock", genConst(".{ .return_value = @as(?*anyopaque, null) }") },
-    .{ "patch", genConst("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator") },
-    .{ "patch.object", genConst("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator") },
-    .{ "patch.dict", genConst("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator") },
-    .{ "patch.multiple", genConst("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator") },
-    .{ "create_autospec", genConst(".{ .return_value = @as(?*anyopaque, null) }") },
-    .{ "call", genConst(".{ .args = &[_]*anyopaque{}, .kwargs = @as(?*anyopaque, null) }") },
-    .{ "ANY", genConst(".{}") }, .{ "FILTER_DIR", genConst("true") }, .{ "sentinel", genConst(".{}") },
-    .{ "DEFAULT", genConst(".{}") }, .{ "seal", genConst("{}") }, .{ "PropertyMock", genConst(".{ .return_value = @as(?*anyopaque, null) }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "Mock", h.c(mock_full) }, .{ "MagicMock", h.c(mock_full) }, .{ "AsyncMock", h.c(mock_async) },
+    .{ "NonCallableMock", h.c(".{ .return_value = @as(?*anyopaque, null) }") }, .{ "NonCallableMagicMock", h.c(".{ .return_value = @as(?*anyopaque, null) }") },
+    .{ "patch", h.c("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator") },
+    .{ "patch.object", h.c("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator") },
+    .{ "patch.dict", h.c("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator") },
+    .{ "patch.multiple", h.c("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator") },
+    .{ "create_autospec", h.c(".{ .return_value = @as(?*anyopaque, null) }") },
+    .{ "call", h.c(".{ .args = &[_]*anyopaque{}, .kwargs = @as(?*anyopaque, null) }") },
+    .{ "ANY", h.c(".{}") }, .{ "FILTER_DIR", h.c("true") }, .{ "sentinel", h.c(".{}") },
+    .{ "DEFAULT", h.c(".{}") }, .{ "seal", h.c("{}") }, .{ "PropertyMock", h.c(".{ .return_value = @as(?*anyopaque, null) }") },
 });
