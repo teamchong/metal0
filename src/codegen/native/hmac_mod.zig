@@ -6,7 +6,7 @@ const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "new", genNew }, .{ "digest", genDigest }, .{ "compare_digest", genCompareDigest },
+    .{ "new", genNew }, .{ "digest", genDigest }, .{ "compare_digest", h.compareDigest() },
 });
 
 fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -27,11 +27,3 @@ fn genDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("; var _hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(_key); _hmac.update(_msg); const _result = __global_allocator.alloc(u8, 32) catch break :hmac_digest_blk \"\"; _hmac.final(_result[0..32]); break :hmac_digest_blk _result; }");
 }
 
-fn genCompareDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-    try self.emit("blk: { const _a = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const _b = ");
-    try self.genExpr(args[1]);
-    try self.emit("; if (_a.len != _b.len) break :blk false; var _diff: u8 = 0; for (_a, _b) |a_byte, b_byte| { _diff |= a_byte ^ b_byte; } break :blk _diff == 0; }");
-}

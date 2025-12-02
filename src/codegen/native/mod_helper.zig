@@ -246,3 +246,20 @@ pub fn hashNew(comptime name: []const u8) H {
         if (args.len > 0) { try self.emit("(blk: { var _h = hashlib." ++ name ++ "(); _h.update("); try self.genExpr(args[0]); try self.emit("); break :blk _h; })"); } else try self.emit("hashlib." ++ name ++ "()");
     } }.f;
 }
+
+/// Constant-time compare digest: returns true if both slices are equal
+pub fn compareDigest() H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len < 2) return;
+        try self.emit("blk: { const _a = "); try self.genExpr(args[0]); try self.emit("; const _b = "); try self.genExpr(args[1]);
+        try self.emit("; if (_a.len != _b.len) break :blk false; var _diff: u8 = 0; for (_a, _b) |a_byte, b_byte| { _diff |= a_byte ^ b_byte; } break :blk _diff == 0; }");
+    } }.f;
+}
+
+/// Compare two strings with std.mem.order
+pub fn memOrder() H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
+        try self.emit("std.mem.order(u8, "); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")");
+    } }.f;
+}
