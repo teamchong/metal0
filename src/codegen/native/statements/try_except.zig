@@ -457,6 +457,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (self.function_signatures.contains(name)) continue;
             if (self.functions_needing_allocator.contains(name)) continue;
 
+            // Skip imported modules (they're module-level constants, no need to capture)
+            if (self.imported_modules.contains(name)) continue;
+
             // Check if this variable is from outer scope
             // If the variable is written in the try block, it's definitely an outer variable
             // (otherwise it would be in declared_var_set or locally_declared)

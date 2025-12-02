@@ -1,18 +1,14 @@
 /// Python _codecs module - C accelerator for codecs (internal)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "encode", genPassthrough }, .{ "decode", genPassthrough },
-    .{ "register", genConst("{}") }, .{ "lookup", genConst(".{ .encode = null, .decode = null, .streamreader = null, .streamwriter = null }") },
-    .{ "register_error", genConst("{}") }, .{ "lookup_error", genConst("null") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "encode", h.pass("\"\"") }, .{ "decode", h.pass("\"\"") },
+    .{ "register", h.c("{}") }, .{ "lookup", h.c(".{ .encode = null, .decode = null, .streamreader = null, .streamwriter = null }") },
+    .{ "register_error", h.c("{}") }, .{ "lookup_error", h.c("null") },
     .{ "utf_8_encode", genCodecResult }, .{ "utf_8_decode", genCodecResult },
     .{ "ascii_encode", genCodecResult }, .{ "ascii_decode", genCodecResult },
     .{ "latin_1_encode", genCodecResult }, .{ "latin_1_decode", genCodecResult },
@@ -20,14 +16,10 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "raw_unicode_escape_encode", genCodecResult }, .{ "raw_unicode_escape_decode", genCodecResult },
     .{ "unicode_escape_encode", genCodecResult }, .{ "unicode_escape_decode", genCodecResult },
     .{ "charmap_encode", genCodecResult }, .{ "charmap_decode", genCodecResult },
-    .{ "charmap_build", genConst("&[_]u8{} ** 256") },
+    .{ "charmap_build", h.c("&[_]u8{} ** 256") },
     .{ "mbcs_encode", genCodecResult }, .{ "mbcs_decode", genCodecResult },
-    .{ "readbuffer_encode", genPassthrough },
+    .{ "readbuffer_encode", h.pass("\"\"") },
 });
-
-fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\"");
-}
 
 fn genCodecResult(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

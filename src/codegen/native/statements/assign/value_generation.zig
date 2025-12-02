@@ -38,8 +38,10 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             const var_name = target.name.id;
 
             // Handle Python's discard pattern: `_, x = (1, 2)` or `a, _ = (1, 2)`
+            // Also handle unused variables to avoid Zig's "unused local constant" error
             // In Zig, use `_ = value;` to explicitly discard the value
-            if (std.mem.eql(u8, var_name, "_")) {
+            const is_unused = std.mem.eql(u8, var_name, "_") or self.isVarUnused(var_name);
+            if (is_unused) {
                 try self.emitIndent();
                 if (is_list_type) {
                     try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, i });
@@ -140,8 +142,10 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             const var_name = target.name.id;
 
             // Handle Python's discard pattern: `_, x = [1, 2]` or `[a, _] = [1, 2]`
+            // Also handle unused variables to avoid Zig's "unused local constant" error
             // In Zig, use `_ = value;` to explicitly discard the value
-            if (std.mem.eql(u8, var_name, "_")) {
+            const is_unused = std.mem.eql(u8, var_name, "_") or self.isVarUnused(var_name);
+            if (is_unused) {
                 try self.emitIndent();
                 if (is_list_type) {
                     try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, i });

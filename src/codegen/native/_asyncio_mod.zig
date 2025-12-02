@@ -1,21 +1,14 @@
 /// Python _asyncio module - Internal asyncio support (C accelerator)
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Task", genConst(".{ .coro = null, .loop = null, .name = null, .context = null, .done = false, .cancelled = false }") },
-    .{ "Future", genConst(".{ .loop = null, .done = false, .cancelled = false, .result = null, .exception = null }") },
-    .{ "get_event_loop", genConst(".{ .running = false, .closed = false }") },
-    .{ "get_running_loop", genConst(".{ .running = true, .closed = false }") },
-    .{ "_get_running_loop", genConst("null") }, .{ "_set_running_loop", genConst("{}") },
-    .{ "_register_task", genConst("{}") }, .{ "_unregister_task", genConst("{}") },
-    .{ "_enter_task", genConst("{}") }, .{ "_leave_task", genConst("{}") },
-    .{ "current_task", genConst("null") }, .{ "all_tasks", genConst("&[_]@TypeOf(.{}){}") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "Task", h.c(".{ .coro = null, .loop = null, .name = null, .context = null, .done = false, .cancelled = false }") },
+    .{ "Future", h.c(".{ .loop = null, .done = false, .cancelled = false, .result = null, .exception = null }") },
+    .{ "get_event_loop", h.c(".{ .running = false, .closed = false }") },
+    .{ "get_running_loop", h.c(".{ .running = true, .closed = false }") },
+    .{ "_get_running_loop", h.c("null") }, .{ "_set_running_loop", h.c("{}") },
+    .{ "_register_task", h.c("{}") }, .{ "_unregister_task", h.c("{}") },
+    .{ "_enter_task", h.c("{}") }, .{ "_leave_task", h.c("{}") },
+    .{ "current_task", h.c("null") }, .{ "all_tasks", h.c("&[_]@TypeOf(.{}){}") },
 });

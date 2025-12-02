@@ -460,6 +460,7 @@ pub fn genFunctionBody(
     // Generate default parameter initialization (before declaring them in scope)
     // When default value references the same name as the parameter (e.g., def foo(x=x):),
     // we need to use a different local name to avoid shadowing the module-level variable
+    const param_analyzer = @import("../../param_analyzer.zig");
     for (func.args) |arg| {
         if (arg.default) |default_expr| {
             const expressions = @import("../../../../expressions.zig");
@@ -471,30 +472,49 @@ pub fn genFunctionBody(
             else
                 false;
 
-            if (needs_rename) {
-                // Rename local variable to avoid shadowing module-level variable
-                // Use __local_X and add to var_renames so all references use the new name
-                const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}", .{arg.name});
-                try self.var_renames.put(arg.name, renamed);
+            // Check if parameter is unused in the function body
+            const is_param_unused = !param_analyzer.isNameUsedInBody(func.body, arg.name);
 
-                try self.emitIndent();
-                try self.emit("const ");
-                try self.emit(renamed);
-                try self.emit(" = ");
-                try self.emit(arg.name);
-                try self.emit("_param orelse ");
-                // Reference the original module-level variable (arg.name), not the renamed one
-                try self.emit(arg.name);
-                try self.emit(";\n");
+            if (needs_rename) {
+                if (is_param_unused) {
+                    // Parameter is unused - just discard the optional value
+                    try self.emitIndent();
+                    try self.emit("_ = ");
+                    try self.emit(arg.name);
+                    try self.emit("_param;\n");
+                } else {
+                    // Rename local variable to avoid shadowing module-level variable
+                    // Use __local_X and add to var_renames so all references use the new name
+                    const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}", .{arg.name});
+                    try self.var_renames.put(arg.name, renamed);
+
+                    try self.emitIndent();
+                    try self.emit("const ");
+                    try self.emit(renamed);
+                    try self.emit(" = ");
+                    try self.emit(arg.name);
+                    try self.emit("_param orelse ");
+                    // Reference the original module-level variable (arg.name), not the renamed one
+                    try self.emit(arg.name);
+                    try self.emit(";\n");
+                }
             } else {
-                try self.emitIndent();
-                try self.emit("const ");
-                try self.emit(arg.name);
-                try self.emit(" = ");
-                try self.emit(arg.name);
-                try self.emit("_param orelse ");
-                try expressions.genExpr(self, default_expr.*);
-                try self.emit(";\n");
+                if (is_param_unused) {
+                    // Parameter is unused - just discard the optional value
+                    try self.emitIndent();
+                    try self.emit("_ = ");
+                    try self.emit(arg.name);
+                    try self.emit("_param;\n");
+                } else {
+                    try self.emitIndent();
+                    try self.emit("const ");
+                    try self.emit(arg.name);
+                    try self.emit(" = ");
+                    try self.emit(arg.name);
+                    try self.emit("_param orelse ");
+                    try expressions.genExpr(self, default_expr.*);
+                    try self.emit(";\n");
+                }
             }
         }
     }

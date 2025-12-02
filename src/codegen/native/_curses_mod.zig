@@ -1,20 +1,13 @@
 /// Python _curses module - Internal curses support (C accelerator)
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "initscr", genConst(".{ .lines = 24, .cols = 80 }") }, .{ "endwin", genConst("{}") }, .{ "newwin", genConst(".{ .lines = 24, .cols = 80, .y = 0, .x = 0 }") }, .{ "newpad", genConst(".{ .lines = 24, .cols = 80 }") },
-    .{ "start_color", genConst("{}") }, .{ "init_pair", genConst("{}") }, .{ "color_pair", genConst("@as(i32, 0)") },
-    .{ "cbreak", genConst("{}") }, .{ "nocbreak", genConst("{}") }, .{ "echo", genConst("{}") }, .{ "noecho", genConst("{}") },
-    .{ "raw", genConst("{}") }, .{ "noraw", genConst("{}") }, .{ "curs_set", genConst("@as(i32, 1)") },
-    .{ "has_colors", genConst("true") }, .{ "can_change_color", genConst("true") },
-    .{ "COLORS", genConst("@as(i32, 256)") }, .{ "COLOR_PAIRS", genConst("@as(i32, 256)") }, .{ "LINES", genConst("@as(i32, 24)") }, .{ "COLS", genConst("@as(i32, 80)") },
-    .{ "error", genConst("error.CursesError") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "initscr", h.c(".{ .lines = 24, .cols = 80 }") }, .{ "endwin", h.c("{}") }, .{ "newwin", h.c(".{ .lines = 24, .cols = 80, .y = 0, .x = 0 }") }, .{ "newpad", h.c(".{ .lines = 24, .cols = 80 }") },
+    .{ "start_color", h.c("{}") }, .{ "init_pair", h.c("{}") }, .{ "color_pair", h.I32(0) },
+    .{ "cbreak", h.c("{}") }, .{ "nocbreak", h.c("{}") }, .{ "echo", h.c("{}") }, .{ "noecho", h.c("{}") },
+    .{ "raw", h.c("{}") }, .{ "noraw", h.c("{}") }, .{ "curs_set", h.I32(1) },
+    .{ "has_colors", h.c("true") }, .{ "can_change_color", h.c("true") },
+    .{ "COLORS", h.I32(256) }, .{ "COLOR_PAIRS", h.I32(256) }, .{ "LINES", h.I32(24) }, .{ "COLS", h.I32(80) },
+    .{ "error", h.err("CursesError") },
 });

@@ -1,21 +1,17 @@
 /// Python _io module - Core I/O implementation (underlying io module)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "FileIO", genFileIO }, .{ "BytesIO", genBytesIO }, .{ "StringIO", genStringIO },
     .{ "BufferedReader", genBuffered }, .{ "BufferedWriter", genBuffered }, .{ "BufferedRandom", genBuffered },
-    .{ "BufferedRWPair", genBufferedRW }, .{ "TextIOWrapper", genTextIO }, .{ "IncrementalNewlineDecoder", genConst(".{ .translate = true }") },
+    .{ "BufferedRWPair", genBufferedRW }, .{ "TextIOWrapper", genTextIO }, .{ "IncrementalNewlineDecoder", h.c(".{ .translate = true }") },
     .{ "open", genFileIO }, .{ "open_code", genOpenCode }, .{ "text_encoding", genTextEnc },
-    .{ "IOBase", genConst(".{}") }, .{ "RawIOBase", genConst(".{}") }, .{ "BufferedIOBase", genConst(".{}") }, .{ "TextIOBase", genConst(".{}") },
-    .{ "DEFAULT_BUFFER_SIZE", genConst("@as(i64, 8192)") }, .{ "UnsupportedOperation", genConst("error.UnsupportedOperation") }, .{ "BlockingIOError", genConst("error.BlockingIOError") },
+    .{ "IOBase", h.c(".{}") }, .{ "RawIOBase", h.c(".{}") }, .{ "BufferedIOBase", h.c(".{}") }, .{ "TextIOBase", h.c(".{}") },
+    .{ "DEFAULT_BUFFER_SIZE", h.I64(8192) }, .{ "UnsupportedOperation", h.err("UnsupportedOperation") }, .{ "BlockingIOError", h.err("BlockingIOError") },
 });
 
 fn genFileIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

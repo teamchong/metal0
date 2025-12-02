@@ -1,18 +1,14 @@
 /// Python _elementtree module - Internal ElementTree support (C accelerator)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Element", genElement }, .{ "SubElement", genSubElement },
-    .{ "TreeBuilder", genConst(".{ .element_factory = null, .data = &[_][]const u8{}, .elem = &[_]@TypeOf(.{}){}, .last = null }") },
-    .{ "XMLParser", genConst(".{ .target = null, .parser = null }") }, .{ "ParseError", genConst("error.ParseError") },
+    .{ "TreeBuilder", h.c(".{ .element_factory = null, .data = &[_][]const u8{}, .elem = &[_]@TypeOf(.{}){}, .last = null }") },
+    .{ "XMLParser", h.c(".{ .target = null, .parser = null }") }, .{ "ParseError", h.err("ParseError") },
 });
 
 const elem_default = ".{ .tag = \"\", .attrib = .{}, .text = null, .tail = null }";

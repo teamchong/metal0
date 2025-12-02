@@ -1,19 +1,15 @@
 /// Python _datetime module - C accelerator for datetime (internal)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "datetime", genDatetime }, .{ "date", genDate }, .{ "time", genTime },
     .{ "timedelta", genTimedelta }, .{ "timezone", genTimezone },
-    .{ "MINYEAR", genConst("@as(i32, 1)") }, .{ "MAXYEAR", genConst("@as(i32, 9999)") },
-    .{ "timezone_utc", genConst(".{ .offset = 0, .name = \"UTC\" }") },
+    .{ "MINYEAR", h.I32(1) }, .{ "MAXYEAR", h.I32(9999) },
+    .{ "timezone_utc", h.c(".{ .offset = 0, .name = \"UTC\" }") },
 });
 
 fn emitIntCast(self: *NativeCodegen, args: []ast.Node, idx: usize, default: []const u8) CodegenError!void {

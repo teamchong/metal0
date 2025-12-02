@@ -1,19 +1,15 @@
 /// Python _frozen_importlib module - Frozen import machinery
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "module_spec", genModuleSpec }, .{ "builtin_importer", genConst(".{}") }, .{ "frozen_importer", genConst(".{}") },
-    .{ "init_module_attrs", genConst("{}") }, .{ "call_with_frames_removed", genConst("null") }, .{ "find_and_load", genConst("null") },
-    .{ "find_and_load_unlocked", genConst("null") }, .{ "gcd_import", genConst("null") }, .{ "handle_fromlist", genConst("null") },
-    .{ "lock_unlock_module", genConst(".{}") }, .{ "import", genConst("null") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "module_spec", genModuleSpec }, .{ "builtin_importer", h.c(".{}") }, .{ "frozen_importer", h.c(".{}") },
+    .{ "init_module_attrs", h.c("{}") }, .{ "call_with_frames_removed", h.c("null") }, .{ "find_and_load", h.c("null") },
+    .{ "find_and_load_unlocked", h.c("null") }, .{ "gcd_import", h.c("null") }, .{ "handle_fromlist", h.c("null") },
+    .{ "lock_unlock_module", h.c(".{}") }, .{ "import", h.c("null") },
 });
 
 fn genModuleSpec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
