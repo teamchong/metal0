@@ -503,33 +503,14 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
     );
 }
 
-const BuiltinFunctions = std.StaticStringMap(void).initComptime(.{
-    .{ "len", {} },        .{ "callable", {} },   .{ "print", {} },      .{ "repr", {} },
-    .{ "str", {} },        .{ "abs", {} },        .{ "max", {} },        .{ "min", {} },
-    .{ "sum", {} },        .{ "sorted", {} },     .{ "reversed", {} },   .{ "enumerate", {} },
-    .{ "zip", {} },        .{ "map", {} },        .{ "filter", {} },     .{ "range", {} },
-    .{ "list", {} },       .{ "dict", {} },       .{ "set", {} },        .{ "tuple", {} },
-    .{ "type", {} },       .{ "isinstance", {} }, .{ "issubclass", {} }, .{ "hasattr", {} },
-    .{ "getattr", {} },    .{ "setattr", {} },    .{ "delattr", {} },    .{ "id", {} },
-    .{ "hash", {} },       .{ "ord", {} },        .{ "chr", {} },        .{ "hex", {} },
-    .{ "oct", {} },        .{ "bin", {} },        .{ "round", {} },      .{ "pow", {} },
-    .{ "divmod", {} },     .{ "all", {} },        .{ "any", {} },        .{ "iter", {} },
-    .{ "next", {} },       .{ "open", {} },       .{ "input", {} },      .{ "format", {} },
-    .{ "vars", {} },       .{ "dir", {} },        .{ "globals", {} },    .{ "locals", {} },
-    .{ "eval", {} },       .{ "exec", {} },       .{ "compile", {} },    .{ "staticmethod", {} },
-    .{ "classmethod", {} }, .{ "property", {} },  .{ "super", {} },      .{ "object", {} },
-    .{ "slice", {} },      .{ "memoryview", {} }, .{ "bytearray", {} },  .{ "frozenset", {} },
-    .{ "complex", {} },    .{ "ascii", {} },      .{ "breakpoint", {} }, .{ "__import__", {} },
-    .{ "deque", {} },      .{ "Counter", {} },    .{ "defaultdict", {} }, .{ "OrderedDict", {} },
-});
+const shared = @import("shared_maps.zig");
+const BuiltinFunctions = shared.PythonBuiltinNames;
+const PythonExceptions = shared.RuntimeExceptions;
 
 /// Check if a name is a Python builtin function that can be passed as first-class value
 fn isBuiltinFunction(name: []const u8) bool {
     return BuiltinFunctions.has(name);
 }
-
-const shared = @import("shared_maps.zig");
-const PythonExceptions = shared.RuntimeExceptions;
 
 /// Check if a name is a Python exception type
 pub fn isPythonExceptionType(name: []const u8) bool {

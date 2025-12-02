@@ -83,3 +83,43 @@ pub const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
     .{ "ArithmeticError", {} }, .{ "EOFError", {} },          .{ "GeneratorExit", {} },
     .{ "SystemExit", {} },      .{ "KeyboardInterrupt", {} }, .{ "SyntaxError", {} },
 });
+
+/// Python builtin names - constants, types, functions, exceptions, special names
+pub const PythonBuiltinNames = std.StaticStringMap(void).initComptime(.{
+    // Constants
+    .{ "True", {} }, .{ "False", {} }, .{ "None", {} }, .{ "NotImplemented", {} },
+    // Built-in types
+    .{ "int", {} }, .{ "float", {} }, .{ "str", {} }, .{ "bool", {} }, .{ "bytes", {} },
+    .{ "list", {} }, .{ "dict", {} }, .{ "set", {} }, .{ "tuple", {} }, .{ "frozenset", {} },
+    .{ "type", {} }, .{ "object", {} }, .{ "super", {} }, .{ "complex", {} },
+    .{ "bytearray", {} }, .{ "memoryview", {} }, .{ "slice", {} },
+    // Functions - I/O
+    .{ "print", {} }, .{ "input", {} }, .{ "open", {} },
+    // Functions - type conversion
+    .{ "repr", {} }, .{ "ascii", {} }, .{ "format", {} }, .{ "hex", {} }, .{ "oct", {} }, .{ "bin", {} },
+    .{ "ord", {} }, .{ "chr", {} },
+    // Functions - collections
+    .{ "len", {} }, .{ "range", {} }, .{ "enumerate", {} }, .{ "zip", {} }, .{ "map", {} },
+    .{ "filter", {} }, .{ "sorted", {} }, .{ "reversed", {} }, .{ "iter", {} }, .{ "next", {} },
+    .{ "min", {} }, .{ "max", {} }, .{ "sum", {} }, .{ "all", {} }, .{ "any", {} },
+    // Functions - math
+    .{ "abs", {} }, .{ "round", {} }, .{ "pow", {} }, .{ "divmod", {} },
+    // Functions - introspection
+    .{ "isinstance", {} }, .{ "issubclass", {} }, .{ "callable", {} }, .{ "type", {} },
+    .{ "hasattr", {} }, .{ "getattr", {} }, .{ "setattr", {} }, .{ "delattr", {} },
+    .{ "id", {} }, .{ "hash", {} }, .{ "dir", {} }, .{ "vars", {} },
+    .{ "globals", {} }, .{ "locals", {} }, .{ "eval", {} }, .{ "exec", {} }, .{ "compile", {} },
+    // Functions - decorators
+    .{ "staticmethod", {} }, .{ "classmethod", {} }, .{ "property", {} },
+    // Exceptions (subset - see RuntimeExceptions for full list)
+    .{ "Exception", {} }, .{ "ValueError", {} }, .{ "TypeError", {} }, .{ "KeyError", {} },
+    .{ "IndexError", {} }, .{ "AttributeError", {} }, .{ "RuntimeError", {} },
+    .{ "AssertionError", {} }, .{ "StopIteration", {} },
+    // Collections module common types
+    .{ "deque", {} }, .{ "Counter", {} }, .{ "defaultdict", {} }, .{ "OrderedDict", {} },
+    // Special names
+    .{ "self", {} }, .{ "__name__", {} }, .{ "__file__", {} }, .{ "__import__", {} },
+    // Stdlib modules (commonly used as builtins)
+    .{ "math", {} }, .{ "os", {} }, .{ "sys", {} }, .{ "re", {} }, .{ "json", {} },
+    .{ "time", {} }, .{ "datetime", {} }, .{ "random", {} },
+});

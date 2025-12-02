@@ -6,19 +6,7 @@ const CodegenError = @import("../../../../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
 const shared = @import("../../../../shared_maps.zig");
 const MutatingMethods = shared.MutatingMethods;
-
-const BuiltinNames = std.StaticStringMap(void).initComptime(.{
-    .{ "True", {} }, .{ "False", {} }, .{ "None", {} }, .{ "int", {} }, .{ "float", {} }, .{ "str", {} }, .{ "bool", {} },
-    .{ "list", {} }, .{ "dict", {} }, .{ "set", {} }, .{ "tuple", {} }, .{ "len", {} }, .{ "print", {} }, .{ "range", {} },
-    .{ "type", {} }, .{ "isinstance", {} }, .{ "hasattr", {} }, .{ "getattr", {} }, .{ "setattr", {} }, .{ "delattr", {} },
-    .{ "callable", {} }, .{ "iter", {} }, .{ "next", {} }, .{ "enumerate", {} }, .{ "zip", {} }, .{ "map", {} },
-    .{ "filter", {} }, .{ "sorted", {} }, .{ "reversed", {} }, .{ "min", {} }, .{ "max", {} }, .{ "sum", {} },
-    .{ "abs", {} }, .{ "round", {} }, .{ "pow", {} }, .{ "divmod", {} }, .{ "hex", {} }, .{ "oct", {} }, .{ "bin", {} },
-    .{ "ord", {} }, .{ "chr", {} }, .{ "repr", {} }, .{ "NotImplemented", {} }, .{ "Exception", {} }, .{ "ValueError", {} },
-    .{ "TypeError", {} }, .{ "KeyError", {} }, .{ "IndexError", {} }, .{ "AttributeError", {} }, .{ "RuntimeError", {} },
-    .{ "AssertionError", {} }, .{ "StopIteration", {} }, .{ "object", {} }, .{ "super", {} }, .{ "self", {} },
-    .{ "__name__", {} }, .{ "__file__", {} },
-});
+const BuiltinNames = shared.PythonBuiltinNames;
 
 /// Analyze nested classes for captured outer variables
 /// Populates func_local_vars with variables defined in function scope

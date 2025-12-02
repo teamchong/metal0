@@ -6,6 +6,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
 const NativeType = @import("../../../analysis/native_types.zig").NativeType;
 const param_analyzer = @import("functions/param_analyzer.zig");
+const shared = @import("../shared_maps.zig");
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
@@ -60,63 +61,8 @@ fn detectOptionalImportPattern(try_node: ast.Node.Try, codegen: *NativeCodegen) 
     return null;
 }
 
-// Static string maps for DCE optimization
-// Includes Python builtins, modules, and inline stdlib functions
-const BuiltinFuncs = std.StaticStringMap(void).initComptime(.{
-    // Python builtins
-    .{ "print", {} },
-    .{ "len", {} },
-    .{ "range", {} },
-    .{ "str", {} },
-    .{ "int", {} },
-    .{ "float", {} },
-    .{ "bool", {} },
-    .{ "list", {} },
-    .{ "dict", {} },
-    .{ "set", {} },
-    .{ "tuple", {} },
-    .{ "input", {} },
-    .{ "open", {} },
-    .{ "abs", {} },
-    .{ "max", {} },
-    .{ "min", {} },
-    .{ "sum", {} },
-    .{ "sorted", {} },
-    .{ "reversed", {} },
-    .{ "enumerate", {} },
-    .{ "zip", {} },
-    .{ "map", {} },
-    .{ "filter", {} },
-    // Standard library modules (accessed via module.function())
-    .{ "math", {} },
-    .{ "json", {} },
-    .{ "re", {} },
-    .{ "hashlib", {} },
-    .{ "random", {} },
-    .{ "sys", {} },
-    .{ "io", {} },
-    .{ "os", {} },
-    .{ "operator", {} },
-    .{ "collections", {} },
-    .{ "itertools", {} },
-    .{ "functools", {} },
-    .{ "time", {} },
-    .{ "datetime", {} },
-    .{ "pathlib", {} },
-    .{ "urllib", {} },
-    .{ "http", {} },
-    .{ "asyncio", {} },
-    // Inline stdlib functions (from inline-only modules)
-    .{ "Counter", {} },  // collections.Counter
-    .{ "chain", {} },    // itertools.chain
-    .{ "product", {} },  // itertools.product
-    .{ "combinations", {} }, // itertools.combinations
-    .{ "permutations", {} }, // itertools.permutations
-    .{ "randint", {} },  // random.randint
-    .{ "choice", {} },   // random.choice
-    .{ "shuffle", {} },  // random.shuffle
-    .{ "seed", {} },     // random.seed
-});
+// Use shared Python builtin names for DCE optimization
+const BuiltinFuncs = shared.PythonBuiltinNames;
 
 const ExceptionMap = std.StaticStringMap([]const u8).initComptime(.{
     .{ "ZeroDivisionError", "ZeroDivisionError" },

@@ -2,6 +2,7 @@
 const std = @import("std");
 const ast = @import("ast");
 const hashmap_helper = @import("hashmap_helper");
+const zig_keywords = @import("zig_keywords");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const DecoratedFunction = @import("../../main.zig").DecoratedFunction;
 const CodegenError = @import("../../main.zig").CodegenError;
@@ -736,7 +737,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         try self.emitIndent();
                         try self.output.writer(self.allocator).print("// {s} = {s} (method alias)\n", .{ alias_name, target_method });
                         try self.emitIndent();
-                        try self.output.writer(self.allocator).print("pub const {s} = {s};\n", .{ alias_name, target_method });
+                        // Escape both alias and target if they're Zig keywords (e.g., union, error)
+                        try self.emit("pub const ");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
+                        try self.emit(" = ");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), target_method);
+                        try self.emit(";\n");
                     }
                 }
             }
