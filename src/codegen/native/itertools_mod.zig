@@ -1,20 +1,16 @@
 /// Python itertools module - chain, cycle, repeat, count, zip_longest, etc.
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
 
 fn needsItems(self: *NativeCodegen, arg: ast.Node) bool {
     const t = self.type_inferrer.inferExpr(arg) catch return false;
     return t == .list or t == .deque;
 }
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "chain", genChain }, .{ "repeat", genRepeat }, .{ "count", genCount },
     .{ "cycle", genPassthrough }, .{ "islice", genIslice }, .{ "enumerate", genPassthrough },
     .{ "zip_longest", genZipLongest }, .{ "product", genPassthrough }, .{ "permutations", genPassthrough },
@@ -22,7 +18,7 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "takewhile", genTakewhile }, .{ "dropwhile", genDropwhile }, .{ "filterfalse", genFilterfalse },
     .{ "accumulate", genAccumulate }, .{ "starmap", genStarmap }, .{ "compress", genCompress },
     .{ "tee", genTee }, .{ "pairwise", genPairwise },
-    .{ "batched", genConst(".{ std.ArrayList(i64){} }") },
+    .{ "batched", h.c(".{ std.ArrayList(i64){} }") },
 });
 
 fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
