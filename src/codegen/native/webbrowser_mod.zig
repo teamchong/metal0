@@ -1,9 +1,8 @@
 /// Python webbrowser module - Convenient web browser controller
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
+
+const genOpen = h.wrap("blk: { const url = ", "; _ = url; break :blk true; }", "false");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "open", genOpen }, .{ "open_new", genOpen }, .{ "open_new_tab", genOpen },
@@ -21,7 +20,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "MacOSXOSAScript", h.c(".{ .name = \"macosx-osascript\" }") },
     .{ "WindowsDefault", h.c(".{ .name = \"windows-default\" }") },
 });
-
-fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const url = "); try self.genExpr(args[0]); try self.emit("; _ = url; break :blk true; }"); } else { try self.emit("false"); }
-}

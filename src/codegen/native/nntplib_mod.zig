@@ -1,9 +1,6 @@
 /// Python nntplib module - NNTP protocol client
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "NNTP", h.c(".{ .host = \"\", .port = @as(i32, 119), .timeout = @as(f64, -1.0) }") },
@@ -14,9 +11,5 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "NNTPProtocolError", h.err("NNTPProtocolError") }, .{ "NNTPDataError", h.err("NNTPDataError") },
     .{ "GroupInfo", h.c(".{ .group = \"\", .last = @as(i32, 0), .first = @as(i32, 0), .flag = \"\" }") },
     .{ "ArticleInfo", h.c(".{ .number = @as(i32, 0), .message_id = \"\", .lines = &[_][]const u8{} }") },
-    .{ "decode_header", genDecodeHeader },
+    .{ "decode_header", h.pass("\"\"") },
 });
-
-fn genDecodeHeader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.genExpr(args[0]); } else { try self.emit("\"\""); }
-}

@@ -588,14 +588,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.emit(var_name);
             try self.emit(";\n");
 
-            // Only emit discard if variable is truly unused (checked via semantic analysis)
-            // Otherwise we get "pointless discard of local constant" errors
-            if (self.isVarUnused(var_name)) {
-                try self.emitIndent();
-                try self.emit("_ = __local_");
-                try self.emit(var_name);
-                try self.emit(";\n");
-            }
+            // Always emit discard using runtime.discard() to prevent "unused local constant"
+            // errors while avoiding "pointless discard of local constant" issues
+            try self.emitIndent();
+            try self.emit("runtime.discard(__local_");
+            try self.emit(var_name);
+            try self.emit(");\n");
 
             // Add to rename map
             var buf = std.ArrayList(u8){};

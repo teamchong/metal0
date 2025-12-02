@@ -1,12 +1,9 @@
 /// Python wsgiref module - WSGI utilities and reference implementation
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "validator", genValidator },
+    .{ "validator", h.pass("@as(?*anyopaque, null)") },
     .{ "assert_", h.c("{}") }, .{ "check_status", h.c("{}") }, .{ "check_headers", h.c("{}") },
     .{ "check_content_type", h.c("{}") }, .{ "check_exc_info", h.c("{}") }, .{ "check_environ", h.c("{}") },
     .{ "WSGIWarning", h.err("WSGIWarning") },
@@ -24,7 +21,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "BaseCGIHandler", h.c(".{ .stdin = @as(?*anyopaque, null), .stdout = @as(?*anyopaque, null), .stderr = @as(?*anyopaque, null), .environ = .{} }") },
     .{ "CGIHandler", h.c(".{}") }, .{ "IISCGIHandler", h.c(".{}") },
 });
-
-fn genValidator(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.genExpr(args[0]); } else { try self.emit("@as(?*anyopaque, null)"); }
-}
