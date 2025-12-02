@@ -468,6 +468,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 }
                 if (has_methods_using_captures) {
                     captured_vars = parent_captures;
+                    // Store the inherited captures so they're available when generating inherited methods
+                    try self.nested_class_captures.put(class.name, parent_captures);
                 }
             }
         }

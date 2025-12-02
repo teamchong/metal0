@@ -9,20 +9,8 @@ const zig_keywords = @import("zig_keywords");
 const function_traits = @import("../../../analysis/function_traits.zig");
 const import_registry = @import("../import_registry.zig");
 const generators = @import("../statements/functions/generators.zig");
-
-/// Runtime exception types (O(1) lookup)
-const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
-    .{ "Exception", {} },       .{ "BaseException", {} },     .{ "RuntimeError", {} },
-    .{ "ValueError", {} },      .{ "TypeError", {} },         .{ "KeyError", {} },
-    .{ "IndexError", {} },      .{ "AttributeError", {} },    .{ "NameError", {} },
-    .{ "IOError", {} },         .{ "OSError", {} },           .{ "FileNotFoundError", {} },
-    .{ "PermissionError", {} }, .{ "ZeroDivisionError", {} }, .{ "OverflowError", {} },
-    .{ "NotImplementedError", {} }, .{ "StopIteration", {} }, .{ "AssertionError", {} },
-    .{ "ImportError", {} },     .{ "ModuleNotFoundError", {} }, .{ "LookupError", {} },
-    .{ "UnicodeError", {} },    .{ "UnicodeDecodeError", {} }, .{ "UnicodeEncodeError", {} },
-    .{ "SystemError", {} },     .{ "RecursionError", {} },    .{ "MemoryError", {} },
-    .{ "BufferError", {} },     .{ "ConnectionError", {} },   .{ "TimeoutError", {} },
-});
+const shared = @import("../shared_maps.zig");
+const RuntimeExceptions = shared.RuntimeExceptions;
 
 fn isRuntimeExceptionType(name: []const u8) bool {
     return RuntimeExceptions.has(name);

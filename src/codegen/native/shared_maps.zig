@@ -44,3 +44,19 @@ pub const InplaceDunders = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Pow", "__ipow__" }, .{ "BitAnd", "__iand__" }, .{ "BitOr", "__ior__" },
     .{ "BitXor", "__ixor__" }, .{ "LShift", "__ilshift__" }, .{ "RShift", "__irshift__" },
 });
+
+/// Python exception types for runtime error mapping
+pub const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
+    .{ "Exception", {} },       .{ "BaseException", {} },     .{ "RuntimeError", {} },
+    .{ "ValueError", {} },      .{ "TypeError", {} },         .{ "KeyError", {} },
+    .{ "IndexError", {} },      .{ "AttributeError", {} },    .{ "NameError", {} },
+    .{ "IOError", {} },         .{ "OSError", {} },           .{ "FileNotFoundError", {} },
+    .{ "PermissionError", {} }, .{ "ZeroDivisionError", {} }, .{ "OverflowError", {} },
+    .{ "NotImplementedError", {} }, .{ "StopIteration", {} }, .{ "AssertionError", {} },
+    .{ "ImportError", {} },     .{ "ModuleNotFoundError", {} }, .{ "LookupError", {} },
+    .{ "UnicodeError", {} },    .{ "UnicodeDecodeError", {} }, .{ "UnicodeEncodeError", {} },
+    .{ "SystemError", {} },     .{ "RecursionError", {} },    .{ "MemoryError", {} },
+    .{ "BufferError", {} },     .{ "ConnectionError", {} },   .{ "TimeoutError", {} },
+    .{ "ArithmeticError", {} }, .{ "EOFError", {} },          .{ "GeneratorExit", {} },
+    .{ "SystemExit", {} },      .{ "KeyboardInterrupt", {} },
+});

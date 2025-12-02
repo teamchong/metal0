@@ -1228,6 +1228,16 @@ fn inheritMethodsFromClass(
             self.method_self_is_mutable = mutates_self;
             defer self.method_self_is_mutable = prev_self_mutable;
 
+            // For inherited methods that use captured variables, set current_class_captures
+            // so the method body accesses them via __self.__captured_* instead of directly
+            // First check if the child class inherits captures from the parent
+            const child_captures = self.nested_class_captures.get(child.name);
+            const prev_captures = self.current_class_captures;
+            if (child_captures) |captures| {
+                self.current_class_captures = captures;
+            }
+            defer self.current_class_captures = prev_captures;
+
             // For inherited methods, pass the parent class name so method body can call its constructor
             // (e.g., aug_test.__add__ returns aug_test(...) - when inherited to aug_test4,
             // the method body needs to know aug_test is a nested class for allocator handling)

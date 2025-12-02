@@ -4,6 +4,8 @@ const ast = @import("ast");
 const zig_keywords = @import("zig_keywords");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
+const shared = @import("../shared_maps.zig");
+const ExceptionTypes = shared.RuntimeExceptions;
 
 // Re-export print statement generation
 pub const genPrint = @import("print.zig").genPrint;
@@ -276,39 +278,6 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
     try self.emit("}\n");
 }
 
-/// Known Python exception types
-const ExceptionTypes = std.StaticStringMap(void).initComptime(.{
-    .{ "ValueError", {} },
-    .{ "TypeError", {} },
-    .{ "RuntimeError", {} },
-    .{ "KeyError", {} },
-    .{ "IndexError", {} },
-    .{ "ZeroDivisionError", {} },
-    .{ "AttributeError", {} },
-    .{ "NameError", {} },
-    .{ "FileNotFoundError", {} },
-    .{ "IOError", {} },
-    .{ "Exception", {} },
-    .{ "StopIteration", {} },
-    .{ "NotImplementedError", {} },
-    .{ "AssertionError", {} },
-    .{ "OverflowError", {} },
-    .{ "ImportError", {} },
-    .{ "ModuleNotFoundError", {} },
-    .{ "OSError", {} },
-    .{ "PermissionError", {} },
-    .{ "TimeoutError", {} },
-    .{ "ConnectionError", {} },
-    .{ "RecursionError", {} },
-    .{ "MemoryError", {} },
-    .{ "LookupError", {} },
-    .{ "ArithmeticError", {} },
-    .{ "BufferError", {} },
-    .{ "EOFError", {} },
-    .{ "GeneratorExit", {} },
-    .{ "SystemExit", {} },
-    .{ "KeyboardInterrupt", {} },
-});
 
 /// Check if with expression is a unittest context manager that should be skipped
 /// Check if context manager is assertRaises or assertRaisesRegex (needs error handling)
