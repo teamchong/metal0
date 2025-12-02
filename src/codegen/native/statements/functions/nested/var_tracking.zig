@@ -611,6 +611,39 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
             if (isParamUsedInNode(param_name, lam.body.*)) break :blk true;
             break :blk false;
         },
+        .listcomp => |lc| blk: {
+            // Check element expression and generators
+            if (isParamUsedInNode(param_name, lc.elt.*)) break :blk true;
+            for (lc.generators) |gen| {
+                // Check iterator expression (NOT loop target - that shadows)
+                if (isParamUsedInNode(param_name, gen.iter.*)) break :blk true;
+                for (gen.ifs) |if_node| {
+                    if (isParamUsedInNode(param_name, if_node)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .dictcomp => |dc| blk: {
+            if (isParamUsedInNode(param_name, dc.key.*)) break :blk true;
+            if (isParamUsedInNode(param_name, dc.value.*)) break :blk true;
+            for (dc.generators) |gen| {
+                if (isParamUsedInNode(param_name, gen.iter.*)) break :blk true;
+                for (gen.ifs) |if_node| {
+                    if (isParamUsedInNode(param_name, if_node)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .genexp => |ge| blk: {
+            if (isParamUsedInNode(param_name, ge.elt.*)) break :blk true;
+            for (ge.generators) |gen| {
+                if (isParamUsedInNode(param_name, gen.iter.*)) break :blk true;
+                for (gen.ifs) |if_node| {
+                    if (isParamUsedInNode(param_name, if_node)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
         else => false,
     };
 }

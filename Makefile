@@ -94,10 +94,13 @@ test-integration: build
 	done; \
 	echo "Integration: $$passed passed, $$failed failed"
 
-# CPython compatibility tests (parallel - 8x faster)
+# CPython compatibility tests (parallel via xargs -P8)
 test-cpython: build
-	@echo "Running CPython tests (parallel)..."
-	@python3 tools/parallel_test.py 8 15
+	@echo "Running CPython tests (parallel via xargs -P8)..."
+	@total=$$(ls tests/cpython/test_*.py | wc -l | tr -d ' '); \
+	passed=$$(ls tests/cpython/test_*.py | xargs -P8 -I{} sh -c './zig-out/bin/metal0 "{}" --force >/dev/null 2>&1 && echo 1' 2>/dev/null | wc -l | tr -d ' '); \
+	failed=$$((total - passed)); \
+	echo "CPython: $$passed/$$total passed ($$failed failed)"
 
 # CPython tests (sequential - for debugging)
 test-cpython-seq: build

@@ -1,20 +1,16 @@
 /// Python xml.sax module - SAX XML parsing
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "make_parser", genConst(".{}") }, .{ "parse", genConst("{}") }, .{ "parseString", genConst("{}") },
-    .{ "ContentHandler", genConst(".{}") }, .{ "DTDHandler", genConst(".{}") }, .{ "EntityResolver", genConst(".{}") }, .{ "ErrorHandler", genConst(".{}") },
-    .{ "InputSource", genInputSource }, .{ "AttributesImpl", genConst(".{ .attrs = .{} }") }, .{ "AttributesNSImpl", genConst(".{ .attrs = .{}, .qnames = .{} }") },
-    .{ "SAXException", genConst("error.SAXException") }, .{ "SAXNotRecognizedException", genConst("error.SAXNotRecognizedException") },
-    .{ "SAXNotSupportedException", genConst("error.SAXNotSupportedException") }, .{ "SAXParseException", genConst("error.SAXParseException") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "make_parser", h.c(".{}") }, .{ "parse", h.c("{}") }, .{ "parseString", h.c("{}") },
+    .{ "ContentHandler", h.c(".{}") }, .{ "DTDHandler", h.c(".{}") }, .{ "EntityResolver", h.c(".{}") }, .{ "ErrorHandler", h.c(".{}") },
+    .{ "InputSource", genInputSource }, .{ "AttributesImpl", h.c(".{ .attrs = .{} }") }, .{ "AttributesNSImpl", h.c(".{ .attrs = .{}, .qnames = .{} }") },
+    .{ "SAXException", h.err("SAXException") }, .{ "SAXNotRecognizedException", h.err("SAXNotRecognizedException") },
+    .{ "SAXNotSupportedException", h.err("SAXNotSupportedException") }, .{ "SAXParseException", h.err("SAXParseException") },
 });
 
 fn genInputSource(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

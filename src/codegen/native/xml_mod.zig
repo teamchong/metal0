@@ -1,21 +1,17 @@
 /// Python xml module - XML processing
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 const element_tree_struct = "struct { root: ?*Element = null, pub fn getroot(s: *@This()) ?*Element { return s.root; } pub fn write(s: *@This(), f: []const u8) void { _ = s; _ = f; } }{}";
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "parse", genParse }, .{ "fromstring", genFromstring }, .{ "tostring", genTostring },
-    .{ "Element", genElement }, .{ "SubElement", genSubElement }, .{ "ElementTree", genConst(element_tree_struct) },
-    .{ "Comment", genConst("Element{ .tag = \"!--\" }") }, .{ "ProcessingInstruction", genConst("Element{ .tag = \"?\" }") },
-    .{ "QName", genQName }, .{ "indent", genConst("{}") }, .{ "dump", genConst("{}") }, .{ "iselement", genConst("true") },
+    .{ "Element", genElement }, .{ "SubElement", genSubElement }, .{ "ElementTree", h.c(element_tree_struct) },
+    .{ "Comment", h.c("Element{ .tag = \"!--\" }") }, .{ "ProcessingInstruction", h.c("Element{ .tag = \"?\" }") },
+    .{ "QName", genQName }, .{ "indent", h.c("{}") }, .{ "dump", h.c("{}") }, .{ "iselement", h.c("true") },
 });
 
 fn genParse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

@@ -1,34 +1,30 @@
 /// Python xmlrpc module - XML-RPC client/server
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const ClientFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const ClientFuncs = std.StaticStringMap(h.H).initComptime(.{
     .{ "ServerProxy", genServerProxy },
-    .{ "Transport", genConst(".{ .use_datetime = false, .use_builtin_types = false }") },
-    .{ "SafeTransport", genConst(".{ .use_datetime = false, .use_builtin_types = false }") },
-    .{ "dumps", genConst("\"<?xml version='1.0'?><methodCall></methodCall>\"") },
-    .{ "loads", genConst(".{ .params = &[_]@TypeOf(@as(i32, 0)){}, .method_name = @as(?[]const u8, null) }") },
-    .{ "gzip_encode", genConst("\"\"") }, .{ "gzip_decode", genConst("\"\"") },
-    .{ "Fault", genConst("error.Fault") }, .{ "ProtocolError", genConst("error.ProtocolError") },
-    .{ "ResponseError", genConst("error.ResponseError") },
-    .{ "Boolean", genBoolean }, .{ "DateTime", genConst(".{ .year = @as(i32, 1970), .month = @as(i32, 1), .day = @as(i32, 1), .hour = @as(i32, 0), .minute = @as(i32, 0), .second = @as(i32, 0) }") },
+    .{ "Transport", h.c(".{ .use_datetime = false, .use_builtin_types = false }") },
+    .{ "SafeTransport", h.c(".{ .use_datetime = false, .use_builtin_types = false }") },
+    .{ "dumps", h.c("\"<?xml version='1.0'?><methodCall></methodCall>\"") },
+    .{ "loads", h.c(".{ .params = &[_]@TypeOf(@as(i32, 0)){}, .method_name = @as(?[]const u8, null) }") },
+    .{ "gzip_encode", h.c("\"\"") }, .{ "gzip_decode", h.c("\"\"") },
+    .{ "Fault", h.err("Fault") }, .{ "ProtocolError", h.err("ProtocolError") },
+    .{ "ResponseError", h.err("ResponseError") },
+    .{ "Boolean", genBoolean }, .{ "DateTime", h.c(".{ .year = @as(i32, 1970), .month = @as(i32, 1), .day = @as(i32, 1), .hour = @as(i32, 0), .minute = @as(i32, 0), .second = @as(i32, 0) }") },
     .{ "Binary", genBinary },
-    .{ "MAXINT", genConst("@as(i64, 2147483647)") }, .{ "MININT", genConst("@as(i64, -2147483648)") },
+    .{ "MAXINT", h.I64(2147483647) }, .{ "MININT", h.I64(-2147483648) },
 });
 
-pub const ServerFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "SimpleXMLRPCServer", genConst(".{ .addr = .{ \"\", @as(i32, 8000) }, .allow_none = false, .encoding = @as(?[]const u8, null) }") },
-    .{ "CGIXMLRPCRequestHandler", genConst(".{ .allow_none = false, .encoding = @as(?[]const u8, null) }") },
-    .{ "SimpleXMLRPCRequestHandler", genConst(".{}") },
-    .{ "DocXMLRPCServer", genConst(".{ .addr = .{ \"\", @as(i32, 8000) } }") },
-    .{ "DocCGIXMLRPCRequestHandler", genConst(".{}") },
+pub const ServerFuncs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "SimpleXMLRPCServer", h.c(".{ .addr = .{ \"\", @as(i32, 8000) }, .allow_none = false, .encoding = @as(?[]const u8, null) }") },
+    .{ "CGIXMLRPCRequestHandler", h.c(".{ .allow_none = false, .encoding = @as(?[]const u8, null) }") },
+    .{ "SimpleXMLRPCRequestHandler", h.c(".{}") },
+    .{ "DocXMLRPCServer", h.c(".{ .addr = .{ \"\", @as(i32, 8000) } }") },
+    .{ "DocCGIXMLRPCRequestHandler", h.c(".{}") },
 });
 
 fn genServerProxy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

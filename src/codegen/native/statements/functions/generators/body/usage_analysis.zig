@@ -220,6 +220,9 @@ pub fn collectUsesInNode(self: *NativeCodegen, node: ast.Node) !void {
         .starred => |starred| {
             try collectUsesInNode(self, starred.value.*);
         },
+        .double_starred => |double_starred| {
+            try collectUsesInNode(self, double_starred.value.*);
+        },
         .yield_stmt => |yield| {
             if (yield.value) |value| {
                 try collectUsesInNode(self, value.*);

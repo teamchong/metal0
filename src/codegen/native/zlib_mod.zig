@@ -1,24 +1,20 @@
 /// Python zlib module - Compression/decompression using zlib library
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "compress", genCompress }, .{ "decompress", genDecompress },
-    .{ "compressobj", genCompressobj }, .{ "decompressobj", genConst("zlib.decompressobj.init()") },
+    .{ "compressobj", genCompressobj }, .{ "decompressobj", h.c("zlib.decompressobj.init()") },
     .{ "crc32", genCrc32 }, .{ "adler32", genAdler32 },
     .{ "crc32_combine", genCrc32Combine }, .{ "adler32_combine", genAdler32Combine },
-    .{ "MAX_WBITS", genConst("@as(i32, 15)") }, .{ "DEFLATED", genConst("@as(i32, 8)") }, .{ "DEF_BUF_SIZE", genConst("@as(i32, 16384)") }, .{ "DEF_MEM_LEVEL", genConst("@as(i32, 8)") },
-    .{ "Z_DEFAULT_STRATEGY", genConst("@as(i32, 0)") }, .{ "Z_FILTERED", genConst("@as(i32, 1)") }, .{ "Z_HUFFMAN_ONLY", genConst("@as(i32, 2)") }, .{ "Z_RLE", genConst("@as(i32, 3)") }, .{ "Z_FIXED", genConst("@as(i32, 4)") },
-    .{ "Z_NO_COMPRESSION", genConst("@as(i32, 0)") }, .{ "Z_BEST_SPEED", genConst("@as(i32, 1)") }, .{ "Z_BEST_COMPRESSION", genConst("@as(i32, 9)") }, .{ "Z_DEFAULT_COMPRESSION", genConst("@as(i32, -1)") },
-    .{ "Z_NO_FLUSH", genConst("@as(i32, 0)") }, .{ "Z_PARTIAL_FLUSH", genConst("@as(i32, 1)") }, .{ "Z_SYNC_FLUSH", genConst("@as(i32, 2)") }, .{ "Z_FULL_FLUSH", genConst("@as(i32, 3)") }, .{ "Z_FINISH", genConst("@as(i32, 4)") }, .{ "Z_BLOCK", genConst("@as(i32, 5)") }, .{ "Z_TREES", genConst("@as(i32, 6)") },
-    .{ "ZLIB_VERSION", genConst("\"1.2.13\"") }, .{ "ZLIB_RUNTIME_VERSION", genConst("zlib.zlibVersion()") }, .{ "error", genConst("error.ZlibError") },
+    .{ "MAX_WBITS", h.I32(15) }, .{ "DEFLATED", h.I32(8) }, .{ "DEF_BUF_SIZE", h.I32(16384) }, .{ "DEF_MEM_LEVEL", h.I32(8) },
+    .{ "Z_DEFAULT_STRATEGY", h.I32(0) }, .{ "Z_FILTERED", h.I32(1) }, .{ "Z_HUFFMAN_ONLY", h.I32(2) }, .{ "Z_RLE", h.I32(3) }, .{ "Z_FIXED", h.I32(4) },
+    .{ "Z_NO_COMPRESSION", h.I32(0) }, .{ "Z_BEST_SPEED", h.I32(1) }, .{ "Z_BEST_COMPRESSION", h.I32(9) }, .{ "Z_DEFAULT_COMPRESSION", h.I32(-1) },
+    .{ "Z_NO_FLUSH", h.I32(0) }, .{ "Z_PARTIAL_FLUSH", h.I32(1) }, .{ "Z_SYNC_FLUSH", h.I32(2) }, .{ "Z_FULL_FLUSH", h.I32(3) }, .{ "Z_FINISH", h.I32(4) }, .{ "Z_BLOCK", h.I32(5) }, .{ "Z_TREES", h.I32(6) },
+    .{ "ZLIB_VERSION", h.c("\"1.2.13\"") }, .{ "ZLIB_RUNTIME_VERSION", h.c("zlib.zlibVersion()") }, .{ "error", h.err("ZlibError") },
 });
 
 fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

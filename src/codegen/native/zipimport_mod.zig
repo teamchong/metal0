@@ -1,14 +1,14 @@
 /// Python zipimport module - Import modules from zip files
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "zipimporter", genZipimporter },
-    .{ "ZipImportError", genZipImportError },
+    .{ "ZipImportError", h.err("ZipImportError") },
 });
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
 
 /// Generate zipimport.zipimporter(archivepath)
 pub fn genZipimporter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -19,13 +19,4 @@ pub fn genZipimporter(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     } else {
         try self.emit(".{ .archive = \"\", .prefix = \"\" }");
     }
-}
-
-// ============================================================================
-// Exception
-// ============================================================================
-
-pub fn genZipImportError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ZipImportError");
 }

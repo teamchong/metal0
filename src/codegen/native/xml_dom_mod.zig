@@ -1,35 +1,27 @@
 /// Python xml.dom module - DOM support for XML
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-fn genI32(comptime n: comptime_int) ModuleHandler { return genConst(std.fmt.comptimePrint("@as(i32, {})", .{n})); }
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "registerDOMImplementation", genConst("{}") }, .{ "getDOMImplementation", genConst("@as(?*anyopaque, null)") },
-    .{ "ELEMENT_NODE", genI32(1) }, .{ "ATTRIBUTE_NODE", genI32(2) }, .{ "TEXT_NODE", genI32(3) },
-    .{ "CDATA_SECTION_NODE", genI32(4) }, .{ "ENTITY_REFERENCE_NODE", genI32(5) }, .{ "ENTITY_NODE", genI32(6) },
-    .{ "PROCESSING_INSTRUCTION_NODE", genI32(7) }, .{ "COMMENT_NODE", genI32(8) }, .{ "DOCUMENT_NODE", genI32(9) },
-    .{ "DOCUMENT_TYPE_NODE", genI32(10) }, .{ "DOCUMENT_FRAGMENT_NODE", genI32(11) }, .{ "NOTATION_NODE", genI32(12) },
-    .{ "DomstringSizeErr", genConst("error.DomstringSizeErr") },
-    .{ "HierarchyRequestErr", genConst("error.HierarchyRequestErr") },
-    .{ "IndexSizeErr", genConst("error.IndexSizeErr") },
-    .{ "InuseAttributeErr", genConst("error.InuseAttributeErr") },
-    .{ "InvalidAccessErr", genConst("error.InvalidAccessErr") },
-    .{ "InvalidCharacterErr", genConst("error.InvalidCharacterErr") },
-    .{ "InvalidModificationErr", genConst("error.InvalidModificationErr") },
-    .{ "InvalidStateErr", genConst("error.InvalidStateErr") },
-    .{ "NamespaceErr", genConst("error.NamespaceErr") },
-    .{ "NoDataAllowedErr", genConst("error.NoDataAllowedErr") },
-    .{ "NoModificationAllowedErr", genConst("error.NoModificationAllowedErr") },
-    .{ "NotFoundErr", genConst("error.NotFoundErr") },
-    .{ "NotSupportedErr", genConst("error.NotSupportedErr") },
-    .{ "SyntaxErr", genConst("error.SyntaxErr") },
-    .{ "ValidationErr", genConst("error.ValidationErr") },
-    .{ "WrongDocumentErr", genConst("error.WrongDocumentErr") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "registerDOMImplementation", h.c("{}") }, .{ "getDOMImplementation", h.c("@as(?*anyopaque, null)") },
+    .{ "ELEMENT_NODE", h.I32(1) }, .{ "ATTRIBUTE_NODE", h.I32(2) }, .{ "TEXT_NODE", h.I32(3) },
+    .{ "CDATA_SECTION_NODE", h.I32(4) }, .{ "ENTITY_REFERENCE_NODE", h.I32(5) }, .{ "ENTITY_NODE", h.I32(6) },
+    .{ "PROCESSING_INSTRUCTION_NODE", h.I32(7) }, .{ "COMMENT_NODE", h.I32(8) }, .{ "DOCUMENT_NODE", h.I32(9) },
+    .{ "DOCUMENT_TYPE_NODE", h.I32(10) }, .{ "DOCUMENT_FRAGMENT_NODE", h.I32(11) }, .{ "NOTATION_NODE", h.I32(12) },
+    .{ "DomstringSizeErr", h.err("DomstringSizeErr") },
+    .{ "HierarchyRequestErr", h.err("HierarchyRequestErr") },
+    .{ "IndexSizeErr", h.err("IndexSizeErr") },
+    .{ "InuseAttributeErr", h.err("InuseAttributeErr") },
+    .{ "InvalidAccessErr", h.err("InvalidAccessErr") },
+    .{ "InvalidCharacterErr", h.err("InvalidCharacterErr") },
+    .{ "InvalidModificationErr", h.err("InvalidModificationErr") },
+    .{ "InvalidStateErr", h.err("InvalidStateErr") },
+    .{ "NamespaceErr", h.err("NamespaceErr") },
+    .{ "NoDataAllowedErr", h.err("NoDataAllowedErr") },
+    .{ "NoModificationAllowedErr", h.err("NoModificationAllowedErr") },
+    .{ "NotFoundErr", h.err("NotFoundErr") },
+    .{ "NotSupportedErr", h.err("NotSupportedErr") },
+    .{ "SyntaxErr", h.err("SyntaxErr") },
+    .{ "ValidationErr", h.err("ValidationErr") },
+    .{ "WrongDocumentErr", h.err("WrongDocumentErr") },
 });

@@ -328,7 +328,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     const label_id = self.block_label_counter;
                     self.block_label_counter += 1;
 
-                    try self.emitFmt("idx_{d}: {{ const __list = ", .{label_id});
+                    try self.emitFmt("idx_{d}: {{ const __s = ", .{label_id});
                     try genExpr(self, subscript.value.*);
                     try self.emit("; const __idx = ");
                     if (isNegativeConstant(subscript.slice.index.*)) {
@@ -342,8 +342,8 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                             try self.emit("))");
                         }
                     }
-                    // Runtime check: if __list has .items field, use it; otherwise direct index
-                    try self.emitFmt("; break :idx_{d} if (@hasField(@TypeOf(__list), \"items\")) __list.items[__idx] else __list[__idx]; }}", .{label_id});
+                    // Runtime check: if __s has .items field, use it; otherwise direct index
+                    try self.emitFmt("; break :idx_{d} if (@hasField(@TypeOf(__s), \"items\")) __s.items[__idx] else __s[__idx]; }}", .{label_id});
                 } else {
                     // ArrayList indexing - use .items with runtime bounds check
                     const needs_cast = (index_type == .int);

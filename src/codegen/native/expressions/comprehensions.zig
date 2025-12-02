@@ -156,9 +156,9 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         break :blk "i64";
     };
 
-    // Generate: var __comp_result = std.ArrayList(ElementType){};
+    // Generate: var __comp_result_N = std.ArrayList(ElementType){};
     try self.emitIndent();
-    try self.emit("var __comp_result = std.ArrayList(");
+    try self.output.writer(self.allocator).print("var __comp_result_{d} = std.ArrayList(", .{label_id});
     try self.emit(element_type);
     try self.emit("){};\n");
 
@@ -227,17 +227,17 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             try self.emitIndent();
             if (is_direct_iterable) {
                 // Constant array variable, string literal, or anytype param - iterate directly
-                try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
+                try self.output.writer(self.allocator).print("const __iter_{d}_{d} = ", .{ label_id, gen_idx });
                 try genExpr(self, gen.iter.*);
                 try self.emit(";\n");
             } else {
                 // ArrayList - use .items
                 // First emit the list to an intermediate variable, then access .items
-                try self.output.writer(self.allocator).print("const __list_{d} = ", .{gen_idx});
+                try self.output.writer(self.allocator).print("const __list_{d}_{d} = ", .{ label_id, gen_idx });
                 try genExpr(self, gen.iter.*);
                 try self.emit(";\n");
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("const __iter_{d} = __list_{d}.items;\n", .{ gen_idx, gen_idx });
+                try self.output.writer(self.allocator).print("const __iter_{d}_{d} = __list_{d}_{d}.items;\n", .{ label_id, gen_idx, label_id, gen_idx });
             }
 
             try self.emitIndent();
@@ -249,7 +249,7 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             };
             if (is_tuple_target) {
                 // Capture as single variable, unpack inside loop
-                try self.output.writer(self.allocator).print("for (__iter_{d}) |__tuple_{d}__| {{\n", .{ gen_idx, gen_idx });
+                try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |__tuple_{d}_{d}__| {{\n", .{ label_id, gen_idx, label_id, gen_idx });
                 self.indent();
 
                 // Unpack tuple elements
@@ -264,14 +264,14 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                         const var_name = elt.name.id;
                         // Handle underscore discard pattern
                         if (std.mem.eql(u8, var_name, "_")) {
-                            try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ gen_idx, idx });
+                            try self.output.writer(self.allocator).print("_ = __tuple_{d}_{d}__.@\"{d}\";\n", .{ label_id, gen_idx, idx });
                         } else {
-                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ var_name, gen_idx, idx });
+                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
                         }
                     }
                 }
             } else {
-                try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
+                try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
                 try genExpr(self, gen.target.*);
                 try self.emit("| {\n");
                 self.indent();
@@ -288,9 +288,9 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         }
     }
 
-    // Generate: try __comp_result.append(__global_allocator, <elt_expr>);
+    // Generate: try __comp_result_N.append(__global_allocator, <elt_expr>);
     try self.emitIndent();
-    try self.emit("try __comp_result.append(__global_allocator, ");
+    try self.output.writer(self.allocator).print("try __comp_result_{d}.append(__global_allocator, ", .{label_id});
     try genExprWithSubs(self, listcomp.elt.*, &subs);
     try self.emit(");\n");
 
@@ -309,10 +309,10 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         try self.emit("}\n");
     }
 
-    // Generate: break :comp_N __comp_result;
+    // Generate: break :comp_N __comp_result_N;
     // Return the ArrayList itself (not a slice) so caller can use .items or .append
     try self.emitIndent();
-    try self.emit(try std.fmt.allocPrint(self.allocator, "break :comp_{d} __comp_result;\n", .{label_id}));
+    try self.output.writer(self.allocator).print("break :comp_{d} __comp_result_{d};\n", .{ label_id, label_id });
 
     self.dedent();
     try self.emitIndent();
@@ -411,17 +411,17 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
             try self.emitIndent();
             if (is_direct_iterable) {
                 // Constant array variable, string literal, or anytype param - iterate directly
-                try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
+                try self.output.writer(self.allocator).print("const __iter_{d}_{d} = ", .{ label_id, gen_idx });
                 try genExpr(self, gen.iter.*);
                 try self.emit(";\n");
             } else {
                 // ArrayList - use .items
                 // First emit the list to an intermediate variable, then access .items
-                try self.output.writer(self.allocator).print("const __list_{d} = ", .{gen_idx});
+                try self.output.writer(self.allocator).print("const __list_{d}_{d} = ", .{ label_id, gen_idx });
                 try genExpr(self, gen.iter.*);
                 try self.emit(";\n");
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("const __iter_{d} = __list_{d}.items;\n", .{ gen_idx, gen_idx });
+                try self.output.writer(self.allocator).print("const __iter_{d}_{d} = __list_{d}_{d}.items;\n", .{ label_id, gen_idx, label_id, gen_idx });
             }
 
             try self.emitIndent();
@@ -433,7 +433,7 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
             };
             if (is_tuple_target) {
                 // Capture as single variable, unpack inside loop
-                try self.output.writer(self.allocator).print("for (__iter_{d}) |__tuple_{d}__| {{\n", .{ gen_idx, gen_idx });
+                try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |__tuple_{d}_{d}__| {{\n", .{ label_id, gen_idx, label_id, gen_idx });
                 self.indent();
 
                 // Unpack tuple elements
@@ -448,14 +448,14 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                         const var_name = elt.name.id;
                         // Handle underscore discard pattern
                         if (std.mem.eql(u8, var_name, "_")) {
-                            try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ gen_idx, idx });
+                            try self.output.writer(self.allocator).print("_ = __tuple_{d}_{d}__.@\"{d}\";\n", .{ label_id, gen_idx, idx });
                         } else {
-                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ var_name, gen_idx, idx });
+                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
                         }
                     }
                 }
             } else {
-                try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
+                try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
                 try genExpr(self, gen.target.*);
                 try self.emit("| {\n");
                 self.indent();
@@ -524,9 +524,9 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
     // Determine element type from the expression being yielded
     const elem_type = getGenExpElementType(genexp.elt.*);
 
-    // Generate: var __comp_result = std.ArrayList(<elem_type>){};
+    // Generate: var __comp_result_N = std.ArrayList(<elem_type>){};
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("var __comp_result = std.ArrayList({s}){{}};\n", .{elem_type});
+    try self.output.writer(self.allocator).print("var __comp_result_{d} = std.ArrayList({s}){{}};\n", .{ label_id, elem_type });
 
     // Generate nested loops for each generator
     for (genexp.generators, 0..) |gen, gen_idx| {
@@ -595,16 +595,16 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
             try self.emitIndent();
             if (is_direct_iterable) {
                 // Constant array variable, string literal, or anytype param - iterate directly
-                try self.output.writer(self.allocator).print("const __iter_{d} = ", .{gen_idx});
+                try self.output.writer(self.allocator).print("const __iter_{d}_{d} = ", .{ label_id, gen_idx });
                 try genExpr(self, gen.iter.*);
                 try self.emit(";\n");
             } else {
                 // First emit the list to an intermediate variable, then access .items
-                try self.output.writer(self.allocator).print("const __list_{d} = ", .{gen_idx});
+                try self.output.writer(self.allocator).print("const __list_{d}_{d} = ", .{ label_id, gen_idx });
                 try genExpr(self, gen.iter.*);
                 try self.emit(";\n");
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("const __iter_{d} = __list_{d}.items;\n", .{ gen_idx, gen_idx });
+                try self.output.writer(self.allocator).print("const __iter_{d}_{d} = __list_{d}_{d}.items;\n", .{ label_id, gen_idx, label_id, gen_idx });
             }
 
             try self.emitIndent();
@@ -616,7 +616,7 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
             };
             if (is_tuple_target) {
                 // Capture as single variable, unpack inside loop
-                try self.output.writer(self.allocator).print("for (__iter_{d}) |__tuple_{d}__| {{\n", .{ gen_idx, gen_idx });
+                try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |__tuple_{d}_{d}__| {{\n", .{ label_id, gen_idx, label_id, gen_idx });
                 self.indent();
 
                 // Unpack tuple elements
@@ -631,14 +631,14 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
                         const var_name = elt.name.id;
                         // Handle underscore discard pattern
                         if (std.mem.eql(u8, var_name, "_")) {
-                            try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ gen_idx, idx });
+                            try self.output.writer(self.allocator).print("_ = __tuple_{d}_{d}__.@\"{d}\";\n", .{ label_id, gen_idx, idx });
                         } else {
-                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ var_name, gen_idx, idx });
+                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
                         }
                     }
                 }
             } else {
-                try self.output.writer(self.allocator).print("for (__iter_{d}) |", .{gen_idx});
+                try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
                 try genExpr(self, gen.target.*);
                 try self.emit("| {\n");
                 self.indent();
@@ -655,9 +655,9 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
         }
     }
 
-    // Generate: try __comp_result.append(__global_allocator, <elt_expr>);
+    // Generate: try __comp_result_N.append(__global_allocator, <elt_expr>);
     try self.emitIndent();
-    try self.emit("try __comp_result.append(__global_allocator, ");
+    try self.output.writer(self.allocator).print("try __comp_result_{d}.append(__global_allocator, ", .{label_id});
     try genExpr(self, genexp.elt.*);
     try self.emit(");\n");
 
@@ -676,9 +676,9 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
         try self.emit("}\n");
     }
 
-    // Generate: break :gen_N __comp_result;
+    // Generate: break :gen_N __comp_result_N;
     try self.emitIndent();
-    try self.emit(try std.fmt.allocPrint(self.allocator, "break :gen_{d} __comp_result;\n", .{label_id}));
+    try self.output.writer(self.allocator).print("break :gen_{d} __comp_result_{d};\n", .{ label_id, label_id });
 
     self.dedent();
     try self.emitIndent();

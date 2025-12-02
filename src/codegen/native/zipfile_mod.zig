@@ -1,19 +1,15 @@
 /// Python zipfile module - ZIP archive handling
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "ZipFile", genZipFile }, .{ "is_zipfile", genIsZipfile }, .{ "ZipInfo", genZipInfo },
-    .{ "ZIP_STORED", genConst("@as(i64, 0)") }, .{ "ZIP_DEFLATED", genConst("@as(i64, 8)") },
-    .{ "ZIP_BZIP2", genConst("@as(i64, 12)") }, .{ "ZIP_LZMA", genConst("@as(i64, 14)") },
-    .{ "BadZipFile", genConst("\"BadZipFile\"") }, .{ "LargeZipFile", genConst("\"LargeZipFile\"") },
+    .{ "ZIP_STORED", h.I64(0) }, .{ "ZIP_DEFLATED", h.I64(8) },
+    .{ "ZIP_BZIP2", h.I64(12) }, .{ "ZIP_LZMA", h.I64(14) },
+    .{ "BadZipFile", h.c("\"BadZipFile\"") }, .{ "LargeZipFile", h.c("\"LargeZipFile\"") },
 });
 
 fn genZipFile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
