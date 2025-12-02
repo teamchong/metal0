@@ -59,9 +59,6 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "PYFUNCTYPE", h.c("*const fn() void") },
 });
 
-fn genDLL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("struct { _name: []const u8 = ");
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\"");
-    try self.emit(", _handle: ?*anyopaque = null }{}");
-}
+const genDLL = h.wrap("struct { _name: []const u8 = ", ", _handle: ?*anyopaque = null }{}", "struct { _name: []const u8 = \"\", _handle: ?*anyopaque = null }{}");
+
 
