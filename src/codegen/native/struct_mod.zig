@@ -76,7 +76,6 @@ pub fn genUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 pub const genCalcsize = h.wrap("struct_calcsize_blk: { const _fmt = ", "; var _size: usize = 0; for (_fmt) |c| { _size += switch (c) { 'b', 'B', 'c', '?', 'x' => 1, 'h', 'H' => 2, 'i', 'I', 'l', 'L', 'f' => 4, 'q', 'Q', 'd' => 8, else => 0 }; } break :struct_calcsize_blk @as(i64, @intCast(_size)); }", "@as(i64, 0)");
 
-
 pub fn genPackInto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 3) return;
     try self.emit("struct_pack_into_blk: { const _fmt = "); try self.genExpr(args[0]);

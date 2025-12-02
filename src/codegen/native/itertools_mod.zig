@@ -79,7 +79,6 @@ pub fn genCount(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 pub const genIslice = h.wrap2("islice_blk: { const _iter = ", "; const _stop = @as(usize, @intCast(", ")); var _result = std.ArrayList(i64){}; for (_iter.items[0..@min(_stop, _iter.items.len)]) |item| { _result.append(__global_allocator, item) catch continue; } break :islice_blk _result; }", "std.ArrayList(i64){}");
 
-
 pub fn genZipLongest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("std.ArrayList(struct { @\"0\": i64 }){}"); return; }
     if (args.len >= 2) {
@@ -119,7 +118,6 @@ fn genTee(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit(".{ std.ArrayList(i64){}, std.ArrayList(i64){} }"); return; }
     try self.emit(".{ "); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[0]); try self.emit(" }");
 }
-
 
 fn genPairwise(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayList(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
