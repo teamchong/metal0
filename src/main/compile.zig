@@ -346,6 +346,21 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Scan all imports recursively
     try import_graph.scanRecursive(opts.input_file, &visited);
 
+    // Check for unresolved (external) imports that need installation
+    const unresolved = import_graph.getUnresolved();
+    defer aa.free(unresolved);
+    if (unresolved.len > 0) {
+        std.debug.print("\n\x1b[33m⚠ Missing packages detected:\x1b[0m\n", .{});
+        for (unresolved) |pkg_name| {
+            std.debug.print("  - {s}\n", .{pkg_name});
+        }
+        std.debug.print("\nRun \x1b[1mmetal0 install", .{});
+        for (unresolved) |pkg_name| {
+            std.debug.print(" {s}", .{pkg_name});
+        }
+        std.debug.print("\x1b[0m to install them.\n\n", .{});
+    }
+
     // Compile each imported module in dependency order
     // Ensure .build directory exists for module Zig output
     std.fs.cwd().makeDir(".build") catch |err| {

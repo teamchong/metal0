@@ -55,12 +55,15 @@ pub const ImportGraph = struct {
     modules: hashmap_helper.StringHashMap(ModuleInfo),
     allocator: std.mem.Allocator,
     registry: ?*import_registry.ImportRegistry,
+    /// External packages that couldn't be resolved (need to be installed)
+    unresolved: hashmap_helper.StringHashMap(void),
 
     pub fn init(allocator: std.mem.Allocator) ImportGraph {
         return .{
             .modules = hashmap_helper.StringHashMap(ModuleInfo).init(allocator),
             .allocator = allocator,
             .registry = null,
+            .unresolved = hashmap_helper.StringHashMap(void).init(allocator),
         };
     }
 
@@ -70,6 +73,7 @@ pub const ImportGraph = struct {
             .modules = hashmap_helper.StringHashMap(ModuleInfo).init(allocator),
             .allocator = allocator,
             .registry = reg,
+            .unresolved = hashmap_helper.StringHashMap(void).init(allocator),
         };
     }
 
@@ -90,6 +94,24 @@ pub const ImportGraph = struct {
             info.deinit(self.allocator);
         }
         self.modules.deinit();
+        // Free unresolved keys
+        var unres_iter = self.unresolved.iterator();
+        while (unres_iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+        }
+        self.unresolved.deinit();
+    }
+
+    /// Get list of unresolved (external) packages
+    pub fn getUnresolved(self: *ImportGraph) []const []const u8 {
+        var result = self.allocator.alloc([]const u8, self.unresolved.count()) catch return &.{};
+        var i: usize = 0;
+        var iter = self.unresolved.iterator();
+        while (iter.next()) |entry| {
+            result[i] = entry.key_ptr.*;
+            i += 1;
+        }
+        return result;
     }
 
     /// Recursively scan file and all its imports
@@ -226,6 +248,16 @@ pub const ImportGraph = struct {
                 try self.scanRecursiveWithName(resolved, import_name, visited);
             } else {
                 std.debug.print("  Skipped import (external): {s}\n", .{import_name});
+                // Track as unresolved for potential auto-install
+                // Get base package name (e.g., "flask.app" -> "flask")
+                const base_name = if (std.mem.indexOf(u8, import_name, ".")) |idx|
+                    import_name[0..idx]
+                else
+                    import_name;
+                if (!self.unresolved.contains(base_name)) {
+                    const pkg_key = try self.allocator.dupe(u8, base_name);
+                    try self.unresolved.put(pkg_key, {});
+                }
             }
         }
     }
