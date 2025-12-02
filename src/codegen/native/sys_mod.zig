@@ -1,13 +1,11 @@
 /// Python sys module - system-specific parameters and functions
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "argv", h.c("blk: { const _os_args = std.os.argv; var _argv: std.ArrayList([]const u8) = .{}; for (_os_args) |arg| { _argv.append(__global_allocator, std.mem.span(arg)) catch continue; } break :blk _argv.items; }") },
-    .{ "exit", genExit }, .{ "path", h.c("&[_][]const u8{\".\" }") },
+    .{ "exit", h.wrap("blk: { const _code: u8 = @intCast(", "); std.process.exit(_code); break :blk; }", "blk: { std.process.exit(0); break :blk; }") },
+    .{ "path", h.c("&[_][]const u8{\".\" }") },
     .{ "platform", h.c("blk: { const _b = @import(\"builtin\"); break :blk switch (_b.os.tag) { .linux => \"linux\", .macos => \"darwin\", .windows => \"win32\", .freebsd => \"freebsd\", else => \"unknown\" }; }") },
     .{ "version", h.c("\"3.12.0 (metal0 compiled)\"") },
     .{ "version_info", h.c(".{ .major = 3, .minor = 12, .micro = 0, .releaselevel = \"final\", .serial = 0 }") },
@@ -32,16 +30,5 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "displayhook", h.debugPrint("", "{any}", "{}") }, .{ "excepthook", h.c("{}") }, .{ "settrace", h.c("{}") }, .{ "gettrace", h.c("null") },
     .{ "setprofile", h.c("{}") }, .{ "getprofile", h.c("null") },
     .{ "get_int_max_str_digits", h.c("(try sys.get_int_max_str_digits(__global_allocator))") },
-    .{ "set_int_max_str_digits", genSetIntMaxStrDigits },
+    .{ "set_int_max_str_digits", h.wrap("(try sys.set_int_max_str_digits(__global_allocator, ", "))", "(try sys.set_int_max_str_digits(__global_allocator, 0))") },
 });
-
-fn genExit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("blk: { const _code: u8 = ");
-    if (args.len > 0) { try self.emit("@intCast("); try self.genExpr(args[0]); try self.emit(")"); } else try self.emit("0");
-    try self.emit("; std.process.exit(_code); break :blk; }");
-}
-fn genSetIntMaxStrDigits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("(try sys.set_int_max_str_digits(__global_allocator, ");
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("0");
-    try self.emit("))");
-}
