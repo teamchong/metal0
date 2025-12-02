@@ -17,6 +17,9 @@ fn predFilter(self: *NativeCodegen, args: []ast.Node, comptime label: []const u8
     if (needsItems(self, args[1])) try self.emit(".items");
     try self.emit("; var _result = std.ArrayList(@TypeOf(_iter[0])){}; " ++ body ++ " break :" ++ label ++ "_blk _result; }");
 }
+fn emitIter(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+    try self.genExpr(arg); if (needsItems(self, arg)) try self.emit(".items");
+}
 
 const pt = h.pass("std.ArrayList(i64){}");
 
@@ -44,11 +47,7 @@ fn genFilterfalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genChain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("std.ArrayList(i64){}"); return; }
     try self.emit("chain_blk: { var _result = std.ArrayList(i64){}; ");
-    for (args) |arg| {
-        try self.emit("for ("); try self.genExpr(arg);
-        if (needsItems(self, arg)) try self.emit(".items");
-        try self.emit(") |item| { _result.append(__global_allocator, item) catch continue; } ");
-    }
+    for (args) |arg| { try self.emit("for ("); try emitIter(self, arg); try self.emit(") |item| { _result.append(__global_allocator, item) catch continue; } "); }
     try self.emit("break :chain_blk _result; }");
 }
 
@@ -83,8 +82,7 @@ pub fn genZipLongest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genAccumulate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayList(i64){}"); return; }
-    try self.emit("accumulate_blk: { const _iter = "); try self.genExpr(args[0]);
-    if (needsItems(self, args[0])) try self.emit(".items");
+    try self.emit("accumulate_blk: { const _iter = "); try emitIter(self, args[0]);
     try self.emit("; var _result = std.ArrayList(@TypeOf(_iter[0])){}; var _acc: @TypeOf(_iter[0]) = _iter[0]; _result.append(__global_allocator, _acc) catch {}; for (_iter[1..]) |item| { _acc = ");
     if (args.len > 1) { try self.genExpr(args[1]); try self.emit("(_acc, item)"); } else try self.emit("_acc + item");
     try self.emit("; _result.append(__global_allocator, _acc) catch continue; } break :accumulate_blk _result; }");
@@ -93,17 +91,14 @@ fn genAccumulate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 fn genStarmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("std.ArrayList(i64){}"); return; }
     try self.emit("starmap_blk: { const _func = "); try self.genExpr(args[0]);
-    try self.emit("; const _iter = "); try self.genExpr(args[1]);
-    if (needsItems(self, args[1])) try self.emit(".items");
+    try self.emit("; const _iter = "); try emitIter(self, args[1]);
     try self.emit("; var _result = std.ArrayList(@TypeOf(_func(_iter[0].@\"0\", _iter[0].@\"1\"))){}; for (_iter) |item| { _result.append(__global_allocator, _func(item.@\"0\", item.@\"1\")) catch continue; } break :starmap_blk _result; }");
 }
 
 fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("std.ArrayList(i64){}"); return; }
-    try self.emit("compress_blk: { const _data = "); try self.genExpr(args[0]);
-    if (needsItems(self, args[0])) try self.emit(".items");
-    try self.emit("; const _selectors = "); try self.genExpr(args[1]);
-    if (needsItems(self, args[1])) try self.emit(".items");
+    try self.emit("compress_blk: { const _data = "); try emitIter(self, args[0]);
+    try self.emit("; const _selectors = "); try emitIter(self, args[1]);
     try self.emit("; var _result = std.ArrayList(@TypeOf(_data[0])){}; const _len = @min(_data.len, _selectors.len); for (0.._len) |i| { if (_selectors[i] != 0) _result.append(__global_allocator, _data[i]) catch continue; } break :compress_blk _result; }");
 }
 
@@ -114,7 +109,6 @@ fn genTee(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genPairwise(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayList(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
-    try self.emit("pairwise_blk: { const _iter = "); try self.genExpr(args[0]);
-    if (needsItems(self, args[0])) try self.emit(".items");
+    try self.emit("pairwise_blk: { const _iter = "); try emitIter(self, args[0]);
     try self.emit("; var _result = std.ArrayList(struct { @\"0\": @TypeOf(_iter[0]), @\"1\": @TypeOf(_iter[0]) }){}; if (_iter.len > 1) { for (0.._iter.len - 1) |i| { _result.append(__global_allocator, .{ .@\"0\" = _iter[i], .@\"1\" = _iter[i + 1] }) catch continue; } } break :pairwise_blk _result; }");
 }
