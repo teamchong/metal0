@@ -18,7 +18,8 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "and_", h.binop(" & ", "@as(i64, 0)") }, .{ "or_", h.binop(" | ", "@as(i64, 0)") },
     .{ "xor", h.binop(" ^ ", "@as(i64, 0)") },
     // Logical
-    .{ "not_", genNot }, .{ "truth", genTruth },
+    .{ "not_", h.wrap("(!(runtime.toBool(", ")))", "true") },
+    .{ "truth", h.wrap("runtime.toBool(", ")", "false") },
     // Comparison
     .{ "eq", h.binop(" == ", "false") }, .{ "ne", h.binop(" != ", "true") },
     .{ "lt", h.binop(" < ", "false") }, .{ "le", h.binop(" <= ", "false") },
@@ -26,7 +27,8 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Identity
     .{ "is_", genIs }, .{ "is_not", genIsNot },
     // Sequence
-    .{ "concat", genConcat }, .{ "contains", genContains },
+    .{ "concat", h.binop(" + ", "&[_]u8{}") },
+    .{ "contains", h.wrap2("runtime.containsGeneric(", ", ", ")", "false") },
     .{ "countOf", h.I64(0) }, .{ "indexOf", h.I64(-1) },
     // Item
     .{ "getitem", genGetitem }, .{ "setitem", genSetitem },
@@ -36,13 +38,13 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "itemgetter", h.c("struct { item: i64 = 0, pub fn __call__(__self: @This(), obj: anytype) @TypeOf(obj[0]) { return obj[@intCast(__self.item)]; } }{}") },
     .{ "methodcaller", h.c("struct { name: []const u8 = \"\", pub fn __call__(self: @This(), obj: anytype) void { _ = obj; } }{}") },
     // Index
-    .{ "index", genIndex },
+    .{ "index", h.pass("@as(i64, 0)") },
     // In-place (same as regular)
     .{ "iadd", h.binop(" + ", "@as(i64, 0)") }, .{ "isub", h.binop(" - ", "@as(i64, 0)") },
     .{ "imul", h.binop(" * ", "@as(i64, 0)") }, .{ "itruediv", genTruediv }, .{ "ifloordiv", genFloordiv },
     .{ "imod", genMod }, .{ "ipow", genPow }, .{ "ilshift", h.shift(" << ") }, .{ "irshift", h.shift(" >> ") },
     .{ "iand", h.binop(" & ", "@as(i64, 0)") }, .{ "ior", h.binop(" | ", "@as(i64, 0)") },
-    .{ "ixor", h.binop(" ^ ", "@as(i64, 0)") }, .{ "iconcat", genConcat }, .{ "imatmul", h.binop(" * ", "@as(i64, 0)") },
+    .{ "ixor", h.binop(" ^ ", "@as(i64, 0)") }, .{ "iconcat", h.binop(" + ", "&[_]u8{}") }, .{ "imatmul", h.binop(" * ", "@as(i64, 0)") },
     .{ "__call__", genCall },
 });
 
@@ -66,14 +68,6 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("@as(i64, 1)"); return; }
     try self.emit("(std.math.powi(i64, @as(i64, "); try self.genExpr(args[0]); try self.emit("), @as(u32, @intCast("); try self.genExpr(args[1]); try self.emit("))) catch 0)");
 }
-pub fn genNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("true"); return; }
-    try self.emit("(!(runtime.toBool("); try self.genExpr(args[0]); try self.emit(")))");
-}
-pub fn genTruth(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("false"); return; }
-    try self.emit("runtime.toBool("); try self.genExpr(args[0]); try self.emit(")");
-}
 pub fn genIs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("false"); return; }
     const both_bool = (args[0] == .constant and args[0].constant.value == .bool) and (args[1] == .constant and args[1].constant.value == .bool);
@@ -84,15 +78,6 @@ pub fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const both_bool = (args[0] == .constant and args[0].constant.value == .bool) and (args[1] == .constant and args[1].constant.value == .bool);
     try self.emit(if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try self.emit(" != "); try self.emit(if (both_bool) "" else "&"); try self.genExpr(args[1]); try self.emit(")");
 }
-pub fn genConcat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("(runtime.builtins.OperatorConcat{})"); return; }
-    if (args.len < 2) { try self.emit("&[_]u8{}"); return; }
-    try self.emit("("); try self.genExpr(args[0]); try self.emit(" + "); try self.genExpr(args[1]); try self.emit(")");
-}
-pub fn genContains(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("false"); return; }
-    try self.emit("runtime.containsGeneric("); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")");
-}
 pub fn genGetitem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
     try self.genExpr(args[0]); try self.emit("["); try self.genExpr(args[1]); try self.emit("]");
@@ -100,10 +85,6 @@ pub fn genGetitem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genSetitem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 3) { try self.emit("null"); return; }
     try self.emit("blk: { "); try self.genExpr(args[0]); try self.emit("["); try self.genExpr(args[1]); try self.emit("] = "); try self.genExpr(args[2]); try self.emit("; break :blk null; }");
-}
-pub fn genIndex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("@as(i64, 0)"); return; }
-    try self.genExpr(args[0]);
 }
 pub fn genCall(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("void{}"); return; }
