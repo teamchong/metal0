@@ -60,6 +60,14 @@ pub const MutatingMethods = std.StaticStringMap(void).initComptime(.{
     .{ "reverse", {} }, .{ "clone", {} },
 });
 
+/// Python type hints to Zig type strings
+pub const PyTypeToZig = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "int", "i64" }, .{ "float", "f64" }, .{ "bool", "bool" }, .{ "str", "[]const u8" },
+    .{ "list", "anytype" }, .{ "dict", "anytype" }, .{ "set", "anytype" },
+    .{ "None", "null" }, .{ "True", "true" }, .{ "False", "false" },
+    .{ "complex", "runtime.Complex" }, .{ "repr", "runtime.repr" },
+});
+
 /// Python exception types for runtime error mapping
 pub const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
     .{ "Exception", {} },       .{ "BaseException", {} },     .{ "RuntimeError", {} },

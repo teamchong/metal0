@@ -4,12 +4,7 @@ const ast = @import("ast");
 const hashmap_helper = @import("hashmap_helper");
 const shared = @import("../../../shared_maps.zig");
 const TypeParamDefaults = shared.PythonBuiltinTypes;
-
-const PyNameToZig = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "float", "f64" }, .{ "int", "i64" }, .{ "str", "[]const u8" }, .{ "bool", "bool" },
-    .{ "None", "null" }, .{ "True", "true" }, .{ "False", "false" },
-    .{ "complex", "runtime.Complex" }, .{ "repr", "runtime.repr" },
-});
+const PyNameToZig = shared.PyTypeToZig;
 
 /// Check if test has @support.cpython_only decorator
 pub fn hasCPythonOnlyDecorator(decorators: []const ast.Node) bool {

@@ -10,15 +10,8 @@ const state_machine = @import("../../../async_state_machine.zig");
 
 // NOTE: Async strategy is now determined per-function via function_traits
 // Query self.shouldUseStateMachineAsync(func.name) instead of hardcoded constant
-
-/// Python type hint to Zig type mapping (comptime optimized)
-const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "int", "i64" },
-    .{ "float", "f64" },
-    .{ "bool", "bool" },
-    .{ "str", "[]const u8" },
-    .{ "list", "anytype" },
-});
+const shared = @import("../../../shared_maps.zig");
+const TypeHints = shared.PyTypeToZig;
 
 /// Known Zig primitive types for return type validation (O(1) lookup)
 const KnownZigTypes = std.StaticStringMap(void).initComptime(.{
