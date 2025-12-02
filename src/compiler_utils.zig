@@ -1,6 +1,6 @@
 const std = @import("std");
 
-/// Copy a runtime subdirectory recursively to .build
+/// Copy a runtime subdirectory recursively to cache
 pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_dir: []const u8) !void {
     const src_dir_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{dir_name});
     defer allocator.free(src_dir_path);
@@ -74,7 +74,7 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
     }
 }
 
-/// Copy a single runtime file to .build
+/// Copy a single runtime file to cache
 pub fn copyRuntimeFile(allocator: std.mem.Allocator, filename: []const u8, build_dir: []const u8) !void {
     const src_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{filename});
     defer allocator.free(src_path);
@@ -94,7 +94,7 @@ pub fn copyRuntimeFile(allocator: std.mem.Allocator, filename: []const u8, build
     try dst_file.writeAll(content);
 }
 
-/// Copy JSON SIMD files from shared/json/simd to .build/json/simd
+/// Copy JSON SIMD files from shared/json/simd to cache/json/simd
 pub fn copyJsonSimd(allocator: std.mem.Allocator, build_dir: []const u8) !void {
     const src_dir_path = "packages/shared/json/simd";
     const dst_dir_path = try std.fmt.allocPrint(allocator, "{s}/json/simd", .{build_dir});
@@ -131,7 +131,7 @@ pub fn copyJsonSimd(allocator: std.mem.Allocator, build_dir: []const u8) !void {
     }
 }
 
-/// Copy c_interop directory to .build for C library interop
+/// Copy c_interop directory to cache for C library interop
 pub fn copyCInteropDir(allocator: std.mem.Allocator, build_dir: []const u8) !void {
     const src_dir_path = "packages/c_interop";
     const dst_dir_path = try std.fmt.allocPrint(allocator, "{s}/c_interop", .{build_dir});
@@ -178,7 +178,7 @@ pub fn copyCInteropDir(allocator: std.mem.Allocator, build_dir: []const u8) !voi
     }
 }
 
-/// Copy src/utils directory to .build for hashmap_helper, wyhash
+/// Copy src/utils directory to cache for hashmap_helper, wyhash
 pub fn copySrcUtilsDir(allocator: std.mem.Allocator, build_dir: []const u8) !void {
     const src_dir_path = "src/utils";
 
@@ -226,9 +226,9 @@ pub fn copySrcUtilsDir(allocator: std.mem.Allocator, build_dir: []const u8) !voi
     }
 }
 
-/// Copy regex package to .build for re module
+/// Copy regex package to cache for re module
 pub fn copyRegexPackage(allocator: std.mem.Allocator, build_dir: []const u8) !void {
-    // Copy packages/regex/src/pyregex to .build/regex/src/pyregex
+    // Copy packages/regex/src/pyregex to cache/regex/src/pyregex
     try copyDirRecursive(allocator, "packages/regex/src/pyregex", try std.fmt.allocPrint(allocator, "{s}/regex/src/pyregex", .{build_dir}));
 }
 

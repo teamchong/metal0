@@ -7,7 +7,7 @@
 const std = @import("std");
 
 // Import runtime for PyObject and NumpyArray support
-// Paths are relative to .build/c_interop/ where this file is copied during compilation
+// Paths are relative to cache/c_interop/ where this file is copied during compilation
 const runtime = @import("../runtime.zig");
 const numpy_array_mod = @import("../numpy_array.zig");
 const NumpyArray = numpy_array_mod.NumpyArray;

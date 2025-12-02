@@ -69,17 +69,17 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             }
         }
 
-        // Skip if external module (no .build/ file)
+        // Skip if external module (no cache file)
         const import_path = try std.fmt.allocPrint(self.allocator, IMPORT_PREFIX ++ "{s}" ++ MODULE_EXT, .{root_mod_name});
         defer self.allocator.free(import_path);
 
-        // Check if module was compiled to .build/ (uses comptime constants)
+        // Check if module was compiled to cache (uses comptime constants)
         const build_path = try std.fmt.allocPrint(self.allocator, BUILD_DIR ++ "/{s}" ++ MODULE_EXT, .{root_mod_name});
         defer self.allocator.free(build_path);
 
         std.fs.cwd().access(build_path, .{}) catch |err| {
-            // Module not in .build/, skip it
-            std.debug.print("[DEBUG generator] Module {s}: .build file not found at {s}, err={}\n", .{ root_mod_name, build_path, err });
+            // Module not in cache, skip it
+            std.debug.print("[DEBUG generator] Module {s}: cache file not found at {s}, err={}\n", .{ root_mod_name, build_path, err });
             continue;
         };
         std.debug.print("[DEBUG generator] Module {s}: generating @import for {s}\n", .{ root_mod_name, import_path });
@@ -709,7 +709,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     else => {},
                 }
             } else {
-                // Compiled Python module - emit @import if .build file exists
+                // Compiled Python module - emit @import if cache file exists
                 const build_path = try std.fmt.allocPrint(self.allocator, BUILD_DIR ++ "/{s}" ++ MODULE_EXT, .{root_mod_name});
                 defer self.allocator.free(build_path);
 

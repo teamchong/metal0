@@ -24,7 +24,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         if (err != error.PathAlreadyExists) return err;
     };
 
-    // Copy runtime files to .build for import
+    // Copy runtime files to cache for import
     const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "netpoller.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig", "pickle.zig", "test_support.zig", "expr_parser.zig", "zlib.zig", "base64.zig", "pylong.zig", "_string.zig", "type_factory.zig", "pycomplex.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(aa, "packages/runtime/src/{s}", .{file});
@@ -52,7 +52,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         try dst.writeAll(content);
     }
 
-    // Copy bigint package to .build
+    // Copy bigint package to cache
     {
         const src = std.fs.cwd().openFile("packages/bigint/src/bigint.zig", .{}) catch |e| {
             std.debug.print("Failed to open bigint.zig: {any}\n", .{e});
@@ -66,7 +66,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         try dst.writeAll(bigint_content);
     }
 
-    // Copy runtime subdirectories to .build
+    // Copy runtime subdirectories to cache
     try compiler_utils.copyRuntimeDir(aa, "http", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "async", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "json", build_dir);
@@ -112,7 +112,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
                 }
             }
         } else |err| {
-            // If .build doesn't exist, that's fine - no modules to copy
+            // If cache doesn't exist, that's fine - no modules to copy
             if (err != error.FileNotFound) return err;
         }
     }
@@ -214,7 +214,7 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
         if (err != error.PathAlreadyExists) return err;
     };
 
-    // Copy runtime files to .build for import
+    // Copy runtime files to cache for import
     const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig", "pickle.zig", "test_support.zig", "expr_parser.zig", "zlib.zig", "base64.zig", "pylong.zig", "_string.zig", "type_factory.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{file});
@@ -232,7 +232,7 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
         dst.close();
     }
 
-    // Copy runtime subdirectories to .build
+    // Copy runtime subdirectories to cache
     try compiler_utils.copyRuntimeDir(allocator, "http", build_dir);
     try compiler_utils.copyRuntimeDir(allocator, "async", build_dir);
     try compiler_utils.copyRuntimeDir(allocator, "json", build_dir);
@@ -276,7 +276,7 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
             }
         }
     } else |err| {
-        // If .build doesn't exist, that's fine - no modules to copy
+        // If cache doesn't exist, that's fine - no modules to copy
         if (err != error.FileNotFound) return err;
     }
 
@@ -392,7 +392,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
         if (err != error.PathAlreadyExists) return err;
     };
 
-    // Copy runtime files to .build for import (same as compileZig)
+    // Copy runtime files to cache for import (same as compileZig)
     const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "http.zig", "json.zig", "re.zig", "numpy_array.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "flask.zig", "requests.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig", "pickle.zig", "test_support.zig", "expr_parser.zig", "zlib.zig", "base64.zig", "pylong.zig", "_string.zig", "type_factory.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(aa, "packages/runtime/src/{s}", .{file});
@@ -419,7 +419,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
         try dst.writeAll(content);
     }
 
-    // Copy bigint package to .build
+    // Copy bigint package to cache
     {
         const src = std.fs.cwd().openFile("packages/bigint/src/bigint.zig", .{}) catch |e| {
             std.debug.print("Failed to open bigint.zig: {any}\n", .{e});
@@ -433,7 +433,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
         try dst.writeAll(bigint_content);
     }
 
-    // Copy runtime subdirectories to .build
+    // Copy runtime subdirectories to cache
     try compiler_utils.copyRuntimeDir(aa, "http", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "async", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "json", build_dir);
