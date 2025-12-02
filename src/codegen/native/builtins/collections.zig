@@ -5,6 +5,29 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 
+/// String method codegen patterns for map(str.method, items)
+const StrMethodPatterns = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "strip", "const __mapped = std.mem.trim(u8, __map_item, \" \\t\\r\\n\");\n" },
+    .{ "upper", "const __mapped = runtime.str.upper(__global_allocator, __map_item) catch __map_item;\n" },
+    .{ "lower", "const __mapped = runtime.str.lower(__global_allocator, __map_item) catch __map_item;\n" },
+    .{ "lstrip", "const __mapped = std.mem.trimLeft(u8, __map_item, \" \\t\\r\\n\");\n" },
+    .{ "rstrip", "const __mapped = std.mem.trimRight(u8, __map_item, \" \\t\\r\\n\");\n" },
+});
+
+/// Type conversion result types for map(int, ...), map(float, ...), map(str, ...)
+const TypeConvResultTypes = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "int", "i64" },
+    .{ "float", "f64" },
+    .{ "str", "[]const u8" },
+});
+
+/// Type conversion code patterns
+const TypeConvPatterns = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "int", "const __mapped = std.fmt.parseInt(i64, __map_item, 10) catch 0;\n" },
+    .{ "float", "const __mapped = std.fmt.parseFloat(f64, __map_item) catch 0.0;\n" },
+    .{ "str", "const __mapped = std.fmt.allocPrint(__global_allocator, \"{any}\", .{__map_item}) catch \"\";\n" },
+});
+
 /// Generate code for range(stop) or range(start, stop) or range(start, stop, step)
 /// Returns an iterable range object (PyObject list)
 pub fn genRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -279,6 +302,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
             // Handle str.strip, str.upper, str.lower, etc.
             if (std.mem.eql(u8, type_name, "str")) {
+                const pattern = StrMethodPatterns.get(method_name) orelse "const __mapped = __map_item; // unsupported str method\n";
                 try self.emit("__map_blk: {\n");
                 self.indent();
                 try self.emitIndent();
@@ -295,22 +319,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 }
                 self.indent();
                 try self.emitIndent();
-
-                // Handle different string methods
-                if (std.mem.eql(u8, method_name, "strip")) {
-                    try self.emit("const __mapped = std.mem.trim(u8, __map_item, \" \\t\\r\\n\");\n");
-                } else if (std.mem.eql(u8, method_name, "upper")) {
-                    try self.emit("const __mapped = runtime.str.upper(__global_allocator, __map_item) catch __map_item;\n");
-                } else if (std.mem.eql(u8, method_name, "lower")) {
-                    try self.emit("const __mapped = runtime.str.lower(__global_allocator, __map_item) catch __map_item;\n");
-                } else if (std.mem.eql(u8, method_name, "lstrip")) {
-                    try self.emit("const __mapped = std.mem.trimLeft(u8, __map_item, \" \\t\\r\\n\");\n");
-                } else if (std.mem.eql(u8, method_name, "rstrip")) {
-                    try self.emit("const __mapped = std.mem.trimRight(u8, __map_item, \" \\t\\r\\n\");\n");
-                } else {
-                    try self.emit("const __mapped = __map_item; // unsupported str method\n");
-                }
-
+                try self.emit(pattern);
                 try self.emitIndent();
                 try self.emit("__map_result.append(__global_allocator, __mapped) catch {};\n");
                 self.dedent();
@@ -329,18 +338,8 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Handle type conversion: map(int, items), map(float, items), map(str, items)
     if (func == .name) {
         const func_name = func.name.id;
-
-        if (std.mem.eql(u8, func_name, "int") or
-            std.mem.eql(u8, func_name, "float") or
-            std.mem.eql(u8, func_name, "str"))
-        {
-            const result_type = if (std.mem.eql(u8, func_name, "int"))
-                "i64"
-            else if (std.mem.eql(u8, func_name, "float"))
-                "f64"
-            else
-                "[]const u8";
-
+        if (TypeConvResultTypes.get(func_name)) |result_type| {
+            const conv_pattern = TypeConvPatterns.get(func_name) orelse "const __mapped = __map_item;\n";
             try self.emit("__map_blk: {\n");
             self.indent();
             try self.emitIndent();
@@ -357,15 +356,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
             self.indent();
             try self.emitIndent();
-
-            if (std.mem.eql(u8, func_name, "int")) {
-                try self.emit("const __mapped = std.fmt.parseInt(i64, __map_item, 10) catch 0;\n");
-            } else if (std.mem.eql(u8, func_name, "float")) {
-                try self.emit("const __mapped = std.fmt.parseFloat(f64, __map_item) catch 0.0;\n");
-            } else {
-                try self.emit("const __mapped = std.fmt.allocPrint(__global_allocator, \"{any}\", .{__map_item}) catch \"\";\n");
-            }
-
+            try self.emit(conv_pattern);
             try self.emitIndent();
             try self.emit("__map_result.append(__global_allocator, __mapped) catch {};\n");
             self.dedent();

@@ -3,6 +3,16 @@ const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 
+/// String methods that allocate new strings (O(1) lookup)
+/// NOTE: strip/lstrip/rstrip use std.mem.trim - they DON'T allocate!
+const AllocatingStringMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "upper", {} }, .{ "lower", {} },
+    .{ "replace", {} }, .{ "capitalize", {} },
+    .{ "title", {} }, .{ "swapcase", {} },
+    .{ "center", {} }, .{ "ljust", {} },
+    .{ "rjust", {} }, .{ "join", {} },
+});
+
 /// Check if a list contains only literal values
 pub fn isConstantList(list: ast.Node.List) bool {
     if (list.elts.len == 0) return false;
@@ -110,22 +120,7 @@ pub fn isAllocatedString(self: *NativeCodegen, value: ast.Node) bool {
             const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch return false;
 
             if (obj_type == .string) {
-                const method_name = attr.attr;
-                // All string methods that allocate and return new strings
-                // NOTE: strip/lstrip/rstrip use std.mem.trim - they DON'T allocate!
-                const allocating_methods = [_][]const u8{
-                    "upper",   "lower",
-                    "replace", "capitalize",
-                    "title",   "swapcase",
-                    "center",  "ljust",
-                    "rjust",   "join",
-                };
-
-                for (allocating_methods) |method| {
-                    if (std.mem.eql(u8, method_name, method)) {
-                        return true;
-                    }
-                }
+                if (AllocatingStringMethods.has(attr.attr)) return true;
             }
         }
         // Built-in functions that allocate: sorted(), reversed()
