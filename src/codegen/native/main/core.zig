@@ -368,6 +368,10 @@ pub const NativeCodegen = struct {
     // Used to determine if a variable is mutated within the current scope
     current_scope_id: usize,
 
+    // True when generating code inside a defer block
+    // In defer blocks, 'try' is not allowed, so we use 'catch {}' instead
+    inside_defer: bool,
+
     // Current function being generated (for tail-call optimization)
     // Set during function generation, null otherwise
     current_function_name: ?[]const u8,
@@ -507,6 +511,7 @@ pub const NativeCodegen = struct {
             .method_nesting_depth = 0,
             .inside_method_with_self = false,
             .current_scope_id = 0,
+            .inside_defer = false,
             .current_function_name = null,
             .skipped_modules = FnvVoidMap.init(allocator),
             .skipped_functions = FnvVoidMap.init(allocator),
