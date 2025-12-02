@@ -4,16 +4,11 @@ const std = @import("std");
 const ast = @import("ast");
 const shared = @import("shared_maps.zig");
 const ListMethods = shared.MutatingMethods;
+const AllocatorStringMethods = shared.AllocatingStringMethods;
 
-// Static string maps for DCE optimization
+// Static string maps for DCE optimization - use shared maps where possible
 const StringUtilMethods = std.StaticStringMap(void).initComptime(.{
-    .{ "upper", {} },
-    .{ "lower", {} },
-});
-
-const AllocatorStringMethods = std.StaticStringMap(void).initComptime(.{
-    .{ "replace", {} },
-    .{ "split", {} },
+    .{ "upper", {} }, .{ "lower", {} },
 });
 
 const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
