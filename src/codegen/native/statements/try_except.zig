@@ -7,6 +7,7 @@ const hashmap_helper = @import("hashmap_helper");
 const NativeType = @import("../../../analysis/native_types.zig").NativeType;
 const param_analyzer = @import("functions/param_analyzer.zig");
 const shared = @import("../shared_maps.zig");
+const zig_keywords = @import("zig_keywords");
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
@@ -746,12 +747,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         try self.emitIndent();
                         if (is_hoisted) {
                             // Assign to the existing hoisted variable
-                            try self.emit(exc_name);
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
                             try self.output.writer(self.allocator).print(" = @errorName({s});\n", .{err_var});
                         } else {
                             // Declare new const
                             try self.emit("const ");
-                            try self.emit(exc_name);
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
                             try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
                         }
                     }
@@ -784,12 +785,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         try self.emitIndent();
                         if (is_hoisted) {
                             // Assign to the existing hoisted variable
-                            try self.emit(exc_name);
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
                             try self.output.writer(self.allocator).print(" = @errorName({s});\n", .{err_var});
                         } else {
                             // Declare new const
                             try self.emit("const ");
-                            try self.emit(exc_name);
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
                             try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
                         }
                     }

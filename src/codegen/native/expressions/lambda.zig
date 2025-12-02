@@ -244,8 +244,12 @@ fn isParamUsedInBody(param_name: []const u8, body: ast.Node) bool {
             }
             break :blk false;
         },
-        .subscript => |sub| isParamUsedInBody(param_name, sub.value.*) or
-            (if (sub.slice == .index) isParamUsedInBody(param_name, sub.slice.index.*) else false),
+        .subscript => |sub| isParamUsedInBody(param_name, sub.value.*) or switch (sub.slice) {
+            .index => |idx| isParamUsedInBody(param_name, idx.*),
+            .slice => |s| (if (s.lower) |l| isParamUsedInBody(param_name, l.*) else false) or
+                (if (s.upper) |u| isParamUsedInBody(param_name, u.*) else false) or
+                (if (s.step) |st| isParamUsedInBody(param_name, st.*) else false),
+        },
         .attribute => |attr| isParamUsedInBody(param_name, attr.value.*),
         .if_expr => |ie| isParamUsedInBody(param_name, ie.condition.*) or
             isParamUsedInBody(param_name, ie.body.*) or
@@ -317,8 +321,13 @@ fn findVarReferences(self: *NativeCodegen, node: ast.Node, captured: *std.ArrayL
         },
         .subscript => |sub| {
             try findVarReferences(self, sub.value.*, captured);
-            if (sub.slice == .index) {
-                try findVarReferences(self, sub.slice.index.*, captured);
+            switch (sub.slice) {
+                .index => |idx| try findVarReferences(self, idx.*, captured),
+                .slice => |s| {
+                    if (s.lower) |l| try findVarReferences(self, l.*, captured);
+                    if (s.upper) |u| try findVarReferences(self, u.*, captured);
+                    if (s.step) |st| try findVarReferences(self, st.*, captured);
+                },
             }
         },
         .if_expr => |ie| {
@@ -551,10 +560,12 @@ fn referencesNestedClass(self: *NativeCodegen, node: ast.Node) bool {
         },
         .subscript => |sub| {
             if (referencesNestedClass(self, sub.value.*)) return true;
-            if (sub.slice == .index) {
-                return referencesNestedClass(self, sub.slice.index.*);
-            }
-            return false;
+            return switch (sub.slice) {
+                .index => |idx| referencesNestedClass(self, idx.*),
+                .slice => |s| (if (s.lower) |l| referencesNestedClass(self, l.*) else false) or
+                    (if (s.upper) |u| referencesNestedClass(self, u.*) else false) or
+                    (if (s.step) |st| referencesNestedClass(self, st.*) else false),
+            };
         },
         .if_expr => |ie| {
             return referencesNestedClass(self, ie.condition.*) or
