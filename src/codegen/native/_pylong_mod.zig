@@ -13,7 +13,6 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 const genIntToDecimalString = h.wrap("(blk: { const n = ", "; if (@TypeOf(n) == runtime.BigInt) { break :blk n.toString(__global_allocator); } else { break :blk try std.fmt.allocPrint(__global_allocator, \"{d}\", .{n}); } })", "\"0\"");
 
-
 fn genIntFromString(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("@as(i64, 0)"); return; }
     try self.emit("(blk: { const s = "); try self.genExpr(args[0]); try self.emit("; const base: u8 = ");
