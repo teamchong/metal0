@@ -247,48 +247,42 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
     }
 }
 
-/// Convert Unicode character name to codepoint
-/// Supports common names used in Python tests
-fn unicodeNameToCodepoint(name: []const u8) ?u21 {
-    // Common Unicode names - add more as needed
-    const mappings = [_]struct { name: []const u8, codepoint: u21 }{
-        .{ .name = "EM SPACE", .codepoint = 0x2003 },
-        .{ .name = "EN SPACE", .codepoint = 0x2002 },
-        .{ .name = "FIGURE SPACE", .codepoint = 0x2007 },
-        .{ .name = "NO-BREAK SPACE", .codepoint = 0x00A0 },
-        .{ .name = "NARROW NO-BREAK SPACE", .codepoint = 0x202F },
-        .{ .name = "THIN SPACE", .codepoint = 0x2009 },
-        .{ .name = "HAIR SPACE", .codepoint = 0x200A },
-        .{ .name = "ZERO WIDTH SPACE", .codepoint = 0x200B },
-        .{ .name = "ZERO WIDTH NON-JOINER", .codepoint = 0x200C },
-        .{ .name = "ZERO WIDTH JOINER", .codepoint = 0x200D },
-        .{ .name = "LINE SEPARATOR", .codepoint = 0x2028 },
-        .{ .name = "PARAGRAPH SEPARATOR", .codepoint = 0x2029 },
-        .{ .name = "IDEOGRAPHIC SPACE", .codepoint = 0x3000 },
-        .{ .name = "FULLWIDTH DIGIT ZERO", .codepoint = 0xFF10 },
-        .{ .name = "FULLWIDTH DIGIT ONE", .codepoint = 0xFF11 },
-        .{ .name = "FULLWIDTH DIGIT TWO", .codepoint = 0xFF12 },
-        .{ .name = "FULLWIDTH DIGIT THREE", .codepoint = 0xFF13 },
-        .{ .name = "FULLWIDTH DIGIT FOUR", .codepoint = 0xFF14 },
-        .{ .name = "FULLWIDTH DIGIT FIVE", .codepoint = 0xFF15 },
-        .{ .name = "FULLWIDTH DIGIT SIX", .codepoint = 0xFF16 },
-        .{ .name = "FULLWIDTH DIGIT SEVEN", .codepoint = 0xFF17 },
-        .{ .name = "FULLWIDTH DIGIT EIGHT", .codepoint = 0xFF18 },
-        .{ .name = "FULLWIDTH DIGIT NINE", .codepoint = 0xFF19 },
-        .{ .name = "DIGIT ZERO", .codepoint = 0x0030 },
-        .{ .name = "DIGIT ONE", .codepoint = 0x0031 },
-        .{ .name = "MATHEMATICAL BOLD DIGIT ZERO", .codepoint = 0x1D7CE },
-        .{ .name = "MATHEMATICAL BOLD DIGIT ONE", .codepoint = 0x1D7CF },
-        .{ .name = "SUBSCRIPT ZERO", .codepoint = 0x2080 },
-        .{ .name = "SUBSCRIPT ONE", .codepoint = 0x2081 },
-        .{ .name = "SUPERSCRIPT ZERO", .codepoint = 0x2070 },
-        .{ .name = "SUPERSCRIPT ONE", .codepoint = 0x00B9 },
-    };
+/// Unicode name to codepoint mapping (O(1) lookup)
+const UnicodeNames = std.StaticStringMap(u21).initComptime(.{
+    .{ "EM SPACE", 0x2003 },
+    .{ "EN SPACE", 0x2002 },
+    .{ "FIGURE SPACE", 0x2007 },
+    .{ "NO-BREAK SPACE", 0x00A0 },
+    .{ "NARROW NO-BREAK SPACE", 0x202F },
+    .{ "THIN SPACE", 0x2009 },
+    .{ "HAIR SPACE", 0x200A },
+    .{ "ZERO WIDTH SPACE", 0x200B },
+    .{ "ZERO WIDTH NON-JOINER", 0x200C },
+    .{ "ZERO WIDTH JOINER", 0x200D },
+    .{ "LINE SEPARATOR", 0x2028 },
+    .{ "PARAGRAPH SEPARATOR", 0x2029 },
+    .{ "IDEOGRAPHIC SPACE", 0x3000 },
+    .{ "FULLWIDTH DIGIT ZERO", 0xFF10 },
+    .{ "FULLWIDTH DIGIT ONE", 0xFF11 },
+    .{ "FULLWIDTH DIGIT TWO", 0xFF12 },
+    .{ "FULLWIDTH DIGIT THREE", 0xFF13 },
+    .{ "FULLWIDTH DIGIT FOUR", 0xFF14 },
+    .{ "FULLWIDTH DIGIT FIVE", 0xFF15 },
+    .{ "FULLWIDTH DIGIT SIX", 0xFF16 },
+    .{ "FULLWIDTH DIGIT SEVEN", 0xFF17 },
+    .{ "FULLWIDTH DIGIT EIGHT", 0xFF18 },
+    .{ "FULLWIDTH DIGIT NINE", 0xFF19 },
+    .{ "DIGIT ZERO", 0x0030 },
+    .{ "DIGIT ONE", 0x0031 },
+    .{ "MATHEMATICAL BOLD DIGIT ZERO", 0x1D7CE },
+    .{ "MATHEMATICAL BOLD DIGIT ONE", 0x1D7CF },
+    .{ "SUBSCRIPT ZERO", 0x2080 },
+    .{ "SUBSCRIPT ONE", 0x2081 },
+    .{ "SUPERSCRIPT ZERO", 0x2070 },
+    .{ "SUPERSCRIPT ONE", 0x00B9 },
+});
 
-    for (mappings) |m| {
-        if (std.mem.eql(u8, name, m.name)) {
-            return m.codepoint;
-        }
-    }
-    return null;
+/// Convert Unicode character name to codepoint
+fn unicodeNameToCodepoint(name: []const u8) ?u21 {
+    return UnicodeNames.get(name);
 }

@@ -94,12 +94,17 @@ test-integration: build
 	done; \
 	echo "Integration: $$passed passed, $$failed failed"
 
-# CPython compatibility tests
+# CPython compatibility tests (parallel - 8x faster)
 test-cpython: build
-	@echo "Running CPython tests..."
+	@echo "Running CPython tests (parallel)..."
+	@python3 tools/parallel_test.py 8 15
+
+# CPython tests (sequential - for debugging)
+test-cpython-seq: build
+	@echo "Running CPython tests (sequential)..."
 	@passed=0; failed=0; \
 	for f in tests/cpython/test_*.py; do \
-		if timeout 5 ./zig-out/bin/metal0 "$$f" --force >/dev/null 2>&1; then \
+		if timeout 15 ./zig-out/bin/metal0 "$$f" --force >/dev/null 2>&1; then \
 			passed=$$((passed + 1)); \
 		else \
 			echo "✗ $$f"; \

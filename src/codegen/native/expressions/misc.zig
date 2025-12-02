@@ -335,23 +335,18 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
 /// Check if attribute access is on a Path object accessing a property-like method
 /// In Python, Path.parent is a property; in Zig runtime, it's a method
 fn isPathProperty(attr: ast.Node.Attribute) bool {
-    // Path properties that need to be called as methods
-    const path_properties = [_][]const u8{ "parent", "stem", "suffix", "name" };
-
-    for (path_properties) |prop| {
-        if (std.mem.eql(u8, attr.attr, prop)) {
-            // Check if value is a Path() call or chained Path access
-            if (attr.value.* == .call) {
-                if (attr.value.call.func.* == .name) {
-                    if (std.mem.eql(u8, attr.value.call.func.name.id, "Path")) {
-                        return true;
-                    }
+    if (PathProperties.has(attr.attr)) {
+        // Check if value is a Path() call or chained Path access
+        if (attr.value.* == .call) {
+            if (attr.value.call.func.* == .name) {
+                if (std.mem.eql(u8, attr.value.call.func.name.id, "Path")) {
+                    return true;
                 }
             }
-            // Check for chained access like Path(...).parent.parent
-            if (attr.value.* == .attribute) {
-                return isPathProperty(attr.value.attribute);
-            }
+        }
+        // Check for chained access like Path(...).parent.parent
+        if (attr.value.* == .attribute) {
+            return isPathProperty(attr.value.attribute);
         }
     }
     return false;

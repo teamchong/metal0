@@ -20,6 +20,15 @@ const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
     .{ "list", "anytype" },
 });
 
+/// Known Zig primitive types for return type validation (O(1) lookup)
+const KnownZigTypes = std.StaticStringMap(void).initComptime(.{
+    .{ "i64", {} }, .{ "i32", {} }, .{ "i8", {} }, .{ "u8", {} }, .{ "u16", {} },
+    .{ "u32", {} }, .{ "u64", {} }, .{ "usize", {} }, .{ "isize", {} },
+    .{ "bool", {} }, .{ "void", {} }, .{ "f32", {} }, .{ "f64", {} },
+    .{ "[]const u8", {} }, .{ "[]u8", {} },
+    .{ "*runtime.PyObject", {} }, .{ "@This()", {} }, .{ "anytype", {} },
+});
+
 /// Magic method return types - these have fixed return types in Python
 /// regardless of what the method body might suggest
 /// NOTE: Comparison methods return bool. `return NotImplemented` is converted
@@ -1135,22 +1144,9 @@ pub fn genMethodSignatureWithSkip(
                     } else {
                         // Check if the return type is a known class or a safe Zig type
                         // Avoid using unknown names (like captured variables) as types
-                        const is_known_type = blk: {
-                            // Check known Zig primitive types
-                            const known_types = [_][]const u8{
-                                "i64", "i32", "i8", "u8", "u16", "u32", "u64", "usize", "isize",
-                                "bool", "void", "f32", "f64", "[]const u8", "[]u8",
-                                "*runtime.PyObject", "@This()", "anytype",
-                            };
-                            for (known_types) |known| {
-                                if (std.mem.eql(u8, return_type_str, known)) break :blk true;
-                            }
-                            // Check if it's a known class from type inference
-                            if (self.type_inferrer.class_fields.contains(return_type_str)) break :blk true;
-                            // Check if it's a nested class in current scope
-                            if (self.nested_class_names.contains(return_type_str)) break :blk true;
-                            break :blk false;
-                        };
+                        const is_known_type = KnownZigTypes.has(return_type_str) or
+                            self.type_inferrer.class_fields.contains(return_type_str) or
+                            self.nested_class_names.contains(return_type_str);
                         if (is_known_type) {
                             try self.emit(return_type_str);
                         } else {

@@ -5,6 +5,24 @@ const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
 
+const MutatingMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "append", {} }, .{ "extend", {} }, .{ "insert", {} }, .{ "pop", {} }, .{ "clear", {} },
+    .{ "remove", {} }, .{ "update", {} }, .{ "add", {} }, .{ "discard", {} }, .{ "sort", {} }, .{ "reverse", {} },
+});
+
+const BuiltinNames = std.StaticStringMap(void).initComptime(.{
+    .{ "True", {} }, .{ "False", {} }, .{ "None", {} }, .{ "int", {} }, .{ "float", {} }, .{ "str", {} }, .{ "bool", {} },
+    .{ "list", {} }, .{ "dict", {} }, .{ "set", {} }, .{ "tuple", {} }, .{ "len", {} }, .{ "print", {} }, .{ "range", {} },
+    .{ "type", {} }, .{ "isinstance", {} }, .{ "hasattr", {} }, .{ "getattr", {} }, .{ "setattr", {} }, .{ "delattr", {} },
+    .{ "callable", {} }, .{ "iter", {} }, .{ "next", {} }, .{ "enumerate", {} }, .{ "zip", {} }, .{ "map", {} },
+    .{ "filter", {} }, .{ "sorted", {} }, .{ "reversed", {} }, .{ "min", {} }, .{ "max", {} }, .{ "sum", {} },
+    .{ "abs", {} }, .{ "round", {} }, .{ "pow", {} }, .{ "divmod", {} }, .{ "hex", {} }, .{ "oct", {} }, .{ "bin", {} },
+    .{ "ord", {} }, .{ "chr", {} }, .{ "repr", {} }, .{ "NotImplemented", {} }, .{ "Exception", {} }, .{ "ValueError", {} },
+    .{ "TypeError", {} }, .{ "KeyError", {} }, .{ "IndexError", {} }, .{ "AttributeError", {} }, .{ "RuntimeError", {} },
+    .{ "AssertionError", {} }, .{ "StopIteration", {} }, .{ "object", {} }, .{ "super", {} }, .{ "self", {} },
+    .{ "__name__", {} }, .{ "__file__", {} },
+});
+
 /// Analyze nested classes for captured outer variables
 /// Populates func_local_vars with variables defined in function scope
 /// Populates nested_class_captures with outer variables referenced by each nested class
@@ -192,20 +210,9 @@ fn detectMutationInNode(
                             break;
                         }
                     }
-                    if (!is_param and self.func_local_vars.contains(var_name)) {
-                        // Check if method name is a mutating method
-                        const mutating_methods = [_][]const u8{
-                            "append", "extend", "insert", "pop", "clear",
-                            "remove", "update", "add", "discard", "sort", "reverse",
-                        };
-                        for (mutating_methods) |m| {
-                            if (std.mem.eql(u8, attr.attr, m)) {
-                                // Mark as mutated: "class_name.var_name"
-                                const key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, var_name }) catch continue;
-                                try self.mutated_captures.put(key, {});
-                                break;
-                            }
-                        }
+                    if (!is_param and self.func_local_vars.contains(var_name) and MutatingMethods.has(attr.attr)) {
+                        const key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, var_name }) catch return;
+                        try self.mutated_captures.put(key, {});
                     }
                 }
             }
@@ -380,20 +387,7 @@ pub fn findOuterRefsInNode(
 
 /// Check if a name is a Python builtin
 pub fn isBuiltinName(name: []const u8) bool {
-    const builtins = [_][]const u8{
-        "True", "False", "None", "int", "float", "str", "bool", "list", "dict",
-        "set", "tuple", "len", "print", "range", "type", "isinstance", "hasattr",
-        "getattr", "setattr", "delattr", "callable", "iter", "next", "enumerate",
-        "zip", "map", "filter", "sorted", "reversed", "min", "max", "sum", "abs",
-        "round", "pow", "divmod", "hex", "oct", "bin", "ord", "chr", "repr",
-        "NotImplemented", "Exception", "ValueError", "TypeError", "KeyError",
-        "IndexError", "AttributeError", "RuntimeError", "AssertionError",
-        "StopIteration", "object", "super", "self", "__name__", "__file__",
-    };
-    for (builtins) |b| {
-        if (std.mem.eql(u8, name, b)) return true;
-    }
-    return false;
+    return BuiltinNames.has(name);
 }
 
 /// Analyze function for forward-referenced captured variables
