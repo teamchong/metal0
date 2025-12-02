@@ -6,7 +6,8 @@ const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "dump", h.c("{}") }, .{ "dumps", genDumps }, .{ "load", genLoad }, .{ "loads", genLoads }, .{ "version", h.I32(4) },
+    .{ "dump", h.c("{}") }, .{ "dumps", genDumps }, .{ "load", genLoad },
+    .{ "loads", h.wrap("runtime.marshalLoads(", ")", "null") }, .{ "version", h.I32(4) },
 });
 
 fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -31,7 +32,3 @@ fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else try self.emit("null");
 }
 
-fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("runtime.marshalLoads("); try self.genExpr(args[0]); try self.emit(")"); }
-    else try self.emit("null");
-}

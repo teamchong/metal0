@@ -6,23 +6,10 @@ const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "compress", genCompress }, .{ "decompress", genDecompress },
+    .{ "compress", h.wrap("try runtime.gzip.compress(__global_allocator, ", ")", "\"\"") },
+    .{ "decompress", h.wrap("try runtime.gzip.decompress(__global_allocator, ", ")", "\"\"") },
     .{ "open", genOpen }, .{ "GzipFile", genOpen }, .{ "BadGzipFile", h.c("\"BadGzipFile\"") },
 });
-
-fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-    try self.emit("try runtime.gzip.compress(__global_allocator, ");
-    try self.genExpr(args[0]);
-    try self.emit(")");
-}
-
-fn genDecompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-    try self.emit("try runtime.gzip.decompress(__global_allocator, ");
-    try self.genExpr(args[0]);
-    try self.emit(")");
-}
 
 fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

@@ -8,7 +8,8 @@ const NativeCodegen = h.NativeCodegen;
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "heappush", genHeappush }, .{ "heappop", genHeappop }, .{ "heapify", genHeapify },
     .{ "heapreplace", genHeapreplace }, .{ "heappushpop", genHeappushpop },
-    .{ "nlargest", genNlargest }, .{ "nsmallest", genNsmallest }, .{ "merge", genMerge },
+    .{ "nlargest", genNlargest }, .{ "nsmallest", genNsmallest },
+    .{ "merge", h.wrap("", ".items", "&[_]i64{}") },
 });
 
 fn genHeappush(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -53,7 +54,3 @@ fn genNsmallest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(".items; var _sorted = __global_allocator.alloc(@TypeOf(_items[0]), _items.len) catch break :blk &[_]@TypeOf(_items[0]){}; @memcpy(_sorted, _items); std.mem.sort(@TypeOf(_items[0]), _sorted, {}, struct { fn cmp(_: void, a: anytype, b: anytype) bool { return a < b; } }.cmp); break :blk _sorted[0..@min(_n, _sorted.len)]; }");
 }
 
-fn genMerge(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("&[_]i64{}"); return; }
-    try self.genExpr(args[0]); try self.emit(".items");
-}

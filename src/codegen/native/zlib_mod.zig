@@ -6,7 +6,8 @@ const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "compress", genCompress }, .{ "decompress", genDecompress },
+    .{ "compress", h.wrap("try zlib.compress(", ", __global_allocator)", "\"\"") },
+    .{ "decompress", h.wrap("try zlib.decompressAuto(", ", __global_allocator)", "\"\"") },
     .{ "compressobj", genCompressobj }, .{ "decompressobj", h.c("zlib.decompressobj.init()") },
     .{ "crc32", genCrc32 }, .{ "adler32", genAdler32 },
     .{ "crc32_combine", genCrc32Combine }, .{ "adler32_combine", genAdler32Combine },
@@ -16,13 +17,6 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Z_NO_FLUSH", h.I32(0) }, .{ "Z_PARTIAL_FLUSH", h.I32(1) }, .{ "Z_SYNC_FLUSH", h.I32(2) }, .{ "Z_FULL_FLUSH", h.I32(3) }, .{ "Z_FINISH", h.I32(4) }, .{ "Z_BLOCK", h.I32(5) }, .{ "Z_TREES", h.I32(6) },
     .{ "ZLIB_VERSION", h.c("\"1.2.13\"") }, .{ "ZLIB_RUNTIME_VERSION", h.c("zlib.zlibVersion()") }, .{ "error", h.err("ZlibError") },
 });
-
-fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("try zlib.compress("); try self.genExpr(args[0]); try self.emit(", __global_allocator)"); } else try self.emit("\"\"");
-}
-fn genDecompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("try zlib.decompressAuto("); try self.genExpr(args[0]); try self.emit(", __global_allocator)"); } else try self.emit("\"\"");
-}
 fn genCompressobj(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("zlib.compressobj.init(");
     if (args.len > 0) { try self.emit("@intCast("); try self.genExpr(args[0]); try self.emit(")"); } else try self.emit("-1");
