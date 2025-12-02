@@ -4,6 +4,12 @@ const ast = @import("ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 
+/// Python builtin types for isinstance checks
+const PythonBuiltinTypes = std.StaticStringMap(void).initComptime(.{
+    .{ "bool", {} }, .{ "int", {} }, .{ "float", {} },
+    .{ "str", {} }, .{ "list", {} }, .{ "dict", {} },
+});
+
 /// Generate code for type(obj)
 /// Returns compile-time type name as string
 pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
