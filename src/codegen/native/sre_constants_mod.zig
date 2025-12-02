@@ -1,30 +1,22 @@
 /// Python sre_constants module - Internal support module for sre
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-fn genU32(comptime n: comptime_int) ModuleHandler { return genConst(std.fmt.comptimePrint("@as(u32, {})", .{n})); }
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "MAGIC", genConst("@as(u32, 20171005)") }, .{ "MAXREPEAT", genConst("@as(u32, 4294967295)") }, .{ "MAXGROUPS", genU32(100) },
-    .{ "OPCODES", genConst("&[_][]const u8{ \"FAILURE\", \"SUCCESS\", \"ANY\", \"ANY_ALL\", \"ASSERT\", \"ASSERT_NOT\", \"AT\", \"BRANCH\", \"CALL\", \"CATEGORY\", \"CHARSET\", \"BIGCHARSET\", \"GROUPREF\", \"GROUPREF_EXISTS\", \"IN\", \"INFO\", \"JUMP\", \"LITERAL\", \"MARK\", \"MAX_UNTIL\", \"MIN_UNTIL\", \"NOT_LITERAL\", \"NEGATE\", \"RANGE\", \"REPEAT\", \"REPEAT_ONE\", \"SUBPATTERN\", \"MIN_REPEAT_ONE\", \"ATOMIC_GROUP\", \"POSSESSIVE_REPEAT\", \"POSSESSIVE_REPEAT_ONE\" }") },
-    .{ "ATCODES", genConst("&[_][]const u8{ \"AT_BEGINNING\", \"AT_BEGINNING_LINE\", \"AT_BEGINNING_STRING\", \"AT_BOUNDARY\", \"AT_NON_BOUNDARY\", \"AT_END\", \"AT_END_LINE\", \"AT_END_STRING\" }") },
-    .{ "CHCODES", genConst("&[_][]const u8{ \"CATEGORY_DIGIT\", \"CATEGORY_NOT_DIGIT\", \"CATEGORY_SPACE\", \"CATEGORY_NOT_SPACE\", \"CATEGORY_WORD\", \"CATEGORY_NOT_WORD\", \"CATEGORY_LINEBREAK\", \"CATEGORY_NOT_LINEBREAK\" }") },
-    .{ "FAILURE", genU32(0) }, .{ "SUCCESS", genU32(1) }, .{ "ANY", genU32(2) }, .{ "ANY_ALL", genU32(3) },
-    .{ "ASSERT", genU32(4) }, .{ "ASSERT_NOT", genU32(5) }, .{ "AT", genU32(6) }, .{ "BRANCH", genU32(7) },
-    .{ "CALL", genU32(8) }, .{ "CATEGORY", genU32(9) }, .{ "CHARSET", genU32(10) }, .{ "BIGCHARSET", genU32(11) },
-    .{ "GROUPREF", genU32(12) }, .{ "GROUPREF_EXISTS", genU32(13) }, .{ "IN", genU32(14) }, .{ "INFO", genU32(15) },
-    .{ "JUMP", genU32(16) }, .{ "LITERAL", genU32(17) }, .{ "MARK", genU32(18) }, .{ "MAX_UNTIL", genU32(19) },
-    .{ "MIN_UNTIL", genU32(20) }, .{ "NOT_LITERAL", genU32(21) }, .{ "NEGATE", genU32(22) }, .{ "RANGE", genU32(23) },
-    .{ "REPEAT", genU32(24) }, .{ "REPEAT_ONE", genU32(25) }, .{ "SUBPATTERN", genU32(26) }, .{ "MIN_REPEAT_ONE", genU32(27) },
-    .{ "SRE_FLAG_TEMPLATE", genU32(1) }, .{ "SRE_FLAG_IGNORECASE", genU32(2) }, .{ "SRE_FLAG_LOCALE", genU32(4) },
-    .{ "SRE_FLAG_MULTILINE", genU32(8) }, .{ "SRE_FLAG_DOTALL", genU32(16) }, .{ "SRE_FLAG_UNICODE", genU32(32) },
-    .{ "SRE_FLAG_VERBOSE", genU32(64) }, .{ "SRE_FLAG_DEBUG", genU32(128) }, .{ "SRE_FLAG_ASCII", genU32(256) },
-    .{ "SRE_INFO_PREFIX", genU32(1) }, .{ "SRE_INFO_LITERAL", genU32(2) }, .{ "SRE_INFO_CHARSET", genU32(4) },
-    .{ "error", genConst("error.SreError") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "MAGIC", h.U32(20171005) }, .{ "MAXREPEAT", h.U32(4294967295) }, .{ "MAXGROUPS", h.U32(100) },
+    .{ "OPCODES", h.c("&[_][]const u8{ \"FAILURE\", \"SUCCESS\", \"ANY\", \"ANY_ALL\", \"ASSERT\", \"ASSERT_NOT\", \"AT\", \"BRANCH\", \"CALL\", \"CATEGORY\", \"CHARSET\", \"BIGCHARSET\", \"GROUPREF\", \"GROUPREF_EXISTS\", \"IN\", \"INFO\", \"JUMP\", \"LITERAL\", \"MARK\", \"MAX_UNTIL\", \"MIN_UNTIL\", \"NOT_LITERAL\", \"NEGATE\", \"RANGE\", \"REPEAT\", \"REPEAT_ONE\", \"SUBPATTERN\", \"MIN_REPEAT_ONE\", \"ATOMIC_GROUP\", \"POSSESSIVE_REPEAT\", \"POSSESSIVE_REPEAT_ONE\" }") },
+    .{ "ATCODES", h.c("&[_][]const u8{ \"AT_BEGINNING\", \"AT_BEGINNING_LINE\", \"AT_BEGINNING_STRING\", \"AT_BOUNDARY\", \"AT_NON_BOUNDARY\", \"AT_END\", \"AT_END_LINE\", \"AT_END_STRING\" }") },
+    .{ "CHCODES", h.c("&[_][]const u8{ \"CATEGORY_DIGIT\", \"CATEGORY_NOT_DIGIT\", \"CATEGORY_SPACE\", \"CATEGORY_NOT_SPACE\", \"CATEGORY_WORD\", \"CATEGORY_NOT_WORD\", \"CATEGORY_LINEBREAK\", \"CATEGORY_NOT_LINEBREAK\" }") },
+    .{ "FAILURE", h.U32(0) }, .{ "SUCCESS", h.U32(1) }, .{ "ANY", h.U32(2) }, .{ "ANY_ALL", h.U32(3) },
+    .{ "ASSERT", h.U32(4) }, .{ "ASSERT_NOT", h.U32(5) }, .{ "AT", h.U32(6) }, .{ "BRANCH", h.U32(7) },
+    .{ "CALL", h.U32(8) }, .{ "CATEGORY", h.U32(9) }, .{ "CHARSET", h.U32(10) }, .{ "BIGCHARSET", h.U32(11) },
+    .{ "GROUPREF", h.U32(12) }, .{ "GROUPREF_EXISTS", h.U32(13) }, .{ "IN", h.U32(14) }, .{ "INFO", h.U32(15) },
+    .{ "JUMP", h.U32(16) }, .{ "LITERAL", h.U32(17) }, .{ "MARK", h.U32(18) }, .{ "MAX_UNTIL", h.U32(19) },
+    .{ "MIN_UNTIL", h.U32(20) }, .{ "NOT_LITERAL", h.U32(21) }, .{ "NEGATE", h.U32(22) }, .{ "RANGE", h.U32(23) },
+    .{ "REPEAT", h.U32(24) }, .{ "REPEAT_ONE", h.U32(25) }, .{ "SUBPATTERN", h.U32(26) }, .{ "MIN_REPEAT_ONE", h.U32(27) },
+    .{ "SRE_FLAG_TEMPLATE", h.U32(1) }, .{ "SRE_FLAG_IGNORECASE", h.U32(2) }, .{ "SRE_FLAG_LOCALE", h.U32(4) },
+    .{ "SRE_FLAG_MULTILINE", h.U32(8) }, .{ "SRE_FLAG_DOTALL", h.U32(16) }, .{ "SRE_FLAG_UNICODE", h.U32(32) },
+    .{ "SRE_FLAG_VERBOSE", h.U32(64) }, .{ "SRE_FLAG_DEBUG", h.U32(128) }, .{ "SRE_FLAG_ASCII", h.U32(256) },
+    .{ "SRE_INFO_PREFIX", h.U32(1) }, .{ "SRE_INFO_LITERAL", h.U32(2) }, .{ "SRE_INFO_CHARSET", h.U32(4) },
+    .{ "error", h.err("SreError") },
 });

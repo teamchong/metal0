@@ -1,24 +1,19 @@
 /// Python statistics module - Mathematical statistics functions
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "mean", genMean }, .{ "fmean", genMean }, .{ "geometric_mean", genGeometricMean },
     .{ "harmonic_mean", genHarmonicMean }, .{ "median", genMedian }, .{ "median_low", genMedianLow },
     .{ "median_high", genMedianHigh }, .{ "median_grouped", genMedian }, .{ "mode", genMode },
     .{ "multimode", genMultimode }, .{ "pstdev", genPstdev }, .{ "pvariance", genPvariance },
     .{ "stdev", genStdev }, .{ "variance", genVariance },
-    .{ "quantiles", genConst("&[_]f64{}") }, .{ "covariance", genConst("@as(f64, 0.0)") },
-    .{ "correlation", genConst("@as(f64, 0.0)") }, .{ "linear_regression", genConst(".{ @as(f64, 0.0), @as(f64, 0.0) }") },
-    .{ "NormalDist", genNormalDist }, .{ "StatisticsError", genConst("\"StatisticsError\"") },
+    .{ "quantiles", h.c("&[_]f64{}") }, .{ "covariance", h.F64(0.0) },
+    .{ "correlation", h.F64(0.0) }, .{ "linear_regression", h.c(".{ @as(f64, 0.0), @as(f64, 0.0) }") },
+    .{ "NormalDist", genNormalDist }, .{ "StatisticsError", h.c("\"StatisticsError\"") },
 });
 
 fn emitStats(self: *NativeCodegen, args: []ast.Node, comptime label: []const u8, comptime default: []const u8, comptime body: []const u8) CodegenError!void {

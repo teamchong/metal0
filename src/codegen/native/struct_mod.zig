@@ -1,11 +1,11 @@
 /// Python struct module - pack, unpack, calcsize
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "pack", genPack }, .{ "unpack", genUnpack }, .{ "calcsize", genCalcsize },
     .{ "pack_into", genPackInto }, .{ "unpack_from", genUnpackFrom }, .{ "iter_unpack", genIterUnpack },
 });
