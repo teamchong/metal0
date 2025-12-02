@@ -164,7 +164,7 @@ pub fn genFuture(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("pub fn done(__self: *@This()) bool { return ____self._done; }\n");
     try self.emitIndent();
-    try self.emit("pub fn result(self: *@This(), timeout: ?f64) ?*anyopaque {\n");
+    try self.emit("pub fn result(__self: *@This(), timeout: ?f64) ?*anyopaque {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = timeout;\n");
@@ -174,7 +174,7 @@ pub fn genFuture(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn exception(self: *@This(), timeout: ?f64) ?*anyopaque {\n");
+    try self.emit("pub fn exception(__self: *@This(), timeout: ?f64) ?*anyopaque {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = timeout;\n");
@@ -184,9 +184,9 @@ pub fn genFuture(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn add_done_callback(self: *@This(), fn_: anytype) void { _ = __self; _ = fn_; }\n");
+    try self.emit("pub fn add_done_callback(__self: *@This(), fn_: anytype) void { _ = __self; _ = fn_; }\n");
     try self.emitIndent();
-    try self.emit("pub fn set_result(self: *@This(), res: anytype) void {\n");
+    try self.emit("pub fn set_result(__self: *@This(), res: anytype) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("__self._result = @ptrCast(&res);\n");
@@ -196,7 +196,7 @@ pub fn genFuture(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn set_exception(self: *@This(), exc: anytype) void {\n");
+    try self.emit("pub fn set_exception(__self: *@This(), exc: anytype) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("__self._exception = @ptrCast(&exc);\n");

@@ -41,7 +41,7 @@ pub fn genComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("pub fn __neg__(self: @This()) @This() { return .{ .real = -__self.real, .imag = -__self.imag }; }\n");
     try self.emitIndent();
-    try self.emit("pub fn __pos__(self: @This()) @This() { return self; }\n");
+    try self.emit("pub fn __pos__(self: @This()) @This() { return __self; }\n");
     try self.emitIndent();
     try self.emit("pub fn __eq__(self: @This(), other: @This()) bool { return __self.real == other.real and __self.imag == other.imag; }\n");
     try self.emitIndent();
@@ -85,7 +85,7 @@ pub fn genReal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("pub fn imag(self: @This()) f64 { return 0.0; }\n");
     try self.emitIndent();
-    try self.emit("pub fn conjugate(self: @This()) @This() { return self; }\n");
+    try self.emit("pub fn conjugate(self: @This()) @This() { return __self; }\n");
     try self.emitIndent();
     try self.emit("pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {}\n");
     self.dedent();

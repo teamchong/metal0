@@ -76,7 +76,7 @@ fn emitFractionStruct(self: *NativeCodegen) CodegenError!void {
     try self.emit("pub fn limit_denominator(self: @This(), max_denominator: i64) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("if (__self.denominator <= max_denominator) return self;\n");
+    try self.emit("if (__self.denominator <= max_denominator) return __self;\n");
     try self.emitIndent();
     try self.emit("return @This().init(@divTrunc(__self.numerator * max_denominator, __self.denominator), max_denominator);\n");
     self.dedent();

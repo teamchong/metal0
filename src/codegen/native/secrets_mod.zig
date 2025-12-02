@@ -239,7 +239,7 @@ pub fn genSystemRandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn randint(self: *@This(), a: i64, b: i64) i64 {\n");
+    try self.emit("pub fn randint(__self: *@This(), a: i64, b: i64) i64 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = self;\n");

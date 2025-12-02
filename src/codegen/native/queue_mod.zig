@@ -34,7 +34,7 @@ pub fn genQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn put(self: *@This(), item: []const u8) void {\n");
+    try self.emit("pub fn put(__self: *@This(), item: []const u8) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("__self.mutex.lock();\n");
@@ -60,7 +60,7 @@ pub fn genQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn put_nowait(self: *@This(), item: []const u8) void { __self.put(item); }\n");
+    try self.emit("pub fn put_nowait(__self: *@This(), item: []const u8) void { __self.put(item); }\n");
     try self.emitIndent();
     try self.emit("pub fn get_nowait(__self: *@This()) ?[]const u8 { return __self.get(); }\n");
     try self.emitIndent();
@@ -98,7 +98,7 @@ pub fn genLifoQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn put(self: *@This(), item: []const u8) void {\n");
+    try self.emit("pub fn put(__self: *@This(), item: []const u8) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("__self.mutex.lock();\n");

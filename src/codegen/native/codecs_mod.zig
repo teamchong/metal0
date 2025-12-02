@@ -283,7 +283,7 @@ pub fn genIncrementalEncoder(self: *NativeCodegen, args: []ast.Node) CodegenErro
     try self.emitIndent();
     try self.emit("pub fn getstate(self: @This()) i64 { return 0; }\n");
     try self.emitIndent();
-    try self.emit("pub fn setstate(self: *@This(), state: i64) void { _ = state; }\n");
+    try self.emit("pub fn setstate(__self: *@This(), state: i64) void { _ = state; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");

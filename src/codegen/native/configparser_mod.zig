@@ -33,7 +33,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn read(self: *@This(), filename: []const u8) !void {\n");
+    try self.emit("pub fn read(__self: *@This(), filename: []const u8) !void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const file = std.fs.cwd().openFile(filename, .{}) catch return;\n");
@@ -91,7 +91,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn read_string(self: *@This(), content: []const u8) void {\n");
+    try self.emit("pub fn read_string(__self: *@This(), content: []const u8) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("var current_section: ?[]const u8 = null;\n");
@@ -157,7 +157,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn has_section(self: *@This(), section: []const u8) bool {\n");
+    try self.emit("pub fn has_section(__self: *@This(), section: []const u8) bool {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("return __self.sections_map.get(section) != null;\n");
@@ -165,7 +165,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn get(self: *@This(), section: []const u8, option: []const u8) ?[]const u8 {\n");
+    try self.emit("pub fn get(__self: *@This(), section: []const u8, option: []const u8) ?[]const u8 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("if (__self.sections_map.get(section)) |sec| return sec.get(option);\n");
@@ -175,7 +175,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn getint(self: *@This(), section: []const u8, option: []const u8) ?i64 {\n");
+    try self.emit("pub fn getint(__self: *@This(), section: []const u8, option: []const u8) ?i64 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("if (__self.get(section, option)) |val| return std.fmt.parseInt(i64, val, 10) catch null;\n");
@@ -185,7 +185,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn getfloat(self: *@This(), section: []const u8, option: []const u8) ?f64 {\n");
+    try self.emit("pub fn getfloat(__self: *@This(), section: []const u8, option: []const u8) ?f64 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("if (__self.get(section, option)) |val| return std.fmt.parseFloat(f64, val) catch null;\n");
@@ -195,7 +195,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn getboolean(self: *@This(), section: []const u8, option: []const u8) ?bool {\n");
+    try self.emit("pub fn getboolean(__self: *@This(), section: []const u8, option: []const u8) ?bool {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("if (__self.get(section, option)) |val| {\n");
@@ -213,7 +213,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn set(self: *@This(), section: []const u8, option: []const u8, value: []const u8) void {\n");
+    try self.emit("pub fn set(__self: *@This(), section: []const u8, option: []const u8, value: []const u8) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("if (__self.sections_map.getPtr(section)) |sec| sec.put(option, value) catch {};\n");
@@ -221,7 +221,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn add_section(self: *@This(), section: []const u8) void {\n");
+    try self.emit("pub fn add_section(__self: *@This(), section: []const u8) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("if (__self.sections_map.get(section) == null) {\n");
@@ -235,7 +235,7 @@ pub fn genConfigParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn options(self: *@This(), section: []const u8) [][]const u8 {\n");
+    try self.emit("pub fn options(__self: *@This(), section: []const u8) [][]const u8 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("var result: std.ArrayList([]const u8) = .{};\n");

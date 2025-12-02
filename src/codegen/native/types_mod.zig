@@ -149,9 +149,9 @@ pub fn genSimpleNamespace(self: *NativeCodegen, args: []ast.Node) CodegenError!v
     try self.emitIndent();
     try self.emit("attrs: hashmap_helper.StringHashMap([]const u8) = .{},\n");
     try self.emitIndent();
-    try self.emit("pub fn get(self: *@This(), name: []const u8) ?[]const u8 { return __self.attrs.get(name); }\n");
+    try self.emit("pub fn get(__self: *@This(), name: []const u8) ?[]const u8 { return __self.attrs.get(name); }\n");
     try self.emitIndent();
-    try self.emit("pub fn set(self: *@This(), name: []const u8, value: []const u8) void { __self.attrs.put(name, value) catch {}; }\n");
+    try self.emit("pub fn set(__self: *@This(), name: []const u8, value: []const u8) void { __self.attrs.put(name, value) catch {}; }\n");
     try self.emitIndent();
     try self.emit("pub fn __repr__(__self: *@This()) []const u8 { return \"namespace()\"; }\n");
     self.dedent();

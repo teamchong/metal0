@@ -254,9 +254,9 @@ pub fn genTextWrapper(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.emitIndent();
     try self.emit("subsequent_indent: []const u8 = \"\",\n");
     try self.emitIndent();
-    try self.emit("pub fn wrap(self: *@This(), text: []const u8) [][]const u8 { _ = text; return &.{}; }\n");
+    try self.emit("pub fn wrap(__self: *@This(), text: []const u8) [][]const u8 { _ = text; return &.{}; }\n");
     try self.emitIndent();
-    try self.emit("pub fn fill(self: *@This(), text: []const u8) []const u8 { return text; }\n");
+    try self.emit("pub fn fill(__self: *@This(), text: []const u8) []const u8 { return text; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");

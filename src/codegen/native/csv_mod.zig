@@ -88,7 +88,7 @@ pub fn genWriter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("delim: u8 = ',',\n");
     try self.emitIndent();
-    try self.emit("pub fn writerow(self: *@This(), row: anytype) void {\n");
+    try self.emit("pub fn writerow(__self: *@This(), row: anytype) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("var first = true;\n");
@@ -110,7 +110,7 @@ pub fn genWriter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn writerows(self: *@This(), rows: anytype) void {\n");
+    try self.emit("pub fn writerows(__self: *@This(), rows: anytype) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("for (rows) |row| __self.writerow(row);\n");
@@ -242,7 +242,7 @@ pub fn genDictWriter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn writerow(self: *@This(), row: anytype) void {\n");
+    try self.emit("pub fn writerow(__self: *@This(), row: anytype) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("var first = true;\n");

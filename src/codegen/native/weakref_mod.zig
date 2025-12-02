@@ -64,7 +64,7 @@ pub fn genWeakSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("items: std.ArrayList(*anyopaque) = .{},\n");
     try self.emitIndent();
-    try self.emit("pub fn add(self: *@This(), item: anytype) void {\n");
+    try self.emit("pub fn add(__self: *@This(), item: anytype) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("__self.items.append(__global_allocator, @ptrCast(&item)) catch {};\n");
@@ -72,11 +72,11 @@ pub fn genWeakSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn discard(self: *@This(), item: anytype) void { _ = item; }\n");
+    try self.emit("pub fn discard(__self: *@This(), item: anytype) void { _ = item; }\n");
     try self.emitIndent();
     try self.emit("pub fn __len__(__self: *@This()) usize { return __self.items.items.len; }\n");
     try self.emitIndent();
-    try self.emit("pub fn __contains__(self: *@This(), item: anytype) bool { _ = item; return false; }\n");
+    try self.emit("pub fn __contains__(__self: *@This(), item: anytype) bool { _ = item; return false; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");
@@ -90,9 +90,9 @@ pub fn genWeakKeyDictionary(self: *NativeCodegen, args: []ast.Node) CodegenError
     try self.emitIndent();
     try self.emit("data: hashmap_helper.StringHashMap([]const u8) = .{},\n");
     try self.emitIndent();
-    try self.emit("pub fn get(self: *@This(), key: anytype) ?[]const u8 { _ = key; return null; }\n");
+    try self.emit("pub fn get(__self: *@This(), key: anytype) ?[]const u8 { _ = key; return null; }\n");
     try self.emitIndent();
-    try self.emit("pub fn put(self: *@This(), key: anytype, value: anytype) void { _ = key; _ = value; }\n");
+    try self.emit("pub fn put(__self: *@This(), key: anytype, value: anytype) void { _ = key; _ = value; }\n");
     try self.emitIndent();
     try self.emit("pub fn __len__(__self: *@This()) usize { return __self.data.count(); }\n");
     self.dedent();
@@ -108,9 +108,9 @@ pub fn genWeakValueDictionary(self: *NativeCodegen, args: []ast.Node) CodegenErr
     try self.emitIndent();
     try self.emit("data: hashmap_helper.StringHashMap(*anyopaque) = .{},\n");
     try self.emitIndent();
-    try self.emit("pub fn get(self: *@This(), key: []const u8) ?*anyopaque { return __self.data.get(key); }\n");
+    try self.emit("pub fn get(__self: *@This(), key: []const u8) ?*anyopaque { return __self.data.get(key); }\n");
     try self.emitIndent();
-    try self.emit("pub fn put(self: *@This(), key: []const u8, value: anytype) void {\n");
+    try self.emit("pub fn put(__self: *@This(), key: []const u8, value: anytype) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("__self.data.put(key, @ptrCast(&value)) catch {};\n");

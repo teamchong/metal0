@@ -70,7 +70,7 @@ pub fn genArgumentParser(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn add_argument(self: *@This(), name: []const u8) void {\n");
+    try self.emit("pub fn add_argument(__self: *@This(), name: []const u8) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const is_optional = name.len > 0 and name[0] == '-';\n");
@@ -91,7 +91,7 @@ pub fn genArgumentParser(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
     try self.emit("pub fn parse_args(__self: *@This()) *@This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const args = std.process.argsAlloc(__global_allocator) catch return self;\n");
+    try self.emit("const args = std.process.argsAlloc(__global_allocator) catch return __self;\n");
     try self.emitIndent();
     try self.emit("var i: usize = 1;\n");
     try self.emitIndent();
@@ -157,12 +157,12 @@ pub fn genArgumentParser(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("return self;\n");
+    try self.emit("return __self;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn get(self: *@This(), name: []const u8) ?[]const u8 {\n");
+    try self.emit("pub fn get(__self: *@This(), name: []const u8) ?[]const u8 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("return __self.parsed.get(name);\n");
@@ -170,7 +170,7 @@ pub fn genArgumentParser(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn get_positional(self: *@This(), index: usize) ?[]const u8 {\n");
+    try self.emit("pub fn get_positional(__self: *@This(), index: usize) ?[]const u8 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("if (index < __self.positional_args.items.len) return __self.positional_args.items[index];\n");
@@ -212,9 +212,9 @@ pub fn genNamespace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn get(self: *@This(), key: []const u8) ?[]const u8 { return __self.data.get(key); }\n");
+    try self.emit("pub fn get(__self: *@This(), key: []const u8) ?[]const u8 { return __self.data.get(key); }\n");
     try self.emitIndent();
-    try self.emit("pub fn set(self: *@This(), key: []const u8, val: []const u8) void { __self.data.put(key, val) catch {}; }\n");
+    try self.emit("pub fn set(__self: *@This(), key: []const u8, val: []const u8) void { __self.data.put(key, val) catch {}; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}.init()");

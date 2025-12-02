@@ -503,126 +503,47 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
     );
 }
 
+const BuiltinFunctions = std.StaticStringMap(void).initComptime(.{
+    .{ "len", {} },        .{ "callable", {} },   .{ "print", {} },      .{ "repr", {} },
+    .{ "str", {} },        .{ "abs", {} },        .{ "max", {} },        .{ "min", {} },
+    .{ "sum", {} },        .{ "sorted", {} },     .{ "reversed", {} },   .{ "enumerate", {} },
+    .{ "zip", {} },        .{ "map", {} },        .{ "filter", {} },     .{ "range", {} },
+    .{ "list", {} },       .{ "dict", {} },       .{ "set", {} },        .{ "tuple", {} },
+    .{ "type", {} },       .{ "isinstance", {} }, .{ "issubclass", {} }, .{ "hasattr", {} },
+    .{ "getattr", {} },    .{ "setattr", {} },    .{ "delattr", {} },    .{ "id", {} },
+    .{ "hash", {} },       .{ "ord", {} },        .{ "chr", {} },        .{ "hex", {} },
+    .{ "oct", {} },        .{ "bin", {} },        .{ "round", {} },      .{ "pow", {} },
+    .{ "divmod", {} },     .{ "all", {} },        .{ "any", {} },        .{ "iter", {} },
+    .{ "next", {} },       .{ "open", {} },       .{ "input", {} },      .{ "format", {} },
+    .{ "vars", {} },       .{ "dir", {} },        .{ "globals", {} },    .{ "locals", {} },
+    .{ "eval", {} },       .{ "exec", {} },       .{ "compile", {} },    .{ "staticmethod", {} },
+    .{ "classmethod", {} }, .{ "property", {} },  .{ "super", {} },      .{ "object", {} },
+    .{ "slice", {} },      .{ "memoryview", {} }, .{ "bytearray", {} },  .{ "frozenset", {} },
+    .{ "complex", {} },    .{ "ascii", {} },      .{ "breakpoint", {} }, .{ "__import__", {} },
+    .{ "deque", {} },      .{ "Counter", {} },    .{ "defaultdict", {} }, .{ "OrderedDict", {} },
+});
+
 /// Check if a name is a Python builtin function that can be passed as first-class value
 fn isBuiltinFunction(name: []const u8) bool {
-    const builtins = [_][]const u8{
-        "len",
-        "callable",
-        "print",
-        "repr",
-        "str",
-        "abs",
-        "max",
-        "min",
-        "sum",
-        "sorted",
-        "reversed",
-        "enumerate",
-        "zip",
-        "map",
-        "filter",
-        "range",
-        "list",
-        "dict",
-        "set",
-        "tuple",
-        "type",
-        "isinstance",
-        "issubclass",
-        "hasattr",
-        "getattr",
-        "setattr",
-        "delattr",
-        "id",
-        "hash",
-        "ord",
-        "chr",
-        "hex",
-        "oct",
-        "bin",
-        "round",
-        "pow",
-        "divmod",
-        "all",
-        "any",
-        "iter",
-        "next",
-        "open",
-        "input",
-        "format",
-        "vars",
-        "dir",
-        "globals",
-        "locals",
-        "eval",
-        "exec",
-        "compile",
-        "staticmethod",
-        "classmethod",
-        "property",
-        "super",
-        "object",
-        "slice",
-        "memoryview",
-        "bytearray",
-        "frozenset",
-        "complex",
-        "ascii",
-        "breakpoint",
-        "__import__",
-        // collections module builtins (from collections import ...)
-        "deque",
-        "Counter",
-        "defaultdict",
-        "OrderedDict",
-    };
-    for (builtins) |b| {
-        if (std.mem.eql(u8, name, b)) return true;
-    }
-    return false;
+    return BuiltinFunctions.has(name);
 }
+
+const PythonExceptions = std.StaticStringMap(void).initComptime(.{
+    .{ "TypeError", {} },         .{ "ValueError", {} },        .{ "KeyError", {} },
+    .{ "IndexError", {} },        .{ "ZeroDivisionError", {} },  .{ "AttributeError", {} },
+    .{ "NameError", {} },         .{ "FileNotFoundError", {} },  .{ "IOError", {} },
+    .{ "RuntimeError", {} },      .{ "StopIteration", {} },      .{ "NotImplementedError", {} },
+    .{ "AssertionError", {} },    .{ "OverflowError", {} },      .{ "ImportError", {} },
+    .{ "ModuleNotFoundError", {} }, .{ "OSError", {} },          .{ "PermissionError", {} },
+    .{ "TimeoutError", {} },      .{ "ConnectionError", {} },    .{ "RecursionError", {} },
+    .{ "MemoryError", {} },       .{ "LookupError", {} },        .{ "ArithmeticError", {} },
+    .{ "BufferError", {} },       .{ "EOFError", {} },           .{ "GeneratorExit", {} },
+    .{ "SystemExit", {} },        .{ "KeyboardInterrupt", {} },  .{ "Exception", {} },
+    .{ "BaseException", {} },     .{ "SyntaxError", {} },        .{ "UnicodeError", {} },
+    .{ "UnicodeDecodeError", {} }, .{ "UnicodeEncodeError", {} },
+});
 
 /// Check if a name is a Python exception type
 pub fn isPythonExceptionType(name: []const u8) bool {
-    const exceptions = [_][]const u8{
-        "TypeError",
-        "ValueError",
-        "KeyError",
-        "IndexError",
-        "ZeroDivisionError",
-        "AttributeError",
-        "NameError",
-        "FileNotFoundError",
-        "IOError",
-        "RuntimeError",
-        "StopIteration",
-        "NotImplementedError",
-        "AssertionError",
-        "OverflowError",
-        "ImportError",
-        "ModuleNotFoundError",
-        "OSError",
-        "PermissionError",
-        "TimeoutError",
-        "ConnectionError",
-        "RecursionError",
-        "MemoryError",
-        "LookupError",
-        "ArithmeticError",
-        "BufferError",
-        "EOFError",
-        "GeneratorExit",
-        "SystemExit",
-        "KeyboardInterrupt",
-        "Exception",
-        "BaseException",
-        "SyntaxError",
-        "UnicodeError",
-        "UnicodeDecodeError",
-        "UnicodeEncodeError",
-    };
-    for (exceptions) |e| {
-        if (std.mem.eql(u8, name, e)) return true;
-    }
-    return false;
+    return PythonExceptions.has(name);
 }
