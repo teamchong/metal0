@@ -304,3 +304,11 @@ pub fn structField(comptime field: []const u8, comptime rest: []const u8, compti
         try self.emit("blk: { const _v = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ ." ++ field ++ " = _v" ++ rest ++ " }; }");
     } }.f;
 }
+
+/// Shift left: (1 << cast(arg)) pattern
+pub fn shiftL(comptime pre: []const u8, comptime post: []const u8, comptime default: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(default); return; }
+        try self.emit(pre); try self.genExpr(args[0]); try self.emit(post);
+    } }.f;
+}
