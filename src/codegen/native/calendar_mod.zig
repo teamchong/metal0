@@ -22,53 +22,27 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 const genIsleap = h.checkCond("(@rem(x, 4) == 0 and @rem(x, 100) != 0) or @rem(x, 400) == 0");
+const genLeapdays = h.wrap2("leapdays_blk: { const y1 = ", "; const y2 = ", "; break :leapdays_blk @divFloor(y2 - 1, 4) - @divFloor(y1 - 1, 4) - (@divFloor(y2 - 1, 100) - @divFloor(y1 - 1, 100)) + (@divFloor(y2 - 1, 400) - @divFloor(y1 - 1, 400)); }", "@as(i32, 0)");
 
-fn genLeapdays(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("@as(i32, 0)"); return; }
-    const id = try h.emitUniqueBlockStart(self, "leapdays");
-    try self.emit("const y1 = "); try self.genExpr(args[0]);
-    try self.emit("; const y2 = "); try self.genExpr(args[1]);
-    try h.emitBlockBreak(self, "leapdays", id);
-    try self.emit("@divFloor(y2 - 1, 4) - @divFloor(y1 - 1, 4) - (@divFloor(y2 - 1, 100) - @divFloor(y1 - 1, 100)) + (@divFloor(y2 - 1, 400) - @divFloor(y1 - 1, 400)); }");
-}
+const zeller = " const __m = if (__month < 3) __month + 12 else __month; const __y = if (__month < 3) __year - 1 else __year; const __k = @rem(__y, 100); const __j = @divFloor(__y, 100);";
 
-/// calendar.weekday(year, month, day) - returns day of week (0=Monday to 6=Sunday)
 fn genWeekday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 3) { try self.emit("@as(i32, 0)"); return; }
-    const id = try h.emitUniqueBlockStart(self, "weekday");
-    try self.emit("const __year = @as(i32, @intCast("); try self.genExpr(args[0]); try self.emit("));");
+    try self.emit("weekday_blk: { const __year = @as(i32, @intCast("); try self.genExpr(args[0]); try self.emit("));");
     try self.emit(" const __month = @as(i32, @intCast("); try self.genExpr(args[1]); try self.emit("));");
-    try self.emit(" const __day = @as(i32, @intCast("); try self.genExpr(args[2]); try self.emit("));");
-    // Zeller's congruence adjusted for Monday=0
-    try self.emit(" const __m = if (__month < 3) __month + 12 else __month;");
-    try self.emit(" const __y = if (__month < 3) __year - 1 else __year;");
-    try self.emit(" const __q = __day;");
-    try self.emit(" const __k = @rem(__y, 100);");
-    try self.emit(" const __j = @divFloor(__y, 100);");
-    try self.emit(" const __h = @rem(@as(i32, __q + @divFloor(13 * (__m + 1), 5) + __k + @divFloor(__k, 4) + @divFloor(__j, 4) - 2 * __j + 700), 7)");
-    try h.emitBlockBreak(self, "weekday", id);
-    try self.emit("@rem(__h + 5, 7); }"); // Convert to Monday=0
+    try self.emit(" const __day = @as(i32, @intCast("); try self.genExpr(args[2]); try self.emit("));" ++ zeller);
+    try self.emit(" const __h = @rem(@as(i32, __day + @divFloor(13 * (__m + 1), 5) + __k + @divFloor(__k, 4) + @divFloor(__j, 4) - 2 * __j + 700), 7); break :weekday_blk @rem(__h + 5, 7); }");
 }
 
-/// calendar.monthrange(year, month) - returns (first_weekday, num_days)
 fn genMonthrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit(".{ @as(i32, 0), @as(i32, 30) }"); return; }
-    const id = try h.emitUniqueBlockStart(self, "monthrange");
-    try self.emit("const __year = @as(i32, @intCast("); try self.genExpr(args[0]); try self.emit("));");
+    try self.emit("monthrange_blk: { const __year = @as(i32, @intCast("); try self.genExpr(args[0]); try self.emit("));");
     try self.emit(" const __month = @as(i32, @intCast("); try self.genExpr(args[1]); try self.emit("));");
-    // Days in month
     try self.emit(" const __days_in_month = [_]i32{ 0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };");
     try self.emit(" const __is_leap = (@rem(__year, 4) == 0 and @rem(__year, 100) != 0) or @rem(__year, 400) == 0;");
-    try self.emit(" const __ndays = if (__month == 2 and __is_leap) 29 else __days_in_month[@intCast(__month)];");
-    // First weekday using Zeller's congruence
-    try self.emit(" const __m = if (__month < 3) __month + 12 else __month;");
-    try self.emit(" const __y = if (__month < 3) __year - 1 else __year;");
-    try self.emit(" const __k = @rem(__y, 100);");
-    try self.emit(" const __j = @divFloor(__y, 100);");
+    try self.emit(" const __ndays = if (__month == 2 and __is_leap) 29 else __days_in_month[@intCast(__month)];" ++ zeller);
     try self.emit(" const __h = @rem(@as(i32, 1 + @divFloor(13 * (__m + 1), 5) + __k + @divFloor(__k, 4) + @divFloor(__j, 4) - 2 * __j + 700), 7);");
-    try self.emit(" const __first_weekday = @rem(__h + 5, 7)");
-    try h.emitBlockBreak(self, "monthrange", id);
-    try self.emit(".{ __first_weekday, __ndays }; }");
+    try self.emit(" break :monthrange_blk .{ @rem(__h + 5, 7), __ndays }; }");
 }
 
 /// calendar.monthcalendar(year, month) - returns matrix of weeks
