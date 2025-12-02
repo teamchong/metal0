@@ -4,6 +4,35 @@ const ast = @import("ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 
+/// Simple binary operator strings (with spaces for assignment context)
+const SimpleOpStrings = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", " + " }, .{ "Sub", " - " }, .{ "Mult", " * " },
+    .{ "BitAnd", " & " }, .{ "BitOr", " | " }, .{ "BitXor", " ^ " },
+    .{ "Div", " / " }, .{ "FloorDiv", " / " },
+});
+
+/// Compact binary operator strings (no spaces, for dict context)
+const CompactOpStrings = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "+" }, .{ "Sub", "-" }, .{ "Mult", "*" },
+    .{ "BitAnd", "&" }, .{ "BitOr", "|" }, .{ "BitXor", "^" },
+});
+
+/// In-place dunder methods for aug assign
+const InplaceDunders = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "__iadd__" }, .{ "Sub", "__isub__" }, .{ "Mult", "__imul__" },
+    .{ "Div", "__itruediv__" }, .{ "FloorDiv", "__ifloordiv__" }, .{ "Mod", "__imod__" },
+    .{ "Pow", "__ipow__" }, .{ "BitAnd", "__iand__" }, .{ "BitOr", "__ior__" },
+    .{ "BitXor", "__ixor__" }, .{ "LShift", "__ilshift__" }, .{ "RShift", "__irshift__" },
+});
+
+/// Binary dunder methods (fallback)
+const BinaryDunders = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "__add__" }, .{ "Sub", "__sub__" }, .{ "Mult", "__mul__" },
+    .{ "Div", "__truediv__" }, .{ "FloorDiv", "__floordiv__" }, .{ "Mod", "__mod__" },
+    .{ "Pow", "__pow__" }, .{ "BitAnd", "__and__" }, .{ "BitOr", "__or__" },
+    .{ "BitXor", "__xor__" }, .{ "LShift", "__lshift__" }, .{ "RShift", "__rshift__" },
+});
+
 /// Generate augmented assignment (+=, -=, *=, /=, //=, **=, %=)
 pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!void {
     try self.emitIndent();
@@ -60,21 +89,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     try self.emit(self_name);
                     try self.emit(".");
                     try self.emit(attr.attr);
-
-                    // Apply operation
-                    const op_str = switch (aug.op) {
-                        .Add => " + ",
-                        .Sub => " - ",
-                        .Mult => " * ",
-                        .BitAnd => " & ",
-                        .BitOr => " | ",
-                        .BitXor => " ^ ",
-                        .Div => " / ",
-                        .FloorDiv => " / ", // TODO: proper floor div
-                        .Mod => " % ",
-                        else => " ? ",
-                    };
-                    try self.emit(op_str);
+                    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse if (aug.op == .Mod) " % " else " ? ");
                     try self.genExpr(aug.value.*);
                     try self.emit(";\n");
                     return;
@@ -83,25 +98,9 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     try self.emit("try ");
                     try self.emit(self_name);
                     try self.output.writer(self.allocator).print(".__dict__.put(\"{s}\", .{{ .int = ", .{attr.attr});
-
-                    // Get current value and apply operation
                     try self.emit(self_name);
                     try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.int", .{attr.attr});
-
-                    // Apply operation
-                    const op_str = switch (aug.op) {
-                        .Add => " + ",
-                        .Sub => " - ",
-                        .Mult => " * ",
-                        .BitAnd => " & ",
-                        .BitOr => " | ",
-                        .BitXor => " ^ ",
-                        .Div => " / ",
-                        .FloorDiv => " / ", // TODO: proper floor div
-                        .Mod => " % ",
-                        else => " ? ",
-                    };
-                    try self.emit(op_str);
+                    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse if (aug.op == .Mod) " % " else " ? ");
                     try self.genExpr(aug.value.*);
                     try self.emit(" });\n");
                     return;
@@ -325,18 +324,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 try self.emit(".items[@as(usize, @intCast(");
                 try self.genExpr(subscript.slice.index.*);
                 try self.emit("))]");
-
-                // Apply simple binary operators
-                const op_str = switch (aug.op) {
-                    .Add => " + ",
-                    .Sub => " - ",
-                    .Mult => " * ",
-                    .BitAnd => " & ",
-                    .BitOr => " | ",
-                    .BitXor => " ^ ",
-                    else => " ? ",
-                };
-                try self.emit(op_str);
+                try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse " ? ");
                 try self.genExpr(aug.value.*);
                 try self.emit(";\n");
                 return;
@@ -398,20 +386,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 try self.genExpr(subscript.value.*);
                 try self.emit(".get(");
                 try self.genExpr(subscript.slice.index.*);
-                try self.emit(").?");
-                try self.emit(") ");
-
-                // Emit simple binary operation
-                const op_str = switch (aug.op) {
-                    .Add => "+",
-                    .Sub => "-",
-                    .Mult => "*",
-                    .BitAnd => "&",
-                    .BitOr => "|",
-                    .BitXor => "^",
-                    else => "?",
-                };
-                try self.emit(op_str);
+                try self.emit(").?) ");
+                try self.emit(CompactOpStrings.get(@tagName(aug.op)) orelse "?");
                 try self.emit(" ");
                 try self.genExpr(aug.value.*);
                 try self.emit(");\n");
@@ -499,38 +475,9 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     const target_type = try self.inferExprScoped(aug.target.*);
     if (target_type == .class_instance) {
         const class_name = target_type.class_instance;
-
-        // Map operator to dunder method names
-        const iadd_method: ?[]const u8 = switch (aug.op) {
-            .Add => "__iadd__",
-            .Sub => "__isub__",
-            .Mult => "__imul__",
-            .Div => "__itruediv__",
-            .FloorDiv => "__ifloordiv__",
-            .Mod => "__imod__",
-            .Pow => "__ipow__",
-            .BitAnd => "__iand__",
-            .BitOr => "__ior__",
-            .BitXor => "__ixor__",
-            .LShift => "__ilshift__",
-            .RShift => "__irshift__",
-            else => null,
-        };
-        const add_method: ?[]const u8 = switch (aug.op) {
-            .Add => "__add__",
-            .Sub => "__sub__",
-            .Mult => "__mul__",
-            .Div => "__truediv__",
-            .FloorDiv => "__floordiv__",
-            .Mod => "__mod__",
-            .Pow => "__pow__",
-            .BitAnd => "__and__",
-            .BitOr => "__or__",
-            .BitXor => "__xor__",
-            .LShift => "__lshift__",
-            .RShift => "__rshift__",
-            else => null,
-        };
+        const op_name = @tagName(aug.op);
+        const iadd_method = InplaceDunders.get(op_name);
+        const add_method = BinaryDunders.get(op_name);
 
         if (iadd_method != null or add_method != null) {
             // Check if class has __iadd__ method
@@ -680,19 +627,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     }
 
     try self.genExpr(aug.target.*);
-
-    const op_str = switch (aug.op) {
-        .Add => " + ",
-        .Sub => " - ",
-        .Mult => " * ",
-        .Div => " / ",
-        .BitAnd => " & ",
-        .BitOr => " | ",
-        .BitXor => " ^ ",
-        else => " ? ",
-    };
-    try self.emit(op_str);
-
+    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse " ? ");
     try self.genExpr(aug.value.*);
     try self.emit(";\n");
 }

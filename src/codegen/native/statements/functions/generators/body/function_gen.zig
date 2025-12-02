@@ -536,7 +536,8 @@ pub fn genFunctionBody(
 
     // Forward-referenced captured variables: emit var declarations with undefined
     // before the class definitions, so `&list2` doesn't fail with "undeclared"
-    var forward_refs = try nested_captures.findForwardReferencedCaptures(self, func.body);
+    // Pass func.args to avoid shadowing function parameters
+    var forward_refs = try nested_captures.findForwardReferencedCapturesWithParams(self, func.body, func.args);
     defer forward_refs.deinit(self.allocator);
     for (forward_refs.items) |fwd_var| {
         try self.emitIndent();
@@ -925,7 +926,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
 
     // Forward-referenced captured variables: emit var declarations with undefined
     // before the class definitions, so `&list2` doesn't fail with "undeclared"
-    var forward_refs_method = try nested_captures.findForwardReferencedCaptures(self, method.body);
+    // Pass method.args to avoid shadowing method parameters
+    var forward_refs_method = try nested_captures.findForwardReferencedCapturesWithParams(self, method.body, method.args);
     defer forward_refs_method.deinit(self.allocator);
     for (forward_refs_method.items) |fwd_var| {
         try self.emitIndent();

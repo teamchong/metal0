@@ -397,9 +397,23 @@ pub fn findForwardReferencedCaptures(
     self: *NativeCodegen,
     stmts: []ast.Node,
 ) CodegenError!std.ArrayList([]const u8) {
+    return findForwardReferencedCapturesWithParams(self, stmts, &[_]ast.Arg{});
+}
+
+/// Analyze function for forward-referenced captured variables, excluding function parameters
+pub fn findForwardReferencedCapturesWithParams(
+    self: *NativeCodegen,
+    stmts: []ast.Node,
+    func_params: []const ast.Arg,
+) CodegenError!std.ArrayList([]const u8) {
     var forward_refs = std.ArrayList([]const u8){};
     var declared_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer declared_vars.deinit();
+
+    // Function parameters are already declared - don't forward-declare them
+    for (func_params) |param| {
+        try declared_vars.put(param.name, {});
+    }
 
     // Track which variables are captured and which are declared, in order
     for (stmts) |stmt| {
