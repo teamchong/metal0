@@ -6,6 +6,7 @@ const runtime = @import("runtime.zig");
 const PyObject = runtime.PyObject;
 const PyInt = @import("pyint.zig").PyInt;
 const PyFloat = @import("pyfloat.zig").PyFloat;
+const PyComplex = @import("pycomplex.zig").PyComplex;
 const PyBool = @import("pybool.zig").PyBool;
 const PyString = @import("pystring/core.zig").PyString;
 const BigInt = @import("bigint").BigInt;
@@ -139,6 +140,7 @@ pub const Constant = union(enum) {
     bytes: []const u8,
     bool: bool,
     bigint: []const u8, // BigInt stored as decimal string for serialization
+    complex: f64, // Complex number (imaginary part only, e.g., 2j = complex(2.0))
 };
 
 /// Compiled bytecode program
@@ -191,6 +193,10 @@ pub const BytecodeProgram = struct {
                     try buffer.append(4); // type tag: bigint (stored as string)
                     try buffer.appendSlice(&std.mem.toBytes(@as(u32, @intCast(s.len))));
                     try buffer.appendSlice(s);
+                },
+                .complex => |c| {
+                    try buffer.append(6); // type tag: complex
+                    try buffer.appendSlice(&std.mem.toBytes(c));
                 },
             }
         }
@@ -265,6 +271,11 @@ pub const BytecodeProgram = struct {
                     if (pos + str_len > data.len) return error.UnexpectedEof;
                     constants[i] = .{ .bigint = try allocator.dupe(u8, data[pos..][0..str_len]) };
                     pos += str_len;
+                },
+                6 => { // complex
+                    if (pos + 8 > data.len) return error.UnexpectedEof;
+                    constants[i] = .{ .complex = @bitCast(std.mem.readInt(u64, data[pos..][0..8], .little)) };
+                    pos += 8;
                 },
                 else => return error.InvalidConstantType,
             }
@@ -390,6 +401,7 @@ pub const VM = struct {
                     const obj: *PyObject = switch (constant) {
                         .int => |i| try PyInt.create(self.allocator, i),
                         .float => |f| try PyFloat.create(self.allocator, f),
+                        .complex => |c| try PyComplex.create(self.allocator, 0.0, c),
                         .string => |s| try PyString.create(self.allocator, s),
                         .bytes => |b| try createPyBytes(self.allocator, b),
                         .bool => |b| try PyBool.create(self.allocator, b),
@@ -575,8 +587,9 @@ pub const VM = struct {
 
         const val = self.stack.pop() orelse return error.StackUnderflow;
 
-        // Float, string, bytes cannot be inverted - raise TypeError
+        // Float, complex, string, bytes cannot be inverted - raise TypeError
         if (runtime.PyFloat_Check(val) or
+            runtime.PyComplex_Check(val) or
             runtime.PyUnicode_Check(val) or
             runtime.PyBytes_Check(val))
         {

@@ -1035,6 +1035,14 @@ fn genSyncFunction(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenErro
     try self.emit("    switch (frame.state) {\n");
     try self.emit("        .start => {\n");
 
+    // Enter a scope so that codegen uses __global_allocator instead of allocator
+    try self.symbol_table.pushScope();
+    defer self.symbol_table.popScope();
+
+    // Find mutated variables for proper var/const determination
+    const mutated_vars = findMutatedVars(self.allocator, func.body) catch &[_][]const u8{};
+    defer self.allocator.free(mutated_vars);
+
     // Generate function body - local vars stay local (not in frame)
     for (func.body) |stmt| {
         if (stmt == .return_stmt) {
@@ -1048,7 +1056,7 @@ fn genSyncFunction(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenErro
             try self.emit(";\n");
         } else {
             // Generate statement with frame variable access for params only
-            try genSyncStatementInFrame(self, stmt, func.args);
+            try genSyncStatementInFrame(self, stmt, func.args, mutated_vars);
         }
     }
 
@@ -1087,7 +1095,82 @@ fn genSyncFunction(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenErro
     try self.emit("}\n\n");
 }
 
-fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg) CodegenError!void {
+/// Find variables that are mutated in the function body
+/// A variable is mutated if it has method calls on it or augmented assignments
+fn findMutatedVars(allocator: std.mem.Allocator, body: []ast.Node) ![]const []const u8 {
+    var mutated = std.ArrayList([]const u8){};
+    errdefer mutated.deinit(allocator);
+
+    for (body) |stmt| {
+        try findMutatedInNode(allocator, stmt, &mutated);
+    }
+
+    return mutated.toOwnedSlice(allocator);
+}
+
+fn findMutatedInNode(allocator: std.mem.Allocator, node: ast.Node, mutated: *std.ArrayList([]const u8)) !void {
+    switch (node) {
+        .expr_stmt => |expr| {
+            // Check for method calls: var.method()
+            if (expr.value.* == .call) {
+                const call = expr.value.*.call;
+                if (call.func.* == .attribute) {
+                    const attr = call.func.*.attribute;
+                    if (attr.value.* == .name) {
+                        const var_name = attr.value.*.name.id;
+                        // Add if not already in list
+                        var found = false;
+                        for (mutated.items) |v| {
+                            if (std.mem.eql(u8, v, var_name)) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            try mutated.append(allocator, var_name);
+                        }
+                    }
+                }
+            }
+        },
+        .aug_assign => |aug| {
+            if (aug.target.* == .name) {
+                const var_name = aug.target.*.name.id;
+                var found = false;
+                for (mutated.items) |v| {
+                    if (std.mem.eql(u8, v, var_name)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    try mutated.append(allocator, var_name);
+                }
+            }
+        },
+        .for_stmt => |for_stmt| {
+            for (for_stmt.body) |stmt| {
+                try findMutatedInNode(allocator, stmt, mutated);
+            }
+        },
+        .if_stmt => |if_stmt| {
+            for (if_stmt.body) |stmt| {
+                try findMutatedInNode(allocator, stmt, mutated);
+            }
+            for (if_stmt.else_body) |stmt| {
+                try findMutatedInNode(allocator, stmt, mutated);
+            }
+        },
+        .while_stmt => |while_stmt| {
+            for (while_stmt.body) |stmt| {
+                try findMutatedInNode(allocator, stmt, mutated);
+            }
+        },
+        else => {},
+    }
+}
+
+fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg, mutated_vars: []const []const u8) CodegenError!void {
     switch (stmt) {
         .assign => |assign| {
             if (assign.targets.len > 0 and assign.targets[0] == .name) {
@@ -1107,10 +1190,19 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
                     try genSyncExprInFrame(self, assign.value.*, args);
                     try self.emit(";\n");
                 } else {
-                    // Local variable
-                    try self.emit("            var ");
+                    // Check if variable is mutated later (method calls, aug assign)
+                    var is_mutated = false;
+                    for (mutated_vars) |mv| {
+                        if (std.mem.eql(u8, mv, target_name)) {
+                            is_mutated = true;
+                            break;
+                        }
+                    }
+                    // Use var for mutated variables, const for immutable
+                    try self.emit("            ");
+                    try self.emit(if (is_mutated) "var " else "const ");
                     try self.emit(target_name);
-                    try self.emit(": i64 = ");
+                    try self.emit(" = ");
                     try genSyncExprInFrame(self, assign.value.*, args);
                     try self.emit(";\n");
                 }
@@ -1137,7 +1229,7 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
             }
             // Generate body
             for (for_stmt.body) |body_stmt| {
-                try genSyncStatementInFrame(self, body_stmt, args);
+                try genSyncStatementInFrame(self, body_stmt, args, mutated_vars);
             }
             try self.emit("                }\n");
             try self.emit("            }\n");
@@ -1219,6 +1311,10 @@ fn genSyncExprInFrameWithLoopVar(self: *NativeCodegen, node: ast.Node, args: []a
             try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
             try self.emit(")");
         },
+        .call => {
+            // Delegate to genSyncExprInFrame for function calls
+            try genSyncExprInFrame(self, node, args);
+        },
         else => try self.emit("0"),
     }
 }
@@ -1260,6 +1356,118 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
             }
             try genSyncExprInFrame(self, bin.right.*, args);
             try self.emit(")");
+        },
+        .call => |call| {
+            // Handle function calls with frame-aware argument generation
+            if (call.func.* == .attribute) {
+                const attr = call.func.*.attribute;
+                // Module call like hashlib.sha256() or method call like h.update()
+                if (attr.value.* == .name) {
+                    const obj_name = attr.value.*.name.id;
+                    const method = attr.attr;
+
+                    // Check if it's a module (hashlib, time, etc.)
+                    if (std.mem.eql(u8, obj_name, "hashlib")) {
+                        try self.emit("hashlib.");
+                        try self.emit(method);
+                        try self.emit("(");
+                        for (call.args, 0..) |arg_expr, idx| {
+                            if (idx > 0) try self.emit(", ");
+                            try genSyncExprInFrame(self, arg_expr, args);
+                        }
+                        try self.emit(")");
+                        return;
+                    }
+
+                    // It's a method call on a local variable (h.update(), h.hexdigest())
+                    // Handle specific methods that need special treatment
+                    if (std.mem.eql(u8, method, "hexdigest") or std.mem.eql(u8, method, "digest")) {
+                        // These return error unions - poll can't return errors, use catch
+                        try self.emit("(");
+                        try self.emit(obj_name);
+                        try self.emit(".");
+                        try self.emit(method);
+                        try self.emit("(__global_allocator) catch unreachable)");
+                        return;
+                    }
+
+                    // Regular method call: obj.method(args)
+                    try self.emit(obj_name);
+                    try self.emit(".");
+                    try self.emit(method);
+                    try self.emit("(");
+                    for (call.args, 0..) |arg_expr, idx| {
+                        if (idx > 0) try self.emit(", ");
+                        try genSyncExprInFrame(self, arg_expr, args);
+                    }
+                    try self.emit(")");
+                    return;
+                }
+                // Chained method call like str(x).encode()
+                if (attr.value.* == .call) {
+                    const method = attr.attr;
+                    // Skip .encode() on strings - Zig strings are already bytes
+                    if (std.mem.eql(u8, method, "encode")) {
+                        // Just generate the inner call, skip .encode()
+                        try genSyncExprInFrame(self, attr.value.*, args);
+                        return;
+                    }
+                    // Generate the inner call first
+                    try genSyncExprInFrame(self, attr.value.*, args);
+                    // Then the method
+                    try self.emit(".");
+                    try self.emit(method);
+                    try self.emit("(");
+                    for (call.args, 0..) |arg_expr, idx| {
+                        if (idx > 0) try self.emit(", ");
+                        try genSyncExprInFrame(self, arg_expr, args);
+                    }
+                    try self.emit(")");
+                    return;
+                }
+            }
+            // Function call like str(), len(), etc.
+            if (call.func.* == .name) {
+                const func_name = call.func.*.name.id;
+
+                if (std.mem.eql(u8, func_name, "str")) {
+                    // str(x) -> std.fmt.allocPrint(__global_allocator, "{d}", .{x}) catch unreachable
+                    try self.emit("(std.fmt.allocPrint(__global_allocator, \"{d}\", .{");
+                    if (call.args.len > 0) {
+                        try genSyncExprInFrame(self, call.args[0], args);
+                    }
+                    try self.emit("}) catch unreachable)");
+                    return;
+                }
+                if (std.mem.eql(u8, func_name, "len")) {
+                    // len(x) -> x.len or x.items.len
+                    try self.emit("@as(i64, @intCast(");
+                    if (call.args.len > 0) {
+                        try genSyncExprInFrame(self, call.args[0], args);
+                    }
+                    try self.emit(".len))");
+                    return;
+                }
+                if (std.mem.eql(u8, func_name, "range")) {
+                    // range(n) -> just emit the argument for use in loop bounds
+                    if (call.args.len > 0) {
+                        try genSyncExprInFrame(self, call.args[0], args);
+                    }
+                    return;
+                }
+
+                // Generic function call
+                try self.emit(func_name);
+                try self.emit("(");
+                for (call.args, 0..) |arg_expr, idx| {
+                    if (idx > 0) try self.emit(", ");
+                    try genSyncExprInFrame(self, arg_expr, args);
+                }
+                try self.emit(")");
+                return;
+            }
+            // Fallback to regular codegen (shouldn't reach here)
+            try self.genExpr(node);
         },
         else => try self.emit("0"),
     }
