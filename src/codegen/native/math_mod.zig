@@ -61,39 +61,25 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "nextafter", genNextafter }, .{ "ulp", genUlp },
 });
 
-fn genFactorial(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { var n = @as(i64, "); try self.genExpr(args[0]); try self.emit("); var result: i64 = 1; while (n > 1) : (n -= 1) { result *= n; } break :blk result; }"); } else try self.emit("@as(i64, 1)");
-}
-fn genGcd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) { try self.emit("blk: { var a = @abs(@as(i64, "); try self.genExpr(args[0]); try self.emit(")); var b = @abs(@as(i64, "); try self.genExpr(args[1]); try self.emit(")); while (b != 0) { const t = b; b = @mod(a, b); a = t; } break :blk a; }"); } else try self.emit("@as(i64, 0)");
-}
-fn genLcm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) { try self.emit("blk: { const a = @abs(@as(i64, "); try self.genExpr(args[0]); try self.emit(")); const b = @abs(@as(i64, "); try self.genExpr(args[1]); try self.emit(")); if (a == 0 or b == 0) break :blk @as(i64, 0); var aa = a; var bb = b; while (bb != 0) { const t = bb; bb = @mod(aa, bb); aa = t; } break :blk @divExact(a, aa) * b; }"); } else try self.emit("@as(i64, 0)");
-}
-fn genComb(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) { try self.emit("blk: { const n = @as(u64, @intCast("); try self.genExpr(args[0]); try self.emit(")); const k = @as(u64, @intCast("); try self.genExpr(args[1]); try self.emit(")); if (k > n) break :blk @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) { result = result * (n - i) / (i + 1); } break :blk @as(i64, @intCast(result)); }"); } else try self.emit("@as(i64, 0)");
-}
+const genFactorial = h.wrap("blk: { var n = @as(i64, ", "); var result: i64 = 1; while (n > 1) : (n -= 1) { result *= n; } break :blk result; }", "@as(i64, 1)");
+
+const genGcd = h.wrap2("blk: { var a = @abs(@as(i64, ", ")); var b = @abs(@as(i64, ", ")); while (b != 0) { const t = b; b = @mod(a, b); a = t; } break :blk a; }", "@as(i64, 0)");
+const genLcm = h.wrap2("blk: { const a = @abs(@as(i64, ", ")); const b = @abs(@as(i64, ", ")); if (a == 0 or b == 0) break :blk @as(i64, 0); var aa = a; var bb = b; while (bb != 0) { const t = bb; bb = @mod(aa, bb); aa = t; } break :blk @divExact(a, aa) * b; }", "@as(i64, 0)");
+const genComb = h.wrap2("blk: { const n = @as(u64, @intCast(", ")); const k = @as(u64, @intCast(", ")); if (k > n) break :blk @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) { result = result * (n - i) / (i + 1); } break :blk @as(i64, @intCast(result)); }", "@as(i64, 0)");
+
 fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 1) { try self.emit("blk: { const n = @as(u64, @intCast("); try self.genExpr(args[0]); try self.emit(")); const k = "); if (args.len >= 2) { try self.emit("@as(u64, @intCast("); try self.genExpr(args[1]); try self.emit("))"); } else try self.emit("n"); try self.emit("; if (k > n) break :blk @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) { result *= (n - i); } break :blk @as(i64, @intCast(result)); }"); } else try self.emit("@as(i64, 0)");
 }
-fn genFrexp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const val = @as(f64, "); try self.genExpr(args[0]); try self.emit("); const result = std.math.frexp(val); break :blk .{ result.significand, result.exponent }; }"); } else try self.emit(".{ @as(f64, 0.0), @as(i32, 0) }");
-}
-fn genModf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const val = @as(f64, "); try self.genExpr(args[0]); try self.emit("); const frac = val - @trunc(val); break :blk .{ frac, @trunc(val) }; }"); } else try self.emit(".{ @as(f64, 0.0), @as(f64, 0.0) }");
-}
-fn genDist(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) { try self.emit("blk: { const p = "); try self.genExpr(args[0]); try self.emit("; const q = "); try self.genExpr(args[1]); try self.emit("; var sum: f64 = 0; for (p, q) |pi, qi| { const d = pi - qi; sum += d * d; } break :blk @sqrt(sum); }"); } else try self.emit("@as(f64, 0.0)");
-}
-fn genFsum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { var sum: f64 = 0; for ("); try self.genExpr(args[0]); try self.emit(") |item| { sum += item; } break :blk sum; }"); } else try self.emit("@as(f64, 0.0)");
-}
-fn genProd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { var product: f64 = 1; for ("); try self.genExpr(args[0]); try self.emit(") |item| { product *= item; } break :blk product; }"); } else try self.emit("@as(f64, 1.0)");
-}
+const genFrexp = h.wrap("blk: { const val = @as(f64, ", "); const result = std.math.frexp(val); break :blk .{ result.significand, result.exponent }; }", ".{ @as(f64, 0.0), @as(i32, 0) }");
+const genModf = h.wrap("blk: { const val = @as(f64, ", "); const frac = val - @trunc(val); break :blk .{ frac, @trunc(val) }; }", ".{ @as(f64, 0.0), @as(f64, 0.0) }");
+
+const genDist = h.wrap2("blk: { const p = ", "; const q = ", "; var sum: f64 = 0; for (p, q) |pi, qi| { const d = pi - qi; sum += d * d; } break :blk @sqrt(sum); }", "@as(f64, 0.0)");
+
+const genFsum = h.wrap("blk: { var sum: f64 = 0; for (", ") |item| { sum += item; } break :blk sum; }", "@as(f64, 0.0)");
+const genProd = h.wrap("blk: { var product: f64 = 1; for (", ") |item| { product *= item; } break :blk product; }", "@as(f64, 1.0)");
+
 fn genNextafter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) { try self.emit("blk: { const x = @as(f64, "); try self.genExpr(args[0]); try self.emit("); const y = @as(f64, "); try self.genExpr(args[1]); try self.emit("); if (x < y) break :blk x + std.math.floatMin(f64) else if (x > y) break :blk x - std.math.floatMin(f64) else break :blk y; }"); } else try self.emit("@as(f64, 0.0)");
 }
-fn genUlp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const x = @abs(@as(f64, "); try self.genExpr(args[0]); try self.emit(")); const exp = @as(i32, @intFromFloat(@log2(x))); break :blk std.math.ldexp(@as(f64, 1.0), exp - 52); }"); } else try self.emit("std.math.floatMin(f64)");
-}
+const genUlp = h.wrap("blk: { const x = @abs(@as(f64, ", ")); const exp = @as(i32, @intFromFloat(@log2(x))); break :blk std.math.ldexp(@as(f64, 1.0), exp - 52); }", "std.math.floatMin(f64)");
+
