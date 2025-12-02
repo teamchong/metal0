@@ -3,6 +3,17 @@ const std = @import("std");
 const ast = @import("ast");
 const hashmap_helper = @import("hashmap_helper");
 
+const TypeParamDefaults = std.StaticStringMap(void).initComptime(.{
+    .{ "float", {} }, .{ "int", {} }, .{ "str", {} }, .{ "bool", {} }, .{ "complex", {} },
+    .{ "list", {} }, .{ "dict", {} }, .{ "set", {} }, .{ "tuple", {} }, .{ "bytes", {} }, .{ "type", {} },
+});
+
+const PyNameToZig = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "float", "f64" }, .{ "int", "i64" }, .{ "str", "[]const u8" }, .{ "bool", "bool" },
+    .{ "None", "null" }, .{ "True", "true" }, .{ "False", "false" },
+    .{ "complex", "runtime.Complex" }, .{ "repr", "runtime.repr" },
+});
+
 /// Check if test has @support.cpython_only decorator
 pub fn hasCPythonOnlyDecorator(decorators: []const ast.Node) bool {
     for (decorators) |decorator| {
@@ -65,12 +76,9 @@ pub fn hasSkipIfModuleIsNone(decorators: []const ast.Node, skipped_modules: *con
 
 /// Check if parameter has type as default value
 pub fn hasTypeParameterDefault(args: []const ast.Arg) bool {
-    const type_names = [_][]const u8{ "float", "int", "str", "bool", "complex", "list", "dict", "set", "tuple", "bytes", "type" };
     for (args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
-        if (arg.default) |d| if (d.* == .name) {
-            for (type_names) |t| if (std.mem.eql(u8, d.name.id, t)) return true;
-        };
+        if (arg.default) |d| if (d.* == .name and TypeParamDefaults.has(d.name.id)) return true;
     }
     return false;
 }
@@ -145,26 +153,14 @@ fn isMockPatchFunc(node: ast.Node) bool {
 
 /// Convert Python default value to Zig code
 pub fn convertDefaultToZig(default_expr: ast.Node) ?[]const u8 {
-    switch (default_expr) {
-        .name => |n| {
-            const id = n.id;
-            if (std.mem.eql(u8, id, "float")) return "f64";
-            if (std.mem.eql(u8, id, "int")) return "i64";
-            if (std.mem.eql(u8, id, "str")) return "[]const u8";
-            if (std.mem.eql(u8, id, "bool")) return "bool";
-            if (std.mem.eql(u8, id, "None")) return "null";
-            if (std.mem.eql(u8, id, "True")) return "true";
-            if (std.mem.eql(u8, id, "False")) return "false";
-            if (std.mem.eql(u8, id, "complex")) return "runtime.Complex";
-            if (std.mem.eql(u8, id, "repr")) return "runtime.repr";
-            if (id.len > 0 and std.ascii.isUpper(id[0])) return id;
-            return null;
+    return switch (default_expr) {
+        .name => |n| PyNameToZig.get(n.id) orelse
+            if (n.id.len > 0 and std.ascii.isUpper(n.id[0])) n.id else null,
+        .constant => |c| switch (c.value) {
+            .none => "null",
+            .bool => |b| if (b) "true" else "false",
+            else => null,
         },
-        .constant => |c| {
-            if (c.value == .none) return "null";
-            if (c.value == .bool) return if (c.value.bool) "true" else "false";
-            return null;
-        },
-        else => return null,
-    }
+        else => null,
+    };
 }
