@@ -1,9 +1,6 @@
 /// Python token module - Token constants and utilities
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "ENDMARKER", h.I32(0) }, .{ "NAME", h.I32(1) }, .{ "NUMBER", h.I32(2) }, .{ "STRING", h.I32(3) },
@@ -12,15 +9,5 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "N_TOKENS", h.I32(63) }, .{ "NT_OFFSET", h.I32(256) },
     .{ "tok_name", h.c("metal0_runtime.PyDict(i32, []const u8).init()") },
     .{ "EXACT_TOKEN_TYPES", h.c("metal0_runtime.PyDict([]const u8, i32).init()") },
-    .{ "ISTERMINAL", genIsTerm }, .{ "ISNONTERMINAL", genIsNonterm }, .{ "ISEOF", genIsEof },
+    .{ "ISTERMINAL", h.checkCond("x < 256") }, .{ "ISNONTERMINAL", h.checkCond("x >= 256") }, .{ "ISEOF", h.checkCond("x == 0") },
 });
-
-fn genIsTerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const x = "); try self.genExpr(args[0]); try self.emit("; break :blk x < 256; }"); } else try self.emit("false");
-}
-fn genIsNonterm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const x = "); try self.genExpr(args[0]); try self.emit("; break :blk x >= 256; }"); } else try self.emit("false");
-}
-fn genIsEof(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const x = "); try self.genExpr(args[0]); try self.emit("; break :blk x == 0; }"); } else try self.emit("false");
-}

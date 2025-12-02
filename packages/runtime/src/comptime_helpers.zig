@@ -145,6 +145,12 @@ pub fn InferListType(comptime TupleType: type) type {
     comptime var has_float = false;
     comptime var has_string = false;
     comptime var has_other = false; // ArrayList, PyValue, etc.
+    comptime var other_type: ?type = null; // Track the "other" type if all are same
+    comptime var all_other_same = true; // Are all "other" types identical?
+    // Track array element types for arrays of different lengths
+    comptime var all_arrays = true;
+    comptime var array_child_type: ?type = null;
+    comptime var array_child_same = true;
 
     inline for (fields) |field| {
         const T = field.type;
@@ -152,14 +158,17 @@ pub fn InferListType(comptime TupleType: type) type {
         // Check for int types
         if (T == i64 or T == i32 or T == comptime_int or T == usize or T == isize) {
             has_int = true;
+            all_arrays = false;
         }
         // Check for float types (including comptime_float!)
         else if (T == f64 or T == f32 or T == f16 or T == comptime_float) {
             has_float = true;
+            all_arrays = false;
         }
         // Check for string types (both slices and string literals)
         else if (T == []const u8 or T == []u8) {
             has_string = true;
+            all_arrays = false;
         }
         // Check for string literals (*const [N:0]u8)
         else if (@typeInfo(T) == .pointer) {
@@ -170,24 +179,71 @@ pub fn InferListType(comptime TupleType: type) type {
                     const array_info = @typeInfo(ptr_info.child).array;
                     if (array_info.child == u8 and array_info.sentinel_ptr != null) {
                         has_string = true;
+                        all_arrays = false;
                     } else {
                         has_other = true;
+                        all_arrays = false;
+                        if (other_type == null) {
+                            other_type = T;
+                        } else if (other_type != T) {
+                            all_other_same = false;
+                        }
                     }
                 } else {
                     has_other = true;
+                    all_arrays = false;
+                    if (other_type == null) {
+                        other_type = T;
+                    } else if (other_type != T) {
+                        all_other_same = false;
+                    }
                 }
             } else {
                 has_other = true;
+                all_arrays = false;
+                if (other_type == null) {
+                    other_type = T;
+                } else if (other_type != T) {
+                    all_other_same = false;
+                }
             }
         }
         // Check for PyValue
         else if (T == @import("py_value.zig").PyValue) {
             // PyValue stays as PyValue
             has_other = true;
+            all_arrays = false;
+            if (other_type == null) {
+                other_type = T;
+            } else if (other_type != T) {
+                all_other_same = false;
+            }
+        }
+        // Check for arrays [N]T - track child type for arrays of different sizes
+        else if (@typeInfo(T) == .array) {
+            const arr_info = @typeInfo(T).array;
+            has_other = true;
+            if (other_type == null) {
+                other_type = T;
+            } else if (other_type != T) {
+                all_other_same = false;
+            }
+            // Track array child type for slice conversion
+            if (array_child_type == null) {
+                array_child_type = arr_info.child;
+            } else if (array_child_type != arr_info.child) {
+                array_child_same = false;
+            }
         }
         // Other types (ArrayList, custom structs, etc.)
         else {
             has_other = true;
+            all_arrays = false;
+            if (other_type == null) {
+                other_type = T;
+            } else if (other_type != T) {
+                all_other_same = false;
+            }
         }
     }
 
@@ -196,8 +252,20 @@ pub fn InferListType(comptime TupleType: type) type {
         @as(u8, if (has_string) 1 else 0) +
         @as(u8, if (has_other) 1 else 0);
 
-    if (num_categories > 1 or has_other) {
-        // Heterogeneous list - use PyValue as common type
+    if (num_categories > 1) {
+        // Mixed types (e.g., int + ArrayList) - use PyValue
+        return @import("py_value.zig").PyValue;
+    } else if (has_other) {
+        // Only "other" types - check if all same
+        if (all_other_same and other_type != null) {
+            return other_type.?;
+        }
+        // Check if all are arrays with same child type but different sizes
+        // In this case, use slice []child instead of [N]child
+        if (all_arrays and array_child_same and array_child_type != null) {
+            return []const array_child_type.?;
+        }
+        // Heterogeneous "other" types - use PyValue
         return @import("py_value.zig").PyValue;
     } else if (has_string) {
         return []const u8;

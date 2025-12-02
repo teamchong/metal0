@@ -273,3 +273,10 @@ pub fn charFunc(comptime label: []const u8, comptime default: []const u8, compti
         try self.emit(label ++ ": { const c = "); try self.genExpr(args[0]); try self.emit("[0]; " ++ body ++ " }");
     } }.f;
 }
+
+/// Check condition on arg: blk: { const x = arg; break :blk condition; }
+pub fn checkCond(comptime cond: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit("blk: { const x = "); try self.genExpr(args[0]); try self.emit("; break :blk " ++ cond ++ "; }"); } else try self.emit("false");
+    } }.f;
+}
