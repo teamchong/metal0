@@ -41,7 +41,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "eval", h.c("@as(?*anyopaque, null)") }, .{ "exec", h.c("{}") }, .{ "compile", h.c("@as(?*anyopaque, null)") },
     .{ "input", h.c("\"\"") }, .{ "format", h.c("\"\"") },
     .{ "iter", h.pass("@as(?*anyopaque, null)") }, .{ "next", h.c("@as(?*anyopaque, null)") },
-    .{ "slice", h.c(".{ .start = @as(?i64, null), .stop = @as(?i64, null), .step = @as(?i64, null) }") },
+    .{ "slice", genSlice },
     .{ "staticmethod", h.pass("@as(?*anyopaque, null)") }, .{ "classmethod", h.pass("@as(?*anyopaque, null)") },
     .{ "property", h.c(".{ .fget = @as(?*anyopaque, null), .fset = @as(?*anyopaque, null), .fdel = @as(?*anyopaque, null), .doc = @as(?[]const u8, null) }") },
     .{ "super", genSuper }, .{ "object", h.c(".{}") }, .{ "breakpoint", h.c("{}") }, .{ "__import__", h.c("@as(?*anyopaque, null)") },
@@ -81,7 +81,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Ellipsis", h.c(".{}") }, .{ "NotImplemented", h.c(".{}") },
 });
 
-pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
         const has_side_effects = args[0] == .call or args[1] == .call;
         if (has_side_effects) {
