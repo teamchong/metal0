@@ -16,16 +16,16 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "basename", genPathOp("break :blk std.fs.path.basename(path);", "\"\"") },
     .{ "dirname", genPathOp("break :blk std.fs.path.dirname(path) orelse \"\";", "\"\"") },
     .{ "exists", genPathOp("_ = std.fs.cwd().statFile(path) catch break :blk false; break :blk true;", "false") },
-    .{ "expanduser", genExpanduser }, .{ "expandvars", genPassthrough },
+    .{ "expanduser", genExpanduser }, .{ "expandvars", h.pass("\"\"") },
     .{ "getsize", genPathOp("const stat = std.fs.cwd().statFile(path) catch break :blk @as(i64, 0); break :blk @intCast(stat.size);", "@as(i64, 0)") },
     .{ "isabs", genPathOp("break :blk path.len > 0 and path[0] == '/';", "false") },
     .{ "isdir", genPathOp("const dir = std.fs.cwd().openDir(path, .{}) catch break :blk false; dir.close(); break :blk true;", "false") },
     .{ "isfile", genPathOp("const stat = std.fs.cwd().statFile(path) catch break :blk false; break :blk stat.kind == .file;", "false") },
     .{ "islink", genPathOp("const stat = std.fs.cwd().statFile(path) catch break :blk false; break :blk stat.kind == .sym_link;", "false") },
     .{ "join", genJoin }, .{ "lexists", genPathOp("_ = std.fs.cwd().statFile(path) catch break :blk false; break :blk true;", "false") },
-    .{ "normcase", genPassthrough }, .{ "normpath", genPassthrough },
+    .{ "normcase", h.pass("\"\"") }, .{ "normpath", h.pass("\"\"") },
     .{ "realpath", genPathOp("var buf: [4096]u8 = undefined; break :blk std.fs.cwd().realpath(path, &buf) catch path;", "\"\"") },
-    .{ "relpath", genPassthrough }, .{ "samefile", genSamefile }, .{ "split", genSplit }, .{ "splitdrive", genSplitdrive }, .{ "splitext", genSplitext },
+    .{ "relpath", h.pass("\"\"") }, .{ "samefile", genSamefile }, .{ "split", genSplit }, .{ "splitdrive", genSplitdrive }, .{ "splitext", genSplitext },
     .{ "commonpath", h.c("\"\"") }, .{ "commonprefix", h.c("\"\"") },
     .{ "getatime", h.F64(0.0) }, .{ "getctime", h.F64(0.0) }, .{ "getmtime", h.F64(0.0) },
     .{ "ismount", h.c("false") }, .{ "sameopenfile", h.c("false") }, .{ "samestat", h.c("false") },
@@ -34,7 +34,6 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "curdir", h.c("\".\"") }, .{ "pardir", h.c("\"..\"") },
 });
 
-fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\""); }
 fn genExpanduser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; if (path.len > 0 and path[0] == '~') { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}{s}\", .{ home, path[1..] }) catch path; } break :blk path; }"); } else try self.emit("\"\"");
 }
