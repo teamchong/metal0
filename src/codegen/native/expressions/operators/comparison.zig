@@ -8,14 +8,8 @@ const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
 const producesBlockExpression = expressions.producesBlockExpression;
 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
-
-/// Comparison operator to Zig operator string mapping
-const CompOpStrings = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Eq", " == " }, .{ "NotEq", " != " },
-    .{ "Lt", " < " }, .{ "LtEq", " <= " },
-    .{ "Gt", " > " }, .{ "GtEq", " >= " },
-    .{ "Is", " == " }, .{ "IsNot", " != " },
-});
+const shared = @import("../../shared_maps.zig");
+const CompOpStrings = shared.CompOpStrings;
 
 /// NumPy comparison operator to method name mapping
 const NumpyCompOps = std.StaticStringMap([]const u8).initComptime(.{

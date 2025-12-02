@@ -433,7 +433,45 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     };
 
     // Check if this class captures outer mutable variables
-    const captured_vars = self.nested_class_captures.get(class.name);
+    // If this class doesn't have captures but inherits from a parent that does,
+    // and this class doesn't override the methods that use those captures,
+    // then we need to inherit the parent's captures
+    var captured_vars = self.nested_class_captures.get(class.name);
+    if (captured_vars == null and class.bases.len > 0) {
+        // Check if parent has captures that we need to inherit
+        if (self.nested_class_captures.get(class.bases[0])) |parent_captures| {
+            // Check if we inherit methods that use the captures (i.e., we don't override them)
+            // by checking if parent has methods that child doesn't have
+            const parent_def = self.nested_class_defs.get(class.bases[0]);
+            if (parent_def) |parent| {
+                // Build list of child method names
+                var has_methods_using_captures = false;
+                for (parent.body) |stmt| {
+                    if (stmt == .function_def) {
+                        const parent_method_name = stmt.function_def.name;
+                        // Check if child overrides this method
+                        var child_has_method = false;
+                        for (class.body) |child_stmt| {
+                            if (child_stmt == .function_def and
+                                std.mem.eql(u8, child_stmt.function_def.name, parent_method_name))
+                            {
+                                child_has_method = true;
+                                break;
+                            }
+                        }
+                        if (!child_has_method) {
+                            // Child inherits this method - it might use captures
+                            has_methods_using_captures = true;
+                            break;
+                        }
+                    }
+                }
+                if (has_methods_using_captures) {
+                    captured_vars = parent_captures;
+                }
+            }
+        }
+    }
 
     // Generate unique class name if this name is already declared in current scope
     // This handles Python's ability to redefine a class name in the same function:

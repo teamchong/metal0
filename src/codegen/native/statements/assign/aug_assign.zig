@@ -3,6 +3,9 @@ const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
+const shared = @import("../../shared_maps.zig");
+const BinaryDunders = shared.BinaryDunders;
+const InplaceDunders = shared.InplaceDunders;
 
 /// Simple binary operator strings (with spaces for assignment context)
 const SimpleOpStrings = std.StaticStringMap([]const u8).initComptime(.{
@@ -15,22 +18,6 @@ const SimpleOpStrings = std.StaticStringMap([]const u8).initComptime(.{
 const CompactOpStrings = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Add", "+" }, .{ "Sub", "-" }, .{ "Mult", "*" },
     .{ "BitAnd", "&" }, .{ "BitOr", "|" }, .{ "BitXor", "^" },
-});
-
-/// In-place dunder methods for aug assign
-const InplaceDunders = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Add", "__iadd__" }, .{ "Sub", "__isub__" }, .{ "Mult", "__imul__" },
-    .{ "Div", "__itruediv__" }, .{ "FloorDiv", "__ifloordiv__" }, .{ "Mod", "__imod__" },
-    .{ "Pow", "__ipow__" }, .{ "BitAnd", "__iand__" }, .{ "BitOr", "__ior__" },
-    .{ "BitXor", "__ixor__" }, .{ "LShift", "__ilshift__" }, .{ "RShift", "__irshift__" },
-});
-
-/// Binary dunder methods (fallback)
-const BinaryDunders = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Add", "__add__" }, .{ "Sub", "__sub__" }, .{ "Mult", "__mul__" },
-    .{ "Div", "__truediv__" }, .{ "FloorDiv", "__floordiv__" }, .{ "Mod", "__mod__" },
-    .{ "Pow", "__pow__" }, .{ "BitAnd", "__and__" }, .{ "BitOr", "__or__" },
-    .{ "BitXor", "__xor__" }, .{ "LShift", "__lshift__" }, .{ "RShift", "__rshift__" },
 });
 
 /// Generate augmented assignment (+=, -=, *=, /=, //=, **=, %=)

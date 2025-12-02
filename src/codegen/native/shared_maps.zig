@@ -18,3 +18,29 @@ pub const CompOpStrings = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Gt", " > " },    .{ "GtEq", " >= " },
     .{ "Is", " == " },   .{ "IsNot", " != " },
 });
+
+/// Binary dunder methods for class operator overloading
+pub const BinaryDunders = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "__add__" }, .{ "Sub", "__sub__" }, .{ "Mult", "__mul__" },
+    .{ "Div", "__truediv__" }, .{ "FloorDiv", "__floordiv__" }, .{ "Mod", "__mod__" },
+    .{ "Pow", "__pow__" }, .{ "BitAnd", "__and__" }, .{ "BitOr", "__or__" },
+    .{ "BitXor", "__xor__" }, .{ "LShift", "__lshift__" }, .{ "RShift", "__rshift__" },
+    .{ "MatMul", "__matmul__" },
+});
+
+/// Reverse dunder methods for class operator overloading
+pub const ReverseDunders = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "__radd__" }, .{ "Sub", "__rsub__" }, .{ "Mult", "__rmul__" },
+    .{ "Div", "__rtruediv__" }, .{ "FloorDiv", "__rfloordiv__" }, .{ "Mod", "__rmod__" },
+    .{ "Pow", "__rpow__" }, .{ "BitAnd", "__rand__" }, .{ "BitOr", "__ror__" },
+    .{ "BitXor", "__rxor__" }, .{ "LShift", "__rlshift__" }, .{ "RShift", "__rrshift__" },
+    .{ "MatMul", "__rmatmul__" },
+});
+
+/// In-place dunder methods for augmented assignment
+pub const InplaceDunders = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "__iadd__" }, .{ "Sub", "__isub__" }, .{ "Mult", "__imul__" },
+    .{ "Div", "__itruediv__" }, .{ "FloorDiv", "__ifloordiv__" }, .{ "Mod", "__imod__" },
+    .{ "Pow", "__ipow__" }, .{ "BitAnd", "__iand__" }, .{ "BitOr", "__ior__" },
+    .{ "BitXor", "__ixor__" }, .{ "LShift", "__ilshift__" }, .{ "RShift", "__irshift__" },
+});

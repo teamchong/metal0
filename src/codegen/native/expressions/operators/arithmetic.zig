@@ -8,6 +8,9 @@ const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
 const producesBlockExpression = expressions.producesBlockExpression;
 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
+const shared = @import("../../shared_maps.zig");
+const BinaryDunders = shared.BinaryDunders;
+const ReverseDunders = shared.ReverseDunders;
 
 /// BigInt method names for standard binary operations (left.method(&right, allocator))
 const BigIntStdMethods = std.StaticStringMap([]const u8).initComptime(.{
@@ -249,52 +252,20 @@ fn genBigIntBinOpRightBig(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
         }
     }.emit;
 
-    switch (binop.op) {
-        .Add => {
-            try emitLeftAsBigInt(self, left_type, binop.left, alloc_name);
-            try self.emit(".add(");
-            try emitRightAsBigInt(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable");
-        },
-        .Sub => {
-            try emitLeftAsBigInt(self, left_type, binop.left, alloc_name);
-            try self.emit(".sub(");
-            try emitRightAsBigInt(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable");
-        },
-        .Mult => {
-            try emitLeftAsBigInt(self, left_type, binop.left, alloc_name);
-            try self.emit(".mul(");
-            try emitRightAsBigInt(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable");
-        },
-        .FloorDiv => {
-            try emitLeftAsBigInt(self, left_type, binop.left, alloc_name);
-            try self.emit(".floorDiv(");
-            try emitRightAsBigInt(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable");
-        },
-        .Mod => {
-            try emitLeftAsBigInt(self, left_type, binop.left, alloc_name);
-            try self.emit(".mod(");
-            try emitRightAsBigInt(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable");
-        },
-        else => {
-            // Unsupported - fall back to error
-            try self.emit("@compileError(\"Unsupported BigInt operation with right bigint\")");
-        },
+    // Use BigIntStdMethods for standard operations (same as genBigIntBinOp)
+    if (BigIntStdMethods.get(@tagName(binop.op))) |method| {
+        try emitLeftAsBigInt(self, left_type, binop.left, alloc_name);
+        try self.emit(".");
+        try self.emit(method);
+        try self.emit("(");
+        try emitRightAsBigInt(self, right_type, binop.right, alloc_name);
+        try self.emit(", ");
+        try self.emit(alloc_name);
+        try self.emit(") catch unreachable");
+        return;
     }
+    // Unsupported - fall back to error
+    try self.emit("@compileError(\"Unsupported BigInt operation with right bigint\")");
 }
 
 /// Check if a type requires BigInt representation (explicit bigint or unbounded int)
@@ -389,56 +360,30 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
     // If left operand is a known class instance (not anytype), call dunder method on left
     if (bigint_left_type == .class_instance and !left_is_anytype) {
-        const dunder_method = switch (binop.op) {
-            .Add => "__add__",
-            .Sub => "__sub__",
-            .Mult => "__mul__",
-            .Div => "__truediv__",
-            .FloorDiv => "__floordiv__",
-            .Mod => "__mod__",
-            .Pow => "__pow__",
-            .BitAnd => "__and__",
-            .BitOr => "__or__",
-            .BitXor => "__xor__",
-            .LShift => "__lshift__",
-            .RShift => "__rshift__",
-            .MatMul => "__matmul__",
-        };
-        try self.emit("try ");
-        try genExpr(self, binop.left.*);
-        try self.emit(".");
-        try self.emit(dunder_method);
-        try self.emit("(__global_allocator, ");
-        try genExpr(self, binop.right.*);
-        try self.emit(")");
-        return;
+        if (BinaryDunders.get(@tagName(binop.op))) |dunder_method| {
+            try self.emit("try ");
+            try genExpr(self, binop.left.*);
+            try self.emit(".");
+            try self.emit(dunder_method);
+            try self.emit("(__global_allocator, ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+            return;
+        }
     }
 
     // If right operand is a known class instance (not anytype) and left is not class, call __radd__ etc.
     if (bigint_right_type == .class_instance and !right_is_anytype and bigint_left_type != .class_instance) {
-        const rdunder_method = switch (binop.op) {
-            .Add => "__radd__",
-            .Sub => "__rsub__",
-            .Mult => "__rmul__",
-            .Div => "__rtruediv__",
-            .FloorDiv => "__rfloordiv__",
-            .Mod => "__rmod__",
-            .Pow => "__rpow__",
-            .BitAnd => "__rand__",
-            .BitOr => "__ror__",
-            .BitXor => "__rxor__",
-            .LShift => "__rlshift__",
-            .RShift => "__rrshift__",
-            .MatMul => "__rmatmul__",
-        };
-        try self.emit("try ");
-        try genExpr(self, binop.right.*);
-        try self.emit(".");
-        try self.emit(rdunder_method);
-        try self.emit("(__global_allocator, ");
-        try genExpr(self, binop.left.*);
-        try self.emit(")");
-        return;
+        if (ReverseDunders.get(@tagName(binop.op))) |rdunder_method| {
+            try self.emit("try ");
+            try genExpr(self, binop.right.*);
+            try self.emit(".");
+            try self.emit(rdunder_method);
+            try self.emit("(__global_allocator, ");
+            try genExpr(self, binop.left.*);
+            try self.emit(")");
+            return;
+        }
     }
 
     // Check for complex number operations

@@ -1,6 +1,8 @@
 /// Parameter usage analysis for decorator and higher-order function detection
 const std = @import("std");
 const ast = @import("ast");
+const self_analyzer = @import("self_analyzer.zig");
+const UnittestMethodNames = self_analyzer.unittest_assertion_methods;
 
 /// Check if a parameter is used inside a nested function (closure capture)
 /// This detects params that are referenced by inner functions
@@ -478,55 +480,6 @@ fn isParameterCalledInExpr(expr: ast.Node, param_name: []const u8) bool {
     };
 }
 
-/// unittest assertion method names that get dispatched to runtime.unittest.*
-/// These don't use the actual self parameter in generated Zig code
-const UnittestMethodNames = std.StaticStringMap(void).initComptime(.{
-    .{ "assertEqual", {} },
-    .{ "assertTrue", {} },
-    .{ "assertFalse", {} },
-    .{ "assertIsNone", {} },
-    .{ "assertGreater", {} },
-    .{ "assertLess", {} },
-    .{ "assertGreaterEqual", {} },
-    .{ "assertLessEqual", {} },
-    .{ "assertNotEqual", {} },
-    .{ "assertIs", {} },
-    .{ "assertIsNot", {} },
-    .{ "assertIsNotNone", {} },
-    .{ "assertIn", {} },
-    .{ "assertNotIn", {} },
-    .{ "assertAlmostEqual", {} },
-    .{ "assertNotAlmostEqual", {} },
-    .{ "assertCountEqual", {} },
-    .{ "assertRaises", {} },
-    .{ "assertRaisesRegex", {} },
-    .{ "assertRegex", {} },
-    .{ "assertNotRegex", {} },
-    .{ "assertIsInstance", {} },
-    .{ "assertNotIsInstance", {} },
-    .{ "assertIsSubclass", {} },
-    .{ "assertNotIsSubclass", {} },
-    .{ "assertWarns", {} },
-    .{ "assertWarnsRegex", {} },
-    .{ "assertStartsWith", {} },
-    .{ "assertNotStartsWith", {} },
-    .{ "assertEndsWith", {} },
-    .{ "assertHasAttr", {} },
-    .{ "assertNotHasAttr", {} },
-    .{ "assertSequenceEqual", {} },
-    .{ "assertListEqual", {} },
-    .{ "assertTupleEqual", {} },
-    .{ "assertSetEqual", {} },
-    .{ "assertDictEqual", {} },
-    .{ "assertMultiLineEqual", {} },
-    .{ "assertLogs", {} },
-    .{ "assertNoLogs", {} },
-    .{ "fail", {} },
-    .{ "skipTest", {} },
-    .{ "subTest", {} },
-    .{ "assertFloatsAreIdentical", {} },
-    .{ "addCleanup", {} },
-});
 
 /// Check if first param is used in ways that don't get dispatched to unittest methods.
 /// For test methods with non-"self" first param (e.g., test_self), calls like
