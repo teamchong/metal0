@@ -4,11 +4,8 @@ const ast = @import("ast");
 const main = @import("../main.zig");
 const NativeCodegen = main.NativeCodegen;
 const CodegenError = main.CodegenError;
-
-const AllocatingMethods = std.StaticStringMap(void).initComptime(.{
-    .{ "upper", {} }, .{ "lower", {} }, .{ "strip", {} }, .{ "lstrip", {} }, .{ "rstrip", {} },
-    .{ "replace", {} }, .{ "capitalize", {} }, .{ "title", {} }, .{ "swapcase", {} },
-});
+const shared = @import("../shared_maps.zig");
+const AllocatingMethods = shared.AllocatingStringMethods;
 
 /// Flatten nested string concat: (s1 + " ") + s2 => [s1, " ", s2]
 fn flattenConcat(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayList(ast.Node)) CodegenError!void {

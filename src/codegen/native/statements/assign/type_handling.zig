@@ -2,16 +2,8 @@
 const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
-
-/// String methods that allocate new strings (O(1) lookup)
-/// NOTE: strip/lstrip/rstrip use std.mem.trim - they DON'T allocate!
-const AllocatingStringMethods = std.StaticStringMap(void).initComptime(.{
-    .{ "upper", {} }, .{ "lower", {} },
-    .{ "replace", {} }, .{ "capitalize", {} },
-    .{ "title", {} }, .{ "swapcase", {} },
-    .{ "center", {} }, .{ "ljust", {} },
-    .{ "rjust", {} }, .{ "join", {} },
-});
+const shared = @import("../../shared_maps.zig");
+const AllocatingStringMethods = shared.AllocatingStringMethods;
 
 /// Check if a list contains only literal values
 pub fn isConstantList(list: ast.Node.List) bool {
