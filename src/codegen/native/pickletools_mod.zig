@@ -1,89 +1,23 @@
 /// Python pickletools module - Tools for working with pickle data streams
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "dis", genDis },
-    .{ "genops", genGenops },
-    .{ "optimize", genOptimize },
-    .{ "OpcodeInfo", genOpcodeInfo },
-    .{ "opcodes", genOpcodes },
-    .{ "bytes_types", genBytesTypes },
-    .{ "UP_TO_NEWLINE", genUpToNewline },
-    .{ "TAKEN_FROM_ARGUMENT1", genTakenFromArgument1 },
-    .{ "TAKEN_FROM_ARGUMENT4", genTakenFromArgument4 },
-    .{ "TAKEN_FROM_ARGUMENT4U", genTakenFromArgument4U },
-    .{ "TAKEN_FROM_ARGUMENT8U", genTakenFromArgument8U },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate pickletools.dis(pickle, annotate=0)
-pub fn genDis(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genEmptyList(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]@TypeOf(.{}){}"); }
+fn genI32(comptime n: comptime_int) fn (*NativeCodegen, []ast.Node) CodegenError!void {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, std.fmt.comptimePrint("@as(i32, {})", .{n})); } }.f;
 }
 
-/// Generate pickletools.genops(pickle)
-pub fn genGenops(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]@TypeOf(.{}){}");
-}
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "dis", genUnit }, .{ "genops", genEmptyList }, .{ "optimize", genOptimize }, .{ "OpcodeInfo", genOpcodeInfo }, .{ "opcodes", genEmptyList },
+    .{ "bytes_types", genBytesTypes }, .{ "UP_TO_NEWLINE", genI32(-1) }, .{ "TAKEN_FROM_ARGUMENT1", genI32(-2) },
+    .{ "TAKEN_FROM_ARGUMENT4", genI32(-3) }, .{ "TAKEN_FROM_ARGUMENT4U", genI32(-4) }, .{ "TAKEN_FROM_ARGUMENT8U", genI32(-5) },
+});
 
-/// Generate pickletools.optimize(picklestring)
-pub fn genOptimize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-/// Generate pickletools.OpcodeInfo class
-pub fn genOpcodeInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"\", .code = \"\", .arg = null, .stack_before = &[_][]const u8{}, .stack_after = &[_][]const u8{}, .proto = 0, .doc = \"\" }");
-}
-
-/// Generate pickletools.opcodes constant
-pub fn genOpcodes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]@TypeOf(.{}){}");
-}
-
-/// Generate pickletools.bytes_types constant
-pub fn genBytesTypes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]type{ []const u8 }");
-}
-
-/// Generate pickletools.UP_TO_NEWLINE constant
-pub fn genUpToNewline(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, -1)");
-}
-
-/// Generate pickletools.TAKEN_FROM_ARGUMENT1 constant
-pub fn genTakenFromArgument1(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, -2)");
-}
-
-/// Generate pickletools.TAKEN_FROM_ARGUMENT4 constant
-pub fn genTakenFromArgument4(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, -3)");
-}
-
-/// Generate pickletools.TAKEN_FROM_ARGUMENT4U constant
-pub fn genTakenFromArgument4U(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, -4)");
-}
-
-/// Generate pickletools.TAKEN_FROM_ARGUMENT8U constant
-pub fn genTakenFromArgument8U(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, -5)");
-}
+fn genOptimize(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\""); }
+fn genOpcodeInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"\", .code = \"\", .arg = null, .stack_before = &[_][]const u8{}, .stack_after = &[_][]const u8{}, .proto = 0, .doc = \"\" }"); }
+fn genBytesTypes(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]type{ []const u8 }"); }

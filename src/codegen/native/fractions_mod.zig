@@ -6,156 +6,19 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Fraction", genFraction },
-    .{ "gcd", genGcd },
+    .{ "Fraction", genFraction }, .{ "gcd", genGcd },
 });
 
-/// Generate fractions.Fraction struct type definition
-fn emitFractionStruct(self: *NativeCodegen) CodegenError!void {
-    try self.emit("struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("numerator: i64,\n");
-    try self.emitIndent();
-    try self.emit("denominator: i64,\n");
-    try self.emitIndent();
-    try self.emit("pub fn init(num: i64, den: i64) @This() {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const g = gcd(if (num < 0) -num else num, if (den < 0) -den else den);\n");
-    try self.emitIndent();
-    try self.emit("const sign: i64 = if ((num < 0) != (den < 0)) -1 else 1;\n");
-    try self.emitIndent();
-    try self.emit("return @This(){ .numerator = sign * @divTrunc(if (num < 0) -num else num, g), .denominator = @divTrunc(if (den < 0) -den else den, g) };\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("fn gcd(a: i64, b: i64) i64 {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (b == 0) return a;\n");
-    try self.emitIndent();
-    try self.emit("return gcd(b, @mod(a, b));\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn add(s: @This(), other: @This()) @This() {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("return @This().init(s.numerator * other.denominator + other.numerator * s.denominator, s.denominator * other.denominator);\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn sub(s: @This(), other: @This()) @This() {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("return @This().init(s.numerator * other.denominator - other.numerator * s.denominator, s.denominator * other.denominator);\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn mul(s: @This(), other: @This()) @This() {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("return @This().init(s.numerator * other.numerator, s.denominator * other.denominator);\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn div(s: @This(), other: @This()) @This() {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("return @This().init(s.numerator * other.denominator, s.denominator * other.numerator);\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn limit_denominator(s: @This(), max_denominator: i64) @This() {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (s.denominator <= max_denominator) return s;\n");
-    try self.emitIndent();
-    try self.emit("return @This().init(@divTrunc(s.numerator * max_denominator, s.denominator), max_denominator);\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn toFloat(s: @This()) f64 {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("return @as(f64, @floatFromInt(s.numerator)) / @as(f64, @floatFromInt(s.denominator));\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+const FractionStruct = "struct { numerator: i64, denominator: i64, pub fn init(num: i64, den: i64) @This() { const g = gcd(if (num < 0) -num else num, if (den < 0) -den else den); const sign: i64 = if ((num < 0) != (den < 0)) -1 else 1; return @This(){ .numerator = sign * @divTrunc(if (num < 0) -num else num, g), .denominator = @divTrunc(if (den < 0) -den else den, g) }; } fn gcd(a: i64, b: i64) i64 { if (b == 0) return a; return gcd(b, @mod(a, b)); } pub fn add(s: @This(), other: @This()) @This() { return @This().init(s.numerator * other.denominator + other.numerator * s.denominator, s.denominator * other.denominator); } pub fn sub(s: @This(), other: @This()) @This() { return @This().init(s.numerator * other.denominator - other.numerator * s.denominator, s.denominator * other.denominator); } pub fn mul(s: @This(), other: @This()) @This() { return @This().init(s.numerator * other.numerator, s.denominator * other.denominator); } pub fn div(s: @This(), other: @This()) @This() { return @This().init(s.numerator * other.denominator, s.denominator * other.numerator); } pub fn limit_denominator(s: @This(), max_denominator: i64) @This() { if (s.denominator <= max_denominator) return s; return @This().init(@divTrunc(s.numerator * max_denominator, s.denominator), max_denominator); } pub fn toFloat(s: @This()) f64 { return @as(f64, @floatFromInt(s.numerator)) / @as(f64, @floatFromInt(s.denominator)); } }";
+
+fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try self.emit(FractionStruct);
+    if (args.len == 1) { try self.emit(".init("); try self.genExpr(args[0]); try self.emit(", 1)"); }
+    else if (args.len >= 2) { try self.emit(".init("); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")"); }
 }
 
-/// Generate fractions.Fraction(numerator=0, denominator=1) -> Fraction
-/// When called with args, creates an instance. When called without args,
-/// just returns the type (for R = fractions.Fraction type aliasing)
-pub fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try emitFractionStruct(self);
-
-    // Initialize based on args
-    // Note: When args.len == 0, this is typically a type reference (R = fractions.Fraction)
-    // so we DON'T call .init() - the caller will do that when constructing instances
-    if (args.len == 0) {
-        // Just the struct type - no init
-        return;
-    } else if (args.len == 1) {
-        try self.emit(".init(");
-        try self.genExpr(args[0]);
-        try self.emit(", 1)");
-    } else {
-        try self.emit(".init(");
-        try self.genExpr(args[0]);
-        try self.emit(", ");
-        try self.genExpr(args[1]);
-        try self.emit(")");
-    }
-}
-
-/// Generate fractions.gcd(a, b) -> greatest common divisor (deprecated, use math.gcd)
-pub fn genGcd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) {
-        try self.emit("@as(i64, 1)");
-        return;
-    }
-
-    try self.emit("fractions_gcd_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _a = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("var _b = ");
-    try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("if (_a < 0) _a = -_a;\n");
-    try self.emitIndent();
-    try self.emit("if (_b < 0) _b = -_b;\n");
-    try self.emitIndent();
-    try self.emit("while (_b != 0) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const t = _b;\n");
-    try self.emitIndent();
-    try self.emit("_b = @mod(_a, _b);\n");
-    try self.emitIndent();
-    try self.emit("_a = t;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("break :fractions_gcd_blk _a;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+fn genGcd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) { try self.emit("@as(i64, 1)"); return; }
+    try self.emit("blk: { var _a = "); try self.genExpr(args[0]); try self.emit("; var _b = "); try self.genExpr(args[1]);
+    try self.emit("; if (_a < 0) _a = -_a; if (_b < 0) _b = -_b; while (_b != 0) { const t = _b; _b = @mod(_a, _b); _a = t; } break :blk _a; }");
 }

@@ -1,93 +1,24 @@
 /// Python fileinput module - Iterate over lines from multiple input streams
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "input", genInput },
-    .{ "filename", genFilename },
-    .{ "fileno", genFileno },
-    .{ "lineno", genLineno },
-    .{ "filelineno", genFilelineno },
-    .{ "isfirstline", genIsfirstline },
-    .{ "isstdin", genIsstdin },
-    .{ "nextfile", genNextfile },
-    .{ "close", genClose },
-    .{ "FileInput", genFileInput },
-    .{ "hook_compressed", genHookCompressed },
-    .{ "hook_encoded", genHookEncoded },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate fileinput.input(files=None, inplace=False, backup='', *, mode='r', openhook=None, encoding=None, errors=None)
-pub fn genInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .files = &[_][]const u8{}, .inplace = false, .backup = \"\", .mode = \"r\" }");
-}
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
+fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
+fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
+fn genI32_m1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, -1)"); }
 
-/// Generate fileinput.filename()
-pub fn genFilename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "input", genInput }, .{ "filename", genEmptyStr }, .{ "fileno", genI32_m1 },
+    .{ "lineno", genI64_0 }, .{ "filelineno", genI64_0 },
+    .{ "isfirstline", genFalse }, .{ "isstdin", genFalse }, .{ "nextfile", genUnit }, .{ "close", genUnit },
+    .{ "FileInput", genFileInput }, .{ "hook_compressed", genNull }, .{ "hook_encoded", genNull },
+});
 
-/// Generate fileinput.fileno()
-pub fn genFileno(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, -1)");
-}
-
-/// Generate fileinput.lineno()
-pub fn genLineno(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate fileinput.filelineno()
-pub fn genFilelineno(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate fileinput.isfirstline()
-pub fn genIsfirstline(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-/// Generate fileinput.isstdin()
-pub fn genIsstdin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-/// Generate fileinput.nextfile()
-pub fn genNextfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate fileinput.close()
-pub fn genClose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate fileinput.FileInput class
-pub fn genFileInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .files = &[_][]const u8{}, .inplace = false, .backup = \"\", .mode = \"r\", .encoding = null, .errors = null }");
-}
-
-/// Generate fileinput.hook_compressed(filename, mode, *, encoding=None, errors=None)
-pub fn genHookCompressed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate fileinput.hook_encoded(encoding, errors=None)
-pub fn genHookEncoded(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
+fn genInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .files = &[_][]const u8{}, .inplace = false, .backup = \"\", .mode = \"r\" }"); }
+fn genFileInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .files = &[_][]const u8{}, .inplace = false, .backup = \"\", .mode = \"r\", .encoding = null, .errors = null }"); }

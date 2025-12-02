@@ -5,130 +5,22 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genIMAP4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 143), .state = \"LOGOUT\", .capabilities = &[_][]const u8{} }"); }
+fn genIMAP4_SSL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 993), .state = \"LOGOUT\", .capabilities = &[_][]const u8{} }"); }
+fn genIMAP4_stream(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .state = \"LOGOUT\" }"); }
+fn genPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 143)"); }
+fn genSslPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 993)"); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?*anyopaque, null)"); }
+fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
+fn genEmptyArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{}"); }
+fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.IMAP4Error"); }
+fn genAbort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.IMAP4Abort"); }
+fn genReadonly(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.IMAP4Readonly"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "IMAP4", genIMAP4 },
-    .{ "IMAP4_SSL", genIMAP4_SSL },
-    .{ "IMAP4_stream", genIMAP4_stream },
-    .{ "IMAP4_PORT", genIMAP4_PORT },
-    .{ "IMAP4_SSL_PORT", genIMAP4_SSL_PORT },
-    .{ "Commands", genCommands },
-    .{ "IMAP4.error", genIMAP4_error },
-    .{ "IMAP4.abort", genIMAP4_abort },
-    .{ "IMAP4.readonly", genIMAP4_readonly },
-    .{ "Internaldate2tuple", genInternaldate2tuple },
-    .{ "Int2AP", genInt2AP },
-    .{ "ParseFlags", genParseFlags },
-    .{ "Time2Internaldate", genTime2Internaldate },
+    .{ "IMAP4", genIMAP4 }, .{ "IMAP4_SSL", genIMAP4_SSL }, .{ "IMAP4_stream", genIMAP4_stream },
+    .{ "IMAP4_PORT", genPort }, .{ "IMAP4_SSL_PORT", genSslPort }, .{ "Commands", genNull },
+    .{ "IMAP4.error", genErr }, .{ "IMAP4.abort", genAbort }, .{ "IMAP4.readonly", genReadonly },
+    .{ "Internaldate2tuple", genNull }, .{ "Int2AP", genEmptyStr }, .{ "ParseFlags", genEmptyArr }, .{ "Time2Internaldate", genEmptyStr },
 });
-
-/// Generate imaplib.IMAP4 class
-pub fn genIMAP4(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = \"\", .port = @as(i32, 143), .state = \"LOGOUT\", .capabilities = &[_][]const u8{} }");
-}
-
-/// Generate imaplib.IMAP4_SSL class
-pub fn genIMAP4_SSL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = \"\", .port = @as(i32, 993), .state = \"LOGOUT\", .capabilities = &[_][]const u8{} }");
-}
-
-/// Generate imaplib.IMAP4_stream class
-pub fn genIMAP4_stream(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = \"\", .state = \"LOGOUT\" }");
-}
-
-// ============================================================================
-// Port constants
-// ============================================================================
-
-pub fn genIMAP4_PORT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 143)");
-}
-
-pub fn genIMAP4_SSL_PORT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 993)");
-}
-
-// ============================================================================
-// Commands mapping
-// ============================================================================
-
-pub fn genCommands(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?*anyopaque, null)");
-}
-
-// ============================================================================
-// Response codes
-// ============================================================================
-
-pub fn genOK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"OK\"");
-}
-
-pub fn genNO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"NO\"");
-}
-
-pub fn genBAD(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"BAD\"");
-}
-
-pub fn genBYE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"BYE\"");
-}
-
-// ============================================================================
-// Exception classes
-// ============================================================================
-
-pub fn genIMAP4_error(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.IMAP4Error");
-}
-
-pub fn genIMAP4_abort(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.IMAP4Abort");
-}
-
-pub fn genIMAP4_readonly(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.IMAP4Readonly");
-}
-
-// ============================================================================
-// Utility functions
-// ============================================================================
-
-/// Generate imaplib.Internaldate2tuple(datestr)
-pub fn genInternaldate2tuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?*anyopaque, null)");
-}
-
-/// Generate imaplib.Int2AP(num)
-pub fn genInt2AP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate imaplib.ParseFlags(data)
-pub fn genParseFlags(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_][]const u8{}");
-}
-
-/// Generate imaplib.Time2Internaldate(date_time)
-pub fn genTime2Internaldate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}

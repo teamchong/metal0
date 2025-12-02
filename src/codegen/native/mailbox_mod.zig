@@ -1,161 +1,31 @@
 /// Python mailbox module - Mailbox handling
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Mailbox", genMailbox },
-    .{ "Maildir", genMaildir },
-    .{ "mbox", genMbox },
-    .{ "MH", genMH },
-    .{ "Babyl", genBabyl },
-    .{ "MMDF", genMMDF },
-    .{ "Message", genMessage },
-    .{ "MaildirMessage", genMaildirMessage },
-    .{ "mboxMessage", genMboxMessage },
-    .{ "MHMessage", genMHMessage },
-    .{ "BabylMessage", genBabylMessage },
-    .{ "MMDFMessage", genMMDFMessage },
-    .{ "Error", genError },
-    .{ "NoSuchMailboxError", genNoSuchMailboxError },
-    .{ "NotEmptyError", genNotEmptyError },
-    .{ "ExternalClashError", genExternalClashError },
-    .{ "FormatError", genFormatError },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate mailbox.Mailbox class (base class)
-pub fn genMailbox(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .path = path, .factory = @as(?*anyopaque, null), .create = true }; }");
-    } else {
-        try self.emit(".{ .path = \"\", .factory = @as(?*anyopaque, null), .create = true }");
-    }
-}
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genMaildirMsg(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .subdir = \"new\", .info = \"\", .date = @as(f64, 0) }"); }
+fn genMboxMsg(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .from_ = \"\" }"); }
+fn genMHMsg(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .sequences = &[_][]const u8{} }"); }
+fn genBabylMsg(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .labels = &[_][]const u8{} }"); }
+fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.MailboxError"); }
+fn genNoSuchErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NoSuchMailboxError"); }
+fn genNotEmptyErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NotEmptyError"); }
+fn genClashErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.ExternalClashError"); }
+fn genFmtErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FormatError"); }
 
-/// Generate mailbox.Maildir class
-pub fn genMaildir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .path = path, .factory = @as(?*anyopaque, null), .create = true }; }");
-    } else {
-        try self.emit(".{ .path = \"\", .factory = @as(?*anyopaque, null), .create = true }");
-    }
-}
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Mailbox", genMailboxType }, .{ "Maildir", genMailboxType }, .{ "mbox", genMailboxType },
+    .{ "MH", genMailboxType }, .{ "Babyl", genMailboxType }, .{ "MMDF", genMailboxType },
+    .{ "Message", genEmpty }, .{ "MaildirMessage", genMaildirMsg }, .{ "mboxMessage", genMboxMsg },
+    .{ "MHMessage", genMHMsg }, .{ "BabylMessage", genBabylMsg }, .{ "MMDFMessage", genMboxMsg },
+    .{ "Error", genErr }, .{ "NoSuchMailboxError", genNoSuchErr }, .{ "NotEmptyError", genNotEmptyErr },
+    .{ "ExternalClashError", genClashErr }, .{ "FormatError", genFmtErr },
+});
 
-/// Generate mailbox.mbox class
-pub fn genMbox(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .path = path, .factory = @as(?*anyopaque, null), .create = true }; }");
-    } else {
-        try self.emit(".{ .path = \"\", .factory = @as(?*anyopaque, null), .create = true }");
-    }
-}
-
-/// Generate mailbox.MH class
-pub fn genMH(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .path = path, .factory = @as(?*anyopaque, null), .create = true }; }");
-    } else {
-        try self.emit(".{ .path = \"\", .factory = @as(?*anyopaque, null), .create = true }");
-    }
-}
-
-/// Generate mailbox.Babyl class
-pub fn genBabyl(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .path = path, .factory = @as(?*anyopaque, null), .create = true }; }");
-    } else {
-        try self.emit(".{ .path = \"\", .factory = @as(?*anyopaque, null), .create = true }");
-    }
-}
-
-/// Generate mailbox.MMDF class
-pub fn genMMDF(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .path = path, .factory = @as(?*anyopaque, null), .create = true }; }");
-    } else {
-        try self.emit(".{ .path = \"\", .factory = @as(?*anyopaque, null), .create = true }");
-    }
-}
-
-// ============================================================================
-// Message classes
-// ============================================================================
-
-/// Generate mailbox.Message class (base class)
-pub fn genMessage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate mailbox.MaildirMessage class
-pub fn genMaildirMessage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .subdir = \"new\", .info = \"\", .date = @as(f64, 0) }");
-}
-
-/// Generate mailbox.mboxMessage class
-pub fn genMboxMessage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .from_ = \"\" }");
-}
-
-/// Generate mailbox.MHMessage class
-pub fn genMHMessage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .sequences = &[_][]const u8{} }");
-}
-
-/// Generate mailbox.BabylMessage class
-pub fn genBabylMessage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .labels = &[_][]const u8{} }");
-}
-
-/// Generate mailbox.MMDFMessage class
-pub fn genMMDFMessage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .from_ = \"\" }");
-}
-
-// ============================================================================
-// Exceptions
-// ============================================================================
-
-pub fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.MailboxError");
-}
-
-pub fn genNoSuchMailboxError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NoSuchMailboxError");
-}
-
-pub fn genNotEmptyError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NotEmptyError");
-}
-
-pub fn genExternalClashError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ExternalClashError");
-}
-
-pub fn genFormatError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.FormatError");
+fn genMailboxType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ .path = path, .factory = @as(?*anyopaque, null), .create = true }; }"); } else { try self.emit(".{ .path = \"\", .factory = @as(?*anyopaque, null), .create = true }"); }
 }

@@ -5,106 +5,21 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
+fn genUTC(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"UTC\""); }
+fn genDefaultZone(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .key = \"UTC\" }"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "zone_info", genZoneInfo },
-    .{ "from_file", genFromFile },
-    .{ "no_cache", genNoCache },
-    .{ "clear_cache", genClearCache },
-    .{ "key", genKey },
-    .{ "utcoffset", genUtcoffset },
-    .{ "tzname", genTzname },
-    .{ "dst", genDst },
-    .{ "t_z_p_a_t_h", genTZPATH },
-    .{ "reset_tzpath", genResetTzpath },
-    .{ "available_timezones", genAvailableTimezones },
-    .{ "zone_info_not_found_error", genZoneInfoNotFoundError },
-    .{ "invalid_t_z_path_warning", genInvalidTZPathWarning },
+    .{ "zone_info", genZoneInfo }, .{ "from_file", genDefaultZone }, .{ "no_cache", genZoneInfo }, .{ "clear_cache", genUnit },
+    .{ "key", genUTC }, .{ "utcoffset", genNull }, .{ "tzname", genUTC }, .{ "dst", genNull },
+    .{ "t_z_p_a_t_h", genTZPATH }, .{ "reset_tzpath", genUnit }, .{ "available_timezones", genAvailableTimezones },
+    .{ "zone_info_not_found_error", genZoneInfoNotFoundError }, .{ "invalid_t_z_path_warning", genInvalidTZPathWarning },
 });
 
-/// Generate _zoneinfo.ZoneInfo(key)
-pub fn genZoneInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const key = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .key = key }; }");
-    } else {
-        try self.emit(".{ .key = \"UTC\" }");
-    }
-}
-
-/// Generate _zoneinfo.ZoneInfo.from_file(fobj, key=None)
-pub fn genFromFile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .key = \"UTC\" }");
-}
-
-/// Generate _zoneinfo.ZoneInfo.no_cache(key)
-pub fn genNoCache(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const key = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .key = key }; }");
-    } else {
-        try self.emit(".{ .key = \"UTC\" }");
-    }
-}
-
-/// Generate _zoneinfo.ZoneInfo.clear_cache(*, only_keys=None)
-pub fn genClearCache(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate ZoneInfo.key property
-pub fn genKey(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"UTC\"");
-}
-
-/// Generate ZoneInfo.utcoffset(dt)
-pub fn genUtcoffset(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate ZoneInfo.tzname(dt)
-pub fn genTzname(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"UTC\"");
-}
-
-/// Generate ZoneInfo.dst(dt)
-pub fn genDst(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate _zoneinfo.TZPATH constant
-pub fn genTZPATH(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_][]const u8{ \"/usr/share/zoneinfo\", \"/usr/lib/zoneinfo\", \"/usr/share/lib/zoneinfo\", \"/etc/zoneinfo\" }");
-}
-
-/// Generate _zoneinfo.reset_tzpath(to=None)
-pub fn genResetTzpath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _zoneinfo.available_timezones()
-pub fn genAvailableTimezones(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_][]const u8{ \"UTC\", \"GMT\" }");
-}
-
-/// Generate _zoneinfo.ZoneInfoNotFoundError exception
-pub fn genZoneInfoNotFoundError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ZoneInfoNotFoundError");
-}
-
-/// Generate _zoneinfo.InvalidTZPathWarning exception
-pub fn genInvalidTZPathWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.InvalidTZPathWarning");
-}
+fn genZoneInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) { try self.emit("blk: { const key = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ .key = key }; }"); } else try genDefaultZone(self, args); }
+fn genTZPATH(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{ \"/usr/share/zoneinfo\", \"/usr/lib/zoneinfo\", \"/usr/share/lib/zoneinfo\", \"/etc/zoneinfo\" }"); }
+fn genAvailableTimezones(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{ \"UTC\", \"GMT\" }"); }
+fn genZoneInfoNotFoundError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.ZoneInfoNotFoundError"); }
+fn genInvalidTZPathWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.InvalidTZPathWarning"); }

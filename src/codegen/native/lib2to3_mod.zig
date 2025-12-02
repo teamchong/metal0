@@ -6,60 +6,9 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "main", genMain },
-    .{ "refactoring_tool", genRefactoringTool },
-    .{ "base_fix", genBaseFix },
-    .{ "base", genBase },
-    .{ "node", genNode },
-    .{ "leaf", genLeaf },
-    .{ "python_grammar", genPythonGrammar },
-    .{ "python_grammar_no_print_statement", genPythonGrammarNoPrintStatement },
+    .{ "main", genI64_0 }, .{ "refactoring_tool", genEmpty }, .{ "base_fix", genEmpty }, .{ "base", genEmpty }, .{ "node", genEmpty }, .{ "leaf", genEmpty }, .{ "python_grammar", genEmpty }, .{ "python_grammar_no_print_statement", genEmpty },
 });
 
-/// Generate lib2to3.main(fixer_pkg, args=None) - Main entry point
-pub fn genMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("0");
-}
-
-/// Generate lib2to3.refactor.RefactoringTool class
-pub fn genRefactoringTool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate lib2to3.fixer_base.BaseFix class
-pub fn genBaseFix(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate lib2to3.pytree.Base class
-pub fn genBase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate lib2to3.pytree.Node class
-pub fn genNode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate lib2to3.pytree.Leaf class
-pub fn genLeaf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate lib2to3.pygram.python_grammar
-pub fn genPythonGrammar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate lib2to3.pygram.python_grammar_no_print_statement
-pub fn genPythonGrammarNoPrintStatement(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "0"); }

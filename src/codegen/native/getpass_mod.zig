@@ -6,43 +6,21 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "getpass", genGetpass },
-    .{ "getuser", genGetuser },
-    .{ "GetPassWarning", genGetPassWarning },
+    .{ "getpass", genGetpass }, .{ "getuser", genGetuser }, .{ "GetPassWarning", genWarning },
 });
 
-/// Generate getpass.getpass(prompt='Password: ', stream=None) -> str
-pub fn genGetpass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"GetPassWarning\""); }
+fn genGetpass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("getpass_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const stdin = std.io.getStdIn().reader();\n");
-    try self.emitIndent();
-    try self.emit("var buf: [256]u8 = undefined;\n");
-    try self.emitIndent();
-    try self.emit("break :getpass_blk stdin.readUntilDelimiter(&buf, '\\n') catch \"\";\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("getpass_blk: {\n"); self.indent(); try self.emitIndent();
+    try self.emit("const stdin = std.io.getStdIn().reader();\n"); try self.emitIndent();
+    try self.emit("var buf: [256]u8 = undefined;\n"); try self.emitIndent();
+    try self.emit("break :getpass_blk stdin.readUntilDelimiter(&buf, '\\n') catch \"\";\n"); self.dedent(); try self.emitIndent(); try self.emit("}");
 }
-
-/// Generate getpass.getuser() -> str
-pub fn genGetuser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genGetuser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("getuser_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const user = std.posix.getenv(\"USER\") orelse std.posix.getenv(\"LOGNAME\") orelse \"unknown\";\n");
-    try self.emitIndent();
-    try self.emit("break :getuser_blk user;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
-}
-
-/// Generate getpass.GetPassWarning exception
-pub fn genGetPassWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"GetPassWarning\"");
+    try self.emit("getuser_blk: {\n"); self.indent(); try self.emitIndent();
+    try self.emit("const user = std.posix.getenv(\"USER\") orelse std.posix.getenv(\"LOGNAME\") orelse \"unknown\";\n"); try self.emitIndent();
+    try self.emit("break :getuser_blk user;\n"); self.dedent(); try self.emitIndent(); try self.emit("}");
 }

@@ -1,6 +1,4 @@
-/// Python pickle module - Object serialization
-/// Note: This uses JSON as backing format for simplicity.
-/// Full pickle protocol compatibility would require significant work.
+/// Python pickle module - Object serialization (uses JSON as backing format)
 const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
@@ -8,223 +6,63 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 const json = @import("json.zig");
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "dumps", genDumps },
-    .{ "loads", genLoads },
-    .{ "dump", genDump },
-    .{ "load", genLoad },
-    .{ "HIGHEST_PROTOCOL", genHIGHEST_PROTOCOL },
-    .{ "DEFAULT_PROTOCOL", genDEFAULT_PROTOCOL },
-    .{ "PicklingError", genPicklingError },
-    .{ "UnpicklingError", genUnpicklingError },
-    .{ "Pickler", genPickler },
-    .{ "Unpickler", genUnpickler },
+    .{ "dumps", genDumps }, .{ "loads", genLoads }, .{ "dump", genDump }, .{ "load", genLoad },
+    .{ "HIGHEST_PROTOCOL", genConst("@as(i64, 5)") }, .{ "DEFAULT_PROTOCOL", genConst("@as(i64, 4)") },
+    .{ "PicklingError", genConst("error.PicklingError") }, .{ "UnpicklingError", genConst("error.UnpicklingError") },
+    .{ "Pickler", genConst("try runtime.io.BytesIO.create(__global_allocator)") },
+    .{ "Unpickler", genConst("try runtime.io.BytesIO.create(__global_allocator)") },
 });
 
-/// Generate pickle.dumps(obj) -> bytes
-/// Serializes object to bytes using JSON format
-/// Returns []const u8 directly (not wrapped in PyObject)
 pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
-    // Check if argument is a dict type that needs conversion
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-
     if (arg_type == .dict) {
-        // Native dict (StringHashMap) needs conversion to PyDict then dumpsDirect
-        try self.emit("pickle_blk: {\n");
-        self.indent();
-        try self.emitIndent();
-        try self.emit("const _dict_map = ");
-        try self.genExpr(args[0]);
-        try self.emit(";\n");
-        try self.emitIndent();
-        try self.emit("const _py_dict = try runtime.PyDict.create(__global_allocator);\n");
-        try self.emitIndent();
-        try self.emit("defer runtime.decref(_py_dict, __global_allocator);\n");
-        try self.emitIndent();
-        try self.emit("var _it = _dict_map.iterator();\n");
-        try self.emitIndent();
-        try self.emit("while (_it.next()) |_entry| {\n");
-        self.indent();
-        try self.emitIndent();
-        // Convert value based on inferred value type
+        try self.emit("pickle_blk: { const _dict_map = "); try self.genExpr(args[0]);
         const value_type = arg_type.dict.value.*;
         if (value_type == .int) {
-            try self.emit("const _py_val = try runtime.PyInt.create(__global_allocator, _entry.value_ptr.*);\n");
+            try self.emit("; const _py_dict = try runtime.PyDict.create(__global_allocator); defer runtime.decref(_py_dict, __global_allocator); var _it = _dict_map.iterator(); while (_it.next()) |_entry| { const _py_val = try runtime.PyInt.create(__global_allocator, _entry.value_ptr.*); try runtime.PyDict.set(_py_dict, _entry.key_ptr.*, _py_val); } break :pickle_blk try runtime.json.dumpsDirect(_py_dict, __global_allocator); }");
         } else if (value_type == .float) {
-            try self.emit("const _py_val = try runtime.PyFloat.create(__global_allocator, _entry.value_ptr.*);\n");
+            try self.emit("; const _py_dict = try runtime.PyDict.create(__global_allocator); defer runtime.decref(_py_dict, __global_allocator); var _it = _dict_map.iterator(); while (_it.next()) |_entry| { const _py_val = try runtime.PyFloat.create(__global_allocator, _entry.value_ptr.*); try runtime.PyDict.set(_py_dict, _entry.key_ptr.*, _py_val); } break :pickle_blk try runtime.json.dumpsDirect(_py_dict, __global_allocator); }");
         } else {
-            try self.emit("const _py_val = try runtime.PyString.create(__global_allocator, _entry.value_ptr.*);\n");
+            try self.emit("; const _py_dict = try runtime.PyDict.create(__global_allocator); defer runtime.decref(_py_dict, __global_allocator); var _it = _dict_map.iterator(); while (_it.next()) |_entry| { const _py_val = try runtime.PyString.create(__global_allocator, _entry.value_ptr.*); try runtime.PyDict.set(_py_dict, _entry.key_ptr.*, _py_val); } break :pickle_blk try runtime.json.dumpsDirect(_py_dict, __global_allocator); }");
         }
-        try self.emitIndent();
-        try self.emit("try runtime.PyDict.set(_py_dict, _entry.key_ptr.*, _py_val);\n");
-        self.dedent();
-        try self.emitIndent();
-        try self.emit("}\n");
-        try self.emitIndent();
-        try self.emit("break :pickle_blk try runtime.json.dumpsDirect(_py_dict, __global_allocator);\n");
-        self.dedent();
-        try self.emitIndent();
-        try self.emit("}");
     } else if (arg_type == .list) {
-        // List needs conversion then dumpsDirect
-        try self.emit("try runtime.json.dumpsDirect(try runtime.PyList.fromArrayList(");
-        try self.genExpr(args[0]);
-        try self.emit(", __global_allocator), __global_allocator)");
+        try self.emit("try runtime.json.dumpsDirect(try runtime.PyList.fromArrayList("); try self.genExpr(args[0]); try self.emit(", __global_allocator), __global_allocator)");
     } else if (arg_type == .bool) {
-        // Bool: use Python pickle format, handle protocol parameter
-        // Check if protocol argument is provided (args[1] or kwargs)
-        var protocol_arg: ?ast.Node = null;
-        if (args.len > 1) {
-            protocol_arg = args[1];
-        }
-        // Check for protocol kwarg
-        // For simplicity, we'll check for common protocol values at compile time
-        if (protocol_arg) |proto| {
-            if (proto == .constant and proto.constant.value == .int) {
-                const proto_val = proto.constant.value.int;
-                if (proto_val >= 2) {
-                    // Protocol 2+: use binary format
-                    try self.emit("if (");
-                    try self.genExpr(args[0]);
-                    try self.emit(") \"\\x80\\x02\\x88.\" else \"\\x80\\x02\\x89.\"");
-                    return;
-                }
-            }
-        }
-        // Default: protocol 0/1 format
-        try self.emit("if (");
-        try self.genExpr(args[0]);
-        try self.emit(") \"I01\\n.\" else \"I00\\n.\"");
+        const use_binary = args.len > 1 and args[1] == .constant and args[1].constant.value == .int and args[1].constant.value.int >= 2;
+        if (use_binary) { try self.emit("if ("); try self.genExpr(args[0]); try self.emit(") \"\\x80\\x02\\x88.\" else \"\\x80\\x02\\x89.\""); }
+        else { try self.emit("if ("); try self.genExpr(args[0]); try self.emit(") \"I01\\n.\" else \"I00\\n.\""); }
     } else if (arg_type == .int) {
-        // Int: convert to PyInt for serialization
-        try self.emit("try runtime.json.dumpsDirect(try runtime.PyInt.create(__global_allocator, ");
-        try self.genExpr(args[0]);
-        try self.emit("), __global_allocator)");
+        try self.emit("try runtime.json.dumpsDirect(try runtime.PyInt.create(__global_allocator, "); try self.genExpr(args[0]); try self.emit("), __global_allocator)");
     } else if (arg_type == .float) {
-        // Float: convert to PyFloat for serialization
-        try self.emit("try runtime.json.dumpsDirect(try runtime.PyFloat.create(__global_allocator, ");
-        try self.genExpr(args[0]);
-        try self.emit("), __global_allocator)");
+        try self.emit("try runtime.json.dumpsDirect(try runtime.PyFloat.create(__global_allocator, "); try self.genExpr(args[0]); try self.emit("), __global_allocator)");
     } else if (arg_type == .string or @as(std.meta.Tag(@TypeOf(arg_type)), arg_type) == .string) {
-        // String: convert to PyString for serialization
-        try self.emit("try runtime.json.dumpsDirect(try runtime.PyString.create(__global_allocator, ");
-        try self.genExpr(args[0]);
-        try self.emit("), __global_allocator)");
+        try self.emit("try runtime.json.dumpsDirect(try runtime.PyString.create(__global_allocator, "); try self.genExpr(args[0]); try self.emit("), __global_allocator)");
     } else {
-        // Already a PyObject - use dumpsDirect
-        try self.emit("try runtime.json.dumpsDirect(");
-        try self.genExpr(args[0]);
-        try self.emit(", __global_allocator)");
+        try self.emit("try runtime.json.dumpsDirect("); try self.genExpr(args[0]); try self.emit(", __global_allocator)");
     }
 }
 
-/// Generate pickle.loads(data) -> object
-/// Deserializes bytes to object - handles both pickle and JSON formats
 pub fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
-    // Check the type of the argument
-    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-    _ = arg_type;
-
-    // Use runtime pickleLoads which handles pickle format
-    try self.emit("runtime.pickleLoads(");
-    try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit("runtime.pickleLoads("); try self.genExpr(args[0]); try self.emit(")");
 }
 
-/// Generate pickle.dump(obj, file) -> None
-/// Writes serialized object to file
 pub fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
-    // Serialize using json.dumps then write to file
-    try self.emit("pickle_dump_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _json_str = ");
-    // Generate json.dumps for first arg
+    try self.emit("pickle_dump_blk: { const _json_str = ");
     try json.genJsonDumps(self, args[0..1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("const _file = ");
-    try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("_ = _file.write(_json_str) catch 0;\n");
-    try self.emitIndent();
-    try self.emit("break :pickle_dump_blk;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("; const _file = "); try self.genExpr(args[1]);
+    try self.emit("; _ = _file.write(_json_str) catch 0; break :pickle_dump_blk; }");
 }
 
-/// Generate pickle.load(file) -> object
-/// Reads and deserializes object from file
 pub fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
-    // Read file content and parse as JSON
-    try self.emit("pickle_load_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _file = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("const _content = _file.reader().readAllAlloc(__global_allocator, 10 * 1024 * 1024) catch break :pickle_load_blk @as(*runtime.PyObject, undefined);\n");
-    try self.emitIndent();
-    try self.emit("const _json_str_obj = try runtime.PyString.create(__global_allocator, _content);\n");
-    try self.emitIndent();
-    try self.emit("defer runtime.decref(_json_str_obj, __global_allocator);\n");
-    try self.emitIndent();
-    try self.emit("break :pickle_load_blk try runtime.json.loads(_json_str_obj, __global_allocator);\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
-}
-
-/// Generate pickle.HIGHEST_PROTOCOL constant (value 5 in Python 3.8+)
-pub fn genHIGHEST_PROTOCOL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 5)");
-}
-
-/// Generate pickle.DEFAULT_PROTOCOL constant (value 4 in Python 3.8+)
-pub fn genDEFAULT_PROTOCOL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 4)");
-}
-
-/// Generate pickle.PicklingError exception
-pub fn genPicklingError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.PicklingError");
-}
-
-/// Generate pickle.UnpicklingError exception
-pub fn genUnpicklingError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.UnpicklingError");
-}
-
-/// Generate pickle.Pickler(file, protocol) class
-pub fn genPickler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) {
-        try self.emit("undefined");
-        return;
-    }
-    // For now, just store the file reference
-    try self.emit("try runtime.io.BytesIO.create(__global_allocator)");
-}
-
-/// Generate pickle.Unpickler(file) class
-pub fn genUnpickler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) {
-        try self.emit("undefined");
-        return;
-    }
-    try self.emit("try runtime.io.BytesIO.create(__global_allocator)");
+    try self.emit("pickle_load_blk: { const _file = "); try self.genExpr(args[0]);
+    try self.emit("; const _content = _file.reader().readAllAlloc(__global_allocator, 10 * 1024 * 1024) catch break :pickle_load_blk @as(*runtime.PyObject, undefined); const _json_str_obj = try runtime.PyString.create(__global_allocator, _content); defer runtime.decref(_json_str_obj, __global_allocator); break :pickle_load_blk try runtime.json.loads(_json_str_obj, __global_allocator); }");
 }

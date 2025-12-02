@@ -6,53 +6,11 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "local", genLocal },
-    .{ "_localimpl", genLocalimpl },
-    .{ "_localimpl_create_dict", genLocalimplCreateDict },
-    .{ "__init__", genInit },
-    .{ "__getattribute__", genGetattribute },
-    .{ "__setattr__", genSetattr },
-    .{ "__delattr__", genDelattr },
+    .{ "local", genEmpty }, .{ "_localimpl", genLocalimpl }, .{ "_localimpl_create_dict", genEmpty }, .{ "__init__", genUnit }, .{ "__getattribute__", genNull }, .{ "__setattr__", genUnit }, .{ "__delattr__", genUnit },
 });
 
-/// Generate _threading_local.local()
-pub fn genLocal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate _threading_local._localimpl class
-pub fn genLocalimpl(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .key = \"\", .dicts = .{}, .localargs = .{}, .localkwargs = .{}, .loclock = .{} }");
-}
-
-/// Generate _threading_local._localimpl_create_dict()
-pub fn genLocalimplCreateDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate local.__init__()
-pub fn genInit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate local.__getattribute__(name)
-pub fn genGetattribute(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate local.__setattr__(name, value)
-pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate local.__delattr__(name)
-pub fn genDelattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
+fn genLocalimpl(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .key = \"\", .dicts = .{}, .localargs = .{}, .localkwargs = .{}, .loclock = .{} }"); }

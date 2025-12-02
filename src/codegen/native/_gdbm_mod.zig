@@ -6,60 +6,12 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "open", genOpen },
-    .{ "close", genClose },
-    .{ "keys", genKeys },
-    .{ "firstkey", genFirstkey },
-    .{ "nextkey", genNextkey },
-    .{ "reorganize", genReorganize },
-    .{ "sync", genSync },
-    .{ "error", genError },
+    .{ "open", genEmpty }, .{ "close", genUnit }, .{ "keys", genStrArr }, .{ "firstkey", genNull }, .{ "nextkey", genNull }, .{ "reorganize", genUnit }, .{ "sync", genUnit }, .{ "error", genError },
 });
 
-/// Generate _gdbm.open(filename, flag='r', mode=0o666)
-pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate gdbm.close()
-pub fn genClose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate gdbm.keys()
-pub fn genKeys(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_][]const u8{}");
-}
-
-/// Generate gdbm.firstkey()
-pub fn genFirstkey(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate gdbm.nextkey(key)
-pub fn genNextkey(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate gdbm.reorganize()
-pub fn genReorganize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate gdbm.sync()
-pub fn genSync(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _gdbm.error exception
-pub fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.GdbmError");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
+fn genStrArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{}"); }
+fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.GdbmError"); }

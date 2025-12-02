@@ -6,52 +6,12 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "compress", genCompress },
-    .{ "decompress", genDecompress },
-    .{ "open", genOpen },
-    .{ "BZ2File", genBZ2File },
-    .{ "BZ2Compressor", genBZ2Compressor },
-    .{ "BZ2Decompressor", genBZ2Decompressor },
+    .{ "compress", genPassthrough }, .{ "decompress", genPassthrough }, .{ "open", genNull }, .{ "BZ2File", genNull },
+    .{ "BZ2Compressor", genCompressor }, .{ "BZ2Decompressor", genDecompressor },
 });
 
-/// Generate bz2.compress(data, compresslevel=9)
-pub fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-/// Generate bz2.decompress(data)
-pub fn genDecompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-/// Generate bz2.open(filename, mode='rb', compresslevel=9, ...)
-pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?*anyopaque, null)");
-}
-
-/// Generate bz2.BZ2File(filename, mode='r', ...)
-pub fn genBZ2File(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?*anyopaque, null)");
-}
-
-/// Generate bz2.BZ2Compressor(compresslevel=9)
-pub fn genBZ2Compressor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .compress = struct { fn f(data: []const u8) []const u8 { return data; } }.f, .flush = struct { fn f() []const u8 { return \"\"; } }.f }");
-}
-
-/// Generate bz2.BZ2Decompressor()
-pub fn genBZ2Decompressor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .decompress = struct { fn f(data: []const u8) []const u8 { return data; } }.f, .eof = true, .needs_input = false, .unused_data = \"\" }");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?*anyopaque, null)"); }
+fn genCompressor(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .compress = struct { fn f(data: []const u8) []const u8 { return data; } }.f, .flush = struct { fn f() []const u8 { return \"\"; } }.f }"); }
+fn genDecompressor(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .decompress = struct { fn f(data: []const u8) []const u8 { return data; } }.f, .eof = true, .needs_input = false, .unused_data = \"\" }"); }
+fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) { try self.genExpr(args[0]); } else { try self.emit("\"\""); } }

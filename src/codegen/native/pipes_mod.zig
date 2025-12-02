@@ -1,105 +1,24 @@
 /// Python pipes module - Interface to shell pipelines (deprecated in 3.11)
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Template", genTemplate },
-    .{ "reset", genReset },
-    .{ "clone", genClone },
-    .{ "debug", genDebug },
-    .{ "append", genAppend },
-    .{ "prepend", genPrepend },
-    .{ "open", genOpen },
-    .{ "copy", genCopy },
-    .{ "FILEIN_FILEOUT", genFileInFileOut },
-    .{ "STDIN_FILEOUT", genStdinFileOut },
-    .{ "FILEIN_STDOUT", genFileInStdout },
-    .{ "STDIN_STDOUT", genStdinStdout },
-    .{ "quote", genQuote },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate pipes.Template()
-pub fn genTemplate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .steps = &[_][]const u8{}, .debugging = false }");
-}
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genTemplate(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .steps = &[_][]const u8{}, .debugging = false }"); }
 
-/// Generate Template.reset()
-pub fn genReset(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Template", genTemplate }, .{ "reset", genUnit }, .{ "clone", genTemplate }, .{ "debug", genUnit },
+    .{ "append", genUnit }, .{ "prepend", genUnit }, .{ "open", genNull }, .{ "copy", genUnit },
+    .{ "FILEIN_FILEOUT", genFF }, .{ "STDIN_FILEOUT", genMF }, .{ "FILEIN_STDOUT", genFM }, .{ "STDIN_STDOUT", genMM },
+    .{ "quote", genQuote },
+});
 
-/// Generate Template.clone()
-pub fn genClone(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .steps = &[_][]const u8{}, .debugging = false }");
-}
-
-/// Generate Template.debug(flag)
-pub fn genDebug(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate Template.append(cmd, kind)
-pub fn genAppend(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate Template.prepend(cmd, kind)
-pub fn genPrepend(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate Template.open(file, rw)
-pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate Template.copy(infile, outfile)
-pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate pipes.FILEIN_FILEOUT constant
-pub fn genFileInFileOut(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"ff\"");
-}
-
-/// Generate pipes.STDIN_FILEOUT constant
-pub fn genStdinFileOut(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"-f\"");
-}
-
-/// Generate pipes.FILEIN_STDOUT constant
-pub fn genFileInStdout(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"f-\"");
-}
-
-/// Generate pipes.STDIN_STDOUT constant
-pub fn genStdinStdout(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"--\"");
-}
-
-/// Generate pipes.quote(s)
-pub fn genQuote(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const s = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = s; break :blk \"''\"; }");
-    } else {
-        try self.emit("\"''\"");
-    }
-}
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
+fn genFF(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ff\""); }
+fn genMF(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"-f\""); }
+fn genFM(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"f-\""); }
+fn genMM(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"--\""); }
+fn genQuote(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) { try self.emit("blk: { const s = "); try self.genExpr(args[0]); try self.emit("; _ = s; break :blk \"''\"; }"); } else try self.emit("\"''\""); }

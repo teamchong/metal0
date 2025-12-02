@@ -1,147 +1,58 @@
 /// Python _stat module - Constants/functions from stat.h (internal)
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "S_IFMT", genS_IFMT },
-    .{ "S_IFDIR", genS_IFDIR },
-    .{ "S_IFCHR", genS_IFCHR },
-    .{ "S_IFBLK", genS_IFBLK },
-    .{ "S_IFREG", genS_IFREG },
-    .{ "S_IFIFO", genS_IFIFO },
-    .{ "S_IFLNK", genS_IFLNK },
-    .{ "S_IFSOCK", genS_IFSOCK },
-    .{ "S_ISUID", genS_ISUID },
-    .{ "S_ISGID", genS_ISGID },
-    .{ "S_ISVTX", genS_ISVTX },
-    .{ "S_IRWXU", genS_IRWXU },
-    .{ "S_IRUSR", genS_IRUSR },
-    .{ "S_IWUSR", genS_IWUSR },
-    .{ "S_IXUSR", genS_IXUSR },
-    .{ "S_IRWXG", genS_IRWXG },
-    .{ "S_IRGRP", genS_IRGRP },
-    .{ "S_IWGRP", genS_IWGRP },
-    .{ "S_IXGRP", genS_IXGRP },
-    .{ "S_IRWXO", genS_IRWXO },
-    .{ "S_IROTH", genS_IROTH },
-    .{ "S_IWOTH", genS_IWOTH },
-    .{ "S_IXOTH", genS_IXOTH },
-    .{ "S_ISDIR", genS_ISDIR },
-    .{ "S_ISCHR", genS_ISCHR },
-    .{ "S_ISBLK", genS_ISBLK },
-    .{ "S_ISREG", genS_ISREG },
-    .{ "S_ISFIFO", genS_ISFIFO },
-    .{ "S_ISLNK", genS_ISLNK },
-    .{ "S_ISSOCK", genS_ISSOCK },
-    .{ "S_IMODE", genS_IMODE },
-    .{ "filemode", genFilemode },
-    .{ "ST_MODE", genST_MODE },
-    .{ "ST_INO", genST_INO },
-    .{ "ST_DEV", genST_DEV },
-    .{ "ST_NLINK", genST_NLINK },
-    .{ "ST_UID", genST_UID },
-    .{ "ST_GID", genST_GID },
-    .{ "ST_SIZE", genST_SIZE },
-    .{ "ST_ATIME", genST_ATIME },
-    .{ "ST_MTIME", genST_MTIME },
-    .{ "ST_CTIME", genST_CTIME },
-    .{ "FILE_ATTRIBUTE_ARCHIVE", genFILE_ATTRIBUTE_ARCHIVE },
-    .{ "FILE_ATTRIBUTE_COMPRESSED", genFILE_ATTRIBUTE_COMPRESSED },
-    .{ "FILE_ATTRIBUTE_DEVICE", genFILE_ATTRIBUTE_DEVICE },
-    .{ "FILE_ATTRIBUTE_DIRECTORY", genFILE_ATTRIBUTE_DIRECTORY },
-    .{ "FILE_ATTRIBUTE_ENCRYPTED", genFILE_ATTRIBUTE_ENCRYPTED },
-    .{ "FILE_ATTRIBUTE_HIDDEN", genFILE_ATTRIBUTE_HIDDEN },
-    .{ "FILE_ATTRIBUTE_NORMAL", genFILE_ATTRIBUTE_NORMAL },
-    .{ "FILE_ATTRIBUTE_NOT_CONTENT_INDEXED", genFILE_ATTRIBUTE_NOT_CONTENT_INDEXED },
-    .{ "FILE_ATTRIBUTE_OFFLINE", genFILE_ATTRIBUTE_OFFLINE },
-    .{ "FILE_ATTRIBUTE_READONLY", genFILE_ATTRIBUTE_READONLY },
-    .{ "FILE_ATTRIBUTE_REPARSE_POINT", genFILE_ATTRIBUTE_REPARSE_POINT },
-    .{ "FILE_ATTRIBUTE_SPARSE_FILE", genFILE_ATTRIBUTE_SPARSE_FILE },
-    .{ "FILE_ATTRIBUTE_SYSTEM", genFILE_ATTRIBUTE_SYSTEM },
-    .{ "FILE_ATTRIBUTE_TEMPORARY", genFILE_ATTRIBUTE_TEMPORARY },
-    .{ "FILE_ATTRIBUTE_VIRTUAL", genFILE_ATTRIBUTE_VIRTUAL },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-// Helper for constants
-fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void {
-    _ = args;
-    try self.emit(value);
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genOctal(comptime n: comptime_int) fn (*NativeCodegen, []ast.Node) CodegenError!void {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, std.fmt.comptimePrint("@as(u32, 0o{o})", .{n})); } }.f;
+}
+fn genU32(comptime n: comptime_int) fn (*NativeCodegen, []ast.Node) CodegenError!void {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, std.fmt.comptimePrint("@as(u32, {})", .{n})); } }.f;
+}
+fn genI32(comptime n: comptime_int) fn (*NativeCodegen, []ast.Node) CodegenError!void {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, std.fmt.comptimePrint("@as(i32, {})", .{n})); } }.f;
 }
 
-// File type constants
-pub fn genS_IFMT(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o170000)"); }
-pub fn genS_IFDIR(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o040000)"); }
-pub fn genS_IFCHR(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o020000)"); }
-pub fn genS_IFBLK(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o060000)"); }
-pub fn genS_IFREG(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o100000)"); }
-pub fn genS_IFIFO(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o010000)"); }
-pub fn genS_IFLNK(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o120000)"); }
-pub fn genS_IFSOCK(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o140000)"); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    // File type constants
+    .{ "S_IFMT", genOctal(0o170000) }, .{ "S_IFDIR", genOctal(0o040000) }, .{ "S_IFCHR", genOctal(0o020000) },
+    .{ "S_IFBLK", genOctal(0o060000) }, .{ "S_IFREG", genOctal(0o100000) }, .{ "S_IFIFO", genOctal(0o010000) },
+    .{ "S_IFLNK", genOctal(0o120000) }, .{ "S_IFSOCK", genOctal(0o140000) },
+    // Permission bits
+    .{ "S_ISUID", genOctal(0o4000) }, .{ "S_ISGID", genOctal(0o2000) }, .{ "S_ISVTX", genOctal(0o1000) },
+    .{ "S_IRWXU", genOctal(0o700) }, .{ "S_IRUSR", genOctal(0o400) }, .{ "S_IWUSR", genOctal(0o200) }, .{ "S_IXUSR", genOctal(0o100) },
+    .{ "S_IRWXG", genOctal(0o070) }, .{ "S_IRGRP", genOctal(0o040) }, .{ "S_IWGRP", genOctal(0o020) }, .{ "S_IXGRP", genOctal(0o010) },
+    .{ "S_IRWXO", genOctal(0o007) }, .{ "S_IROTH", genOctal(0o004) }, .{ "S_IWOTH", genOctal(0o002) }, .{ "S_IXOTH", genOctal(0o001) },
+    // Type test functions
+    .{ "S_ISDIR", genTypeTest(0o040000) }, .{ "S_ISCHR", genTypeTest(0o020000) }, .{ "S_ISBLK", genTypeTest(0o060000) },
+    .{ "S_ISREG", genTypeTest(0o100000) }, .{ "S_ISFIFO", genTypeTest(0o010000) }, .{ "S_ISLNK", genTypeTest(0o120000) }, .{ "S_ISSOCK", genTypeTest(0o140000) },
+    .{ "S_IMODE", genS_IMODE }, .{ "filemode", genFilemode },
+    // stat_result field indices
+    .{ "ST_MODE", genI32(0) }, .{ "ST_INO", genI32(1) }, .{ "ST_DEV", genI32(2) }, .{ "ST_NLINK", genI32(3) },
+    .{ "ST_UID", genI32(4) }, .{ "ST_GID", genI32(5) }, .{ "ST_SIZE", genI32(6) },
+    .{ "ST_ATIME", genI32(7) }, .{ "ST_MTIME", genI32(8) }, .{ "ST_CTIME", genI32(9) },
+    // Windows file attributes
+    .{ "FILE_ATTRIBUTE_ARCHIVE", genU32(32) }, .{ "FILE_ATTRIBUTE_COMPRESSED", genU32(2048) },
+    .{ "FILE_ATTRIBUTE_DEVICE", genU32(64) }, .{ "FILE_ATTRIBUTE_DIRECTORY", genU32(16) },
+    .{ "FILE_ATTRIBUTE_ENCRYPTED", genU32(16384) }, .{ "FILE_ATTRIBUTE_HIDDEN", genU32(2) },
+    .{ "FILE_ATTRIBUTE_NORMAL", genU32(128) }, .{ "FILE_ATTRIBUTE_NOT_CONTENT_INDEXED", genU32(8192) },
+    .{ "FILE_ATTRIBUTE_OFFLINE", genU32(4096) }, .{ "FILE_ATTRIBUTE_READONLY", genU32(1) },
+    .{ "FILE_ATTRIBUTE_REPARSE_POINT", genU32(1024) }, .{ "FILE_ATTRIBUTE_SPARSE_FILE", genU32(512) },
+    .{ "FILE_ATTRIBUTE_SYSTEM", genU32(4) }, .{ "FILE_ATTRIBUTE_TEMPORARY", genU32(256) },
+    .{ "FILE_ATTRIBUTE_VIRTUAL", genU32(65536) },
+});
 
-// Permission bits
-pub fn genS_ISUID(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o4000)"); }
-pub fn genS_ISGID(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o2000)"); }
-pub fn genS_ISVTX(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o1000)"); }
-pub fn genS_IRWXU(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o700)"); }
-pub fn genS_IRUSR(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o400)"); }
-pub fn genS_IWUSR(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o200)"); }
-pub fn genS_IXUSR(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o100)"); }
-pub fn genS_IRWXG(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o070)"); }
-pub fn genS_IRGRP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o040)"); }
-pub fn genS_IWGRP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o020)"); }
-pub fn genS_IXGRP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o010)"); }
-pub fn genS_IRWXO(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o007)"); }
-pub fn genS_IROTH(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o004)"); }
-pub fn genS_IWOTH(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o002)"); }
-pub fn genS_IXOTH(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0o001)"); }
-
-// Type test helper
-fn genTypeTest(self: *NativeCodegen, args: []ast.Node, expected: []const u8) CodegenError!void {
-    if (args.len > 0) { try self.emit("(("); try self.genExpr(args[0]); try self.emit(" & 0o170000) == "); try self.emit(expected); try self.emit(")"); } else try self.emit("false");
+fn genTypeTest(comptime expected: comptime_int) fn (*NativeCodegen, []ast.Node) CodegenError!void {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit("(("); try self.genExpr(args[0]); try self.emit(std.fmt.comptimePrint(" & 0o170000) == 0o{o})", .{expected})); } else try self.emit("false");
+    } }.f;
 }
-pub fn genS_ISDIR(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genTypeTest(self, args, "0o040000"); }
-pub fn genS_ISCHR(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genTypeTest(self, args, "0o020000"); }
-pub fn genS_ISBLK(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genTypeTest(self, args, "0o060000"); }
-pub fn genS_ISREG(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genTypeTest(self, args, "0o100000"); }
-pub fn genS_ISFIFO(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genTypeTest(self, args, "0o010000"); }
-pub fn genS_ISLNK(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genTypeTest(self, args, "0o120000"); }
-pub fn genS_ISSOCK(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genTypeTest(self, args, "0o140000"); }
-
-pub fn genS_IMODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genS_IMODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) { try self.emit("("); try self.genExpr(args[0]); try self.emit(" & 0o7777)"); } else try self.emit("@as(u32, 0)");
 }
-pub fn genFilemode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genFilemode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) { try self.emit("blk: { const mode = "); try self.genExpr(args[0]); try self.emit("; var perm: [10]u8 = \"----------\".*; if ((mode & 0o170000) == 0o040000) perm[0] = 'd'; if ((mode & 0o400) != 0) perm[1] = 'r'; if ((mode & 0o200) != 0) perm[2] = 'w'; if ((mode & 0o100) != 0) perm[3] = 'x'; if ((mode & 0o040) != 0) perm[4] = 'r'; if ((mode & 0o020) != 0) perm[5] = 'w'; if ((mode & 0o010) != 0) perm[6] = 'x'; if ((mode & 0o004) != 0) perm[7] = 'r'; if ((mode & 0o002) != 0) perm[8] = 'w'; if ((mode & 0o001) != 0) perm[9] = 'x'; break :blk &perm; }"); } else try self.emit("\"----------\"");
 }
-
-// stat_result field indices
-pub fn genST_MODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
-pub fn genST_INO(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 1)"); }
-pub fn genST_DEV(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 2)"); }
-pub fn genST_NLINK(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 3)"); }
-pub fn genST_UID(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 4)"); }
-pub fn genST_GID(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 5)"); }
-pub fn genST_SIZE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 6)"); }
-pub fn genST_ATIME(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 7)"); }
-pub fn genST_MTIME(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 8)"); }
-pub fn genST_CTIME(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 9)"); }
-
-// File attribute flags (Windows)
-pub fn genFILE_ATTRIBUTE_ARCHIVE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 32)"); }
-pub fn genFILE_ATTRIBUTE_COMPRESSED(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 2048)"); }
-pub fn genFILE_ATTRIBUTE_DEVICE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 64)"); }
-pub fn genFILE_ATTRIBUTE_DIRECTORY(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 16)"); }
-pub fn genFILE_ATTRIBUTE_ENCRYPTED(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 16384)"); }
-pub fn genFILE_ATTRIBUTE_HIDDEN(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 2)"); }
-pub fn genFILE_ATTRIBUTE_NORMAL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 128)"); }
-pub fn genFILE_ATTRIBUTE_NOT_CONTENT_INDEXED(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 8192)"); }
-pub fn genFILE_ATTRIBUTE_OFFLINE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 4096)"); }
-pub fn genFILE_ATTRIBUTE_READONLY(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 1)"); }
-pub fn genFILE_ATTRIBUTE_REPARSE_POINT(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 1024)"); }
-pub fn genFILE_ATTRIBUTE_SPARSE_FILE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 512)"); }
-pub fn genFILE_ATTRIBUTE_SYSTEM(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 4)"); }
-pub fn genFILE_ATTRIBUTE_TEMPORARY(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 256)"); }
-pub fn genFILE_ATTRIBUTE_VIRTUAL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 65536)"); }

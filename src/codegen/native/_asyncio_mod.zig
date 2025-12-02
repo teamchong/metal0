@@ -5,89 +5,17 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Task", genTask },
-    .{ "Future", genFuture },
-    .{ "get_event_loop", genGetEventLoop },
-    .{ "get_running_loop", genGetRunningLoop },
-    .{ "_get_running_loop", genInternalGetRunningLoop },
-    .{ "_set_running_loop", genSetRunningLoop },
-    .{ "_register_task", genRegisterTask },
-    .{ "_unregister_task", genUnregisterTask },
-    .{ "_enter_task", genEnterTask },
-    .{ "_leave_task", genLeaveTask },
-    .{ "current_task", genCurrentTask },
-    .{ "all_tasks", genAllTasks },
+    .{ "Task", genConst(".{ .coro = null, .loop = null, .name = null, .context = null, .done = false, .cancelled = false }") },
+    .{ "Future", genConst(".{ .loop = null, .done = false, .cancelled = false, .result = null, .exception = null }") },
+    .{ "get_event_loop", genConst(".{ .running = false, .closed = false }") },
+    .{ "get_running_loop", genConst(".{ .running = true, .closed = false }") },
+    .{ "_get_running_loop", genConst("null") }, .{ "_set_running_loop", genConst("{}") },
+    .{ "_register_task", genConst("{}") }, .{ "_unregister_task", genConst("{}") },
+    .{ "_enter_task", genConst("{}") }, .{ "_leave_task", genConst("{}") },
+    .{ "current_task", genConst("null") }, .{ "all_tasks", genConst("&[_]@TypeOf(.{}){}") },
 });
-
-/// Generate _asyncio.Task(coro, *, loop=None, name=None, context=None)
-pub fn genTask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .coro = null, .loop = null, .name = null, .context = null, .done = false, .cancelled = false }");
-}
-
-/// Generate _asyncio.Future(*, loop=None)
-pub fn genFuture(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .loop = null, .done = false, .cancelled = false, .result = null, .exception = null }");
-}
-
-/// Generate _asyncio.get_event_loop()
-pub fn genGetEventLoop(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .running = false, .closed = false }");
-}
-
-/// Generate _asyncio.get_running_loop()
-pub fn genGetRunningLoop(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .running = true, .closed = false }");
-}
-
-/// Generate _asyncio._get_running_loop()
-pub fn genInternalGetRunningLoop(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate _asyncio._set_running_loop(loop)
-pub fn genSetRunningLoop(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _asyncio._register_task(task)
-pub fn genRegisterTask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _asyncio._unregister_task(task)
-pub fn genUnregisterTask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _asyncio._enter_task(loop, task)
-pub fn genEnterTask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _asyncio._leave_task(loop, task)
-pub fn genLeaveTask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _asyncio.current_task(loop=None)
-pub fn genCurrentTask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate _asyncio.all_tasks(loop=None)
-pub fn genAllTasks(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]@TypeOf(.{}){}");
-}

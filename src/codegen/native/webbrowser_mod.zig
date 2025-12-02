@@ -1,178 +1,40 @@
 /// Python webbrowser module - Convenient web browser controller
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "open", genOpen },
-    .{ "open_new", genOpenNew },
-    .{ "open_new_tab", genOpenNewTab },
-    .{ "get", genGet },
-    .{ "register", genRegister },
-    .{ "Error", genError },
-    .{ "BaseBrowser", genBaseBrowser },
-    .{ "GenericBrowser", genGenericBrowser },
-    .{ "BackgroundBrowser", genBackgroundBrowser },
-    .{ "UnixBrowser", genUnixBrowser },
-    .{ "Mozilla", genMozilla },
-    .{ "Netscape", genNetscape },
-    .{ "Galeon", genGaleon },
-    .{ "Chrome", genChrome },
-    .{ "Chromium", genChromium },
-    .{ "Opera", genOpera },
-    .{ "Elinks", genElinks },
-    .{ "Konqueror", genKonqueror },
-    .{ "Grail", genGrail },
-    .{ "MacOSX", genMacOSX },
-    .{ "MacOSXOSAScript", genMacOSXOSAScript },
-    .{ "WindowsDefault", genWindowsDefault },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate webbrowser.open(url, new=0, autoraise=True)
-pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const url = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = url; break :blk true; }");
-    } else {
-        try self.emit("false");
-    }
-}
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "open", genOpen }, .{ "open_new", genOpen }, .{ "open_new_tab", genOpen },
+    .{ "get", genGet }, .{ "register", genUnit }, .{ "Error", genErr },
+    .{ "BaseBrowser", genBase }, .{ "GenericBrowser", genGeneric }, .{ "BackgroundBrowser", genBg }, .{ "UnixBrowser", genUnix },
+    .{ "Mozilla", genMoz }, .{ "Netscape", genNet }, .{ "Galeon", genGal }, .{ "Chrome", genChr }, .{ "Chromium", genChm },
+    .{ "Opera", genOp }, .{ "Elinks", genEl }, .{ "Konqueror", genKon }, .{ "Grail", genGra },
+    .{ "MacOSX", genMac }, .{ "MacOSXOSAScript", genMacOSA }, .{ "WindowsDefault", genWin },
+});
 
-/// Generate webbrowser.open_new(url)
-pub fn genOpenNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const url = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = url; break :blk true; }");
-    } else {
-        try self.emit("false");
-    }
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.WebBrowserError"); }
+fn genGet(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"default\", .basename = \"default\" }"); }
+fn genBase(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"base\", .basename = null }"); }
+fn genGeneric(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"generic\", .basename = null, .args = &[_][]const u8{} }"); }
+fn genBg(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"background\", .basename = null }"); }
+fn genUnix(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"unix\", .basename = null, .remote_args = &[_][]const u8{}, .remote_action = null, .remote_action_newwin = null, .remote_action_newtab = null, .background = false, .redirect_stdout = true }"); }
+fn genMoz(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"mozilla\" }"); }
+fn genNet(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"netscape\" }"); }
+fn genGal(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"galeon\" }"); }
+fn genChr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"chrome\" }"); }
+fn genChm(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"chromium\" }"); }
+fn genOp(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"opera\" }"); }
+fn genEl(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"elinks\" }"); }
+fn genKon(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"konqueror\" }"); }
+fn genGra(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"grail\" }"); }
+fn genMac(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"macosx\" }"); }
+fn genMacOSA(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"macosx-osascript\" }"); }
+fn genWin(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"windows-default\" }"); }
 
-/// Generate webbrowser.open_new_tab(url)
-pub fn genOpenNewTab(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const url = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = url; break :blk true; }");
-    } else {
-        try self.emit("false");
-    }
-}
-
-/// Generate webbrowser.get(using=None)
-pub fn genGet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"default\", .basename = \"default\" }");
-}
-
-/// Generate webbrowser.register(name, constructor, instance=None, *, preferred=False)
-pub fn genRegister(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate webbrowser.Error exception
-pub fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.WebBrowserError");
-}
-
-/// Generate webbrowser.BaseBrowser class
-pub fn genBaseBrowser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"base\", .basename = null }");
-}
-
-/// Generate webbrowser.GenericBrowser class
-pub fn genGenericBrowser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"generic\", .basename = null, .args = &[_][]const u8{} }");
-}
-
-/// Generate webbrowser.BackgroundBrowser class
-pub fn genBackgroundBrowser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"background\", .basename = null }");
-}
-
-/// Generate webbrowser.UnixBrowser class
-pub fn genUnixBrowser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"unix\", .basename = null, .remote_args = &[_][]const u8{}, .remote_action = null, .remote_action_newwin = null, .remote_action_newtab = null, .background = false, .redirect_stdout = true }");
-}
-
-/// Generate webbrowser.Mozilla class
-pub fn genMozilla(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"mozilla\" }");
-}
-
-/// Generate webbrowser.Netscape class
-pub fn genNetscape(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"netscape\" }");
-}
-
-/// Generate webbrowser.Galeon class
-pub fn genGaleon(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"galeon\" }");
-}
-
-/// Generate webbrowser.Chrome class
-pub fn genChrome(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"chrome\" }");
-}
-
-/// Generate webbrowser.Chromium class
-pub fn genChromium(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"chromium\" }");
-}
-
-/// Generate webbrowser.Opera class
-pub fn genOpera(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"opera\" }");
-}
-
-/// Generate webbrowser.Elinks class
-pub fn genElinks(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"elinks\" }");
-}
-
-/// Generate webbrowser.Konqueror class
-pub fn genKonqueror(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"konqueror\" }");
-}
-
-/// Generate webbrowser.Grail class
-pub fn genGrail(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"grail\" }");
-}
-
-/// Generate webbrowser.MacOSX class
-pub fn genMacOSX(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"macosx\" }");
-}
-
-/// Generate webbrowser.MacOSXOSAScript class
-pub fn genMacOSXOSAScript(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"macosx-osascript\" }");
-}
-
-/// Generate webbrowser.WindowsDefault class
-pub fn genWindowsDefault(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"windows-default\" }");
+fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const url = "); try self.genExpr(args[0]); try self.emit("; _ = url; break :blk true; }"); } else { try self.emit("false"); }
 }

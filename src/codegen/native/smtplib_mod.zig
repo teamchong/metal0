@@ -5,106 +5,27 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genSMTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 25), .local_hostname = @as(?[]const u8, null), .timeout = @as(f64, 30.0), .source_address = @as(?[]const u8, null) }"); }
+fn genSMTP_SSL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 465), .local_hostname = @as(?[]const u8, null), .timeout = @as(f64, 30.0), .source_address = @as(?[]const u8, null) }"); }
+fn genLMTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 2003), .local_hostname = @as(?[]const u8, null) }"); }
+fn genPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 25)"); }
+fn genSslPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 465)"); }
+fn genEx(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SMTPException"); }
+fn genDisc(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SMTPServerDisconnected"); }
+fn genResp(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SMTPResponseException"); }
+fn genSend(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SMTPSenderRefused"); }
+fn genRecip(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SMTPRecipientsRefused"); }
+fn genData(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SMTPDataError"); }
+fn genConn(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SMTPConnectError"); }
+fn genHelo(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SMTPHeloError"); }
+fn genAuth(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SMTPAuthenticationError"); }
+fn genNotSupp(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SMTPNotSupportedError"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "SMTP", genSMTP },
-    .{ "SMTP_SSL", genSMTP_SSL },
-    .{ "LMTP", genLMTP },
-    .{ "SMTP_PORT", genSMTP_PORT },
-    .{ "SMTP_SSL_PORT", genSMTP_SSL_PORT },
-    .{ "SMTPException", genSMTPException },
-    .{ "SMTPServerDisconnected", genSMTPServerDisconnected },
-    .{ "SMTPResponseException", genSMTPResponseException },
-    .{ "SMTPSenderRefused", genSMTPSenderRefused },
-    .{ "SMTPRecipientsRefused", genSMTPRecipientsRefused },
-    .{ "SMTPDataError", genSMTPDataError },
-    .{ "SMTPConnectError", genSMTPConnectError },
-    .{ "SMTPHeloError", genSMTPHeloError },
-    .{ "SMTPAuthenticationError", genSMTPAuthenticationError },
-    .{ "SMTPNotSupportedError", genSMTPNotSupportedError },
+    .{ "SMTP", genSMTP }, .{ "SMTP_SSL", genSMTP_SSL }, .{ "LMTP", genLMTP },
+    .{ "SMTP_PORT", genPort }, .{ "SMTP_SSL_PORT", genSslPort },
+    .{ "SMTPException", genEx }, .{ "SMTPServerDisconnected", genDisc }, .{ "SMTPResponseException", genResp },
+    .{ "SMTPSenderRefused", genSend }, .{ "SMTPRecipientsRefused", genRecip }, .{ "SMTPDataError", genData },
+    .{ "SMTPConnectError", genConn }, .{ "SMTPHeloError", genHelo }, .{ "SMTPAuthenticationError", genAuth }, .{ "SMTPNotSupportedError", genNotSupp },
 });
-
-/// Generate smtplib.SMTP class
-pub fn genSMTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = \"\", .port = @as(i32, 25), .local_hostname = @as(?[]const u8, null), .timeout = @as(f64, 30.0), .source_address = @as(?[]const u8, null) }");
-}
-
-/// Generate smtplib.SMTP_SSL class
-pub fn genSMTP_SSL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = \"\", .port = @as(i32, 465), .local_hostname = @as(?[]const u8, null), .timeout = @as(f64, 30.0), .source_address = @as(?[]const u8, null) }");
-}
-
-/// Generate smtplib.LMTP class
-pub fn genLMTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = \"\", .port = @as(i32, 2003), .local_hostname = @as(?[]const u8, null) }");
-}
-
-// ============================================================================
-// SMTP response codes
-// ============================================================================
-
-pub fn genSMTP_PORT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 25)");
-}
-
-pub fn genSMTP_SSL_PORT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 465)");
-}
-
-// ============================================================================
-// Exception classes
-// ============================================================================
-
-pub fn genSMTPException(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SMTPException");
-}
-
-pub fn genSMTPServerDisconnected(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SMTPServerDisconnected");
-}
-
-pub fn genSMTPResponseException(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SMTPResponseException");
-}
-
-pub fn genSMTPSenderRefused(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SMTPSenderRefused");
-}
-
-pub fn genSMTPRecipientsRefused(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SMTPRecipientsRefused");
-}
-
-pub fn genSMTPDataError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SMTPDataError");
-}
-
-pub fn genSMTPConnectError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SMTPConnectError");
-}
-
-pub fn genSMTPHeloError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SMTPHeloError");
-}
-
-pub fn genSMTPAuthenticationError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SMTPAuthenticationError");
-}
-
-pub fn genSMTPNotSupportedError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SMTPNotSupportedError");
-}

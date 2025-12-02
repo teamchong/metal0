@@ -6,39 +6,12 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "parser_base", genParserBase },
-    .{ "reset", genReset },
-    .{ "getpos", genGetpos },
-    .{ "updatepos", genUpdatepos },
-    .{ "error", genError },
+    .{ "parser_base", genBase }, .{ "reset", genUnit }, .{ "getpos", genPos }, .{ "updatepos", genI64_0 }, .{ "error", genError },
 });
 
-/// Generate _markupbase.ParserBase class
-pub fn genParserBase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .lasttag = \"\", .interesting = null }");
-}
-
-/// Generate ParserBase.reset()
-pub fn genReset(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate ParserBase.getpos()
-pub fn genGetpos(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ @as(i64, 1), @as(i64, 0) }");
-}
-
-/// Generate ParserBase.updatepos(i, j)
-pub fn genUpdatepos(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate ParserBase.error(message)
-pub fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ParserError");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genBase(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .lasttag = \"\", .interesting = null }"); }
+fn genPos(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i64, 1), @as(i64, 0) }"); }
+fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
+fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.ParserError"); }

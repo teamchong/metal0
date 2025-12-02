@@ -5,75 +5,52 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "run", genRun }, .{ "call", genCall }, .{ "check_call", genCall }, .{ "check_output", genCheckOutput },
     .{ "Popen", genPopen }, .{ "getoutput", genGetoutput }, .{ "getstatusoutput", genGetstatusoutput },
-    .{ "PIPE", genPIPE }, .{ "STDOUT", genSTDOUT }, .{ "DEVNULL", genDEVNULL },
+    .{ "PIPE", genConst("-1") }, .{ "STDOUT", genConst("-2") }, .{ "DEVNULL", genConst("-3") },
 });
 
-// Helpers
-fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
-fn genPIPE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "-1"); }
-fn genSTDOUT(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "-2"); }
-fn genDEVNULL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "-3"); }
-
-// Child process helper - emits common setup code
-fn emitChildInit(self: *NativeCodegen, pipe_stdout: bool) CodegenError!void {
-    try self.emit("var _child = std.process.Child.init(.{ .argv = _cmd, .allocator = allocator");
-    if (pipe_stdout) try self.emit(", .stdout_behavior = .pipe");
-    try self.emit(" });\n");
-}
+const child_init = "var _child = std.process.Child.init(.{ .argv = _cmd, .allocator = allocator";
+const child_spawn = "_child.spawn() catch break :blk";
+const child_wait = "_child.wait() catch break :blk";
 
 pub fn genRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-    try self.emit("blk: { const _cmd = "); try self.genExpr(args[0]); try self.emit(";\n");
-    try self.emitIndent(); try emitChildInit(self, false);
-    try self.emitIndent(); try self.emit("_ = _child.spawn() catch break :blk .{ .returncode = -1, .stdout = \"\", .stderr = \"\" };\n");
-    try self.emitIndent(); try self.emit("const _r = _child.wait() catch break :blk .{ .returncode = -1, .stdout = \"\", .stderr = \"\" };\n");
-    try self.emitIndent(); try self.emit("break :blk .{ .returncode = @as(i64, @intCast(_r.Exited)), .stdout = \"\", .stderr = \"\" }; }");
+    try self.emit("blk: { const _cmd = "); try self.genExpr(args[0]);
+    try self.emit("; " ++ child_init ++ " }); _ = " ++ child_spawn ++ " .{ .returncode = -1, .stdout = \"\", .stderr = \"\" }; const _r = " ++ child_wait ++ " .{ .returncode = -1, .stdout = \"\", .stderr = \"\" }; break :blk .{ .returncode = @as(i64, @intCast(_r.Exited)), .stdout = \"\", .stderr = \"\" }; }");
 }
 
 pub fn genCall(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-    try self.emit("blk: { const _cmd = "); try self.genExpr(args[0]); try self.emit(";\n");
-    try self.emitIndent(); try emitChildInit(self, false);
-    try self.emitIndent(); try self.emit("_ = _child.spawn() catch break :blk @as(i64, -1);\n");
-    try self.emitIndent(); try self.emit("const _r = _child.wait() catch break :blk @as(i64, -1);\n");
-    try self.emitIndent(); try self.emit("break :blk @as(i64, @intCast(_r.Exited)); }");
+    try self.emit("blk: { const _cmd = "); try self.genExpr(args[0]);
+    try self.emit("; " ++ child_init ++ " }); _ = " ++ child_spawn ++ " @as(i64, -1); const _r = " ++ child_wait ++ " @as(i64, -1); break :blk @as(i64, @intCast(_r.Exited)); }");
 }
 
 pub fn genCheckOutput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-    try self.emit("blk: { const _cmd = "); try self.genExpr(args[0]); try self.emit(";\n");
-    try self.emitIndent(); try emitChildInit(self, true);
-    try self.emitIndent(); try self.emit("_ = _child.spawn() catch break :blk \"\";\n");
-    try self.emitIndent(); try self.emit("const _out = _child.stdout.reader().readAllAlloc(__global_allocator, 1024 * 1024) catch break :blk \"\";\n");
-    try self.emitIndent(); try self.emit("_ = _child.wait() catch {}; break :blk _out; }");
+    try self.emit("blk: { const _cmd = "); try self.genExpr(args[0]);
+    try self.emit("; " ++ child_init ++ ", .stdout_behavior = .pipe }); _ = " ++ child_spawn ++ " \"\"; const _out = _child.stdout.reader().readAllAlloc(__global_allocator, 1024 * 1024) catch break :blk \"\"; _ = _child.wait() catch {}; break :blk _out; }");
 }
 
 pub fn genPopen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-    try self.emit("blk: { const _cmd = "); try self.genExpr(args[0]); try self.emit(";\n");
-    try self.emitIndent(); try self.emit("var _child = std.process.Child.init(.{ .argv = _cmd, .allocator = allocator, .stdout_behavior = .pipe, .stderr_behavior = .pipe });\n");
-    try self.emitIndent(); try self.emit("break :blk _child; }");
-}
-
-fn genShellCmd(self: *NativeCodegen, args: []ast.Node, label: []const u8, result_type: []const u8) CodegenError!void {
-    if (args.len == 0) return;
-    try self.emit(label); try self.emit(": { const _cmd = "); try self.genExpr(args[0]); try self.emit(";\n");
-    try self.emitIndent(); try self.emit("const _argv = [_][]const u8{ \"/bin/sh\", \"-c\", _cmd };\n");
-    try self.emitIndent(); try self.emit("var _child = std.process.Child.init(.{ .argv = &_argv, .allocator = allocator, .stdout_behavior = .pipe });\n");
-    try self.emitIndent(); try self.emit("_ = _child.spawn() catch break :"); try self.emit(label); try self.emit(" "); try self.emit(result_type); try self.emit(";\n");
-    try self.emitIndent(); try self.emit("const _out = _child.stdout.reader().readAllAlloc(__global_allocator, 1024 * 1024) catch \"\";\n");
+    try self.emit("blk: { const _cmd = "); try self.genExpr(args[0]);
+    try self.emit("; var _child = std.process.Child.init(.{ .argv = _cmd, .allocator = allocator, .stdout_behavior = .pipe, .stderr_behavior = .pipe }); break :blk _child; }");
 }
 
 pub fn genGetoutput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genShellCmd(self, args, "blk", "\"\"");
-    try self.emitIndent(); try self.emit("_ = _child.wait() catch {}; break :blk _out; }");
+    if (args.len == 0) return;
+    try self.emit("blk: { const _cmd = "); try self.genExpr(args[0]);
+    try self.emit("; const _argv = [_][]const u8{ \"/bin/sh\", \"-c\", _cmd }; var _child = std.process.Child.init(.{ .argv = &_argv, .allocator = allocator, .stdout_behavior = .pipe }); _ = " ++ child_spawn ++ " \"\"; const _out = _child.stdout.reader().readAllAlloc(__global_allocator, 1024 * 1024) catch \"\"; _ = _child.wait() catch {}; break :blk _out; }");
 }
 
 pub fn genGetstatusoutput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genShellCmd(self, args, "blk", ".{ @as(i64, -1), \"\" }");
-    try self.emitIndent(); try self.emit("const _r = _child.wait() catch break :blk .{ @as(i64, -1), _out };\n");
-    try self.emitIndent(); try self.emit("break :blk .{ @as(i64, @intCast(_r.Exited)), _out }; }");
+    if (args.len == 0) return;
+    try self.emit("blk: { const _cmd = "); try self.genExpr(args[0]);
+    try self.emit("; const _argv = [_][]const u8{ \"/bin/sh\", \"-c\", _cmd }; var _child = std.process.Child.init(.{ .argv = &_argv, .allocator = allocator, .stdout_behavior = .pipe }); _ = " ++ child_spawn ++ " .{ @as(i64, -1), \"\" }; const _out = _child.stdout.reader().readAllAlloc(__global_allocator, 1024 * 1024) catch \"\"; const _r = " ++ child_wait ++ " .{ @as(i64, -1), _out }; break :blk .{ @as(i64, @intCast(_r.Exited)), _out }; }");
 }

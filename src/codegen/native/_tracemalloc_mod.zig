@@ -5,82 +5,19 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "start", genStart },
-    .{ "stop", genStop },
-    .{ "is_tracing", genIsTracing },
-    .{ "clear_traces", genClearTraces },
-    .{ "get_traceback_limit", genGetTracebackLimit },
-    .{ "get_traced_memory", genGetTracedMemory },
-    .{ "reset_peak", genResetPeak },
-    .{ "get_tracemalloc_memory", genGetTracemallocMemory },
-    .{ "get_object_traceback", genGetObjectTraceback },
-    .{ "get_traces", genGetTraces },
-    .{ "get_object_traceback_internal", genGetObjectTracebackInternal },
+    .{ "start", genUnit }, .{ "stop", genUnit }, .{ "is_tracing", genFalse }, .{ "clear_traces", genUnit },
+    .{ "get_traceback_limit", genI32_1 }, .{ "get_traced_memory", genTracedMem }, .{ "reset_peak", genUnit },
+    .{ "get_tracemalloc_memory", genI64_0 }, .{ "get_object_traceback", genNull }, .{ "get_traces", genEmptyList },
+    .{ "get_object_traceback_internal", genNull },
 });
 
-/// Generate _tracemalloc.start(nframe=1)
-pub fn genStart(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _tracemalloc.stop()
-pub fn genStop(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _tracemalloc.is_tracing()
-pub fn genIsTracing(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-/// Generate _tracemalloc.clear_traces()
-pub fn genClearTraces(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _tracemalloc.get_traceback_limit()
-pub fn genGetTracebackLimit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-/// Generate _tracemalloc.get_traced_memory()
-pub fn genGetTracedMemory(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ @as(i64, 0), @as(i64, 0) }");
-}
-
-/// Generate _tracemalloc.reset_peak()
-pub fn genResetPeak(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _tracemalloc.get_tracemalloc_memory()
-pub fn genGetTracemallocMemory(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate _tracemalloc.get_object_traceback(obj)
-pub fn genGetObjectTraceback(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate _tracemalloc._get_traces()
-pub fn genGetTraces(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]@TypeOf(.{}){}");
-}
-
-/// Generate _tracemalloc._get_object_traceback(obj)
-pub fn genGetObjectTracebackInternal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
+fn genI32_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 1)"); }
+fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
+fn genTracedMem(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i64, 0), @as(i64, 0) }"); }
+fn genEmptyList(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]@TypeOf(.{}){}"); }

@@ -1,87 +1,21 @@
 /// Python site module - Site-specific configuration hook
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "PREFIXES", genPREFIXES },
-    .{ "ENABLE_USER_SITE", genENABLE_USER_SITE },
-    .{ "USER_SITE", genUSER_SITE },
-    .{ "USER_BASE", genUSER_BASE },
-    .{ "main", genMain },
-    .{ "addsitedir", genAddsitedir },
-    .{ "getsitepackages", genGetsitepackages },
-    .{ "getuserbase", genGetuserbase },
-    .{ "getusersitepackages", genGetusersitepackages },
-    .{ "removeduppaths", genRemoveduppaths },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-// ============================================================================
-// Site Configuration
-// ============================================================================
-
-/// Generate site.PREFIXES
-pub fn genPREFIXES(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("metal0_runtime.PyList([]const u8).init()");
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
 }
 
-/// Generate site.ENABLE_USER_SITE
-pub fn genENABLE_USER_SITE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
-
-/// Generate site.USER_SITE
-pub fn genUSER_SITE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?[]const u8, null)");
-}
-
-/// Generate site.USER_BASE
-pub fn genUSER_BASE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?[]const u8, null)");
-}
-
-// ============================================================================
-// Functions
-// ============================================================================
-
-/// Generate site.main()
-pub fn genMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate site.addsitedir(sitedir, known_paths=None)
-pub fn genAddsitedir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("metal0_runtime.PySet([]const u8).init()");
-}
-
-/// Generate site.getsitepackages(prefixes=None)
-pub fn genGetsitepackages(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("metal0_runtime.PyList([]const u8).init()");
-}
-
-/// Generate site.getuserbase()
-pub fn genGetuserbase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("blk: { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}/.local\", .{home}) catch \"\"; }");
-}
-
-/// Generate site.getusersitepackages()
-pub fn genGetusersitepackages(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("blk: { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}/.local/lib/python3/site-packages\", .{home}) catch \"\"; }");
-}
-
-/// Generate site.removeduppaths()
-pub fn genRemoveduppaths(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("metal0_runtime.PySet([]const u8).init()");
-}
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "PREFIXES", genConst("metal0_runtime.PyList([]const u8).init()") },
+    .{ "ENABLE_USER_SITE", genConst("true") }, .{ "USER_SITE", genConst("@as(?[]const u8, null)") },
+    .{ "USER_BASE", genConst("@as(?[]const u8, null)") },
+    .{ "main", genConst("{}") }, .{ "addsitedir", genConst("metal0_runtime.PySet([]const u8).init()") },
+    .{ "getsitepackages", genConst("metal0_runtime.PyList([]const u8).init()") },
+    .{ "getuserbase", genConst("blk: { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}/.local\", .{home}) catch \"\"; }") },
+    .{ "getusersitepackages", genConst("blk: { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}/.local/lib/python3/site-packages\", .{home}) catch \"\"; }") },
+    .{ "removeduppaths", genConst("metal0_runtime.PySet([]const u8).init()") },
+});

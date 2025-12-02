@@ -5,103 +5,17 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "blake2b", genBlake2b },
-    .{ "blake2s", genBlake2s },
-    .{ "update", genUpdate },
-    .{ "digest", genDigest },
-    .{ "hexdigest", genHexdigest },
-    .{ "copy", genCopy },
-    .{ "BLAKE2B_SALT_SIZE", genBlake2bSaltSize },
-    .{ "BLAKE2B_PERSON_SIZE", genBlake2bPersonSize },
-    .{ "BLAKE2B_MAX_KEY_SIZE", genBlake2bMaxKeySize },
-    .{ "BLAKE2B_MAX_DIGEST_SIZE", genBlake2bMaxDigestSize },
-    .{ "BLAKE2S_SALT_SIZE", genBlake2sSaltSize },
-    .{ "BLAKE2S_PERSON_SIZE", genBlake2sPersonSize },
-    .{ "BLAKE2S_MAX_KEY_SIZE", genBlake2sMaxKeySize },
-    .{ "BLAKE2S_MAX_DIGEST_SIZE", genBlake2sMaxDigestSize },
+    .{ "blake2b", genConst(".{ .name = \"blake2b\", .digest_size = 64, .block_size = 128 }") },
+    .{ "blake2s", genConst(".{ .name = \"blake2s\", .digest_size = 32, .block_size = 64 }") },
+    .{ "update", genConst("{}") }, .{ "digest", genConst("\"\"") }, .{ "hexdigest", genConst("\"0\" ** 128") },
+    .{ "copy", genConst(".{ .name = \"blake2b\", .digest_size = 64, .block_size = 128 }") },
+    .{ "BLAKE2B_SALT_SIZE", genConst("@as(u32, 16)") }, .{ "BLAKE2B_PERSON_SIZE", genConst("@as(u32, 16)") },
+    .{ "BLAKE2B_MAX_KEY_SIZE", genConst("@as(u32, 64)") }, .{ "BLAKE2B_MAX_DIGEST_SIZE", genConst("@as(u32, 64)") },
+    .{ "BLAKE2S_SALT_SIZE", genConst("@as(u32, 8)") }, .{ "BLAKE2S_PERSON_SIZE", genConst("@as(u32, 8)") },
+    .{ "BLAKE2S_MAX_KEY_SIZE", genConst("@as(u32, 32)") }, .{ "BLAKE2S_MAX_DIGEST_SIZE", genConst("@as(u32, 32)") },
 });
-
-/// Generate _blake2.blake2b(data=b'', *, digest_size=64, key=b'', salt=b'', person=b'', fanout=1, depth=1, leaf_size=0, node_offset=0, node_depth=0, inner_size=0, last_node=False)
-pub fn genBlake2b(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"blake2b\", .digest_size = 64, .block_size = 128 }");
-}
-
-/// Generate _blake2.blake2s(data=b'', *, digest_size=32, key=b'', salt=b'', person=b'', fanout=1, depth=1, leaf_size=0, node_offset=0, node_depth=0, inner_size=0, last_node=False)
-pub fn genBlake2s(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"blake2s\", .digest_size = 32, .block_size = 64 }");
-}
-
-/// Generate blake2b.update(data)
-pub fn genUpdate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate blake2b.digest()
-pub fn genDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate blake2b.hexdigest()
-pub fn genHexdigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"0\" ** 128");
-}
-
-/// Generate blake2b.copy()
-pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"blake2b\", .digest_size = 64, .block_size = 128 }");
-}
-
-/// Generate _blake2.BLAKE2B_SALT_SIZE constant
-pub fn genBlake2bSaltSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 16)");
-}
-
-/// Generate _blake2.BLAKE2B_PERSON_SIZE constant
-pub fn genBlake2bPersonSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 16)");
-}
-
-/// Generate _blake2.BLAKE2B_MAX_KEY_SIZE constant
-pub fn genBlake2bMaxKeySize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 64)");
-}
-
-/// Generate _blake2.BLAKE2B_MAX_DIGEST_SIZE constant
-pub fn genBlake2bMaxDigestSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 64)");
-}
-
-/// Generate _blake2.BLAKE2S_SALT_SIZE constant
-pub fn genBlake2sSaltSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 8)");
-}
-
-/// Generate _blake2.BLAKE2S_PERSON_SIZE constant
-pub fn genBlake2sPersonSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 8)");
-}
-
-/// Generate _blake2.BLAKE2S_MAX_KEY_SIZE constant
-pub fn genBlake2sMaxKeySize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 32)");
-}
-
-/// Generate _blake2.BLAKE2S_MAX_DIGEST_SIZE constant
-pub fn genBlake2sMaxDigestSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 32)");
-}

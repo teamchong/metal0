@@ -5,75 +5,14 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genI32(comptime n: comptime_int) fn (*NativeCodegen, []ast.Node) CodegenError!void {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, std.fmt.comptimePrint("@as(i32, {})", .{n})); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "DefaultSelector", genDefaultSelector },
-    .{ "SelectSelector", genSelectSelector },
-    .{ "PollSelector", genPollSelector },
-    .{ "EpollSelector", genEpollSelector },
-    .{ "KqueueSelector", genKqueueSelector },
-    .{ "DevpollSelector", genDevpollSelector },
-    .{ "EVENT_READ", genEVENT_READ },
-    .{ "EVENT_WRITE", genEVENT_WRITE },
+    .{ "DefaultSelector", genEmpty }, .{ "SelectSelector", genEmpty }, .{ "PollSelector", genEmpty },
+    .{ "EpollSelector", genEmpty }, .{ "KqueueSelector", genEmpty }, .{ "DevpollSelector", genEmpty },
+    .{ "EVENT_READ", genI32(1) }, .{ "EVENT_WRITE", genI32(2) },
 });
-
-/// Generate selectors.DefaultSelector class
-pub fn genDefaultSelector(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate selectors.SelectSelector class
-pub fn genSelectSelector(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate selectors.PollSelector class
-pub fn genPollSelector(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate selectors.EpollSelector class
-pub fn genEpollSelector(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate selectors.DevpollSelector class
-pub fn genDevpollSelector(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate selectors.KqueueSelector class
-pub fn genKqueueSelector(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate selectors.BaseSelector class
-pub fn genBaseSelector(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate selectors.SelectorKey named tuple
-pub fn genSelectorKey(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .fileobj = @as(?*anyopaque, null), .fd = @as(i32, -1), .events = @as(i32, 0), .data = @as(?*anyopaque, null) }");
-}
-
-// ============================================================================
-// Event constants
-// ============================================================================
-
-pub fn genEVENT_READ(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-pub fn genEVENT_WRITE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 2)");
-}

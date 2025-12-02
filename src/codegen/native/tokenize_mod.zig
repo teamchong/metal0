@@ -1,149 +1,32 @@
 /// Python tokenize module - Tokenizer for Python source
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "tokenize", genTokenize },
-    .{ "generate_tokens", genGenerate_tokens },
-    .{ "detect_encoding", genDetect_encoding },
-    .{ "open", genOpen },
-    .{ "untokenize", genUntokenize },
-    .{ "TokenInfo", genTokenInfo },
-    .{ "TokenError", genTokenError },
-    .{ "StopTokenizing", genStopTokenizing },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-// ============================================================================
-// Main Functions
-// ============================================================================
-
-/// Generate tokenize.tokenize(readline)
-pub fn genTokenize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()");
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genI(comptime n: comptime_int) fn (*NativeCodegen, []ast.Node) CodegenError!void {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, std.fmt.comptimePrint("@as(i32, {})", .{n})); } }.f;
 }
 
-/// Generate tokenize.generate_tokens(readline)
-pub fn genGenerate_tokens(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()");
-}
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "tokenize", genTokenList }, .{ "generate_tokens", genTokenList }, .{ "detect_encoding", genDetectEncoding },
+    .{ "open", genOpen }, .{ "untokenize", genEmptyStr }, .{ "TokenInfo", genTokenInfo },
+    .{ "TokenError", genTokenError }, .{ "StopTokenizing", genStopTokenizing },
+    .{ "ENDMARKER", genI(0) }, .{ "NAME", genI(1) }, .{ "NUMBER", genI(2) }, .{ "STRING", genI(3) },
+    .{ "NEWLINE", genI(4) }, .{ "INDENT", genI(5) }, .{ "DEDENT", genI(6) }, .{ "OP", genI(54) },
+    .{ "ERRORTOKEN", genI(59) }, .{ "COMMENT", genI(60) }, .{ "NL", genI(61) }, .{ "ENCODING", genI(62) }, .{ "N_TOKENS", genI(63) },
+});
 
-/// Generate tokenize.detect_encoding(readline)
-pub fn genDetect_encoding(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ \"utf-8\", metal0_runtime.PyList([]const u8).init() }");
-}
+fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
+fn genTokenList(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()"); }
+fn genDetectEncoding(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ \"utf-8\", metal0_runtime.PyList([]const u8).init() }"); }
+fn genTokenInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" }"); }
+fn genTokenError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.TokenError"); }
+fn genStopTokenizing(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.StopTokenizing"); }
 
-/// Generate tokenize.open(filename)
-pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk std.fs.cwd().openFile(path, .{}) catch null; }");
-    } else {
-        try self.emit("@as(?std.fs.File, null)");
-    }
-}
-
-/// Generate tokenize.untokenize(iterable)
-pub fn genUntokenize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-// ============================================================================
-// Token Info
-// ============================================================================
-
-/// Generate tokenize.TokenInfo
-pub fn genTokenInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" }");
-}
-
-// ============================================================================
-// Exceptions
-// ============================================================================
-
-pub fn genTokenError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.TokenError");
-}
-
-pub fn genStopTokenizing(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.StopTokenizing");
-}
-
-// ============================================================================
-// Special tokens re-exported
-// ============================================================================
-
-pub fn genENDMARKER(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-pub fn genNAME(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-pub fn genNUMBER(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 2)");
-}
-
-pub fn genSTRING(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 3)");
-}
-
-pub fn genNEWLINE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 4)");
-}
-
-pub fn genINDENT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 5)");
-}
-
-pub fn genDEDENT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 6)");
-}
-
-pub fn genOP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 54)");
-}
-
-pub fn genERRORTOKEN(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 59)");
-}
-
-pub fn genCOMMENT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 60)");
-}
-
-pub fn genNL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 61)");
-}
-
-pub fn genENCODING(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 62)");
-}
-
-pub fn genN_TOKENS(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 63)");
+fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; break :blk std.fs.cwd().openFile(path, .{}) catch null; }"); }
+    else { try self.emit("@as(?std.fs.File, null)"); }
 }

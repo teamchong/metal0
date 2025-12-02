@@ -6,46 +6,11 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "multibyte_codec", genMultibyteCodec },
-    .{ "multibyte_incremental_encoder", genMultibyteIncrementalEncoder },
-    .{ "multibyte_incremental_decoder", genMultibyteIncrementalDecoder },
-    .{ "multibyte_stream_reader", genMultibyteStreamReader },
-    .{ "multibyte_stream_writer", genMultibyteStreamWriter },
-    .{ "create_codec", genCreateCodec },
+    .{ "multibyte_codec", genCodec }, .{ "multibyte_incremental_encoder", genIncCodec }, .{ "multibyte_incremental_decoder", genIncCodec },
+    .{ "multibyte_stream_reader", genStream }, .{ "multibyte_stream_writer", genStream }, .{ "create_codec", genCodec },
 });
 
-/// Generate _multibytecodec.MultibyteCodec class
-pub fn genMultibyteCodec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"\" }");
-}
-
-/// Generate _multibytecodec.MultibyteIncrementalEncoder class
-pub fn genMultibyteIncrementalEncoder(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .codec = null, .errors = \"strict\" }");
-}
-
-/// Generate _multibytecodec.MultibyteIncrementalDecoder class
-pub fn genMultibyteIncrementalDecoder(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .codec = null, .errors = \"strict\" }");
-}
-
-/// Generate _multibytecodec.MultibyteStreamReader class
-pub fn genMultibyteStreamReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .stream = null, .errors = \"strict\" }");
-}
-
-/// Generate _multibytecodec.MultibyteStreamWriter class
-pub fn genMultibyteStreamWriter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .stream = null, .errors = \"strict\" }");
-}
-
-/// Generate _multibytecodec.__create_codec(name)
-pub fn genCreateCodec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"\" }");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genCodec(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"\" }"); }
+fn genIncCodec(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .codec = null, .errors = \"strict\" }"); }
+fn genStream(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .stream = null, .errors = \"strict\" }"); }

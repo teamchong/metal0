@@ -5,117 +5,18 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genWeakSetData(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .data = .{} }"); }
+fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
+fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "true"); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
+fn genZero(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(usize, 0)"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "WeakSet", genWeakSet },
-    .{ "add", genAdd },
-    .{ "discard", genDiscard },
-    .{ "remove", genRemove },
-    .{ "pop", genPop },
-    .{ "clear", genClear },
-    .{ "copy", genCopy },
-    .{ "update", genUpdate },
-    .{ "__len__", genLen },
-    .{ "__contains__", genContains },
-    .{ "issubset", genIssubset },
-    .{ "issuperset", genIssuperset },
-    .{ "union", genUnion },
-    .{ "intersection", genIntersection },
-    .{ "difference", genDifference },
-    .{ "symmetric_difference", genSymmetricDifference },
+    .{ "WeakSet", genWeakSetData }, .{ "add", genUnit }, .{ "discard", genUnit }, .{ "remove", genUnit },
+    .{ "pop", genNull }, .{ "clear", genUnit }, .{ "copy", genWeakSetData }, .{ "update", genUnit },
+    .{ "__len__", genZero }, .{ "__contains__", genFalse }, .{ "issubset", genTrue }, .{ "issuperset", genTrue },
+    .{ "union", genWeakSetData }, .{ "intersection", genWeakSetData }, .{ "difference", genWeakSetData },
+    .{ "symmetric_difference", genWeakSetData },
 });
-
-/// Generate _weakrefset.WeakSet(data=None)
-pub fn genWeakSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .data = .{} }");
-}
-
-/// Generate WeakSet.add(item)
-pub fn genAdd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate WeakSet.discard(item)
-pub fn genDiscard(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate WeakSet.remove(item)
-pub fn genRemove(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate WeakSet.pop()
-pub fn genPop(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate WeakSet.clear()
-pub fn genClear(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate WeakSet.copy()
-pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .data = .{} }");
-}
-
-/// Generate WeakSet.update(other)
-pub fn genUpdate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate WeakSet.__len__()
-pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(usize, 0)");
-}
-
-/// Generate WeakSet.__contains__(item)
-pub fn genContains(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-/// Generate WeakSet.issubset(other)
-pub fn genIssubset(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
-
-/// Generate WeakSet.issuperset(other)
-pub fn genIssuperset(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
-
-/// Generate WeakSet.union(*others)
-pub fn genUnion(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .data = .{} }");
-}
-
-/// Generate WeakSet.intersection(*others)
-pub fn genIntersection(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .data = .{} }");
-}
-
-/// Generate WeakSet.difference(*others)
-pub fn genDifference(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .data = .{} }");
-}
-
-/// Generate WeakSet.symmetric_difference(other)
-pub fn genSymmetricDifference(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .data = .{} }");
-}

@@ -5,101 +5,22 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genBuffer8192(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .raw = null, .buffer_size = 8192 }"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "open", genOpen },
-    .{ "file_i_o", genFileIO },
-    .{ "bytes_i_o", genBytesIO },
-    .{ "string_i_o", genStringIO },
-    .{ "buffered_reader", genBufferedReader },
-    .{ "buffered_writer", genBufferedWriter },
-    .{ "buffered_random", genBufferedRandom },
-    .{ "buffered_r_w_pair", genBufferedRWPair },
-    .{ "text_i_o_wrapper", genTextIOWrapper },
-    .{ "incremental_newline_decoder", genIncrementalNewlineDecoder },
-    .{ "d_e_f_a_u_l_t__b_u_f_f_e_r__s_i_z_e", genDEFAULT_BUFFER_SIZE },
-    .{ "blocking_i_o_error", genBlockingIOError },
-    .{ "unsupported_operation", genUnsupportedOperation },
+    .{ "open", genOpen }, .{ "file_i_o", genFileIO }, .{ "bytes_i_o", genBytesIO }, .{ "string_i_o", genBytesIO },
+    .{ "buffered_reader", genBuffer8192 }, .{ "buffered_writer", genBuffer8192 }, .{ "buffered_random", genBuffer8192 },
+    .{ "buffered_r_w_pair", genBufferedRWPair }, .{ "text_i_o_wrapper", genTextIOWrapper }, .{ "incremental_newline_decoder", genNewlineDecoder },
+    .{ "d_e_f_a_u_l_t__b_u_f_f_e_r__s_i_z_e", genBufferSize }, .{ "blocking_i_o_error", genBlockingIOError }, .{ "unsupported_operation", genUnsupportedOp },
 });
 
-/// Generate _pyio.open(file, mode='r', buffering=-1, encoding=None, errors=None, newline=None, closefd=True, opener=None)
-pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = path; break :blk .{ .name = path, .mode = \"r\", .closed = false }; }");
-    } else {
-        try self.emit(".{ .name = \"\", .mode = \"r\", .closed = false }");
-    }
-}
-
-/// Generate _pyio.FileIO(name, mode='r', closefd=True, opener=None)
-pub fn genFileIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"\", .mode = \"r\", .closefd = true, .closed = false }");
-}
-
-/// Generate _pyio.BytesIO(initial_bytes=b'')
-pub fn genBytesIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .buffer = \"\", .pos = 0 }");
-}
-
-/// Generate _pyio.StringIO(initial_value='', newline='\\n')
-pub fn genStringIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .buffer = \"\", .pos = 0 }");
-}
-
-/// Generate _pyio.BufferedReader(raw, buffer_size=DEFAULT_BUFFER_SIZE)
-pub fn genBufferedReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .raw = null, .buffer_size = 8192 }");
-}
-
-/// Generate _pyio.BufferedWriter(raw, buffer_size=DEFAULT_BUFFER_SIZE)
-pub fn genBufferedWriter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .raw = null, .buffer_size = 8192 }");
-}
-
-/// Generate _pyio.BufferedRandom(raw, buffer_size=DEFAULT_BUFFER_SIZE)
-pub fn genBufferedRandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .raw = null, .buffer_size = 8192 }");
-}
-
-/// Generate _pyio.BufferedRWPair(reader, writer, buffer_size=DEFAULT_BUFFER_SIZE)
-pub fn genBufferedRWPair(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .reader = null, .writer = null, .buffer_size = 8192 }");
-}
-
-/// Generate _pyio.TextIOWrapper(buffer, encoding=None, errors=None, newline=None, line_buffering=False, write_through=False)
-pub fn genTextIOWrapper(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .buffer = null, .encoding = \"utf-8\", .errors = \"strict\", .newline = null }");
-}
-
-/// Generate _pyio.IncrementalNewlineDecoder(decoder, translate, errors='strict')
-pub fn genIncrementalNewlineDecoder(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .decoder = null, .translate = false, .errors = \"strict\" }");
-}
-
-/// Generate _pyio.DEFAULT_BUFFER_SIZE constant
-pub fn genDEFAULT_BUFFER_SIZE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 8192)");
-}
-
-/// Generate _pyio.BlockingIOError exception
-pub fn genBlockingIOError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.BlockingIOError");
-}
-
-/// Generate _pyio.UnsupportedOperation exception
-pub fn genUnsupportedOperation(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.UnsupportedOperation");
-}
+fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; _ = path; break :blk .{ .name = path, .mode = \"r\", .closed = false }; }"); } else try self.emit(".{ .name = \"\", .mode = \"r\", .closed = false }"); }
+fn genFileIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"\", .mode = \"r\", .closefd = true, .closed = false }"); }
+fn genBytesIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .buffer = \"\", .pos = 0 }"); }
+fn genBufferedRWPair(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .reader = null, .writer = null, .buffer_size = 8192 }"); }
+fn genTextIOWrapper(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .buffer = null, .encoding = \"utf-8\", .errors = \"strict\", .newline = null }"); }
+fn genNewlineDecoder(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .decoder = null, .translate = false, .errors = \"strict\" }"); }
+fn genBufferSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 8192)"); }
+fn genBlockingIOError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.BlockingIOError"); }
+fn genUnsupportedOp(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.UnsupportedOperation"); }

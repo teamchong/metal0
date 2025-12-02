@@ -4,107 +4,26 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate copy.copy(obj)
-/// Creates a shallow copy of the object
-pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    // For primitive types and arrays, just return the value (shallow copy)
-    // For ArrayList, we need to create a new container
-    try self.emit("copy_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _src = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    // Check if it's an ArrayList using @hasField
-    try self.emit("if (@typeInfo(@TypeOf(_src)) == .@\"struct\" and @hasField(@TypeOf(_src), \"items\")) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _copy = @TypeOf(_src).init(__global_allocator);\n");
-    try self.emitIndent();
-    try self.emit("_copy.appendSlice(__global_allocator, _src.items) catch {};\n");
-    try self.emitIndent();
-    try self.emit("break :copy_blk _copy;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    // For arrays and primitives, just return the value
-    try self.emit("break :copy_blk _src;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
-}
-
-/// Generate copy.deepcopy(obj)
-/// Creates a deep copy of the object (recursive)
-pub fn genDeepcopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    // For AOT, deep copy is complex because we need to recursively copy
-    // nested structures. For now, implement like shallow copy.
-    try self.emit("deepcopy_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _src = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    // For simple types, just return the value
-    try self.emit("if (@TypeOf(_src) == i64 or @TypeOf(_src) == f64 or @TypeOf(_src) == bool or @TypeOf(_src) == []const u8) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("break :deepcopy_blk _src;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    // For ArrayList, deep copy elements
-    try self.emit("if (@typeInfo(@TypeOf(_src)) == .@\"struct\" and @hasField(@TypeOf(_src), \"items\")) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _copy = @TypeOf(_src).init(__global_allocator);\n");
-    try self.emitIndent();
-    try self.emit("for (_src.items) |item| {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("_copy.append(__global_allocator, item) catch continue;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("break :deepcopy_blk _copy;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("break :deepcopy_blk _src;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
-}
-
-/// Generate copy.replace(obj, **kwargs)
-/// Python 3.11+ - creates a copy with replaced field values
-/// For AOT, we just return a shallow copy (kwargs replacement not supported)
-pub fn genReplace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) {
-        // No argument - emit a placeholder value
-        try self.emit("void{}");
-        return;
-    }
-
-    // For AOT, we just return the object as-is (simplification)
-    // Full replace semantics would need field replacement based on kwargs
-    try self.genExpr(args[0]);
-}
-
-// Function map for module_functions.zig
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "copy", genCopy },
-    .{ "deepcopy", genDeepcopy },
-    .{ "replace", genReplace },
+    .{ "copy", genCopy }, .{ "deepcopy", genDeepcopy }, .{ "replace", genReplace },
 });
+
+pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) return;
+    try self.emit("copy_blk: { const _src = ");
+    try self.genExpr(args[0]);
+    try self.emit("; if (@typeInfo(@TypeOf(_src)) == .@\"struct\" and @hasField(@TypeOf(_src), \"items\")) { var _copy = @TypeOf(_src).init(__global_allocator); _copy.appendSlice(__global_allocator, _src.items) catch {}; break :copy_blk _copy; } break :copy_blk _src; }");
+}
+
+pub fn genDeepcopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) return;
+    try self.emit("deepcopy_blk: { const _src = ");
+    try self.genExpr(args[0]);
+    try self.emit("; if (@TypeOf(_src) == i64 or @TypeOf(_src) == f64 or @TypeOf(_src) == bool or @TypeOf(_src) == []const u8) { break :deepcopy_blk _src; } if (@typeInfo(@TypeOf(_src)) == .@\"struct\" and @hasField(@TypeOf(_src), \"items\")) { var _copy = @TypeOf(_src).init(__global_allocator); for (_src.items) |item| { _copy.append(__global_allocator, item) catch continue; } break :deepcopy_blk _copy; } break :deepcopy_blk _src; }");
+}
+
+fn genReplace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("void{}"); return; }
+    try self.genExpr(args[0]);
+}
