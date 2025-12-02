@@ -6,6 +6,7 @@ const NativeType = native_types.NativeType;
 const TypeInferrer = native_types.TypeInferrer;
 const SemanticInfo = @import("../../../analysis/types.zig").SemanticInfo;
 const comptime_eval = @import("../../../analysis/comptime_eval.zig");
+const function_traits = @import("../../../analysis/function_traits.zig");
 const symbol_table_mod = @import("../symbol_table.zig");
 const SymbolTable = symbol_table_mod.SymbolTable;
 const ClassRegistry = symbol_table_mod.ClassRegistry;
@@ -406,6 +407,10 @@ pub const NativeCodegen = struct {
     // Maps variable name -> void (e.g., "fromHex" -> {})
     callable_global_vars: FnvVoidMap,
 
+    // Function traits call graph for unified analysis (built lazily on first generate())
+    // Query via function_traits.isPure(), .needsAllocator(), .canUseTCO(), etc.
+    call_graph: ?function_traits.CallGraph,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -510,6 +515,7 @@ pub const NativeCodegen = struct {
             .loop_capture_vars = FnvVoidMap.init(allocator),
             .callable_global_vars = FnvVoidMap.init(allocator),
             .forward_declared_vars = FnvVoidMap.init(allocator),
+            .call_graph = null,
         };
         return self;
     }
@@ -520,6 +526,84 @@ pub const NativeCodegen = struct {
 
     pub fn setSourceFilePath(self: *NativeCodegen, path: []const u8) void {
         self.source_file_path = path;
+    }
+
+    /// Build call graph from module AST for unified function analysis
+    /// Call this once before generate() to enable traits-based codegen decisions
+    pub fn buildCallGraph(self: *NativeCodegen, module: ast.Node.Module) !void {
+        self.call_graph = try function_traits.buildCallGraph(module, self.allocator);
+    }
+
+    /// Query: Should function use state machine async? (has I/O await)
+    pub fn shouldUseStateMachineAsync(self: *const NativeCodegen, name: []const u8) bool {
+        if (self.call_graph) |*cg| {
+            return function_traits.shouldUseStateMachineAsync(cg, name);
+        }
+        return false;
+    }
+
+    /// Query: Is parameter mutated? (var vs const)
+    pub fn isParamMutated(self: *const NativeCodegen, func_name: []const u8, param_idx: usize) bool {
+        if (self.call_graph) |*cg| {
+            return function_traits.isParamMutated(cg, func_name, param_idx);
+        }
+        return false;
+    }
+
+    /// Query: Does function need error union return type?
+    pub fn funcNeedsErrorUnion(self: *const NativeCodegen, name: []const u8) bool {
+        if (self.call_graph) |*cg| {
+            return function_traits.needsErrorUnion(cg, name);
+        }
+        return false;
+    }
+
+    /// Query: Does function need allocator parameter?
+    pub fn funcNeedsAllocator(self: *const NativeCodegen, name: []const u8) bool {
+        if (self.call_graph) |*cg| {
+            return function_traits.needsAllocator(cg, name);
+        }
+        return false;
+    }
+
+    /// Query: Is function pure? (can be memoized/comptime evaluated)
+    pub fn funcIsPure(self: *const NativeCodegen, name: []const u8) bool {
+        if (self.call_graph) |*cg| {
+            return function_traits.isPure(cg, name);
+        }
+        return false;
+    }
+
+    /// Query: Can function use tail call optimization?
+    pub fn funcCanUseTCO(self: *const NativeCodegen, name: []const u8) bool {
+        if (self.call_graph) |*cg| {
+            return function_traits.canUseTCO(cg, name);
+        }
+        return false;
+    }
+
+    /// Query: Is function a generator?
+    pub fn funcIsGenerator(self: *const NativeCodegen, name: []const u8) bool {
+        if (self.call_graph) |*cg| {
+            return function_traits.isGenerator(cg, name);
+        }
+        return false;
+    }
+
+    /// Query: Is function dead code? (not reachable from entry points)
+    pub fn funcIsDeadCode(self: *const NativeCodegen, name: []const u8) bool {
+        if (self.call_graph) |*cg| {
+            return function_traits.isDeadCode(cg, name);
+        }
+        return false;
+    }
+
+    /// Query: Get async complexity for optimization decisions
+    pub fn funcAsyncComplexity(self: *const NativeCodegen, name: []const u8) function_traits.AsyncComplexity {
+        if (self.call_graph) |*cg| {
+            return function_traits.getAsyncComplexity(cg, name);
+        }
+        return .trivial;
     }
 
     pub fn deinit(self: *NativeCodegen) void {

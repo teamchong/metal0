@@ -86,6 +86,13 @@ pub fn build(b: *std.Build) void {
     pkg_mod.addImport("json", json_mod);
     pkg_mod.addImport("h2", h2_mod);
 
+    // Function traits analysis framework (call graph, mutation, async, etc.)
+    const function_traits = b.addModule("function_traits", .{
+        .root_source_file = b.path("src/analysis/function_traits.zig"),
+    });
+    function_traits.addImport("ast", ast);
+    function_traits.addImport("hashmap_helper", hashmap_helper);
+
     // Module dependencies
     runtime.addImport("hashmap_helper", hashmap_helper);
     runtime.addImport("json_simd", json_simd);
@@ -120,6 +127,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("ast", ast);
     exe.root_module.addImport("c_interop", c_interop_mod);
     exe.root_module.addImport("pkg", pkg_mod);
+    exe.root_module.addImport("function_traits", function_traits);
     exe.linkLibC();
 
     b.installArtifact(exe);

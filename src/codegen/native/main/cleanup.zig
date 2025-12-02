@@ -204,6 +204,11 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.callable_global_vars);
     self.callable_global_vars.deinit();
 
+    // Clean up call_graph if it was built
+    if (self.call_graph) |*cg| {
+        cg.deinit();
+    }
+
     self.allocator.destroy(self);
 }
 
