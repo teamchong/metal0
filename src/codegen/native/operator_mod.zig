@@ -48,25 +48,22 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "__call__", h.wrap("", "()", "void{}") },
 });
 
+fn divOp(self: *NativeCodegen, args: []ast.Node, comptime builtin: []const u8, comptime default: []const u8, comptime pre: []const u8, comptime mid: []const u8, comptime suf: []const u8) CodegenError!void {
+    if (args.len == 0) { try self.emit(builtin); return; }
+    if (args.len < 2) { try self.emit(default); return; }
+    try self.emit(pre); try self.genExpr(args[0]); try self.emit(mid); try self.genExpr(args[1]); try self.emit(suf);
+}
 fn genTruediv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("(runtime.builtins.OperatorTruediv{})"); return; }
-    if (args.len < 2) { try self.emit("@as(f64, 0.0)"); return; }
-    try self.emit("(@as(f64, @floatFromInt("); try self.genExpr(args[0]); try self.emit(")) / @as(f64, @floatFromInt("); try self.genExpr(args[1]); try self.emit(")))");
+    try divOp(self, args, "(runtime.builtins.OperatorTruediv{})", "@as(f64, 0.0)", "(@as(f64, @floatFromInt(", ")) / @as(f64, @floatFromInt(", ")))");
 }
 fn genFloordiv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("(runtime.builtins.OperatorFloordiv{})"); return; }
-    if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
-    try self.emit("@divFloor("); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")");
+    try divOp(self, args, "(runtime.builtins.OperatorFloordiv{})", "@as(i64, 0)", "@divFloor(", ", ", ")");
 }
 fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("(runtime.builtins.OperatorMod{})"); return; }
-    if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
-    try self.emit("@mod("); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")");
+    try divOp(self, args, "(runtime.builtins.OperatorMod{})", "@as(i64, 0)", "@mod(", ", ", ")");
 }
 fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("runtime.builtins.OperatorPow{}"); return; }
-    if (args.len < 2) { try self.emit("@as(i64, 1)"); return; }
-    try self.emit("(std.math.powi(i64, @as(i64, "); try self.genExpr(args[0]); try self.emit("), @as(u32, @intCast("); try self.genExpr(args[1]); try self.emit("))) catch 0)");
+    try divOp(self, args, "runtime.builtins.OperatorPow{}", "@as(i64, 1)", "(std.math.powi(i64, @as(i64, ", "), @as(u32, @intCast(", "))) catch 0)");
 }
 fn genIdentity(self: *NativeCodegen, args: []ast.Node, comptime op: []const u8, comptime default: []const u8) CodegenError!void {
     if (args.len < 2) { try self.emit(default); return; }
