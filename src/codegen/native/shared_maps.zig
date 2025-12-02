@@ -81,5 +81,5 @@ pub const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
     .{ "SystemError", {} },     .{ "RecursionError", {} },    .{ "MemoryError", {} },
     .{ "BufferError", {} },     .{ "ConnectionError", {} },   .{ "TimeoutError", {} },
     .{ "ArithmeticError", {} }, .{ "EOFError", {} },          .{ "GeneratorExit", {} },
-    .{ "SystemExit", {} },      .{ "KeyboardInterrupt", {} },
+    .{ "SystemExit", {} },      .{ "KeyboardInterrupt", {} }, .{ "SyntaxError", {} },
 });

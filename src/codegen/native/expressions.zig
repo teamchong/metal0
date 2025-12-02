@@ -528,20 +528,8 @@ fn isBuiltinFunction(name: []const u8) bool {
     return BuiltinFunctions.has(name);
 }
 
-const PythonExceptions = std.StaticStringMap(void).initComptime(.{
-    .{ "TypeError", {} },         .{ "ValueError", {} },        .{ "KeyError", {} },
-    .{ "IndexError", {} },        .{ "ZeroDivisionError", {} },  .{ "AttributeError", {} },
-    .{ "NameError", {} },         .{ "FileNotFoundError", {} },  .{ "IOError", {} },
-    .{ "RuntimeError", {} },      .{ "StopIteration", {} },      .{ "NotImplementedError", {} },
-    .{ "AssertionError", {} },    .{ "OverflowError", {} },      .{ "ImportError", {} },
-    .{ "ModuleNotFoundError", {} }, .{ "OSError", {} },          .{ "PermissionError", {} },
-    .{ "TimeoutError", {} },      .{ "ConnectionError", {} },    .{ "RecursionError", {} },
-    .{ "MemoryError", {} },       .{ "LookupError", {} },        .{ "ArithmeticError", {} },
-    .{ "BufferError", {} },       .{ "EOFError", {} },           .{ "GeneratorExit", {} },
-    .{ "SystemExit", {} },        .{ "KeyboardInterrupt", {} },  .{ "Exception", {} },
-    .{ "BaseException", {} },     .{ "SyntaxError", {} },        .{ "UnicodeError", {} },
-    .{ "UnicodeDecodeError", {} }, .{ "UnicodeEncodeError", {} },
-});
+const shared = @import("shared_maps.zig");
+const PythonExceptions = shared.RuntimeExceptions;
 
 /// Check if a name is a Python exception type
 pub fn isPythonExceptionType(name: []const u8) bool {
