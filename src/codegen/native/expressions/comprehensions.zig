@@ -5,6 +5,16 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
 
+/// Builtins that return int for type inference
+const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{
+    .{ "len", {} }, .{ "int", {} }, .{ "ord", {} },
+});
+
+/// Builtins that return bool for type inference
+const BoolReturningBuiltins = std.StaticStringMap(void).initComptime(.{
+    .{ "isinstance", {} }, .{ "callable", {} }, .{ "hasattr", {} }, .{ "bool", {} },
+});
+
 /// Generate expression with variable substitutions for comprehensions
 fn genExprWithSubs(
     self: *NativeCodegen,
@@ -692,13 +702,7 @@ fn isIntExpr(node: ast.Node) bool {
         .constant => |c| c.value == .int,
         .name => true, // Assume loop vars from range() are int (could be smarter)
         .call => |c| {
-            // len(), int(), etc return int
-            if (c.func.* == .name) {
-                const name = c.func.name.id;
-                return std.mem.eql(u8, name, "len") or
-                    std.mem.eql(u8, name, "int") or
-                    std.mem.eql(u8, name, "ord");
-            }
+            if (c.func.* == .name) return IntReturningBuiltins.has(c.func.name.id);
             return false;
         },
         else => false,
@@ -713,14 +717,7 @@ fn isBoolExpr(node: ast.Node) bool {
         .unaryop => |u| u.op == .Not, // not yields bool
         .constant => |c| c.value == .bool,
         .call => |c| {
-            // isinstance(), callable(), etc return bool
-            if (c.func.* == .name) {
-                const name = c.func.name.id;
-                return std.mem.eql(u8, name, "isinstance") or
-                    std.mem.eql(u8, name, "callable") or
-                    std.mem.eql(u8, name, "hasattr") or
-                    std.mem.eql(u8, name, "bool");
-            }
+            if (c.func.* == .name) return BoolReturningBuiltins.has(c.func.name.id);
             return false;
         },
         else => false,
