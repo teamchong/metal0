@@ -373,13 +373,19 @@ pub fn build(b: *std.Build) void {
     const gzip_test_step = b.step("test-gzip", "Run gzip compression tests");
     gzip_test_step.dependOn(&run_gzip_tests.step);
 
-    // Package manager tests (PEP 440, 508, requirements.txt, METADATA)
+    // Package manager tests (PEP 440, 508, requirements.txt, METADATA, PubGrub)
+    const pkg_test_module = b.createModule(.{
+        .root_source_file = b.path("packages/pkg/src/pkg.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pkg_test_module.addImport("json", json_mod);
+    pkg_test_module.addImport("h2", h2_mod);
+    pkg_test_module.addImport("green_thread", green_thread_module);
+    pkg_test_module.addImport("netpoller", netpoller_module);
+
     const pkg_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("packages/pkg/src/pkg.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = pkg_test_module,
     });
 
     const run_pkg_tests = b.addRunArtifact(pkg_tests);

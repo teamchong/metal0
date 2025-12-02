@@ -43,9 +43,11 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     };
 
     // If we found a __len__ method, generate method call
+    // __len__ returns PythonError!i64, so we need to unwrap with try
     if (has_magic_method and args[0] == .name) {
+        try self.emit("(try ");
         try self.genExpr(args[0]);
-        try self.emit(".__len__()");
+        try self.emit(".__len__())");
         return;
     }
 
@@ -182,11 +184,13 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     } else if (is_class_instance) {
         // User-defined class with __len__ method
+        // __len__ returns PythonError!i64, so we need to unwrap with try
         if (needs_wrap) {
-            try self.emit("__obj.__len__()");
+            try self.emit("(try __obj.__len__())");
         } else {
+            try self.emit("(try ");
             try self.genExpr(args[0]);
-            try self.emit(".__len__()");
+            try self.emit(".__len__())");
         }
     } else {
         // For arrays, slices, strings - just use .len

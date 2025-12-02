@@ -100,6 +100,11 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
     codegen.mode = .module;
     codegen.module_name = null; // No struct wrapper - export functions at top level
 
+    // Build call graph for unified function analysis
+    if (tree == .module) {
+        try codegen.buildCallGraph(tree.module);
+    }
+
     const zig_code = if (tree == .module)
         try codegen.generate(tree.module)
     else
@@ -247,6 +252,9 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
 
     // Pass import context to codegen
     native_gen.setImportContext(&import_ctx);
+
+    // Build call graph for unified function analysis
+    try native_gen.buildCallGraph(tree.module);
 
     const zig_code = try native_gen.generate(tree.module);
 
@@ -460,6 +468,9 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     for (failed_modules.keys()) |module_name| {
         try native_gen.markSkippedModule(module_name);
     }
+
+    // Build call graph for unified function analysis (before codegen)
+    try native_gen.buildCallGraph(tree.module);
 
     const zig_code = try native_gen.generate(tree.module);
 

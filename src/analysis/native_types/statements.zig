@@ -178,8 +178,23 @@ pub fn visitStmtScoped(
                                                 // Method 1: Use type annotation if available
                                                 field_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
 
-                                                // Method 2: If still unknown, use constructor call arg types
+                                                // Method 2: Try keyword arg lookup first (has proper type widening)
+                                                // Stored as "ClassName.param_name" in var_types, widened across all calls
+                                                var found_kwarg_type = false;
                                                 if (field_type == .unknown) {
+                                                    var kwarg_key_buf: [256]u8 = undefined;
+                                                    const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_def.name, arg.name }) catch null;
+                                                    if (kwarg_key) |key| {
+                                                        if (var_types.get(key)) |kwarg_type| {
+                                                            field_type = kwarg_type;
+                                                            found_kwarg_type = true;
+                                                        }
+                                                    }
+                                                }
+
+                                                // Method 3: If keyword lookup didn't find anything, use positional constructor call arg types
+                                                // Note: Don't overwrite if Method 2 found .unknown (means widened incompatible types)
+                                                if (!found_kwarg_type and field_type == .unknown) {
                                                     if (constructor_arg_types) |arg_types| {
                                                         // param_idx includes 'self', so subtract 1 for arg index
                                                         const arg_idx = if (param_idx > 0) param_idx - 1 else 0;

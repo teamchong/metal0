@@ -13,9 +13,8 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 const bridge = @import("stdlib_bridge.zig");
 const state_machine = @import("async_state_machine.zig");
 
-/// Use state machine async (true non-blocking) vs thread-based (blocking)
-/// State machines allow 1000x+ concurrent I/O operations (like Go/Rust)
-const USE_STATE_MACHINE_ASYNC = true;
+// NOTE: Async strategy is now determined per-function via function_traits
+// We default to state machine for asyncio module functions (I/O bound)
 
 /// Handler function type
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -45,7 +44,8 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // Rename "main" to "__user_main" to match function generation
             const actual_name = if (std.mem.eql(u8, func_name, "main")) "__user_main" else func_name;
 
-            if (USE_STATE_MACHINE_ASYNC) {
+            // Use state machine if ANY async function has I/O (for consistency)
+            if (self.anyAsyncHasIO()) {
                 // State machine approach: create frame and poll until done
                 try self.emit("__asyncio_run: {\n");
                 try self.emit("    const __main_frame = try ");
@@ -86,7 +86,9 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for asyncio.gather(*tasks)
 /// When passed a list, spawn all items as goroutines and collect results
 pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (USE_STATE_MACHINE_ASYNC) {
+    // Use state machine for I/O-bound (high concurrency, single thread)
+    // Use thread pool for CPU-bound (parallel execution across cores)
+    if (self.anyAsyncHasIO()) { // State machine for I/O operations
         // State machine: poll all frames concurrently using netpoller
         try self.emit("__gather_blk: {\n");
         try self.emit("    var __results: std.ArrayList(i64) = .{};\n");
@@ -229,7 +231,8 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         if (call.func.* == .name) {
             const func_name = call.func.*.name.id;
 
-            if (USE_STATE_MACHINE_ASYNC) {
+            // Query function_traits for async strategy
+            if (self.shouldUseStateMachineAsync(func_name)) {
                 // State machine approach: create frame and poll until done
                 try self.emit("__await_blk: {\n");
                 try self.emit("    const __frame = try ");
@@ -280,8 +283,8 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 /// 1. foo_async(args) -> spawns goroutine, returns GreenThread
 /// 2. foo_impl(args) -> actual implementation
 pub fn genAsyncFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
-    // Use state machine approach for true non-blocking I/O
-    if (USE_STATE_MACHINE_ASYNC) {
+    // Use function_traits to determine async strategy
+    if (self.shouldUseStateMachineAsync(func.name)) {
         return state_machine.genAsyncStateMachine(self, func);
     }
 

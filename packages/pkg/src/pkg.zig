@@ -33,6 +33,7 @@ pub const scheduler = @import("fetch/scheduler.zig");
 
 // Phase 3: Resolver
 pub const resolver = @import("resolve/resolver.zig");
+pub const pubgrub = @import("pubgrub/pubgrub.zig");
 
 // Phase 4: Installer
 pub const installer = @import("install/installer.zig");
@@ -63,6 +64,12 @@ pub const FetchScheduler = scheduler.FetchScheduler;
 // Re-export main types - Resolver
 pub const Resolver = resolver.Resolver;
 pub const Resolution = resolver.Resolution;
+
+// Re-export PubGrub types
+pub const PubGrubSolver = pubgrub.Solver;
+pub const PubGrubVersion = pubgrub.Version;
+pub const PubGrubRange = pubgrub.Range;
+pub const PyPIProvider = pubgrub.PyPIProvider;
 
 // Re-export main types - Installer
 pub const Installer = installer.Installer;

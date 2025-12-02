@@ -4,19 +4,6 @@ const ast = @import("ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 
-/// Check if an expression contains a simple name (likely a parameter that could be anytype)
-/// We use this heuristic: if the expression is a simple name or involves a simple name in
-/// a unary/binary op, treat it as potentially anytype
-fn expressionContainsAnytypeParam(expr: ast.Node) bool {
-    switch (expr) {
-        .name => return true, // A simple name could be anytype parameter
-        .unaryop => |u| return expressionContainsAnytypeParam(u.operand.*),
-        .binop => |b| return expressionContainsAnytypeParam(b.left.*) or
-            expressionContainsAnytypeParam(b.right.*),
-        else => return false,
-    }
-}
-
 /// Generate code for str(obj) or str(bytes, encoding)
 /// Converts to string representation
 pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -48,14 +35,10 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Use scoped type inference for accuracy with anytype parameters
-    var arg_type = self.inferExprScoped(args[0]) catch .unknown;
-
-    // Check if expression contains an anytype parameter reference (e.g., -n where n: anytype)
-    // In this case, use .unknown to generate safe runtime-polymorphic code
-    if (expressionContainsAnytypeParam(args[0])) {
-        arg_type = .unknown;
-    }
+    // Use scoped type inference for accuracy
+    // Trust type inference - it handles typed parameters correctly (e.g., task_id: int)
+    // Only fall back to unknown for genuinely untyped expressions
+    const arg_type = self.inferExprScoped(args[0]) catch .unknown;
 
     // Already a string - just return it
     if (arg_type == .string) {
@@ -66,12 +49,6 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Convert number to string
     // Use scope-aware allocator: __global_allocator in functions, allocator in main()
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-
-    const str_label_id = self.block_label_counter;
-    self.block_label_counter += 1;
-    try self.emitFmt("str_{d}: {{\n", .{str_label_id});
-    // Use unique buf name to avoid shadowing in nested str() calls
-    try self.emitFmt("var __str_buf_{d} = std.ArrayList(u8){{}};\n", .{str_label_id});
 
     // Check if this is a float() call that might return error union
     // float(string_var) generates runtime.floatBuiltinCall which returns !f64
@@ -87,31 +64,45 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     } else false;
 
+    const str_label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
     if (arg_type == .bigint) {
         // BigInt needs special formatting via toDecimalString
+        try self.emitFmt("str_{d}: {{\n", .{str_label_id});
         try self.emitFmt("break :str_{d} (", .{str_label_id});
         try self.genExpr(args[0]);
         try self.emitFmt(").toDecimalString({s}) catch unreachable;\n}}", .{alloc_name});
         return;
     } else if (arg_type == .int) {
-        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{}}\", .{{", .{ str_label_id, alloc_name });
-    } else if (arg_type == .float and !is_float_error_union) {
-        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{d}}\", .{{", .{ str_label_id, alloc_name });
-    } else if (arg_type == .bool) {
-        // Python bool to string: True/False
-        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{s}}\", .{{if (", .{ str_label_id, alloc_name });
+        // FAST PATH: Use stack buffer for int->str conversion (common in hot loops)
+        // Stack buffer: i64 max is 19 digits + sign + null = 21 bytes, use 32 for safety
+        try self.emitFmt("str_{d}: {{\n", .{str_label_id});
+        try self.emitFmt("var __str_stack_{d}: [32]u8 = undefined;\n", .{str_label_id});
+        try self.emitFmt("break :str_{d} std.fmt.bufPrint(&__str_stack_{d}, \"{{}}\", .{{", .{ str_label_id, str_label_id });
         try self.genExpr(args[0]);
-        try self.emit(") \"True\" else \"False\"});\n");
-        try self.emitFmt("break :str_{d} try __str_buf_{d}.toOwnedSlice({s});\n", .{ str_label_id, str_label_id, alloc_name });
-        try self.emit("}");
+        try self.emit("}) catch unreachable;\n}");
         return;
-    } else if (arg_type == .unknown) {
-        // Unknown type (e.g., anytype parameter) - use {any} with comptime type handling
-        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{any}}\", .{{", .{ str_label_id, alloc_name });
-    } else {
-        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{any}}\", .{{", .{ str_label_id, alloc_name });
+    } else if (arg_type == .float and !is_float_error_union) {
+        // FAST PATH: Use stack buffer for float->str conversion
+        try self.emitFmt("str_{d}: {{\n", .{str_label_id});
+        try self.emitFmt("var __str_stack_{d}: [64]u8 = undefined;\n", .{str_label_id});
+        try self.emitFmt("break :str_{d} std.fmt.bufPrint(&__str_stack_{d}, \"{{d}}\", .{{", .{ str_label_id, str_label_id });
+        try self.genExpr(args[0]);
+        try self.emit("}) catch unreachable;\n}");
+        return;
+    } else if (arg_type == .bool) {
+        // Python bool to string: True/False - no allocation needed!
+        try self.emit("(if (");
+        try self.genExpr(args[0]);
+        try self.emit(") \"True\" else \"False\")");
+        return;
     }
 
+    // Fallback for unknown types: use heap allocation
+    try self.emitFmt("str_{d}: {{\n", .{str_label_id});
+    try self.emitFmt("var __str_buf_{d} = std.ArrayList(u8){{}};\n", .{str_label_id});
+    try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{any}}\", .{{", .{ str_label_id, alloc_name });
     try self.genExpr(args[0]);
     try self.emit("});\n");
     try self.emitFmt("break :str_{d} try __str_buf_{d}.toOwnedSlice({s});\n", .{ str_label_id, str_label_id, alloc_name });
