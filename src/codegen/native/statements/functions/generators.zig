@@ -10,11 +10,8 @@ const signature = @import("generators/signature.zig");
 const body = @import("generators/body.zig");
 const builtin_types = @import("generators/builtin_types.zig");
 const test_skip = @import("generators/test_skip.zig");
-
-const PyBuiltinTypes = std.StaticStringMap(void).initComptime(.{
-    .{ "int", {} }, .{ "float", {} }, .{ "str", {} },
-    .{ "bool", {} }, .{ "list", {} }, .{ "dict", {} },
-});
+const shared = @import("../../shared_maps.zig");
+const PyBuiltinTypes = shared.PythonBuiltinTypes;
 
 // Re-exports
 pub const analyzeModuleLevelMutations = body.analyzeModuleLevelMutations;

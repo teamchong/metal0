@@ -3,12 +3,8 @@ const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
-
-/// Python builtin types for isinstance checks
-const PythonBuiltinTypes = std.StaticStringMap(void).initComptime(.{
-    .{ "bool", {} }, .{ "int", {} }, .{ "float", {} },
-    .{ "str", {} }, .{ "list", {} }, .{ "dict", {} },
-});
+const shared = @import("../../shared_maps.zig");
+const PythonBuiltinTypes = shared.PythonBuiltinTypes;
 
 /// Generate code for type(obj)
 /// Returns compile-time type name as string

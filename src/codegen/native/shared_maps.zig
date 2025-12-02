@@ -45,6 +45,13 @@ pub const InplaceDunders = std.StaticStringMap([]const u8).initComptime(.{
     .{ "BitXor", "__ixor__" }, .{ "LShift", "__ilshift__" }, .{ "RShift", "__irshift__" },
 });
 
+/// Python builtin types (int, str, list, etc.) for type checking
+pub const PythonBuiltinTypes = std.StaticStringMap(void).initComptime(.{
+    .{ "bool", {} }, .{ "int", {} }, .{ "float", {} },
+    .{ "str", {} }, .{ "list", {} }, .{ "dict", {} },
+    .{ "set", {} }, .{ "tuple", {} }, .{ "bytes", {} },
+});
+
 /// Python exception types for runtime error mapping
 pub const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
     .{ "Exception", {} },       .{ "BaseException", {} },     .{ "RuntimeError", {} },
