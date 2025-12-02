@@ -293,18 +293,53 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
                 }
                 try self.emit("); }");
             }
+        } else if (attr.value.* == .name) {
+            const base_name = attr.value.name.id;
+            // Check if base is a builtin type (int, float, bool, str) - these need runtime dispatch
+            if (PyToZigTypes.has(base_name)) {
+                // Builtin type method: int.__new__ -> runtime.int__new__(args)
+                // Note: attr starts with __ so we get int__new__, not int___new__
+                try self.emit("runtime.");
+                try self.emit(base_name);
+                try self.emit(attr.attr);
+                try self.emit("(");
+                if (args.len > 2) {
+                    for (args[2..], 0..) |arg, i| {
+                        if (i > 0) try self.emit(", ");
+                        try parent.genExpr(self, arg);
+                    }
+                }
+                try self.emit(")");
+            } else {
+                // Simple variable attribute - local variable's method
+                // Generate: var_name.@"method"(args)
+                try parent.genExpr(self, attr.value.*);
+                try self.emit(".@\"");
+                try self.emit(attr.attr);
+                try self.emit("\"(");
+                if (args.len > 2) {
+                    for (args[2..], 0..) |arg, i| {
+                        if (i > 0) try self.emit(", ");
+                        try parent.genExpr(self, arg);
+                    }
+                }
+                try self.emit(")");
+            }
         } else {
-            // Local variable attribute - dynamic object method
-            // Generate the call expression
-            try parent.genExpr(self, args[1]);
-            try self.emit("(");
+            // Complex expression attribute (e.g., {}.update, some_call().method)
+            // Store the object first, then call the method
+            try self.emit("__ar_obj_blk: { const __ar_obj = ");
+            try parent.genExpr(self, attr.value.*);
+            try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
+            try self.emit(attr.attr);
+            try self.emit("\"(");
             if (args.len > 2) {
                 for (args[2..], 0..) |arg, i| {
                     if (i > 0) try self.emit(", ");
                     try parent.genExpr(self, arg);
                 }
             }
-            try self.emit(")");
+            try self.emit("); }");
         }
     } else if (args[1] == .lambda) {
         // Lambda expression - generates a closure struct that needs .call() method

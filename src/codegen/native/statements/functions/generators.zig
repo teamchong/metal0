@@ -488,8 +488,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     }
 
     // Generate: const ClassName = struct {
+    // Use pub const for top-level classes in module mode so they're accessible from importers
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{effective_class_name});
+    const pub_prefix: []const u8 = if (self.mode == .module and self.indent_level == 0) "pub " else "";
+    try self.output.writer(self.allocator).print("{s}const {s} = struct {{\n", .{ pub_prefix, effective_class_name });
     self.indent();
 
     // Set current class name early so init() and all methods use @This() for self-references
