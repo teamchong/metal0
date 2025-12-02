@@ -2,7 +2,7 @@
 
 > **Early alpha** - API unstable, not production-ready
 
-Python Syntax. Native Speed. Zero Friction.
+Python Syntax. Bare Metal Speed. Zero Friction.
 
 ```bash
 git clone https://github.com/teamchong/metal0 && cd metal0 && make install
