@@ -5,16 +5,15 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "log10_base256", genLog10Base256 }, .{ "spread", genSpread },
+    .{ "log10_base256", genConst("@as(f64, 0.4150374992788438)") }, .{ "spread", genConst("(struct { data: std.AutoHashMap(i64, i64) = .{}, pub fn copy(self: @This()) @This() { return __self; } pub fn clear(__self: *@This()) void { __self.data.clearRetainingCapacity(); } pub fn clearRetainingCapacity(__self: *@This()) void { __self.data.clearRetainingCapacity(); } pub fn update(__self: *@This(), other: @This()) void { _ = other; } pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() { _ = allocator; return __self; } pub fn contains(self: @This(), key: i64) bool { return __self.data.contains(key); } }{})") },
     .{ "int_to_decimal_string", genIntToDecimalString }, .{ "int_from_string", genIntFromString },
     .{ "dec_str_to_int_inner", genDecStrToIntInner }, .{ "compute_powers", genComputePowers },
 });
-
-fn genLog10Base256(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(f64, 0.4150374992788438)"); }
-fn genSpread(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "(struct { data: std.AutoHashMap(i64, i64) = .{}, pub fn copy(self: @This()) @This() { return __self; } pub fn clear(__self: *@This()) void { __self.data.clearRetainingCapacity(); } pub fn clearRetainingCapacity(__self: *@This()) void { __self.data.clearRetainingCapacity(); } pub fn update(__self: *@This(), other: @This()) void { _ = other; } pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() { _ = allocator; return __self; } pub fn contains(self: @This(), key: i64) bool { return __self.data.contains(key); } }{})"); }
 
 fn genIntToDecimalString(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("\"0\""); return; }
