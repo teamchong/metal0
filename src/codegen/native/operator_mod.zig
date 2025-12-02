@@ -68,13 +68,10 @@ fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("@as(i64, 1)"); return; }
     try self.emit("(std.math.powi(i64, @as(i64, "); try self.genExpr(args[0]); try self.emit("), @as(u32, @intCast("); try self.genExpr(args[1]); try self.emit("))) catch 0)");
 }
-fn genIs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("false"); return; }
+fn genIdentity(self: *NativeCodegen, args: []ast.Node, comptime op: []const u8, comptime default: []const u8) CodegenError!void {
+    if (args.len < 2) { try self.emit(default); return; }
     const both_bool = (args[0] == .constant and args[0].constant.value == .bool) and (args[1] == .constant and args[1].constant.value == .bool);
-    try self.emit(if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try self.emit(" == "); try self.emit(if (both_bool) "" else "&"); try self.genExpr(args[1]); try self.emit(")");
+    try self.emit(if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try self.emit(op); try self.emit(if (both_bool) "" else "&"); try self.genExpr(args[1]); try self.emit(")");
 }
-fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("true"); return; }
-    const both_bool = (args[0] == .constant and args[0].constant.value == .bool) and (args[1] == .constant and args[1].constant.value == .bool);
-    try self.emit(if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try self.emit(" != "); try self.emit(if (both_bool) "" else "&"); try self.genExpr(args[1]); try self.emit(")");
-}
+fn genIs(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genIdentity(self, args, " == ", "false"); }
+fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genIdentity(self, args, " != ", "true"); }
