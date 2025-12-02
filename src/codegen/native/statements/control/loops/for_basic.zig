@@ -7,6 +7,7 @@ const for_special = @import("for_special.zig");
 const genEnumerateLoop = for_special.genEnumerateLoop;
 const genZipLoop = for_special.genZipLoop;
 const zig_keywords = @import("zig_keywords");
+const producesBlockExpression = @import("../../../expressions.zig").producesBlockExpression;
 
 /// Sanitize Python variable name for Zig (e.g., "_" -> "_unused")
 fn sanitizeVarName(name: []const u8) []const u8 {
@@ -215,22 +216,6 @@ fn varUsedInBody(body: []ast.Node, var_name: []const u8) bool {
         if (stmtUsesVar(stmt, var_name)) return true;
     }
     return false;
-}
-
-/// Check if an expression produces a Zig block expression that can't have field access directly
-fn producesBlockExpression(expr: ast.Node) bool {
-    return switch (expr) {
-        .subscript => true,
-        .list => true,
-        .dict => true,
-        .set => true,
-        .listcomp => true,
-        .dictcomp => true,
-        .genexp => true,
-        .if_expr => true,
-        .call => true,
-        else => false,
-    };
 }
 
 /// Generate tuple unpacking for loop (e.g., for k, v in items)

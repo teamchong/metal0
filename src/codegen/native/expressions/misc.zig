@@ -5,14 +5,14 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const subscript_mod = @import("subscript.zig");
 const zig_keywords = @import("zig_keywords");
+const expressions_mod = @import("../expressions.zig");
+const producesBlockExpression = expressions_mod.producesBlockExpression;
 
 /// Generate tuple literal as Zig anonymous struct
 /// Always uses anonymous tuple syntax (.{ elem1, elem2 }) for type compatibility
 /// This matches the type inference which generates struct types for tuples
 pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
-    // Forward declare genExpr - it's in parent module
-    const parent = @import("../expressions.zig");
-    const genExpr = parent.genExpr;
+    const genExpr = expressions_mod.genExpr;
 
     // Empty tuples become empty struct
     if (tuple.elts.len == 0) {
@@ -75,27 +75,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
     try subscript_mod.genSubscript(self, subscript);
 }
 
-/// Check if an expression produces a Zig block expression that can't have field access directly
-fn producesBlockExpression(expr: ast.Node) bool {
-    return switch (expr) {
-        .subscript => true,
-        .list => true,
-        .dict => true,
-        .set => true,
-        .listcomp => true,
-        .dictcomp => true,
-        .genexp => true,
-        .if_expr => true,
-        .call => true,
-        else => false,
-    };
-}
-
 /// Generate attribute access (obj.attr)
 pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError!void {
-    // Forward declare genExpr - it's in parent module
-    const parent_module = @import("../expressions.zig");
-    const genExpr = parent_module.genExpr;
+    const genExpr = expressions_mod.genExpr;
 
     // Handle bool.real and bool.imag (True.real=1, True.imag=0, False.real=0, False.imag=0)
     // Python: bool inherits from int, so True/False have .real and .imag attributes

@@ -17,6 +17,15 @@ const calls = @import("expressions/calls.zig");
 const comprehensions = @import("expressions/comprehensions.zig");
 const misc = @import("expressions/misc.zig");
 
+/// Check if an expression produces a Zig block expression that needs parentheses
+/// Block expressions (blk: {...}) cannot have methods called on them directly
+pub fn producesBlockExpression(expr: ast.Node) bool {
+    return switch (expr) {
+        .subscript, .list, .dict, .set, .listcomp, .dictcomp, .genexp, .if_expr, .call, .attribute, .compare => true,
+        else => false,
+    };
+}
+
 // Re-export functions from submodules
 pub const genConstant = constants.genConstant;
 pub const genBinOp = operators.genBinOp;

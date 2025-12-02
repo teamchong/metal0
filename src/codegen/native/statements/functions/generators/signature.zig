@@ -113,6 +113,28 @@ pub fn pythonTypeToZig(type_hint: ?[]const u8) []const u8 {
 const core = @import("../../../../../analysis/native_types/core.zig");
 const NativeType = core.NativeType;
 
+/// Get inferred return type string from type inferrer (DRY helper)
+/// Returns tuple: (type_string, needs_free)
+fn getInferredReturnTypeStr(self: *NativeCodegen, func_name: []const u8) struct { str: []const u8, needs_free: bool } {
+    const inferred_type = self.type_inferrer.func_return_types.get(func_name);
+    if (inferred_type) |inf_type| {
+        const inf_tag = @as(std.meta.Tag(NativeType), inf_type);
+        if (inf_tag == .int) return .{ .str = inf_type.toSimpleZigType(), .needs_free = false };
+        if (inf_tag == .unknown) return .{ .str = "i64", .needs_free = false };
+        return .{ .str = self.nativeTypeToZigType(inf_type) catch "i64", .needs_free = true };
+    }
+    return .{ .str = "i64", .needs_free = false };
+}
+
+/// Emit inferred return type with optional error union (DRY helper)
+fn emitInferredReturnType(self: *NativeCodegen, func_name: []const u8, needs_error: bool) CodegenError!void {
+    const type_info = getInferredReturnTypeStr(self, func_name);
+    defer if (type_info.needs_free) self.allocator.free(type_info.str);
+    if (needs_error) try self.emit("!");
+    try self.emit(type_info.str);
+    try self.emit(" {\n");
+}
+
 /// Check if an expression produces BigInt (for determining parameter types)
 fn expressionProducesBigInt(expr: ast.Node) bool {
     switch (expr) {
@@ -676,36 +698,12 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
             std.mem.eql(u8, type_hint, "int");
 
         if (is_simple_type) {
-            // Add error union if function needs allocator or can raise errors
-            if (needs_error) {
-                try self.emit("!");
-            }
+            if (needs_error) try self.emit("!");
             try self.emit(simple_zig_type);
             try self.emit(" {\n");
         } else {
-            // Complex type (like tuple[str, str]) - use inferred type from type inferrer
-            const inferred_type = self.type_inferrer.func_return_types.get(func.name);
-            const return_type_str = if (inferred_type) |inf_type| blk: {
-                const inf_tag = @as(std.meta.Tag(NativeType), inf_type);
-                // For int types, use toSimpleZigType which checks IntKind for bounded/unbounded
-                if (inf_tag == .int) {
-                    break :blk inf_type.toSimpleZigType();
-                }
-                if (inf_tag == .unknown) {
-                    break :blk "i64";
-                }
-                break :blk try self.nativeTypeToZigType(inf_type);
-            } else "i64";
-            const inf_tag = if (inferred_type) |t| @as(std.meta.Tag(NativeType), t) else null;
-            defer if (inf_tag != null and inf_tag.? != .int and inf_tag.? != .unknown) {
-                self.allocator.free(return_type_str);
-            };
-
-            if (needs_error) {
-                try self.emit("!");
-            }
-            try self.emit(return_type_str);
-            try self.emit(" {\n");
+            // Complex type (like tuple[str, str]) - use inferred type
+            try emitInferredReturnType(self, func.name, needs_error);
         }
     } else if (hasReturnStatement(func.body)) {
         // Check if this returns a parameter (decorator pattern)
@@ -750,37 +748,13 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
                 try self.emit(type_name);
                 try self.emit(" {\n");
             } else {
-                // No pre-declared type - fallback to i64 (will cause type error if actually returned)
-                if (needs_error) {
-                    try self.emit("!");
-                }
+                // No pre-declared type - fallback to i64
+                if (needs_error) try self.emit("!");
                 try self.emit("i64 {\n");
             }
         } else {
             // Try to infer return type from func_return_types
-            const inferred_type = self.type_inferrer.func_return_types.get(func.name);
-            const return_type_str = if (inferred_type) |inf_type| blk: {
-                const inf_tag = @as(std.meta.Tag(NativeType), inf_type);
-                // For int types, use toSimpleZigType which checks IntKind for bounded/unbounded
-                if (inf_tag == .int) {
-                    break :blk inf_type.toSimpleZigType();
-                }
-                if (inf_tag == .unknown) {
-                    break :blk "i64";
-                }
-                break :blk try self.nativeTypeToZigType(inf_type);
-            } else "i64";
-            const inf_tag2 = if (inferred_type) |t| @as(std.meta.Tag(NativeType), t) else null;
-            defer if (inf_tag2 != null and inf_tag2.? != .int and inf_tag2.? != .unknown) {
-                self.allocator.free(return_type_str);
-            };
-
-            // Add error union if function needs allocator or can raise errors
-            if (needs_error) {
-                try self.emit("!");
-            }
-            try self.emit(return_type_str);
-            try self.emit(" {\n");
+            try emitInferredReturnType(self, func.name, needs_error);
         }
     } else {
         // Functions with allocator or errors but no return still need error union for void

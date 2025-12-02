@@ -6,6 +6,7 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
+const producesBlockExpression = expressions.producesBlockExpression;
 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
 
 /// Check if an expression is a call to eval()
@@ -14,23 +15,6 @@ fn isEvalCall(expr: ast.Node) bool {
     const call = expr.call;
     if (call.func.* != .name) return false;
     return std.mem.eql(u8, call.func.name.id, "eval");
-}
-
-/// Check if an expression produces a Zig block expression that needs parentheses
-fn producesBlockExpression(expr: ast.Node) bool {
-    return switch (expr) {
-        .subscript => true,
-        .list => true,
-        .dict => true,
-        .listcomp => true,
-        .dictcomp => true,
-        .genexp => true,
-        .if_expr => true,
-        .call => true,
-        .attribute => true,
-        .compare => true,
-        else => false,
-    };
 }
 
 /// Generate comparison operations (==, !=, <, <=, >, >=)

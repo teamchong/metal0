@@ -10,61 +10,22 @@ const function_traits = @import("../../../analysis/function_traits.zig");
 const import_registry = @import("../import_registry.zig");
 const generators = @import("../statements/functions/generators.zig");
 
-/// Check if name is a runtime exception type that has init methods
-fn isRuntimeExceptionType(name: []const u8) bool {
-    const runtime_exceptions = [_][]const u8{
-        "Exception",
-        "BaseException",
-        "RuntimeError",
-        "ValueError",
-        "TypeError",
-        "KeyError",
-        "IndexError",
-        "AttributeError",
-        "NameError",
-        "IOError",
-        "OSError",
-        "FileNotFoundError",
-        "PermissionError",
-        "ZeroDivisionError",
-        "OverflowError",
-        "NotImplementedError",
-        "StopIteration",
-        "AssertionError",
-        "ImportError",
-        "ModuleNotFoundError",
-        "LookupError",
-        "UnicodeError",
-        "UnicodeDecodeError",
-        "UnicodeEncodeError",
-        "SystemError",
-        "RecursionError",
-        "MemoryError",
-        "BufferError",
-        "ConnectionError",
-        "TimeoutError",
-    };
-    for (runtime_exceptions) |e| {
-        if (std.mem.eql(u8, name, e)) return true;
-    }
-    return false;
-}
+/// Runtime exception types (O(1) lookup)
+const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
+    .{ "Exception", {} },       .{ "BaseException", {} },     .{ "RuntimeError", {} },
+    .{ "ValueError", {} },      .{ "TypeError", {} },         .{ "KeyError", {} },
+    .{ "IndexError", {} },      .{ "AttributeError", {} },    .{ "NameError", {} },
+    .{ "IOError", {} },         .{ "OSError", {} },           .{ "FileNotFoundError", {} },
+    .{ "PermissionError", {} }, .{ "ZeroDivisionError", {} }, .{ "OverflowError", {} },
+    .{ "NotImplementedError", {} }, .{ "StopIteration", {} }, .{ "AssertionError", {} },
+    .{ "ImportError", {} },     .{ "ModuleNotFoundError", {} }, .{ "LookupError", {} },
+    .{ "UnicodeError", {} },    .{ "UnicodeDecodeError", {} }, .{ "UnicodeEncodeError", {} },
+    .{ "SystemError", {} },     .{ "RecursionError", {} },    .{ "MemoryError", {} },
+    .{ "BufferError", {} },     .{ "ConnectionError", {} },   .{ "TimeoutError", {} },
+});
 
-/// Check if an expression will generate a Zig block expression (blk: {...})
-/// Block expressions cannot have methods called on them directly in Zig
-fn producesBlockExpression(expr: ast.Node) bool {
-    return switch (expr) {
-        .subscript => true, // lines[idx] generates blk: {...}
-        .list => true, // [1,2,3] generates block expression
-        .dict => true, // {k:v} generates block expression
-        .set => true, // {1,2,3} generates block expression
-        .listcomp => true, // [x for x in y] generates block
-        .dictcomp => true, // {k:v for...} generates block
-        .genexp => true, // (x for x in y) generates block
-        .if_expr => true, // a if cond else b generates block
-        .call => true, // function calls may produce block expressions
-        else => false,
-    };
+fn isRuntimeExceptionType(name: []const u8) bool {
+    return RuntimeExceptions.has(name);
 }
 
 /// Generate function call - dispatches to specialized handlers or fallback
@@ -72,6 +33,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     // Forward declare genExpr - it's in parent module
     const parent = @import("../expressions.zig");
     const genExpr = parent.genExpr;
+    const producesBlockExpression = parent.producesBlockExpression;
 
     // Try to dispatch to specialized handler
     const dispatched = try dispatch.dispatchCall(self, call);

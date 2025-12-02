@@ -4,21 +4,7 @@ const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const NativeType = @import("../../../analysis/native_types.zig").NativeType;
-
-/// Check if an expression produces a Zig block/struct expression that can't have methods called directly
-fn producesBlockExpression(expr: ast.Node) bool {
-    return switch (expr) {
-        .subscript => true,
-        .list => true,
-        .dict => true,
-        .listcomp => true,
-        .dictcomp => true,
-        .genexp => true,
-        .if_expr => true,
-        .call => true, // dict() or other constructor calls
-        else => false,
-    };
-}
+const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 
 /// Generate code for dict.get(key, default)
 /// Returns value if key exists, otherwise returns default (or null if no default)

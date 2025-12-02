@@ -3,22 +3,7 @@ const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
-
-/// Check if an expression produces a Zig block expression that can't be subscripted/accessed directly
-fn producesBlockExpression(expr: ast.Node) bool {
-    return switch (expr) {
-        .subscript => true,
-        .list => true,
-        .dict => true,
-        .set => true,
-        .listcomp => true,
-        .dictcomp => true,
-        .genexp => true,
-        .if_expr => true,
-        .call => true,
-        else => false,
-    };
-}
+const producesBlockExpression = @import("../../expressions.zig").producesBlockExpression;
 
 /// Generate code for list(iterable)
 /// Converts an iterable to a list (ArrayList)

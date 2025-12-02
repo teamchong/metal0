@@ -3,21 +3,7 @@ const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
-
-/// Check if an expression produces a Zig block expression that can't have field access directly
-fn producesBlockExpression(expr: ast.Node) bool {
-    return switch (expr) {
-        .subscript => true,
-        .list => true,
-        .dict => true,
-        .listcomp => true,
-        .dictcomp => true,
-        .genexp => true,
-        .if_expr => true,
-        .call => true,
-        else => false,
-    };
-}
+const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 
 /// Helper to emit object expression, wrapping in parens if it's a block expression
 fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {

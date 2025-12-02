@@ -6,22 +6,7 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
-
-/// Check if an expression will generate a Zig block expression (blk: {...})
-/// Block expressions cannot have methods called on them or be subscripted directly in Zig
-fn producesBlockExpression(expr: ast.Node) bool {
-    return switch (expr) {
-        .subscript => true, // nested subscript generates blk: {...}
-        .list => true, // [1,2,3] generates block expression
-        .dict => true, // {k:v} generates block expression
-        .listcomp => true, // [x for x in y] generates block
-        .dictcomp => true, // {k:v for...} generates block
-        .genexp => true, // (x for x in y) generates block
-        .if_expr => true, // a if cond else b generates block
-        .call => true, // function calls may produce block expressions
-        else => false,
-    };
-}
+const producesBlockExpression = expressions.producesBlockExpression;
 
 /// Check if a node is a negative constant
 pub fn isNegativeConstant(node: ast.Node) bool {

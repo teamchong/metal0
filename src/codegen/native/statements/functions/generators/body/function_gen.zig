@@ -599,13 +599,6 @@ pub fn genFunctionBody(
     self.func_local_mutations.clearRetainingCapacity();
     self.func_local_aug_assigns.clearRetainingCapacity();
     self.func_local_vars.clearRetainingCapacity();
-    self.forward_declared_vars.clearRetainingCapacity();
-    // Clear nested_class_captures (free the slices first)
-    var cap_iter = self.nested_class_captures.iterator();
-    while (cap_iter.next()) |entry| {
-        self.allocator.free(entry.value_ptr.*);
-    }
-    self.nested_class_captures.clearRetainingCapacity();
 
     // Clear nested class tracking (names and bases) after exiting function
     // This prevents class name collisions between different functions
@@ -614,6 +607,14 @@ pub fn genFunctionBody(
     if (!current_class_is_nested_fn and self.class_nesting_depth <= 1) {
         self.nested_class_names.clearRetainingCapacity();
         self.nested_class_bases.clearRetainingCapacity();
+        // Only clear forward declarations when exiting top-level function, not nested class methods
+        self.forward_declared_vars.clearRetainingCapacity();
+        // Clear nested_class_captures (free the slices first)
+        var cap_iter = self.nested_class_captures.iterator();
+        while (cap_iter.next()) |entry| {
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.nested_class_captures.clearRetainingCapacity();
     }
 
     var builder = CodeBuilder.init(self);
@@ -922,9 +923,18 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         }
     }
 
-    // NOTE: Forward-referenced captured variables (class captures variable before it's declared)
-    // are a complex edge case that requires runtime type erasure. For now, these patterns
-    // may fail to compile. See test_equal_operator_modifying_operand for an example.
+    // Forward-referenced captured variables: emit var declarations with undefined
+    // before the class definitions, so `&list2` doesn't fail with "undeclared"
+    var forward_refs_method = try nested_captures.findForwardReferencedCaptures(self, method.body);
+    defer forward_refs_method.deinit(self.allocator);
+    for (forward_refs_method.items) |fwd_var| {
+        try self.emitIndent();
+        try self.emit("var ");
+        try self.emit(fwd_var);
+        try self.emit(": std.ArrayList(*anyopaque) = undefined;\n");
+        // Mark as forward-declared so assignment doesn't re-declare
+        try self.forward_declared_vars.put(fwd_var, {});
+    }
 
     // Check if we need comptime type dispatch for anytype params with type-changing patterns
     // Pattern: if isint(param): param = ClassName(param); if isClassName(param): ... use param.__field ...
@@ -958,10 +968,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Pop scope when exiting method
     self.popScope();
 
-    // Clear function-local mutations and forward declarations after exiting method
+    // Clear function-local mutations after exiting method
     self.func_local_mutations.clearRetainingCapacity();
     self.func_local_aug_assigns.clearRetainingCapacity();
-    self.forward_declared_vars.clearRetainingCapacity();
 
     // Clear nested class tracking (names and bases) after exiting method
     // This prevents class name collisions between different methods
@@ -971,6 +980,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     if (!current_class_is_nested_exit and self.class_nesting_depth <= 1) {
         self.nested_class_names.clearRetainingCapacity();
         self.nested_class_bases.clearRetainingCapacity();
+        // Only clear forward declarations when exiting top-level method, not nested class methods
+        self.forward_declared_vars.clearRetainingCapacity();
     }
 
     self.dedent();

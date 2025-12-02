@@ -9,6 +9,7 @@ const class_fields = @import("class_fields.zig");
 const function_traits = @import("../../../../../../analysis/function_traits.zig");
 const zig_keywords = @import("zig_keywords");
 const generators = @import("../../generators.zig");
+const native_types = @import("../../../../../../analysis/native_types/core.zig");
 
 // Import from parent for methodMutatesSelf and genMethodBody
 const body = @import("../body.zig");
@@ -17,6 +18,61 @@ const function_gen = @import("function_gen.zig");
 
 // Type alias for builtin base info
 const BuiltinBaseInfo = generators.BuiltinBaseInfo;
+
+/// Emit comptime type guard for anytype params (DRY helper)
+fn emitComptimeTypeGuard(self: *NativeCodegen, checks: []const function_gen.TypeCheckInfo) CodegenError!void {
+    if (checks.len == 0) return;
+    try self.emitIndent();
+    try self.emit("if (comptime ");
+    for (checks, 0..) |check, i| {
+        if (i > 0) try self.emit(" and ");
+        try self.emit("runtime.istype(@TypeOf(");
+        try self.emit(check.param_name);
+        try self.emit("), \"");
+        try self.emit(check.check_type);
+        try self.emit("\")");
+    }
+    try self.emit(") {\n");
+    self.indent();
+}
+
+/// Emit captured variable pointer parameters (DRY helper)
+fn emitCapturedVarParams(self: *NativeCodegen, class_name: []const u8, captured_vars: ?[][]const u8) CodegenError!void {
+    const vars = captured_vars orelse return;
+    for (vars) |var_name| {
+        try self.emit(", ");
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+        const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
+            self.type_inferrer.var_types.get(var_name);
+        var zig_type: []const u8 = if (var_type) |vt| blk: {
+            vt.toZigType(self.allocator, &type_buf) catch {};
+            break :blk if (type_buf.items.len > 0) type_buf.items else "i64";
+        } else "i64";
+        // Fix empty list type: type inferrer may detect PyObject for mixed/string lists
+        if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
+            zig_type = "std.ArrayList([]const u8)";
+        }
+        // Check if zig_type contains a nested class name (self-referential/recursive types)
+        var has_nested_class_ref = std.mem.indexOf(u8, zig_type, class_name) != null;
+        if (!has_nested_class_ref) {
+            var nc_iter = self.nested_class_names.iterator();
+            while (nc_iter.next()) |entry| {
+                if (std.mem.indexOf(u8, zig_type, entry.key_ptr.*) != null) {
+                    has_nested_class_ref = true;
+                    break;
+                }
+            }
+        }
+        if (has_nested_class_ref) zig_type = "*anyopaque";
+        // Check if this captured variable is mutated - use * instead of *const if so
+        var mutation_key_buf: [256]u8 = undefined;
+        const mutation_key = std.fmt.bufPrint(&mutation_key_buf, "{s}.{s}", .{ class_name, var_name }) catch var_name;
+        const is_mutated = self.mutated_captures.contains(mutation_key);
+        const ptr_type: []const u8 = if (is_mutated) "*" else "*const";
+        try self.output.writer(self.allocator).print("__cap_{s}: {s} {s}", .{ var_name, ptr_type, zig_type });
+    }
+}
 
 /// Check if a parameter name would shadow a method name in the class
 /// Python allows `def __init__(self, real):` and `def real(self):` in the same class,
@@ -136,54 +192,7 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
 
     // Generate function signature with builtin base args if present
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
-
-    // Add captured variable pointer parameters
-    if (captured_vars) |vars| {
-        for (vars) |var_name| {
-            try self.emit(", ");
-            // Look up the actual type from type inferrer - try scoped then global
-            var type_buf = std.ArrayList(u8){};
-            const native_types = @import("../../../../../../analysis/native_types/core.zig");
-            const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
-                self.type_inferrer.var_types.get(var_name);
-            var zig_type: []const u8 = if (var_type) |vt| blk: {
-                vt.toZigType(self.allocator, &type_buf) catch {};
-                if (type_buf.items.len > 0) {
-                    break :blk type_buf.items;
-                }
-                break :blk "i64";
-            } else "i64";
-            defer type_buf.deinit(self.allocator);
-            // Fix empty list type: type inferrer may detect PyObject for mixed/string lists
-            // Map to appropriate Zig type: PyObject -> []const u8 for string lists
-            if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
-                zig_type = "std.ArrayList([]const u8)";
-            }
-            // Check if zig_type contains a nested class name (self-referential/recursive types)
-            // If so, use *anyopaque instead to avoid "use of undeclared identifier" errors
-            var has_nested_class_ref = false;
-            if (std.mem.indexOf(u8, zig_type, class_name) != null) {
-                has_nested_class_ref = true;
-            } else {
-                var nc_iter = self.nested_class_names.iterator();
-                while (nc_iter.next()) |entry| {
-                    if (std.mem.indexOf(u8, zig_type, entry.key_ptr.*) != null) {
-                        has_nested_class_ref = true;
-                        break;
-                    }
-                }
-            }
-            if (has_nested_class_ref) {
-                zig_type = "*anyopaque";
-            }
-            // Check if this captured variable is mutated - use * instead of *const if so
-            var mutation_key_buf: [256]u8 = undefined;
-            const mutation_key = std.fmt.bufPrint(&mutation_key_buf, "{s}.{s}", .{ class_name, var_name }) catch var_name;
-            const is_mutated = self.mutated_captures.contains(mutation_key);
-            const ptr_type: []const u8 = if (is_mutated) "*" else "*const";
-            try self.output.writer(self.allocator).print("__cap_{s}: {s} {s}", .{ var_name, ptr_type, zig_type });
-        }
-    }
+    try emitCapturedVarParams(self, class_name, captured_vars);
 
     // Add builtin base constructor args
     if (builtin_base) |base_info| {
@@ -342,21 +351,7 @@ pub fn genInitMethod(
     const body_start_idx = type_checks.start_idx;
     const has_type_checks = type_checks.checks.len > 0;
 
-    if (has_type_checks) {
-        // Generate comptime type guard: if (comptime istype(@TypeOf(p1), "int") and istype(@TypeOf(p2), "int")) {
-        try self.emitIndent();
-        try self.emit("if (comptime ");
-        for (type_checks.checks, 0..) |check, i| {
-            if (i > 0) try self.emit(" and ");
-            try self.emit("runtime.istype(@TypeOf(");
-            try self.emit(check.param_name);
-            try self.emit("), \"");
-            try self.emit(check.check_type);
-            try self.emit("\")");
-        }
-        try self.emit(") {\n");
-        self.indent();
-    }
+    if (has_type_checks) try emitComptimeTypeGuard(self, type_checks.checks);
 
     // First pass: generate non-field assignments (local variables, control flow, etc.)
     // These need to be executed BEFORE the struct is created
@@ -474,54 +469,7 @@ pub fn genInitMethodWithBuiltinBase(
     try self.emit("\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
-
-    // Add captured variable pointer parameters
-    if (captured_vars) |vars| {
-        for (vars) |var_name| {
-            try self.emit(", ");
-            // Look up the actual type from type inferrer - try scoped then global
-            var type_buf = std.ArrayList(u8){};
-            const native_types = @import("../../../../../../analysis/native_types/core.zig");
-            const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
-                self.type_inferrer.var_types.get(var_name);
-            var zig_type: []const u8 = if (var_type) |vt| blk: {
-                vt.toZigType(self.allocator, &type_buf) catch {};
-                if (type_buf.items.len > 0) {
-                    break :blk type_buf.items;
-                }
-                break :blk "i64";
-            } else "i64";
-            defer type_buf.deinit(self.allocator);
-            // Fix empty list type: type inferrer may detect PyObject for mixed/string lists
-            // Map to appropriate Zig type: PyObject -> []const u8 for string lists
-            if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
-                zig_type = "std.ArrayList([]const u8)";
-            }
-            // Check if zig_type contains a nested class name (self-referential/recursive types)
-            // If so, use *anyopaque instead to avoid "use of undeclared identifier" errors
-            var has_nested_class_ref = false;
-            if (std.mem.indexOf(u8, zig_type, class_name) != null) {
-                has_nested_class_ref = true;
-            } else {
-                var nc_iter = self.nested_class_names.iterator();
-                while (nc_iter.next()) |entry| {
-                    if (std.mem.indexOf(u8, zig_type, entry.key_ptr.*) != null) {
-                        has_nested_class_ref = true;
-                        break;
-                    }
-                }
-            }
-            if (has_nested_class_ref) {
-                zig_type = "*anyopaque";
-            }
-            // Check if this captured variable is mutated - use * instead of *const if so
-            var mutation_key_buf: [256]u8 = undefined;
-            const mutation_key = std.fmt.bufPrint(&mutation_key_buf, "{s}.{s}", .{ class_name, var_name }) catch var_name;
-            const is_mutated = self.mutated_captures.contains(mutation_key);
-            const ptr_type: []const u8 = if (is_mutated) "*" else "*const";
-            try self.output.writer(self.allocator).print("__cap_{s}: {s} {s}", .{ var_name, ptr_type, zig_type });
-        }
-    }
+    try emitCapturedVarParams(self, class_name, captured_vars);
 
     // For builtin bases without __init__ body, add the builtin's constructor args
     // Otherwise, use the __init__ parameters
@@ -622,21 +570,7 @@ pub fn genInitMethodWithBuiltinBase(
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
     try usage_analysis.analyzeFunctionLocalUses(self, init);
 
-    if (has_type_checks) {
-        // Generate comptime type guard: if (comptime istype(@TypeOf(p1), "int") and istype(@TypeOf(p2), "int")) {
-        try self.emitIndent();
-        try self.emit("if (comptime ");
-        for (type_checks.checks, 0..) |check, i| {
-            if (i > 0) try self.emit(" and ");
-            try self.emit("runtime.istype(@TypeOf(");
-            try self.emit(check.param_name);
-            try self.emit("), \"");
-            try self.emit(check.check_type);
-            try self.emit("\")");
-        }
-        try self.emit(") {\n");
-        self.indent();
-    }
+    if (has_type_checks) try emitComptimeTypeGuard(self, type_checks.checks);
 
     // First pass: generate non-field assignments (local variables, control flow, etc.)
     // These need to be executed BEFORE the struct is created
@@ -810,54 +744,7 @@ pub fn genInitMethodFromNew(
     try self.emit("\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
-
-    // Add captured variable pointer parameters
-    if (captured_vars) |vars| {
-        for (vars) |var_name| {
-            try self.emit(", ");
-            // Look up the actual type from type inferrer - try scoped then global
-            var type_buf = std.ArrayList(u8){};
-            const native_types = @import("../../../../../../analysis/native_types/core.zig");
-            const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
-                self.type_inferrer.var_types.get(var_name);
-            var zig_type: []const u8 = if (var_type) |vt| blk: {
-                vt.toZigType(self.allocator, &type_buf) catch {};
-                if (type_buf.items.len > 0) {
-                    break :blk type_buf.items;
-                }
-                break :blk "i64";
-            } else "i64";
-            defer type_buf.deinit(self.allocator);
-            // Fix empty list type: type inferrer may detect PyObject for mixed/string lists
-            // Map to appropriate Zig type: PyObject -> []const u8 for string lists
-            if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
-                zig_type = "std.ArrayList([]const u8)";
-            }
-            // Check if zig_type contains a nested class name (self-referential/recursive types)
-            // If so, use *anyopaque instead to avoid "use of undeclared identifier" errors
-            var has_nested_class_ref = false;
-            if (std.mem.indexOf(u8, zig_type, class_name) != null) {
-                has_nested_class_ref = true;
-            } else {
-                var nc_iter = self.nested_class_names.iterator();
-                while (nc_iter.next()) |entry| {
-                    if (std.mem.indexOf(u8, zig_type, entry.key_ptr.*) != null) {
-                        has_nested_class_ref = true;
-                        break;
-                    }
-                }
-            }
-            if (has_nested_class_ref) {
-                zig_type = "*anyopaque";
-            }
-            // Check if this captured variable is mutated - use * instead of *const if so
-            var mutation_key_buf: [256]u8 = undefined;
-            const mutation_key = std.fmt.bufPrint(&mutation_key_buf, "{s}.{s}", .{ class_name, var_name }) catch var_name;
-            const is_mutated = self.mutated_captures.contains(mutation_key);
-            const ptr_type: []const u8 = if (is_mutated) "*" else "*const";
-            try self.output.writer(self.allocator).print("__cap_{s}: {s} {s}", .{ var_name, ptr_type, zig_type });
-        }
-    }
+    try emitCapturedVarParams(self, class_name, captured_vars);
 
     // Use __new__ parameters (skip 'cls' - first param)
     // __new__ signature: def __new__(cls, arg, newarg=None): ...
