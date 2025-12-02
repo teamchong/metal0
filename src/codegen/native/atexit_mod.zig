@@ -6,43 +6,15 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "register", genRegister },
-    .{ "unregister", genUnregister },
-    .{ "_run_exitfuncs", genRunExitfuncs },
-    .{ "_clear", genClear },
-    .{ "_ncallbacks", genNcallbacks },
+    .{ "register", genRegister }, .{ "unregister", genUnit }, .{ "_run_exitfuncs", genUnit },
+    .{ "_clear", genUnit }, .{ "_ncallbacks", genI64_0 },
 });
 
-/// Generate atexit.register(func, *args, **kwargs) -> func
-pub fn genRegister(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // Return the function as-is (registration is no-op in AOT)
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("@as(?*anyopaque, null)");
-    }
-}
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
 
-/// Generate atexit.unregister(func) -> None
-pub fn genUnregister(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate atexit._run_exitfuncs() -> None (internal)
-pub fn genRunExitfuncs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate atexit._clear() -> None (internal)
-pub fn genClear(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate atexit._ncallbacks() -> int (internal)
-pub fn genNcallbacks(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
+fn genRegister(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.genExpr(args[0]); } else try self.emit("@as(?*anyopaque, null)");
 }

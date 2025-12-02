@@ -54,6 +54,8 @@ const OsConstMap = std.StaticStringMap(void).initComptime(.{
     .{ "sep", {} },
     .{ "linesep", {} },
     .{ "pathsep", {} },
+    .{ "curdir", {} },
+    .{ "pardir", {} },
 });
 
 const ModuleType = enum { sys, math, string, os };

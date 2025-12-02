@@ -6,31 +6,11 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Profile", genProfile },
-    .{ "run", genRun },
-    .{ "runctx", genRunctx },
+    .{ "Profile", genProfile }, .{ "run", genUnit }, .{ "runctx", genUnit },
 });
 
-/// Generate profile.Profile class
-pub fn genProfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .stats = @as(?*anyopaque, null) }");
-}
-
-/// Generate profile.run(statement, filename=None, sort=-1)
-pub fn genRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate profile.runctx(statement, globals, locals, filename=None, sort=-1)
-pub fn genRunctx(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate cProfile.Profile class (same interface as profile.Profile)
-pub fn genCProfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .stats = @as(?*anyopaque, null) }");
-}
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genProfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .stats = @as(?*anyopaque, null) }"); }
+pub fn genCProfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .stats = @as(?*anyopaque, null) }"); }

@@ -356,12 +356,31 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             break :blk true;
         }
 
-        // Struct with eql method comparing against different type (e.g., PyComplex vs bool)
+        // Struct with eql method - only call if types are compatible
+        // BigInt.eql expects *const BigInt, not i64
         if (a_info == .@"struct" and @hasDecl(A, "eql")) {
-            break :blk a.eql(b);
+            // Check if eql method accepts type B
+            const eql_info = @typeInfo(@TypeOf(A.eql));
+            if (eql_info == .@"fn" and eql_info.@"fn".params.len >= 2) {
+                const expected_param = eql_info.@"fn".params[1].type;
+                if (expected_param) |param_type| {
+                    // Only call eql if B is the expected type or can be converted
+                    if (param_type == B or param_type == *const B) {
+                        break :blk a.eql(b);
+                    }
+                }
+            }
         }
         if (b_info == .@"struct" and @hasDecl(B, "eql")) {
-            break :blk b.eql(a);
+            const eql_info = @typeInfo(@TypeOf(B.eql));
+            if (eql_info == .@"fn" and eql_info.@"fn".params.len >= 2) {
+                const expected_param = eql_info.@"fn".params[1].type;
+                if (expected_param) |param_type| {
+                    if (param_type == A or param_type == *const A) {
+                        break :blk b.eql(a);
+                    }
+                }
+            }
         }
 
         // Python class struct with __eq__ method (for custom __eq__ implementations)

@@ -20,60 +20,38 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "Template", genTemplate },
 });
 
-// String constants as defined in Python's string module
+// String constants - helper for simple constant emitters
+fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void {
+    _ = args;
+    try self.emit(value);
+}
 
-/// Generate string.ascii_lowercase -> "abcdefghijklmnopqrstuvwxyz"
 pub fn genAsciiLowercase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"abcdefghijklmnopqrstuvwxyz\"");
+    try genConst(self, args, "\"abcdefghijklmnopqrstuvwxyz\"");
 }
-
-/// Generate string.ascii_uppercase -> "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 pub fn genAsciiUppercase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\"");
+    try genConst(self, args, "\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\"");
 }
-
-/// Generate string.ascii_letters -> lowercase + uppercase
 pub fn genAsciiLetters(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"");
+    try genConst(self, args, "\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"");
 }
-
-/// Generate string.digits -> "0123456789"
 pub fn genDigits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"0123456789\"");
+    try genConst(self, args, "\"0123456789\"");
 }
-
-/// Generate string.hexdigits -> "0123456789abcdefABCDEF"
 pub fn genHexdigits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"0123456789abcdefABCDEF\"");
+    try genConst(self, args, "\"0123456789abcdefABCDEF\"");
 }
-
-/// Generate string.octdigits -> "01234567"
 pub fn genOctdigits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"01234567\"");
+    try genConst(self, args, "\"01234567\"");
 }
-
-/// Generate string.punctuation -> all ASCII punctuation characters
 pub fn genPunctuation(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~\"");
+    try genConst(self, args, "\"!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~\"");
 }
-
-/// Generate string.whitespace -> " \t\n\r\v\f"
 pub fn genWhitespace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\" \\t\\n\\r\\x0b\\x0c\"");
+    try genConst(self, args, "\" \\t\\n\\r\\x0b\\x0c\"");
 }
-
-/// Generate string.printable -> digits + letters + punctuation + whitespace
 pub fn genPrintable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~ \\t\\n\\r\\x0b\\x0c\"");
+    try genConst(self, args, "\"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~ \\t\\n\\r\\x0b\\x0c\"");
 }
 
 /// Generate string.capwords(s, sep=None) -> string with capitalized words

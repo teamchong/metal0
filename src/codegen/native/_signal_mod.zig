@@ -1,349 +1,78 @@
 /// Python _signal module - C accelerator for signal (internal)
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "signal", genSignal },
-    .{ "getsignal", genGetsignal },
-    .{ "raise_signal", genRaiseSignal },
-    .{ "alarm", genAlarm },
-    .{ "pause", genPause },
-    .{ "getitimer", genGetitimer },
-    .{ "setitimer", genSetitimer },
-    .{ "siginterrupt", genSiginterrupt },
-    .{ "set_wakeup_fd", genSetWakeupFd },
-    .{ "sigwait", genSigwait },
-    .{ "pthread_kill", genPthreadKill },
-    .{ "pthread_sigmask", genPthreadSigmask },
-    .{ "sigpending", genSigpending },
-    .{ "valid_signals", genValidSignals },
-    .{ "SIGHUP", genSIGHUP },
-    .{ "SIGINT", genSIGINT },
-    .{ "SIGQUIT", genSIGQUIT },
-    .{ "SIGILL", genSIGILL },
-    .{ "SIGTRAP", genSIGTRAP },
-    .{ "SIGABRT", genSIGABRT },
-    .{ "SIGFPE", genSIGFPE },
-    .{ "SIGKILL", genSIGKILL },
-    .{ "SIGBUS", genSIGBUS },
-    .{ "SIGSEGV", genSIGSEGV },
-    .{ "SIGSYS", genSIGSYS },
-    .{ "SIGPIPE", genSIGPIPE },
-    .{ "SIGALRM", genSIGALRM },
-    .{ "SIGTERM", genSIGTERM },
-    .{ "SIGURG", genSIGURG },
-    .{ "SIGSTOP", genSIGSTOP },
-    .{ "SIGTSTP", genSIGTSTP },
-    .{ "SIGCONT", genSIGCONT },
-    .{ "SIGCHLD", genSIGCHLD },
-    .{ "SIGTTIN", genSIGTTIN },
-    .{ "SIGTTOU", genSIGTTOU },
-    .{ "SIGIO", genSIGIO },
-    .{ "SIGXCPU", genSIGXCPU },
-    .{ "SIGXFSZ", genSIGXFSZ },
-    .{ "SIGVTALRM", genSIGVTALRM },
-    .{ "SIGPROF", genSIGPROF },
-    .{ "SIGWINCH", genSIGWINCH },
-    .{ "SIGINFO", genSIGINFO },
-    .{ "SIGUSR1", genSIGUSR1 },
-    .{ "SIGUSR2", genSIGUSR2 },
-    .{ "SIG_DFL", genSIG_DFL },
-    .{ "SIG_IGN", genSIG_IGN },
-    .{ "ITIMER_REAL", genITIMER_REAL },
-    .{ "ITIMER_VIRTUAL", genITIMER_VIRTUAL },
-    .{ "ITIMER_PROF", genITIMER_PROF },
-    .{ "SIG_BLOCK", genSIG_BLOCK },
-    .{ "SIG_UNBLOCK", genSIG_UNBLOCK },
-    .{ "SIG_SETMASK", genSIG_SETMASK },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate _signal.signal(signalnum, handler)
-pub fn genSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) {
-        try self.emit("blk: { const signum = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = signum; break :blk null; }");
-    } else {
-        try self.emit("null");
-    }
-}
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "signal", genSignal }, .{ "getsignal", genNull }, .{ "raise_signal", genUnit }, .{ "alarm", genAlarm },
+    .{ "pause", genUnit }, .{ "getitimer", genItimer }, .{ "setitimer", genItimer },
+    .{ "siginterrupt", genUnit }, .{ "set_wakeup_fd", genNeg1 }, .{ "sigwait", genI32_0 },
+    .{ "pthread_kill", genUnit }, .{ "pthread_sigmask", genEmptySigset }, .{ "sigpending", genEmptySigset },
+    .{ "valid_signals", genValidSignals },
+    .{ "SIGHUP", genSig1 }, .{ "SIGINT", genSig2 }, .{ "SIGQUIT", genSig3 }, .{ "SIGILL", genSig4 },
+    .{ "SIGTRAP", genSig5 }, .{ "SIGABRT", genSig6 }, .{ "SIGFPE", genSig8 }, .{ "SIGKILL", genSig9 },
+    .{ "SIGBUS", genSig10 }, .{ "SIGSEGV", genSig11 }, .{ "SIGSYS", genSig12 }, .{ "SIGPIPE", genSig13 },
+    .{ "SIGALRM", genSig14 }, .{ "SIGTERM", genSig15 }, .{ "SIGURG", genSig16 }, .{ "SIGSTOP", genSig17 },
+    .{ "SIGTSTP", genSig18 }, .{ "SIGCONT", genSig19 }, .{ "SIGCHLD", genSig20 }, .{ "SIGTTIN", genSig21 },
+    .{ "SIGTTOU", genSig22 }, .{ "SIGIO", genSig23 }, .{ "SIGXCPU", genSig24 }, .{ "SIGXFSZ", genSig25 },
+    .{ "SIGVTALRM", genSig26 }, .{ "SIGPROF", genSig27 }, .{ "SIGWINCH", genSig28 }, .{ "SIGINFO", genSig29 },
+    .{ "SIGUSR1", genSig30 }, .{ "SIGUSR2", genSig31 },
+    .{ "SIG_DFL", genI32_0 }, .{ "SIG_IGN", genI32_1 },
+    .{ "ITIMER_REAL", genI32_0 }, .{ "ITIMER_VIRTUAL", genI32_1 }, .{ "ITIMER_PROF", genI32_2 },
+    .{ "SIG_BLOCK", genI32_1 }, .{ "SIG_UNBLOCK", genI32_2 }, .{ "SIG_SETMASK", genI32_3 },
+});
 
-/// Generate _signal.getsignal(signalnum)
-pub fn genGetsignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
+fn genNeg1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, -1)"); }
+fn genI32_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
+fn genI32_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 1)"); }
+fn genI32_2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 2)"); }
+fn genI32_3(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 3)"); }
+fn genEmptySigset(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]i32{}"); }
+fn genItimer(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .interval = 0.0, .value = 0.0 }"); }
+fn genValidSignals(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 }"); }
 
-/// Generate _signal.raise_signal(signalnum)
-pub fn genRaiseSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
+// Signal constants (1-31)
+fn genSig1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 1)"); }
+fn genSig2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 2)"); }
+fn genSig3(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 3)"); }
+fn genSig4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 4)"); }
+fn genSig5(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 5)"); }
+fn genSig6(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 6)"); }
+fn genSig8(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 8)"); }
+fn genSig9(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 9)"); }
+fn genSig10(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 10)"); }
+fn genSig11(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 11)"); }
+fn genSig12(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 12)"); }
+fn genSig13(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 13)"); }
+fn genSig14(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 14)"); }
+fn genSig15(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 15)"); }
+fn genSig16(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 16)"); }
+fn genSig17(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 17)"); }
+fn genSig18(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 18)"); }
+fn genSig19(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 19)"); }
+fn genSig20(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 20)"); }
+fn genSig21(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 21)"); }
+fn genSig22(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 22)"); }
+fn genSig23(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 23)"); }
+fn genSig24(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 24)"); }
+fn genSig25(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 25)"); }
+fn genSig26(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 26)"); }
+fn genSig27(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 27)"); }
+fn genSig28(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 28)"); }
+fn genSig29(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 29)"); }
+fn genSig30(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 30)"); }
+fn genSig31(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 31)"); }
 
-/// Generate _signal.alarm(seconds)
-pub fn genAlarm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const seconds = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = seconds; break :blk @as(i32, 0); }");
-    } else {
-        try self.emit("@as(i32, 0)");
-    }
+// Functions with args
+fn genSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len >= 2) { try self.emit("blk: { const signum = "); try self.genExpr(args[0]); try self.emit("; _ = signum; break :blk null; }"); } else try self.emit("null");
 }
-
-/// Generate _signal.pause()
-pub fn genPause(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _signal.getitimer(which)
-pub fn genGetitimer(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .interval = 0.0, .value = 0.0 }");
-}
-
-/// Generate _signal.setitimer(which, seconds, interval=0.0)
-pub fn genSetitimer(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .interval = 0.0, .value = 0.0 }");
-}
-
-/// Generate _signal.siginterrupt(signalnum, flag)
-pub fn genSiginterrupt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _signal.set_wakeup_fd(fd, *, warn_on_full_buffer=True)
-pub fn genSetWakeupFd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, -1)");
-}
-
-/// Generate _signal.sigwait(sigset)
-pub fn genSigwait(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate _signal.pthread_kill(thread_id, signalnum)
-pub fn genPthreadKill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _signal.pthread_sigmask(how, mask)
-pub fn genPthreadSigmask(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]i32{}");
-}
-
-/// Generate _signal.sigpending()
-pub fn genSigpending(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]i32{}");
-}
-
-/// Generate _signal.valid_signals()
-pub fn genValidSignals(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 }");
-}
-
-// Signal numbers
-pub fn genSIGHUP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-pub fn genSIGINT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 2)");
-}
-
-pub fn genSIGQUIT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 3)");
-}
-
-pub fn genSIGILL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 4)");
-}
-
-pub fn genSIGTRAP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 5)");
-}
-
-pub fn genSIGABRT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 6)");
-}
-
-pub fn genSIGFPE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 8)");
-}
-
-pub fn genSIGKILL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 9)");
-}
-
-pub fn genSIGBUS(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 10)");
-}
-
-pub fn genSIGSEGV(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 11)");
-}
-
-pub fn genSIGSYS(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 12)");
-}
-
-pub fn genSIGPIPE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 13)");
-}
-
-pub fn genSIGALRM(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 14)");
-}
-
-pub fn genSIGTERM(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 15)");
-}
-
-pub fn genSIGURG(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 16)");
-}
-
-pub fn genSIGSTOP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 17)");
-}
-
-pub fn genSIGTSTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 18)");
-}
-
-pub fn genSIGCONT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 19)");
-}
-
-pub fn genSIGCHLD(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 20)");
-}
-
-pub fn genSIGTTIN(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 21)");
-}
-
-pub fn genSIGTTOU(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 22)");
-}
-
-pub fn genSIGIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 23)");
-}
-
-pub fn genSIGXCPU(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 24)");
-}
-
-pub fn genSIGXFSZ(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 25)");
-}
-
-pub fn genSIGVTALRM(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 26)");
-}
-
-pub fn genSIGPROF(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 27)");
-}
-
-pub fn genSIGWINCH(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 28)");
-}
-
-pub fn genSIGINFO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 29)");
-}
-
-pub fn genSIGUSR1(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 30)");
-}
-
-pub fn genSIGUSR2(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 31)");
-}
-
-// Handler constants
-pub fn genSIG_DFL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-pub fn genSIG_IGN(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-// itimer constants
-pub fn genITIMER_REAL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-pub fn genITIMER_VIRTUAL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-pub fn genITIMER_PROF(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 2)");
-}
-
-// sigprocmask how values
-pub fn genSIG_BLOCK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-pub fn genSIG_UNBLOCK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 2)");
-}
-
-pub fn genSIG_SETMASK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 3)");
+fn genAlarm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const seconds = "); try self.genExpr(args[0]); try self.emit("; _ = seconds; break :blk @as(i32, 0); }"); } else try self.emit("@as(i32, 0)");
 }

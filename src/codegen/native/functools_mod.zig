@@ -98,28 +98,25 @@ pub fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("}");
 }
 
-/// Generate functools.lru_cache(maxsize=128)
-/// Decorator that caches function results
+/// Pass-through decorator wrapper (for AOT, decorators like lru_cache/wraps just return the function)
+const passthrough_wrapper = "struct { pub fn wrap(f: anytype) @TypeOf(f) { return f; } }.wrap";
+
+/// Generate functools.lru_cache(maxsize=128) - pass through for AOT
 pub fn genLruCache(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // lru_cache returns a decorator, which is complex for AOT
-    // For now, just pass through the function unchanged (no caching)
     _ = args;
-    try self.emit("struct { pub fn wrap(f: anytype) @TypeOf(f) { return f; } }.wrap");
+    try self.emit(passthrough_wrapper);
 }
 
-/// Generate functools.cache (Python 3.9+ unbounded cache)
+/// Generate functools.cache (Python 3.9+ unbounded cache) - pass through for AOT
 pub fn genCache(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // Same as lru_cache for now
     _ = args;
-    try self.emit("struct { pub fn wrap(f: anytype) @TypeOf(f) { return f; } }.wrap");
+    try self.emit(passthrough_wrapper);
 }
 
-/// Generate functools.wraps(wrapped)
-/// Decorator to update wrapper function metadata
+/// Generate functools.wraps(wrapped) - pass through for AOT
 pub fn genWraps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // wraps is for metadata, not needed for AOT compilation
     _ = args;
-    try self.emit("struct { pub fn wrap(f: anytype) @TypeOf(f) { return f; } }.wrap");
+    try self.emit(passthrough_wrapper);
 }
 
 /// Generate functools.cmp_to_key(func)
@@ -131,11 +128,10 @@ pub fn genCmpToKey(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
 }
 
-/// Generate functools.total_ordering class decorator
+/// Generate functools.total_ordering class decorator - pass through for AOT
 pub fn genTotalOrdering(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // Class decorator - pass through for AOT
     _ = args;
-    try self.emit("struct { pub fn wrap(cls: anytype) @TypeOf(cls) { return cls; } }.wrap");
+    try self.emit(passthrough_wrapper);
 }
 
 // Function map for module_functions.zig

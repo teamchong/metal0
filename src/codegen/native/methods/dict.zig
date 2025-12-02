@@ -83,7 +83,8 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     self.block_label_counter += 1;
 
     // Generate block that builds list of keys using .keys() slice
-    try self.output.writer(self.allocator).print("dkeys_{d}: {{\n", .{label_id});
+    // Wrap in parentheses to prevent "label:" from being parsed as named argument
+    try self.output.writer(self.allocator).print("(dkeys_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store block expression in temp variable if needed
@@ -119,7 +120,7 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}");
+    try self.emit("})");
 }
 
 /// Generate code for dict.values()
@@ -138,7 +139,8 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     self.block_label_counter += 1;
 
     // Generate block that builds list of values
-    try self.output.writer(self.allocator).print("dvals_{d}: {{\n", .{label_id});
+    // Wrap in parentheses to prevent "label:" from being parsed as named argument
+    try self.output.writer(self.allocator).print("(dvals_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store block expression in temp variable if needed
@@ -179,7 +181,7 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}");
+    try self.emit("})");
 }
 
 /// Generate code for dict.items()
@@ -198,7 +200,8 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     self.block_label_counter += 1;
 
     // Generate block that builds list of tuples
-    try self.output.writer(self.allocator).print("ditems_{d}: {{\n", .{label_id});
+    // Wrap in parentheses to prevent "label:" from being parsed as named argument
+    try self.output.writer(self.allocator).print("(ditems_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store block expression in temp variable if needed
@@ -244,5 +247,5 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}");
+    try self.emit("})");
 }

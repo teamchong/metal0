@@ -1,100 +1,33 @@
 /// Python typing module - Type hints (no-ops for AOT compilation)
-/// These are static type hints that have no runtime effect
 const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate typing.Optional[T] - just returns T
-pub fn genOptional(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) {
-        try self.emit("?*runtime.PyObject");
-        return;
-    }
-    try self.emit("?");
-    try self.genExpr(args[0]);
-}
-
-/// Generate typing.List[T] - returns ArrayList type
-pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("std.ArrayList(*runtime.PyObject)");
-}
-
-/// Generate typing.Dict[K, V] - returns HashMap type
-pub fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject)");
-}
-
-/// Generate typing.Set[T] - returns HashSet type
-pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("hashmap_helper.StringHashMap(void)");
-}
-
-/// Generate typing.Tuple[T, ...] - returns tuple struct
-pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct {}");
-}
-
-/// Generate typing.Union[T, U] - returns generic type
-pub fn genUnion(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("*runtime.PyObject");
-}
-
-/// Generate typing.Any - returns PyObject
-pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("*runtime.PyObject");
-}
-
-/// Generate typing.Callable[[Args], Return] - returns function pointer
-pub fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("*const fn () void");
-}
-
-/// Generate typing.TypeVar(name) - returns generic type placeholder
-pub fn genTypeVar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("type");
-}
-
-/// Generate typing.Generic[T] - base for generic classes
-pub fn genGeneric(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("type");
-}
-
-/// Generate typing.cast(type, value) - no-op cast
-pub fn genCast(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-    // cast(Type, value) just returns value - type checking is static
-    try self.genExpr(args[1]);
-}
-
-/// Generate typing.get_type_hints(obj) - returns empty dict
-pub fn genGetTypeHints(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
-}
-
-// Function map for module_functions.zig
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Optional", genOptional },
-    .{ "List", genList },
-    .{ "Dict", genDict },
-    .{ "Set", genSet },
-    .{ "Tuple", genTuple },
-    .{ "Union", genUnion },
-    .{ "Any", genAny },
-    .{ "Callable", genCallable },
-    .{ "TypeVar", genTypeVar },
-    .{ "Generic", genGeneric },
-    .{ "cast", genCast },
-    .{ "get_type_hints", genGetTypeHints },
+    .{ "Optional", genOptional }, .{ "List", genList }, .{ "Dict", genDict }, .{ "Set", genSet },
+    .{ "Tuple", genStruct }, .{ "Union", genPyObj }, .{ "Any", genPyObj }, .{ "Callable", genCallable },
+    .{ "TypeVar", genType }, .{ "Generic", genType }, .{ "cast", genCast }, .{ "get_type_hints", genGetTypeHints },
 });
+
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "std.ArrayList(*runtime.PyObject)"); }
+fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "hashmap_helper.StringHashMap(*runtime.PyObject)"); }
+fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "hashmap_helper.StringHashMap(void)"); }
+fn genStruct(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "struct {}"); }
+fn genPyObj(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "*runtime.PyObject"); }
+fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "*const fn () void"); }
+fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "type"); }
+fn genGetTypeHints(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)"); }
+
+fn genOptional(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("?*runtime.PyObject"); return; }
+    try self.emit("?"); try self.genExpr(args[0]);
+}
+
+fn genCast(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) return;
+    try self.genExpr(args[1]); // cast(Type, value) just returns value
+}

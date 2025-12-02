@@ -559,6 +559,28 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
             }
         }
         try self.emit(")");
+    } else if (args[2] == .attribute) {
+        // Attribute expression callable (e.g., {}.__contains__, [].count)
+        // Need to generate: obj.@"method"(args)
+        const attr = args[2].attribute;
+        try self.emit("(__ar_obj_blk: { const __ar_obj = ");
+        try parent.genExpr(self, attr.value.*);
+        try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
+        try self.emit(attr.attr);
+        try self.emit("\"(");
+        if (args.len > 3) {
+            for (args[3..], 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try parent.genExpr(self, arg);
+            }
+        }
+        try self.emit("); })");
+    } else if (args[2] == .lambda) {
+        // Lambda expression - generates a closure struct that needs .call() method
+        // Need to assign to temp var first since can't call method on struct literal
+        try self.emit("(ar_closure_blk: { const __ar_closure = ");
+        try parent.genExpr(self, args[2]);
+        try self.emit("; break :ar_closure_blk __ar_closure.call(); })");
     } else {
         // Generic callable
         try parent.genExpr(self, args[2]);

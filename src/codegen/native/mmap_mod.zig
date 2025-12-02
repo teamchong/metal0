@@ -184,108 +184,24 @@ pub fn genMmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("}{}");
 }
 
-// ============================================================================
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
+
 // Constants
-// ============================================================================
-
-/// Generate mmap.ACCESS_READ
-pub fn genACCESS_READ(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-/// Generate mmap.ACCESS_WRITE
-pub fn genACCESS_WRITE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 2)");
-}
-
-/// Generate mmap.ACCESS_COPY
-pub fn genACCESS_COPY(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 3)");
-}
-
-/// Generate mmap.ACCESS_DEFAULT
-pub fn genACCESS_DEFAULT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate mmap.MAP_SHARED
-pub fn genMAP_SHARED(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0x01)");
-}
-
-/// Generate mmap.MAP_PRIVATE
-pub fn genMAP_PRIVATE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0x02)");
-}
-
-/// Generate mmap.MAP_ANONYMOUS
-pub fn genMAP_ANONYMOUS(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0x20)");
-}
-
-/// Generate mmap.PROT_READ
-pub fn genPROT_READ(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0x01)");
-}
-
-/// Generate mmap.PROT_WRITE
-pub fn genPROT_WRITE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0x02)");
-}
-
-/// Generate mmap.PROT_EXEC
-pub fn genPROT_EXEC(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0x04)");
-}
-
-/// Generate mmap.PAGESIZE
-pub fn genPAGESIZE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(usize, 4096)");
-}
-
-/// Generate mmap.ALLOCATIONGRANULARITY
-pub fn genALLOCATIONGRANULARITY(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(usize, 4096)");
-}
-
-/// Generate mmap.MADV_NORMAL
-pub fn genMADV_NORMAL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate mmap.MADV_RANDOM
-pub fn genMADV_RANDOM(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-/// Generate mmap.MADV_SEQUENTIAL
-pub fn genMADV_SEQUENTIAL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 2)");
-}
-
-/// Generate mmap.MADV_WILLNEED
-pub fn genMADV_WILLNEED(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 3)");
-}
-
-/// Generate mmap.MADV_DONTNEED
-pub fn genMADV_DONTNEED(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 4)");
-}
+fn genACCESS_READ(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 1)"); }
+fn genACCESS_WRITE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 2)"); }
+fn genACCESS_COPY(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 3)"); }
+fn genACCESS_DEFAULT(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
+fn genMAP_SHARED(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0x01)"); }
+fn genMAP_PRIVATE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0x02)"); }
+fn genMAP_ANONYMOUS(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0x20)"); }
+fn genPROT_READ(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0x01)"); }
+fn genPROT_WRITE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0x02)"); }
+fn genPROT_EXEC(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0x04)"); }
+fn genPAGESIZE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(usize, 4096)"); }
+fn genALLOCATIONGRANULARITY(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(usize, 4096)"); }
+fn genMADV_NORMAL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
+fn genMADV_RANDOM(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 1)"); }
+fn genMADV_SEQUENTIAL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 2)"); }
+fn genMADV_WILLNEED(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 3)"); }
+fn genMADV_DONTNEED(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 4)"); }

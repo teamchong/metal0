@@ -6,178 +6,30 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "enable", genEnable },
-    .{ "disable", genDisable },
-    .{ "isenabled", genIsenabled },
-    .{ "collect", genCollect },
-    .{ "set_debug", genSet_debug },
-    .{ "get_debug", genGet_debug },
-    .{ "get_stats", genGet_stats },
-    .{ "set_threshold", genSet_threshold },
-    .{ "get_threshold", genGet_threshold },
-    .{ "get_count", genGet_count },
-    .{ "get_objects", genGet_objects },
-    .{ "get_referrers", genGet_referrers },
-    .{ "get_referents", genGet_referents },
-    .{ "is_tracked", genIs_tracked },
-    .{ "is_finalized", genIs_finalized },
-    .{ "freeze", genFreeze },
-    .{ "unfreeze", genUnfreeze },
-    .{ "get_freeze_count", genGet_freeze_count },
-    .{ "garbage", genGarbage },
-    .{ "callbacks", genCallbacks },
-    .{ "DEBUG_STATS", genDEBUG_STATS },
-    .{ "DEBUG_COLLECTABLE", genDEBUG_COLLECTABLE },
-    .{ "DEBUG_UNCOLLECTABLE", genDEBUG_UNCOLLECTABLE },
-    .{ "DEBUG_SAVEALL", genDEBUG_SAVEALL },
-    .{ "DEBUG_LEAK", genDEBUG_LEAK },
+    .{ "enable", genUnit }, .{ "disable", genUnit }, .{ "isenabled", genTrue }, .{ "collect", genI64_0 },
+    .{ "set_debug", genUnit }, .{ "get_debug", genI32_0 }, .{ "get_stats", genGetStats },
+    .{ "set_threshold", genUnit }, .{ "get_threshold", genGetThreshold }, .{ "get_count", genGetCount },
+    .{ "get_objects", genPtrArr }, .{ "get_referrers", genPtrArr }, .{ "get_referents", genPtrArr },
+    .{ "is_tracked", genFalse }, .{ "is_finalized", genFalse }, .{ "freeze", genUnit }, .{ "unfreeze", genUnit },
+    .{ "get_freeze_count", genI64_0 }, .{ "garbage", genPtrArr }, .{ "callbacks", genFnPtrArr },
+    .{ "DEBUG_STATS", genI32_1 }, .{ "DEBUG_COLLECTABLE", genI32_2 }, .{ "DEBUG_UNCOLLECTABLE", genI32_4 },
+    .{ "DEBUG_SAVEALL", genI32_32 }, .{ "DEBUG_LEAK", genI32_38 },
 });
 
-/// Generate gc.enable() - enable automatic garbage collection
-pub fn genEnable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate gc.disable() - disable automatic garbage collection
-pub fn genDisable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate gc.isenabled() - check if gc is enabled
-pub fn genIsenabled(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
-
-/// Generate gc.collect(generation=2) - run garbage collection
-pub fn genCollect(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)"); // Returns number of unreachable objects
-}
-
-/// Generate gc.set_debug(flags) - set debugging flags
-pub fn genSet_debug(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate gc.get_debug() - get current debugging flags
-pub fn genGet_debug(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate gc.get_stats() - return collection statistics
-pub fn genGet_stats(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]struct { collections: i64, collected: i64, uncollectable: i64 }{ .{ .collections = 0, .collected = 0, .uncollectable = 0 }, .{ .collections = 0, .collected = 0, .uncollectable = 0 }, .{ .collections = 0, .collected = 0, .uncollectable = 0 } }");
-}
-
-/// Generate gc.set_threshold(threshold0, threshold1=None, threshold2=None)
-pub fn genSet_threshold(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate gc.get_threshold() - return collection thresholds
-pub fn genGet_threshold(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ @as(i32, 700), @as(i32, 10), @as(i32, 10) }");
-}
-
-/// Generate gc.get_count() - return current collection counts
-pub fn genGet_count(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ @as(i32, 0), @as(i32, 0), @as(i32, 0) }");
-}
-
-/// Generate gc.get_objects(generation=None) - return tracked objects
-pub fn genGet_objects(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]*anyopaque{}");
-}
-
-/// Generate gc.get_referrers(*objs) - objects that refer to given objects
-pub fn genGet_referrers(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]*anyopaque{}");
-}
-
-/// Generate gc.get_referents(*objs) - objects referred to by given objects
-pub fn genGet_referents(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]*anyopaque{}");
-}
-
-/// Generate gc.is_tracked(obj) - check if object is tracked
-pub fn genIs_tracked(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-/// Generate gc.is_finalized(obj) - check if object has been finalized
-pub fn genIs_finalized(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-/// Generate gc.freeze() - freeze all tracked objects
-pub fn genFreeze(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate gc.unfreeze() - unfreeze permanent generation
-pub fn genUnfreeze(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate gc.get_freeze_count() - count of frozen objects
-pub fn genGet_freeze_count(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate gc.garbage - list of uncollectable objects
-pub fn genGarbage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]*anyopaque{}");
-}
-
-/// Generate gc.callbacks - list of callback functions
-pub fn genCallbacks(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]*const fn () void{}");
-}
-
-// ============================================================================
-// Debug flag constants
-// ============================================================================
-
-pub fn genDEBUG_STATS(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-pub fn genDEBUG_COLLECTABLE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 2)");
-}
-
-pub fn genDEBUG_UNCOLLECTABLE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 4)");
-}
-
-pub fn genDEBUG_SAVEALL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 32)");
-}
-
-pub fn genDEBUG_LEAK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 38)"); // STATS | COLLECTABLE | UNCOLLECTABLE | SAVEALL
-}
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "true"); }
+fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
+fn genI32_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
+fn genI32_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 1)"); }
+fn genI32_2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 2)"); }
+fn genI32_4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 4)"); }
+fn genI32_32(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 32)"); }
+fn genI32_38(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 38)"); }
+fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
+fn genPtrArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]*anyopaque{}"); }
+fn genFnPtrArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]*const fn () void{}"); }
+fn genGetStats(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]struct { collections: i64, collected: i64, uncollectable: i64 }{ .{ .collections = 0, .collected = 0, .uncollectable = 0 }, .{ .collections = 0, .collected = 0, .uncollectable = 0 }, .{ .collections = 0, .collected = 0, .uncollectable = 0 } }"); }
+fn genGetThreshold(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i32, 700), @as(i32, 10), @as(i32, 10) }"); }
+fn genGetCount(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i32, 0), @as(i32, 0), @as(i32, 0) }"); }

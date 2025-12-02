@@ -1,100 +1,22 @@
 /// Python pstats module - Statistics object for the profiler
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Stats", genStats },
-    .{ "SortKey", genSortKey },
-    .{ "strip_dirs", genStripDirs },
-    .{ "add", genAdd },
-    .{ "dump_stats", genDumpStats },
-    .{ "sort_stats", genSortStats },
-    .{ "reverse_order", genReverseOrder },
-    .{ "print_stats", genPrintStats },
-    .{ "print_callers", genPrintCallers },
-    .{ "print_callees", genPrintCallees },
-    .{ "get_stats_profile", genGetStatsProfile },
-    .{ "FunctionProfile", genFunctionProfile },
-    .{ "StatsProfile", genStatsProfile },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate pstats.Stats(*filenames, stream=sys.stdout)
-pub fn genStats(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .stats = .{}, .total_calls = 0, .prim_calls = 0, .total_tt = 0.0, .stream = null }");
-}
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Stats", genStats }, .{ "SortKey", genSortKey }, .{ "strip_dirs", genEmpty }, .{ "add", genEmpty },
+    .{ "dump_stats", genUnit }, .{ "sort_stats", genEmpty }, .{ "reverse_order", genEmpty },
+    .{ "print_stats", genEmpty }, .{ "print_callers", genEmpty }, .{ "print_callees", genEmpty },
+    .{ "get_stats_profile", genStatsProfile }, .{ "FunctionProfile", genFunctionProfile }, .{ "StatsProfile", genStatsProfile },
+});
 
-/// Generate pstats.SortKey enum
-pub fn genSortKey(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .CALLS = 0, .CUMULATIVE = 1, .FILENAME = 2, .LINE = 3, .NAME = 4, .NFL = 5, .PCALLS = 6, .STDNAME = 7, .TIME = 8 }");
-}
-
-/// Generate Stats.strip_dirs()
-pub fn genStripDirs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate Stats.add(*filenames)
-pub fn genAdd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate Stats.dump_stats(filename)
-pub fn genDumpStats(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate Stats.sort_stats(*keys)
-pub fn genSortStats(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate Stats.reverse_order()
-pub fn genReverseOrder(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate Stats.print_stats(*restrictions)
-pub fn genPrintStats(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate Stats.print_callers(*restrictions)
-pub fn genPrintCallers(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate Stats.print_callees(*restrictions)
-pub fn genPrintCallees(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate Stats.get_stats_profile()
-pub fn genGetStatsProfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .total_tt = 0.0, .func_profiles = .{} }");
-}
-
-/// Generate pstats.FunctionProfile class
-pub fn genFunctionProfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .ncalls = 0, .tottime = 0.0, .percall_tottime = 0.0, .cumtime = 0.0, .percall_cumtime = 0.0, .file_name = \"\", .line_number = 0 }");
-}
-
-/// Generate pstats.StatsProfile class
-pub fn genStatsProfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .total_tt = 0.0, .func_profiles = .{} }");
-}
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genStats(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .stats = .{}, .total_calls = 0, .prim_calls = 0, .total_tt = 0.0, .stream = null }"); }
+fn genSortKey(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .CALLS = 0, .CUMULATIVE = 1, .FILENAME = 2, .LINE = 3, .NAME = 4, .NFL = 5, .PCALLS = 6, .STDNAME = 7, .TIME = 8 }"); }
+fn genStatsProfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .total_tt = 0.0, .func_profiles = .{} }"); }
+fn genFunctionProfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .ncalls = 0, .tottime = 0.0, .percall_tottime = 0.0, .cumtime = 0.0, .percall_cumtime = 0.0, .file_name = \"\", .line_number = 0 }"); }

@@ -6,300 +6,40 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "reader", genReader },
-    .{ "writer", genWriter },
-    .{ "DictReader", genDictReader },
-    .{ "DictWriter", genDictWriter },
-    .{ "field_size_limit", genFieldSizeLimit },
-    .{ "QUOTE_ALL", genQuoteAll },
-    .{ "QUOTE_MINIMAL", genQuoteMinimal },
-    .{ "QUOTE_NONNUMERIC", genQuoteNonnumeric },
-    .{ "QUOTE_NONE", genQuoteNone },
+    .{ "reader", genReader }, .{ "writer", genWriter }, .{ "DictReader", genDictReader }, .{ "DictWriter", genDictWriter },
+    .{ "field_size_limit", genFieldLimit }, .{ "QUOTE_ALL", genI64_1 }, .{ "QUOTE_MINIMAL", genI64_0 },
+    .{ "QUOTE_NONNUMERIC", genI64_2 }, .{ "QUOTE_NONE", genI64_3 },
 });
 
-/// Generate csv.reader(csvfile, delimiter=',', quotechar='"') -> reader object
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
+fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
+fn genI64_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 1)"); }
+fn genI64_2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 2)"); }
+fn genI64_3(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 3)"); }
+fn genFieldLimit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 131072)"); }
+
 pub fn genReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
-    try self.emit("csv_reader_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _file = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("const _delim: u8 = ");
-    if (args.len > 1) {
-        try self.genExpr(args[1]);
-        try self.emit("[0]");
-    } else {
-        try self.emit("','");
-    }
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("break :csv_reader_blk struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("data: []const u8,\n");
-    try self.emitIndent();
-    try self.emit("pos: usize = 0,\n");
-    try self.emitIndent();
-    try self.emit("delim: u8,\n");
-    try self.emitIndent();
-    try self.emit("pub fn next(__self: *@This()) ?[][]const u8 {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (__self.pos >= __self.data.len) return null;\n");
-    try self.emitIndent();
-    try self.emit("var line_end = std.mem.indexOfScalarPos(u8, __self.data, __self.pos, '\\n') orelse __self.data.len;\n");
-    try self.emitIndent();
-    try self.emit("const line = __self.data[__self.pos..line_end];\n");
-    try self.emitIndent();
-    try self.emit("__self.pos = line_end + 1;\n");
-    try self.emitIndent();
-    try self.emit("var fields: std.ArrayList([]const u8) = .{};\n");
-    try self.emitIndent();
-    try self.emit("var iter = std.mem.splitScalar(u8, line, __self.delim);\n");
-    try self.emitIndent();
-    try self.emit("while (iter.next()) |field| fields.append(__global_allocator, field) catch continue;\n");
-    try self.emitIndent();
-    try self.emit("return fields.items;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}{ .data = _file, .delim = _delim };\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("blk: { const _f = "); try self.genExpr(args[0]); try self.emit("; const _d: u8 = ");
+    if (args.len > 1) { try self.genExpr(args[1]); try self.emit("[0]"); } else try self.emit("','");
+    try self.emit(";\n"); try self.emitIndent();
+    try self.emit("break :blk struct { data: []const u8, pos: usize = 0, delim: u8, pub fn next(s: *@This()) ?[][]const u8 { if (s.pos >= s.data.len) return null; var le = std.mem.indexOfScalarPos(u8, s.data, s.pos, '\\n') orelse s.data.len; const ln = s.data[s.pos..le]; s.pos = le + 1; var fs: std.ArrayList([]const u8) = .{}; var it = std.mem.splitScalar(u8, ln, s.delim); while (it.next()) |f| fs.append(__global_allocator, f) catch continue; return fs.items; } }{ .data = _f, .delim = _d }; }");
 }
 
-/// Generate csv.writer(csvfile, delimiter=',', quotechar='"') -> writer object
 pub fn genWriter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("csv_writer_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("break :csv_writer_blk struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("buffer: std.ArrayList(u8),\n");
-    try self.emitIndent();
-    try self.emit("delim: u8 = ',',\n");
-    try self.emitIndent();
-    try self.emit("pub fn writerow(__self: *@This(), row: anytype) void {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var first = true;\n");
-    try self.emitIndent();
-    try self.emit("for (row) |field| {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (!first) __self.buffer.append(__global_allocator, __self.delim) catch {};\n");
-    try self.emitIndent();
-    try self.emit("first = false;\n");
-    try self.emitIndent();
-    try self.emit("__self.buffer.appendSlice(__global_allocator, field) catch {};\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("__self.buffer.append(__global_allocator, '\\n') catch {};\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn writerows(__self: *@This(), rows: anytype) void {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("for (rows) |row| __self.writerow(row);\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn getvalue(__self: *@This()) []const u8 { return __self.buffer.items; }\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}{ .buffer = .{} };\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("struct { buffer: std.ArrayList(u8), delim: u8 = ',', pub fn writerow(s: *@This(), r: anytype) void { var f = true; for (r) |x| { if (!f) s.buffer.append(__global_allocator, s.delim) catch {}; f = false; s.buffer.appendSlice(__global_allocator, x) catch {}; } s.buffer.append(__global_allocator, '\\n') catch {}; } pub fn writerows(s: *@This(), rs: anytype) void { for (rs) |r| s.writerow(r); } pub fn getvalue(s: *@This()) []const u8 { return s.buffer.items; } }{ .buffer = .{} }");
 }
 
-/// Generate csv.DictReader(f, fieldnames=None, restkey=None, restval=None) -> DictReader
 pub fn genDictReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
-    try self.emit("csv_dictreader_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _file = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("break :csv_dictreader_blk struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("data: []const u8,\n");
-    try self.emitIndent();
-    try self.emit("pos: usize = 0,\n");
-    try self.emitIndent();
-    try self.emit("fieldnames: ?[][]const u8 = null,\n");
-    try self.emitIndent();
-    try self.emit("pub fn next(__self: *@This()) ?hashmap_helper.StringHashMap([]const u8) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (__self.pos >= __self.data.len) return null;\n");
-    try self.emitIndent();
-    try self.emit("var line_end = std.mem.indexOfScalarPos(u8, __self.data, __self.pos, '\\n') orelse __self.data.len;\n");
-    try self.emitIndent();
-    try self.emit("const line = __self.data[__self.pos..line_end];\n");
-    try self.emitIndent();
-    try self.emit("__self.pos = line_end + 1;\n");
-    try self.emitIndent();
-    try self.emit("if (__self.fieldnames == null) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var headers: std.ArrayList([]const u8) = .{};\n");
-    try self.emitIndent();
-    try self.emit("var iter = std.mem.splitScalar(u8, line, ',');\n");
-    try self.emitIndent();
-    try self.emit("while (iter.next()) |h| headers.append(__global_allocator, h) catch continue;\n");
-    try self.emitIndent();
-    try self.emit("__self.fieldnames = headers.items;\n");
-    try self.emitIndent();
-    try self.emit("return __self.next();\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("var result = hashmap_helper.StringHashMap([]const u8).init(__global_allocator);\n");
-    try self.emitIndent();
-    try self.emit("var iter = std.mem.splitScalar(u8, line, ',');\n");
-    try self.emitIndent();
-    try self.emit("var i: usize = 0;\n");
-    try self.emitIndent();
-    try self.emit("while (iter.next()) |val| {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (i < __self.fieldnames.?.len) result.put(__self.fieldnames.?[i], val) catch {};\n");
-    try self.emitIndent();
-    try self.emit("i += 1;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("return result;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}{ .data = _file };\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("blk: { const _f = "); try self.genExpr(args[0]); try self.emit(";\n"); try self.emitIndent();
+    try self.emit("break :blk struct { data: []const u8, pos: usize = 0, fieldnames: ?[][]const u8 = null, pub fn next(s: *@This()) ?hashmap_helper.StringHashMap([]const u8) { if (s.pos >= s.data.len) return null; var le = std.mem.indexOfScalarPos(u8, s.data, s.pos, '\\n') orelse s.data.len; const ln = s.data[s.pos..le]; s.pos = le + 1; if (s.fieldnames == null) { var hs: std.ArrayList([]const u8) = .{}; var it = std.mem.splitScalar(u8, ln, ','); while (it.next()) |h| hs.append(__global_allocator, h) catch continue; s.fieldnames = hs.items; return s.next(); } var r = hashmap_helper.StringHashMap([]const u8).init(__global_allocator); var it = std.mem.splitScalar(u8, ln, ','); var i: usize = 0; while (it.next()) |v| { if (i < s.fieldnames.?.len) r.put(s.fieldnames.?[i], v) catch {}; i += 1; } return r; } }{ .data = _f }; }");
 }
 
-/// Generate csv.DictWriter(f, fieldnames) -> DictWriter
 pub fn genDictWriter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
-    try self.emit("csv_dictwriter_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _fieldnames = ");
-    try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("break :csv_dictwriter_blk struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("buffer: std.ArrayList(u8),\n");
-    try self.emitIndent();
-    try self.emit("fieldnames: [][]const u8,\n");
-    try self.emitIndent();
-    try self.emit("pub fn writeheader(__self: *@This()) void {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var first = true;\n");
-    try self.emitIndent();
-    try self.emit("for (__self.fieldnames) |name| {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (!first) __self.buffer.append(__global_allocator, ',') catch {};\n");
-    try self.emitIndent();
-    try self.emit("first = false;\n");
-    try self.emitIndent();
-    try self.emit("__self.buffer.appendSlice(__global_allocator, name) catch {};\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("__self.buffer.append(__global_allocator, '\\n') catch {};\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn writerow(__self: *@This(), row: anytype) void {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var first = true;\n");
-    try self.emitIndent();
-    try self.emit("for (__self.fieldnames) |name| {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (!first) __self.buffer.append(__global_allocator, ',') catch {};\n");
-    try self.emitIndent();
-    try self.emit("first = false;\n");
-    try self.emitIndent();
-    try self.emit("if (row.get(name)) |val| __self.buffer.appendSlice(__global_allocator, val) catch {};\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("__self.buffer.append(__global_allocator, '\\n') catch {};\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn getvalue(__self: *@This()) []const u8 { return __self.buffer.items; }\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}{ .buffer = .{}, .fieldnames = _fieldnames };\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
-}
-
-/// Generate csv.field_size_limit(new_limit=None) -> int
-pub fn genFieldSizeLimit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    // Default field size limit is 128KB
-    try self.emit("@as(i64, 131072)");
-}
-
-/// Generate csv.QUOTE_ALL constant
-pub fn genQuoteAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 1)");
-}
-
-/// Generate csv.QUOTE_MINIMAL constant
-pub fn genQuoteMinimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate csv.QUOTE_NONNUMERIC constant
-pub fn genQuoteNonnumeric(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 2)");
-}
-
-/// Generate csv.QUOTE_NONE constant
-pub fn genQuoteNone(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 3)");
+    try self.emit("blk: { const _fn = "); try self.genExpr(args[1]); try self.emit(";\n"); try self.emitIndent();
+    try self.emit("break :blk struct { buffer: std.ArrayList(u8), fieldnames: [][]const u8, pub fn writeheader(s: *@This()) void { var f = true; for (s.fieldnames) |n| { if (!f) s.buffer.append(__global_allocator, ',') catch {}; f = false; s.buffer.appendSlice(__global_allocator, n) catch {}; } s.buffer.append(__global_allocator, '\\n') catch {}; } pub fn writerow(s: *@This(), r: anytype) void { var f = true; for (s.fieldnames) |n| { if (!f) s.buffer.append(__global_allocator, ',') catch {}; f = false; if (r.get(n)) |v| s.buffer.appendSlice(__global_allocator, v) catch {}; } s.buffer.append(__global_allocator, '\\n') catch {}; } pub fn getvalue(s: *@This()) []const u8 { return s.buffer.items; } }{ .buffer = .{}, .fieldnames = _fn }; }");
 }

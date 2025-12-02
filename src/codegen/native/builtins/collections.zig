@@ -88,7 +88,10 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for sum(iterable)
 /// Returns sum of all elements
 pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    if (args.len == 0) {
+        try self.emit("return error.TypeError");
+        return;
+    }
 
     // Generate: blk: {
     //   var total: i64 = 0;
@@ -133,7 +136,10 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for all(iterable)
 /// Returns true if all elements are truthy
 pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    if (args.len == 0) {
+        try self.emit("return error.TypeError");
+        return;
+    }
 
     // Generate: blk: {
     //   for (items.items) |item| {  // .items for ArrayList
@@ -168,7 +174,10 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for any(iterable)
 /// Returns true if any element is truthy
 pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    if (args.len == 0) {
+        try self.emit("return error.TypeError");
+        return;
+    }
 
     // Generate: any_N: {
     //   for (items) |item| {  // Direct iteration for arrays/slices
@@ -223,7 +232,10 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for sorted(iterable)
 /// Returns sorted copy
 pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    if (args.len == 0) {
+        try self.emit("return error.TypeError");
+        return;
+    }
 
     // Generate: blk: {
     //   var copy = try allocator.dupe(i64, items);
@@ -245,7 +257,11 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for reversed(iterable)
 /// Returns reversed copy of list
 pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    if (args.len != 1) {
+        // Wrong number of args - emit error for assertRaises compatibility
+        try self.emit("return error.TypeError");
+        return;
+    }
 
     // Infer element type from argument
     const arg_type = try self.inferExprScoped(args[0]);

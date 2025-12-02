@@ -1,201 +1,27 @@
 /// Python audioop module - Audio operations
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "add", genAdd },
-    .{ "adpcm2lin", genAdpcm2lin },
-    .{ "alaw2lin", genAlaw2lin },
-    .{ "avg", genAvg },
-    .{ "avgpp", genAvgpp },
-    .{ "bias", genBias },
-    .{ "byteswap", genByteswap },
-    .{ "cross", genCross },
-    .{ "findfactor", genFindfactor },
-    .{ "findfit", genFindfit },
-    .{ "findmax", genFindmax },
-    .{ "getsample", genGetsample },
-    .{ "lin2adpcm", genLin2adpcm },
-    .{ "lin2alaw", genLin2alaw },
-    .{ "lin2lin", genLin2lin },
-    .{ "lin2ulaw", genLin2ulaw },
-    .{ "max", genMax },
-    .{ "maxpp", genMaxpp },
-    .{ "minmax", genMinmax },
-    .{ "mul", genMul },
-    .{ "ratecv", genRatecv },
-    .{ "reverse", genReverse },
-    .{ "rms", genRms },
-    .{ "tomono", genTomono },
-    .{ "tostereo", genTostereo },
-    .{ "ulaw2lin", genUlaw2lin },
-    .{ "error", genError },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate audioop.add(fragment1, fragment2, width)
-pub fn genAdd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "add", genStr }, .{ "alaw2lin", genStr }, .{ "bias", genStr }, .{ "byteswap", genStr },
+    .{ "lin2alaw", genStr }, .{ "lin2lin", genStr }, .{ "lin2ulaw", genStr }, .{ "mul", genStr },
+    .{ "reverse", genStr }, .{ "tomono", genStr }, .{ "tostereo", genStr }, .{ "ulaw2lin", genStr },
+    .{ "avg", genI32 }, .{ "avgpp", genI32 }, .{ "cross", genI32 }, .{ "findmax", genI32 },
+    .{ "getsample", genI32 }, .{ "max", genI32 }, .{ "maxpp", genI32 }, .{ "rms", genI32 },
+    .{ "findfactor", genF64 }, .{ "minmax", genI32Pair }, .{ "findfit", genI32F64 },
+    .{ "adpcm2lin", genAdpcmState }, .{ "lin2adpcm", genAdpcmState },
+    .{ "ratecv", genRatecv }, .{ "error", genError },
+});
 
-/// Generate audioop.adpcm2lin(fragment, width, state)
-pub fn genAdpcm2lin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ \"\", .{ @as(i32, 0), @as(i32, 0) } }");
-}
-
-/// Generate audioop.alaw2lin(fragment, width)
-pub fn genAlaw2lin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate audioop.avg(fragment, width)
-pub fn genAvg(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate audioop.avgpp(fragment, width)
-pub fn genAvgpp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate audioop.bias(fragment, width, bias)
-pub fn genBias(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate audioop.byteswap(fragment, width)
-pub fn genByteswap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate audioop.cross(fragment, width)
-pub fn genCross(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate audioop.findfactor(fragment, reference)
-pub fn genFindfactor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(f64, 1.0)");
-}
-
-/// Generate audioop.findfit(fragment, reference)
-pub fn genFindfit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ @as(i32, 0), @as(f64, 1.0) }");
-}
-
-/// Generate audioop.findmax(fragment, length)
-pub fn genFindmax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate audioop.getsample(fragment, width, index)
-pub fn genGetsample(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate audioop.lin2adpcm(fragment, width, state)
-pub fn genLin2adpcm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ \"\", .{ @as(i32, 0), @as(i32, 0) } }");
-}
-
-/// Generate audioop.lin2alaw(fragment, width)
-pub fn genLin2alaw(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate audioop.lin2lin(fragment, width, newwidth)
-pub fn genLin2lin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate audioop.lin2ulaw(fragment, width)
-pub fn genLin2ulaw(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate audioop.max(fragment, width)
-pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate audioop.maxpp(fragment, width)
-pub fn genMaxpp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate audioop.minmax(fragment, width)
-pub fn genMinmax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ @as(i32, 0), @as(i32, 0) }");
-}
-
-/// Generate audioop.mul(fragment, width, factor)
-pub fn genMul(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate audioop.ratecv(fragment, width, nchannels, inrate, outrate, state, weightA=1, weightB=0)
-pub fn genRatecv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ \"\", .{ @as(i32, 0), .{} } }");
-}
-
-/// Generate audioop.reverse(fragment, width)
-pub fn genReverse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate audioop.rms(fragment, width)
-pub fn genRms(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate audioop.tomono(fragment, width, lfactor, rfactor)
-pub fn genTomono(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate audioop.tostereo(fragment, width, lfactor, rfactor)
-pub fn genTostereo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate audioop.ulaw2lin(fragment, width)
-pub fn genUlaw2lin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-// ============================================================================
-// Exception
-// ============================================================================
-
-pub fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.AudioopError");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
+fn genI32(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
+fn genF64(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(f64, 1.0)"); }
+fn genI32Pair(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i32, 0), @as(i32, 0) }"); }
+fn genI32F64(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i32, 0), @as(f64, 1.0) }"); }
+fn genAdpcmState(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ \"\", .{ @as(i32, 0), @as(i32, 0) } }"); }
+fn genRatecv(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ \"\", .{ @as(i32, 0), .{} } }"); }
+fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.AudioopError"); }

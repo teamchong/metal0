@@ -5,6 +5,59 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+
+/// Helper for @builtin(@as(f64, arg)) pattern
+fn genBuiltinF64(self: *NativeCodegen, args: []ast.Node, builtin: []const u8, default: []const u8) CodegenError!void {
+    if (args.len > 0) {
+        try self.emit(builtin);
+        try self.emit("(@as(f64, ");
+        try self.genExpr(args[0]);
+        try self.emit("))");
+    } else {
+        try self.emit(default);
+    }
+}
+
+/// Helper for std.math.func(@as(f64, arg)) pattern
+fn genStdMathF64(self: *NativeCodegen, args: []ast.Node, func: []const u8, default: []const u8) CodegenError!void {
+    if (args.len > 0) {
+        try self.emit("std.math.");
+        try self.emit(func);
+        try self.emit("(@as(f64, ");
+        try self.genExpr(args[0]);
+        try self.emit("))");
+    } else {
+        try self.emit(default);
+    }
+}
+
+/// Helper for std.math.func(f64, @as(f64, arg)) pattern (gamma/lgamma)
+fn genStdMathTypeF64(self: *NativeCodegen, args: []ast.Node, func: []const u8, default: []const u8) CodegenError!void {
+    if (args.len > 0) {
+        try self.emit("std.math.");
+        try self.emit(func);
+        try self.emit("(f64, @as(f64, ");
+        try self.genExpr(args[0]);
+        try self.emit("))");
+    } else {
+        try self.emit(default);
+    }
+}
+
+/// Helper for binary std.math.func(@as(f64, a), @as(f64, b)) pattern
+fn genStdMathBinaryF64(self: *NativeCodegen, args: []ast.Node, func: []const u8, default: []const u8) CodegenError!void {
+    if (args.len >= 2) {
+        try self.emit("std.math.");
+        try self.emit(func);
+        try self.emit("(@as(f64, ");
+        try self.genExpr(args[0]);
+        try self.emit("), @as(f64, ");
+        try self.genExpr(args[1]);
+        try self.emit("))");
+    } else {
+        try self.emit(default);
+    }
+}
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "pi", genPi },
     .{ "e", genE },
@@ -236,13 +289,7 @@ pub fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 // Power and logarithmic functions
 pub fn genSqrt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("@sqrt(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genBuiltinF64(self, args, "@sqrt", "@as(f64, 0.0)");
 }
 
 pub fn genIsqrt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -256,73 +303,31 @@ pub fn genIsqrt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 pub fn genExp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("@exp(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 1.0)");
-    }
+    try genBuiltinF64(self, args, "@exp", "@as(f64, 1.0)");
 }
 
 pub fn genExp2(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("@exp2(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 1.0)");
-    }
+    try genBuiltinF64(self, args, "@exp2", "@as(f64, 1.0)");
 }
 
 pub fn genExpm1(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.expm1(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "expm1", "@as(f64, 0.0)");
 }
 
 pub fn genLog(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("@log(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genBuiltinF64(self, args, "@log", "@as(f64, 0.0)");
 }
 
 pub fn genLog2(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("@log2(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genBuiltinF64(self, args, "@log2", "@as(f64, 0.0)");
 }
 
 pub fn genLog10(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("@log10(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genBuiltinF64(self, args, "@log10", "@as(f64, 0.0)");
 }
 
 pub fn genLog1p(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.log1p(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "log1p", "@as(f64, 0.0)");
 }
 
 pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -339,147 +344,61 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 // Trigonometric functions
 pub fn genSin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("@sin(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genBuiltinF64(self, args, "@sin", "@as(f64, 0.0)");
 }
 
 pub fn genCos(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("@cos(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 1.0)");
-    }
+    try genBuiltinF64(self, args, "@cos", "@as(f64, 1.0)");
 }
 
 pub fn genTan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("@tan(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genBuiltinF64(self, args, "@tan", "@as(f64, 0.0)");
 }
 
 pub fn genAsin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.asin(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "asin", "@as(f64, 0.0)");
 }
 
 pub fn genAcos(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.acos(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "acos", "@as(f64, 0.0)");
 }
 
 pub fn genAtan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.atan(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "atan", "@as(f64, 0.0)");
 }
 
 pub fn genAtan2(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) {
-        try self.emit("std.math.atan2(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("), @as(f64, ");
-        try self.genExpr(args[1]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathBinaryF64(self, args, "atan2", "@as(f64, 0.0)");
 }
 
 // Hyperbolic functions
 pub fn genSinh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.sinh(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "sinh", "@as(f64, 0.0)");
 }
 
 pub fn genCosh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.cosh(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 1.0)");
-    }
+    try genStdMathF64(self, args, "cosh", "@as(f64, 1.0)");
 }
 
 pub fn genTanh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.tanh(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "tanh", "@as(f64, 0.0)");
 }
 
 pub fn genAsinh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.asinh(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "asinh", "@as(f64, 0.0)");
 }
 
 pub fn genAcosh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.acosh(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "acosh", "@as(f64, 0.0)");
 }
 
 pub fn genAtanh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.atanh(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "atanh", "@as(f64, 0.0)");
 }
 
 // Special functions
 pub fn genErf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.erf(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathF64(self, args, "erf", "@as(f64, 0.0)");
 }
 
 pub fn genErfc(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -493,23 +412,11 @@ pub fn genErfc(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 pub fn genGamma(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.gamma(f64, @as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("std.math.inf(f64)");
-    }
+    try genStdMathTypeF64(self, args, "gamma", "std.math.inf(f64)");
 }
 
 pub fn genLgamma(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.lgamma(f64, @as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("std.math.inf(f64)");
-    }
+    try genStdMathTypeF64(self, args, "lgamma", "std.math.inf(f64)");
 }
 
 // Angular conversion
@@ -535,15 +442,7 @@ pub fn genRadians(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 // Floating point manipulation
 pub fn genCopysign(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) {
-        try self.emit("std.math.copysign(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("), @as(f64, ");
-        try self.genExpr(args[1]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathBinaryF64(self, args, "copysign", "@as(f64, 0.0)");
 }
 
 pub fn genFmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -604,33 +503,15 @@ pub fn genRemainder(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 // Classification functions
 pub fn genIsfinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.isFinite(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("true");
-    }
+    try genStdMathF64(self, args, "isFinite", "true");
 }
 
 pub fn genIsinf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.isInf(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("false");
-    }
+    try genStdMathF64(self, args, "isInf", "false");
 }
 
 pub fn genIsnan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("std.math.isNan(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
-    } else {
-        try self.emit("false");
-    }
+    try genStdMathF64(self, args, "isNan", "false");
 }
 
 pub fn genIsclose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -647,15 +528,7 @@ pub fn genIsclose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 // Sums and products
 pub fn genHypot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) {
-        try self.emit("std.math.hypot(@as(f64, ");
-        try self.genExpr(args[0]);
-        try self.emit("), @as(f64, ");
-        try self.genExpr(args[1]);
-        try self.emit("))");
-    } else {
-        try self.emit("@as(f64, 0.0)");
-    }
+    try genStdMathBinaryF64(self, args, "hypot", "@as(f64, 0.0)");
 }
 
 pub fn genDist(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

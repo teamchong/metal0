@@ -507,8 +507,21 @@ const shared = @import("shared_maps.zig");
 const BuiltinFunctions = shared.PythonBuiltinNames;
 const PythonExceptions = shared.RuntimeExceptions;
 
+/// Module-level constants that should NOT be prefixed with runtime.builtins.
+/// These are defined as local constants in the generated code
+const ModuleLevelConstants = std.StaticStringMap(void).initComptime(.{
+    .{ "__name__", {} },
+    .{ "__file__", {} },
+    .{ "__doc__", {} },
+    .{ "__package__", {} },
+    .{ "__loader__", {} },
+    .{ "__spec__", {} },
+});
+
 /// Check if a name is a Python builtin function that can be passed as first-class value
 fn isBuiltinFunction(name: []const u8) bool {
+    // Exclude module-level constants - they're defined locally, not in runtime.builtins
+    if (ModuleLevelConstants.has(name)) return false;
     return BuiltinFunctions.has(name);
 }
 

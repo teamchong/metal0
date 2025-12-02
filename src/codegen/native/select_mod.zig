@@ -6,451 +6,80 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "select", genSelect },
-    .{ "poll", genPoll },
-    .{ "epoll", genEpoll },
-    .{ "devpoll", genDevpoll },
-    .{ "kqueue", genKqueue },
-    .{ "kevent", genKevent },
-    .{ "POLLIN", genPOLLIN },
-    .{ "POLLPRI", genPOLLPRI },
-    .{ "POLLOUT", genPOLLOUT },
-    .{ "POLLERR", genPOLLERR },
-    .{ "POLLHUP", genPOLLHUP },
-    .{ "POLLNVAL", genPOLLNVAL },
-    .{ "EPOLLIN", genEPOLLIN },
-    .{ "EPOLLOUT", genEPOLLOUT },
-    .{ "EPOLLPRI", genEPOLLPRI },
-    .{ "EPOLLERR", genEPOLLERR },
-    .{ "EPOLLHUP", genEPOLLHUP },
-    .{ "EPOLLET", genEPOLLET },
-    .{ "EPOLLONESHOT", genEPOLLONESHOT },
-    .{ "EPOLLEXCLUSIVE", genEPOLLEXCLUSIVE },
-    .{ "EPOLLRDHUP", genEPOLLRDHUP },
-    .{ "EPOLLRDNORM", genEPOLLRDNORM },
-    .{ "EPOLLRDBAND", genEPOLLRDBAND },
-    .{ "EPOLLWRNORM", genEPOLLWRNORM },
-    .{ "EPOLLWRBAND", genEPOLLWRBAND },
-    .{ "EPOLLMSG", genEPOLLMSG },
-    .{ "KQ_FILTER_READ", genKQ_FILTER_READ },
-    .{ "KQ_FILTER_WRITE", genKQ_FILTER_WRITE },
-    .{ "KQ_FILTER_AIO", genKQ_FILTER_AIO },
-    .{ "KQ_FILTER_VNODE", genKQ_FILTER_VNODE },
-    .{ "KQ_FILTER_PROC", genKQ_FILTER_PROC },
-    .{ "KQ_FILTER_SIGNAL", genKQ_FILTER_SIGNAL },
-    .{ "KQ_FILTER_TIMER", genKQ_FILTER_TIMER },
-    .{ "KQ_EV_ADD", genKQ_EV_ADD },
-    .{ "KQ_EV_DELETE", genKQ_EV_DELETE },
-    .{ "KQ_EV_ENABLE", genKQ_EV_ENABLE },
-    .{ "KQ_EV_DISABLE", genKQ_EV_DISABLE },
-    .{ "KQ_EV_ONESHOT", genKQ_EV_ONESHOT },
-    .{ "KQ_EV_CLEAR", genKQ_EV_CLEAR },
-    .{ "KQ_EV_EOF", genKQ_EV_EOF },
-    .{ "KQ_EV_ERROR", genKQ_EV_ERROR },
+    .{ "select", genSelect }, .{ "poll", genPoll }, .{ "epoll", genEpoll },
+    .{ "devpoll", genDevpoll }, .{ "kqueue", genKqueue }, .{ "kevent", genKevent },
+    .{ "POLLIN", genI16_1 }, .{ "POLLPRI", genI16_2 }, .{ "POLLOUT", genI16_4 },
+    .{ "POLLERR", genI16_8 }, .{ "POLLHUP", genI16_16 }, .{ "POLLNVAL", genI16_32 },
+    .{ "EPOLLIN", genU32_1 }, .{ "EPOLLOUT", genU32_4 }, .{ "EPOLLPRI", genU32_2 },
+    .{ "EPOLLERR", genU32_8 }, .{ "EPOLLHUP", genU32_16 }, .{ "EPOLLET", genEPOLLET },
+    .{ "EPOLLONESHOT", genEPOLLONESHOT }, .{ "EPOLLEXCLUSIVE", genEPOLLEXCLUSIVE },
+    .{ "EPOLLRDHUP", genEPOLLRDHUP }, .{ "EPOLLRDNORM", genU32_64 }, .{ "EPOLLRDBAND", genU32_128 },
+    .{ "EPOLLWRNORM", genU32_256 }, .{ "EPOLLWRBAND", genU32_512 }, .{ "EPOLLMSG", genU32_1024 },
+    .{ "KQ_FILTER_READ", genI16_n1 }, .{ "KQ_FILTER_WRITE", genI16_n2 }, .{ "KQ_FILTER_AIO", genI16_n3 },
+    .{ "KQ_FILTER_VNODE", genI16_n4 }, .{ "KQ_FILTER_PROC", genI16_n5 }, .{ "KQ_FILTER_SIGNAL", genI16_n6 },
+    .{ "KQ_FILTER_TIMER", genI16_n7 },
+    .{ "KQ_EV_ADD", genU16_1 }, .{ "KQ_EV_DELETE", genU16_2 }, .{ "KQ_EV_ENABLE", genU16_4 },
+    .{ "KQ_EV_DISABLE", genU16_8 }, .{ "KQ_EV_ONESHOT", genU16_16 }, .{ "KQ_EV_CLEAR", genU16_32 },
+    .{ "KQ_EV_EOF", genU16_32768 }, .{ "KQ_EV_ERROR", genU16_16384 },
 });
 
-/// Generate select.select(rlist, wlist, xlist, timeout=None)
-pub fn genSelect(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ &[_]i64{}, &[_]i64{}, &[_]i64{} }");
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
+fn genI16_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, 0x0001)"); }
+fn genI16_2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, 0x0002)"); }
+fn genI16_4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, 0x0004)"); }
+fn genI16_8(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, 0x0008)"); }
+fn genI16_16(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, 0x0010)"); }
+fn genI16_32(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, 0x0020)"); }
+fn genI16_n1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, -1)"); }
+fn genI16_n2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, -2)"); }
+fn genI16_n3(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, -3)"); }
+fn genI16_n4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, -4)"); }
+fn genI16_n5(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, -5)"); }
+fn genI16_n6(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, -6)"); }
+fn genI16_n7(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, -7)"); }
+fn genU16_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u16, 0x0001)"); }
+fn genU16_2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u16, 0x0002)"); }
+fn genU16_4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u16, 0x0004)"); }
+fn genU16_8(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u16, 0x0008)"); }
+fn genU16_16(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u16, 0x0010)"); }
+fn genU16_32(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u16, 0x0020)"); }
+fn genU16_16384(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u16, 0x4000)"); }
+fn genU16_32768(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u16, 0x8000)"); }
+fn genU32_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x001)"); }
+fn genU32_2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x002)"); }
+fn genU32_4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x004)"); }
+fn genU32_8(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x008)"); }
+fn genU32_16(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x010)"); }
+fn genU32_64(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x040)"); }
+fn genU32_128(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x080)"); }
+fn genU32_256(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x100)"); }
+fn genU32_512(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x200)"); }
+fn genU32_1024(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x400)"); }
+fn genEPOLLET(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x80000000)"); }
+fn genEPOLLONESHOT(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x40000000)"); }
+fn genEPOLLEXCLUSIVE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x10000000)"); }
+fn genEPOLLRDHUP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0x2000)"); }
+
+// Core functions
+fn genSelect(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ &[_]i64{}, &[_]i64{}, &[_]i64{} }"); }
+
+fn genPoll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try genConst(self, args, "struct { fds: std.ArrayList(struct { fd: i64, events: i16, revents: i16 }) = .{}, pub fn register(s: *@This(), fd: i64, mask: ?i16) void { s.fds.append(__global_allocator, .{ .fd = fd, .events = mask orelse 3, .revents = 0 }) catch {}; } pub fn modify(s: *@This(), fd: i64, mask: i16) void { for (s.fds.items) |*i| if (i.fd == fd) { i.events = mask; break; } } pub fn unregister(s: *@This(), fd: i64) void { for (s.fds.items, 0..) |i, x| if (i.fd == fd) { _ = s.fds.orderedRemove(x); break; } } pub fn poll(s: *@This(), t: ?i64) []struct { i64, i16 } { _ = t; var r: std.ArrayList(struct { i64, i16 }) = .{}; for (s.fds.items) |i| if (i.revents != 0) r.append(__global_allocator, .{ i.fd, i.revents }) catch {}; return r.items; } }{}");
 }
 
-/// Generate select.poll()
-pub fn genPoll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("fds: std.ArrayList(struct { fd: i64, events: i16, revents: i16 }) = .{},\n");
-    try self.emitIndent();
-    try self.emit("pub fn register(__self: *@This(), fd: i64, eventmask: ?i16) void {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("__self.fds.append(__global_allocator, .{ .fd = fd, .events = eventmask orelse (POLLIN | POLLPRI), .revents = 0 }) catch {};\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn modify(__self: *@This(), fd: i64, eventmask: i16) void {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("for (__self.fds.items) |*item| {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (item.fd == fd) { item.events = eventmask; break; }\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn unregister(__self: *@This(), fd: i64) void {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("for (__self.fds.items, 0..) |item, i| {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (item.fd == fd) { _ = __self.fds.orderedRemove(i); break; }\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("pub fn poll(__self: *@This(), timeout: ?i64) []struct { i64, i16 } {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("_ = timeout;\n");
-    try self.emitIndent();
-    try self.emit("var result: std.ArrayList(struct { i64, i16 }) = .{};\n");
-    try self.emitIndent();
-    try self.emit("for (__self.fds.items) |item| {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("if (item.revents != 0) result.append(__global_allocator, .{ item.fd, item.revents }) catch {};\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("return result.items;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}{}");
+fn genEpoll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try genConst(self, args, "struct { _epfd: i32 = -1, _closed: bool = false, pub fn close(s: *@This()) void { s._closed = true; } pub fn closed(s: *@This()) bool { return s._closed; } pub fn fileno(s: *@This()) i32 { return s._epfd; } pub fn fromfd(s: *@This(), fd: i32) void { s._epfd = fd; } pub fn register(s: *@This(), fd: i64, mask: ?u32) void { _ = s; _ = fd; _ = mask; } pub fn modify(s: *@This(), fd: i64, mask: u32) void { _ = s; _ = fd; _ = mask; } pub fn unregister(s: *@This(), fd: i64) void { _ = s; _ = fd; } pub fn poll(s: *@This(), t: ?f64, m: ?i32) []struct { i64, u32 } { _ = s; _ = t; _ = m; return &.{}; } }{}");
 }
 
-/// Generate select.epoll(sizehint=-1, flags=0)
-pub fn genEpoll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("_epfd: i32 = -1,\n");
-    try self.emitIndent();
-    try self.emit("_closed: bool = false,\n");
-    try self.emitIndent();
-    try self.emit("pub fn close(__self: *@This()) void { __self._closed = true; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn closed(__self: *@This()) bool { return __self._closed; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn fileno(__self: *@This()) i32 { return __self._epfd; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn fromfd(__self: *@This(), fd: i32) void { __self._epfd = fd; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn register(__self: *@This(), fd: i64, eventmask: ?u32) void { _ = fd; _ = eventmask; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn modify(__self: *@This(), fd: i64, eventmask: u32) void { _ = fd; _ = eventmask; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn unregister(__self: *@This(), fd: i64) void { _ = fd; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn poll(__self: *@This(), timeout: ?f64, maxevents: ?i32) []struct { i64, u32 } {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("_ = self; _ = timeout; _ = maxevents;\n");
-    try self.emitIndent();
-    try self.emit("return &.{};\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}{}");
+fn genDevpoll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try genConst(self, args, "struct { pub fn close(s: *@This()) void { _ = s; } pub fn register(s: *@This(), fd: i64, mask: ?i16) void { _ = s; _ = fd; _ = mask; } pub fn modify(s: *@This(), fd: i64, mask: i16) void { _ = s; _ = fd; _ = mask; } pub fn unregister(s: *@This(), fd: i64) void { _ = s; _ = fd; } pub fn poll(s: *@This(), t: ?f64) []struct { i64, i16 } { _ = s; _ = t; return &.{}; } }{}");
 }
 
-/// Generate select.devpoll() (Solaris)
-pub fn genDevpoll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("pub fn close(__self: *@This()) void { }\n");
-    try self.emitIndent();
-    try self.emit("pub fn register(__self: *@This(), fd: i64, eventmask: ?i16) void { _ = fd; _ = eventmask; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn modify(__self: *@This(), fd: i64, eventmask: i16) void { _ = fd; _ = eventmask; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn unregister(__self: *@This(), fd: i64) void { _ = fd; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn poll(__self: *@This(), timeout: ?f64) []struct { i64, i16 } { _ = timeout; return &.{}; }\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}{}");
+fn genKqueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try genConst(self, args, "struct { _kq: i32 = -1, _closed: bool = false, pub fn close(s: *@This()) void { s._closed = true; } pub fn closed(s: *@This()) bool { return s._closed; } pub fn fileno(s: *@This()) i32 { return s._kq; } pub fn fromfd(s: *@This(), fd: i32) void { s._kq = fd; } pub fn control(s: *@This(), cl: anytype, m: usize, t: ?f64) []Kevent { _ = s; _ = cl; _ = m; _ = t; return &.{}; } }{}");
 }
 
-/// Generate select.kqueue() (BSD/macOS)
-pub fn genKqueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("_kq: i32 = -1,\n");
-    try self.emitIndent();
-    try self.emit("_closed: bool = false,\n");
-    try self.emitIndent();
-    try self.emit("pub fn close(__self: *@This()) void { __self._closed = true; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn closed(__self: *@This()) bool { return __self._closed; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn fileno(__self: *@This()) i32 { return __self._kq; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn fromfd(__self: *@This(), fd: i32) void { __self._kq = fd; }\n");
-    try self.emitIndent();
-    try self.emit("pub fn control(__self: *@This(), changelist: anytype, max_events: usize, timeout: ?f64) []Kevent {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("_ = self; _ = changelist; _ = max_events; _ = timeout;\n");
-    try self.emitIndent();
-    try self.emit("return &.{};\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}{}");
-}
-
-/// Generate select.kevent(ident, filter=KQ_FILTER_READ, flags=KQ_EV_ADD, fflags=0, data=0, udata=0)
-pub fn genKevent(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("ident: usize = 0,\n");
-    try self.emitIndent();
-    try self.emit("filter: i16 = -1,\n");
-    try self.emitIndent();
-    try self.emit("flags: u16 = 1,\n");
-    try self.emitIndent();
-    try self.emit("fflags: u32 = 0,\n");
-    try self.emitIndent();
-    try self.emit("data: isize = 0,\n");
-    try self.emitIndent();
-    try self.emit("udata: ?*anyopaque = null,\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}{}");
-}
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-/// Generate select.POLLIN
-pub fn genPOLLIN(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, 0x0001)");
-}
-
-/// Generate select.POLLPRI
-pub fn genPOLLPRI(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, 0x0002)");
-}
-
-/// Generate select.POLLOUT
-pub fn genPOLLOUT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, 0x0004)");
-}
-
-/// Generate select.POLLERR
-pub fn genPOLLERR(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, 0x0008)");
-}
-
-/// Generate select.POLLHUP
-pub fn genPOLLHUP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, 0x0010)");
-}
-
-/// Generate select.POLLNVAL
-pub fn genPOLLNVAL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, 0x0020)");
-}
-
-/// Generate select.EPOLLIN
-pub fn genEPOLLIN(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x001)");
-}
-
-/// Generate select.EPOLLOUT
-pub fn genEPOLLOUT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x004)");
-}
-
-/// Generate select.EPOLLPRI
-pub fn genEPOLLPRI(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x002)");
-}
-
-/// Generate select.EPOLLERR
-pub fn genEPOLLERR(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x008)");
-}
-
-/// Generate select.EPOLLHUP
-pub fn genEPOLLHUP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x010)");
-}
-
-/// Generate select.EPOLLET
-pub fn genEPOLLET(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x80000000)");
-}
-
-/// Generate select.EPOLLONESHOT
-pub fn genEPOLLONESHOT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x40000000)");
-}
-
-/// Generate select.EPOLLEXCLUSIVE
-pub fn genEPOLLEXCLUSIVE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x10000000)");
-}
-
-/// Generate select.EPOLLRDHUP
-pub fn genEPOLLRDHUP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x2000)");
-}
-
-/// Generate select.EPOLLRDNORM
-pub fn genEPOLLRDNORM(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x040)");
-}
-
-/// Generate select.EPOLLRDBAND
-pub fn genEPOLLRDBAND(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x080)");
-}
-
-/// Generate select.EPOLLWRNORM
-pub fn genEPOLLWRNORM(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x100)");
-}
-
-/// Generate select.EPOLLWRBAND
-pub fn genEPOLLWRBAND(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x200)");
-}
-
-/// Generate select.EPOLLMSG
-pub fn genEPOLLMSG(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0x400)");
-}
-
-/// Generate select.KQ_FILTER_READ
-pub fn genKQ_FILTER_READ(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, -1)");
-}
-
-/// Generate select.KQ_FILTER_WRITE
-pub fn genKQ_FILTER_WRITE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, -2)");
-}
-
-/// Generate select.KQ_FILTER_AIO
-pub fn genKQ_FILTER_AIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, -3)");
-}
-
-/// Generate select.KQ_FILTER_VNODE
-pub fn genKQ_FILTER_VNODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, -4)");
-}
-
-/// Generate select.KQ_FILTER_PROC
-pub fn genKQ_FILTER_PROC(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, -5)");
-}
-
-/// Generate select.KQ_FILTER_SIGNAL
-pub fn genKQ_FILTER_SIGNAL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, -6)");
-}
-
-/// Generate select.KQ_FILTER_TIMER
-pub fn genKQ_FILTER_TIMER(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, -7)");
-}
-
-/// Generate select.KQ_EV_ADD
-pub fn genKQ_EV_ADD(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u16, 0x0001)");
-}
-
-/// Generate select.KQ_EV_DELETE
-pub fn genKQ_EV_DELETE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u16, 0x0002)");
-}
-
-/// Generate select.KQ_EV_ENABLE
-pub fn genKQ_EV_ENABLE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u16, 0x0004)");
-}
-
-/// Generate select.KQ_EV_DISABLE
-pub fn genKQ_EV_DISABLE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u16, 0x0008)");
-}
-
-/// Generate select.KQ_EV_ONESHOT
-pub fn genKQ_EV_ONESHOT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u16, 0x0010)");
-}
-
-/// Generate select.KQ_EV_CLEAR
-pub fn genKQ_EV_CLEAR(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u16, 0x0020)");
-}
-
-/// Generate select.KQ_EV_EOF
-pub fn genKQ_EV_EOF(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u16, 0x8000)");
-}
-
-/// Generate select.KQ_EV_ERROR
-pub fn genKQ_EV_ERROR(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u16, 0x4000)");
-}
-
-/// Kevent type reference
-pub fn genKeventType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("const Kevent = struct { ident: usize, filter: i16, flags: u16, fflags: u32, data: isize, udata: ?*anyopaque };");
+fn genKevent(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try genConst(self, args, "struct { ident: usize = 0, filter: i16 = -1, flags: u16 = 1, fflags: u32 = 0, data: isize = 0, udata: ?*anyopaque = null }{}");
 }

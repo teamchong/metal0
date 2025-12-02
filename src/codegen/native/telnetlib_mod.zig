@@ -6,185 +6,42 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Telnet", genTelnet },
-    .{ "THEOPT", genTHEOPT },
-    .{ "SE", genSE },
-    .{ "NOP", genNOP },
-    .{ "DM", genDM },
-    .{ "BRK", genBRK },
-    .{ "IP", genIP },
-    .{ "AO", genAO },
-    .{ "AYT", genAYT },
-    .{ "EC", genEC },
-    .{ "EL", genEL },
-    .{ "GA", genGA },
-    .{ "SB", genSB },
-    .{ "WILL", genWILL },
-    .{ "WONT", genWONT },
-    .{ "DO", genDO },
-    .{ "DONT", genDONT },
-    .{ "IAC", genIAC },
-    .{ "ECHO", genECHO },
-    .{ "SGA", genSGA },
-    .{ "TTYPE", genTTYPE },
-    .{ "NAWS", genNAWS },
-    .{ "LINEMODE", genLINEMODE },
-    .{ "NEW_ENVIRON", genNEW_ENVIRON },
-    .{ "XDISPLOC", genXDISPLOC },
-    .{ "AUTHENTICATION", genAUTHENTICATION },
-    .{ "ENCRYPT", genENCRYPT },
-    .{ "TELNET_PORT", genTELNET_PORT },
+    .{ "Telnet", genTelnet }, .{ "TELNET_PORT", genTelnetPort },
+    .{ "THEOPT", genU8_0 }, .{ "ECHO", genU8_1 }, .{ "SGA", genU8_3 }, .{ "TTYPE", genU8_24 },
+    .{ "NAWS", genU8_31 }, .{ "LINEMODE", genU8_34 }, .{ "XDISPLOC", genU8_35 },
+    .{ "AUTHENTICATION", genU8_37 }, .{ "ENCRYPT", genU8_38 }, .{ "NEW_ENVIRON", genU8_39 },
+    .{ "SE", genU8_240 }, .{ "NOP", genU8_241 }, .{ "DM", genU8_242 }, .{ "BRK", genU8_243 },
+    .{ "IP", genU8_244 }, .{ "AO", genU8_245 }, .{ "AYT", genU8_246 }, .{ "EC", genU8_247 },
+    .{ "EL", genU8_248 }, .{ "GA", genU8_249 }, .{ "SB", genU8_250 }, .{ "WILL", genU8_251 },
+    .{ "WONT", genU8_252 }, .{ "DO", genU8_253 }, .{ "DONT", genU8_254 }, .{ "IAC", genU8_255 },
 });
 
-/// Generate telnetlib.Telnet class
-pub fn genTelnet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = @as(?[]const u8, null), .port = @as(i32, 23), .timeout = @as(f64, -1.0), .sock = @as(?*anyopaque, null) }");
-}
-
-// ============================================================================
-// Telnet option constants (RFC 854, 855)
-// ============================================================================
-
-pub fn genTHEOPT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 0)");
-}
-
-pub fn genSE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 240)"); // End of subnegotiation
-}
-
-pub fn genNOP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 241)"); // No operation
-}
-
-pub fn genDM(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 242)"); // Data mark
-}
-
-pub fn genBRK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 243)"); // Break
-}
-
-pub fn genIP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 244)"); // Interrupt Process
-}
-
-pub fn genAO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 245)"); // Abort Output
-}
-
-pub fn genAYT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 246)"); // Are You There
-}
-
-pub fn genEC(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 247)"); // Erase Character
-}
-
-pub fn genEL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 248)"); // Erase Line
-}
-
-pub fn genGA(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 249)"); // Go Ahead
-}
-
-pub fn genSB(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 250)"); // Subnegotiation Begin
-}
-
-pub fn genWILL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 251)"); // Will
-}
-
-pub fn genWONT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 252)"); // Won't
-}
-
-pub fn genDO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 253)"); // Do
-}
-
-pub fn genDONT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 254)"); // Don't
-}
-
-pub fn genIAC(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 255)"); // Interpret As Command
-}
-
-// ============================================================================
-// Telnet option codes (RFC 856-861, etc)
-// ============================================================================
-
-pub fn genECHO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 1)"); // Echo
-}
-
-pub fn genSGA(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 3)"); // Suppress Go Ahead
-}
-
-pub fn genTTYPE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 24)"); // Terminal Type
-}
-
-pub fn genNAWS(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 31)"); // Window Size
-}
-
-pub fn genLINEMODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 34)"); // Linemode
-}
-
-pub fn genNEW_ENVIRON(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 39)"); // New Environment Option
-}
-
-pub fn genXDISPLOC(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 35)"); // X Display Location
-}
-
-pub fn genAUTHENTICATION(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 37)"); // Authentication
-}
-
-pub fn genENCRYPT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 38)"); // Encryption Option
-}
-
-// ============================================================================
-// Port constant
-// ============================================================================
-
-pub fn genTELNET_PORT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 23)");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genTelnet(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = @as(?[]const u8, null), .port = @as(i32, 23), .timeout = @as(f64, -1.0), .sock = @as(?*anyopaque, null) }"); }
+fn genTelnetPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 23)"); }
+fn genU8_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 0)"); }
+fn genU8_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 1)"); }
+fn genU8_3(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 3)"); }
+fn genU8_24(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 24)"); }
+fn genU8_31(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 31)"); }
+fn genU8_34(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 34)"); }
+fn genU8_35(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 35)"); }
+fn genU8_37(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 37)"); }
+fn genU8_38(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 38)"); }
+fn genU8_39(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 39)"); }
+fn genU8_240(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 240)"); }
+fn genU8_241(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 241)"); }
+fn genU8_242(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 242)"); }
+fn genU8_243(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 243)"); }
+fn genU8_244(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 244)"); }
+fn genU8_245(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 245)"); }
+fn genU8_246(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 246)"); }
+fn genU8_247(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 247)"); }
+fn genU8_248(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 248)"); }
+fn genU8_249(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 249)"); }
+fn genU8_250(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 250)"); }
+fn genU8_251(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 251)"); }
+fn genU8_252(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 252)"); }
+fn genU8_253(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 253)"); }
+fn genU8_254(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 254)"); }
+fn genU8_255(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 255)"); }

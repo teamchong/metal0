@@ -2,343 +2,55 @@
 const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+const NativeCodegen = @import("main.zig").NativeCodegen;
 
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "CDLL", genCDLL },
-    .{ "PyDLL", genPyDLL },
-    .{ "WinDLL", genWinDLL },
-    .{ "OleDLL", genOleDLL },
-    .{ "dlopen", genDlopen },
-    .{ "dlclose", genDlclose },
-    .{ "dlsym", genDlsym },
-    .{ "FUNCFLAG_CDECL", genFuncflagCdecl },
-    .{ "FUNCFLAG_USE_ERRNO", genFuncflagUseErrno },
-    .{ "FUNCFLAG_USE_LASTERROR", genFuncflagUseLastError },
-    .{ "FUNCFLAG_PYTHONAPI", genFuncflagPythonapi },
-    .{ "sizeof", genSizeof },
-    .{ "alignment", genAlignment },
-    .{ "byref", genByref },
-    .{ "addressof", genAddressof },
-    .{ "POINTER", genPOINTER },
-    .{ "pointer", genPointer },
-    .{ "cast", genCast },
-    .{ "set_errno", genSetErrno },
-    .{ "get_errno", genGetErrno },
-    .{ "resize", genResize },
-    .{ "c_void_p", genCVoidP },
-    .{ "c_char_p", genCCharP },
-    .{ "c_wchar_p", genCWcharP },
-    .{ "c_bool", genCBool },
-    .{ "c_char", genCChar },
-    .{ "c_wchar", genCWchar },
-    .{ "c_byte", genCByte },
-    .{ "c_ubyte", genCUbyte },
-    .{ "c_short", genCShort },
-    .{ "c_ushort", genCUshort },
-    .{ "c_int", genCInt },
-    .{ "c_uint", genCUint },
-    .{ "c_long", genCLong },
-    .{ "c_ulong", genCUlong },
-    .{ "c_longlong", genCLonglong },
-    .{ "c_ulonglong", genCUlonglong },
-    .{ "c_size_t", genCSizeT },
-    .{ "c_ssize_t", genCSSizeT },
-    .{ "c_float", genCFloat },
-    .{ "c_double", genCDouble },
-    .{ "c_longdouble", genCLongdouble },
-    .{ "Structure", genStructure },
-    .{ "Union", genUnion },
-    .{ "Array", genArray },
+    .{ "CDLL", genDLL }, .{ "PyDLL", genDLL }, .{ "WinDLL", genDLL }, .{ "OleDLL", genDLL },
+    .{ "dlopen", genNull }, .{ "dlclose", genI32_0 }, .{ "dlsym", genNull },
+    .{ "FUNCFLAG_CDECL", genI32_1 }, .{ "FUNCFLAG_USE_ERRNO", genI32_8 },
+    .{ "FUNCFLAG_USE_LASTERROR", genI32_16 }, .{ "FUNCFLAG_PYTHONAPI", genI32_4 },
+    .{ "sizeof", genUsize0 }, .{ "alignment", genUsize1 }, .{ "byref", genEmpty }, .{ "addressof", genUsize0 },
+    .{ "POINTER", genPtrType }, .{ "pointer", genEmpty }, .{ "cast", genEmpty },
+    .{ "set_errno", genI32_0 }, .{ "get_errno", genI32_0 }, .{ "resize", genUnit },
+    .{ "c_void_p", genCVoidP }, .{ "c_char_p", genCCharP }, .{ "c_wchar_p", genCWcharP },
+    .{ "c_bool", genBool }, .{ "c_char", genU8 }, .{ "c_wchar", genU16 },
+    .{ "c_byte", genI8 }, .{ "c_ubyte", genU8 }, .{ "c_short", genI16 }, .{ "c_ushort", genU16 },
+    .{ "c_int", genI32 }, .{ "c_uint", genU32 }, .{ "c_long", genI64 }, .{ "c_ulong", genU64 },
+    .{ "c_longlong", genI64 }, .{ "c_ulonglong", genU64 },
+    .{ "c_size_t", genUsize0 }, .{ "c_ssize_t", genIsize0 },
+    .{ "c_float", genF32 }, .{ "c_double", genF64 }, .{ "c_longdouble", genF64 },
+    .{ "Structure", genEmpty }, .{ "Union", genEmpty }, .{ "Array", genEmpty },
     .{ "ArgumentError", genArgumentError },
 });
 
-const NativeCodegen = @import("main.zig").NativeCodegen;
-
-/// Generate _ctypes.CDLL(name, mode=DEFAULT_MODE, handle=None, use_errno=False, use_last_error=False, winmode=None)
-pub fn genCDLL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .handle = null, .name = null }");
-}
-
-/// Generate _ctypes.PyDLL(name, mode=DEFAULT_MODE, handle=None, use_errno=False, use_last_error=False, winmode=None)
-pub fn genPyDLL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .handle = null, .name = null }");
-}
-
-/// Generate _ctypes.WinDLL(name, mode=DEFAULT_MODE, handle=None, use_errno=False, use_last_error=False, winmode=None)
-pub fn genWinDLL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .handle = null, .name = null }");
-}
-
-/// Generate _ctypes.OleDLL(name, mode=DEFAULT_MODE, handle=None, use_errno=False, use_last_error=False, winmode=None)
-pub fn genOleDLL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .handle = null, .name = null }");
-}
-
-/// Generate _ctypes.cast(obj, typ)
-pub fn genCast(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate _ctypes.c_void_p type
-pub fn genCVoidP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?*anyopaque, null)");
-}
-
-/// Generate _ctypes.c_char_p type
-pub fn genCCharP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?[*:0]const u8, null)");
-}
-
-/// Generate _ctypes.c_wchar_p type
-pub fn genCWcharP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?[*:0]const u16, null)");
-}
-
-/// Generate _ctypes.c_bool type
-pub fn genCBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(bool, false)");
-}
-
-/// Generate _ctypes.c_char type
-pub fn genCChar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 0)");
-}
-
-/// Generate _ctypes.c_wchar type
-pub fn genCWchar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u16, 0)");
-}
-
-/// Generate _ctypes.c_byte type
-pub fn genCByte(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i8, 0)");
-}
-
-/// Generate _ctypes.c_ubyte type
-pub fn genCUbyte(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u8, 0)");
-}
-
-/// Generate _ctypes.c_short type
-pub fn genCShort(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i16, 0)");
-}
-
-/// Generate _ctypes.c_ushort type
-pub fn genCUshort(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u16, 0)");
-}
-
-/// Generate _ctypes.c_int type
-pub fn genCInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate _ctypes.c_uint type
-pub fn genCUint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 0)");
-}
-
-/// Generate _ctypes.c_long type
-pub fn genCLong(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate _ctypes.c_ulong type
-pub fn genCUlong(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u64, 0)");
-}
-
-/// Generate _ctypes.c_longlong type
-pub fn genCLonglong(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate _ctypes.c_ulonglong type
-pub fn genCUlonglong(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u64, 0)");
-}
-
-/// Generate _ctypes.c_size_t type
-pub fn genCSizeT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(usize, 0)");
-}
-
-/// Generate _ctypes.c_ssize_t type
-pub fn genCSSizeT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(isize, 0)");
-}
-
-/// Generate _ctypes.c_float type
-pub fn genCFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(f32, 0.0)");
-}
-
-/// Generate _ctypes.c_double type
-pub fn genCDouble(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(f64, 0.0)");
-}
-
-/// Generate _ctypes.c_longdouble type
-pub fn genCLongdouble(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(f64, 0.0)");
-}
-
-/// Generate _ctypes.ArgumentError exception
-pub fn genArgumentError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ArgumentError");
-}
-
-/// Generate _ctypes.FUNCFLAG_CDECL constant
-pub fn genFuncflagCdecl(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-/// Generate _ctypes.FUNCFLAG_USE_ERRNO constant
-pub fn genFuncflagUseErrno(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 8)");
-}
-
-/// Generate _ctypes.FUNCFLAG_USE_LASTERROR constant
-pub fn genFuncflagUseLastError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 16)");
-}
-
-/// Generate _ctypes.FUNCFLAG_PYTHONAPI constant
-pub fn genFuncflagPythonapi(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 4)");
-}
-
-/// Generate _ctypes.sizeof(obj)
-pub fn genSizeof(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(usize, 0)");
-}
-
-/// Generate _ctypes.alignment(obj)
-pub fn genAlignment(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(usize, 1)");
-}
-
-/// Generate _ctypes.byref(obj, offset=0)
-pub fn genByref(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate _ctypes.addressof(obj)
-pub fn genAddressof(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(usize, 0)");
-}
-
-/// Generate _ctypes.pointer(obj)
-pub fn genPointer(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate _ctypes.POINTER(type)
-pub fn genPOINTER(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@TypeOf(.{})");
-}
-
-/// Generate _ctypes.resize(obj, size)
-pub fn genResize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _ctypes.get_errno()
-pub fn genGetErrno(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate _ctypes.set_errno(value)
-pub fn genSetErrno(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate _ctypes.dlopen(name, mode)
-pub fn genDlopen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate _ctypes.dlclose(handle)
-pub fn genDlclose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate _ctypes.dlsym(handle, name)
-pub fn genDlsym(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-/// Generate _ctypes.Structure class
-pub fn genStructure(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate _ctypes.Union class
-pub fn genUnion(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate _ctypes.Array class
-pub fn genArray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate _ctypes.CFuncPtr class
-pub fn genCFuncPtr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate _ctypes._SimpleCData class
-pub fn genSimpleCData(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .value = 0 }");
-}
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
+fn genI32_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
+fn genI32_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 1)"); }
+fn genI32_4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 4)"); }
+fn genI32_8(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 8)"); }
+fn genI32_16(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 16)"); }
+fn genUsize0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(usize, 0)"); }
+fn genUsize1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(usize, 1)"); }
+fn genIsize0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(isize, 0)"); }
+fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(bool, false)"); }
+fn genI8(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i8, 0)"); }
+fn genU8(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u8, 0)"); }
+fn genI16(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i16, 0)"); }
+fn genU16(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u16, 0)"); }
+fn genI32(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
+fn genU32(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 0)"); }
+fn genI64(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
+fn genU64(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u64, 0)"); }
+fn genF32(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(f32, 0.0)"); }
+fn genF64(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(f64, 0.0)"); }
+fn genCVoidP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?*anyopaque, null)"); }
+fn genCCharP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?[*:0]const u8, null)"); }
+fn genCWcharP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?[*:0]const u16, null)"); }
+fn genPtrType(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@TypeOf(.{})"); }
+fn genDLL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .handle = null, .name = null }"); }
+fn genArgumentError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.ArgumentError"); }

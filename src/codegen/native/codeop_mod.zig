@@ -6,39 +6,14 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "compile_command", genCompile_command },
-    .{ "Compile", genCompile },
-    .{ "CommandCompiler", genCommandCompiler },
-    .{ "PyCF_DONT_IMPLY_DEDENT", genPyCF_DONT_IMPLY_DEDENT },
-    .{ "PyCF_ALLOW_INCOMPLETE_INPUT", genPyCF_ALLOW_INCOMPLETE_INPUT },
+    .{ "compile_command", genNullPtr }, .{ "Compile", genCompile }, .{ "CommandCompiler", genCmdCompiler },
+    .{ "PyCF_DONT_IMPLY_DEDENT", genI32_0x200 }, .{ "PyCF_ALLOW_INCOMPLETE_INPUT", genI32_0x4000 },
 });
 
-/// Generate codeop.compile_command(source, filename, symbol)
-pub fn genCompile_command(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?*anyopaque, null)");
-}
-
-/// Generate codeop.Compile class
-pub fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .flags = @as(i32, 0) }");
-}
-
-/// Generate codeop.CommandCompiler class
-pub fn genCommandCompiler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .compiler = .{ .flags = @as(i32, 0) } }");
-}
-
-/// Generate codeop.PyCF_DONT_IMPLY_DEDENT
-pub fn genPyCF_DONT_IMPLY_DEDENT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0x200)");
-}
-
-/// Generate codeop.PyCF_ALLOW_INCOMPLETE_INPUT
-pub fn genPyCF_ALLOW_INCOMPLETE_INPUT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0x4000)");
-}
+// Helpers
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genNullPtr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?*anyopaque, null)"); }
+fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .flags = @as(i32, 0) }"); }
+fn genCmdCompiler(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .compiler = .{ .flags = @as(i32, 0) } }"); }
+fn genI32_0x200(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0x200)"); }
+fn genI32_0x4000(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0x4000)"); }

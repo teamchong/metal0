@@ -1,199 +1,54 @@
 /// Python xml.dom module - DOM support for XML
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "registerDOMImplementation", genRegisterDOMImplementation },
-    .{ "getDOMImplementation", genGetDOMImplementation },
-    .{ "ELEMENT_NODE", genELEMENT_NODE },
-    .{ "ATTRIBUTE_NODE", genATTRIBUTE_NODE },
-    .{ "TEXT_NODE", genTEXT_NODE },
-    .{ "CDATA_SECTION_NODE", genCDATA_SECTION_NODE },
-    .{ "ENTITY_REFERENCE_NODE", genENTITY_REFERENCE_NODE },
-    .{ "ENTITY_NODE", genENTITY_NODE },
-    .{ "PROCESSING_INSTRUCTION_NODE", genPROCESSING_INSTRUCTION_NODE },
-    .{ "COMMENT_NODE", genCOMMENT_NODE },
-    .{ "DOCUMENT_NODE", genDOCUMENT_NODE },
-    .{ "DOCUMENT_TYPE_NODE", genDOCUMENT_TYPE_NODE },
-    .{ "DOCUMENT_FRAGMENT_NODE", genDOCUMENT_FRAGMENT_NODE },
-    .{ "NOTATION_NODE", genNOTATION_NODE },
-    .{ "DomstringSizeErr", genDomstringSizeErr },
-    .{ "HierarchyRequestErr", genHierarchyRequestErr },
-    .{ "IndexSizeErr", genIndexSizeErr },
-    .{ "InuseAttributeErr", genInuseAttributeErr },
-    .{ "InvalidAccessErr", genInvalidAccessErr },
-    .{ "InvalidCharacterErr", genInvalidCharacterErr },
-    .{ "InvalidModificationErr", genInvalidModificationErr },
-    .{ "InvalidStateErr", genInvalidStateErr },
-    .{ "NamespaceErr", genNamespaceErr },
-    .{ "NoDataAllowedErr", genNoDataAllowedErr },
-    .{ "NoModificationAllowedErr", genNoModificationAllowedErr },
-    .{ "NotFoundErr", genNotFoundErr },
-    .{ "NotSupportedErr", genNotSupportedErr },
-    .{ "SyntaxErr", genSyntaxErr },
-    .{ "ValidationErr", genValidationErr },
-    .{ "WrongDocumentErr", genWrongDocumentErr },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate xml.dom.registerDOMImplementation(name, factory)
-pub fn genRegisterDOMImplementation(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "registerDOMImplementation", genUnit }, .{ "getDOMImplementation", genNullPtr },
+    .{ "ELEMENT_NODE", genI32_1 }, .{ "ATTRIBUTE_NODE", genI32_2 }, .{ "TEXT_NODE", genI32_3 },
+    .{ "CDATA_SECTION_NODE", genI32_4 }, .{ "ENTITY_REFERENCE_NODE", genI32_5 }, .{ "ENTITY_NODE", genI32_6 },
+    .{ "PROCESSING_INSTRUCTION_NODE", genI32_7 }, .{ "COMMENT_NODE", genI32_8 }, .{ "DOCUMENT_NODE", genI32_9 },
+    .{ "DOCUMENT_TYPE_NODE", genI32_10 }, .{ "DOCUMENT_FRAGMENT_NODE", genI32_11 }, .{ "NOTATION_NODE", genI32_12 },
+    .{ "DomstringSizeErr", genErrDomstringSize }, .{ "HierarchyRequestErr", genErrHierarchyRequest },
+    .{ "IndexSizeErr", genErrIndexSize }, .{ "InuseAttributeErr", genErrInuseAttribute },
+    .{ "InvalidAccessErr", genErrInvalidAccess }, .{ "InvalidCharacterErr", genErrInvalidCharacter },
+    .{ "InvalidModificationErr", genErrInvalidModification }, .{ "InvalidStateErr", genErrInvalidState },
+    .{ "NamespaceErr", genErrNamespace }, .{ "NoDataAllowedErr", genErrNoDataAllowed },
+    .{ "NoModificationAllowedErr", genErrNoModificationAllowed }, .{ "NotFoundErr", genErrNotFound },
+    .{ "NotSupportedErr", genErrNotSupported }, .{ "SyntaxErr", genErrSyntax },
+    .{ "ValidationErr", genErrValidation }, .{ "WrongDocumentErr", genErrWrongDocument },
+});
 
-/// Generate xml.dom.getDOMImplementation(name=None, features=())
-pub fn genGetDOMImplementation(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?*anyopaque, null)");
-}
-
-// ============================================================================
-// Node type constants
-// ============================================================================
-
-pub fn genELEMENT_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 1)");
-}
-
-pub fn genATTRIBUTE_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 2)");
-}
-
-pub fn genTEXT_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 3)");
-}
-
-pub fn genCDATA_SECTION_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 4)");
-}
-
-pub fn genENTITY_REFERENCE_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 5)");
-}
-
-pub fn genENTITY_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 6)");
-}
-
-pub fn genPROCESSING_INSTRUCTION_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 7)");
-}
-
-pub fn genCOMMENT_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 8)");
-}
-
-pub fn genDOCUMENT_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 9)");
-}
-
-pub fn genDOCUMENT_TYPE_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 10)");
-}
-
-pub fn genDOCUMENT_FRAGMENT_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 11)");
-}
-
-pub fn genNOTATION_NODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 12)");
-}
-
-// ============================================================================
-// Exceptions
-// ============================================================================
-
-pub fn genDomstringSizeErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.DomstringSizeErr");
-}
-
-pub fn genHierarchyRequestErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.HierarchyRequestErr");
-}
-
-pub fn genIndexSizeErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.IndexSizeErr");
-}
-
-pub fn genInuseAttributeErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.InuseAttributeErr");
-}
-
-pub fn genInvalidAccessErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.InvalidAccessErr");
-}
-
-pub fn genInvalidCharacterErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.InvalidCharacterErr");
-}
-
-pub fn genInvalidModificationErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.InvalidModificationErr");
-}
-
-pub fn genInvalidStateErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.InvalidStateErr");
-}
-
-pub fn genNamespaceErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NamespaceErr");
-}
-
-pub fn genNoDataAllowedErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NoDataAllowedErr");
-}
-
-pub fn genNoModificationAllowedErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NoModificationAllowedErr");
-}
-
-pub fn genNotFoundErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NotFoundErr");
-}
-
-pub fn genNotSupportedErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NotSupportedErr");
-}
-
-pub fn genSyntaxErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SyntaxErr");
-}
-
-pub fn genValidationErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ValidationErr");
-}
-
-pub fn genWrongDocumentErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.WrongDocumentErr");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genNullPtr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?*anyopaque, null)"); }
+fn genI32_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 1)"); }
+fn genI32_2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 2)"); }
+fn genI32_3(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 3)"); }
+fn genI32_4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 4)"); }
+fn genI32_5(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 5)"); }
+fn genI32_6(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 6)"); }
+fn genI32_7(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 7)"); }
+fn genI32_8(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 8)"); }
+fn genI32_9(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 9)"); }
+fn genI32_10(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 10)"); }
+fn genI32_11(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 11)"); }
+fn genI32_12(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 12)"); }
+fn genErrDomstringSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.DomstringSizeErr"); }
+fn genErrHierarchyRequest(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.HierarchyRequestErr"); }
+fn genErrIndexSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.IndexSizeErr"); }
+fn genErrInuseAttribute(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.InuseAttributeErr"); }
+fn genErrInvalidAccess(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.InvalidAccessErr"); }
+fn genErrInvalidCharacter(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.InvalidCharacterErr"); }
+fn genErrInvalidModification(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.InvalidModificationErr"); }
+fn genErrInvalidState(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.InvalidStateErr"); }
+fn genErrNamespace(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NamespaceErr"); }
+fn genErrNoDataAllowed(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NoDataAllowedErr"); }
+fn genErrNoModificationAllowed(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NoModificationAllowedErr"); }
+fn genErrNotFound(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NotFoundErr"); }
+fn genErrNotSupported(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NotSupportedErr"); }
+fn genErrSyntax(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.SyntaxErr"); }
+fn genErrValidation(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.ValidationErr"); }
+fn genErrWrongDocument(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.WrongDocumentErr"); }
