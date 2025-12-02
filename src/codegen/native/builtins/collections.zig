@@ -65,14 +65,58 @@ pub fn genRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for enumerate(iterable)
-/// Returns: iterator with (index, value) tuples
-/// Note: enumerate() is ONLY supported in for-loop context by statements.zig
-/// Standalone usage not supported in native codegen
+/// Returns: list of (index, value) tuples
 pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    // enumerate() only works in for-loops: for i, item in enumerate(items)
-    // Standalone enumerate() not supported
-    try self.emit("@compileError(\"enumerate() only supported in for-loops: for i, item in enumerate(...)\")");
+    if (args.len == 0) {
+        try self.emit("@as(*anyopaque, null)");
+        return;
+    }
+
+    const iterable = args[0];
+    const start = if (args.len > 1) args[1] else null;
+
+    // Infer iterable type
+    const iterable_type = try self.inferExprScoped(iterable);
+    const needs_items = @as(std.meta.Tag(@TypeOf(iterable_type)), iterable_type) == .list;
+
+    // Generate block that builds list of (index, value) tuples
+    try self.emit("(enum_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const __enum_iterable = ");
+    try self.genExpr(iterable);
+    try self.emit(";\n");
+    try self.emitIndent();
+    if (needs_items) {
+        try self.emit("const __enum_slice = __enum_iterable.items;\n");
+    } else {
+        try self.emit("const __enum_slice = __enum_iterable;\n");
+    }
+    try self.emitIndent();
+    try self.emit("var __enum_result = std.ArrayList(std.meta.Tuple(&[_]type{i64, @TypeOf(__enum_slice[0])})){};\n");
+    try self.emitIndent();
+    try self.emit("var __enum_idx: i64 = ");
+    if (start) |s| {
+        try self.genExpr(s);
+    } else {
+        try self.emit("0");
+    }
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("for (__enum_slice) |__enum_item| {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("__enum_result.append(__global_allocator, .{__enum_idx, __enum_item}) catch {};\n");
+    try self.emitIndent();
+    try self.emit("__enum_idx += 1;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+    try self.emitIndent();
+    try self.emit("break :enum_blk __enum_result;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("})");
 }
 
 /// Generate code for zip(iter1, iter2, ...)
@@ -387,8 +431,99 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
 
-    // Unsupported map() pattern
-    try self.emit("@compileError(\"map() not supported for this function - use explicit for loop instead\")");
+    // Handle lambda: map(lambda x: x * 2, items)
+    if (func == .lambda) {
+        const lambda = func.lambda;
+        // Infer result type from lambda body
+        const result_type = self.type_inferrer.inferExpr(lambda.body.*) catch .unknown;
+        var type_buf = std.ArrayList(u8){};
+        defer type_buf.deinit(self.allocator);
+        try result_type.toZigType(self.allocator, &type_buf);
+        const zig_result_type = type_buf.items;
+
+        try self.emit("(__map_blk: {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emitFmt("var __map_result = std.ArrayList({s}){{}};\n", .{zig_result_type});
+        try self.emitIndent();
+        try self.emit("const __map_iterable = ");
+        try self.genExpr(iterable);
+        try self.emit(";\n");
+        try self.emitIndent();
+        if (needs_items) {
+            try self.emit("for (__map_iterable.items) |__map_item| {\n");
+        } else {
+            try self.emit("for (__map_iterable) |__map_item| {\n");
+        }
+        self.indent();
+        try self.emitIndent();
+
+        // Generate inline lambda body with __map_item substituted for parameter
+        // Assumes single parameter lambda
+        if (lambda.args.len > 0) {
+            const param_name = lambda.args[0].name;
+            // Register param as alias for __map_item
+            try self.var_renames.put(param_name, "__map_item");
+            defer _ = self.var_renames.swapRemove(param_name);
+
+            try self.emit("const __mapped = ");
+            try self.genExpr(lambda.body.*);
+            try self.emit(";\n");
+        } else {
+            try self.emit("const __mapped = ");
+            try self.genExpr(lambda.body.*);
+            try self.emit(";\n");
+        }
+
+        try self.emitIndent();
+        try self.emit("__map_result.append(__global_allocator, __mapped) catch {};\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        try self.emitIndent();
+        try self.emit("break :__map_blk __map_result;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("})");
+        return;
+    }
+
+    // Fallback: Generate runtime map using anytype
+    // For unknown functions, we store the iterable first, then infer from first element
+    try self.emit("(__map_blk: {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const __map_iterable = ");
+    try self.genExpr(iterable);
+    try self.emit(";\n");
+    try self.emitIndent();
+    // Get slice to iterate over
+    if (needs_items) {
+        try self.emit("const __map_slice = __map_iterable.items;\n");
+    } else {
+        try self.emit("const __map_slice = __map_iterable;\n");
+    }
+    try self.emitIndent();
+    try self.emit("const __map_func = ");
+    try self.genExpr(func);
+    try self.emit(";\n");
+    try self.emitIndent();
+    try self.emit("var __map_result = std.ArrayList(@TypeOf(__map_func(__map_slice[0]))){};\n");
+    try self.emitIndent();
+    try self.emit("for (__map_slice) |__map_item| {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("const __mapped = __map_func(__map_item);\n");
+    try self.emitIndent();
+    try self.emit("__map_result.append(__global_allocator, __mapped) catch {};\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+    try self.emitIndent();
+    try self.emit("break :__map_blk __map_result;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("})");
 }
 
 /// Generate code for filter(func, iterable)
