@@ -482,6 +482,26 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 zig_type = "std.ArrayList([]const u8)";
             }
 
+            // Check if zig_type contains a nested class name (self-referential/recursive types)
+            // If so, use *anyopaque instead to avoid "use of undeclared identifier" errors
+            // Example: mylist: std.ArrayList(Obj) where Obj is the current class -> use *anyopaque
+            var has_nested_class_ref = false;
+            if (std.mem.indexOf(u8, zig_type, class.name) != null) {
+                has_nested_class_ref = true;
+            } else {
+                // Also check other nested class names in this scope
+                var nc_iter = self.nested_class_names.iterator();
+                while (nc_iter.next()) |entry| {
+                    if (std.mem.indexOf(u8, zig_type, entry.key_ptr.*) != null) {
+                        has_nested_class_ref = true;
+                        break;
+                    }
+                }
+            }
+            if (has_nested_class_ref) {
+                zig_type = "*anyopaque";
+            }
+
             // Check if this captured variable is mutated (via append, extend, etc.)
             // If mutated, use * instead of *const
             var mutation_key_buf: [256]u8 = undefined;

@@ -301,6 +301,28 @@ const IoFunctions = std.StaticStringMap(void).initComptime(.{
     .{ "Popen", {} },
 });
 
+/// I/O method names (additional methods not in IoFunctions)
+const IoMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "flush", {} },
+    .{ "readline", {} },
+    .{ "readlines", {} },
+    .{ "writelines", {} },
+    .{ "json", {} }, // response.json()
+    .{ "text", {} }, // response.text()
+});
+
+/// List mutation methods (make function impure)
+const ListMutationMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "append", {} },
+    .{ "extend", {} },
+    .{ "insert", {} },
+    .{ "pop", {} },
+    .{ "remove", {} },
+    .{ "clear", {} },
+    .{ "sort", {} },
+    .{ "reverse", {} },
+});
+
 /// Functions that can raise errors
 const ErrorFunctions = std.StaticStringMap(void).initComptime(.{
     .{ "raise", {} },
@@ -592,29 +614,14 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
                 const attr = call.func.attribute;
                 const method_name = attr.attr;
 
-                // I/O methods (also check IoFunctions for method calls)
-                if (IoFunctions.has(method_name) or
-                    std.mem.eql(u8, method_name, "flush") or
-                    std.mem.eql(u8, method_name, "readline") or
-                    std.mem.eql(u8, method_name, "readlines") or
-                    std.mem.eql(u8, method_name, "writelines") or
-                    std.mem.eql(u8, method_name, "json") or // response.json()
-                    std.mem.eql(u8, method_name, "text")) // response.text()
-                {
+                // I/O methods (check both IoFunctions and IoMethods)
+                if (IoFunctions.has(method_name) or IoMethods.has(method_name)) {
                     ctx.has_io = true;
                     ctx.is_pure = false;
                 }
 
                 // Mutating list methods
-                if (std.mem.eql(u8, method_name, "append") or
-                    std.mem.eql(u8, method_name, "extend") or
-                    std.mem.eql(u8, method_name, "insert") or
-                    std.mem.eql(u8, method_name, "pop") or
-                    std.mem.eql(u8, method_name, "remove") or
-                    std.mem.eql(u8, method_name, "clear") or
-                    std.mem.eql(u8, method_name, "sort") or
-                    std.mem.eql(u8, method_name, "reverse"))
-                {
+                if (ListMutationMethods.has(method_name)) {
                     ctx.is_pure = false;
                     // Check if mutating a parameter
                     if (attr.value.* == .name) {
