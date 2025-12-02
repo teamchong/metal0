@@ -1,5 +1,6 @@
 /// Comparison operations: ==, !=, <, <=, >, >=, in, not in, is, is not
 /// Handles chained comparisons, string comparisons, container membership, identity checks
+/// String literal comparisons are folded at compile time ("a" == "a" → true)
 const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -10,6 +11,21 @@ const producesBlockExpression = expressions.producesBlockExpression;
 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
 const shared = @import("../../shared_maps.zig");
 const CompOpStrings = shared.CompOpStrings;
+
+/// Check if expression is a string constant
+fn isStringConstant(expr: ast.Node) bool {
+    return expr == .constant and expr.constant.value == .string;
+}
+
+/// Extract string content from a constant (strips quotes)
+fn getStringContent(s: []const u8) []const u8 {
+    if (s.len >= 6 and (std.mem.startsWith(u8, s, "'''") or std.mem.startsWith(u8, s, "\"\"\""))) {
+        return s[3 .. s.len - 3];
+    } else if (s.len >= 2) {
+        return s[1 .. s.len - 1];
+    }
+    return s;
+}
 
 /// NumPy comparison operator to method name mapping
 const NumpyCompOps = std.StaticStringMap([]const u8).initComptime(.{
@@ -104,20 +120,49 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         const neither_unknown = (current_left_type != .unknown and right_type != .unknown);
 
         if ((left_is_string and right_is_string) or (either_string and !neither_unknown)) {
+            // Check for string literal comparison optimization
+            // If both sides are literals, fold at compile time
+            const left_is_const = isStringConstant(current_left);
+            const right_is_const = isStringConstant(compare.comparators[i]);
+            const right_expr = compare.comparators[i];
+
             switch (op) {
                 .Eq => {
-                    try self.emit("std.mem.eql(u8, ");
-                    try genExpr(self, current_left);
-                    try self.emit(", ");
-                    try genExpr(self, compare.comparators[i]);
-                    try self.emit(")");
+                    if (left_is_const and right_is_const) {
+                        // Both are string literals - evaluate at compile time!
+                        const left_content = getStringContent(current_left.constant.value.string);
+                        const right_content = getStringContent(right_expr.constant.value.string);
+                        if (std.mem.eql(u8, left_content, right_content)) {
+                            try self.emit("true");
+                        } else {
+                            try self.emit("false");
+                        }
+                    } else {
+                        // Regular string comparison
+                        try self.emit("std.mem.eql(u8, ");
+                        try genExpr(self, current_left);
+                        try self.emit(", ");
+                        try genExpr(self, right_expr);
+                        try self.emit(")");
+                    }
                 },
                 .NotEq => {
-                    try self.emit("!std.mem.eql(u8, ");
-                    try genExpr(self, current_left);
-                    try self.emit(", ");
-                    try genExpr(self, compare.comparators[i]);
-                    try self.emit(")");
+                    if (left_is_const and right_is_const) {
+                        // Both are string literals - evaluate at compile time!
+                        const left_content = getStringContent(current_left.constant.value.string);
+                        const right_content = getStringContent(right_expr.constant.value.string);
+                        if (!std.mem.eql(u8, left_content, right_content)) {
+                            try self.emit("true");
+                        } else {
+                            try self.emit("false");
+                        }
+                    } else {
+                        try self.emit("!std.mem.eql(u8, ");
+                        try genExpr(self, current_left);
+                        try self.emit(", ");
+                        try genExpr(self, right_expr);
+                        try self.emit(")");
+                    }
                 },
                 .In => {
                     // String substring check: std.mem.indexOf(u8, haystack, needle) != null
