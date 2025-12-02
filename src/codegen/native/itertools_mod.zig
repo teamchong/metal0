@@ -124,6 +124,7 @@ fn genTee(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(".{ "); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[0]); try self.emit(" }");
 }
 
+
 fn genPairwise(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayList(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
     try self.emit("pairwise_blk: { const _iter = "); try self.genExpr(args[0]);

@@ -16,6 +16,7 @@ pub const CompileOptions = struct {
     force: bool = false, // --force/-f flag
     emit_bytecode: bool = false, // --emit-bytecode flag (for runtime eval subprocess)
     wasm: bool = false, // --wasm/-w flag for WebAssembly output
+    emit_zig_only: bool = false, // --emit-zig flag - generate .zig file only, no compilation
 };
 
 // Re-export commonly used functions

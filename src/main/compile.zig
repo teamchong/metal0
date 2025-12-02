@@ -476,6 +476,16 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Get C libraries collected during import processing
     const c_libs = try native_gen.c_libraries.toOwnedSlice(aa);
 
+    // Emit Zig only mode - just write the .zig file and return
+    if (opts.emit_zig_only) {
+        // Zig code already written to .metal0/cache/ by native_gen
+        // Just print the path and return
+        const basename = std.fs.path.basename(opts.input_file);
+        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
+        std.debug.print("✓ Generated: .metal0/cache/{s}.zig\n", .{stem});
+        return;
+    }
+
     // Compile to WASM, shared library (.so), or binary
     if (opts.wasm) {
         std.debug.print("Compiling to WebAssembly...\n", .{});
