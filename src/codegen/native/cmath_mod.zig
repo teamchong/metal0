@@ -5,26 +5,13 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
-fn genComplexBuiltin(comptime builtin: []const u8, comptime default_re: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(".{ .re = " ++ default_re ++ ", .im = 0.0 }"); return; }
-        try self.emit(".{ .re = " ++ builtin ++ "(@as(f64, @floatFromInt("); try self.genExpr(args[0]); try self.emit("))), .im = 0.0 }");
-    } }.f;
-}
-fn genComplexStdMath(comptime func: []const u8, comptime default_re: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(".{ .re = " ++ default_re ++ ", .im = 0.0 }"); return; }
-        try self.emit(".{ .re = std.math." ++ func ++ "(@as(f64, @floatFromInt("); try self.genExpr(args[0]); try self.emit("))), .im = 0.0 }");
-    } }.f;
-}
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "sqrt", genSqrt },
-    .{ "exp", genComplexBuiltin("@exp", "1.0") }, .{ "log", genComplexBuiltin("@log", "0.0") }, .{ "log10", genComplexBuiltin("@log10", "0.0") },
-    .{ "sin", genComplexBuiltin("@sin", "0.0") }, .{ "cos", genComplexBuiltin("@cos", "1.0") }, .{ "tan", genComplexBuiltin("@tan", "0.0") },
-    .{ "asin", genComplexStdMath("asin", "0.0") }, .{ "acos", genComplexStdMath("acos", "0.0") }, .{ "atan", genComplexStdMath("atan", "0.0") },
-    .{ "sinh", genComplexStdMath("sinh", "0.0") }, .{ "cosh", genComplexStdMath("cosh", "1.0") }, .{ "tanh", genComplexStdMath("tanh", "0.0") },
-    .{ "asinh", genComplexStdMath("asinh", "0.0") }, .{ "acosh", genComplexStdMath("acosh", "0.0") }, .{ "atanh", genComplexStdMath("atanh", "0.0") },
+    .{ "exp", h.complexBuiltin("@exp", "1.0") }, .{ "log", h.complexBuiltin("@log", "0.0") }, .{ "log10", h.complexBuiltin("@log10", "0.0") },
+    .{ "sin", h.complexBuiltin("@sin", "0.0") }, .{ "cos", h.complexBuiltin("@cos", "1.0") }, .{ "tan", h.complexBuiltin("@tan", "0.0") },
+    .{ "asin", h.complexStdMath("asin", "0.0") }, .{ "acos", h.complexStdMath("acos", "0.0") }, .{ "atan", h.complexStdMath("atan", "0.0") },
+    .{ "sinh", h.complexStdMath("sinh", "0.0") }, .{ "cosh", h.complexStdMath("cosh", "1.0") }, .{ "tanh", h.complexStdMath("tanh", "0.0") },
+    .{ "asinh", h.complexStdMath("asinh", "0.0") }, .{ "acosh", h.complexStdMath("acosh", "0.0") }, .{ "atanh", h.complexStdMath("atanh", "0.0") },
     .{ "phase", h.F64(0.0) }, .{ "polar", h.c(".{ @as(f64, 0.0), @as(f64, 0.0) }") }, .{ "rect", h.c(".{ .re = 0.0, .im = 0.0 }") },
     .{ "isfinite", h.c("true") }, .{ "isinf", h.c("false") }, .{ "isnan", h.c("false") }, .{ "isclose", h.c("true") },
     .{ "pi", h.F64(3.141592653589793) }, .{ "e", h.F64(2.718281828459045) }, .{ "tau", h.F64(6.283185307179586) },

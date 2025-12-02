@@ -5,50 +5,22 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
+// Public exports for dispatch/builtins.zig
+pub const genB64encode = h.b64enc("standard");
+pub const genB64decode = h.b64dec("standard");
+pub const genUrlsafeB64encode = h.b64enc("url_safe");
+pub const genUrlsafeB64decode = h.b64dec("url_safe");
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "b64encode", genB64encode }, .{ "b64decode", genB64decode },
     .{ "urlsafe_b64encode", genUrlsafeB64encode }, .{ "urlsafe_b64decode", genUrlsafeB64decode },
-    .{ "standard_b64encode", genB64encode }, .{ "standard_b64decode", genB64decode },
-    .{ "encodebytes", genB64encode }, .{ "decodebytes", genB64decode },
-    .{ "b32encode", genB32encode }, .{ "b32decode", genB32decode },
+    .{ "standard_b64encode", h.b64enc("standard") }, .{ "standard_b64decode", h.b64dec("standard") },
+    .{ "encodebytes", h.b64enc("standard") }, .{ "decodebytes", h.b64dec("standard") },
+    .{ "b32encode", h.stub("\"base32_not_impl\"") }, .{ "b32decode", h.stub("\"\"") },
     .{ "b16encode", genB16encode }, .{ "b16decode", genB16decode },
-    .{ "a85encode", genA85encode }, .{ "a85decode", genA85decode },
+    .{ "a85encode", h.stub("\"a85_not_impl\"") }, .{ "a85decode", h.stub("\"\"") },
     .{ "z85encode", genZ85encode }, .{ "z85decode", genZ85decode },
 });
-
-fn genEncHelper(comptime encoder: []const u8) h.H {
-    return struct {
-        fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-            if (args.len == 0) return;
-            try self.emit("blk: { const d = "); try self.genExpr(args[0]);
-            try self.emit("; const len = std.base64." ++ encoder ++ ".Encoder.calcSize(d.len); const buf = __global_allocator.alloc(u8, len) catch break :blk \"\"; break :blk std.base64." ++ encoder ++ ".Encoder.encode(buf, d); }");
-        }
-    }.f;
-}
-
-fn genDecHelper(comptime decoder: []const u8) h.H {
-    return struct {
-        fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-            if (args.len == 0) return;
-            try self.emit("blk: { const d = "); try self.genExpr(args[0]);
-            try self.emit("; const len = std.base64." ++ decoder ++ ".Decoder.calcSizeForSlice(d) catch break :blk \"\"; const buf = __global_allocator.alloc(u8, len) catch break :blk \"\"; std.base64." ++ decoder ++ ".Decoder.decode(buf, d) catch break :blk \"\"; break :blk buf; }");
-        }
-    }.f;
-}
-
-fn genStub(self: *NativeCodegen, args: []ast.Node, result: []const u8) CodegenError!void {
-    if (args.len == 0) return;
-    try self.emit("blk: { _ = "); try self.genExpr(args[0]); try self.emit("; break :blk "); try self.emit(result); try self.emit("; }");
-}
-
-pub const genB64encode = genEncHelper("standard");
-pub const genB64decode = genDecHelper("standard");
-pub const genUrlsafeB64encode = genEncHelper("url_safe");
-pub const genUrlsafeB64decode = genDecHelper("url_safe");
-fn genB32encode(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genStub(self, args, "\"base32_not_impl\""); }
-fn genB32decode(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genStub(self, args, "\"\""); }
-fn genA85encode(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genStub(self, args, "\"a85_not_impl\""); }
-fn genA85decode(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genStub(self, args, "\"\""); }
 
 fn genB16encode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

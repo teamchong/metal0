@@ -5,19 +5,11 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
-fn genHash(comptime name: []const u8) h.H {
-    return struct {
-        fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-            if (args.len > 0) {
-                try self.emit("(blk: { var _h = hashlib." ++ name ++ "(); _h.update(");
-                try self.genExpr(args[0]);
-                try self.emit("); break :blk _h; })");
-            } else {
-                try self.emit("hashlib." ++ name ++ "()");
-            }
-        }
-    }.f;
-}
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "md5", h.hashNew("md5") }, .{ "sha1", h.hashNew("sha1") }, .{ "sha224", h.hashNew("sha224") },
+    .{ "sha256", h.hashNew("sha256") }, .{ "sha384", h.hashNew("sha384") }, .{ "sha512", h.hashNew("sha512") },
+    .{ "new", genNew },
+});
 
 fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
@@ -33,9 +25,3 @@ fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(")");
     }
 }
-
-pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "md5", genHash("md5") }, .{ "sha1", genHash("sha1") }, .{ "sha224", genHash("sha224") },
-    .{ "sha256", genHash("sha256") }, .{ "sha384", genHash("sha384") }, .{ "sha512", genHash("sha512") },
-    .{ "new", genNew },
-});
