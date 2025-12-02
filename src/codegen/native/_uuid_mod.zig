@@ -1,37 +1,10 @@
 /// Python _uuid module - Internal UUID support (C accelerator)
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "getnode", genGetnode },
-    .{ "generate_time_safe", genGenerateTimeSafe },
-    .{ "uuid_create", genUuidCreate },
-    .{ "has_uuid_generate_time_safe", genHasUuidGenerateTimeSafe },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "getnode", h.I64(0) },
+    .{ "generate_time_safe", h.c(".{ \"\\x00\" ** 16, @as(i32, 0) }") },
+    .{ "uuid_create", h.c("\"\\x00\" ** 16") },
+    .{ "has_uuid_generate_time_safe", h.c("false") },
 });
-
-/// Generate _uuid.getnode()
-pub fn genGetnode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate _uuid.generate_time_safe()
-pub fn genGenerateTimeSafe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ \"\\x00\" ** 16, @as(i32, 0) }");
-}
-
-/// Generate _uuid.UuidCreate()
-pub fn genUuidCreate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\\x00\" ** 16");
-}
-
-/// Generate _uuid.has_uuid_generate_time_safe constant
-pub fn genHasUuidGenerateTimeSafe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}

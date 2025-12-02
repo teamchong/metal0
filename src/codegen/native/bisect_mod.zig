@@ -1,11 +1,11 @@
 /// Python bisect module - Array bisection algorithms
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "bisect_left", genBisectLeft }, .{ "bisect_right", genBisectRight }, .{ "bisect", genBisectRight },
     .{ "insort_left", genInsortLeft }, .{ "insort_right", genInsortRight }, .{ "insort", genInsortRight },
 });
