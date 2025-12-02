@@ -5,143 +5,78 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const parent = @import("../expressions.zig");
 
-/// Generate code for self.assertEqual(a, b)
-pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertEqual requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertEqual(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
+/// Handler type for assertion methods
+const AssertHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
+
+// Comptime generator for simple 1-arg assertions: runtime.unittest.func(arg)
+fn gen1ArgAssert(comptime func_name: []const u8) AssertHandler {
+    return struct {
+        fn handler(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+            _ = obj;
+            if (args.len < 1) {
+                try self.emit("@compileError(\"" ++ func_name ++ " requires 1 argument\")");
+                return;
+            }
+            try self.emit("runtime.unittest." ++ func_name ++ "(");
+            try parent.genExpr(self, args[0]);
+            try self.emit(")");
+        }
+    }.handler;
 }
 
-/// Generate code for self.assertTrue(x)
-pub fn genAssertTrue(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 1) {
-        try self.emit("@compileError(\"assertTrue requires 1 argument\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertTrue(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(")");
+// Comptime generator for simple 2-arg assertions: runtime.unittest.func(a, b)
+fn gen2ArgAssert(comptime func_name: []const u8) AssertHandler {
+    return struct {
+        fn handler(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+            _ = obj;
+            if (args.len < 2) {
+                try self.emit("@compileError(\"" ++ func_name ++ " requires 2 arguments\")");
+                return;
+            }
+            try self.emit("runtime.unittest." ++ func_name ++ "(");
+            try parent.genExpr(self, args[0]);
+            try self.emit(", ");
+            try parent.genExpr(self, args[1]);
+            try self.emit(")");
+        }
+    }.handler;
 }
 
-/// Generate code for self.assertFalse(x)
-pub fn genAssertFalse(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 1) {
-        try self.emit("@compileError(\"assertFalse requires 1 argument\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertFalse(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(")");
-}
+// Simple assertions via comptime generators
+pub const genAssertEqual = gen2ArgAssert("assertEqual");
+pub const genAssertTrue = gen1ArgAssert("assertTrue");
+pub const genAssertFalse = gen1ArgAssert("assertFalse");
+pub const genAssertIsNone = gen1ArgAssert("assertIsNone");
+pub const genAssertGreater = gen2ArgAssert("assertGreater");
+pub const genAssertLess = gen2ArgAssert("assertLess");
+pub const genAssertGreaterEqual = gen2ArgAssert("assertGreaterEqual");
+pub const genAssertLessEqual = gen2ArgAssert("assertLessEqual");
+pub const genAssertNotEqual = gen2ArgAssert("assertNotEqual");
+pub const genAssertIsNotNone = gen1ArgAssert("assertIsNotNone");
+pub const genAssertAlmostEqual = gen2ArgAssert("assertAlmostEqual");
+pub const genAssertNotAlmostEqual = gen2ArgAssert("assertNotAlmostEqual");
+pub const genAssertCountEqual = gen2ArgAssert("assertCountEqual");
+pub const genAssertRegex = gen2ArgAssert("assertRegex");
+pub const genAssertNotRegex = gen2ArgAssert("assertNotRegex");
+pub const genAssertSetEqual = gen2ArgAssert("assertSetEqual");
+pub const genAssertDictEqual = gen2ArgAssert("assertDictEqual");
+pub const genAssertFloatsAreIdentical = gen2ArgAssert("assertFloatsAreIdentical");
+pub const genAssertIsNot = gen2ArgAssert("assertIsNot");
+pub const genAssertNotIn = gen2ArgAssert("assertNotIn");
 
-/// Generate code for self.assertIsNone(x)
-pub fn genAssertIsNone(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 1) {
-        try self.emit("@compileError(\"assertIsNone requires 1 argument\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertIsNone(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertGreater(a, b)
-pub fn genAssertGreater(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertGreater requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertGreater(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertLess(a, b)
-pub fn genAssertLess(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertLess requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertLess(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertGreaterEqual(a, b)
-pub fn genAssertGreaterEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertGreaterEqual requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertGreaterEqual(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertLessEqual(a, b)
-pub fn genAssertLessEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertLessEqual requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertLessEqual(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertNotEqual(a, b)
-pub fn genAssertNotEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertNotEqual requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertNotEqual(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertIs(a, b)
+/// Generate code for self.assertIs(a, b) - special handling for type() checks
 pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertIs requires 2 arguments\")");
         return;
     }
-
     // Handle special case: assertIs(type(x), int) / assertIs(type(x), bool) etc.
-    // Python's type(x) returns the type object, and comparing with `is` checks identity
     if (args[0] == .call and args[0].call.func.* == .name) {
         const func_name = args[0].call.func.name.id;
         if (std.mem.eql(u8, func_name, "type") and args[0].call.args.len == 1) {
-            // This is type(x) - check if second arg is a type name
             if (args[1] == .name) {
                 const type_name = args[1].name.id;
-                // Map Python type names to Zig types
                 const zig_type: ?[]const u8 = if (std.mem.eql(u8, type_name, "int"))
                     "i64"
                 else if (std.mem.eql(u8, type_name, "bool"))
@@ -152,9 +87,7 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
                     "[]const u8"
                 else
                     null;
-
                 if (zig_type) |ztype| {
-                    // Generate: runtime.unittest.assertTypeIs(@TypeOf(x), ztype)
                     try self.emit("runtime.unittest.assertTypeIs(@TypeOf(");
                     try parent.genExpr(self, args[0].call.args[0]);
                     try self.emit("), ");
@@ -165,37 +98,10 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
             }
         }
     }
-
     try self.emit("runtime.unittest.assertIs(");
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertIsNot(a, b)
-pub fn genAssertIsNot(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertIsNot requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertIsNot(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertIsNotNone(x)
-pub fn genAssertIsNotNone(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 1) {
-        try self.emit("@compileError(\"assertIsNotNone requires 1 argument\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertIsNotNone(");
-    try parent.genExpr(self, args[0]);
     try self.emit(")");
 }
 
@@ -218,90 +124,6 @@ pub fn genAssertIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
             }
         }
     }
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertNotIn(item, container)
-pub fn genAssertNotIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertNotIn requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertNotIn(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertAlmostEqual(a, b)
-pub fn genAssertAlmostEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertAlmostEqual requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertAlmostEqual(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertNotAlmostEqual(a, b)
-pub fn genAssertNotAlmostEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertNotAlmostEqual requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertNotAlmostEqual(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertCountEqual(a, b)
-pub fn genAssertCountEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertCountEqual requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertCountEqual(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertRegex(text, pattern)
-pub fn genAssertRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertRegex requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertRegex(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertNotRegex(text, pattern)
-pub fn genAssertNotRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertNotRegex requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertNotRegex(");
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     try parent.genExpr(self, args[1]);
@@ -885,62 +707,11 @@ pub fn genAssertNotHasAttr(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
     try self.emit(")) @compileError(\"assertNotHasAttr failed\"); }");
 }
 
-/// Generate code for self.assertSequenceEqual(seq1, seq2)
-pub fn genAssertSequenceEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertSequenceEqual requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertEqual(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertListEqual(list1, list2)
-pub fn genAssertListEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    try genAssertSequenceEqual(self, obj, args);
-}
-
-/// Generate code for self.assertTupleEqual(tuple1, tuple2)
-pub fn genAssertTupleEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    try genAssertSequenceEqual(self, obj, args);
-}
-
-/// Generate code for self.assertSetEqual(set1, set2)
-pub fn genAssertSetEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertSetEqual requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertSetEqual(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertDictEqual(dict1, dict2)
-pub fn genAssertDictEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertDictEqual requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertDictEqual(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
-}
-
-/// Generate code for self.assertMultiLineEqual(first, second)
-pub fn genAssertMultiLineEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    try genAssertEqual(self, obj, args);
-}
+// These use comptime generators declared at top
+pub const genAssertSequenceEqual = gen2ArgAssert("assertEqual");
+pub const genAssertListEqual = gen2ArgAssert("assertEqual");
+pub const genAssertTupleEqual = gen2ArgAssert("assertEqual");
+pub const genAssertMultiLineEqual = gen2ArgAssert("assertEqual");
 
 /// Generate code for self.assertLogs(logger, level)
 pub fn genAssertLogs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
@@ -971,21 +742,5 @@ pub fn genFail(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 pub fn genSkipTest(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     _ = args;
-    // For AOT, we can't skip tests at runtime - just return
     try self.emit("return");
-}
-
-/// Generate code for self.assertFloatsAreIdentical(a, b)
-/// Checks that two floats are identical (same value and same sign for zeros)
-pub fn genAssertFloatsAreIdentical(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = obj;
-    if (args.len < 2) {
-        try self.emit("@compileError(\"assertFloatsAreIdentical requires 2 arguments\")");
-        return;
-    }
-    try self.emit("runtime.unittest.assertFloatsAreIdentical(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
 }
