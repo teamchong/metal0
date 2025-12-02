@@ -5,25 +5,22 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
-fn genModuleFinder(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .modules = .{}, .badmodules = .{}, .debug = 0, .indent = 0, .excludes = &[_][]const u8{}, .replace_paths = &[_]struct { []const u8, []const u8 }{} }"); }
-fn genFindHeadPackage(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ null, \"\" }"); }
-fn genScanOpcodes(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]@TypeOf(.{}){}"); }
-fn genAnyMissing(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{}"); }
-fn genAnyMissingMaybe(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ &[_][]const u8{}, .{} }"); }
-fn genModule(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .__name__ = \"\", .__file__ = null, .__path__ = null, .__code__ = null, .globalnames = .{}, .starimports = .{} }"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "ModuleFinder", genModuleFinder }, .{ "msg", genUnit }, .{ "msgin", genUnit }, .{ "msgout", genUnit },
-    .{ "run_script", genUnit }, .{ "load_file", genUnit }, .{ "import_hook", genNull },
-    .{ "determine_parent", genNull }, .{ "find_head_package", genFindHeadPackage },
-    .{ "load_tail", genNull }, .{ "ensure_fromlist", genUnit }, .{ "find_all_submodules", genUnit },
-    .{ "import_module", genNull }, .{ "load_module", genNull }, .{ "scan_code", genUnit },
-    .{ "scan_opcodes", genScanOpcodes }, .{ "any_missing", genAnyMissing },
-    .{ "any_missing_maybe", genAnyMissingMaybe }, .{ "replace_paths_in_code", genReplacePathsInCode },
-    .{ "report", genUnit }, .{ "Module", genModule }, .{ "ReplacePackage", genUnit }, .{ "AddPackagePath", genUnit },
+    .{ "ModuleFinder", genConst(".{ .modules = .{}, .badmodules = .{}, .debug = 0, .indent = 0, .excludes = &[_][]const u8{}, .replace_paths = &[_]struct { []const u8, []const u8 }{} }") },
+    .{ "msg", genConst("{}") }, .{ "msgin", genConst("{}") }, .{ "msgout", genConst("{}") },
+    .{ "run_script", genConst("{}") }, .{ "load_file", genConst("{}") }, .{ "import_hook", genConst("null") },
+    .{ "determine_parent", genConst("null") }, .{ "find_head_package", genConst(".{ null, \"\" }") },
+    .{ "load_tail", genConst("null") }, .{ "ensure_fromlist", genConst("{}") }, .{ "find_all_submodules", genConst("{}") },
+    .{ "import_module", genConst("null") }, .{ "load_module", genConst("null") }, .{ "scan_code", genConst("{}") },
+    .{ "scan_opcodes", genConst("&[_]@TypeOf(.{}){}") }, .{ "any_missing", genConst("&[_][]const u8{}") },
+    .{ "any_missing_maybe", genConst(".{ &[_][]const u8{}, .{} }") }, .{ "replace_paths_in_code", genReplacePathsInCode },
+    .{ "report", genConst("{}") },
+    .{ "Module", genConst(".{ .__name__ = \"\", .__file__ = null, .__path__ = null, .__code__ = null, .globalnames = .{}, .starimports = .{} }") },
+    .{ "ReplacePackage", genConst("{}") }, .{ "AddPackagePath", genConst("{}") },
 });
 
 fn genReplacePathsInCode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

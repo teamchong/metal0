@@ -5,11 +5,13 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "what", genNull }, .{ "whathdr", genNull }, .{ "SndHeaders", genHeaders }, .{ "tests", genTests },
-});
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?@TypeOf(.{ .filetype = \"\", .framerate = @as(i32, 0), .nchannels = @as(i32, 0), .nframes = @as(i32, -1), .sampwidth = @as(i32, 0) }), null)"); }
-fn genHeaders(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .filetype = \"\", .framerate = @as(i32, 0), .nchannels = @as(i32, 0), .nframes = @as(i32, -1), .sampwidth = @as(i32, 0) }"); }
-fn genTests(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]*const fn ([]const u8, *anyopaque) ?@TypeOf(.{ .filetype = \"\", .framerate = @as(i32, 0), .nchannels = @as(i32, 0), .nframes = @as(i32, -1), .sampwidth = @as(i32, 0) }){}"); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "what", genConst("@as(?@TypeOf(.{ .filetype = \"\", .framerate = @as(i32, 0), .nchannels = @as(i32, 0), .nframes = @as(i32, -1), .sampwidth = @as(i32, 0) }), null)") },
+    .{ "whathdr", genConst("@as(?@TypeOf(.{ .filetype = \"\", .framerate = @as(i32, 0), .nchannels = @as(i32, 0), .nframes = @as(i32, -1), .sampwidth = @as(i32, 0) }), null)") },
+    .{ "SndHeaders", genConst(".{ .filetype = \"\", .framerate = @as(i32, 0), .nchannels = @as(i32, 0), .nframes = @as(i32, -1), .sampwidth = @as(i32, 0) }") },
+    .{ "tests", genConst("&[_]*const fn ([]const u8, *anyopaque) ?@TypeOf(.{ .filetype = \"\", .framerate = @as(i32, 0), .nchannels = @as(i32, 0), .nframes = @as(i32, -1), .sampwidth = @as(i32, 0) }){}") },
+});

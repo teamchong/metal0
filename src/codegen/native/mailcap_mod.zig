@@ -5,13 +5,12 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "findmatch", genNull }, .{ "getcaps", genEmpty }, .{ "listmailcapfiles", genStrArr }, .{ "readmailcapfile", genEmpty }, .{ "lookup", genLookup }, .{ "subst", genEmptyStr },
-});
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?@TypeOf(.{ \"\", .{} }), null)"); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
-fn genStrArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{}"); }
-fn genLookup(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_].{ []const u8, .{} }{}"); }
-fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "findmatch", genConst("@as(?@TypeOf(.{ \"\", .{} }), null)") }, .{ "getcaps", genConst(".{}") },
+    .{ "listmailcapfiles", genConst("&[_][]const u8{}") }, .{ "readmailcapfile", genConst(".{}") },
+    .{ "lookup", genConst("&[_].{ []const u8, .{} }{}") }, .{ "subst", genConst("\"\"") },
+});
