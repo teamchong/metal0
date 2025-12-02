@@ -5,18 +5,19 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "gettext", genPassthrough }, .{ "ngettext", genNgettext }, .{ "pgettext", genPgettext },
     .{ "npgettext", genNpgettext }, .{ "dgettext", genPgettext }, .{ "dngettext", genNpgettext },
-    .{ "bindtextdomain", genBindtextdomain }, .{ "textdomain", genTextdomain }, .{ "install", genUnit },
-    .{ "translation", genTranslation }, .{ "find", genNull },
-    .{ "GNUTranslations", genTranslationsClass }, .{ "NullTranslations", genTranslationsClass },
+    .{ "bindtextdomain", genBindtextdomain }, .{ "textdomain", genTextdomain }, .{ "install", genConst("{}") },
+    .{ "translation", genConst(".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f, .ngettext = struct { fn f(s: []const u8, p: []const u8, n: i64) []const u8 { return if (n == 1) s else p; } }.f, .info = struct { fn f() []const u8 { return \"\"; } }.f, .charset = struct { fn f() []const u8 { return \"UTF-8\"; } }.f }") },
+    .{ "find", genConst("null") },
+    .{ "GNUTranslations", genConst(".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f }") },
+    .{ "NullTranslations", genConst(".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f }") },
 });
-
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
 
 fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) { try self.genExpr(args[0]); } else { try self.emit("\"\""); }
@@ -42,12 +43,4 @@ fn genBindtextdomain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genTextdomain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 1) { try self.genExpr(args[0]); } else { try self.emit("\"messages\""); }
-}
-
-fn genTranslation(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genConst(self, args, ".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f, .ngettext = struct { fn f(s: []const u8, p: []const u8, n: i64) []const u8 { return if (n == 1) s else p; } }.f, .info = struct { fn f() []const u8 { return \"\"; } }.f, .charset = struct { fn f() []const u8 { return \"UTF-8\"; } }.f }");
-}
-
-fn genTranslationsClass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genConst(self, args, ".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f }");
 }
