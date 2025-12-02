@@ -5,18 +5,15 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
-fn genI64_8(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 8)"); }
-fn genI64_12(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 12)"); }
-fn genI64_14(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 14)"); }
-fn genBadZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"BadZipFile\""); }
-fn genLargeZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"LargeZipFile\""); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "ZipFile", genZipFile }, .{ "is_zipfile", genIsZipfile }, .{ "ZipInfo", genZipInfo },
-    .{ "ZIP_STORED", genI64_0 }, .{ "ZIP_DEFLATED", genI64_8 }, .{ "ZIP_BZIP2", genI64_12 }, .{ "ZIP_LZMA", genI64_14 },
-    .{ "BadZipFile", genBadZip }, .{ "LargeZipFile", genLargeZip },
+    .{ "ZIP_STORED", genConst("@as(i64, 0)") }, .{ "ZIP_DEFLATED", genConst("@as(i64, 8)") },
+    .{ "ZIP_BZIP2", genConst("@as(i64, 12)") }, .{ "ZIP_LZMA", genConst("@as(i64, 14)") },
+    .{ "BadZipFile", genConst("\"BadZipFile\"") }, .{ "LargeZipFile", genConst("\"LargeZipFile\"") },
 });
 
 fn genZipFile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

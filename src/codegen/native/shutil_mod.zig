@@ -5,16 +5,18 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genDiskUsage(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i64, 0), @as(i64, 0), @as(i64, 0) }"); }
-fn genGetTerminalSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i64, 80), @as(i64, 24) }"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "copy", genCopy }, .{ "copy2", genCopy }, .{ "copyfile", genCopy }, .{ "copystat", genUnit },
-    .{ "copymode", genUnit }, .{ "move", genMove }, .{ "rmtree", genRmtree }, .{ "copytree", genCopytree },
-    .{ "disk_usage", genDiskUsage }, .{ "which", genWhich }, .{ "get_terminal_size", genGetTerminalSize },
-    .{ "make_archive", genMakeArchive }, .{ "unpack_archive", genUnit },
+    .{ "copy", genCopy }, .{ "copy2", genCopy }, .{ "copyfile", genCopy },
+    .{ "copystat", genConst("{}") }, .{ "copymode", genConst("{}") },
+    .{ "move", genMove }, .{ "rmtree", genRmtree }, .{ "copytree", genCopytree },
+    .{ "disk_usage", genConst(".{ @as(i64, 0), @as(i64, 0), @as(i64, 0) }") },
+    .{ "which", genWhich },
+    .{ "get_terminal_size", genConst(".{ @as(i64, 80), @as(i64, 24) }") },
+    .{ "make_archive", genMakeArchive }, .{ "unpack_archive", genConst("{}") },
 });
 
 fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
