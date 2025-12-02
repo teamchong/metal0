@@ -1,20 +1,16 @@
 /// Python binascii module - Binary/ASCII conversions
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "hexlify", genHexlify }, .{ "unhexlify", genUnhexlify }, .{ "b2a_hex", genHexlify }, .{ "a2b_hex", genUnhexlify },
     .{ "b2a_base64", genB2a_base64 }, .{ "a2b_base64", genA2b_base64 },
-    .{ "b2a_uu", genConst("\"\"") }, .{ "a2b_uu", genConst("\"\"") }, .{ "b2a_qp", genConst("\"\"") }, .{ "a2b_qp", genConst("\"\"") },
-    .{ "crc32", genCrc32 }, .{ "crc_hqx", genConst("@as(i32, 0)") },
-    .{ "Error", genConst("error.BinasciiError") }, .{ "Incomplete", genConst("error.Incomplete") },
+    .{ "b2a_uu", h.c("\"\"") }, .{ "a2b_uu", h.c("\"\"") }, .{ "b2a_qp", h.c("\"\"") }, .{ "a2b_qp", h.c("\"\"") },
+    .{ "crc32", genCrc32 }, .{ "crc_hqx", h.I32(0) },
+    .{ "Error", h.err("BinasciiError") }, .{ "Incomplete", h.err("Incomplete") },
 });
 
 fn genHexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
