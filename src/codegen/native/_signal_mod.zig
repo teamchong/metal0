@@ -1,12 +1,11 @@
 /// Python _signal module - C accelerator for signal (internal)
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "signal", genSignal }, .{ "getsignal", h.c("null") }, .{ "raise_signal", h.c("{}") }, .{ "alarm", genAlarm },
+    .{ "signal", h.wrap("blk: { const signum = ", "; _ = signum; break :blk null; }", "null") },
+    .{ "getsignal", h.c("null") }, .{ "raise_signal", h.c("{}") },
+    .{ "alarm", h.wrap("blk: { const seconds = ", "; _ = seconds; break :blk @as(i32, 0); }", "@as(i32, 0)") },
     .{ "pause", h.c("{}") }, .{ "getitimer", h.c(".{ .interval = 0.0, .value = 0.0 }") }, .{ "setitimer", h.c(".{ .interval = 0.0, .value = 0.0 }") },
     .{ "siginterrupt", h.c("{}") }, .{ "set_wakeup_fd", h.I32(-1) }, .{ "sigwait", h.I32(0) },
     .{ "pthread_kill", h.c("{}") }, .{ "pthread_sigmask", h.c("&[_]i32{}") }, .{ "sigpending", h.c("&[_]i32{}") },
@@ -23,10 +22,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "ITIMER_REAL", h.I32(0) }, .{ "ITIMER_VIRTUAL", h.I32(1) }, .{ "ITIMER_PROF", h.I32(2) },
     .{ "SIG_BLOCK", h.I32(1) }, .{ "SIG_UNBLOCK", h.I32(2) }, .{ "SIG_SETMASK", h.I32(3) },
 });
-
-fn genSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) { try self.emit("blk: { const signum = "); try self.genExpr(args[0]); try self.emit("; _ = signum; break :blk null; }"); } else try self.emit("null");
-}
-fn genAlarm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const seconds = "); try self.genExpr(args[0]); try self.emit("; _ = seconds; break :blk @as(i32, 0); }"); } else try self.emit("@as(i32, 0)");
-}

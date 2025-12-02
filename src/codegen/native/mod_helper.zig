@@ -149,6 +149,20 @@ pub fn wrap2(comptime pre: []const u8, comptime mid: []const u8, comptime suf: [
     } }.f;
 }
 
+/// Generates type test: ((arg & mask) == expected) for stat module
+pub fn typeTest(comptime expected: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit("(("); try self.genExpr(args[0]); try self.emit(" & 0o170000) == " ++ expected ++ ")"); } else try self.emit("false");
+    } }.f;
+}
+
+/// Generates wrapN: pre + arg[n] + suf, or default
+pub fn wrapN(comptime n: usize, comptime pre: []const u8, comptime suf: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > n) { try self.emit(pre); try self.genExpr(args[n]); try self.emit(suf); } else try self.emit(d);
+    } }.f;
+}
+
 /// Emit a unique labeled block start and return the label ID for break
 pub fn emitUniqueBlockStart(self: *NativeCodegen, prefix: []const u8) CodegenError!u64 {
     const id = self.block_label_counter;
