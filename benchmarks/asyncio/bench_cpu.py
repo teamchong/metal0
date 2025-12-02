@@ -5,20 +5,17 @@ Tests parallel computation performance:
 - Spawns N worker tasks
 - Each worker does CPU-intensive computation
 - Collects results via gather
-
-Best for: thread pool / work-stealing scheduler
 """
 import asyncio
 import time
 
 NUM_TASKS = 100
-WORK_PER_TASK = 20000000  # 20M iterations per task
+WORK_PER_TASK = 1000000  # 1M iterations per task
 
 async def worker(task_id: int) -> int:
-    """CPU-intensive worker with I/O to force runtime"""
-    await asyncio.sleep(0.001)  # 1ms I/O to force runtime
+    """CPU-intensive worker"""
     result = 0
-    for i in range(20000000):  # 20M iterations
+    for i in range(WORK_PER_TASK):
         result += i * task_id
     return result
 

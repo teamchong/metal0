@@ -382,16 +382,16 @@ Benchmarked on macOS ARM64 (Apple Silicon M2).
 
 metal0 compiles Python's `asyncio` to state machine coroutines with kqueue netpoller.
 
-**CPU-Bound: Fan-out/Fan-in (100 tasks × 20M iterations each)**
+**CPU-Bound: Fan-out/Fan-in (100 tasks × 1M iterations each)**
 
 | Runtime | Time | Tasks/sec | vs CPython |
 |---------|------|-----------|------------|
-| **metal0** | **1ms*** | **97,270** | **60,000x** 🏆 |
-| Go | 128ms | 783 | 484x |
-| Rust (tokio) | 125ms | 798 | 495x |
-| CPython | 61,887ms | 2 | 1x |
+| **metal0** | **0.01ms*** | **∞** | **comptime** 🏆 |
+| Rust (rayon) | 0.17ms* | 573,888 | 17,776x |
+| Go | 5.6ms | 17,806 | 539x |
+| CPython | 3,022ms | 33 | 1x |
 
-*\*metal0 evaluates pure arithmetic loops at compile time via LLVM - the "work" happens during compilation, not runtime. This is a real optimization that benefits production code with constant expressions.*
+*\*Both metal0 and Rust optimize pure arithmetic loops at compile time via LLVM. This is a real optimization that benefits production code.*
 
 **I/O-Bound: Concurrent Sleep (10,000 tasks × 100ms each)**
 

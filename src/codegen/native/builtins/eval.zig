@@ -91,14 +91,11 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     try emitInt(self, blob_id);
     try self.emit(".deinit();\n");
 
-    try self.emit("    break :blk _vm_");
+    try self.emit("    break :blk try _vm_");
     try emitInt(self, blob_id);
     try self.emit(".execute(&_program_");
     try emitInt(self, blob_id);
-    try self.emit(") catch |err| {\n");
-    try self.emit("        std.debug.print(\"eval error: {}\\n\", .{err});\n");
-    try self.emit("        unreachable;\n");
-    try self.emit("    };\n}");
+    try self.emit(");\n}");
 }
 
 /// Helper to emit integer as decimal string
