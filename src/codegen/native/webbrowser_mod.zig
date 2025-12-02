@@ -1,29 +1,25 @@
 /// Python webbrowser module - Convenient web browser controller
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "open", genOpen }, .{ "open_new", genOpen }, .{ "open_new_tab", genOpen },
-    .{ "get", genConst(".{ .name = \"default\", .basename = \"default\" }") },
-    .{ "register", genConst("{}") }, .{ "Error", genConst("error.WebBrowserError") },
-    .{ "BaseBrowser", genConst(".{ .name = \"base\", .basename = null }") },
-    .{ "GenericBrowser", genConst(".{ .name = \"generic\", .basename = null, .args = &[_][]const u8{} }") },
-    .{ "BackgroundBrowser", genConst(".{ .name = \"background\", .basename = null }") },
-    .{ "UnixBrowser", genConst(".{ .name = \"unix\", .basename = null, .remote_args = &[_][]const u8{}, .remote_action = null, .remote_action_newwin = null, .remote_action_newtab = null, .background = false, .redirect_stdout = true }") },
-    .{ "Mozilla", genConst(".{ .name = \"mozilla\" }") }, .{ "Netscape", genConst(".{ .name = \"netscape\" }") },
-    .{ "Galeon", genConst(".{ .name = \"galeon\" }") }, .{ "Chrome", genConst(".{ .name = \"chrome\" }") },
-    .{ "Chromium", genConst(".{ .name = \"chromium\" }") }, .{ "Opera", genConst(".{ .name = \"opera\" }") },
-    .{ "Elinks", genConst(".{ .name = \"elinks\" }") }, .{ "Konqueror", genConst(".{ .name = \"konqueror\" }") },
-    .{ "Grail", genConst(".{ .name = \"grail\" }") }, .{ "MacOSX", genConst(".{ .name = \"macosx\" }") },
-    .{ "MacOSXOSAScript", genConst(".{ .name = \"macosx-osascript\" }") },
-    .{ "WindowsDefault", genConst(".{ .name = \"windows-default\" }") },
+    .{ "get", h.c(".{ .name = \"default\", .basename = \"default\" }") },
+    .{ "register", h.c("{}") }, .{ "Error", h.err("WebBrowserError") },
+    .{ "BaseBrowser", h.c(".{ .name = \"base\", .basename = null }") },
+    .{ "GenericBrowser", h.c(".{ .name = \"generic\", .basename = null, .args = &[_][]const u8{} }") },
+    .{ "BackgroundBrowser", h.c(".{ .name = \"background\", .basename = null }") },
+    .{ "UnixBrowser", h.c(".{ .name = \"unix\", .basename = null, .remote_args = &[_][]const u8{}, .remote_action = null, .remote_action_newwin = null, .remote_action_newtab = null, .background = false, .redirect_stdout = true }") },
+    .{ "Mozilla", h.c(".{ .name = \"mozilla\" }") }, .{ "Netscape", h.c(".{ .name = \"netscape\" }") },
+    .{ "Galeon", h.c(".{ .name = \"galeon\" }") }, .{ "Chrome", h.c(".{ .name = \"chrome\" }") },
+    .{ "Chromium", h.c(".{ .name = \"chromium\" }") }, .{ "Opera", h.c(".{ .name = \"opera\" }") },
+    .{ "Elinks", h.c(".{ .name = \"elinks\" }") }, .{ "Konqueror", h.c(".{ .name = \"konqueror\" }") },
+    .{ "Grail", h.c(".{ .name = \"grail\" }") }, .{ "MacOSX", h.c(".{ .name = \"macosx\" }") },
+    .{ "MacOSXOSAScript", h.c(".{ .name = \"macosx-osascript\" }") },
+    .{ "WindowsDefault", h.c(".{ .name = \"windows-default\" }") },
 });
 
 fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

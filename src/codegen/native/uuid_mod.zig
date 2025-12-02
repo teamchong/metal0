@@ -1,25 +1,21 @@
 /// Python uuid module - UUID generation
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 const UuidFmt = "\"{x:0>2}{x:0>2}{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}\"";
 const UuidArgs = ", .{ _bytes[0], _bytes[1], _bytes[2], _bytes[3], _bytes[4], _bytes[5], _bytes[6], _bytes[7], _bytes[8], _bytes[9], _bytes[10], _bytes[11], _bytes[12], _bytes[13], _bytes[14], _bytes[15] }) catch break :blk \"\"; break :blk &_buf; }";
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "uuid4", genUuid4 }, .{ "uuid1", genUuid1 }, .{ "uuid3", genUuid4 }, .{ "uuid5", genUuid4 },
     .{ "UUID", genUUID },
-    .{ "NAMESPACE_DNS", genConst("\"6ba7b810-9dad-11d1-80b4-00c04fd430c8\"") },
-    .{ "NAMESPACE_URL", genConst("\"6ba7b811-9dad-11d1-80b4-00c04fd430c8\"") },
-    .{ "NAMESPACE_OID", genConst("\"6ba7b812-9dad-11d1-80b4-00c04fd430c8\"") },
-    .{ "NAMESPACE_X500", genConst("\"6ba7b814-9dad-11d1-80b4-00c04fd430c8\"") },
-    .{ "getnode", genConst("blk: { var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); break :blk @as(i64, @intCast(_prng.random().int(u48))); }") },
+    .{ "NAMESPACE_DNS", h.c("\"6ba7b810-9dad-11d1-80b4-00c04fd430c8\"") },
+    .{ "NAMESPACE_URL", h.c("\"6ba7b811-9dad-11d1-80b4-00c04fd430c8\"") },
+    .{ "NAMESPACE_OID", h.c("\"6ba7b812-9dad-11d1-80b4-00c04fd430c8\"") },
+    .{ "NAMESPACE_X500", h.c("\"6ba7b814-9dad-11d1-80b4-00c04fd430c8\"") },
+    .{ "getnode", h.c("blk: { var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); break :blk @as(i64, @intCast(_prng.random().int(u48))); }") },
 });
 
 fn genUuid4(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

@@ -1,39 +1,35 @@
 /// Python urllib.request module - URL handling
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "urlopen", genConst(".{ .status = @as(i32, 200), .reason = \"OK\", .headers = .{}, .url = \"\" }") },
-    .{ "install_opener", genConst("{}") },
-    .{ "build_opener", genConst(".{ .handlers = &[_]*anyopaque{} }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "urlopen", h.c(".{ .status = @as(i32, 200), .reason = \"OK\", .headers = .{}, .url = \"\" }") },
+    .{ "install_opener", h.c("{}") },
+    .{ "build_opener", h.c(".{ .handlers = &[_]*anyopaque{} }") },
     .{ "pathname2url", genPassthrough }, .{ "url2pathname", genPassthrough },
-    .{ "getproxies", genConst(".{}") },
-    .{ "Request", genRequest }, .{ "OpenerDirector", genConst(".{ .handlers = &[_]*anyopaque{} }") },
-    .{ "BaseHandler", genConst(".{}") }, .{ "HTTPDefaultErrorHandler", genConst(".{}") },
-    .{ "HTTPRedirectHandler", genConst(".{ .max_redirections = @as(i32, 10), .max_repeats = @as(i32, 4) }") },
-    .{ "HTTPCookieProcessor", genConst(".{ .cookiejar = @as(?*anyopaque, null) }") },
-    .{ "ProxyHandler", genConst(".{ .proxies = .{} }") },
-    .{ "HTTPPasswordMgr", genConst(".{}") }, .{ "HTTPPasswordMgrWithDefaultRealm", genConst(".{}") },
-    .{ "HTTPPasswordMgrWithPriorAuth", genConst(".{}") },
-    .{ "AbstractBasicAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
-    .{ "HTTPBasicAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
-    .{ "ProxyBasicAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
-    .{ "AbstractDigestAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
-    .{ "HTTPDigestAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
-    .{ "ProxyDigestAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
-    .{ "HTTPHandler", genConst(".{}") }, .{ "HTTPSHandler", genConst(".{ .context = @as(?*anyopaque, null), .check_hostname = @as(?bool, null) }") },
-    .{ "FileHandler", genConst(".{}") }, .{ "FTPHandler", genConst(".{}") },
-    .{ "CacheFTPHandler", genConst(".{ .max_conns = @as(i32, 0) }") }, .{ "DataHandler", genConst(".{}") },
-    .{ "UnknownHandler", genConst(".{}") }, .{ "HTTPErrorProcessor", genConst(".{}") },
-    .{ "URLError", genConst("error.URLError") }, .{ "HTTPError", genConst("error.HTTPError") },
-    .{ "ContentTooShortError", genConst("error.ContentTooShortError") },
+    .{ "getproxies", h.c(".{}") },
+    .{ "Request", genRequest }, .{ "OpenerDirector", h.c(".{ .handlers = &[_]*anyopaque{} }") },
+    .{ "BaseHandler", h.c(".{}") }, .{ "HTTPDefaultErrorHandler", h.c(".{}") },
+    .{ "HTTPRedirectHandler", h.c(".{ .max_redirections = @as(i32, 10), .max_repeats = @as(i32, 4) }") },
+    .{ "HTTPCookieProcessor", h.c(".{ .cookiejar = @as(?*anyopaque, null) }") },
+    .{ "ProxyHandler", h.c(".{ .proxies = .{} }") },
+    .{ "HTTPPasswordMgr", h.c(".{}") }, .{ "HTTPPasswordMgrWithDefaultRealm", h.c(".{}") },
+    .{ "HTTPPasswordMgrWithPriorAuth", h.c(".{}") },
+    .{ "AbstractBasicAuthHandler", h.c(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "HTTPBasicAuthHandler", h.c(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "ProxyBasicAuthHandler", h.c(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "AbstractDigestAuthHandler", h.c(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "HTTPDigestAuthHandler", h.c(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "ProxyDigestAuthHandler", h.c(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "HTTPHandler", h.c(".{}") }, .{ "HTTPSHandler", h.c(".{ .context = @as(?*anyopaque, null), .check_hostname = @as(?bool, null) }") },
+    .{ "FileHandler", h.c(".{}") }, .{ "FTPHandler", h.c(".{}") },
+    .{ "CacheFTPHandler", h.c(".{ .max_conns = @as(i32, 0) }") }, .{ "DataHandler", h.c(".{}") },
+    .{ "UnknownHandler", h.c(".{}") }, .{ "HTTPErrorProcessor", h.c(".{}") },
+    .{ "URLError", h.err("URLError") }, .{ "HTTPError", h.err("HTTPError") },
+    .{ "ContentTooShortError", h.err("ContentTooShortError") },
 });
 
 fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

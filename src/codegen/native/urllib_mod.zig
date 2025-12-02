@@ -1,11 +1,11 @@
 /// Python urllib module - URL handling
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "urlparse", genUrlparse }, .{ "urlunparse", genUrlunparse }, .{ "urlencode", genUrlencode },
     .{ "quote", genQuote }, .{ "quote_plus", genQuote }, .{ "unquote", genUnquote }, .{ "unquote_plus", genUnquote },
     .{ "urljoin", genUrljoin }, .{ "parse_qs", genParseQs }, .{ "parse_qsl", genParseQsl },

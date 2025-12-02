@@ -1,25 +1,21 @@
 /// Python warnings module - Warning control
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "warn", genWarn }, .{ "warn_explicit", genWarn }, .{ "showwarning", genWarn },
-    .{ "formatwarning", genFormatwarning }, .{ "filterwarnings", genConst("{}") }, .{ "simplefilter", genConst("{}") },
-    .{ "resetwarnings", genConst("{}") }, .{ "catch_warnings", genConst("struct { record: bool = false, log: std.ArrayList([]const u8) = .{}, pub fn __enter__(__self: *@This()) *@This() { return __self; } pub fn __exit__(__self: *@This(), _: anytype) void { _ = __self; } }{}") },
-    .{ "Warning", genConst("\"Warning\"") }, .{ "UserWarning", genConst("\"UserWarning\"") }, .{ "DeprecationWarning", genConst("\"DeprecationWarning\"") },
-    .{ "PendingDeprecationWarning", genConst("\"PendingDeprecationWarning\"") }, .{ "SyntaxWarning", genConst("\"SyntaxWarning\"") },
-    .{ "RuntimeWarning", genConst("\"RuntimeWarning\"") }, .{ "FutureWarning", genConst("\"FutureWarning\"") },
-    .{ "ImportWarning", genConst("\"ImportWarning\"") }, .{ "UnicodeWarning", genConst("\"UnicodeWarning\"") },
-    .{ "BytesWarning", genConst("\"BytesWarning\"") }, .{ "ResourceWarning", genConst("\"ResourceWarning\"") },
-    .{ "filters", genConst("&[_][]const u8{}") }, .{ "_filters_mutated", genConst("{}") },
-    .{ "WarningMessage", genConst("struct { _WARNING_DETAILS: []const []const u8 = &[_][]const u8{\"message\", \"category\", \"filename\", \"lineno\", \"file\", \"line\", \"source\"} }{}") },
+    .{ "formatwarning", genFormatwarning }, .{ "filterwarnings", h.c("{}") }, .{ "simplefilter", h.c("{}") },
+    .{ "resetwarnings", h.c("{}") }, .{ "catch_warnings", h.c("struct { record: bool = false, log: std.ArrayList([]const u8) = .{}, pub fn __enter__(__self: *@This()) *@This() { return __self; } pub fn __exit__(__self: *@This(), _: anytype) void { _ = __self; } }{}") },
+    .{ "Warning", h.c("\"Warning\"") }, .{ "UserWarning", h.c("\"UserWarning\"") }, .{ "DeprecationWarning", h.c("\"DeprecationWarning\"") },
+    .{ "PendingDeprecationWarning", h.c("\"PendingDeprecationWarning\"") }, .{ "SyntaxWarning", h.c("\"SyntaxWarning\"") },
+    .{ "RuntimeWarning", h.c("\"RuntimeWarning\"") }, .{ "FutureWarning", h.c("\"FutureWarning\"") },
+    .{ "ImportWarning", h.c("\"ImportWarning\"") }, .{ "UnicodeWarning", h.c("\"UnicodeWarning\"") },
+    .{ "BytesWarning", h.c("\"BytesWarning\"") }, .{ "ResourceWarning", h.c("\"ResourceWarning\"") },
+    .{ "filters", h.c("&[_][]const u8{}") }, .{ "_filters_mutated", h.c("{}") },
+    .{ "WarningMessage", h.c("struct { _WARNING_DETAILS: []const []const u8 = &[_][]const u8{\"message\", \"category\", \"filename\", \"lineno\", \"file\", \"line\", \"source\"} }{}") },
 });
 
 fn genWarn(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
