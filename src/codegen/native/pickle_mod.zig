@@ -44,10 +44,7 @@ pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 }
 
-pub fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-    try self.emit("runtime.pickleLoads("); try self.genExpr(args[0]); try self.emit(")");
-}
+pub const genLoads = h.wrap("runtime.pickleLoads(", ")", "null");
 
 pub fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
