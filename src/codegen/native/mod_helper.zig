@@ -53,14 +53,17 @@ pub fn discard(comptime ret: []const u8) H {
             }
             // Generate: blk: { _ = arg1; _ = arg2; break :blk default; }
             const id = emitUniqueBlockStart(self, "discard") catch 0;
-            for (args) |arg| {
+            for (args, 0..) |arg, i| {
+                // Emit: _ = arg; (semicolon only needed before next arg, emitBlockBreak adds one)
+                if (i > 0) try self.emit(" ");
                 try self.emit("_ = ");
                 try self.genExpr(arg);
-                try self.emit("; ");
+                if (i < args.len - 1) try self.emit(";"); // semicolon between args, not after last
             }
+            // emitBlockBreak adds "; break :label " so no trailing semicolon needed on last arg
             emitBlockBreak(self, "discard", id) catch {};
             try self.emit(ret);
-            try self.emit(" }");
+            try self.emit("; }");
         }
     }.f;
 }
