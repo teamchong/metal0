@@ -404,11 +404,6 @@ metal0 compiles Python's `asyncio` to state machine coroutines with kqueue netpo
 
 *Sequential would take 1,000,000ms (16.7 min). metal0 achieves 9911× concurrency via state machine + kqueue netpoller.*
 
-**When to use what:**
-- **CPU-bound** (computation): metal0 > Rust > Go >> PyPy >> CPython
-- **I/O-bound** (network): metal0 > Rust > Go > CPython > PyPy
-- **Developer productivity**: Python (metal0) > Go > Rust
-
 ```bash
 # Run benchmarks
 cd benchmarks/asyncio

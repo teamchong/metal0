@@ -386,25 +386,17 @@ pub const ExprParser = struct {
         if (self.current.type == .Minus) {
             try self.advance();
             try self.parseUnary();
-            // Negate: 0 - value
-            const zero_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-            self.compiler.constants.append(self.allocator, .{ .int = 0 }) catch return ParseError.OutOfMemory;
-            // Insert LoadConst 0 before the value (swap stack positions)
-            // Actually for unary minus we need: push 0, then value is on stack, then Sub
-            // But value already on stack from recursive call, so we need different approach
-            // Simpler: multiply by -1
-            const neg_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-            self.compiler.constants.append(self.allocator, .{ .int = -1 }) catch return ParseError.OutOfMemory;
-            self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = neg_idx }) catch return ParseError.OutOfMemory;
-            self.compiler.instructions.append(self.allocator, .{ .op = .Mult }) catch return ParseError.OutOfMemory;
-            _ = zero_idx;
+            // Emit USub opcode for type checking and negation
+            self.compiler.instructions.append(self.allocator, .{ .op = .USub }) catch return ParseError.OutOfMemory;
             return;
         }
 
         if (self.current.type == .Plus) {
             try self.advance();
             try self.parseUnary();
-            return; // +x is just x
+            // Emit UAdd opcode for type checking (strings/bytes should raise TypeError)
+            self.compiler.instructions.append(self.allocator, .{ .op = .UAdd }) catch return ParseError.OutOfMemory;
+            return;
         }
 
         if (self.current.type == .Tilde) {
