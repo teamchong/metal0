@@ -31,23 +31,11 @@ fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(" * 1_000_000_000)))");
 }
 
-/// Generate gmtime(secs) or gmtime() - convert seconds to struct_time
+const gmtime_body = "; const _epoch = std.time.epoch.EpochSeconds{ .secs = @intCast(_ts) }; const _day = _epoch.getEpochDay(); const _year_day = _day.calculateYearDay(); const _day_seconds = _epoch.getDaySeconds(); break :blk .{ .tm_year = _year_day.year, .tm_mon = @as(i32, @intFromEnum(_year_day.month)), .tm_mday = _day.calculateYearDay().day_of_month, .tm_hour = _day_seconds.getHoursIntoDay(), .tm_min = _day_seconds.getMinutesIntoHour(), .tm_sec = _day_seconds.getSecondsIntoMinute(), .tm_wday = @as(i32, @intFromEnum(_day.dayOfWeek())), .tm_yday = _year_day.getDayOfYear(), .tm_isdst = 0 }; }";
+
 fn genGmtime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("blk: { const _ts: i64 = ");
-    if (args.len > 0) {
-        // Use provided timestamp
-        try self.emit("@intFromFloat(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
-    } else {
-        // No arg - use current time
-        try self.emit("@intCast(std.time.timestamp())");
-    }
-    try self.emit("; const _epoch = std.time.epoch.EpochSeconds{ .secs = @intCast(_ts) }; ");
-    try self.emit("const _day = _epoch.getEpochDay(); const _year_day = _day.calculateYearDay(); ");
-    try self.emit("const _day_seconds = _epoch.getDaySeconds(); ");
-    try self.emit("break :blk .{ .tm_year = _year_day.year, .tm_mon = @as(i32, @intFromEnum(_year_day.month)), ");
-    try self.emit(".tm_mday = _day.calculateYearDay().day_of_month, .tm_hour = _day_seconds.getHoursIntoDay(), ");
-    try self.emit(".tm_min = _day_seconds.getMinutesIntoHour(), .tm_sec = _day_seconds.getSecondsIntoMinute(), ");
-    try self.emit(".tm_wday = @as(i32, @intFromEnum(_day.dayOfWeek())), .tm_yday = _year_day.getDayOfYear(), .tm_isdst = 0 }; }");
+    if (args.len > 0) { try self.emit("@intFromFloat("); try self.genExpr(args[0]); try self.emit(")"); }
+    else try self.emit("@intCast(std.time.timestamp())");
+    try self.emit(gmtime_body);
 }
