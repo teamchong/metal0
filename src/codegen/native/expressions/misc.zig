@@ -7,6 +7,8 @@ const subscript_mod = @import("subscript.zig");
 const zig_keywords = @import("zig_keywords");
 const expressions_mod = @import("../expressions.zig");
 const producesBlockExpression = expressions_mod.producesBlockExpression;
+const self_analyzer = @import("../statements/functions/self_analyzer.zig");
+const UnittestAssertions = self_analyzer.unittest_assertion_methods;
 
 const FloatClassMethods = std.StaticStringMap([]const u8).initComptime(.{
     .{ "fromhex", "runtime.floatFromHex" },
@@ -23,18 +25,6 @@ const NumpyArrayProps = std.StaticStringMap([]const u8).initComptime(.{
 
 const PathProperties = std.StaticStringMap(void).initComptime(.{
     .{ "parent", {} }, .{ "stem", {} }, .{ "suffix", {} }, .{ "name", {} },
-});
-
-const UnittestAssertions = std.StaticStringMap(void).initComptime(.{
-    .{ "assertEqual", {} },       .{ "assertNotEqual", {} },    .{ "assertTrue", {} },        .{ "assertFalse", {} },
-    .{ "assertIs", {} },          .{ "assertIsNot", {} },       .{ "assertIsNone", {} },      .{ "assertIsNotNone", {} },
-    .{ "assertIn", {} },          .{ "assertNotIn", {} },       .{ "assertIsInstance", {} },  .{ "assertNotIsInstance", {} },
-    .{ "assertRaises", {} },      .{ "assertRaisesRegex", {} }, .{ "assertWarns", {} },       .{ "assertWarnsRegex", {} },
-    .{ "assertLogs", {} },        .{ "assertNoLogs", {} },      .{ "assertAlmostEqual", {} }, .{ "assertNotAlmostEqual", {} },
-    .{ "assertGreater", {} },     .{ "assertGreaterEqual", {} }, .{ "assertLess", {} },       .{ "assertLessEqual", {} },
-    .{ "assertRegex", {} },       .{ "assertNotRegex", {} },    .{ "assertCountEqual", {} },  .{ "assertMultiLineEqual", {} },
-    .{ "assertSequenceEqual", {} }, .{ "assertListEqual", {} }, .{ "assertTupleEqual", {} },  .{ "assertSetEqual", {} },
-    .{ "assertDictEqual", {} },   .{ "fail", {} },              .{ "failIf", {} },            .{ "failUnless", {} },
 });
 
 /// Generate tuple literal as Zig anonymous struct
