@@ -370,15 +370,11 @@ pub fn countAssignmentsWithScope(
                     defer allocator.free(scoped_key);
                     const current = scoped_counts.get(scoped_key) orelse 0;
                     try scoped_counts.put(try allocator.dupe(u8, scoped_key), current + 1);
-                    // ALSO count at function scope (0) if we're in a nested scope
-                    // This handles: x = 1 (scope 0) + x = 2 (nested loop) -> x is mutated
-                    // In Python, assignments in nested scopes mutate outer scope variables
-                    if (scope_id != 0) {
-                        const func_scope_key = try std.fmt.allocPrint(allocator, "{s}:0", .{name});
-                        defer allocator.free(func_scope_key);
-                        const func_current = scoped_counts.get(func_scope_key) orelse 0;
-                        try scoped_counts.put(try allocator.dupe(u8, func_scope_key), func_current + 1);
-                    }
+                    // NOTE: We do NOT propagate nested scope assignments to function scope.
+                    // In Python, `x = 1` inside a loop and `x = 2` outside share the same variable.
+                    // But in generated Zig, each block scope creates a NEW variable declaration.
+                    // So `const x = ...` inside loop and `const x = ...` outside are DIFFERENT vars.
+                    // Cross-scope assignments are NOT mutations in Zig - they're fresh declarations.
                 } else if (target == .subscript) {
                     // Subscript assignment: x[0] = value mutates x
                     const subscript = target.subscript;

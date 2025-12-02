@@ -13,7 +13,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "partial", genPartial }, .{ "reduce", genReduce },
     .{ "lru_cache", genLruCache }, .{ "cache", genLruCache },
     .{ "wraps", genLruCache }, .{ "total_ordering", genLruCache },
-    .{ "cmp_to_key", genCmpToKey },
+    .{ "cmp_to_key", h.pass("null") },
 });
 
 pub fn genPartial(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -39,8 +39,4 @@ pub fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("; for (_iterable) |item| { _acc = _func(_acc, item); }");
     } else try self.emit("var _first = true; var _acc: @TypeOf(_iterable[0]) = undefined; for (_iterable) |item| { if (_first) { _acc = item; _first = false; } else { _acc = _func(_acc, item); } }");
     try self.emit(" break :reduce_blk _acc; }");
-}
-
-fn genCmpToKey(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) try self.genExpr(args[0]);
 }
