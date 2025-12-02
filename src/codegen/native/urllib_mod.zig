@@ -23,10 +23,7 @@ fn genUrlunparse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("; var _result: std.ArrayList(u8) = .{}; if (_parts.scheme.len > 0) { _result.appendSlice(__global_allocator, _parts.scheme) catch {}; _result.appendSlice(__global_allocator, \"://\") catch {}; } _result.appendSlice(__global_allocator, _parts.netloc) catch {}; _result.appendSlice(__global_allocator, _parts.path) catch {}; if (_parts.query.len > 0) { _result.append(__global_allocator, '?') catch {}; _result.appendSlice(__global_allocator, _parts.query) catch {}; } break :blk _result.items; }");
 }
 
-fn genUrlencode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-    try self.emit("blk: { const _query = "); try self.genExpr(args[0]); try self.emit("; _ = _query; break :blk \"\"; }");
-}
+const genUrlencode = h.discard("\"\"");
 
 fn genQuote(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
