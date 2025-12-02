@@ -14,32 +14,14 @@ const ClosureError = error{
 const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
 const lambda_closure = @import("lambda_closure.zig");
+const shared = @import("../shared_maps.zig");
+const ListMethodsMap = shared.MutatingMethods;
 
 // Static string maps for method type inference
 const StringMethodsMap = std.StaticStringMap(void).initComptime(.{
-    .{ "upper", {} },
-    .{ "lower", {} },
-    .{ "strip", {} },
-    .{ "split", {} },
-    .{ "replace", {} },
-    .{ "startswith", {} },
-    .{ "endswith", {} },
-    .{ "find", {} },
-    .{ "index", {} },
-    .{ "decode", {} },
-    .{ "encode", {} },
-    .{ "lstrip", {} },
-    .{ "rstrip", {} },
-    .{ "join", {} },
-});
-
-const ListMethodsMap = std.StaticStringMap(void).initComptime(.{
-    .{ "append", {} },
-    .{ "pop", {} },
-    .{ "extend", {} },
-    .{ "remove", {} },
-    .{ "clear", {} },
-    .{ "sort", {} },
+    .{ "upper", {} }, .{ "lower", {} }, .{ "strip", {} }, .{ "split", {} }, .{ "replace", {} },
+    .{ "startswith", {} }, .{ "endswith", {} }, .{ "find", {} }, .{ "index", {} },
+    .{ "decode", {} }, .{ "encode", {} }, .{ "lstrip", {} }, .{ "rstrip", {} }, .{ "join", {} },
 });
 
 const TypeStrToNativeMap = std.StaticStringMap(NativeType).initComptime(.{

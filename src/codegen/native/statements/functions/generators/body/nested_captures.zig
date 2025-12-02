@@ -4,11 +4,8 @@ const ast = @import("ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
-
-const MutatingMethods = std.StaticStringMap(void).initComptime(.{
-    .{ "append", {} }, .{ "extend", {} }, .{ "insert", {} }, .{ "pop", {} }, .{ "clear", {} },
-    .{ "remove", {} }, .{ "update", {} }, .{ "add", {} }, .{ "discard", {} }, .{ "sort", {} }, .{ "reverse", {} },
-});
+const shared = @import("../../../../shared_maps.zig");
+const MutatingMethods = shared.MutatingMethods;
 
 const BuiltinNames = std.StaticStringMap(void).initComptime(.{
     .{ "True", {} }, .{ "False", {} }, .{ "None", {} }, .{ "int", {} }, .{ "float", {} }, .{ "str", {} }, .{ "bool", {} },

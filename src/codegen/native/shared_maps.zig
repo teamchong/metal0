@@ -52,6 +52,13 @@ pub const PythonBuiltinTypes = std.StaticStringMap(void).initComptime(.{
     .{ "set", {} }, .{ "tuple", {} }, .{ "bytes", {} },
 });
 
+/// Collection methods that mutate in-place (list/dict/set mutations)
+pub const MutatingMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "append", {} }, .{ "extend", {} }, .{ "insert", {} }, .{ "pop", {} }, .{ "clear", {} },
+    .{ "remove", {} }, .{ "update", {} }, .{ "add", {} }, .{ "discard", {} }, .{ "sort", {} },
+    .{ "reverse", {} }, .{ "clone", {} },
+});
+
 /// Python exception types for runtime error mapping
 pub const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
     .{ "Exception", {} },       .{ "BaseException", {} },     .{ "RuntimeError", {} },

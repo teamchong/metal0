@@ -2,6 +2,8 @@
 /// Determines what imports, resources, and setup code is needed
 const std = @import("std");
 const ast = @import("ast");
+const shared = @import("shared_maps.zig");
+const ListMethods = shared.MutatingMethods;
 
 // Static string maps for DCE optimization
 const StringUtilMethods = std.StaticStringMap(void).initComptime(.{
@@ -12,14 +14,6 @@ const StringUtilMethods = std.StaticStringMap(void).initComptime(.{
 const AllocatorStringMethods = std.StaticStringMap(void).initComptime(.{
     .{ "replace", {} },
     .{ "split", {} },
-});
-
-const ListMethods = std.StaticStringMap(void).initComptime(.{
-    .{ "append", {} },
-    .{ "extend", {} },
-    .{ "insert", {} },
-    .{ "remove", {} },
-    .{ "clone", {} },
 });
 
 const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
