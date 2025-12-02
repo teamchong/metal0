@@ -1,19 +1,15 @@
 /// Python random module - random number generation
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "random", genRandom }, .{ "randint", genRandint }, .{ "randrange", genRandrange },
     .{ "choice", genChoice }, .{ "choices", genChoices }, .{ "shuffle", genShuffle },
     .{ "sample", genSample }, .{ "uniform", genUniform }, .{ "gauss", genGauss },
-    .{ "seed", genConst("{}") }, .{ "getstate", genConst(".{}") }, .{ "setstate", genConst("{}") }, .{ "getrandbits", genGetrandbits },
+    .{ "seed", h.c("{}") }, .{ "getstate", h.c(".{}") }, .{ "setstate", h.c("{}") }, .{ "getrandbits", genGetrandbits },
 });
 
 const prng = "var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); const _r = _prng.random(); ";

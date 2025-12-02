@@ -1,18 +1,14 @@
 /// Python reprlib module - Alternate repr() implementation
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Repr", genConst(".{ .maxlevel = 6, .maxtuple = 6, .maxlist = 6, .maxarray = 5, .maxdict = 4, .maxset = 6, .maxfrozenset = 6, .maxdeque = 6, .maxstring = 30, .maxlong = 40, .maxother = 30, .fillvalue = \"...\" }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "Repr", h.c(".{ .maxlevel = 6, .maxtuple = 6, .maxlist = 6, .maxarray = 5, .maxdict = 4, .maxset = 6, .maxfrozenset = 6, .maxdeque = 6, .maxstring = 30, .maxlong = 40, .maxother = 30, .fillvalue = \"...\" }") },
     .{ "repr", genReprFunc },
-    .{ "recursive_repr", genConst("@as(?*const fn(anytype) anytype, null)") },
+    .{ "recursive_repr", h.c("@as(?*const fn(anytype) anytype, null)") },
 });
 
 fn genReprFunc(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
