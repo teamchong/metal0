@@ -16,6 +16,7 @@ pub const ParseError = error{
 /// Token types for expression lexer
 const TokenType = enum {
     Number,
+    Complex, // Complex number (e.g., 2j, 3.14j)
     String,
     Plus,
     Minus,
@@ -266,6 +267,12 @@ pub const ExprParser = struct {
                 break;
             }
         }
+        // Check for complex suffix 'j' or 'J'
+        if (self.pos < self.source.len and (self.source[self.pos] == 'j' or self.source[self.pos] == 'J')) {
+            self.pos += 1;
+            self.current = .{ .type = .Complex, .start = start, .end = self.pos };
+            return;
+        }
         self.current = .{ .type = .Number, .start = start, .end = self.pos };
     }
 
@@ -476,6 +483,19 @@ pub const ExprParser = struct {
                 };
                 const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
                 self.compiler.constants.append(self.allocator, .{ .int = value }) catch return ParseError.OutOfMemory;
+                self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
+                try self.advance();
+            },
+            .Complex => {
+                // Complex number like 2j or 3.14j
+                const text = self.getText(self.current);
+                // Strip trailing 'j' or 'J'
+                const num_text = text[0 .. text.len - 1];
+                const clean = stripUnderscores(num_text) catch return ParseError.OutOfMemory;
+                // Parse imaginary part as float
+                const imag = std.fmt.parseFloat(f64, clean) catch return ParseError.InvalidNumber;
+                const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
+                self.compiler.constants.append(self.allocator, .{ .complex = imag }) catch return ParseError.OutOfMemory;
                 self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                 try self.advance();
             },

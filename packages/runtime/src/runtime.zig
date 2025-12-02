@@ -447,6 +447,13 @@ pub const PyFloatObject = extern struct {
     ob_fval: f64,
 };
 
+/// PyComplexObject - Python complex number (CPython compatible)
+pub const PyComplexObject = extern struct {
+    ob_base: PyObject,
+    cval_real: f64,
+    cval_imag: f64,
+};
+
 /// PyBoolObject - Python bool (same layout as PyLongObject in CPython)
 pub const PyBoolObject = extern struct {
     ob_base: PyVarObject,
@@ -604,6 +611,7 @@ fn makeTypeObject(comptime name: [*:0]const u8, comptime basicsize: Py_ssize_t, 
 // Type object singletons
 pub var PyLong_Type: PyTypeObject = makeTypeObject("int", @sizeOf(PyLongObject), 0);
 pub var PyFloat_Type: PyTypeObject = makeTypeObject("float", @sizeOf(PyFloatObject), 0);
+pub var PyComplex_Type: PyTypeObject = makeTypeObject("complex", @sizeOf(PyComplexObject), 0);
 pub var PyBool_Type: PyTypeObject = makeTypeObject("bool", @sizeOf(PyBoolObject), 0);
 pub var PyList_Type: PyTypeObject = makeTypeObject("list", @sizeOf(PyListObject), @sizeOf(*PyObject));
 pub var PyTuple_Type: PyTypeObject = makeTypeObject("tuple", @sizeOf(PyTupleObject), @sizeOf(*PyObject));
@@ -666,6 +674,10 @@ pub inline fn PyLong_Check(op: *PyObject) bool {
 
 pub inline fn PyFloat_Check(op: *PyObject) bool {
     return Py_IS_TYPE(op, &PyFloat_Type);
+}
+
+pub inline fn PyComplex_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyComplex_Type);
 }
 
 pub inline fn PyBool_Check(op: *PyObject) bool {
