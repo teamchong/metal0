@@ -21,13 +21,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "IllegalMonthError", h.err("IllegalMonth") }, .{ "IllegalWeekdayError", h.err("IllegalWeekday") },
 });
 
-fn genIsleap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("false"); return; }
-    const id = try h.emitUniqueBlockStart(self, "isleap");
-    try self.emit("const y = "); try self.genExpr(args[0]);
-    try h.emitBlockBreak(self, "isleap", id);
-    try self.emit("(@rem(y, 4) == 0 and @rem(y, 100) != 0) or @rem(y, 400) == 0; }");
-}
+const genIsleap = h.checkCond("(@rem(x, 4) == 0 and @rem(x, 100) != 0) or @rem(x, 400) == 0");
 
 fn genLeapdays(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("@as(i32, 0)"); return; }
