@@ -43,48 +43,29 @@ fn isKnownOperatorFunc(name: []const u8) bool {
     return known.has(name);
 }
 
+const OperatorWrappers = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "eq", "(a: anytype, b: anytype) bool { return runtime.operatorEq(a, b); }\n" },
+    .{ "ne", "(a: anytype, b: anytype) bool { return runtime.operatorNe(a, b); }\n" },
+    .{ "lt", "(a: anytype, b: anytype) bool { return runtime.operatorLt(a, b); }\n" },
+    .{ "le", "(a: anytype, b: anytype) bool { return runtime.operatorLe(a, b); }\n" },
+    .{ "gt", "(a: anytype, b: anytype) bool { return runtime.operatorGt(a, b); }\n" },
+    .{ "ge", "(a: anytype, b: anytype) bool { return runtime.operatorGe(a, b); }\n" },
+    .{ "add", "(a: anytype, b: anytype) @TypeOf(a) { return a + b; }\n" },
+    .{ "sub", "(a: anytype, b: anytype) @TypeOf(a) { return a - b; }\n" },
+    .{ "mul", "(a: anytype, b: anytype) @TypeOf(a) { return a * b; }\n" },
+    .{ "truediv", "(a: anytype, b: anytype) f64 { return @as(f64, @floatFromInt(a)) / @as(f64, @floatFromInt(b)); }\n" },
+    .{ "floordiv", "(a: anytype, b: anytype) @TypeOf(a) { return @divFloor(a, b); }\n" },
+    .{ "mod", "(a: anytype, b: anytype) @TypeOf(a) { return @rem(a, b); }\n" },
+    .{ "neg", "(a: anytype) @TypeOf(a) { return -a; }\n" },
+    .{ "not_", "(a: anytype) bool { return !runtime.toBool(a); }\n" },
+    .{ "truth", "(a: anytype) bool { return runtime.toBool(a); }\n" },
+});
+
 /// Generate wrapper function for operator module function
 fn generateOperatorWrapper(self: *NativeCodegen, name: []const u8, symbol_name: []const u8) !void {
-    // Generate a wrapper function that calls the operator
-    // For comparison ops, use runtime.operatorEq which handles different types
     try self.emit("fn ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
-
-    // Map operator to actual operation
-    if (std.mem.eql(u8, name, "eq")) {
-        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorEq(a, b); }\n");
-    } else if (std.mem.eql(u8, name, "ne")) {
-        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorNe(a, b); }\n");
-    } else if (std.mem.eql(u8, name, "lt")) {
-        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorLt(a, b); }\n");
-    } else if (std.mem.eql(u8, name, "le")) {
-        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorLe(a, b); }\n");
-    } else if (std.mem.eql(u8, name, "gt")) {
-        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorGt(a, b); }\n");
-    } else if (std.mem.eql(u8, name, "ge")) {
-        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorGe(a, b); }\n");
-    } else if (std.mem.eql(u8, name, "add")) {
-        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { return a + b; }\n");
-    } else if (std.mem.eql(u8, name, "sub")) {
-        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { return a - b; }\n");
-    } else if (std.mem.eql(u8, name, "mul")) {
-        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { return a * b; }\n");
-    } else if (std.mem.eql(u8, name, "truediv")) {
-        try self.emit("(a: anytype, b: anytype) f64 { return @as(f64, @floatFromInt(a)) / @as(f64, @floatFromInt(b)); }\n");
-    } else if (std.mem.eql(u8, name, "floordiv")) {
-        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { return @divFloor(a, b); }\n");
-    } else if (std.mem.eql(u8, name, "mod")) {
-        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { return @rem(a, b); }\n");
-    } else if (std.mem.eql(u8, name, "neg")) {
-        try self.emit("(a: anytype) @TypeOf(a) { return -a; }\n");
-    } else if (std.mem.eql(u8, name, "not_")) {
-        try self.emit("(a: anytype) bool { return !runtime.toBool(a); }\n");
-    } else if (std.mem.eql(u8, name, "truth")) {
-        try self.emit("(a: anytype) bool { return runtime.toBool(a); }\n");
-    } else {
-        // Default: generate placeholder
-        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { _ = b; return a; }\n");
-    }
+    try self.emit(OperatorWrappers.get(name) orelse "(a: anytype, b: anytype) @TypeOf(a) { _ = b; return a; }\n");
 }
 
 /// Generate from-import symbol re-exports with deduplication
