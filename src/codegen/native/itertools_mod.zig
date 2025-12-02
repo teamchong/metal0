@@ -10,24 +10,19 @@ fn needsItems(self: *NativeCodegen, arg: ast.Node) bool {
     return t == .list or t == .deque;
 }
 
+const pt = h.pass("std.ArrayList(i64){}");
+pub const genCycle = pt;
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "chain", genChain }, .{ "repeat", genRepeat }, .{ "count", genCount },
-    .{ "cycle", genPassthrough }, .{ "islice", genIslice }, .{ "enumerate", genPassthrough },
-    .{ "zip_longest", genZipLongest }, .{ "product", genPassthrough }, .{ "permutations", genPassthrough },
-    .{ "combinations", genPassthrough }, .{ "groupby", genPassthrough },
+    .{ "cycle", pt }, .{ "islice", genIslice }, .{ "enumerate", pt },
+    .{ "zip_longest", genZipLongest }, .{ "product", pt }, .{ "permutations", pt },
+    .{ "combinations", pt }, .{ "groupby", pt },
     .{ "takewhile", genTakewhile }, .{ "dropwhile", genDropwhile }, .{ "filterfalse", genFilterfalse },
     .{ "accumulate", genAccumulate }, .{ "starmap", genStarmap }, .{ "compress", genCompress },
     .{ "tee", genTee }, .{ "pairwise", genPairwise },
     .{ "batched", h.c(".{ std.ArrayList(i64){} }") },
 });
-
-fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("std.ArrayList(i64){}");
-}
-
-pub fn genCycle(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) try self.emit("std.ArrayList(i64){}") else try self.genExpr(args[0]);
-}
 
 fn genTakewhile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("std.ArrayList(i64){}"); return; }
