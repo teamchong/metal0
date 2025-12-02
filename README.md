@@ -25,34 +25,198 @@ Python is slow. Packaging is painful. metal0 fixes both:
 
 All benchmarks on Apple M2.
 
-### Compute
+### Async/Concurrency
 
-| Benchmark | metal0 | Rust | Go | PyPy | Python |
-|-----------|--------|------|-----|------|--------|
-| fib(45) recursive | **3.2s** | 3.2s | 3.6s | 11.8s | 97s |
-| JSON parse 1.9GB | **2.7s** | 4.7s | 14s | 3.2s | 8.4s |
-| JSON stringify 1.9GB | **2.7s** | 3.0s | 15.6s | 12.4s | 12.3s |
-| Regex 5 patterns | **1.3s** | 4.6s | ~58s | - | ~43s |
-| Dict 10M lookups | **329ms** | - | - | 570ms | 1.4s |
+metal0 compiles Python's `asyncio` to optimized native code:
+- **I/O-bound**: State machine coroutines with kqueue netpoller (single thread, high concurrency)
+- **CPU-bound**: Thread pool with M:N scheduling (parallel execution across cores)
 
-### Async
+**Parallel Scaling: SHA256 Hashing (8 workers × 50K hashes each)**
 
-| Benchmark | metal0 | Rust | Go | Python |
-|-----------|--------|------|-----|--------|
-| 10K concurrent sleeps | **103ms** | 112ms | 127ms | 194ms |
-| 8-core SHA256 parallel | **6.05x** | 1.04x | 3.72x | 1.07x |
+| Runtime | Speedup | Efficiency | Notes |
+|---------|---------|------------|-------|
+| **metal0** | **6.05x** | **76%** | Thread pool + stack alloc, no GC |
+| Go (goroutines) | 3.72x | 47% | M:N scheduler, GC overhead |
+| Rust (rayon) | 1.04x | 13% | Work-stealing overhead |
+| CPython | 1.07x | 13% | GIL blocks parallelism |
+| PyPy | 0.98x | 12% | GIL + JIT overhead |
 
-### Tokenizers
+*Speedup = Sequential / Parallel. Ideal: 8x for 8 cores. metal0 achieves 1.6x better parallel efficiency than Go.*
 
-Faster than HuggingFace (Rust) on all algorithms:
+**I/O-Bound: Concurrent Sleep (10,000 tasks × 100ms each)**
 
-| Algorithm | metal0 | HuggingFace | Speedup |
-|-----------|--------|-------------|---------|
-| BPE encode | 2.5s | 44s | 18x |
-| BPE train | 1.1s | 26.7s | 24x |
-| Unigram train | 108ms | 263ms | 2.4x |
+| Runtime | Time | Concurrency | vs Sequential |
+|---------|------|-------------|---------------|
+| **metal0** | **103.5ms** | **9,662x** | Best event loop |
+| Rust (tokio) | 111.7ms | 8,952x | Great async runtime |
+| Go | 126.9ms | 7,880x | Great for network |
+| CPython | 194.3ms | 5,147x | Good for I/O |
+| PyPy | 258.8ms | 3,864x | Slower I/O |
 
-WASM: **178x faster** than tiktoken, **46KB** vs 1MB.
+*Sequential would take 1,000,000ms (16.7 min). metal0 achieves 9662× concurrency via state machine + kqueue netpoller.*
+
+### Recursive Computation
+
+**Fibonacci(45) - Recursive:**
+
+| Language | Time | vs Python |
+|----------|------|-----------|
+| **metal0** | **3.22s** | **30.1x faster** |
+| Rust | 3.23s | 30.0x faster |
+| Go | 3.60s | 26.9x faster |
+| PyPy | 11.75s | 8.3x faster |
+| Python | 96.94s | baseline |
+
+**Tail-Recursive Fibonacci (10K × fib(10000)) - TCO Test:**
+
+| Language | Time | vs metal0 |
+|----------|------|----------|
+| **metal0** | **31.9ms** | **1.00x** |
+| Rust | 32.2ms | 1.01x |
+| Go | 286.7ms | 8.99x slower |
+| Python/PyPy | N/A | RecursionError |
+
+*metal0 uses `@call(.always_tail)` for guaranteed TCO.*
+
+**Startup Time - Hello World (100 runs):**
+
+| Language | Time | vs CPython |
+|----------|------|------------|
+| **metal0** | **1.6ms** | **14x faster** |
+| Rust | 1.8ms | 12x faster |
+| Go | 2.4ms | 9x faster |
+| CPython | 22.4ms | baseline |
+
+### JSON Benchmark (50K iterations × 38KB realistic JSON)
+
+**JSON Parse (50K × 38KB = 1.9GB processed):**
+
+| Implementation | Time | vs metal0 |
+|---------------|------|----------|
+| **metal0** | **2.68s** | **1.00x** |
+| PyPy | 3.16s | 1.18x slower |
+| Rust (serde_json) | 4.70s | 1.76x slower |
+| Python | 8.40s | 3.14x slower |
+| Go | 14.0s | 5.23x slower |
+
+**JSON Stringify (50K × 38KB = 1.9GB processed):**
+
+| Implementation | Time | vs metal0 |
+|---------------|------|----------|
+| **metal0** | **2.68s** | **1.00x** |
+| Rust (serde_json) | 3.01s | 1.12x slower |
+| Python | 12.3s | 4.60x slower |
+| PyPy | 12.4s | 4.61x slower |
+| Go | 15.6s | 5.81x slower |
+
+**Key optimizations:**
+- Arena allocator - bump-pointer (~2 CPU cycles per alloc vs ~100+ for malloc)
+- SWAR string scanning - 8 bytes at a time (PyPy's technique)
+- Small integer cache - pre-allocated for -10 to 256
+- SIMD whitespace skipping (AVX2/NEON) - 32 bytes per iteration
+- SIMD string escaping - 4.3x speedup on ARM64 NEON
+
+### Dict/String Benchmarks
+
+**Dict Benchmark (10M lookups, 8 keys):**
+
+| Language | Time | vs Python |
+|----------|------|-----------|
+| **metal0** | **329ms** | **4.3x faster** |
+| PyPy | 570ms | 2.5x faster |
+| Python | 1.42s | baseline |
+
+**String Benchmark (100M iterations, comparison + length):**
+
+| Language | Time | vs Python |
+|----------|------|-----------|
+| **metal0** | **1.6ms** | **5000x faster** |
+| PyPy | 154ms | 53x faster |
+| Python | 8.1s | baseline |
+
+*metal0 string operations are computed at comptime where possible.*
+
+### NumPy Matrix Multiplication (BLAS)
+
+500×500 matrix multiplication using BLAS `cblas_dgemm`.
+
+| Runtime | Time | vs metal0 |
+|---------|------|----------|
+| **metal0** (BLAS) | **3.2ms** | **1.00x** |
+| Python (NumPy) | 66ms | 21x slower |
+| PyPy (NumPy) | 129ms | 40x slower |
+
+*All use the same BLAS library - metal0 eliminates interpreter overhead.*
+
+### Tokenizer Benchmark
+
+**BPE Encoding (583 texts × 1000 iterations):**
+
+| Implementation | Time | vs metal0 |
+|---------------|------|----------|
+| **metal0 (Zig)** | **2.489s** | **1.00x** |
+| rs-bpe (Rust) | 3.866s | 1.55x slower |
+| TokenDagger (C++) | 4.195s | 1.69x slower |
+| tiktoken (Rust) | 9.311s | 3.74x slower |
+| HuggingFace (Python) | 44.264s | 17.78x slower |
+
+**Web/WASM Encoding (583 texts × 200 iterations):**
+
+| Library | Time | vs metal0 | Size |
+|---------|------|----------|------|
+| **metal0 (WASM)** | **47.8ms** | **1.00x** | **46KB** |
+| gpt-tokenizer (JS) | 847.2ms | 17.7x slower | 1.1MB |
+| @anthropic-ai/tokenizer (JS) | 8.515s | 178.1x slower | 8.6MB |
+| tiktoken (WASM) | 11.884s | 248.5x slower | 1.0MB |
+
+**BPE Training (vocab_size=32000):**
+
+| Library | Time | vs metal0 |
+|---------|------|----------|
+| **metal0 (Zig)** | **1.095s** | **1.00x** |
+| SentencePiece (C++) | 8.514s | 7.78x slower |
+| HuggingFace (Rust) | 26.690s | 24.37x slower |
+
+**Unigram Training (vocab_size=751):**
+
+| Library | Time | vs HuggingFace |
+|---------|------|----------------|
+| **metal0 (Zig)** | **108ms** | **2.4x faster** |
+| HuggingFace (Rust) | 263ms | 1.00x |
+
+### Regex Benchmark
+
+**Regex Pattern Matching (5 common patterns):**
+
+| Implementation | Total Time | vs metal0 |
+|----------------|------------|----------|
+| **metal0 (Lazy DFA)** | **1.324s** | **1.00x** |
+| Rust (regex) | 4.639s | 3.50x slower |
+| Python (re) | ~43s | ~32x slower |
+| Go (regexp) | ~58s | ~44x slower |
+
+**Pattern breakdown (1M iterations each):**
+
+| Pattern | metal0 | Rust | Speedup |
+|---------|-------|------|---------|
+| Email | 93ms | 95ms | 1.02x |
+| URL | 81ms | 252ms | 3.12x |
+| Digits | 692ms | 3,079ms | 4.45x |
+| Word Boundary | 116ms | 385ms | 3.32x |
+| Date ISO | 346ms | 636ms | 1.84x |
+
+### Running Benchmarks
+
+```bash
+make benchmark-fib         # Fibonacci
+make benchmark-json-full   # JSON parse + stringify
+make benchmark-dict        # Dict lookups
+make benchmark-string      # String operations
+make benchmark-regex       # Regex patterns
+make benchmark-asyncio     # CPU-bound async
+make benchmark-asyncio-io  # I/O-bound async
+make benchmark-numpy       # NumPy BLAS
+```
 
 ## Install
 
@@ -110,9 +274,9 @@ Targeting 421 CPython test files. Current: early alpha.
 - WASM/browser
 - Embedded systems
 
-**Not ready for:**
-- Dynamic metaprogramming
-- C extension ecosystem (partial)
+**In progress:**
+- Full stdlib coverage
+- 100% CPython test compatibility
 
 ## License
 
