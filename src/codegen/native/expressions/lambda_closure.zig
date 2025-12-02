@@ -40,6 +40,13 @@ const BinOpStrings = std.StaticStringMap([]const u8).initComptime(.{
     .{ "MatMul", " @ " },
 });
 
+/// Comparison operator to Zig operator string mapping
+const CompOpStrings = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Eq", " == " }, .{ "NotEq", " != " },
+    .{ "Lt", " < " }, .{ "LtEq", " <= " },
+    .{ "Gt", " > " }, .{ "GtEq", " >= " },
+});
+
 /// Check if lambda body is itself a lambda (closure case)
 fn isClosureLambda(body: ast.Node) bool {
     return body == .lambda;
@@ -435,16 +442,7 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
         .compare => |cmp| {
             try genExprWithCapture(self, cmp.left.*, captured_vars);
             for (cmp.ops, 0..) |op, i| {
-                const op_str = switch (op) {
-                    .Eq => " == ",
-                    .NotEq => " != ",
-                    .Lt => " < ",
-                    .LtEq => " <= ",
-                    .Gt => " > ",
-                    .GtEq => " >= ",
-                    else => " == ",
-                };
-                try self.emit(op_str);
+                try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
                 try genExprWithCapture(self, cmp.comparators[i], captured_vars);
             }
         },
