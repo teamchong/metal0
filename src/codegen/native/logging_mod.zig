@@ -5,42 +5,30 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genI64(comptime n: comptime_int) fn (*NativeCodegen, []ast.Node) CodegenError!void {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, std.fmt.comptimePrint("@as(i64, {})", .{n})); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "debug", genDebug }, .{ "info", genInfo }, .{ "warning", genWarning },
     .{ "error", genError }, .{ "critical", genCritical }, .{ "exception", genError },
     .{ "log", genLog }, .{ "basicConfig", genUnit }, .{ "getLogger", genGetLogger }, .{ "Logger", genGetLogger },
     .{ "Handler", genHandler }, .{ "StreamHandler", genHandler }, .{ "FileHandler", genHandler },
     .{ "Formatter", genFormatter },
-    .{ "DEBUG", genI64_10 }, .{ "INFO", genI64_20 }, .{ "WARNING", genI64_30 },
-    .{ "ERROR", genI64_40 }, .{ "CRITICAL", genI64_50 }, .{ "NOTSET", genI64_0 },
+    .{ "DEBUG", genI64(10) }, .{ "INFO", genI64(20) }, .{ "WARNING", genI64(30) },
+    .{ "ERROR", genI64(40) }, .{ "CRITICAL", genI64(50) }, .{ "NOTSET", genI64(0) },
 });
 
-// Helpers
-fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
-fn genI64_10(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 10)"); }
-fn genI64_20(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 20)"); }
-fn genI64_30(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 30)"); }
-fn genI64_40(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 40)"); }
-fn genI64_50(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 50)"); }
+fn genHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "struct { pub fn setFormatter(s: *@This(), f: anytype) void { _ = s; _ = f; } pub fn setLevel(s: *@This(), l: i64) void { _ = s; _ = l; } }{}"); }
+fn genFormatter(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "struct { fmt: []const u8 = \"\" }{}"); }
+fn genGetLogger(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "struct { name: ?[]const u8 = null, level: i64 = 0, pub fn debug(s: *@This(), msg: []const u8) void { _ = s; std.debug.print(\"DEBUG: {s}\\n\", .{msg}); } pub fn info(s: *@This(), msg: []const u8) void { _ = s; std.debug.print(\"INFO: {s}\\n\", .{msg}); } pub fn warning(s: *@This(), msg: []const u8) void { _ = s; std.debug.print(\"WARNING: {s}\\n\", .{msg}); } pub fn @\"error\"(s: *@This(), msg: []const u8) void { _ = s; std.debug.print(\"ERROR: {s}\\n\", .{msg}); } pub fn critical(s: *@This(), msg: []const u8) void { _ = s; std.debug.print(\"CRITICAL: {s}\\n\", .{msg}); } pub fn setLevel(s: *@This(), lvl: i64) void { s.level = lvl; } pub fn addHandler(s: *@This(), h: anytype) void { _ = s; _ = h; } }{}"); }
 
-fn genHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genConst(self, args, "struct { pub fn setFormatter(s: *@This(), f: anytype) void { _ = s; _ = f; } pub fn setLevel(s: *@This(), l: i64) void { _ = s; _ = l; } }{}");
-}
-fn genFormatter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genConst(self, args, "struct { fmt: []const u8 = \"\" }{}");
-}
-fn genGetLogger(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genConst(self, args, "struct { name: ?[]const u8 = null, level: i64 = 0, pub fn debug(s: *@This(), msg: []const u8) void { _ = s; std.debug.print(\"DEBUG: {s}\\n\", .{msg}); } pub fn info(s: *@This(), msg: []const u8) void { _ = s; std.debug.print(\"INFO: {s}\\n\", .{msg}); } pub fn warning(s: *@This(), msg: []const u8) void { _ = s; std.debug.print(\"WARNING: {s}\\n\", .{msg}); } pub fn @\"error\"(s: *@This(), msg: []const u8) void { _ = s; std.debug.print(\"ERROR: {s}\\n\", .{msg}); } pub fn critical(s: *@This(), msg: []const u8) void { _ = s; std.debug.print(\"CRITICAL: {s}\\n\", .{msg}); } pub fn setLevel(s: *@This(), lvl: i64) void { s.level = lvl; } pub fn addHandler(s: *@This(), h: anytype) void { _ = s; _ = h; } }{}");
-}
-
-// Logging functions with arg processing
 fn genLogLevel(self: *NativeCodegen, args: []ast.Node, level: []const u8) CodegenError!void {
     if (args.len == 0) return;
     try self.emit("blk: { const _m = "); try self.genExpr(args[0]);
-    try self.emit("; std.debug.print(\""); try self.emit(level);
-    try self.emit(": {s}\\n\", .{_m}); break :blk; }");
+    try self.emit("; std.debug.print(\""); try self.emit(level); try self.emit(": {s}\\n\", .{_m}); break :blk; }");
 }
 
 pub fn genDebug(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genLogLevel(self, args, "DEBUG"); }

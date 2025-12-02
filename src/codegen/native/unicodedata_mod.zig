@@ -1,152 +1,43 @@
 /// Python unicodedata module - Unicode character database
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "lookup", genLookup },
-    .{ "name", genName },
-    .{ "decimal", genDecimal },
-    .{ "digit", genDigit },
-    .{ "numeric", genNumeric },
-    .{ "category", genCategory },
-    .{ "bidirectional", genBidirectional },
-    .{ "combining", genCombining },
-    .{ "east_asian_width", genEastAsianWidth },
-    .{ "mirrored", genMirrored },
-    .{ "decomposition", genDecomposition },
-    .{ "normalize", genNormalize },
-    .{ "is_normalized", genIsNormalized },
-    .{ "unidata_version", genUnidataVersion },
-    .{ "ucd_3_2_0", genUcd320 },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate unicodedata.lookup(name)
-pub fn genLookup(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const name = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = name; break :blk \"?\"; }");
-    } else {
-        try self.emit("\"\"");
-    }
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+fn genCharFunc(comptime label: []const u8, comptime default: []const u8, comptime body: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(default); return; }
+        try self.emit(label ++ ": { const c = "); try self.genExpr(args[0]); try self.emit("[0]; " ++ body ++ " }");
+    } }.f;
 }
 
-/// Generate unicodedata.name(chr, default=None)
-pub fn genName(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const c = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = c; break :blk \"UNKNOWN\"; }");
-    } else {
-        try self.emit("\"\"");
-    }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "lookup", genLookup }, .{ "name", genName },
+    .{ "decimal", genCharFunc("blk", "@as(i32, -1)", "if (c >= '0' and c <= '9') break :blk @as(i32, c - '0') else break :blk -1;") },
+    .{ "digit", genCharFunc("blk", "@as(i32, -1)", "if (c >= '0' and c <= '9') break :blk @as(i32, c - '0') else break :blk -1;") },
+    .{ "numeric", genCharFunc("blk", "@as(f64, -1.0)", "if (c >= '0' and c <= '9') break :blk @as(f64, @floatFromInt(c - '0')) else break :blk -1.0;") },
+    .{ "category", genCharFunc("blk", "\"Cn\"", "if (c >= 'a' and c <= 'z') break :blk \"Ll\" else if (c >= 'A' and c <= 'Z') break :blk \"Lu\" else if (c >= '0' and c <= '9') break :blk \"Nd\" else if (c == ' ') break :blk \"Zs\" else break :blk \"Cn\";") },
+    .{ "bidirectional", genCharFunc("blk", "\"\"", "if (c >= 'a' and c <= 'z') break :blk \"L\" else if (c >= 'A' and c <= 'Z') break :blk \"L\" else if (c >= '0' and c <= '9') break :blk \"EN\" else break :blk \"ON\";") },
+    .{ "combining", genConst("@as(i32, 0)") }, .{ "east_asian_width", genConst("\"N\"") },
+    .{ "mirrored", genConst("@as(i32, 0)") }, .{ "decomposition", genConst("\"\"") },
+    .{ "normalize", genNormalize }, .{ "is_normalized", genConst("true") },
+    .{ "unidata_version", genConst("\"15.0.0\"") }, .{ "ucd_3_2_0", genConst(".{}") },
+});
+
+fn genLookup(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("\"\""); return; }
+    try self.emit("blk: { const name = "); try self.genExpr(args[0]); try self.emit("; _ = name; break :blk \"?\"; }");
 }
 
-/// Generate unicodedata.decimal(chr, default=None)
-pub fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const c = ");
-        try self.genExpr(args[0]);
-        try self.emit("[0]; if (c >= '0' and c <= '9') break :blk @as(i32, c - '0') else break :blk -1; }");
-    } else {
-        try self.emit("@as(i32, -1)");
-    }
+fn genName(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("\"\""); return; }
+    try self.emit("blk: { const c = "); try self.genExpr(args[0]); try self.emit("; _ = c; break :blk \"UNKNOWN\"; }");
 }
 
-/// Generate unicodedata.digit(chr, default=None)
-pub fn genDigit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const c = ");
-        try self.genExpr(args[0]);
-        try self.emit("[0]; if (c >= '0' and c <= '9') break :blk @as(i32, c - '0') else break :blk -1; }");
-    } else {
-        try self.emit("@as(i32, -1)");
-    }
-}
-
-/// Generate unicodedata.numeric(chr, default=None)
-pub fn genNumeric(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const c = ");
-        try self.genExpr(args[0]);
-        try self.emit("[0]; if (c >= '0' and c <= '9') break :blk @as(f64, @floatFromInt(c - '0')) else break :blk -1.0; }");
-    } else {
-        try self.emit("@as(f64, -1.0)");
-    }
-}
-
-/// Generate unicodedata.category(chr)
-pub fn genCategory(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const c = ");
-        try self.genExpr(args[0]);
-        try self.emit("[0]; if (c >= 'a' and c <= 'z') break :blk \"Ll\" else if (c >= 'A' and c <= 'Z') break :blk \"Lu\" else if (c >= '0' and c <= '9') break :blk \"Nd\" else if (c == ' ') break :blk \"Zs\" else break :blk \"Cn\"; }");
-    } else {
-        try self.emit("\"Cn\"");
-    }
-}
-
-/// Generate unicodedata.bidirectional(chr)
-pub fn genBidirectional(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const c = ");
-        try self.genExpr(args[0]);
-        try self.emit("[0]; if (c >= 'a' and c <= 'z') break :blk \"L\" else if (c >= 'A' and c <= 'Z') break :blk \"L\" else if (c >= '0' and c <= '9') break :blk \"EN\" else break :blk \"ON\"; }");
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-/// Generate unicodedata.combining(chr)
-pub fn genCombining(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate unicodedata.east_asian_width(chr)
-pub fn genEastAsianWidth(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"N\"");
-}
-
-/// Generate unicodedata.mirrored(chr)
-pub fn genMirrored(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 0)");
-}
-
-/// Generate unicodedata.decomposition(chr)
-pub fn genDecomposition(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate unicodedata.normalize(form, unistr)
-pub fn genNormalize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) {
-        try self.genExpr(args[1]);
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-/// Generate unicodedata.is_normalized(form, unistr)
-pub fn genIsNormalized(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
-
-/// Generate unicodedata.unidata_version
-pub fn genUnidataVersion(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"15.0.0\"");
-}
-
-/// Generate unicodedata.ucd_3_2_0
-pub fn genUcd320(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
+fn genNormalize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len >= 2) try self.genExpr(args[1]) else try self.emit("\"\"");
 }

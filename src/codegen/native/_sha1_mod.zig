@@ -6,39 +6,11 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "sha1", genSha1 },
-    .{ "update", genUpdate },
-    .{ "digest", genDigest },
-    .{ "hexdigest", genHexdigest },
-    .{ "copy", genCopy },
+    .{ "sha1", genSha1 }, .{ "update", genUnit }, .{ "digest", genDigest }, .{ "hexdigest", genHex }, .{ "copy", genSha1 },
 });
 
-/// Generate _sha1.sha1(data=b'', *, usedforsecurity=True)
-pub fn genSha1(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"sha1\", .digest_size = 20, .block_size = 64 }");
-}
-
-/// Generate sha1.update(data)
-pub fn genUpdate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate sha1.digest()
-pub fn genDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\\x00\" ** 20");
-}
-
-/// Generate sha1.hexdigest()
-pub fn genHexdigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"0\" ** 40");
-}
-
-/// Generate sha1.copy()
-pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"sha1\", .digest_size = 20, .block_size = 64 }");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genSha1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"sha1\", .digest_size = 20, .block_size = 64 }"); }
+fn genDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\\x00\" ** 20"); }
+fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"0\" ** 40"); }

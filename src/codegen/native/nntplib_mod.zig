@@ -5,99 +5,27 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genNNTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 119), .timeout = @as(f64, -1.0) }"); }
+fn genNNTP_SSL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 563), .timeout = @as(f64, -1.0) }"); }
+fn genPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 119)"); }
+fn genSslPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 563)"); }
+fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NNTPError"); }
+fn genReplyErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NNTPReplyError"); }
+fn genTempErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NNTPTemporaryError"); }
+fn genPermErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NNTPPermanentError"); }
+fn genProtoErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NNTPProtocolError"); }
+fn genDataErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NNTPDataError"); }
+fn genGroupInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .group = \"\", .last = @as(i32, 0), .first = @as(i32, 0), .flag = \"\" }"); }
+fn genArticleInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .number = @as(i32, 0), .message_id = \"\", .lines = &[_][]const u8{} }"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "NNTP", genNNTP },
-    .{ "NNTP_SSL", genNNTP_SSL },
-    .{ "NNTP_PORT", genNNTP_PORT },
-    .{ "NNTP_SSL_PORT", genNNTP_SSL_PORT },
-    .{ "NNTPError", genNNTPError },
-    .{ "NNTPReplyError", genNNTPReplyError },
-    .{ "NNTPTemporaryError", genNNTPTemporaryError },
-    .{ "NNTPPermanentError", genNNTPPermanentError },
-    .{ "NNTPProtocolError", genNNTPProtocolError },
-    .{ "NNTPDataError", genNNTPDataError },
-    .{ "GroupInfo", genGroupInfo },
-    .{ "ArticleInfo", genArticleInfo },
-    .{ "decode_header", genDecode_header },
+    .{ "NNTP", genNNTP }, .{ "NNTP_SSL", genNNTP_SSL }, .{ "NNTP_PORT", genPort }, .{ "NNTP_SSL_PORT", genSslPort },
+    .{ "NNTPError", genErr }, .{ "NNTPReplyError", genReplyErr }, .{ "NNTPTemporaryError", genTempErr },
+    .{ "NNTPPermanentError", genPermErr }, .{ "NNTPProtocolError", genProtoErr }, .{ "NNTPDataError", genDataErr },
+    .{ "GroupInfo", genGroupInfo }, .{ "ArticleInfo", genArticleInfo }, .{ "decode_header", genDecodeHeader },
 });
 
-/// Generate nntplib.NNTP class
-pub fn genNNTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = \"\", .port = @as(i32, 119), .timeout = @as(f64, -1.0) }");
-}
-
-/// Generate nntplib.NNTP_SSL class
-pub fn genNNTP_SSL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = \"\", .port = @as(i32, 563), .timeout = @as(f64, -1.0) }");
-}
-
-// ============================================================================
-// Port constants
-// ============================================================================
-
-pub fn genNNTP_PORT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 119)");
-}
-
-pub fn genNNTP_SSL_PORT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 563)");
-}
-
-// ============================================================================
-// Exception and info classes
-// ============================================================================
-
-pub fn genNNTPError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NNTPError");
-}
-
-pub fn genNNTPReplyError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NNTPReplyError");
-}
-
-pub fn genNNTPTemporaryError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NNTPTemporaryError");
-}
-
-pub fn genNNTPPermanentError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NNTPPermanentError");
-}
-
-pub fn genNNTPProtocolError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NNTPProtocolError");
-}
-
-pub fn genNNTPDataError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NNTPDataError");
-}
-
-/// Generate nntplib.GroupInfo namedtuple
-pub fn genGroupInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .group = \"\", .last = @as(i32, 0), .first = @as(i32, 0), .flag = \"\" }");
-}
-
-/// Generate nntplib.ArticleInfo namedtuple
-pub fn genArticleInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .number = @as(i32, 0), .message_id = \"\", .lines = &[_][]const u8{} }");
-}
-
-/// Generate nntplib.decode_header(header_str) function
-pub fn genDecode_header(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("\"\"");
-    }
+fn genDecodeHeader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.genExpr(args[0]); } else { try self.emit("\"\""); }
 }

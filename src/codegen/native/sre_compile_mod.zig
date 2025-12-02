@@ -1,147 +1,33 @@
 /// Python sre_compile module - Internal support module for sre
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "compile", genCompile },
-    .{ "isstring", genIsstring },
-    .{ "MAXCODE", genMaxcode },
-    .{ "MAXGROUPS", genMaxgroups },
-    .{ "_code", genCode },
-    .{ "_compile", genInternalCompile },
-    .{ "_compile_charset", genCompileCharset },
-    .{ "_optimize_charset", genOptimizeCharset },
-    .{ "_generate_overlap_table", genGenerateOverlapTable },
-    .{ "_compile_info", genCompileInfo },
-    .{ "SRE_FLAG_TEMPLATE", genSreFlagTemplate },
-    .{ "SRE_FLAG_IGNORECASE", genSreFlagIgnorecase },
-    .{ "SRE_FLAG_LOCALE", genSreFlagLocale },
-    .{ "SRE_FLAG_MULTILINE", genSreFlagMultiline },
-    .{ "SRE_FLAG_DOTALL", genSreFlagDotall },
-    .{ "SRE_FLAG_UNICODE", genSreFlagUnicode },
-    .{ "SRE_FLAG_VERBOSE", genSreFlagVerbose },
-    .{ "SRE_FLAG_DEBUG", genSreFlagDebug },
-    .{ "SRE_FLAG_ASCII", genSreFlagAscii },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate sre_compile.compile(p, flags=0)
-pub fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const pattern = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = pattern; break :blk .{ .pattern = \"\", .flags = 0, .code = &[_]u32{}, .groups = 0 }; }");
-    } else {
-        try self.emit(".{ .pattern = \"\", .flags = 0, .code = &[_]u32{}, .groups = 0 }");
-    }
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genFlag(comptime n: comptime_int) fn (*NativeCodegen, []ast.Node) CodegenError!void {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, std.fmt.comptimePrint("@as(u32, {})", .{n})); } }.f;
 }
 
-/// Generate sre_compile.isstring(obj)
-pub fn genIsstring(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "compile", genCompile }, .{ "isstring", genTrue }, .{ "MAXCODE", genMaxcode }, .{ "MAXGROUPS", genMaxgroups },
+    .{ "_code", genEmptyU32 }, .{ "_compile", genUnit }, .{ "_compile_charset", genUnit },
+    .{ "_optimize_charset", genEmptyTypeList }, .{ "_generate_overlap_table", genEmptyI32 }, .{ "_compile_info", genUnit },
+    .{ "SRE_FLAG_TEMPLATE", genFlag(1) }, .{ "SRE_FLAG_IGNORECASE", genFlag(2) }, .{ "SRE_FLAG_LOCALE", genFlag(4) },
+    .{ "SRE_FLAG_MULTILINE", genFlag(8) }, .{ "SRE_FLAG_DOTALL", genFlag(16) }, .{ "SRE_FLAG_UNICODE", genFlag(32) },
+    .{ "SRE_FLAG_VERBOSE", genFlag(64) }, .{ "SRE_FLAG_DEBUG", genFlag(128) }, .{ "SRE_FLAG_ASCII", genFlag(256) },
+});
 
-/// Generate sre_compile.MAXCODE constant
-pub fn genMaxcode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 65535)");
-}
+fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "true"); }
+fn genMaxcode(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 65535)"); }
+fn genMaxgroups(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(u32, 100)"); }
+fn genEmptyU32(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]u32{}"); }
+fn genEmptyI32(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]i32{}"); }
+fn genEmptyTypeList(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]@TypeOf(.{}){}"); }
 
-/// Generate sre_compile.MAXGROUPS constant
-pub fn genMaxgroups(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 100)");
-}
-
-/// Generate sre_compile._code(p, flags)
-pub fn genCode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]u32{}");
-}
-
-/// Generate sre_compile._compile(code, pattern, flags)
-pub fn genInternalCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate sre_compile._compile_charset(charset, flags, code)
-pub fn genCompileCharset(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate sre_compile._optimize_charset(charset, iscased, fixup, fixes)
-pub fn genOptimizeCharset(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]@TypeOf(.{}){}");
-}
-
-/// Generate sre_compile._generate_overlap_table(prefix)
-pub fn genGenerateOverlapTable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]i32{}");
-}
-
-/// Generate sre_compile._compile_info(code, pattern, flags)
-pub fn genCompileInfo(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate sre_compile.SRE_FLAG_TEMPLATE constant
-pub fn genSreFlagTemplate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 1)");
-}
-
-/// Generate sre_compile.SRE_FLAG_IGNORECASE constant
-pub fn genSreFlagIgnorecase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 2)");
-}
-
-/// Generate sre_compile.SRE_FLAG_LOCALE constant
-pub fn genSreFlagLocale(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 4)");
-}
-
-/// Generate sre_compile.SRE_FLAG_MULTILINE constant
-pub fn genSreFlagMultiline(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 8)");
-}
-
-/// Generate sre_compile.SRE_FLAG_DOTALL constant
-pub fn genSreFlagDotall(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 16)");
-}
-
-/// Generate sre_compile.SRE_FLAG_UNICODE constant
-pub fn genSreFlagUnicode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 32)");
-}
-
-/// Generate sre_compile.SRE_FLAG_VERBOSE constant
-pub fn genSreFlagVerbose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 64)");
-}
-
-/// Generate sre_compile.SRE_FLAG_DEBUG constant
-pub fn genSreFlagDebug(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 128)");
-}
-
-/// Generate sre_compile.SRE_FLAG_ASCII constant
-pub fn genSreFlagAscii(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(u32, 256)");
+fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const pattern = "); try self.genExpr(args[0]); try self.emit("; _ = pattern; break :blk .{ .pattern = \"\", .flags = 0, .code = &[_]u32{}, .groups = 0 }; }"); }
+    else { try self.emit(".{ .pattern = \"\", .flags = 0, .code = &[_]u32{}, .groups = 0 }"); }
 }

@@ -1,51 +1,17 @@
 /// Python mailcap module - Mailcap file handling
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "findmatch", genFindmatch },
-    .{ "getcaps", genGetcaps },
-    .{ "listmailcapfiles", genListmailcapfiles },
-    .{ "readmailcapfile", genReadmailcapfile },
-    .{ "lookup", genLookup },
-    .{ "subst", genSubst },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate mailcap.findmatch(caps, MIMEtype, key='view', filename="/dev/null", plist=[])
-pub fn genFindmatch(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?@TypeOf(.{ \"\", .{} }), null)");
-}
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "findmatch", genNull }, .{ "getcaps", genEmpty }, .{ "listmailcapfiles", genStrArr }, .{ "readmailcapfile", genEmpty }, .{ "lookup", genLookup }, .{ "subst", genEmptyStr },
+});
 
-/// Generate mailcap.getcaps()
-pub fn genGetcaps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate mailcap.listmailcapfiles()
-pub fn genListmailcapfiles(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_][]const u8{}");
-}
-
-/// Generate mailcap.readmailcapfile(fp)
-pub fn genReadmailcapfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate mailcap.lookup(caps, MIMEtype, key=None)
-pub fn genLookup(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_].{ []const u8, .{} }{}");
-}
-
-/// Generate mailcap.subst(field, MIMEtype, filename, plist=[])
-pub fn genSubst(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?@TypeOf(.{ \"\", .{} }), null)"); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genStrArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{}"); }
+fn genLookup(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_].{ []const u8, .{} }{}"); }
+fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }

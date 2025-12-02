@@ -6,39 +6,11 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "match", genMatch },
-    .{ "cat", genCat },
-    .{ "maps", genMaps },
-    .{ "get_default_domain", genGetDefaultDomain },
-    .{ "error", genError },
+    .{ "match", genEmptyStr }, .{ "cat", genEmpty }, .{ "maps", genStrArr }, .{ "get_default_domain", genEmptyStr }, .{ "error", genError },
 });
 
-/// Generate nis.match(key, mapname, domain=None) - Match key in NIS map
-pub fn genMatch(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate nis.cat(mapname, domain=None) - Get NIS map contents
-pub fn genCat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate nis.maps(domain=None) - List all NIS maps
-pub fn genMaps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_][]const u8{}");
-}
-
-/// Generate nis.get_default_domain() - Get default NIS domain
-pub fn genGetDefaultDomain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate nis.error exception
-pub fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NisError");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genStrArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{}"); }
+fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NisError"); }

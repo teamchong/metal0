@@ -4,206 +4,34 @@ const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate _decimal.Decimal(value=0, context=None)
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genDecimalZero(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .sign = 0, .digits = &[_]u8{}, .exp = 0 }"); }
+fn genContext28(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .prec = 28, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }"); }
+fn genContext9(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .prec = 9, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }"); }
+fn genMaxPrec(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 999999999999999999)"); }
+fn genMinEmin(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, -999999999999999999)"); }
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Decimal", genDecimal },
-    .{ "Context", genContext },
-    .{ "localcontext", genLocalcontext },
-    .{ "getcontext", genGetcontext },
-    .{ "setcontext", genSetcontext },
-    .{ "BasicContext", genBasicContext },
-    .{ "ExtendedContext", genExtendedContext },
-    .{ "DefaultContext", genDefaultContext },
-    .{ "MAX_PREC", genMaxPrec },
-    .{ "MAX_EMAX", genMaxEmax },
-    .{ "MIN_EMIN", genMinEmin },
-    .{ "MIN_ETINY", genMinEtiny },
-    .{ "ROUND_CEILING", genRoundCeiling },
-    .{ "ROUND_DOWN", genRoundDown },
-    .{ "ROUND_FLOOR", genRoundFloor },
-    .{ "ROUND_HALF_DOWN", genRoundHalfDown },
-    .{ "ROUND_HALF_EVEN", genRoundHalfEven },
-    .{ "ROUND_HALF_UP", genRoundHalfUp },
-    .{ "ROUND_UP", genRoundUp },
-    .{ "ROUND_05UP", genRound05Up },
+    .{ "Decimal", genDecimal }, .{ "Context", genContext28 }, .{ "localcontext", genContext28 },
+    .{ "getcontext", genContext28 }, .{ "setcontext", genUnit },
+    .{ "BasicContext", genContext9 }, .{ "ExtendedContext", genContext9 }, .{ "DefaultContext", genContext28 },
+    .{ "MAX_PREC", genMaxPrec }, .{ "MAX_EMAX", genMaxPrec }, .{ "MIN_EMIN", genMinEmin }, .{ "MIN_ETINY", genMinEmin },
+    .{ "ROUND_CEILING", genRoundCeiling }, .{ "ROUND_DOWN", genRoundDown }, .{ "ROUND_FLOOR", genRoundFloor },
+    .{ "ROUND_HALF_DOWN", genRoundHalfDown }, .{ "ROUND_HALF_EVEN", genRoundHalfEven },
+    .{ "ROUND_HALF_UP", genRoundHalfUp }, .{ "ROUND_UP", genRoundUp }, .{ "ROUND_05UP", genRound05Up },
 });
 
-pub fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const v = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = v; break :blk .{ .sign = 0, .digits = &[_]u8{}, .exp = 0 }; }");
-    } else {
-        try self.emit(".{ .sign = 0, .digits = &[_]u8{}, .exp = 0 }");
-    }
+fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const v = "); try self.genExpr(args[0]); try self.emit("; _ = v; break :blk .{ .sign = 0, .digits = &[_]u8{}, .exp = 0 }; }"); } else { try self.emit(".{ .sign = 0, .digits = &[_]u8{}, .exp = 0 }"); }
 }
 
-/// Generate _decimal.Context(prec=28, rounding=ROUND_HALF_EVEN, Emin=-999999, Emax=999999, capitals=1, clamp=0, flags=None, traps=None)
-pub fn genContext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .prec = 28, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }");
-}
-
-/// Generate _decimal.localcontext(ctx=None, **kwargs)
-pub fn genLocalcontext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .prec = 28, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }");
-}
-
-/// Generate _decimal.getcontext()
-pub fn genGetcontext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .prec = 28, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }");
-}
-
-/// Generate _decimal.setcontext(context)
-pub fn genSetcontext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _decimal.BasicContext constant
-pub fn genBasicContext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .prec = 9, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }");
-}
-
-/// Generate _decimal.ExtendedContext constant
-pub fn genExtendedContext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .prec = 9, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }");
-}
-
-/// Generate _decimal.DefaultContext constant
-pub fn genDefaultContext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .prec = 28, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }");
-}
-
-/// Generate _decimal.MAX_PREC constant
-pub fn genMaxPrec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 999999999999999999)");
-}
-
-/// Generate _decimal.MAX_EMAX constant
-pub fn genMaxEmax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 999999999999999999)");
-}
-
-/// Generate _decimal.MIN_EMIN constant
-pub fn genMinEmin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, -999999999999999999)");
-}
-
-/// Generate _decimal.MIN_ETINY constant
-pub fn genMinEtiny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, -999999999999999999)");
-}
-
-/// Generate _decimal.ROUND_CEILING constant
-pub fn genRoundCeiling(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"ROUND_CEILING\"");
-}
-
-/// Generate _decimal.ROUND_DOWN constant
-pub fn genRoundDown(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"ROUND_DOWN\"");
-}
-
-/// Generate _decimal.ROUND_FLOOR constant
-pub fn genRoundFloor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"ROUND_FLOOR\"");
-}
-
-/// Generate _decimal.ROUND_HALF_DOWN constant
-pub fn genRoundHalfDown(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"ROUND_HALF_DOWN\"");
-}
-
-/// Generate _decimal.ROUND_HALF_EVEN constant
-pub fn genRoundHalfEven(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"ROUND_HALF_EVEN\"");
-}
-
-/// Generate _decimal.ROUND_HALF_UP constant
-pub fn genRoundHalfUp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"ROUND_HALF_UP\"");
-}
-
-/// Generate _decimal.ROUND_UP constant
-pub fn genRoundUp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"ROUND_UP\"");
-}
-
-/// Generate _decimal.ROUND_05UP constant
-pub fn genRound05Up(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"ROUND_05UP\"");
-}
-
-/// Generate _decimal.DecimalException class
-pub fn genDecimalException(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.DecimalException");
-}
-
-/// Generate _decimal.InvalidOperation class
-pub fn genInvalidOperation(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.InvalidOperation");
-}
-
-/// Generate _decimal.DivisionByZero class
-pub fn genDivisionByZero(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.DivisionByZero");
-}
-
-/// Generate _decimal.Overflow class
-pub fn genOverflow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.Overflow");
-}
-
-/// Generate _decimal.Underflow class
-pub fn genUnderflow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.Underflow");
-}
-
-/// Generate _decimal.Inexact class
-pub fn genInexact(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.Inexact");
-}
-
-/// Generate _decimal.Rounded class
-pub fn genRounded(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.Rounded");
-}
-
-/// Generate _decimal.Subnormal class
-pub fn genSubnormal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.Subnormal");
-}
-
-/// Generate _decimal.Clamped class
-pub fn genClamped(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.Clamped");
-}
+fn genRoundCeiling(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_CEILING\""); }
+fn genRoundDown(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_DOWN\""); }
+fn genRoundFloor(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_FLOOR\""); }
+fn genRoundHalfDown(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_HALF_DOWN\""); }
+fn genRoundHalfEven(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_HALF_EVEN\""); }
+fn genRoundHalfUp(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_HALF_UP\""); }
+fn genRoundUp(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_UP\""); }
+fn genRound05Up(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_05UP\""); }

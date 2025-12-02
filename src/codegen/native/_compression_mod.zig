@@ -5,96 +5,22 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "true"); }
+fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
+fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
+fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
+fn genUsize_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(usize, 0)"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "DecompressReader", genDecompressReader },
-    .{ "readable", genReadable },
-    .{ "writable", genWritable },
-    .{ "seekable", genSeekable },
-    .{ "read", genRead },
-    .{ "read1", genRead1 },
-    .{ "readinto", genReadinto },
-    .{ "readline", genReadline },
-    .{ "readlines", genReadlines },
-    .{ "seek", genSeek },
-    .{ "tell", genTell },
-    .{ "close", genClose },
-    .{ "BaseStream", genBaseStream },
+    .{ "DecompressReader", genDecompressReader }, .{ "BaseStream", genEmpty },
+    .{ "readable", genTrue }, .{ "writable", genFalse }, .{ "seekable", genTrue },
+    .{ "read", genEmptyStr }, .{ "read1", genEmptyStr }, .{ "readline", genEmptyStr },
+    .{ "readlines", genReadlines }, .{ "readinto", genUsize_0 },
+    .{ "seek", genI64_0 }, .{ "tell", genI64_0 }, .{ "close", genUnit },
 });
 
-/// Generate _compression.DecompressReader(fp, decomp, trailing_error=())
-pub fn genDecompressReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .fp = null, .decomp = null, .eof = false, .pos = 0, .size = -1 }");
-}
-
-/// Generate DecompressReader.readable()
-pub fn genReadable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
-
-/// Generate DecompressReader.writable()
-pub fn genWritable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-/// Generate DecompressReader.seekable()
-pub fn genSeekable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
-
-/// Generate DecompressReader.read(size=-1)
-pub fn genRead(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate DecompressReader.read1(size=-1)
-pub fn genRead1(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate DecompressReader.readinto(b)
-pub fn genReadinto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(usize, 0)");
-}
-
-/// Generate DecompressReader.readline(size=-1)
-pub fn genReadline(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-/// Generate DecompressReader.readlines(hint=-1)
-pub fn genReadlines(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_][]const u8{}");
-}
-
-/// Generate DecompressReader.seek(offset, whence=0)
-pub fn genSeek(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate DecompressReader.tell()
-pub fn genTell(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate DecompressReader.close()
-pub fn genClose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _compression.BaseStream class
-pub fn genBaseStream(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
+fn genDecompressReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .fp = null, .decomp = null, .eof = false, .pos = 0, .size = -1 }"); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genReadlines(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{}"); }

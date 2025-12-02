@@ -5,19 +5,16 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "reader", genReader }, .{ "writer", genWriter }, .{ "DictReader", genDictReader }, .{ "DictWriter", genDictWriter },
-    .{ "field_size_limit", genFieldLimit }, .{ "QUOTE_ALL", genI64_1 }, .{ "QUOTE_MINIMAL", genI64_0 },
-    .{ "QUOTE_NONNUMERIC", genI64_2 }, .{ "QUOTE_NONE", genI64_3 },
+    .{ "field_size_limit", genConst("@as(i64, 131072)") }, .{ "QUOTE_ALL", genConst("@as(i64, 1)") },
+    .{ "QUOTE_MINIMAL", genConst("@as(i64, 0)") }, .{ "QUOTE_NONNUMERIC", genConst("@as(i64, 2)") },
+    .{ "QUOTE_NONE", genConst("@as(i64, 3)") },
 });
-
-// Helpers
-fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
-fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
-fn genI64_1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 1)"); }
-fn genI64_2(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 2)"); }
-fn genI64_3(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 3)"); }
-fn genFieldLimit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 131072)"); }
 
 pub fn genReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

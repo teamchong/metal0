@@ -6,35 +6,10 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "getpwnam", genGetpwnam },
-    .{ "getpwuid", genGetpwuid },
-    .{ "getpwall", genGetpwall },
-    .{ "struct_passwd", genStruct_passwd },
+    .{ "getpwnam", genPasswd }, .{ "getpwuid", genPasswd }, .{ "getpwall", genPasswdList }, .{ "struct_passwd", genPasswdType },
 });
 
-/// Generate pwd.getpwnam(name) - get user by username
-/// Returns struct_passwd(pw_name, pw_passwd, pw_uid, pw_gid, pw_gecos, pw_dir, pw_shell)
-pub fn genGetpwnam(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .pw_name = \"\", .pw_passwd = \"x\", .pw_uid = @as(u32, 0), .pw_gid = @as(u32, 0), .pw_gecos = \"\", .pw_dir = \"/\", .pw_shell = \"/bin/sh\" }");
-}
-
-/// Generate pwd.getpwuid(uid) - get user by UID
-/// Returns struct_passwd
-pub fn genGetpwuid(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .pw_name = \"\", .pw_passwd = \"x\", .pw_uid = @as(u32, 0), .pw_gid = @as(u32, 0), .pw_gecos = \"\", .pw_dir = \"/\", .pw_shell = \"/bin/sh\" }");
-}
-
-/// Generate pwd.getpwall() - get all password entries
-/// Returns list of struct_passwd
-pub fn genGetpwall(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]@TypeOf(.{ .pw_name = \"\", .pw_passwd = \"\", .pw_uid = @as(u32, 0), .pw_gid = @as(u32, 0), .pw_gecos = \"\", .pw_dir = \"\", .pw_shell = \"\" }){}");
-}
-
-/// Generate pwd.struct_passwd - named tuple type for password entries
-pub fn genStruct_passwd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct { pw_name: []const u8, pw_passwd: []const u8, pw_uid: u32, pw_gid: u32, pw_gecos: []const u8, pw_dir: []const u8, pw_shell: []const u8 }");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genPasswd(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .pw_name = \"\", .pw_passwd = \"x\", .pw_uid = @as(u32, 0), .pw_gid = @as(u32, 0), .pw_gecos = \"\", .pw_dir = \"/\", .pw_shell = \"/bin/sh\" }"); }
+fn genPasswdList(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]@TypeOf(.{ .pw_name = \"\", .pw_passwd = \"\", .pw_uid = @as(u32, 0), .pw_gid = @as(u32, 0), .pw_gecos = \"\", .pw_dir = \"\", .pw_shell = \"\" }){}"); }
+fn genPasswdType(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "struct { pw_name: []const u8, pw_passwd: []const u8, pw_uid: u32, pw_gid: u32, pw_gecos: []const u8, pw_dir: []const u8, pw_shell: []const u8 }"); }

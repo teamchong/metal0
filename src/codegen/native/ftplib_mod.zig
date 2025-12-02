@@ -5,73 +5,18 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genFTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 21), .timeout = @as(f64, -1.0), .source_address = @as(?[]const u8, null), .encoding = \"utf-8\" }"); }
+fn genPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 21)"); }
+fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FTPError"); }
+fn genReplyErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FTPReplyError"); }
+fn genTempErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FTPTempError"); }
+fn genPermErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FTPPermError"); }
+fn genProtoErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FTPProtoError"); }
+fn genAllErrs(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]type{ error.FTPError, error.FTPReplyError, error.FTPTempError, error.FTPPermError, error.FTPProtoError }"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "FTP", genFTP },
-    .{ "FTP_TLS", genFTP_TLS },
-    .{ "FTP_PORT", genFTP_PORT },
-    .{ "error", genError },
-    .{ "error_reply", genError_reply },
-    .{ "error_temp", genError_temp },
-    .{ "error_perm", genError_perm },
-    .{ "error_proto", genError_proto },
-    .{ "all_errors", genAll_errors },
+    .{ "FTP", genFTP }, .{ "FTP_TLS", genFTP }, .{ "FTP_PORT", genPort },
+    .{ "error", genErr }, .{ "error_reply", genReplyErr }, .{ "error_temp", genTempErr },
+    .{ "error_perm", genPermErr }, .{ "error_proto", genProtoErr }, .{ "all_errors", genAllErrs },
 });
-
-/// Generate ftplib.FTP class
-pub fn genFTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = \"\", .port = @as(i32, 21), .timeout = @as(f64, -1.0), .source_address = @as(?[]const u8, null), .encoding = \"utf-8\" }");
-}
-
-/// Generate ftplib.FTP_TLS class
-pub fn genFTP_TLS(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .host = \"\", .port = @as(i32, 21), .timeout = @as(f64, -1.0), .source_address = @as(?[]const u8, null), .encoding = \"utf-8\" }");
-}
-
-// ============================================================================
-// Port constants
-// ============================================================================
-
-pub fn genFTP_PORT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i32, 21)");
-}
-
-// ============================================================================
-// Exception classes
-// ============================================================================
-
-pub fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.FTPError");
-}
-
-pub fn genError_reply(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.FTPReplyError");
-}
-
-pub fn genError_temp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.FTPTempError");
-}
-
-pub fn genError_perm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.FTPPermError");
-}
-
-pub fn genError_proto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.FTPProtoError");
-}
-
-// ============================================================================
-// Response codes
-// ============================================================================
-
-pub fn genAll_errors(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]type{ error.FTPError, error.FTPReplyError, error.FTPTempError, error.FTPPermError, error.FTPProtoError }");
-}

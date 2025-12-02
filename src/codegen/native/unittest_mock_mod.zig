@@ -5,124 +5,25 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "true"); }
+fn genPassDecorator(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator"); }
+fn genReturnNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .return_value = @as(?*anyopaque, null) }"); }
+
+const mock_full = ".{ .return_value = @as(?*anyopaque, null), .side_effect = @as(?*anyopaque, null), .called = false, .call_count = @as(i64, 0), .call_args = @as(?*anyopaque, null), .call_args_list = &[_]*anyopaque{}, .method_calls = &[_]*anyopaque{}, .mock_calls = &[_]*anyopaque{} }";
+const mock_async = ".{ .return_value = @as(?*anyopaque, null), .side_effect = @as(?*anyopaque, null), .called = false, .call_count = @as(i64, 0) }";
+fn genMock(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, mock_full); }
+fn genAsyncMock(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, mock_async); }
+fn genCall(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .args = &[_]*anyopaque{}, .kwargs = @as(?*anyopaque, null) }"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Mock", genMock },
-    .{ "MagicMock", genMagicMock },
-    .{ "AsyncMock", genAsyncMock },
-    .{ "NonCallableMock", genNonCallableMock },
-    .{ "NonCallableMagicMock", genNonCallableMagicMock },
-    .{ "patch", genPatch },
-    .{ "patch.object", genPatch_object },
-    .{ "patch.dict", genPatch_dict },
-    .{ "patch.multiple", genPatch_multiple },
-    .{ "create_autospec", genCreate_autospec },
-    .{ "call", genCall },
-    .{ "ANY", genANY },
-    .{ "FILTER_DIR", genFILTER_DIR },
-    .{ "sentinel", genSentinel },
-    .{ "DEFAULT", genDEFAULT },
-    .{ "seal", genSeal },
-    .{ "PropertyMock", genPropertyMock },
+    .{ "Mock", genMock }, .{ "MagicMock", genMock }, .{ "AsyncMock", genAsyncMock },
+    .{ "NonCallableMock", genReturnNull }, .{ "NonCallableMagicMock", genReturnNull },
+    .{ "patch", genPassDecorator }, .{ "patch.object", genPassDecorator },
+    .{ "patch.dict", genPassDecorator }, .{ "patch.multiple", genPassDecorator },
+    .{ "create_autospec", genReturnNull }, .{ "call", genCall },
+    .{ "ANY", genEmpty }, .{ "FILTER_DIR", genTrue }, .{ "sentinel", genEmpty },
+    .{ "DEFAULT", genEmpty }, .{ "seal", genUnit }, .{ "PropertyMock", genReturnNull },
 });
-
-/// Generate unittest.mock.Mock class
-pub fn genMock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .return_value = @as(?*anyopaque, null), .side_effect = @as(?*anyopaque, null), .called = false, .call_count = @as(i64, 0), .call_args = @as(?*anyopaque, null), .call_args_list = &[_]*anyopaque{}, .method_calls = &[_]*anyopaque{}, .mock_calls = &[_]*anyopaque{} }");
-}
-
-/// Generate unittest.mock.MagicMock class
-pub fn genMagicMock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .return_value = @as(?*anyopaque, null), .side_effect = @as(?*anyopaque, null), .called = false, .call_count = @as(i64, 0), .call_args = @as(?*anyopaque, null), .call_args_list = &[_]*anyopaque{}, .method_calls = &[_]*anyopaque{}, .mock_calls = &[_]*anyopaque{} }");
-}
-
-/// Generate unittest.mock.AsyncMock class
-pub fn genAsyncMock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .return_value = @as(?*anyopaque, null), .side_effect = @as(?*anyopaque, null), .called = false, .call_count = @as(i64, 0) }");
-}
-
-/// Generate unittest.mock.NonCallableMock class
-pub fn genNonCallableMock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .return_value = @as(?*anyopaque, null) }");
-}
-
-/// Generate unittest.mock.NonCallableMagicMock class
-pub fn genNonCallableMagicMock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .return_value = @as(?*anyopaque, null) }");
-}
-
-/// Generate unittest.mock.patch decorator
-pub fn genPatch(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator");
-}
-
-/// Generate unittest.mock.patch.object decorator
-pub fn genPatch_object(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator");
-}
-
-/// Generate unittest.mock.patch.dict decorator
-pub fn genPatch_dict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator");
-}
-
-/// Generate unittest.mock.patch.multiple decorator
-pub fn genPatch_multiple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct { fn decorator(func: anytype) @TypeOf(func) { return func; } }.decorator");
-}
-
-/// Generate unittest.mock.create_autospec function
-pub fn genCreate_autospec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .return_value = @as(?*anyopaque, null) }");
-}
-
-/// Generate unittest.mock.call helper
-pub fn genCall(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .args = &[_]*anyopaque{}, .kwargs = @as(?*anyopaque, null) }");
-}
-
-/// Generate unittest.mock.ANY sentinel
-pub fn genANY(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate unittest.mock.FILTER_DIR
-pub fn genFILTER_DIR(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
-
-/// Generate unittest.mock.sentinel
-pub fn genSentinel(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate unittest.mock.DEFAULT sentinel
-pub fn genDEFAULT(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate unittest.mock.seal function
-pub fn genSeal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate unittest.mock.PropertyMock class
-pub fn genPropertyMock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .return_value = @as(?*anyopaque, null) }");
-}

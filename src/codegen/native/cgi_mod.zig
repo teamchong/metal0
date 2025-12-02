@@ -1,117 +1,26 @@
 /// Python cgi module - CGI utilities
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "parse", genParse },
-    .{ "parse_qs", genParse_qs },
-    .{ "parse_qsl", genParse_qsl },
-    .{ "parse_multipart", genParse_multipart },
-    .{ "parse_header", genParse_header },
-    .{ "test", genTest },
-    .{ "print_environ", genPrint_environ },
-    .{ "print_form", genPrint_form },
-    .{ "print_directory", genPrint_directory },
-    .{ "print_environ_usage", genPrint_environ_usage },
-    .{ "escape", genEscape },
-    .{ "FieldStorage", genFieldStorage },
-    .{ "MiniFieldStorage", genMiniFieldStorage },
-    .{ "maxlen", genMaxlen },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate cgi.parse(fp=None, environ=os.environ, ...)
-pub fn genParse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
 
-/// Generate cgi.parse_qs(qs, keep_blank_values=False, ...)
-pub fn genParse_qs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "parse", genEmpty }, .{ "parse_qs", genEmpty }, .{ "parse_multipart", genEmpty },
+    .{ "parse_qsl", genParseQsl }, .{ "parse_header", genParseHeader },
+    .{ "test", genUnit }, .{ "print_environ", genUnit }, .{ "print_form", genUnit },
+    .{ "print_directory", genUnit }, .{ "print_environ_usage", genUnit },
+    .{ "escape", genEscape }, .{ "FieldStorage", genFieldStorage }, .{ "MiniFieldStorage", genMiniFieldStorage },
+    .{ "maxlen", genMaxlen },
+});
 
-/// Generate cgi.parse_qsl(qs, keep_blank_values=False, ...)
-pub fn genParse_qsl(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_].{ []const u8, []const u8 }{}");
-}
-
-/// Generate cgi.parse_multipart(fp, pdict)
-pub fn genParse_multipart(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate cgi.parse_header(line)
-pub fn genParse_header(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ \"\", .{} }");
-}
-
-/// Generate cgi.test() - test CGI setup
-pub fn genTest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate cgi.print_environ() - print environment
-pub fn genPrint_environ(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate cgi.print_form(form) - print form data
-pub fn genPrint_form(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate cgi.print_directory() - print directory listing
-pub fn genPrint_directory(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate cgi.print_environ_usage() - print usage info
-pub fn genPrint_environ_usage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate cgi.escape(s, quote=False) - deprecated HTML escape
-pub fn genEscape(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-// ============================================================================
-// FieldStorage class
-// ============================================================================
-
-/// Generate cgi.FieldStorage class
-pub fn genFieldStorage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = @as(?[]const u8, null), .filename = @as(?[]const u8, null), .value = @as(?[]const u8, null), .file = @as(?*anyopaque, null), .type = \"text/plain\", .type_options = .{}, .disposition = @as(?[]const u8, null), .disposition_options = .{}, .headers = .{}, .list = @as(?*anyopaque, null) }");
-}
-
-/// Generate cgi.MiniFieldStorage class
-pub fn genMiniFieldStorage(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = @as(?[]const u8, null), .value = @as(?[]const u8, null) }");
-}
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-pub fn genMaxlen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)"); // 0 means unlimited
-}
+fn genParseQsl(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_].{ []const u8, []const u8 }{}"); }
+fn genParseHeader(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ \"\", .{} }"); }
+fn genEscape(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\""); }
+fn genFieldStorage(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = @as(?[]const u8, null), .filename = @as(?[]const u8, null), .value = @as(?[]const u8, null), .file = @as(?*anyopaque, null), .type = \"text/plain\", .type_options = .{}, .disposition = @as(?[]const u8, null), .disposition_options = .{}, .headers = .{}, .list = @as(?*anyopaque, null) }"); }
+fn genMiniFieldStorage(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = @as(?[]const u8, null), .value = @as(?[]const u8, null) }"); }
+fn genMaxlen(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }

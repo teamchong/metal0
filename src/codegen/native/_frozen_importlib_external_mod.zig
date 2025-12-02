@@ -5,113 +5,27 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genEmptyLoader(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"\", .path = \"\" }"); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "source_file_loader", genSourceFileLoader },
-    .{ "sourceless_file_loader", genSourcelessFileLoader },
-    .{ "extension_file_loader", genExtensionFileLoader },
-    .{ "file_finder", genFileFinder },
-    .{ "path_finder", genPathFinder },
-    .{ "get_supported_file_loaders", genGetSupportedFileLoaders },
-    .{ "install", genInstall },
-    .{ "cache_from_source", genCacheFromSource },
-    .{ "source_from_cache", genSourceFromCache },
+    .{ "source_file_loader", genSourceFileLoader }, .{ "sourceless_file_loader", genEmptyLoader }, .{ "extension_file_loader", genEmptyLoader },
+    .{ "file_finder", genFileFinder }, .{ "path_finder", genEmpty }, .{ "get_supported_file_loaders", genEmptyArray },
+    .{ "install", genUnit }, .{ "cache_from_source", genPassthrough }, .{ "source_from_cache", genPassthrough },
     .{ "spec_from_file_location", genSpecFromFileLocation },
-    .{ "b_y_t_e_c_o_d_e__s_u_f_f_i_x_e_s", genBYTECODE_SUFFIXES },
-    .{ "s_o_u_r_c_e__s_u_f_f_i_x_e_s", genSOURCE_SUFFIXES },
-    .{ "e_x_t_e_n_s_i_o_n__s_u_f_f_i_x_e_s", genEXTENSION_SUFFIXES },
+    .{ "b_y_t_e_c_o_d_e__s_u_f_f_i_x_e_s", genBytecodeSuffixes }, .{ "s_o_u_r_c_e__s_u_f_f_i_x_e_s", genSourceSuffixes }, .{ "e_x_t_e_n_s_i_o_n__s_u_f_f_i_x_e_s", genExtensionSuffixes },
 });
 
-/// Generate _frozen_importlib_external.SourceFileLoader(fullname, path)
-pub fn genSourceFileLoader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) {
-        try self.emit("blk: { const name = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const path = ");
-        try self.genExpr(args[1]);
-        try self.emit("; break :blk .{ .name = name, .path = path }; }");
-    } else {
-        try self.emit(".{ .name = \"\", .path = \"\" }");
-    }
+fn genSourceFileLoader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len >= 2) { try self.emit("blk: { const name = "); try self.genExpr(args[0]); try self.emit("; const path = "); try self.genExpr(args[1]); try self.emit("; break :blk .{ .name = name, .path = path }; }"); }
+    else try genEmptyLoader(self, args);
 }
-
-/// Generate _frozen_importlib_external.SourcelessFileLoader(fullname, path)
-pub fn genSourcelessFileLoader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"\", .path = \"\" }");
-}
-
-/// Generate _frozen_importlib_external.ExtensionFileLoader(name, path)
-pub fn genExtensionFileLoader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"\", .path = \"\" }");
-}
-
-/// Generate _frozen_importlib_external.FileFinder(path, *loader_details)
-pub fn genFileFinder(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .path = \"\", .loaders = &[_]@TypeOf(.{}){} }");
-}
-
-/// Generate _frozen_importlib_external.PathFinder class
-pub fn genPathFinder(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}");
-}
-
-/// Generate _frozen_importlib_external._get_supported_file_loaders()
-pub fn genGetSupportedFileLoaders(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]@TypeOf(.{}){}");
-}
-
-/// Generate _frozen_importlib_external._install(sys_module, _imp_module)
-pub fn genInstall(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _frozen_importlib_external.cache_from_source(path, debug_override=None, *, optimization=None)
-pub fn genCacheFromSource(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = path; break :blk path; }");
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-/// Generate _frozen_importlib_external.source_from_cache(path)
-pub fn genSourceFromCache(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = path; break :blk path; }");
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-/// Generate _frozen_importlib_external.spec_from_file_location(name, location=None, *, loader=None, submodule_search_locations=_POPULATE)
-pub fn genSpecFromFileLocation(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"\", .loader = null, .origin = null, .submodule_search_locations = null }");
-}
-
-/// Generate _frozen_importlib_external.BYTECODE_SUFFIXES constant
-pub fn genBYTECODE_SUFFIXES(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_][]const u8{ \".pyc\" }");
-}
-
-/// Generate _frozen_importlib_external.SOURCE_SUFFIXES constant
-pub fn genSOURCE_SUFFIXES(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_][]const u8{ \".py\" }");
-}
-
-/// Generate _frozen_importlib_external.EXTENSION_SUFFIXES constant
-pub fn genEXTENSION_SUFFIXES(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_][]const u8{ \".so\", \".cpython-312-darwin.so\" }");
-}
+fn genFileFinder(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .path = \"\", .loaders = &[_]@TypeOf(.{}){} }"); }
+fn genEmptyArray(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]@TypeOf(.{}){}"); }
+fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; _ = path; break :blk path; }"); } else try self.emit("\"\""); }
+fn genSpecFromFileLocation(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"\", .loader = null, .origin = null, .submodule_search_locations = null }"); }
+fn genBytecodeSuffixes(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{ \".pyc\" }"); }
+fn genSourceSuffixes(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{ \".py\" }"); }
+fn genExtensionSuffixes(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{ \".so\", \".cpython-312-darwin.so\" }"); }

@@ -6,176 +6,33 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "bisect_left", genBisectLeft },
-    .{ "bisect_right", genBisectRight },
-    .{ "bisect", genBisect },
-    .{ "insort_left", genInsortLeft },
-    .{ "insort_right", genInsortRight },
-    .{ "insort", genInsort },
+    .{ "bisect_left", genBisectLeft }, .{ "bisect_right", genBisectRight }, .{ "bisect", genBisectRight },
+    .{ "insort_left", genInsortLeft }, .{ "insort_right", genInsortRight }, .{ "insort", genInsortRight },
 });
 
-/// Generate bisect.bisect_left(a, x, lo=0, hi=len(a)) -> index
-pub fn genBisectLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) {
-        try self.emit("@as(usize, 0)");
-        return;
-    }
+const ArraySetup = "; const _a = if (@typeInfo(@TypeOf(_a_raw)) == .@\"struct\" and @hasField(@TypeOf(_a_raw), \"items\")) _a_raw.items else &_a_raw; const _x = ";
+const BisectLoop = "; var _lo: usize = 0; var _hi: usize = _a.len; while (_lo < _hi) { const _mid = _lo + (_hi - _lo) / 2;";
 
-    try self.emit("bisect_left_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _a_raw = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    // Handle both ArrayList and plain arrays
-    try self.emit("const _a = if (@typeInfo(@TypeOf(_a_raw)) == .@\"struct\" and @hasField(@TypeOf(_a_raw), \"items\")) _a_raw.items else &_a_raw;\n");
-    try self.emitIndent();
-    try self.emit("const _x = ");
-    try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("var _lo: usize = 0;\n");
-    try self.emitIndent();
-    try self.emit("var _hi: usize = _a.len;\n");
-    try self.emitIndent();
-    try self.emit("while (_lo < _hi) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _mid = _lo + (_hi - _lo) / 2;\n");
-    try self.emitIndent();
-    try self.emit("if (_a[_mid] < _x) { _lo = _mid + 1; } else { _hi = _mid; }\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("break :bisect_left_blk @as(i64, @intCast(_lo));\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+fn genBisectLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) { try self.emit("@as(usize, 0)"); return; }
+    try self.emit("blk: { const _a_raw = "); try self.genExpr(args[0]); try self.emit(ArraySetup); try self.genExpr(args[1]);
+    try self.emit(BisectLoop ++ " if (_a[_mid] < _x) { _lo = _mid + 1; } else { _hi = _mid; } } break :blk @as(i64, @intCast(_lo)); }");
 }
 
-/// Generate bisect.bisect_right(a, x, lo=0, hi=len(a)) -> index (alias: bisect)
-pub fn genBisectRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) {
-        try self.emit("@as(usize, 0)");
-        return;
-    }
-
-    try self.emit("bisect_right_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _a_raw = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    // Handle both ArrayList and plain arrays
-    try self.emit("const _a = if (@typeInfo(@TypeOf(_a_raw)) == .@\"struct\" and @hasField(@TypeOf(_a_raw), \"items\")) _a_raw.items else &_a_raw;\n");
-    try self.emitIndent();
-    try self.emit("const _x = ");
-    try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("var _lo: usize = 0;\n");
-    try self.emitIndent();
-    try self.emit("var _hi: usize = _a.len;\n");
-    try self.emitIndent();
-    try self.emit("while (_lo < _hi) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _mid = _lo + (_hi - _lo) / 2;\n");
-    try self.emitIndent();
-    try self.emit("if (_x < _a[_mid]) { _hi = _mid; } else { _lo = _mid + 1; }\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("break :bisect_right_blk @as(i64, @intCast(_lo));\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+fn genBisectRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) { try self.emit("@as(usize, 0)"); return; }
+    try self.emit("blk: { const _a_raw = "); try self.genExpr(args[0]); try self.emit(ArraySetup); try self.genExpr(args[1]);
+    try self.emit(BisectLoop ++ " if (_x < _a[_mid]) { _hi = _mid; } else { _lo = _mid + 1; } } break :blk @as(i64, @intCast(_lo)); }");
 }
 
-/// Generate bisect.bisect(a, x, lo=0, hi=len(a)) -> index (alias for bisect_right)
-pub fn genBisect(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genBisectRight(self, args);
-}
-
-/// Generate bisect.insort_left(a, x, lo=0, hi=len(a)) -> None
-pub fn genInsortLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genInsortLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
-    try self.emit("insort_left_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _a = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("const _x = ");
-    try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("var _lo: usize = 0;\n");
-    try self.emitIndent();
-    try self.emit("var _hi: usize = _a.items.len;\n");
-    try self.emitIndent();
-    try self.emit("while (_lo < _hi) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _mid = _lo + (_hi - _lo) / 2;\n");
-    try self.emitIndent();
-    try self.emit("if (_a.items[_mid] < _x) { _lo = _mid + 1; } else { _hi = _mid; }\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("_a.insert(__global_allocator, _lo, _x) catch {};\n");
-    try self.emitIndent();
-    try self.emit("break :insort_left_blk;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("blk: { var _a = "); try self.genExpr(args[0]); try self.emit("; const _x = "); try self.genExpr(args[1]);
+    try self.emit("; var _lo: usize = 0; var _hi: usize = _a.items.len; while (_lo < _hi) { const _mid = _lo + (_hi - _lo) / 2; if (_a.items[_mid] < _x) { _lo = _mid + 1; } else { _hi = _mid; } } _a.insert(__global_allocator, _lo, _x) catch {}; break :blk; }");
 }
 
-/// Generate bisect.insort_right(a, x, lo=0, hi=len(a)) -> None (alias: insort)
-pub fn genInsortRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genInsortRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
-    try self.emit("insort_right_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _a = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("const _x = ");
-    try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("var _lo: usize = 0;\n");
-    try self.emitIndent();
-    try self.emit("var _hi: usize = _a.items.len;\n");
-    try self.emitIndent();
-    try self.emit("while (_lo < _hi) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _mid = _lo + (_hi - _lo) / 2;\n");
-    try self.emitIndent();
-    try self.emit("if (_x < _a.items[_mid]) { _hi = _mid; } else { _lo = _mid + 1; }\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("_a.insert(__global_allocator, _lo, _x) catch {};\n");
-    try self.emitIndent();
-    try self.emit("break :insort_right_blk;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
-}
-
-/// Generate bisect.insort(a, x, lo=0, hi=len(a)) -> None (alias for insort_right)
-pub fn genInsort(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genInsortRight(self, args);
+    try self.emit("blk: { var _a = "); try self.genExpr(args[0]); try self.emit("; const _x = "); try self.genExpr(args[1]);
+    try self.emit("; var _lo: usize = 0; var _hi: usize = _a.items.len; while (_lo < _hi) { const _mid = _lo + (_hi - _lo) / 2; if (_x < _a.items[_mid]) { _hi = _mid; } else { _lo = _mid + 1; } } _a.insert(__global_allocator, _lo, _x) catch {}; break :blk; }");
 }

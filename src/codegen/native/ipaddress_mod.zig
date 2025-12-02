@@ -5,144 +5,50 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "ip_address", genIp_address },
-    .{ "ip_network", genIp_network },
-    .{ "ip_interface", genIp_interface },
-    .{ "IPv4Address", genIPv4Address },
-    .{ "IPv4Network", genIPv4Network },
-    .{ "IPv4Interface", genIPv4Interface },
-    .{ "IPv6Address", genIPv6Address },
-    .{ "IPv6Network", genIPv6Network },
-    .{ "IPv6Interface", genIPv6Interface },
-    .{ "v4_int_to_packed", genV4_int_to_packed },
-    .{ "v6_int_to_packed", genV6_int_to_packed },
-    .{ "summarize_address_range", genSummarize_address_range },
-    .{ "collapse_addresses", genCollapse_addresses },
-    .{ "get_mixed_type_key", genGet_mixed_type_key },
-    .{ "AddressValueError", genAddressValueError },
-    .{ "NetmaskValueError", genNetmaskValueError },
+    .{ "ip_address", genIpAddress }, .{ "ip_network", genIpNetwork }, .{ "ip_interface", genIpInterface },
+    .{ "IPv4Address", genIPv4Address }, .{ "IPv4Network", genIPv4Network }, .{ "IPv4Interface", genIPv4Interface },
+    .{ "IPv6Address", genIPv6Address }, .{ "IPv6Network", genIPv6Network }, .{ "IPv6Interface", genIPv6Interface },
+    .{ "v4_int_to_packed", genV4Packed }, .{ "v6_int_to_packed", genV6Packed },
+    .{ "summarize_address_range", genEmptyNetList }, .{ "collapse_addresses", genEmptyNetList },
+    .{ "get_mixed_type_key", genMixedTypeKey },
+    .{ "AddressValueError", genAddrErr }, .{ "NetmaskValueError", genNetmaskErr },
 });
 
-/// Generate ipaddress.ip_address(address) - factory function
-pub fn genIp_address(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const addr = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .address = addr, .version = @as(i32, 4) }; }");
-    } else {
-        try self.emit(".{ .address = \"0.0.0.0\", .version = @as(i32, 4) }");
-    }
+fn genV4Packed(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]u8{0, 0, 0, 0}"); }
+fn genV6Packed(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]u8{0} ** 16"); }
+fn genEmptyNetList(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]@TypeOf(.{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) }){}"); }
+fn genMixedTypeKey(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i32, 4), @as(?*anyopaque, null) }"); }
+fn genAddrErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.AddressValueError"); }
+fn genNetmaskErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.NetmaskValueError"); }
+fn genIPv4Network(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .network_address = \"0.0.0.0\", .broadcast_address = \"0.0.0.0\", .netmask = \"0.0.0.0\", .hostmask = \"255.255.255.255\", .prefixlen = @as(i32, 0), .num_addresses = @as(i64, 1), .version = @as(i32, 4) }"); }
+fn genIPv4Interface(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .ip = .{ .address = \"0.0.0.0\" }, .network = .{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) } }"); }
+fn genIPv6Network(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .network_address = \"::\", .broadcast_address = \"::\", .netmask = \"::\", .hostmask = \"::\", .prefixlen = @as(i32, 0), .num_addresses = @as(i128, 1), .version = @as(i32, 6) }"); }
+fn genIPv6Interface(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .ip = .{ .address = \"::\" }, .network = .{ .network_address = \"::\", .prefixlen = @as(i32, 0) } }"); }
+
+fn genIpAddress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const addr = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ .address = addr, .version = @as(i32, 4) }; }"); }
+    else { try self.emit(".{ .address = \"0.0.0.0\", .version = @as(i32, 4) }"); }
 }
 
-/// Generate ipaddress.ip_network(address, strict=True) - factory function
-pub fn genIp_network(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const addr = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .network_address = addr, .prefixlen = @as(i32, 24), .version = @as(i32, 4) }; }");
-    } else {
-        try self.emit(".{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0), .version = @as(i32, 4) }");
-    }
+fn genIpNetwork(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const addr = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ .network_address = addr, .prefixlen = @as(i32, 24), .version = @as(i32, 4) }; }"); }
+    else { try self.emit(".{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0), .version = @as(i32, 4) }"); }
 }
 
-/// Generate ipaddress.ip_interface(address) - factory function
-pub fn genIp_interface(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const addr = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .ip = .{ .address = addr }, .network = .{ .network_address = addr, .prefixlen = @as(i32, 24) } }; }");
-    } else {
-        try self.emit(".{ .ip = .{ .address = \"0.0.0.0\" }, .network = .{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) } }");
-    }
+fn genIpInterface(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const addr = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ .ip = .{ .address = addr }, .network = .{ .network_address = addr, .prefixlen = @as(i32, 24) } }; }"); }
+    else { try self.emit(".{ .ip = .{ .address = \"0.0.0.0\" }, .network = .{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) } }"); }
 }
 
-/// Generate ipaddress.IPv4Address class
-pub fn genIPv4Address(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const addr = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .address = addr, .version = @as(i32, 4), .max_prefixlen = @as(i32, 32), .packed = &[_]u8{0, 0, 0, 0} }; }");
-    } else {
-        try self.emit(".{ .address = \"0.0.0.0\", .version = @as(i32, 4), .max_prefixlen = @as(i32, 32), .packed = &[_]u8{0, 0, 0, 0} }");
-    }
+fn genIPv4Address(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const addr = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ .address = addr, .version = @as(i32, 4), .max_prefixlen = @as(i32, 32), .packed = &[_]u8{0, 0, 0, 0} }; }"); }
+    else { try self.emit(".{ .address = \"0.0.0.0\", .version = @as(i32, 4), .max_prefixlen = @as(i32, 32), .packed = &[_]u8{0, 0, 0, 0} }"); }
 }
 
-/// Generate ipaddress.IPv4Network class
-pub fn genIPv4Network(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .network_address = \"0.0.0.0\", .broadcast_address = \"0.0.0.0\", .netmask = \"0.0.0.0\", .hostmask = \"255.255.255.255\", .prefixlen = @as(i32, 0), .num_addresses = @as(i64, 1), .version = @as(i32, 4) }");
-}
-
-/// Generate ipaddress.IPv4Interface class
-pub fn genIPv4Interface(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .ip = .{ .address = \"0.0.0.0\" }, .network = .{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) } }");
-}
-
-/// Generate ipaddress.IPv6Address class
-pub fn genIPv6Address(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const addr = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ .address = addr, .version = @as(i32, 6), .max_prefixlen = @as(i32, 128), .packed = &[_]u8{0} ** 16 }; }");
-    } else {
-        try self.emit(".{ .address = \"::\", .version = @as(i32, 6), .max_prefixlen = @as(i32, 128), .packed = &[_]u8{0} ** 16 }");
-    }
-}
-
-/// Generate ipaddress.IPv6Network class
-pub fn genIPv6Network(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .network_address = \"::\", .broadcast_address = \"::\", .netmask = \"::\", .hostmask = \"::\", .prefixlen = @as(i32, 0), .num_addresses = @as(i128, 1), .version = @as(i32, 6) }");
-}
-
-/// Generate ipaddress.IPv6Interface class
-pub fn genIPv6Interface(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .ip = .{ .address = \"::\" }, .network = .{ .network_address = \"::\", .prefixlen = @as(i32, 0) } }");
-}
-
-/// Generate ipaddress.v4_int_to_packed(address)
-pub fn genV4_int_to_packed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]u8{0, 0, 0, 0}");
-}
-
-/// Generate ipaddress.v6_int_to_packed(address)
-pub fn genV6_int_to_packed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]u8{0} ** 16");
-}
-
-/// Generate ipaddress.summarize_address_range(first, last)
-pub fn genSummarize_address_range(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]@TypeOf(.{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) }){}");
-}
-
-/// Generate ipaddress.collapse_addresses(addresses)
-pub fn genCollapse_addresses(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("&[_]@TypeOf(.{ .network_address = \"0.0.0.0\", .prefixlen = @as(i32, 0) }){}");
-}
-
-/// Generate ipaddress.get_mixed_type_key(obj)
-pub fn genGet_mixed_type_key(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ @as(i32, 4), @as(?*anyopaque, null) }");
-}
-
-// ============================================================================
-// Exception classes
-// ============================================================================
-
-pub fn genAddressValueError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.AddressValueError");
-}
-
-pub fn genNetmaskValueError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NetmaskValueError");
+fn genIPv6Address(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const addr = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ .address = addr, .version = @as(i32, 6), .max_prefixlen = @as(i32, 128), .packed = &[_]u8{0} ** 16 }; }"); }
+    else { try self.emit(".{ .address = \"::\", .version = @as(i32, 6), .max_prefixlen = @as(i32, 128), .packed = &[_]u8{0} ** 16 }"); }
 }

@@ -6,39 +6,11 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "md5", genMd5 },
-    .{ "update", genUpdate },
-    .{ "digest", genDigest },
-    .{ "hexdigest", genHexdigest },
-    .{ "copy", genCopy },
+    .{ "md5", genMd5 }, .{ "update", genUnit }, .{ "digest", genDigest }, .{ "hexdigest", genHex }, .{ "copy", genMd5 },
 });
 
-/// Generate _md5.md5(data=b'', *, usedforsecurity=True)
-pub fn genMd5(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"md5\", .digest_size = 16, .block_size = 64 }");
-}
-
-/// Generate md5.update(data)
-pub fn genUpdate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate md5.digest()
-pub fn genDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\\x00\" ** 16");
-}
-
-/// Generate md5.hexdigest()
-pub fn genHexdigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"0\" ** 32");
-}
-
-/// Generate md5.copy()
-pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .name = \"md5\", .digest_size = 16, .block_size = 64 }");
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genMd5(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"md5\", .digest_size = 16, .block_size = 64 }"); }
+fn genDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\\x00\" ** 16"); }
+fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"0\" ** 32"); }

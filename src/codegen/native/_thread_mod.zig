@@ -1,102 +1,28 @@
 /// Python _thread module - Low-level threading primitives
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "start_new_thread", genStart_new_thread },
-    .{ "interrupt_main", genInterrupt_main },
-    .{ "exit", genExit },
-    .{ "allocate_lock", genAllocate_lock },
-    .{ "get_ident", genGet_ident },
-    .{ "get_native_id", genGet_native_id },
-    .{ "stack_size", genStack_size },
-    .{ "TIMEOUT_MAX", genTIMEOUT_MAX },
-    .{ "LockType", genLockType },
-    .{ "RLock", genRLock },
-    .{ "error", genError },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-// ============================================================================
-// Thread Functions
-// ============================================================================
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "start_new_thread", genStartThread }, .{ "interrupt_main", genUnit }, .{ "exit", genRet },
+    .{ "allocate_lock", genLock }, .{ "get_ident", genIdent }, .{ "get_native_id", genIdent },
+    .{ "stack_size", genI64_0 }, .{ "TIMEOUT_MAX", genTimeout }, .{ "LockType", genLockType },
+    .{ "RLock", genRLock }, .{ "error", genErr },
+});
 
-/// Generate _thread.start_new_thread(function, args[, kwargs])
-pub fn genStart_new_thread(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const func = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const thread = std.Thread.spawn(.{}, func, .{}) catch break :blk @as(i64, -1); break :blk @as(i64, @intFromPtr(thread)); }");
-    } else {
-        try self.emit("@as(i64, -1)");
-    }
-}
+fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
+fn genRet(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "return"); }
+fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
+fn genTimeout(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(f64, 4294967.0)"); }
+fn genLock(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .mutex = std.Thread.Mutex{} }"); }
+fn genIdent(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, @intFromPtr(std.Thread.getCurrentId()))"); }
+fn genLockType(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@TypeOf(.{ .mutex = std.Thread.Mutex{} })"); }
+fn genRLock(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .mutex = std.Thread.Mutex{}, .count = 0, .owner = null }"); }
+fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.ThreadError"); }
 
-/// Generate _thread.interrupt_main(signum=signal.SIGINT)
-pub fn genInterrupt_main(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate _thread.exit()
-pub fn genExit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("return");
-}
-
-/// Generate _thread.allocate_lock()
-pub fn genAllocate_lock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .mutex = std.Thread.Mutex{} }");
-}
-
-/// Generate _thread.get_ident()
-pub fn genGet_ident(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, @intFromPtr(std.Thread.getCurrentId()))");
-}
-
-/// Generate _thread.get_native_id()
-pub fn genGet_native_id(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, @intFromPtr(std.Thread.getCurrentId()))");
-}
-
-/// Generate _thread.stack_size([size])
-pub fn genStack_size(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(i64, 0)");
-}
-
-/// Generate _thread.TIMEOUT_MAX
-pub fn genTIMEOUT_MAX(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(f64, 4294967.0)"); // ~49.7 days in seconds
-}
-
-// ============================================================================
-// Lock Type
-// ============================================================================
-
-/// Generate _thread.LockType
-pub fn genLockType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@TypeOf(.{ .mutex = std.Thread.Mutex{} })");
-}
-
-/// Generate _thread.RLock
-pub fn genRLock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .mutex = std.Thread.Mutex{}, .count = 0, .owner = null }");
-}
-
-// ============================================================================
-// Exceptions
-// ============================================================================
-
-pub fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ThreadError");
+fn genStartThread(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const func = "); try self.genExpr(args[0]); try self.emit("; const thread = std.Thread.spawn(.{}, func, .{}) catch break :blk @as(i64, -1); break :blk @as(i64, @intFromPtr(thread)); }"); } else { try self.emit("@as(i64, -1)"); }
 }

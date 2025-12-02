@@ -6,260 +6,54 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "heappush", genHeappush },
-    .{ "heappop", genHeappop },
-    .{ "heapify", genHeapify },
-    .{ "heapreplace", genHeapreplace },
-    .{ "heappushpop", genHeappushpop },
-    .{ "nlargest", genNlargest },
-    .{ "nsmallest", genNsmallest },
-    .{ "merge", genMerge },
+    .{ "heappush", genHeappush }, .{ "heappop", genHeappop }, .{ "heapify", genHeapify },
+    .{ "heapreplace", genHeapreplace }, .{ "heappushpop", genHeappushpop },
+    .{ "nlargest", genNlargest }, .{ "nsmallest", genNsmallest }, .{ "merge", genMerge },
 });
 
-/// Generate heapq.heappush(heap, item) -> None
-pub fn genHeappush(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genHeappush(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
-    try self.emit("heapq_push_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _heap = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("const _item = ");
-    try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("_heap.append(__global_allocator, _item) catch {};\n");
-    try self.emitIndent();
-    try self.emit("var _i = _heap.items.len - 1;\n");
-    try self.emitIndent();
-    try self.emit("while (_i > 0) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _parent = (_i - 1) / 2;\n");
-    try self.emitIndent();
-    try self.emit("if (_heap.items[_i] >= _heap.items[_parent]) break;\n");
-    try self.emitIndent();
-    try self.emit("const tmp = _heap.items[_i];\n");
-    try self.emitIndent();
-    try self.emit("_heap.items[_i] = _heap.items[_parent];\n");
-    try self.emitIndent();
-    try self.emit("_heap.items[_parent] = tmp;\n");
-    try self.emitIndent();
-    try self.emit("_i = _parent;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("break :heapq_push_blk;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("blk: { var _heap = "); try self.genExpr(args[0]); try self.emit("; const _item = "); try self.genExpr(args[1]);
+    try self.emit("; _heap.append(__global_allocator, _item) catch {}; var _i = _heap.items.len - 1; while (_i > 0) { const _parent = (_i - 1) / 2; if (_heap.items[_i] >= _heap.items[_parent]) break; const tmp = _heap.items[_i]; _heap.items[_i] = _heap.items[_parent]; _heap.items[_parent] = tmp; _i = _parent; } break :blk; }");
 }
 
-/// Generate heapq.heappop(heap) -> item
-pub fn genHeappop(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genHeappop(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
-    try self.emit("heapq_pop_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _heap = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    // Handle both ArrayList (.items) and plain arrays
-    try self.emit("const _h = if (@typeInfo(@TypeOf(_heap)) == .@\"struct\" and @hasField(@TypeOf(_heap), \"items\")) _heap.items else &_heap;\n");
-    try self.emitIndent();
-    try self.emit("if (_h.len == 0) break :heapq_pop_blk @as(@TypeOf(_h[0]), undefined);\n");
-    try self.emitIndent();
-    try self.emit("const _result = _h[0];\n");
-    try self.emitIndent();
-    try self.emit("break :heapq_pop_blk _result;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("blk: { var _heap = "); try self.genExpr(args[0]);
+    try self.emit("; const _h = if (@typeInfo(@TypeOf(_heap)) == .@\"struct\" and @hasField(@TypeOf(_heap), \"items\")) _heap.items else &_heap; if (_h.len == 0) break :blk @as(@TypeOf(_h[0]), undefined); const _result = _h[0]; break :blk _result; }");
 }
 
-/// Generate heapq.heapify(x) -> None
-pub fn genHeapify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genHeapify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
-    try self.emit("heapq_heapify_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _heap = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    // Handle both ArrayList (.items) and plain arrays
-    try self.emit("const _h = if (@typeInfo(@TypeOf(_heap)) == .@\"struct\" and @hasField(@TypeOf(_heap), \"items\")) _heap.items else &_heap;\n");
-    try self.emitIndent();
-    try self.emit("if (_h.len <= 1) break :heapq_heapify_blk;\n");
-    try self.emitIndent();
-    try self.emit("var _start = (_h.len - 2) / 2;\n");
-    try self.emitIndent();
-    try self.emit("while (true) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _i = _start;\n");
-    try self.emitIndent();
-    try self.emit("while (true) {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _smallest = _i;\n");
-    try self.emitIndent();
-    try self.emit("const _left = 2 * _i + 1;\n");
-    try self.emitIndent();
-    try self.emit("const _right = 2 * _i + 2;\n");
-    try self.emitIndent();
-    try self.emit("if (_left < _h.len and _h[_left] < _h[_smallest]) _smallest = _left;\n");
-    try self.emitIndent();
-    try self.emit("if (_right < _h.len and _h[_right] < _h[_smallest]) _smallest = _right;\n");
-    try self.emitIndent();
-    try self.emit("if (_smallest == _i) break;\n");
-    try self.emitIndent();
-    try self.emit("const tmp = _h[_i];\n");
-    try self.emitIndent();
-    try self.emit("_h[_i] = _h[_smallest];\n");
-    try self.emitIndent();
-    try self.emit("_h[_smallest] = tmp;\n");
-    try self.emitIndent();
-    try self.emit("_i = _smallest;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("if (_start == 0) break;\n");
-    try self.emitIndent();
-    try self.emit("_start -= 1;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
-    try self.emitIndent();
-    try self.emit("break :heapq_heapify_blk;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("blk: { var _heap = "); try self.genExpr(args[0]);
+    try self.emit("; const _h = if (@typeInfo(@TypeOf(_heap)) == .@\"struct\" and @hasField(@TypeOf(_heap), \"items\")) _heap.items else &_heap; if (_h.len <= 1) break :blk; var _start = (_h.len - 2) / 2; while (true) { var _i = _start; while (true) { var _smallest = _i; const _left = 2 * _i + 1; const _right = 2 * _i + 2; if (_left < _h.len and _h[_left] < _h[_smallest]) _smallest = _left; if (_right < _h.len and _h[_right] < _h[_smallest]) _smallest = _right; if (_smallest == _i) break; const tmp = _h[_i]; _h[_i] = _h[_smallest]; _h[_smallest] = tmp; _i = _smallest; } if (_start == 0) break; _start -= 1; } break :blk; }");
 }
 
-/// Generate heapq.heapreplace(heap, item) -> old_item
-pub fn genHeapreplace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genHeapreplace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
-    try self.emit("heapq_replace_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _heap = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("const _item = ");
-    try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("if (_heap.items.len == 0) break :heapq_replace_blk _item;\n");
-    try self.emitIndent();
-    try self.emit("const _result = _heap.items[0];\n");
-    try self.emitIndent();
-    try self.emit("_heap.items[0] = _item;\n");
-    try self.emitIndent();
-    try self.emit("break :heapq_replace_blk _result;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("blk: { var _heap = "); try self.genExpr(args[0]); try self.emit("; const _item = "); try self.genExpr(args[1]);
+    try self.emit("; if (_heap.items.len == 0) break :blk _item; const _result = _heap.items[0]; _heap.items[0] = _item; break :blk _result; }");
 }
 
-/// Generate heapq.heappushpop(heap, item) -> smallest
-pub fn genHeappushpop(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genHeappushpop(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
-    try self.emit("heapq_pushpop_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _heap = ");
-    try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("const _item = ");
-    try self.genExpr(args[1]);
-    try self.emit(";\n");
-    try self.emitIndent();
-    try self.emit("if (_heap.items.len == 0 or _item <= _heap.items[0]) break :heapq_pushpop_blk _item;\n");
-    try self.emitIndent();
-    try self.emit("const _result = _heap.items[0];\n");
-    try self.emitIndent();
-    try self.emit("_heap.items[0] = _item;\n");
-    try self.emitIndent();
-    try self.emit("break :heapq_pushpop_blk _result;\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("blk: { var _heap = "); try self.genExpr(args[0]); try self.emit("; const _item = "); try self.genExpr(args[1]);
+    try self.emit("; if (_heap.items.len == 0 or _item <= _heap.items[0]) break :blk _item; const _result = _heap.items[0]; _heap.items[0] = _item; break :blk _result; }");
 }
 
-/// Generate heapq.nlargest(n, iterable, key=None) -> list
-pub fn genNlargest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genNlargest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
-    try self.emit("heapq_nlargest_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _n: usize = @intCast(");
-    try self.genExpr(args[0]);
-    try self.emit(");\n");
-    try self.emitIndent();
-    try self.emit("const _items = ");
-    try self.genExpr(args[1]);
-    try self.emit(".items;\n");
-    try self.emitIndent();
-    try self.emit("var _sorted = __global_allocator.alloc(@TypeOf(_items[0]), _items.len) catch break :heapq_nlargest_blk &[_]@TypeOf(_items[0]){};\n");
-    try self.emitIndent();
-    try self.emit("@memcpy(_sorted, _items);\n");
-    try self.emitIndent();
-    try self.emit("std.mem.sort(@TypeOf(_items[0]), _sorted, {}, struct { fn cmp(_: void, a: anytype, b: anytype) bool { return a > b; } }.cmp);\n");
-    try self.emitIndent();
-    try self.emit("break :heapq_nlargest_blk _sorted[0..@min(_n, _sorted.len)];\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("blk: { const _n: usize = @intCast("); try self.genExpr(args[0]); try self.emit("); const _items = "); try self.genExpr(args[1]);
+    try self.emit(".items; var _sorted = __global_allocator.alloc(@TypeOf(_items[0]), _items.len) catch break :blk &[_]@TypeOf(_items[0]){}; @memcpy(_sorted, _items); std.mem.sort(@TypeOf(_items[0]), _sorted, {}, struct { fn cmp(_: void, a: anytype, b: anytype) bool { return a > b; } }.cmp); break :blk _sorted[0..@min(_n, _sorted.len)]; }");
 }
 
-/// Generate heapq.nsmallest(n, iterable, key=None) -> list
-pub fn genNsmallest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genNsmallest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
-    try self.emit("heapq_nsmallest_blk: {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("const _n: usize = @intCast(");
-    try self.genExpr(args[0]);
-    try self.emit(");\n");
-    try self.emitIndent();
-    try self.emit("const _items = ");
-    try self.genExpr(args[1]);
-    try self.emit(".items;\n");
-    try self.emitIndent();
-    try self.emit("var _sorted = __global_allocator.alloc(@TypeOf(_items[0]), _items.len) catch break :heapq_nsmallest_blk &[_]@TypeOf(_items[0]){};\n");
-    try self.emitIndent();
-    try self.emit("@memcpy(_sorted, _items);\n");
-    try self.emitIndent();
-    try self.emit("std.mem.sort(@TypeOf(_items[0]), _sorted, {}, struct { fn cmp(_: void, a: anytype, b: anytype) bool { return a < b; } }.cmp);\n");
-    try self.emitIndent();
-    try self.emit("break :heapq_nsmallest_blk _sorted[0..@min(_n, _sorted.len)];\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}");
+    try self.emit("blk: { const _n: usize = @intCast("); try self.genExpr(args[0]); try self.emit("); const _items = "); try self.genExpr(args[1]);
+    try self.emit(".items; var _sorted = __global_allocator.alloc(@TypeOf(_items[0]), _items.len) catch break :blk &[_]@TypeOf(_items[0]){}; @memcpy(_sorted, _items); std.mem.sort(@TypeOf(_items[0]), _sorted, {}, struct { fn cmp(_: void, a: anytype, b: anytype) bool { return a < b; } }.cmp); break :blk _sorted[0..@min(_n, _sorted.len)]; }");
 }
 
-/// Generate heapq.merge(*iterables, key=None, reverse=False) -> iterator
-pub fn genMerge(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // Simplified: just return first iterable
-    if (args.len == 0) {
-        try self.emit("&[_]i64{}");
-        return;
-    }
-    try self.genExpr(args[0]);
-    try self.emit(".items");
+fn genMerge(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("&[_]i64{}"); return; }
+    try self.genExpr(args[0]); try self.emit(".items");
 }

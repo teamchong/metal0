@@ -1,329 +1,62 @@
 /// Python posixpath module - POSIX pathname functions
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "abspath", genAbspath },
-    .{ "basename", genBasename },
-    .{ "commonpath", genCommonpath },
-    .{ "commonprefix", genCommonprefix },
-    .{ "dirname", genDirname },
-    .{ "exists", genExists },
-    .{ "expanduser", genExpanduser },
-    .{ "expandvars", genExpandvars },
-    .{ "getatime", genGetatime },
-    .{ "getctime", genGetctime },
-    .{ "getmtime", genGetmtime },
-    .{ "getsize", genGetsize },
-    .{ "isabs", genIsabs },
-    .{ "isdir", genIsdir },
-    .{ "isfile", genIsfile },
-    .{ "islink", genIslink },
-    .{ "ismount", genIsmount },
-    .{ "join", genJoin },
-    .{ "lexists", genLexists },
-    .{ "normcase", genNormcase },
-    .{ "normpath", genNormpath },
-    .{ "realpath", genRealpath },
-    .{ "relpath", genRelpath },
-    .{ "samefile", genSamefile },
-    .{ "sameopenfile", genSameopenfile },
-    .{ "samestat", genSamestat },
-    .{ "split", genSplit },
-    .{ "splitdrive", genSplitdrive },
-    .{ "splitext", genSplitext },
-    .{ "sep", genSep },
-    .{ "altsep", genAltsep },
-    .{ "extsep", genExtsep },
-    .{ "pathsep", genPathsep },
-    .{ "defpath", genDefpath },
-    .{ "devnull", genDevnull },
-    .{ "curdir", genCurdir },
-    .{ "pardir", genPardir },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-// ============================================================================
-// Path Functions (same as os.path for POSIX)
-// ============================================================================
-
-pub fn genAbspath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; var buf: [4096]u8 = undefined; break :blk std.fs.cwd().realpath(path, &buf) catch path; }");
-    } else {
-        try self.emit("\"\"");
-    }
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+fn genPathOp(comptime body: []const u8, comptime default: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; " ++ body ++ " }"); } else try self.emit(default);
+    } }.f;
 }
 
-pub fn genBasename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk std.fs.path.basename(path); }");
-    } else {
-        try self.emit("\"\"");
-    }
-}
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "abspath", genPathOp("var buf: [4096]u8 = undefined; break :blk std.fs.cwd().realpath(path, &buf) catch path;", "\"\"") },
+    .{ "basename", genPathOp("break :blk std.fs.path.basename(path);", "\"\"") },
+    .{ "dirname", genPathOp("break :blk std.fs.path.dirname(path) orelse \"\";", "\"\"") },
+    .{ "exists", genPathOp("_ = std.fs.cwd().statFile(path) catch break :blk false; break :blk true;", "false") },
+    .{ "expanduser", genExpanduser }, .{ "expandvars", genPassthrough },
+    .{ "getsize", genPathOp("const stat = std.fs.cwd().statFile(path) catch break :blk @as(i64, 0); break :blk @intCast(stat.size);", "@as(i64, 0)") },
+    .{ "isabs", genPathOp("break :blk path.len > 0 and path[0] == '/';", "false") },
+    .{ "isdir", genPathOp("const dir = std.fs.cwd().openDir(path, .{}) catch break :blk false; dir.close(); break :blk true;", "false") },
+    .{ "isfile", genPathOp("const stat = std.fs.cwd().statFile(path) catch break :blk false; break :blk stat.kind == .file;", "false") },
+    .{ "islink", genPathOp("const stat = std.fs.cwd().statFile(path) catch break :blk false; break :blk stat.kind == .sym_link;", "false") },
+    .{ "join", genJoin }, .{ "lexists", genPathOp("_ = std.fs.cwd().statFile(path) catch break :blk false; break :blk true;", "false") },
+    .{ "normcase", genPassthrough }, .{ "normpath", genPassthrough },
+    .{ "realpath", genPathOp("var buf: [4096]u8 = undefined; break :blk std.fs.cwd().realpath(path, &buf) catch path;", "\"\"") },
+    .{ "relpath", genPassthrough }, .{ "samefile", genSamefile }, .{ "split", genSplit }, .{ "splitdrive", genSplitdrive }, .{ "splitext", genSplitext },
+    .{ "commonpath", genConst("\"\"") }, .{ "commonprefix", genConst("\"\"") },
+    .{ "getatime", genConst("@as(f64, 0.0)") }, .{ "getctime", genConst("@as(f64, 0.0)") }, .{ "getmtime", genConst("@as(f64, 0.0)") },
+    .{ "ismount", genConst("false") }, .{ "sameopenfile", genConst("false") }, .{ "samestat", genConst("false") },
+    .{ "sep", genConst("\"/\"") }, .{ "altsep", genConst("@as(?[]const u8, null)") }, .{ "extsep", genConst("\".\"") },
+    .{ "pathsep", genConst("\":\"") }, .{ "defpath", genConst("\"/bin:/usr/bin\"") }, .{ "devnull", genConst("\"/dev/null\"") },
+    .{ "curdir", genConst("\".\"") }, .{ "pardir", genConst("\"..\"") },
+});
 
-pub fn genCommonpath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
+fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\""); }
+fn genExpanduser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; if (path.len > 0 and path[0] == '~') { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}{s}\", .{ home, path[1..] }) catch path; } break :blk path; }"); } else try self.emit("\"\"");
 }
-
-pub fn genCommonprefix(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"\"");
-}
-
-pub fn genDirname(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk std.fs.path.dirname(path) orelse \"\"; }");
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-pub fn genExists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = std.fs.cwd().statFile(path) catch break :blk false; break :blk true; }");
-    } else {
-        try self.emit("false");
-    }
-}
-
-pub fn genExpanduser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; if (path.len > 0 and path[0] == '~') { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}{s}\", .{ home, path[1..] }) catch path; } break :blk path; }");
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-pub fn genExpandvars(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-pub fn genGetatime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(f64, 0.0)");
-}
-
-pub fn genGetctime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(f64, 0.0)");
-}
-
-pub fn genGetmtime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(f64, 0.0)");
-}
-
-pub fn genGetsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const stat = std.fs.cwd().statFile(path) catch break :blk @as(i64, 0); break :blk @intCast(stat.size); }");
-    } else {
-        try self.emit("@as(i64, 0)");
-    }
-}
-
-pub fn genIsabs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk path.len > 0 and path[0] == '/'; }");
-    } else {
-        try self.emit("false");
-    }
-}
-
-pub fn genIsdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const dir = std.fs.cwd().openDir(path, .{}) catch break :blk false; dir.close(); break :blk true; }");
-    } else {
-        try self.emit("false");
-    }
-}
-
-pub fn genIsfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const stat = std.fs.cwd().statFile(path) catch break :blk false; break :blk stat.kind == .file; }");
-    } else {
-        try self.emit("false");
-    }
-}
-
-pub fn genIslink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const stat = std.fs.cwd().statFile(path) catch break :blk false; break :blk stat.kind == .sym_link; }");
-    } else {
-        try self.emit("false");
-    }
-}
-
-pub fn genIsmount(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-pub fn genJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("blk: { var parts: [16][]const u8 = undefined; var count: usize = 0; ");
-        for (args, 0..) |arg, i| {
-            try self.emit("parts[");
-            try self.emitFmt("{}", .{i});
-            try self.emit("] = ");
-            try self.genExpr(arg);
-            try self.emit("; count += 1; ");
-        }
+        for (args, 0..) |arg, i| { try self.emitFmt("parts[{d}] = ", .{i}); try self.genExpr(arg); try self.emit("; count += 1; "); }
         try self.emit("break :blk std.fs.path.join(metal0_allocator, parts[0..count]) catch \"\"; }");
-    } else {
-        try self.emit("\"\"");
-    }
+    } else try self.emit("\"\"");
 }
-
-pub fn genLexists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    return genExists(self, args);
+fn genSamefile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len >= 2) { try self.emit("blk: { const p1 = "); try self.genExpr(args[0]); try self.emit("; const p2 = "); try self.genExpr(args[1]); try self.emit("; break :blk std.mem.eql(u8, p1, p2); }"); } else try self.emit("false");
 }
-
-pub fn genNormcase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]); // POSIX: no-op
-    } else {
-        try self.emit("\"\"");
-    }
+fn genSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; const dir = std.fs.path.dirname(path) orelse \"\"; const base = std.fs.path.basename(path); break :blk .{ dir, base }; }"); } else try self.emit(".{ \"\", \"\" }");
 }
-
-pub fn genNormpath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("\"\"");
-    }
+fn genSplitdrive(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ \"\", path }; }"); } else try self.emit(".{ \"\", \"\" }");
 }
-
-pub fn genRealpath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    return genAbspath(self, args);
-}
-
-pub fn genRelpath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("\"\"");
-    }
-}
-
-pub fn genSamefile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) {
-        try self.emit("blk: { const p1 = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const p2 = ");
-        try self.genExpr(args[1]);
-        try self.emit("; break :blk std.mem.eql(u8, p1, p2); }");
-    } else {
-        try self.emit("false");
-    }
-}
-
-pub fn genSameopenfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-pub fn genSamestat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-pub fn genSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const dir = std.fs.path.dirname(path) orelse \"\"; const base = std.fs.path.basename(path); break :blk .{ dir, base }; }");
-    } else {
-        try self.emit(".{ \"\", \"\" }");
-    }
-}
-
-pub fn genSplitdrive(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; break :blk .{ \"\", path }; }"); // POSIX has no drive
-    } else {
-        try self.emit(".{ \"\", \"\" }");
-    }
-}
-
-pub fn genSplitext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const ext = std.fs.path.extension(path); const stem_len = path.len - ext.len; break :blk .{ path[0..stem_len], ext }; }");
-    } else {
-        try self.emit(".{ \"\", \"\" }");
-    }
-}
-
-// Constants
-pub fn genSep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"/\"");
-}
-
-pub fn genAltsep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?[]const u8, null)");
-}
-
-pub fn genExtsep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\".\"");
-}
-
-pub fn genPathsep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\":\"");
-}
-
-pub fn genDefpath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"/bin:/usr/bin\"");
-}
-
-pub fn genDevnull(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"/dev/null\"");
-}
-
-pub fn genCurdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\".\"");
-}
-
-pub fn genPardir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("\"..\"");
+fn genSplitext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; const ext = std.fs.path.extension(path); const stem_len = path.len - ext.len; break :blk .{ path[0..stem_len], ext }; }"); } else try self.emit(".{ \"\", \"\" }");
 }

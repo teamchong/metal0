@@ -1,65 +1,16 @@
 /// Python faulthandler module - Dump Python tracebacks on fault signals
 const std = @import("std");
 const ast = @import("ast");
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "enable", genEnable },
-    .{ "disable", genDisable },
-    .{ "is_enabled", genIsEnabled },
-    .{ "dump_traceback", genDumpTraceback },
-    .{ "dump_traceback_later", genDumpTracebackLater },
-    .{ "cancel_dump_traceback_later", genCancelDumpTracebackLater },
-    .{ "register", genRegister },
-    .{ "unregister", genUnregister },
-});
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-/// Generate faulthandler.enable(file=sys.stderr, all_threads=True)
-pub fn genEnable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
+const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
 }
 
-/// Generate faulthandler.disable()
-pub fn genDisable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate faulthandler.is_enabled()
-pub fn genIsEnabled(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
-
-/// Generate faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
-pub fn genDumpTraceback(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate faulthandler.dump_traceback_later(timeout, repeat=False, file=sys.stderr, exit=False)
-pub fn genDumpTracebackLater(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate faulthandler.cancel_dump_traceback_later()
-pub fn genCancelDumpTracebackLater(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate faulthandler.register(signum, file=sys.stderr, all_threads=True, chain=False)
-pub fn genRegister(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
-
-/// Generate faulthandler.unregister(signum)
-pub fn genUnregister(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "enable", genConst("{}") }, .{ "disable", genConst("{}") }, .{ "is_enabled", genConst("true") },
+    .{ "dump_traceback", genConst("{}") }, .{ "dump_traceback_later", genConst("{}") },
+    .{ "cancel_dump_traceback_later", genConst("{}") }, .{ "register", genConst("{}") }, .{ "unregister", genConst("{}") },
+});

@@ -5,22 +5,19 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Optional", genOptional }, .{ "List", genList }, .{ "Dict", genDict }, .{ "Set", genSet },
-    .{ "Tuple", genStruct }, .{ "Union", genPyObj }, .{ "Any", genPyObj }, .{ "Callable", genCallable },
-    .{ "TypeVar", genType }, .{ "Generic", genType }, .{ "cast", genCast }, .{ "get_type_hints", genGetTypeHints },
-});
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
-// Helpers
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "std.ArrayList(*runtime.PyObject)"); }
-fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "hashmap_helper.StringHashMap(*runtime.PyObject)"); }
-fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "hashmap_helper.StringHashMap(void)"); }
-fn genStruct(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "struct {}"); }
-fn genPyObj(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "*runtime.PyObject"); }
-fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "*const fn () void"); }
-fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "type"); }
-fn genGetTypeHints(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)"); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Optional", genOptional }, .{ "List", genConst("std.ArrayList(*runtime.PyObject)") },
+    .{ "Dict", genConst("hashmap_helper.StringHashMap(*runtime.PyObject)") },
+    .{ "Set", genConst("hashmap_helper.StringHashMap(void)") }, .{ "Tuple", genConst("struct {}") },
+    .{ "Union", genConst("*runtime.PyObject") }, .{ "Any", genConst("*runtime.PyObject") },
+    .{ "Callable", genConst("*const fn () void") }, .{ "TypeVar", genConst("type") },
+    .{ "Generic", genConst("type") }, .{ "cast", genCast },
+    .{ "get_type_hints", genConst("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)") },
+});
 
 fn genOptional(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("?*runtime.PyObject"); return; }
