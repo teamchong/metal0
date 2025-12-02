@@ -9,7 +9,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "urlopen", h.c(".{ .status = @as(i32, 200), .reason = \"OK\", .headers = .{}, .url = \"\" }") },
     .{ "install_opener", h.c("{}") },
     .{ "build_opener", h.c(".{ .handlers = &[_]*anyopaque{} }") },
-    .{ "pathname2url", genPassthrough }, .{ "url2pathname", genPassthrough },
+    .{ "pathname2url", h.pass("\"\"") }, .{ "url2pathname", h.pass("\"\"") },
     .{ "getproxies", h.c(".{}") },
     .{ "Request", genRequest }, .{ "OpenerDirector", h.c(".{ .handlers = &[_]*anyopaque{} }") },
     .{ "BaseHandler", h.c(".{}") }, .{ "HTTPDefaultErrorHandler", h.c(".{}") },
@@ -31,10 +31,6 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "URLError", h.err("URLError") }, .{ "HTTPError", h.err("HTTPError") },
     .{ "ContentTooShortError", h.err("ContentTooShortError") },
 });
-
-fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\"");
-}
 
 fn genRequest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {

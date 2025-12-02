@@ -15,9 +15,9 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "stdin", h.c("std.io.getStdIn()") }, .{ "stdout", h.c("std.io.getStdOut()") }, .{ "stderr", h.c("std.io.getStdErr()") },
     .{ "maxsize", h.c("@as(i128, std.math.maxInt(i64))") },
     .{ "byteorder", h.c("blk: { const _native = @import(\"builtin\").cpu.arch.endian(); break :blk if (_native == .little) \"little\" else \"big\"; }") },
-    .{ "getsizeof", genGetsizeof }, .{ "getrecursionlimit", h.I64(1000) }, .{ "setrecursionlimit", h.c("{}") },
+    .{ "getsizeof", h.wrap("@as(i64, @intCast(@sizeOf(@TypeOf(", "))))", "@as(i64, 0)") }, .{ "getrecursionlimit", h.I64(1000) }, .{ "setrecursionlimit", h.c("{}") },
     .{ "getdefaultencoding", h.c("\"utf-8\"") }, .{ "getfilesystemencoding", h.c("\"utf-8\"") },
-    .{ "intern", genIntern }, .{ "modules", h.c("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)") },
+    .{ "intern", h.pass("\"\"") }, .{ "modules", h.c("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)") },
     .{ "getrefcount", h.I64(1) }, .{ "exc_info", h.c(".{ null, null, null }") },
     .{ "get_coroutine_origin_tracking_depth", h.I64(0) }, .{ "set_coroutine_origin_tracking_depth", h.c("{}") },
     .{ "flags", h.c("(struct { debug: i64 = 0, optimize: i64 = 0, inspect: i64 = 0, interactive: i64 = 0, verbose: i64 = 0, quiet: i64 = 0, dont_write_bytecode: i64 = 0, no_user_site: i64 = 0, no_site: i64 = 0, ignore_environment: i64 = 0, hash_randomization: i64 = 1, isolated: i64 = 0, bytes_warning: i64 = 0, warn_default_encoding: i64 = 0, safe_path: i64 = 0, int_max_str_digits: i64 = 4300 }{})") },
@@ -29,7 +29,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "hexversion", h.I64(0x030c00f0) }, .{ "api_version", h.I64(1013) },
     .{ "copyright", h.c("\"Copyright (c) 2024 metal0 project\"") },
     .{ "builtin_module_names", h.c("&[_][]const u8{\"sys\", \"builtins\", \"io\", \"os\", \"json\", \"re\", \"math\", \"random\", \"time\", \"datetime\"}") },
-    .{ "displayhook", genDisplayhook }, .{ "excepthook", h.c("{}") }, .{ "settrace", h.c("{}") }, .{ "gettrace", h.c("null") },
+    .{ "displayhook", h.debugPrint("", "{any}", "{}") }, .{ "excepthook", h.c("{}") }, .{ "settrace", h.c("{}") }, .{ "gettrace", h.c("null") },
     .{ "setprofile", h.c("{}") }, .{ "getprofile", h.c("null") },
     .{ "get_int_max_str_digits", h.c("(try sys.get_int_max_str_digits(__global_allocator))") },
     .{ "set_int_max_str_digits", genSetIntMaxStrDigits },
@@ -39,14 +39,6 @@ fn genExit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("blk: { const _code: u8 = ");
     if (args.len > 0) { try self.emit("@intCast("); try self.genExpr(args[0]); try self.emit(")"); } else try self.emit("0");
     try self.emit("; std.process.exit(_code); break :blk; }");
-}
-fn genGetsizeof(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-    try self.emit("@as(i64, @intCast(@sizeOf(@TypeOf("); try self.genExpr(args[0]); try self.emit("))))");
-}
-fn genIntern(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) try self.genExpr(args[0]); }
-fn genDisplayhook(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("std.debug.print(\"{any}\\n\", .{"); try self.genExpr(args[0]); try self.emit("})"); } else try self.emit("{}");
 }
 fn genSetIntMaxStrDigits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("(try sys.set_int_max_str_digits(__global_allocator, ");

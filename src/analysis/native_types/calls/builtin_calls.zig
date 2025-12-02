@@ -98,6 +98,80 @@ pub fn inferBuiltinCall(
         return .{ .int = .bounded };
     }
 
+    // dict() builtin - returns dict type
+    const DICT_BUILTIN_HASH = comptime fnv_hash.hash("dict");
+    if (fnv_hash.hash(func_name) == DICT_BUILTIN_HASH) {
+        // dict() with or without args returns a dict
+        // dict(), dict(a=1), dict([(k,v),...]), dict({...}) all return dict
+        // For dict(kwargs), keys are always strings, values can vary
+        // Default to string->string for simplicity
+        const key_type = try allocator.create(NativeType);
+        key_type.* = .{ .string = .runtime };
+        const value_type = try allocator.create(NativeType);
+        // Try to infer value type from kwargs if available
+        if (call.keyword_args.len > 0) {
+            // Infer from first kwarg value
+            const first_val_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.keyword_args[0].value);
+            value_type.* = first_val_type;
+        } else if (call.args.len > 0) {
+            // dict(iterable) - try to infer from iterable
+            const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+            if (@as(std.meta.Tag(NativeType), arg_type) == .dict) {
+                // Already a dict - return same type
+                return arg_type;
+            }
+            value_type.* = .unknown;
+        } else {
+            value_type.* = .unknown;
+        }
+        return .{ .dict = .{ .key = key_type, .value = value_type } };
+    }
+
+    // set() builtin - returns set type
+    const SET_BUILTIN_HASH = comptime fnv_hash.hash("set");
+    if (fnv_hash.hash(func_name) == SET_BUILTIN_HASH) {
+        const elem_type = try allocator.create(NativeType);
+        if (call.args.len > 0) {
+            // Infer from iterable argument
+            const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+            if (@as(std.meta.Tag(NativeType), arg_type) == .set) {
+                return arg_type;
+            }
+            if (@as(std.meta.Tag(NativeType), arg_type) == .list) {
+                elem_type.* = arg_type.list.*;
+            } else if (@as(std.meta.Tag(NativeType), arg_type) == .string) {
+                elem_type.* = .{ .string = .runtime }; // set("abc") -> set of chars
+            } else {
+                elem_type.* = .unknown;
+            }
+        } else {
+            elem_type.* = .unknown;
+        }
+        return .{ .set = elem_type };
+    }
+
+    // frozenset() builtin - returns set type (immutable, but same runtime representation)
+    const FROZENSET_BUILTIN_HASH = comptime fnv_hash.hash("frozenset");
+    if (fnv_hash.hash(func_name) == FROZENSET_BUILTIN_HASH) {
+        const elem_type = try allocator.create(NativeType);
+        elem_type.* = .unknown;
+        return .{ .set = elem_type };
+    }
+
+    // tuple() builtin - returns tuple type
+    const TUPLE_BUILTIN_HASH = comptime fnv_hash.hash("tuple");
+    if (fnv_hash.hash(func_name) == TUPLE_BUILTIN_HASH) {
+        if (call.args.len > 0) {
+            // Infer from argument
+            const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+            if (@as(std.meta.Tag(NativeType), arg_type) == .tuple) {
+                return arg_type;
+            }
+        }
+        // Empty tuple or unknown element types
+        return .{ .tuple = &[_]NativeType{} };
+    }
+
     // list() builtin - returns list with inferred element type from argument
     const LIST_BUILTIN_HASH = comptime fnv_hash.hash("list");
     if (fnv_hash.hash(func_name) == LIST_BUILTIN_HASH) {

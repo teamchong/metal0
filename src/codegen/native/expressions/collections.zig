@@ -297,6 +297,15 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
+    // Array to slice coercion (for arrays of different sizes)
+    try self.emitIndent();
+    try self.emit("if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice and @typeInfo(@TypeOf(val)) == .array) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("break :cast_blk &val;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
     try self.emitIndent();
     try self.emit("break :cast_blk val;\n");
     self.dedent();

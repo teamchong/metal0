@@ -23,11 +23,30 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         return;
     }
 
+    // Check if list expects PyValue elements
+    const list_type = self.type_inferrer.inferExpr(obj) catch .unknown;
+    const needs_pyvalue_wrap = blk: {
+        if (list_type == .list) {
+            const elem_type = list_type.list.*;
+            break :blk (@as(std.meta.Tag(@TypeOf(elem_type)), elem_type) == .pyvalue);
+        }
+        break :blk false;
+    };
+
     // Generate: try list.append(__global_allocator, item)
     try self.emit("try ");
     try emitObjExpr(self, obj);
     try self.emit(".append(__global_allocator, ");
-    try self.genExpr(args[0]);
+
+    if (needs_pyvalue_wrap) {
+        // Wrap element in PyValue for heterogeneous lists
+        try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    } else {
+        try self.genExpr(args[0]);
+    }
+
     try self.emit(")");
 }
 

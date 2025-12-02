@@ -379,23 +379,7 @@ pub fn inferExpr(
             break :blk .unknown;
         },
         .list => |l| blk: {
-            // Check if this is a constant, homogeneous list → use array type
-            if (core.isConstantList(l) and core.allSameType(l.elts)) {
-                const elem_type = if (l.elts.len > 0)
-                    try inferExpr(allocator, var_types, class_fields, func_return_types, l.elts[0])
-                else
-                    .unknown;
-
-                const elem_ptr = try allocator.create(NativeType);
-                elem_ptr.* = elem_type;
-                break :blk .{ .array = .{
-                    .element_type = elem_ptr,
-                    .length = l.elts.len,
-                } };
-            }
-
-            // Otherwise, use ArrayList for dynamic lists
-            // Widen element type across all elements for heterogeneous lists
+            // Infer element type by widening across ALL elements
             var elem_type: NativeType = if (l.elts.len > 0)
                 try inferExpr(allocator, var_types, class_fields, func_return_types, l.elts[0])
             else
@@ -409,6 +393,22 @@ pub fn inferExpr(
                 }
             }
 
+            // Check if this is a constant, homogeneous list with array-compatible element type
+            // → use array type for fixed-size arrays
+            if (core.isConstantList(l) and core.allSameType(l.elts)) {
+                const elem_tag = @as(std.meta.Tag(NativeType), elem_type);
+                // Only use array type if element type is primitive or array (not list/pyvalue)
+                if (elem_tag != .list and elem_tag != .pyvalue and elem_tag != .unknown) {
+                    const elem_ptr = try allocator.create(NativeType);
+                    elem_ptr.* = elem_type;
+                    break :blk .{ .array = .{
+                        .element_type = elem_ptr,
+                        .length = l.elts.len,
+                    } };
+                }
+            }
+
+            // Otherwise, use ArrayList for dynamic lists
             const elem_ptr = try allocator.create(NativeType);
             elem_ptr.* = elem_type;
             break :blk .{ .list = elem_ptr };

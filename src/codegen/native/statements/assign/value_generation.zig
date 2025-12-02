@@ -365,7 +365,9 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     }
 
     // Check if this is a list of callables (needs wrapping)
-    const is_callable_list = @as(std.meta.Tag(NativeType), elem_type) == .callable;
+    const elem_tag = @as(std.meta.Tag(NativeType), elem_type);
+    const is_callable_list = elem_tag == .callable;
+    const is_pyvalue_list = elem_tag == .pyvalue;
 
     // Append elements
     for (list.elts) |elem| {
@@ -389,6 +391,11 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
             // Wrap non-PyCallable elements for callable lists
             const this_type = try self.type_inferrer.inferExpr(elem);
             try genCallableElement(self, elem, this_type);
+        } else if (is_pyvalue_list) {
+            // Wrap element in PyValue for heterogeneous lists
+            try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
+            try self.genExpr(elem);
+            try self.emit(")");
         } else {
             try self.genExpr(elem);
         }

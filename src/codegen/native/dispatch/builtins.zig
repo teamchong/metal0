@@ -107,7 +107,6 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "chain", itertools_mod.genChain },
     .{ "repeat", itertools_mod.genRepeat },
     .{ "count", itertools_mod.genCount },
-    .{ "cycle", itertools_mod.genCycle },
     .{ "islice", itertools_mod.genIslice },
     .{ "zip_longest", itertools_mod.genZipLongest },
     // copy module (from copy import copy, deepcopy)
@@ -190,6 +189,13 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         return true;
     }
 
+    // Special handling for dict() with keyword args: dict(key="value", ...) -> {.key = "value", ...}
+    // This creates a runtime.PyObject dict with string keys and string values
+    if (std.mem.eql(u8, func_name, "dict") and call.keyword_args.len > 0) {
+        try genDictFromKwargs(self, call.keyword_args);
+        return true;
+    }
+
     // O(1) lookup for all standard builtins
     if (BuiltinMap.get(func_name)) |handler| {
         try handler(self, call.args);
@@ -197,4 +203,34 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     }
 
     return false;
+}
+
+/// Generate dict from keyword arguments: dict(key="value", ...) -> StringHashMap
+/// This is used when dict() is called with keyword args instead of an iterable
+fn genDictFromKwargs(self: *NativeCodegen, kwargs: []const ast.Node.KeywordArg) CodegenError!void {
+    // Generate a labeled block that creates and populates a StringHashMap
+    const id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    try self.emitFmt("dict_{d}: {{\n", .{id});
+    self.indent();
+
+    // Create the dict with string values on stack - will be copied on break
+    try self.emitIndent();
+    try self.emit("var _map = hashmap_helper.StringHashMap([]const u8).init(__global_allocator);\n");
+
+    // Insert each keyword argument
+    for (kwargs) |kwarg| {
+        try self.emitIndent();
+        try self.emitFmt("_map.put(\"{s}\", ", .{kwarg.name});
+        try self.genExpr(kwarg.value);
+        try self.emit(") catch unreachable;\n");
+    }
+
+    // Return the map value - gets copied to the assignment target
+    try self.emitIndent();
+    try self.emitFmt("break :dict_{d} _map;\n", .{id});
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}");
 }

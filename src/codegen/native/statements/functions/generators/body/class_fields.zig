@@ -90,6 +90,17 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     // Determine field type by inferring the value's type
                     var inferred = try self.type_inferrer.inferExpr(assign.value.*);
 
+                    // Check if inferred type is a class instance of a nested class
+                    // Nested classes (defined inside this method) are not visible at struct scope
+                    // So we use *runtime.PyObject for dynamic typing instead
+                    if (inferred == .class_instance) {
+                        const nested_class_name = inferred.class_instance;
+                        // Check if this class is defined inside the current method body
+                        if (isNestedClassInBody(init.body, nested_class_name)) {
+                            inferred = .unknown; // Force dynamic typing
+                        }
+                    }
+
                     // If unknown and value is a parameter reference, try different methods
                     if (inferred == .unknown and assign.value.* == .name) {
                         const param_name = assign.value.name.id;
@@ -318,4 +329,51 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
     }
     // Fallback: use i64 as default (must allocate since caller frees)
     return try self.allocator.dupe(u8, "i64");
+}
+
+/// Check if a class with given name is defined inside the method body
+/// This detects nested class definitions like:
+///   def setUp(self):
+///       class CustomHTMLCal(HTMLCalendar): ...
+///       self.cal = CustomHTMLCal()
+fn isNestedClassInBody(body: []const ast.Node, class_name: []const u8) bool {
+    for (body) |stmt| {
+        switch (stmt) {
+            .class_def => |cls| {
+                if (std.mem.eql(u8, cls.name, class_name)) {
+                    return true;
+                }
+            },
+            // Also check inside control flow blocks (if/for/while/try)
+            .if_stmt => |if_stmt| {
+                if (isNestedClassInBody(if_stmt.body, class_name)) return true;
+                if (isNestedClassInBody(if_stmt.else_body, class_name)) return true;
+            },
+            .for_stmt => |for_stmt| {
+                if (isNestedClassInBody(for_stmt.body, class_name)) return true;
+                if (for_stmt.orelse_body) |orelse_body| {
+                    if (isNestedClassInBody(orelse_body, class_name)) return true;
+                }
+            },
+            .while_stmt => |while_stmt| {
+                if (isNestedClassInBody(while_stmt.body, class_name)) return true;
+                if (while_stmt.orelse_body) |orelse_body| {
+                    if (isNestedClassInBody(orelse_body, class_name)) return true;
+                }
+            },
+            .try_stmt => |try_stmt| {
+                if (isNestedClassInBody(try_stmt.body, class_name)) return true;
+                for (try_stmt.handlers) |handler| {
+                    if (isNestedClassInBody(handler.body, class_name)) return true;
+                }
+                if (isNestedClassInBody(try_stmt.else_body, class_name)) return true;
+                if (isNestedClassInBody(try_stmt.finalbody, class_name)) return true;
+            },
+            .with_stmt => |with_stmt| {
+                if (isNestedClassInBody(with_stmt.body, class_name)) return true;
+            },
+            else => {},
+        }
+    }
+    return false;
 }

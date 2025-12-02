@@ -315,7 +315,7 @@ pub const NativeType = union(enum) {
         // PyValue absorbs everything - once heterogeneous, stays heterogeneous
         if (self_tag == .pyvalue or other_tag == .pyvalue) return .pyvalue;
 
-        // If types match, no widening needed (except for tuples and ints which need special handling)
+        // If types match, no widening needed (except for tuples, arrays, and ints which need special handling)
         if (self_tag == other_tag) {
             // Special handling for tuple types - widen element-wise
             if (self_tag == .tuple) {
@@ -327,6 +327,35 @@ pub const NativeType = union(enum) {
                 // For now, return self if same length (codegen will handle it)
                 return self;
             }
+            // Special handling for array types - different lengths need list type
+            if (self_tag == .array) {
+                // Arrays with different lengths but same element type -> use list (slice in Zig)
+                // This matches InferListType behavior which produces []T for varying-length arrays
+                if (self.array.length != other.array.length) {
+                    // Same element type? -> list of that element type
+                    // Different element types? -> pyvalue (heterogeneous)
+                    return .{ .list = self.array.element_type };
+                }
+                return self;
+            }
+            // Special handling for list types - if element types differ, return pyvalue
+            if (self_tag == .list) {
+                const self_elem = self.list.*;
+                const other_elem = other.list.*;
+                const self_elem_tag = @as(std.meta.Tag(NativeType), self_elem);
+                const other_elem_tag = @as(std.meta.Tag(NativeType), other_elem);
+                // If element types are different tags, use pyvalue for flexibility
+                if (self_elem_tag != other_elem_tag) {
+                    return .pyvalue;
+                }
+                // If both are arrays with different lengths, use pyvalue
+                if (self_elem_tag == .array) {
+                    if (self_elem.array.length != other_elem.array.length) {
+                        return .pyvalue;
+                    }
+                }
+                return self;
+            }
             // Special handling for int types - combine boundedness
             // unbounded + anything = unbounded (taint propagation)
             if (self_tag == .int) {
@@ -334,6 +363,20 @@ pub const NativeType = union(enum) {
                 return .{ .int = combined_kind };
             }
             return self;
+        }
+
+        // Handle array + list widening: array meets list -> list wins
+        // This handles nested lists where some have arrays of different lengths
+        if ((self_tag == .array and other_tag == .list) or
+            (self_tag == .list and other_tag == .array))
+        {
+            // The list type is more general, use it
+            // But we might need to widen the element types
+            if (self_tag == .list) {
+                return self;
+            } else {
+                return other;
+            }
         }
 
         // Handle None/optional widening: None + T = ?T

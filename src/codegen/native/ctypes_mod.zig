@@ -2,24 +2,11 @@
 const std = @import("std");
 const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
+const CodegenError = h.CodegenError;
 
 fn genCType(comptime zig_type: []const u8, comptime default: []const u8, comptime pre: []const u8, comptime suf: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); }
-        else try self.emit("@as(" ++ zig_type ++ ", " ++ default ++ ")");
-    } }.f;
-}
-fn genPtr(comptime default: []const u8, comptime pre: []const u8, comptime suf: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); } else try self.emit(default);
-    } }.f;
-}
-fn genUnaryOp(comptime pre: []const u8, comptime suf: []const u8, comptime default: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); } else try self.emit(default);
-    } }.f;
+    return h.wrap(pre, suf, "@as(" ++ zig_type ++ ", " ++ default ++ ")");
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
@@ -45,21 +32,21 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "c_double", genCType("f64", "0.0", "@as(f64, ", ")") },
     .{ "c_longdouble", genCType("f128", "0.0", "@as(f128, ", ")") },
     // Pointer types
-    .{ "c_char_p", genPtr("@as(?[*:0]const u8, null)", "", "") },
-    .{ "c_wchar_p", genPtr("@as(?[*:0]const u32, null)", "", "") },
-    .{ "c_void_p", genPtr("@as(?*anyopaque, null)", "@as(*anyopaque, @ptrFromInt(@as(usize, @intCast(", "))))") },
+    .{ "c_char_p", h.c("@as(?[*:0]const u8, null)") },
+    .{ "c_wchar_p", h.c("@as(?[*:0]const u32, null)") },
+    .{ "c_void_p", h.wrap("@as(*anyopaque, @ptrFromInt(@as(usize, @intCast(", "))))", "@as(?*anyopaque, null)") },
     // Structures
     .{ "Structure", h.c("struct {}{}") }, .{ "Union", h.c("union {}{}") },
     .{ "BigEndianStructure", h.c("struct {}{}") }, .{ "LittleEndianStructure", h.c("struct {}{}") },
     // Arrays/pointers
     .{ "Array", h.c("[]anyopaque") }, .{ "POINTER", h.c("*anyopaque") },
-    .{ "pointer", genPtr("@as(?*anyopaque, null)", "@as(*anyopaque, @ptrCast(&", "))") },
+    .{ "pointer", h.wrap("@as(*anyopaque, @ptrCast(&", "))", "@as(?*anyopaque, null)") },
     // Utility
-    .{ "sizeof", genUnaryOp("@sizeOf(@TypeOf(", "))", "0") },
-    .{ "alignment", genUnaryOp("@alignOf(@TypeOf(", "))", "1") },
-    .{ "addressof", genUnaryOp("@intFromPtr(&", ")", "0") },
-    .{ "byref", genUnaryOp("&", "", "null") },
-    .{ "cast", genUnaryOp("@as(*anyopaque, @ptrCast(", "))", "null") },
+    .{ "sizeof", h.wrap("@sizeOf(@TypeOf(", "))", "0") },
+    .{ "alignment", h.wrap("@alignOf(@TypeOf(", "))", "1") },
+    .{ "addressof", h.wrap("@intFromPtr(&", ")", "0") },
+    .{ "byref", h.wrap("&", "", "null") },
+    .{ "cast", h.wrap("@as(*anyopaque, @ptrCast(", "))", "null") },
     .{ "create_string_buffer", h.c("@as([]u8, __global_allocator.alloc(u8, 256) catch &[_]u8{})") },
     .{ "create_unicode_buffer", h.c("@as([]u32, __global_allocator.alloc(u32, 256) catch &[_]u32{})") },
     .{ "get_errno", h.I32(0) }, .{ "set_errno", h.I32(0) },
