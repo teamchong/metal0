@@ -48,18 +48,22 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
         var param_type = signature.pythonTypeToNativeType(arg.type_annotation);
 
         // Method 2: Try widened keyword arg type (stored as "ClassName.param_name")
+        // This type is widened across ALL calls, so .unknown means incompatible types
+        var found_kwarg_type = false;
         if (param_type == .unknown) {
             var kwarg_key_buf: [256]u8 = undefined;
             const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_name, arg.name }) catch null;
             if (kwarg_key) |key| {
                 if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
                     param_type = kwarg_type;
+                    found_kwarg_type = true; // Widened type is authoritative, don't fall through
                 }
             }
         }
 
         // Method 3: Fall back to positional constructor arg type (only if no kwarg type found)
-        if (param_type == .unknown) {
+        // Skip if Method 2 found a type (even .unknown) - widened types are authoritative
+        if (!found_kwarg_type and param_type == .unknown) {
             if (constructor_arg_types) |arg_types| {
                 const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
                 if (arg_idx < arg_types.len) {
@@ -85,7 +89,6 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
 
                     // Determine field type by inferring the value's type
                     var inferred = try self.type_inferrer.inferExpr(assign.value.*);
-                    std.debug.print("DEBUG class_fields: field={s} inferred={}\n", .{ field_name, inferred });
 
                     // If unknown and value is a parameter reference, try different methods
                     if (inferred == .unknown and assign.value.* == .name) {
@@ -259,6 +262,20 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
         return try self.allocator.dupe(u8, "anytype");
     }
 
+    // Method 1: Try widened keyword arg type FIRST (authoritative, stored as "ClassName.param_name")
+    // This type is widened across ALL constructor calls, so .unknown means incompatible types
+    var kwarg_key_buf: [256]u8 = undefined;
+    const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_name, param_name }) catch null;
+    if (kwarg_key) |key| {
+        if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
+            // Widened type is authoritative - if .unknown, use runtime.PyValue
+            if (kwarg_type == .unknown) {
+                return try self.allocator.dupe(u8, "*runtime.PyObject");
+            }
+            return try self.nativeTypeToZigType(kwarg_type);
+        }
+    }
+
     // Get constructor arg types from type inferrer
     const constructor_arg_types = self.type_inferrer.class_constructor_args.get(class_name);
 
@@ -272,7 +289,7 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
         }
     }
 
-    // Method 1: Try to use constructor call arg types
+    // Method 2: Try to use constructor call arg types (non-widened, last call only)
     if (constructor_arg_types) |arg_types| {
         if (param_idx < arg_types.len) {
             const inferred = arg_types[param_idx];
@@ -284,7 +301,7 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
         }
     }
 
-    // Method 2: Look for assignments like self.field = param_name
+    // Method 3: Look for assignments like self.field = param_name
     for (init.body) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;

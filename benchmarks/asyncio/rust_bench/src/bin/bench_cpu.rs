@@ -5,7 +5,7 @@ use sha2::{Sha256, Digest};
 use std::time::Instant;
 
 const NUM_WORKERS: usize = 8;
-const WORK_PER_WORKER: usize = 5000;
+const WORK_PER_WORKER: usize = 50000; // 50K hash iterations per worker
 
 fn do_work(worker_id: usize, iterations: usize) -> usize {
     let mut hasher = Sha256::new();

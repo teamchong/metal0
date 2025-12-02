@@ -12,7 +12,7 @@ import time
 import hashlib
 
 NUM_WORKERS = 8  # Match CPU cores
-WORK_PER_WORKER = 5000  # Hash iterations per worker
+WORK_PER_WORKER = 50000  # 50K hash iterations per worker
 
 def do_work(worker_id: int, iterations: int) -> int:
     """CPU-intensive work - SHA256 hashing"""
