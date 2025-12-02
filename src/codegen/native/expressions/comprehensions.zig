@@ -251,14 +251,74 @@ fn genListCompScalar(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenE
     return genListCompImpl(self, listcomp);
 }
 
+/// Generate parallel list comprehension using runtime.parallel
+fn genParallelListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, parallel: function_traits.ParallelInfo, simd: function_traits.SimdInfo) CodegenError!void {
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    const start = simd.range_start orelse 0;
+    const end = simd.range_end orelse return genListCompImpl(self, listcomp);
+
+    // Map SimdOp to runtime.parallel.ParallelOp
+    const op_name: []const u8 = switch (parallel.op) {
+        .add => "add",
+        .sub => "sub",
+        .mul => "mul",
+        .div => "div",
+        .neg => "neg",
+        .square => "square",
+        .bit_and => "bit_and",
+        .bit_or => "bit_or",
+        .bit_xor => "bit_xor",
+        else => return genSimdListComp(self, listcomp, simd), // Fallback to SIMD
+    };
+
+    const gen = listcomp.generators[0];
+    const loop_var = gen.target.name.id;
+    const constant = getConstantFromExpr(listcomp.elt.*, loop_var) orelse 0;
+
+    // Generate parallel execution block
+    try self.emit(try std.fmt.allocPrint(self.allocator, "(parallel_{d}: {{\n", .{label_id}));
+    self.indent();
+
+    // Call runtime.parallel.parallelRangeMap
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print(
+        "const __slice = try runtime.parallel.parallelRangeMap({d}, {d}, .{s}, {d}, __global_allocator);\n",
+        .{ start, end, op_name, constant },
+    );
+
+    // Convert to ArrayList for compatibility
+    try self.emitIndent();
+    try self.emit("var __list = std.ArrayList(i64){};\n");
+    try self.emitIndent();
+    try self.emit("__list.items = __slice;\n");
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("__list.capacity = {d};\n", .{end - start});
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("break :parallel_{d} __list;\n", .{label_id});
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("})");
+}
+
 /// Generate list comprehension: [x * 2 for x in range(5)]
-/// Generates as imperative loop that builds ArrayList (or SIMD when possible)
+/// Generates as imperative loop that builds ArrayList (or SIMD/parallel when possible)
 pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenError!void {
     // Check for SIMD vectorization opportunity
     const simd = function_traits.analyzeListCompForSimd(listcomp);
     if (simd.vectorizable and simd.is_range and simd.range_end != null) {
         const count = (simd.range_end orelse 0) - (simd.range_start orelse 0);
-        // Only use SIMD for larger arrays (overhead not worth it for small)
+
+        // Check for parallelization opportunity (large workloads)
+        const parallel = function_traits.analyzeListCompForParallel(listcomp);
+        if (parallel.parallelizable and parallel.worth_parallelizing and count >= 1024) {
+            return genParallelListComp(self, listcomp, parallel, simd);
+        }
+
+        // Use SIMD for medium arrays (16-1023 elements)
         if (count >= 16) {
             return genSimdListComp(self, listcomp, simd);
         }

@@ -289,6 +289,88 @@ fn analyzeSimdExpr(expr: ast.Node, loop_var: []const u8) SimdExprInfo {
     return info;
 }
 
+// ============================================================================
+// Parallelization Analysis
+// ============================================================================
+
+/// Info about whether a list comprehension can be parallelized
+pub const ParallelInfo = struct {
+    /// Can this be safely parallelized?
+    parallelizable: bool = false,
+    /// Is it a large enough workload to benefit from parallelization?
+    worth_parallelizing: bool = false,
+    /// Minimum threshold for parallel (smaller runs sequentially)
+    min_parallel_size: usize = 1024,
+    /// Operation type (for runtime.parallel)
+    op: SimdOp = .none,
+};
+
+/// Check if a list comprehension can be safely parallelized
+/// Requires: pure element expression, no loop-carried dependencies
+pub fn analyzeListCompForParallel(listcomp: ast.Node.ListComp) ParallelInfo {
+    var info = ParallelInfo{};
+
+    // Must have exactly one generator
+    if (listcomp.generators.len != 1) return info;
+    const gen = listcomp.generators[0];
+
+    // Conditionals make parallelization complex (varying output size)
+    if (gen.ifs.len > 0) return info;
+
+    // Target must be simple name
+    if (gen.target.* != .name) return info;
+    const loop_var = gen.target.name.id;
+
+    // Check if element expression is pure and parallelizable
+    if (!isParallelizableExpr(listcomp.elt.*, loop_var)) return info;
+
+    // Check for large range (worth parallelizing)
+    if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
+        if (std.mem.eql(u8, gen.iter.call.func.name.id, "range")) {
+            const args = gen.iter.call.args;
+            if (args.len >= 1 and args[0] == .constant and args[0].constant.value == .int) {
+                const end_val = if (args.len == 1)
+                    args[0].constant.value.int
+                else if (args.len >= 2 and args[1] == .constant and args[1].constant.value == .int)
+                    args[1].constant.value.int
+                else
+                    0;
+                const start_val: i64 = if (args.len >= 2 and args[0] == .constant and args[0].constant.value == .int)
+                    args[0].constant.value.int
+                else
+                    0;
+
+                const size = end_val - start_val;
+                info.worth_parallelizing = size >= info.min_parallel_size;
+            }
+        }
+    }
+
+    // Get the operation type
+    const simd_info = analyzeSimdExpr(listcomp.elt.*, loop_var);
+    info.op = simd_info.op;
+    info.parallelizable = simd_info.op != .none;
+
+    return info;
+}
+
+/// Check if expression is safe to parallelize (no side effects, no shared state)
+fn isParallelizableExpr(expr: ast.Node, loop_var: []const u8) bool {
+    return switch (expr) {
+        .name => |n| std.mem.eql(u8, n.id, loop_var), // Only loop var is safe
+        .constant => true,
+        .binop => |b| isParallelizableExpr(b.left.*, loop_var) and isParallelizableExpr(b.right.*, loop_var),
+        .unaryop => |u| isParallelizableExpr(u.operand.*, loop_var),
+        // Function calls are NOT parallelizable (might have side effects)
+        .call => false,
+        // Attribute access might access shared state
+        .attribute => false,
+        // Subscript might access shared state
+        .subscript => false,
+        else => false,
+    };
+}
+
 /// Call graph built from module analysis
 pub const CallGraph = struct {
     /// Map from function name to its traits
