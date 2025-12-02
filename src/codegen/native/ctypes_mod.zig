@@ -13,7 +13,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // DLLs
     .{ "CDLL", genDLL }, .{ "WinDLL", genDLL }, .{ "OleDLL", genDLL }, .{ "PyDLL", genDLL },
     // C types
-    .{ "c_bool", genCBool },
+    .{ "c_bool", h.wrap("@as(bool, ", " != 0)", "false") },
     .{ "c_char", genCType("u8", "0", "@as(u8, @truncate(@as(usize, @intCast(", "))))") },
     .{ "c_wchar", genCType("u32", "0", "@as(u32, @intCast(", "))") },
     .{ "c_byte", genCType("i8", "0", "@as(i8, @truncate(@as(i64, ", ")))") },
@@ -65,6 +65,3 @@ fn genDLL(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", _handle: ?*anyopaque = null }{}");
 }
 
-fn genCBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("@as(bool, "); try self.genExpr(args[0]); try self.emit(" != 0)"); } else try self.emit("false");
-}
