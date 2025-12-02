@@ -28,7 +28,4 @@ fn genUnhexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 const genB2a_base64 = h.b64enc("standard");
 const genA2b_base64 = h.b64dec("standard");
 
-fn genCrc32(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("@as(u32, 0)"); return; }
-    try self.emit("blk: { const data = "); try self.genExpr(args[0]); try self.emit("; break :blk @as(u32, std.hash.crc.Crc32.hash(data)); }");
-}
+const genCrc32 = h.wrap("@as(u32, std.hash.crc.Crc32.hash(", "))", "@as(u32, 0)");
