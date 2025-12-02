@@ -1,16 +1,11 @@
 /// Python turtledemo module - Turtle graphics demos
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit("{}"); }
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "main", genUnit }, .{ "bytedesign", genUnit }, .{ "chaos", genUnit }, .{ "clock", genUnit },
-    .{ "colormixer", genUnit }, .{ "forest", genUnit }, .{ "fractalcurves", genUnit }, .{ "lindenmayer", genUnit },
-    .{ "minimal_hanoi", genUnit }, .{ "nim", genUnit }, .{ "paint", genUnit }, .{ "peace", genUnit },
-    .{ "penrose", genUnit }, .{ "planet_and_moon", genUnit }, .{ "rosette", genUnit }, .{ "round_dance", genUnit },
-    .{ "sorting_animate", genUnit }, .{ "tree", genUnit }, .{ "two_canvases", genUnit }, .{ "yinyang", genUnit },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "main", h.c("{}") }, .{ "bytedesign", h.c("{}") }, .{ "chaos", h.c("{}") }, .{ "clock", h.c("{}") },
+    .{ "colormixer", h.c("{}") }, .{ "forest", h.c("{}") }, .{ "fractalcurves", h.c("{}") }, .{ "lindenmayer", h.c("{}") },
+    .{ "minimal_hanoi", h.c("{}") }, .{ "nim", h.c("{}") }, .{ "paint", h.c("{}") }, .{ "peace", h.c("{}") },
+    .{ "penrose", h.c("{}") }, .{ "planet_and_moon", h.c("{}") }, .{ "rosette", h.c("{}") }, .{ "round_dance", h.c("{}") },
+    .{ "sorting_animate", h.c("{}") }, .{ "tree", h.c("{}") }, .{ "two_canvases", h.c("{}") }, .{ "yinyang", h.c("{}") },
 });

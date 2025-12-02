@@ -1,22 +1,18 @@
 /// Python typing module - Type hints (no-ops for AOT compilation)
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Optional", genOptional }, .{ "List", genConst("std.ArrayList(*runtime.PyObject)") },
-    .{ "Dict", genConst("hashmap_helper.StringHashMap(*runtime.PyObject)") },
-    .{ "Set", genConst("hashmap_helper.StringHashMap(void)") }, .{ "Tuple", genConst("struct {}") },
-    .{ "Union", genConst("*runtime.PyObject") }, .{ "Any", genConst("*runtime.PyObject") },
-    .{ "Callable", genConst("*const fn () void") }, .{ "TypeVar", genConst("type") },
-    .{ "Generic", genConst("type") }, .{ "cast", genCast },
-    .{ "get_type_hints", genConst("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "Optional", genOptional }, .{ "List", h.c("std.ArrayList(*runtime.PyObject)") },
+    .{ "Dict", h.c("hashmap_helper.StringHashMap(*runtime.PyObject)") },
+    .{ "Set", h.c("hashmap_helper.StringHashMap(void)") }, .{ "Tuple", h.c("struct {}") },
+    .{ "Union", h.c("*runtime.PyObject") }, .{ "Any", h.c("*runtime.PyObject") },
+    .{ "Callable", h.c("*const fn () void") }, .{ "TypeVar", h.c("type") },
+    .{ "Generic", h.c("type") }, .{ "cast", genCast },
+    .{ "get_type_hints", h.c("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)") },
 });
 
 fn genOptional(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

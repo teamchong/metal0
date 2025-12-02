@@ -1,24 +1,20 @@
 /// Python tokenize module - Tokenizer for Python source
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "tokenize", genConst("metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()") },
-    .{ "generate_tokens", genConst("metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()") },
-    .{ "detect_encoding", genConst(".{ \"utf-8\", metal0_runtime.PyList([]const u8).init() }") },
-    .{ "open", genOpen }, .{ "untokenize", genConst("\"\"") },
-    .{ "TokenInfo", genConst(".{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" }") },
-    .{ "TokenError", genConst("error.TokenError") }, .{ "StopTokenizing", genConst("error.StopTokenizing") },
-    .{ "ENDMARKER", genConst("@as(i32, 0)") }, .{ "NAME", genConst("@as(i32, 1)") }, .{ "NUMBER", genConst("@as(i32, 2)") }, .{ "STRING", genConst("@as(i32, 3)") },
-    .{ "NEWLINE", genConst("@as(i32, 4)") }, .{ "INDENT", genConst("@as(i32, 5)") }, .{ "DEDENT", genConst("@as(i32, 6)") }, .{ "OP", genConst("@as(i32, 54)") },
-    .{ "ERRORTOKEN", genConst("@as(i32, 59)") }, .{ "COMMENT", genConst("@as(i32, 60)") }, .{ "NL", genConst("@as(i32, 61)") }, .{ "ENCODING", genConst("@as(i32, 62)") }, .{ "N_TOKENS", genConst("@as(i32, 63)") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "tokenize", h.c("metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()") },
+    .{ "generate_tokens", h.c("metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()") },
+    .{ "detect_encoding", h.c(".{ \"utf-8\", metal0_runtime.PyList([]const u8).init() }") },
+    .{ "open", genOpen }, .{ "untokenize", h.c("\"\"") },
+    .{ "TokenInfo", h.c(".{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" }") },
+    .{ "TokenError", h.err("TokenError") }, .{ "StopTokenizing", h.err("StopTokenizing") },
+    .{ "ENDMARKER", h.I32(0) }, .{ "NAME", h.I32(1) }, .{ "NUMBER", h.I32(2) }, .{ "STRING", h.I32(3) },
+    .{ "NEWLINE", h.I32(4) }, .{ "INDENT", h.I32(5) }, .{ "DEDENT", h.I32(6) }, .{ "OP", h.I32(54) },
+    .{ "ERRORTOKEN", h.I32(59) }, .{ "COMMENT", h.I32(60) }, .{ "NL", h.I32(61) }, .{ "ENCODING", h.I32(62) }, .{ "N_TOKENS", h.I32(63) },
 });
 
 fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
