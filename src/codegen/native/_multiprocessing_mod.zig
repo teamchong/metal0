@@ -1,20 +1,13 @@
 /// Python _multiprocessing module - Internal multiprocessing support (C accelerator)
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "sem_lock", genConst(".{ .kind = 0, .value = 1, .maxvalue = 1, .name = \"\" }") }, .{ "sem_unlink", genConst("{}") }, .{ "address_of_buffer", genConst(".{ @as(usize, 0), @as(usize, 0) }") },
-    .{ "flags", genConst(".{ .HAVE_SEM_OPEN = true, .HAVE_SEM_TIMEDWAIT = true, .HAVE_FD_TRANSFER = true, .HAVE_BROKEN_SEM_GETVALUE = false }") },
-    .{ "connection", genConst(".{ .handle = null, .readable = true, .writable = true }") }, .{ "send", genConst("{}") }, .{ "recv", genConst("null") },
-    .{ "poll", genConst("false") }, .{ "send_bytes", genConst("{}") }, .{ "recv_bytes", genConst("\"\"") },
-    .{ "recv_bytes_into", genConst("@as(usize, 0)") }, .{ "close", genConst("{}") }, .{ "fileno", genConst("@as(i32, -1)") },
-    .{ "acquire", genConst("true") }, .{ "release", genConst("{}") }, .{ "count", genConst("@as(i32, 0)") }, .{ "is_mine", genConst("false") },
-    .{ "get_value", genConst("@as(i32, 1)") }, .{ "is_zero", genConst("false") }, .{ "rebuild", genConst(".{ .kind = 0, .value = 1, .maxvalue = 1, .name = \"\" }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "sem_lock", h.c(".{ .kind = 0, .value = 1, .maxvalue = 1, .name = \"\" }") }, .{ "sem_unlink", h.c("{}") }, .{ "address_of_buffer", h.c(".{ @as(usize, 0), @as(usize, 0) }") },
+    .{ "flags", h.c(".{ .HAVE_SEM_OPEN = true, .HAVE_SEM_TIMEDWAIT = true, .HAVE_FD_TRANSFER = true, .HAVE_BROKEN_SEM_GETVALUE = false }") },
+    .{ "connection", h.c(".{ .handle = null, .readable = true, .writable = true }") }, .{ "send", h.c("{}") }, .{ "recv", h.c("null") },
+    .{ "poll", h.c("false") }, .{ "send_bytes", h.c("{}") }, .{ "recv_bytes", h.c("\"\"") },
+    .{ "recv_bytes_into", h.c("@as(usize, 0)") }, .{ "close", h.c("{}") }, .{ "fileno", h.I32(-1) },
+    .{ "acquire", h.c("true") }, .{ "release", h.c("{}") }, .{ "count", h.I32(0) }, .{ "is_mine", h.c("false") },
+    .{ "get_value", h.I32(1) }, .{ "is_zero", h.c("false") }, .{ "rebuild", h.c(".{ .kind = 0, .value = 1, .maxvalue = 1, .name = \"\" }") },
 });

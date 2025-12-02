@@ -6,7 +6,12 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+    return struct {
+        fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+            _ = args; // Ignore arguments for stubs - they're not needed
+            try self.emit(v);
+        }
+    }.f;
 }
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{

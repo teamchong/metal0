@@ -1,17 +1,10 @@
 /// Python _osx_support module - macOS platform support
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "find_build_tool", genConst("\"\"") }, .{ "read_output", genConst("\"\"") }, .{ "find_appropriate_compiler", genConst("\"\"") },
-    .{ "remove_original_values", genConst(".{}") }, .{ "save_modified_value", genConst("{}") }, .{ "supports_universal_builds", genConst("true") },
-    .{ "find_sdk_root", genConst("\"/\"") }, .{ "get_system_version", genConst("\"14.0\"") }, .{ "customize_config_vars", genConst(".{}") },
-    .{ "customize_compiler", genConst("{}") }, .{ "get_platform_osx", genConst("\"darwin\"") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "find_build_tool", h.c("\"\"") }, .{ "read_output", h.c("\"\"") }, .{ "find_appropriate_compiler", h.c("\"\"") },
+    .{ "remove_original_values", h.c(".{}") }, .{ "save_modified_value", h.c("{}") }, .{ "supports_universal_builds", h.c("true") },
+    .{ "find_sdk_root", h.c("\"/\"") }, .{ "get_system_version", h.c("\"14.0\"") }, .{ "customize_config_vars", h.c(".{}") },
+    .{ "customize_compiler", h.c("{}") }, .{ "get_platform_osx", h.c("\"darwin\"") },
 });
