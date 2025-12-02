@@ -296,3 +296,11 @@ pub fn bufPrint(comptime fmt: []const u8, comptime default: []const u8) H {
         try self.emit("blk: { var buf: [4096]u8 = undefined; break :blk std.fmt.bufPrint(&buf, \"" ++ fmt ++ "\", .{"); try self.genExpr(args[0]); try self.emit("}) catch \"\"; }");
     } }.f;
 }
+
+/// Struct wrap: .{ .field = arg, ... } pattern
+pub fn structField(comptime field: []const u8, comptime rest: []const u8, comptime default: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(default); return; }
+        try self.emit("blk: { const _v = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ ." ++ field ++ " = _v" ++ rest ++ " }; }");
+    } }.f;
+}
