@@ -5,41 +5,27 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Bdb", genBdb }, .{ "Breakpoint", genBreakpoint }, .{ "effective", genEffective },
-    .{ "checkfuncname", genTrue }, .{ "set_trace", genUnit }, .{ "BdbQuit", genBdbQuit },
-    .{ "reset", genUnit }, .{ "trace_dispatch", genNull }, .{ "dispatch_line", genNull },
-    .{ "dispatch_call", genNull }, .{ "dispatch_return", genNull }, .{ "dispatch_exception", genNull },
-    .{ "is_skipped_module", genFalse }, .{ "stop_here", genFalse }, .{ "break_here", genFalse },
-    .{ "break_anywhere", genFalse }, .{ "set_step", genUnit }, .{ "set_next", genUnit },
-    .{ "set_return", genUnit }, .{ "set_until", genUnit }, .{ "set_continue", genUnit },
-    .{ "set_quit", genUnit }, .{ "set_break", genNull }, .{ "clear_break", genNull },
-    .{ "clear_bpbynumber", genNull }, .{ "clear_all_file_breaks", genNull }, .{ "clear_all_breaks", genNull },
-    .{ "get_bpbynumber", genNull }, .{ "get_break", genFalse }, .{ "get_breaks", genEmptyBpSlice },
-    .{ "get_file_breaks", genEmptyI64Slice }, .{ "get_all_breaks", genEmpty },
-    .{ "get_stack", genStackResult }, .{ "format_stack_entry", genEmptyStr },
-    .{ "run", genUnit }, .{ "runeval", genNull }, .{ "runctx", genUnit }, .{ "runcall", genNull },
+    .{ "Bdb", genConst(".{ .skip = null, .breaks = .{}, .fncache = .{}, .frame_returning = null }") },
+    .{ "Breakpoint", genBreakpoint }, .{ "effective", genConst(".{ null, false }") },
+    .{ "checkfuncname", genConst("true") }, .{ "set_trace", genConst("{}") }, .{ "BdbQuit", genConst("error.BdbQuit") },
+    .{ "reset", genConst("{}") }, .{ "trace_dispatch", genConst("null") }, .{ "dispatch_line", genConst("null") },
+    .{ "dispatch_call", genConst("null") }, .{ "dispatch_return", genConst("null") }, .{ "dispatch_exception", genConst("null") },
+    .{ "is_skipped_module", genConst("false") }, .{ "stop_here", genConst("false") }, .{ "break_here", genConst("false") },
+    .{ "break_anywhere", genConst("false") }, .{ "set_step", genConst("{}") }, .{ "set_next", genConst("{}") },
+    .{ "set_return", genConst("{}") }, .{ "set_until", genConst("{}") }, .{ "set_continue", genConst("{}") },
+    .{ "set_quit", genConst("{}") }, .{ "set_break", genConst("null") }, .{ "clear_break", genConst("null") },
+    .{ "clear_bpbynumber", genConst("null") }, .{ "clear_all_file_breaks", genConst("null") }, .{ "clear_all_breaks", genConst("null") },
+    .{ "get_bpbynumber", genConst("null") }, .{ "get_break", genConst("false") }, .{ "get_breaks", genConst("&[_]@TypeOf(.{}){}") },
+    .{ "get_file_breaks", genConst("&[_]i64{}") }, .{ "get_all_breaks", genConst(".{}") },
+    .{ "get_stack", genConst(".{ &[_]@TypeOf(.{}){}, 0 }") }, .{ "format_stack_entry", genConst("\"\"") },
+    .{ "run", genConst("{}") }, .{ "runeval", genConst("null") }, .{ "runctx", genConst("{}") }, .{ "runcall", genConst("null") },
     .{ "canonic", genCanonic },
 });
-
-// Helpers
-fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
-fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "true"); }
-fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
-fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
-fn genEmptyBpSlice(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]@TypeOf(.{}){}"); }
-fn genEmptyI64Slice(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]i64{}"); }
-fn genStackResult(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ &[_]@TypeOf(.{}){}, 0 }"); }
-fn genEffective(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ null, false }"); }
-fn genBdbQuit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.BdbQuit"); }
-
-fn genBdb(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .skip = null, .breaks = .{}, .fncache = .{}, .frame_returning = null }");
-}
 
 fn genBreakpoint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {

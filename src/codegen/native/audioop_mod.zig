@@ -5,23 +5,17 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "add", genStr }, .{ "alaw2lin", genStr }, .{ "bias", genStr }, .{ "byteswap", genStr },
-    .{ "lin2alaw", genStr }, .{ "lin2lin", genStr }, .{ "lin2ulaw", genStr }, .{ "mul", genStr },
-    .{ "reverse", genStr }, .{ "tomono", genStr }, .{ "tostereo", genStr }, .{ "ulaw2lin", genStr },
-    .{ "avg", genI32 }, .{ "avgpp", genI32 }, .{ "cross", genI32 }, .{ "findmax", genI32 },
-    .{ "getsample", genI32 }, .{ "max", genI32 }, .{ "maxpp", genI32 }, .{ "rms", genI32 },
-    .{ "findfactor", genF64 }, .{ "minmax", genI32Pair }, .{ "findfit", genI32F64 },
-    .{ "adpcm2lin", genAdpcmState }, .{ "lin2adpcm", genAdpcmState },
-    .{ "ratecv", genRatecv }, .{ "error", genError },
-});
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
-fn genI32(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
-fn genF64(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(f64, 1.0)"); }
-fn genI32Pair(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i32, 0), @as(i32, 0) }"); }
-fn genI32F64(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ @as(i32, 0), @as(f64, 1.0) }"); }
-fn genAdpcmState(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ \"\", .{ @as(i32, 0), @as(i32, 0) } }"); }
-fn genRatecv(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ \"\", .{ @as(i32, 0), .{} } }"); }
-fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.AudioopError"); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "add", genConst("\"\"") }, .{ "alaw2lin", genConst("\"\"") }, .{ "bias", genConst("\"\"") }, .{ "byteswap", genConst("\"\"") },
+    .{ "lin2alaw", genConst("\"\"") }, .{ "lin2lin", genConst("\"\"") }, .{ "lin2ulaw", genConst("\"\"") }, .{ "mul", genConst("\"\"") },
+    .{ "reverse", genConst("\"\"") }, .{ "tomono", genConst("\"\"") }, .{ "tostereo", genConst("\"\"") }, .{ "ulaw2lin", genConst("\"\"") },
+    .{ "avg", genConst("@as(i32, 0)") }, .{ "avgpp", genConst("@as(i32, 0)") }, .{ "cross", genConst("@as(i32, 0)") }, .{ "findmax", genConst("@as(i32, 0)") },
+    .{ "getsample", genConst("@as(i32, 0)") }, .{ "max", genConst("@as(i32, 0)") }, .{ "maxpp", genConst("@as(i32, 0)") }, .{ "rms", genConst("@as(i32, 0)") },
+    .{ "findfactor", genConst("@as(f64, 1.0)") }, .{ "minmax", genConst(".{ @as(i32, 0), @as(i32, 0) }") }, .{ "findfit", genConst(".{ @as(i32, 0), @as(f64, 1.0) }") },
+    .{ "adpcm2lin", genConst(".{ \"\", .{ @as(i32, 0), @as(i32, 0) } }") }, .{ "lin2adpcm", genConst(".{ \"\", .{ @as(i32, 0), @as(i32, 0) } }") },
+    .{ "ratecv", genConst(".{ \"\", .{ @as(i32, 0), .{} } }") }, .{ "error", genConst("error.AudioopError") },
+});
