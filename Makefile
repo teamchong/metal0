@@ -94,15 +94,21 @@ test-integration: build
 	done; \
 	echo "Integration: $$passed passed, $$failed failed"
 
-# CPython compatibility tests (parallel via xargs -P8)
+# CPython compatibility tests (3-phase: codegen parallel, zig parallel, run parallel)
 test-cpython: build
-	@echo "Running CPython tests (parallel via xargs -P8)..."
+	@echo "=== Phase 1: Generating Zig code (parallel) ==="
+	@rm -rf .metal0/cache/cpython_tests && mkdir -p .metal0/cache/cpython_tests
+	@ls tests/cpython/test_*.py | xargs -P16 -I{} sh -c './zig-out/bin/metal0 "{}" --emit-zig --force >/dev/null 2>&1 || true'
+	@codegen_count=$$(ls .metal0/cache/*.zig 2>/dev/null | grep -E 'test_.*\.zig$$' | wc -l | tr -d ' '); \
+	echo "  ✓ Generated $$codegen_count Zig files"
+	@echo ""
+	@echo "=== Phase 2: Compiling binaries (parallel via xargs -P8) ==="
 	@total=$$(ls tests/cpython/test_*.py | wc -l | tr -d ' '); \
 	passed=$$(ls tests/cpython/test_*.py | xargs -P8 -I{} sh -c './zig-out/bin/metal0 "{}" --force >/dev/null 2>&1 && echo 1' 2>/dev/null | wc -l | tr -d ' '); \
 	failed=$$((total - passed)); \
 	echo "CPython: $$passed/$$total passed ($$failed failed)"
 
-# CPython tests (sequential - for debugging)
+# CPython tests (single phase - for debugging individual test)
 test-cpython-seq: build
 	@echo "Running CPython tests (sequential)..."
 	@passed=0; failed=0; \
@@ -115,6 +121,18 @@ test-cpython-seq: build
 		fi; \
 	done; \
 	echo "CPython: $$passed passed, $$failed failed"
+
+# CPython errors only - show which tests fail and why
+test-cpython-errors: build
+	@echo "Showing CPython test errors..."
+	@for f in tests/cpython/test_*.py; do \
+		output=$$(./zig-out/bin/metal0 "$$f" --force 2>&1); \
+		if [ $$? -ne 0 ]; then \
+			echo ""; \
+			echo "=== $$f ==="; \
+			echo "$$output" | grep -E "error:|Error" | head -3; \
+		fi; \
+	done
 
 # All tests
 test-all: build test-unit test-integration test-cpython

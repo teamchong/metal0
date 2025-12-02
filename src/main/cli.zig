@@ -680,6 +680,8 @@ fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
             opts.binary = true;
         } else if (std.mem.eql(u8, arg, "--force") or std.mem.eql(u8, arg, "-f")) {
             opts.force = true;
+        } else if (std.mem.eql(u8, arg, "--emit-zig")) {
+            opts.emit_zig_only = true;
         } else if (!std.mem.startsWith(u8, arg, "-")) {
             if (input_file == null) input_file = arg;
         }
@@ -710,6 +712,8 @@ fn cmdRunFile(allocator: std.mem.Allocator, args: []const []const u8) !void {
             opts.force = true;
         } else if (std.mem.eql(u8, arg, "--binary") or std.mem.eql(u8, arg, "-b")) {
             opts.binary = true;
+        } else if (std.mem.eql(u8, arg, "--emit-zig")) {
+            opts.emit_zig_only = true;
         }
     }
 
