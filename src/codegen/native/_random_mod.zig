@@ -2,8 +2,8 @@
 const std = @import("std");
 const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Random", h.c(".{ .state = std.Random.DefaultPrng.init(0) }") }, .{ "random", h.c("blk: { var prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); break :blk prng.random().float(f64); }") },

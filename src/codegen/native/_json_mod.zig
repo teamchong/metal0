@@ -2,8 +2,8 @@
 const std = @import("std");
 const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "encode_basestring", genEncodeBase }, .{ "encode_basestring_ascii", genEncodeAscii }, .{ "scanstring", genScan }, .{ "make_encoder", h.c(".{}") }, .{ "make_scanner", h.c(".{}") },

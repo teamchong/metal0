@@ -2,49 +2,27 @@
 const std = @import("std");
 const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
-
-// Comptime generators
-fn genBinary(comptime name: []const u8, comptime op: []const u8, comptime d: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit("(runtime.builtins.Operator" ++ name ++ "{})"); return; }
-        if (args.len < 2) { try self.emit(d); return; }
-        try self.emit("("); try self.genExpr(args[0]); try self.emit(op); try self.genExpr(args[1]); try self.emit(")");
-    } }.f;
-}
-fn genUnary(comptime name: []const u8, comptime pre: []const u8, comptime suf: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit("(runtime.builtins.Operator" ++ name ++ "{})"); return; }
-        try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf);
-    } }.f;
-}
-fn genShift(comptime name: []const u8, comptime op: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit("(runtime.builtins.Operator" ++ name ++ "{})"); return; }
-        if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
-        try self.emit("("); try self.genExpr(args[0]); try self.emit(op); try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit("))");
-    } }.f;
-}
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Arithmetic
-    .{ "add", genBinary("Add", " + ", "@as(i64, 0)") }, .{ "sub", genBinary("Sub", " - ", "@as(i64, 0)") },
-    .{ "mul", genBinary("Mul", " * ", "@as(i64, 0)") }, .{ "truediv", genTruediv }, .{ "floordiv", genFloordiv },
-    .{ "mod", genMod }, .{ "pow", genPow }, .{ "matmul", genBinary("Mul", " * ", "@as(i64, 0)") },
+    .{ "add", h.binop(" + ", "@as(i64, 0)") }, .{ "sub", h.binop(" - ", "@as(i64, 0)") },
+    .{ "mul", h.binop(" * ", "@as(i64, 0)") }, .{ "truediv", genTruediv }, .{ "floordiv", genFloordiv },
+    .{ "mod", genMod }, .{ "pow", genPow }, .{ "matmul", h.binop(" * ", "@as(i64, 0)") },
     // Unary
-    .{ "neg", genUnary("Neg", "(-", ")") }, .{ "pos", genUnary("Pos", "", "") },
-    .{ "abs", genUnary("Abs", "@abs(", ")") }, .{ "invert", genUnary("Invert", "(~@as(i64, ", "))") },
+    .{ "neg", h.unary("(-", ")") }, .{ "pos", h.unary("", "") },
+    .{ "abs", h.unary("@abs(", ")") }, .{ "invert", h.unary("(~@as(i64, ", "))") },
     // Bitwise
-    .{ "lshift", genShift("Lshift", " << ") }, .{ "rshift", genShift("Rshift", " >> ") },
-    .{ "and_", genBinary("And", " & ", "@as(i64, 0)") }, .{ "or_", genBinary("Or", " | ", "@as(i64, 0)") },
-    .{ "xor", genBinary("Xor", " ^ ", "@as(i64, 0)") },
+    .{ "lshift", h.shift(" << ") }, .{ "rshift", h.shift(" >> ") },
+    .{ "and_", h.binop(" & ", "@as(i64, 0)") }, .{ "or_", h.binop(" | ", "@as(i64, 0)") },
+    .{ "xor", h.binop(" ^ ", "@as(i64, 0)") },
     // Logical
     .{ "not_", genNot }, .{ "truth", genTruth },
     // Comparison
-    .{ "eq", genBinary("Eq", " == ", "false") }, .{ "ne", genBinary("Ne", " != ", "true") },
-    .{ "lt", genBinary("Lt", " < ", "false") }, .{ "le", genBinary("Le", " <= ", "false") },
-    .{ "gt", genBinary("Gt", " > ", "false") }, .{ "ge", genBinary("Ge", " >= ", "false") },
+    .{ "eq", h.binop(" == ", "false") }, .{ "ne", h.binop(" != ", "true") },
+    .{ "lt", h.binop(" < ", "false") }, .{ "le", h.binop(" <= ", "false") },
+    .{ "gt", h.binop(" > ", "false") }, .{ "ge", h.binop(" >= ", "false") },
     // Identity
     .{ "is_", genIs }, .{ "is_not", genIsNot },
     // Sequence
@@ -60,11 +38,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Index
     .{ "index", genIndex },
     // In-place (same as regular)
-    .{ "iadd", genBinary("Add", " + ", "@as(i64, 0)") }, .{ "isub", genBinary("Sub", " - ", "@as(i64, 0)") },
-    .{ "imul", genBinary("Mul", " * ", "@as(i64, 0)") }, .{ "itruediv", genTruediv }, .{ "ifloordiv", genFloordiv },
-    .{ "imod", genMod }, .{ "ipow", genPow }, .{ "ilshift", genShift("Lshift", " << ") }, .{ "irshift", genShift("Rshift", " >> ") },
-    .{ "iand", genBinary("And", " & ", "@as(i64, 0)") }, .{ "ior", genBinary("Or", " | ", "@as(i64, 0)") },
-    .{ "ixor", genBinary("Xor", " ^ ", "@as(i64, 0)") }, .{ "iconcat", genConcat }, .{ "imatmul", genBinary("Mul", " * ", "@as(i64, 0)") },
+    .{ "iadd", h.binop(" + ", "@as(i64, 0)") }, .{ "isub", h.binop(" - ", "@as(i64, 0)") },
+    .{ "imul", h.binop(" * ", "@as(i64, 0)") }, .{ "itruediv", genTruediv }, .{ "ifloordiv", genFloordiv },
+    .{ "imod", genMod }, .{ "ipow", genPow }, .{ "ilshift", h.shift(" << ") }, .{ "irshift", h.shift(" >> ") },
+    .{ "iand", h.binop(" & ", "@as(i64, 0)") }, .{ "ior", h.binop(" | ", "@as(i64, 0)") },
+    .{ "ixor", h.binop(" ^ ", "@as(i64, 0)") }, .{ "iconcat", genConcat }, .{ "imatmul", h.binop(" * ", "@as(i64, 0)") },
     .{ "__call__", genCall },
 });
 

@@ -2,8 +2,8 @@
 const std = @import("std");
 const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Decimal", genDecimal }, .{ "Context", h.c(".{ .prec = 28, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }") },

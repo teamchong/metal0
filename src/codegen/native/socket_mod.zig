@@ -2,8 +2,8 @@
 const std = @import("std");
 const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 fn genByteSwap(comptime pre: []const u8, comptime ty: []const u8, comptime func: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

@@ -2,30 +2,9 @@
 const std = @import("std");
 const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-// Comptime generators
-fn genBuiltin(comptime b: []const u8, comptime d: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit(b ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
-    } }.f;
-}
-fn genStdMath(comptime fn_name: []const u8, comptime d: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit("std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
-    } }.f;
-}
-fn genStdMathType(comptime fn_name: []const u8, comptime d: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit("std.math." ++ fn_name ++ "(f64, @as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
-    } }.f;
-}
-fn genStdMathBinary(comptime fn_name: []const u8, comptime d: []const u8) h.H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len >= 2) { try self.emit("std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("), @as(f64, "); try self.genExpr(args[1]); try self.emit("))"); } else try self.emit(d);
-    } }.f;
-}
 fn genRounding(comptime b: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) {
@@ -46,30 +25,30 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Number-theoretic
     .{ "factorial", genFactorial }, .{ "gcd", genGcd }, .{ "lcm", genLcm }, .{ "comb", genComb }, .{ "perm", genPerm },
     // Power and log
-    .{ "sqrt", genBuiltin("@sqrt", "@as(f64, 0.0)") }, .{ "isqrt", genIsqrt },
-    .{ "exp", genBuiltin("@exp", "@as(f64, 1.0)") }, .{ "exp2", genBuiltin("@exp2", "@as(f64, 1.0)") }, .{ "expm1", genStdMath("expm1", "@as(f64, 0.0)") },
-    .{ "log", genBuiltin("@log", "@as(f64, 0.0)") }, .{ "log2", genBuiltin("@log2", "@as(f64, 0.0)") },
-    .{ "log10", genBuiltin("@log10", "@as(f64, 0.0)") }, .{ "log1p", genStdMath("log1p", "@as(f64, 0.0)") }, .{ "pow", genPow },
+    .{ "sqrt", h.builtin1("@sqrt", "@as(f64, 0.0)") }, .{ "isqrt", genIsqrt },
+    .{ "exp", h.builtin1("@exp", "@as(f64, 1.0)") }, .{ "exp2", h.builtin1("@exp2", "@as(f64, 1.0)") }, .{ "expm1", h.stdmath1("expm1", "@as(f64, 0.0)") },
+    .{ "log", h.builtin1("@log", "@as(f64, 0.0)") }, .{ "log2", h.builtin1("@log2", "@as(f64, 0.0)") },
+    .{ "log10", h.builtin1("@log10", "@as(f64, 0.0)") }, .{ "log1p", h.stdmath1("log1p", "@as(f64, 0.0)") }, .{ "pow", genPow },
     // Trig
-    .{ "sin", genBuiltin("@sin", "@as(f64, 0.0)") }, .{ "cos", genBuiltin("@cos", "@as(f64, 1.0)") }, .{ "tan", genBuiltin("@tan", "@as(f64, 0.0)") },
-    .{ "asin", genStdMath("asin", "@as(f64, 0.0)") }, .{ "acos", genStdMath("acos", "@as(f64, 0.0)") },
-    .{ "atan", genStdMath("atan", "@as(f64, 0.0)") }, .{ "atan2", genStdMathBinary("atan2", "@as(f64, 0.0)") },
+    .{ "sin", h.builtin1("@sin", "@as(f64, 0.0)") }, .{ "cos", h.builtin1("@cos", "@as(f64, 1.0)") }, .{ "tan", h.builtin1("@tan", "@as(f64, 0.0)") },
+    .{ "asin", h.stdmath1("asin", "@as(f64, 0.0)") }, .{ "acos", h.stdmath1("acos", "@as(f64, 0.0)") },
+    .{ "atan", h.stdmath1("atan", "@as(f64, 0.0)") }, .{ "atan2", h.stdmath2("atan2", "@as(f64, 0.0)") },
     // Hyperbolic
-    .{ "sinh", genStdMath("sinh", "@as(f64, 0.0)") }, .{ "cosh", genStdMath("cosh", "@as(f64, 1.0)") }, .{ "tanh", genStdMath("tanh", "@as(f64, 0.0)") },
-    .{ "asinh", genStdMath("asinh", "@as(f64, 0.0)") }, .{ "acosh", genStdMath("acosh", "@as(f64, 0.0)") }, .{ "atanh", genStdMath("atanh", "@as(f64, 0.0)") },
+    .{ "sinh", h.stdmath1("sinh", "@as(f64, 0.0)") }, .{ "cosh", h.stdmath1("cosh", "@as(f64, 1.0)") }, .{ "tanh", h.stdmath1("tanh", "@as(f64, 0.0)") },
+    .{ "asinh", h.stdmath1("asinh", "@as(f64, 0.0)") }, .{ "acosh", h.stdmath1("acosh", "@as(f64, 0.0)") }, .{ "atanh", h.stdmath1("atanh", "@as(f64, 0.0)") },
     // Special
-    .{ "erf", genStdMath("erf", "@as(f64, 0.0)") }, .{ "erfc", genErfc },
-    .{ "gamma", genStdMathType("gamma", "std.math.inf(f64)") }, .{ "lgamma", genStdMathType("lgamma", "std.math.inf(f64)") },
+    .{ "erf", h.stdmath1("erf", "@as(f64, 0.0)") }, .{ "erfc", genErfc },
+    .{ "gamma", h.stdmathT("gamma", "std.math.inf(f64)") }, .{ "lgamma", h.stdmathT("lgamma", "std.math.inf(f64)") },
     // Angular
     .{ "degrees", genDegrees }, .{ "radians", genRadians },
     // Float manipulation
-    .{ "copysign", genStdMathBinary("copysign", "@as(f64, 0.0)") }, .{ "fmod", genFmod },
+    .{ "copysign", h.stdmath2("copysign", "@as(f64, 0.0)") }, .{ "fmod", genFmod },
     .{ "frexp", genFrexp }, .{ "ldexp", genLdexp }, .{ "modf", genModf }, .{ "remainder", genRemainder },
     // Classification
-    .{ "isfinite", genStdMath("isFinite", "true") }, .{ "isinf", genStdMath("isInf", "false") },
-    .{ "isnan", genStdMath("isNan", "false") }, .{ "isclose", genIsclose },
+    .{ "isfinite", h.stdmath1("isFinite", "true") }, .{ "isinf", h.stdmath1("isInf", "false") },
+    .{ "isnan", h.stdmath1("isNan", "false") }, .{ "isclose", genIsclose },
     // Sums
-    .{ "hypot", genStdMathBinary("hypot", "@as(f64, 0.0)") }, .{ "dist", genDist }, .{ "fsum", genFsum }, .{ "prod", genProd },
+    .{ "hypot", h.stdmath2("hypot", "@as(f64, 0.0)") }, .{ "dist", genDist }, .{ "fsum", genFsum }, .{ "prod", genProd },
     .{ "nextafter", genNextafter }, .{ "ulp", genUlp },
 });
 

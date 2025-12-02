@@ -2,8 +2,8 @@
 const std = @import("std");
 const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "log10_base256", h.F64(0.4150374992788438) }, .{ "spread", h.c("(struct { data: std.AutoHashMap(i64, i64) = .{}, pub fn copy(self: @This()) @This() { return __self; } pub fn clear(__self: *@This()) void { __self.data.clearRetainingCapacity(); } pub fn clearRetainingCapacity(__self: *@This()) void { __self.data.clearRetainingCapacity(); } pub fn update(__self: *@This(), other: @This()) void { _ = other; } pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() { _ = allocator; return __self; } pub fn contains(self: @This(), key: i64) bool { return __self.data.contains(key); } }{})") },

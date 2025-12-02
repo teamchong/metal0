@@ -2,8 +2,8 @@
 const std = @import("std");
 const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "dataclass", genDataclass }, .{ "field", h.c("struct { default: ?[]const u8 = null, default_factory: ?*anyopaque = null, repr: bool = true, hash: ?bool = null, init: bool = true, compare: bool = true, metadata: ?hashmap_helper.StringHashMap([]const u8) = null, kw_only: bool = false }{}") },
