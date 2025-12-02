@@ -8,8 +8,8 @@ const NativeCodegen = h.NativeCodegen;
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "isleap", genIsleap }, .{ "leapdays", genLeapdays },
     .{ "weekday", genWeekday }, .{ "monthrange", genMonthrange },
-    .{ "month", h.c("\"\"") }, .{ "monthcalendar", genMonthcalendar }, .{ "prmonth", h.c("{}") }, .{ "calendar", h.c("\"\"") },
-    .{ "prcal", h.c("{}") }, .{ "setfirstweekday", h.c("{}") }, .{ "firstweekday", h.I32(0) }, .{ "timegm", h.I64(0) },
+    .{ "month", h.c("\"\"") }, .{ "monthcalendar", genMonthcalendar }, .{ "prmonth", h.discard("{}") }, .{ "calendar", h.c("\"\"") },
+    .{ "prcal", h.discard("{}") }, .{ "setfirstweekday", h.discard("{}") }, .{ "firstweekday", h.I32(0) }, .{ "timegm", h.discard("@as(i64, 0)") },
     .{ "Calendar", h.c(".{ .firstweekday = @as(i32, 0) }") }, .{ "TextCalendar", h.c(".{ .firstweekday = @as(i32, 0) }") }, .{ "HTMLCalendar", h.c(".{ .firstweekday = @as(i32, 0) }") },
     .{ "LocaleTextCalendar", h.c(".{ .firstweekday = @as(i32, 0), .locale = null }") }, .{ "LocaleHTMLCalendar", h.c(".{ .firstweekday = @as(i32, 0), .locale = null }") },
     .{ "MONDAY", h.I32(0) }, .{ "TUESDAY", h.I32(1) }, .{ "WEDNESDAY", h.I32(2) }, .{ "THURSDAY", h.I32(3) },

@@ -42,6 +42,29 @@ pub fn F64(comptime n: comptime_float) H { return c(std.fmt.comptimePrint("@as(f
 /// Generates a handler that emits error.Name
 pub fn err(comptime name: []const u8) H { return c("error." ++ name); }
 
+/// Generates a handler that discards all args and returns a default value
+/// Use this for stub functions that need to consume their arguments
+pub fn discard(comptime ret: []const u8) H {
+    return struct {
+        fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+            if (args.len == 0) {
+                try self.emit(ret);
+                return;
+            }
+            // Generate: blk: { _ = arg1; _ = arg2; break :blk default; }
+            const id = emitUniqueBlockStart(self, "discard") catch 0;
+            for (args) |arg| {
+                try self.emit("_ = ");
+                try self.genExpr(arg);
+                try self.emit("; ");
+            }
+            emitBlockBreak(self, "discard", id) catch {};
+            try self.emit(ret);
+            try self.emit(" }");
+        }
+    }.f;
+}
+
 /// Generates a handler that passes through first arg or emits default
 pub fn pass(comptime default: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
