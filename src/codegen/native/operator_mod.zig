@@ -31,7 +31,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "contains", h.wrap2("runtime.containsGeneric(", ", ", ")", "false") },
     .{ "countOf", h.I64(0) }, .{ "indexOf", h.I64(-1) },
     // Item
-    .{ "getitem", genGetitem }, .{ "setitem", genSetitem },
+    .{ "getitem", h.wrap2("", "[", "]", "@as(i64, 0)") }, .{ "setitem", h.wrap3("blk: { ", "[", "] = ", "; break :blk null; }", "null") },
     .{ "delitem", h.c("null") }, .{ "length_hint", h.I64(0) },
     // Getters
     .{ "attrgetter", h.c("struct { attr: []const u8 = \"\", pub fn __call__(self: @This(), obj: anytype) []const u8 { _ = obj; return \"\"; } }{}") },
@@ -45,7 +45,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "imod", genMod }, .{ "ipow", genPow }, .{ "ilshift", h.shift(" << ") }, .{ "irshift", h.shift(" >> ") },
     .{ "iand", h.binop(" & ", "@as(i64, 0)") }, .{ "ior", h.binop(" | ", "@as(i64, 0)") },
     .{ "ixor", h.binop(" ^ ", "@as(i64, 0)") }, .{ "iconcat", h.binop(" + ", "&[_]u8{}") }, .{ "imatmul", h.binop(" * ", "@as(i64, 0)") },
-    .{ "__call__", genCall },
+    .{ "__call__", h.wrap("", "()", "void{}") },
 });
 
 pub fn genTruediv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -77,16 +77,4 @@ pub fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("true"); return; }
     const both_bool = (args[0] == .constant and args[0].constant.value == .bool) and (args[1] == .constant and args[1].constant.value == .bool);
     try self.emit(if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try self.emit(" != "); try self.emit(if (both_bool) "" else "&"); try self.genExpr(args[1]); try self.emit(")");
-}
-pub fn genGetitem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
-    try self.genExpr(args[0]); try self.emit("["); try self.genExpr(args[1]); try self.emit("]");
-}
-pub fn genSetitem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 3) { try self.emit("null"); return; }
-    try self.emit("blk: { "); try self.genExpr(args[0]); try self.emit("["); try self.genExpr(args[1]); try self.emit("] = "); try self.genExpr(args[2]); try self.emit("; break :blk null; }");
-}
-pub fn genCall(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("void{}"); return; }
-    try self.genExpr(args[0]); try self.emit("()");
 }
