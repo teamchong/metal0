@@ -382,35 +382,34 @@ Benchmarked on macOS ARM64 (Apple Silicon M2).
 
 metal0 compiles Python's `asyncio` to state machine coroutines with kqueue netpoller.
 
-**CPU-Bound: Fan-out/Fan-in (100 tasks × 1M iterations each)**
+**CPU-Bound: SHA256 Hashing (100 tasks × 10K hashes each)**
 
-| Runtime | Time | Tasks/sec | vs CPython |
-|---------|------|-----------|------------|
-| **metal0** | **0.01ms*** | **∞** | **comptime** 🏆 |
-| Rust (rayon) | 0.17ms* | 573,888 | 17,776x |
-| Go | 5.6ms | 17,806 | 539x |
-| CPython | 3,022ms | 33 | 1x |
+| Runtime | Time | vs CPython |
+|---------|------|------------|
+| Go (goroutines) | 7.3ms | 17.4x faster 🏆 |
+| Rust (rayon) | 11.2ms | 11.4x faster |
+| **metal0** | **70.9ms** | **1.8x faster** |
+| CPython | 127.3ms | 1x |
+| PyPy | 339.5ms | 2.7x slower |
 
-*\*Both metal0 and Rust optimize pure arithmetic loops at compile time via LLVM. This is a real optimization that benefits production code.*
+*Real SHA256 computation - cannot be optimized at compile time. metal0 beats Python and PyPy.*
 
 **I/O-Bound: Concurrent Sleep (10,000 tasks × 100ms each)**
 
 | Runtime | Time | Concurrency | vs Sequential |
 |---------|------|-------------|---------------|
-| **metal0** | **101ms** | **9,911x** | 🏆 Best event loop |
-| Rust (tokio) | 106ms | 9,449x | Great async runtime |
-| Go | 121ms | 8,273x | Great for network |
-| CPython | 144ms | 6,934x | Good for I/O |
+| **metal0** | **103.6ms** | **9,653x** | 🏆 Best event loop |
+| Rust (tokio) | 107.8ms | 9,276x | Great async runtime |
+| Go | 122.6ms | 8,158x | Great for network |
+| CPython | 196.8ms | 5,081x | Good for I/O |
+| PyPy | 268.2ms | 3,729x | Slower I/O |
 
-*Sequential would take 1,000,000ms (16.7 min). metal0 achieves 9911× concurrency via state machine + kqueue netpoller.*
+*Sequential would take 1,000,000ms (16.7 min). metal0 achieves 9653× concurrency via state machine + kqueue netpoller.*
 
 ```bash
 # Run benchmarks
-cd benchmarks/asyncio
-python3 bench_fanout.py   # CPython
-pypy3 bench_fanout.py     # PyPy
-./bench_fanout_go         # Go
-./rust_bench/target/release/bench_cpu  # Rust
+make benchmark-asyncio     # CPU-bound (SHA256)
+make benchmark-asyncio-io  # I/O-bound (concurrent sleep)
 ```
 
 ### Recursive Computation
