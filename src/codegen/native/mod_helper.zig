@@ -163,6 +163,22 @@ pub fn wrapN(comptime n: usize, comptime pre: []const u8, comptime suf: []const 
     } }.f;
 }
 
+/// Generates log: blk: { const _m = arg; std.debug.print("LEVEL: {s}\n", .{_m}); break :blk; }
+pub fn logLevel(comptime level: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) return;
+        try self.emit("blk: { const _m = "); try self.genExpr(args[0]);
+        try self.emit("; std.debug.print(\"" ++ level ++ ": {s}\\n\", .{_m}); break :blk; }");
+    } }.f;
+}
+
+/// Generates codec result: .{ arg, arg.len } or default tuple
+pub fn codecResult(comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit(".{ "); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[0]); try self.emit(".len }"); } else try self.emit(d);
+    } }.f;
+}
+
 /// Emit a unique labeled block start and return the label ID for break
 pub fn emitUniqueBlockStart(self: *NativeCodegen, prefix: []const u8) CodegenError!u64 {
     const id = self.block_label_counter;

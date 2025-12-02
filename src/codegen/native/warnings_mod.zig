@@ -7,7 +7,7 @@ const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "warn", genWarn }, .{ "warn_explicit", genWarn }, .{ "showwarning", genWarn },
-    .{ "formatwarning", genFormatwarning }, .{ "filterwarnings", h.c("{}") }, .{ "simplefilter", h.c("{}") },
+    .{ "formatwarning", h.pass("\"\"") }, .{ "filterwarnings", h.c("{}") }, .{ "simplefilter", h.c("{}") },
     .{ "resetwarnings", h.c("{}") }, .{ "catch_warnings", h.c("struct { record: bool = false, log: std.ArrayList([]const u8) = .{}, pub fn __enter__(__self: *@This()) *@This() { return __self; } pub fn __exit__(__self: *@This(), _: anytype) void { _ = __self; } }{}") },
     .{ "Warning", h.c("\"Warning\"") }, .{ "UserWarning", h.c("\"UserWarning\"") }, .{ "DeprecationWarning", h.c("\"DeprecationWarning\"") },
     .{ "PendingDeprecationWarning", h.c("\"PendingDeprecationWarning\"") }, .{ "SyntaxWarning", h.c("\"SyntaxWarning\"") },
@@ -21,8 +21,4 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genWarn(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("{}"); return; }
     try self.emit("std.debug.print(\"Warning: {s}\\n\", .{"); try self.genExpr(args[0]); try self.emit("})");
-}
-
-fn genFormatwarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\"");
 }

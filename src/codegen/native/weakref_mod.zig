@@ -1,12 +1,11 @@
 /// Python weakref module - Weak references
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
+
+const genRef = h.wrap("@as(?*anyopaque, @ptrCast(&", "))", "@as(?*anyopaque, null)");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "ref", genRef }, .{ "proxy", genProxy },
+    .{ "ref", genRef }, .{ "proxy", h.pass("@as(?*anyopaque, null)") },
     .{ "getweakrefcount", h.I64(0) }, .{ "getweakrefs", h.c("&[_]*anyopaque{}") },
     .{ "WeakSet", h.c("struct { items: std.ArrayList(*anyopaque) = .{}, pub fn add(__self: *@This(), item: anytype) void { __self.items.append(__global_allocator, @ptrCast(&item)) catch {}; } pub fn discard(__self: *@This(), item: anytype) void { _ = item; } pub fn __len__(__self: *@This()) usize { return __self.items.items.len; } pub fn __contains__(__self: *@This(), item: anytype) bool { _ = item; return false; } }{}") },
     .{ "WeakKeyDictionary", h.c("struct { data: hashmap_helper.StringHashMap([]const u8) = .{}, pub fn get(__self: *@This(), key: anytype) ?[]const u8 { _ = key; return null; } pub fn put(__self: *@This(), key: anytype, value: anytype) void { _ = key; _ = value; } pub fn __len__(__self: *@This()) usize { return __self.data.count(); } }{}") },
@@ -16,13 +15,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "ReferenceType", h.c("\"weakref\"") }, .{ "ProxyType", h.c("\"weakproxy\"") },
     .{ "CallableProxyType", h.c("\"weakcallableproxy\"") },
 });
-
-fn genRef(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("@as(?*anyopaque, null)"); return; }
-    try self.emit("@as(?*anyopaque, @ptrCast(&"); try self.genExpr(args[0]); try self.emit("))");
-}
-
-fn genProxy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("@as(?*anyopaque, null)"); return; }
-    try self.genExpr(args[0]);
-}
