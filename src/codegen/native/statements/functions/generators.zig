@@ -233,8 +233,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             }
         }
 
-        // Check if this class inherits from unittest.TestCase
+        // Check if this class inherits from unittest.TestCase (directly or indirectly)
         if (std.mem.eql(u8, class.bases[0], "unittest.TestCase")) {
+            is_unittest_class = true;
+        } else if (self.isTestCaseSubclass(class.bases[0])) {
+            // Check if parent class inherits from TestCase
             is_unittest_class = true;
         }
     }

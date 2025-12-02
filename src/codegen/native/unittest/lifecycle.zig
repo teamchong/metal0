@@ -5,7 +5,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 
 /// Generate code for unittest.main()
-/// Runs all test methods in parallel using metal0 async (scheduler + GreenThreads)
+/// Runs all test methods in parallel using metal0 scheduler (thread pool)
 pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
 
@@ -26,34 +26,18 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         }
     }
 
-    // Generate test result struct for collecting parallel results
-    try self.emitIndent();
-    try self.emit("// Test result for parallel execution\n");
-    try self.emitIndent();
-    try self.emit("const TestResult = struct {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("name: []const u8,\n");
-    try self.emitIndent();
-    try self.emit("passed: bool,\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("};\n\n");
+    // Print skipped tests first
+    for (self.unittest_classes.items) |class_info| {
+        for (class_info.test_methods) |method_info| {
+            if (method_info.skip_reason) |reason| {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("std.debug.print(\"test_{s}_{s} ... SKIP: {s}\\\\n\", .{{}});\n", .{ class_info.class_name, method_info.name, reason });
+            }
+        }
+    }
 
-    // Create results array and threads list
-    try self.emitIndent();
-    try self.output.writer(self.allocator).print("var test_results: [{d}]TestResult = undefined;\n", .{total_tests});
-    try self.emitIndent();
-    try self.emit("var test_threads = std.ArrayList(*runtime.GreenThread){};\n");
-    try self.emitIndent();
-    try self.emit("defer test_threads.deinit(__global_allocator);\n\n");
-
-    // For each test class, create instances and spawn test threads
-    var global_test_idx: usize = 0;
-    for (self.unittest_classes.items, 0..) |class_info, class_idx| {
-        _ = class_idx;
-
-        // Check if any tests are not skipped
+    // Create test class instances
+    for (self.unittest_classes.items) |class_info| {
         var has_runnable_tests = false;
         for (class_info.test_methods) |method_info| {
             if (method_info.skip_reason == null) {
@@ -62,7 +46,6 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             }
         }
 
-        // Create instance
         try self.emitIndent();
         if (has_runnable_tests) {
             try self.output.writer(self.allocator).print("var _test_instance_{s} = {s}.init(__global_allocator);\n", .{ class_info.class_name, class_info.class_name });
@@ -70,61 +53,81 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             try self.output.writer(self.allocator).print("_ = {s}.init(__global_allocator);\n", .{class_info.class_name});
         }
 
-        // Call setUpClass before spawning threads
+        // Call setUpClass if exists
         if (class_info.has_setup_class and has_runnable_tests) {
             try self.emitIndent();
             try self.output.writer(self.allocator).print("{s}.setUpClass();\n", .{class_info.class_name});
         }
+    }
+    try self.emit("\n");
 
-        // Spawn threads for each test method
+    // metal0 parallel test execution (auto I/O-CPU switch)
+    try self.emitIndent();
+    try self.emit("// metal0 async - auto switches between thread pool (CPU) and netpoller (I/O)\n");
+    try self.emitIndent();
+    try self.emit("if (!runtime.scheduler_initialized) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("runtime.scheduler = try runtime.Scheduler.init(__global_allocator, 0);\n");
+    try self.emitIndent();
+    try self.emit("try runtime.scheduler.start();\n");
+    try self.emitIndent();
+    try self.emit("runtime.scheduler_initialized = true;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n\n");
+
+    // Test result tracking
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("var test_results: [{d}]std.atomic.Value(u8) = undefined;\n", .{total_tests});
+    try self.emitIndent();
+    try self.emit("for (&test_results) |*r| r.* = std.atomic.Value(u8).init(0);\n");
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const test_names: [{d}][]const u8 = .{{\n", .{total_tests});
+    self.indent();
+
+    // Initialize test names array
+    for (self.unittest_classes.items) |class_info| {
         for (class_info.test_methods) |method_info| {
-            if (method_info.skip_reason) |reason| {
-                try self.emitIndent();
-                try self.output.writer(self.allocator).print("std.debug.print(\"test_{s}_{s} ... SKIP: {s}\\n\", .{{}});\n", .{ class_info.class_name, method_info.name, reason });
-                continue;
-            }
-
-            // Generate async test wrapper and spawn
+            if (method_info.skip_reason != null) continue;
             try self.emitIndent();
-            try self.emit("{\n");
+            try self.output.writer(self.allocator).print("\"test_{s}_{s}\",\n", .{ class_info.class_name, method_info.name });
+        }
+    }
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n\n");
+
+    // Spawn test threads
+    var global_test_idx: usize = 0;
+    for (self.unittest_classes.items) |class_info| {
+        for (class_info.test_methods) |method_info| {
+            if (method_info.skip_reason != null) continue;
+
+            // Create context struct for this test
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("const TestCtx{d} = struct {{\n", .{global_test_idx});
             self.indent();
-
-            // Store test name in result
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("test_results[{d}].name = \"test_{s}_{s}\";\n", .{ global_test_idx, class_info.class_name, method_info.name });
-
-            // Generate test wrapper struct for closure capture
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print("const TestWrapper_{d} = struct {{\n", .{global_test_idx});
-            self.indent();
-            try self.emitIndent();
-            try self.emit("result_ptr: *bool,\n");
+            try self.emit("result: *std.atomic.Value(u8),\n");
             try self.emitIndent();
             try self.output.writer(self.allocator).print("instance: *@TypeOf(_test_instance_{s}),\n", .{class_info.class_name});
             try self.emitIndent();
-            try self.emit("\n");
+            try self.emit("allocator: std.mem.Allocator,\n");
             try self.emitIndent();
             try self.emit("pub fn run(ctx: *@This()) void {\n");
             self.indent();
 
-            // Call setUp if exists
+            // setUp
             if (class_info.has_setUp) {
                 try self.emitIndent();
-                try self.emit("ctx.instance.setUp(__global_allocator) catch {\n");
-                self.indent();
-                try self.emitIndent();
-                try self.emit("ctx.result_ptr.* = false;\n");
-                try self.emitIndent();
-                try self.emit("return;\n");
-                self.dedent();
-                try self.emitIndent();
-                try self.emit("};\n");
+                try self.emit("ctx.instance.setUp(ctx.allocator) catch {};\n");
             }
 
-            // Call test method
+            // Run test
             try self.emitIndent();
             if (method_info.needs_allocator and !method_info.is_skipped) {
-                try self.output.writer(self.allocator).print("ctx.instance.{s}(__global_allocator", .{method_info.name});
+                try self.output.writer(self.allocator).print("ctx.instance.{s}(ctx.allocator", .{method_info.name});
                 for (method_info.default_params) |default_param| {
                     try self.emit(", ");
                     try self.emit(default_param.default_code);
@@ -141,91 +144,66 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
                 try self.output.writer(self.allocator).print("ctx.instance.{s}() catch {{\n", .{method_info.name});
             }
             self.indent();
-            try self.emitIndent();
-            try self.emit("ctx.result_ptr.* = false;\n");
-
-            // Call tearDown even on failure
+            // tearDown on failure
             if (class_info.has_tearDown) {
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("ctx.instance.tearDown(__global_allocator) catch {{}};\n", .{});
+                try self.emit("ctx.instance.tearDown(ctx.allocator) catch {};\n");
             }
-
+            try self.emitIndent();
+            try self.emit("ctx.result.store(2, .release);\n"); // 2 = failed
             try self.emitIndent();
             try self.emit("return;\n");
             self.dedent();
             try self.emitIndent();
             try self.emit("};\n");
 
-            // Success path
-            try self.emitIndent();
-            try self.emit("ctx.result_ptr.* = true;\n");
-
-            // Call tearDown on success
+            // tearDown on success
             if (class_info.has_tearDown) {
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("ctx.instance.tearDown(__global_allocator) catch {{}};\n", .{});
+                try self.emit("ctx.instance.tearDown(ctx.allocator) catch {};\n");
             }
+            try self.emitIndent();
+            try self.emit("ctx.result.store(1, .release);\n"); // 1 = passed
 
             self.dedent();
             try self.emitIndent();
             try self.emit("}\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("};\n\n");
+            try self.emit("};\n");
 
-            // Spawn using scheduler - pass struct contents directly (scheduler copies to heap)
+            // Spawn the test using metal0 scheduler (thread pool for CPU-bound tests)
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("const thread_{d} = try runtime.scheduler.spawn(TestWrapper_{d}.run, .{{\n", .{ global_test_idx, global_test_idx });
-            self.indent();
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print(".result_ptr = &test_results[{d}].passed,\n", .{global_test_idx});
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print(".instance = &_test_instance_{s},\n", .{class_info.class_name});
-            self.dedent();
-            try self.emitIndent();
-            try self.emit("});\n");
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print("try test_threads.append(__global_allocator, thread_{d});\n", .{global_test_idx});
-
-            self.dedent();
-            try self.emitIndent();
-            try self.emit("}\n");
+            try self.output.writer(self.allocator).print("_ = try runtime.scheduler.spawn(TestCtx{d}.run, .{{ .result = &test_results[{d}], .instance = &_test_instance_{s}, .allocator = __global_allocator }});\n", .{ global_test_idx, global_test_idx, class_info.class_name });
 
             global_test_idx += 1;
         }
     }
-
     try self.emit("\n");
 
-    // Wait for all tests to complete (gather pattern)
+    // Wait for all tests to complete
     try self.emitIndent();
-    try self.emit("// Wait for all tests to complete\n");
-    try self.emitIndent();
-    try self.emit("for (test_threads.items) |t| {\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("runtime.scheduler.wait(t);\n");
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n\n");
+    try self.emit("runtime.scheduler.waitAll();\n\n");
 
     // Print results
     try self.emitIndent();
     try self.emit("// Print results\n");
     try self.emitIndent();
-    try self.emit("for (&test_results) |*result| {\n");
+    try self.emit("for (test_names, 0..) |name, i| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("if (result.passed) {\n");
+    try self.emit("const result = test_results[i].load(.acquire);\n");
+    try self.emitIndent();
+    try self.emit("if (result == 1) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("std.debug.print(\"{s} ... ok\\n\", .{result.name});\n");
+    try self.emit("std.debug.print(\"{s} ... ok\\n\", .{name});\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("} else {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("std.debug.print(\"{s} ... FAIL\\n\", .{result.name});\n");
+    try self.emit("std.debug.print(\"{s} ... FAIL\\n\", .{name});\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

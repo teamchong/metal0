@@ -717,11 +717,108 @@ fn cmdRunFile(allocator: std.mem.Allocator, args: []const []const u8) !void {
 }
 
 fn cmdTest(allocator: std.mem.Allocator) !void {
-    printInfo("Running tests...", .{});
-    _ = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "pytest", "-v" },
-    });
+    printInfo("Discovering test files...", .{});
+
+    // Discover test_*.py files in current directory and tests/
+    var test_files = std.ArrayList([]const u8){};
+    defer {
+        for (test_files.items) |f| allocator.free(f);
+        test_files.deinit(allocator);
+    }
+
+    // Search current directory
+    if (std.fs.cwd().openDir(".", .{ .iterate = true })) |dir| {
+        var d = dir;
+        var iter = d.iterate();
+        while (iter.next() catch null) |entry| {
+            if (entry.kind == .file and std.mem.startsWith(u8, entry.name, "test_") and std.mem.endsWith(u8, entry.name, ".py")) {
+                const path = try allocator.dupe(u8, entry.name);
+                try test_files.append(allocator, path);
+            }
+        }
+    } else |_| {}
+
+    // Search tests/ directory
+    if (std.fs.cwd().openDir("tests", .{ .iterate = true })) |dir| {
+        var d = dir;
+        var iter = d.iterate();
+        while (iter.next() catch null) |entry| {
+            if (entry.kind == .file and std.mem.startsWith(u8, entry.name, "test_") and std.mem.endsWith(u8, entry.name, ".py")) {
+                const path = try std.fmt.allocPrint(allocator, "tests/{s}", .{entry.name});
+                try test_files.append(allocator, path);
+            }
+        }
+    } else |_| {}
+
+    // Search tests/cpython/ directory
+    if (std.fs.cwd().openDir("tests/cpython", .{ .iterate = true })) |dir| {
+        var d = dir;
+        var iter = d.iterate();
+        while (iter.next() catch null) |entry| {
+            if (entry.kind == .file and std.mem.startsWith(u8, entry.name, "test_") and std.mem.endsWith(u8, entry.name, ".py")) {
+                const path = try std.fmt.allocPrint(allocator, "tests/cpython/{s}", .{entry.name});
+                try test_files.append(allocator, path);
+            }
+        }
+    } else |_| {}
+
+    if (test_files.items.len == 0) {
+        printWarn("No test files found", .{});
+        return;
+    }
+
+    printInfo("Found {d} test files, running in parallel...", .{test_files.items.len});
+
+    // Use metal0 Scheduler for parallel execution
+    const runtime = @import("runtime");
+    var scheduler = try runtime.Scheduler.init(allocator, 0); // 0 = auto-detect CPU count
+    try scheduler.start();
+    defer scheduler.deinit();
+
+    // Results tracking
+    var passed = std.atomic.Value(usize).init(0);
+    var failed = std.atomic.Value(usize).init(0);
+
+    // Context for each test file
+    const TestCtx = struct {
+        file_path: []const u8,
+        alloc: std.mem.Allocator,
+        passed: *std.atomic.Value(usize),
+        failed: *std.atomic.Value(usize),
+
+        fn run(ctx: *@This()) void {
+            // Compile and run test file
+            const opts = CompileOptions{ .input_file = ctx.file_path, .mode = "run", .force = true };
+            compile.compileFile(ctx.alloc, opts) catch {
+                _ = ctx.failed.fetchAdd(1, .monotonic);
+                return;
+            };
+            _ = ctx.passed.fetchAdd(1, .monotonic);
+        }
+    };
+
+    // Spawn all tests using metal0 async scheduler
+    for (test_files.items) |file_path| {
+        _ = try scheduler.spawn(TestCtx.run, .{
+            .file_path = file_path,
+            .alloc = allocator,
+            .passed = &passed,
+            .failed = &failed,
+        });
+    }
+
+    // Wait for all tests
+    scheduler.waitAll();
+
+    // Report results
+    const p = passed.load(.acquire);
+    const f = failed.load(.acquire);
+    std.debug.print("\n", .{});
+    if (f == 0) {
+        printSuccess("All {d} test files passed!", .{p});
+    } else {
+        printError("{d} passed, {d} failed", .{ p, f });
+    }
 }
 
 // Python-compatible commands (drop-in replacement for python3)

@@ -1022,6 +1022,53 @@ pub const NativeCodegen = struct {
         return null;
     }
 
+    /// Check if a class name inherits from unittest.TestCase (directly or indirectly)
+    /// This traverses the inheritance chain through imported modules and local classes
+    pub fn isTestCaseSubclass(self: *NativeCodegen, class_name: []const u8) bool {
+        // Direct check for unittest.TestCase
+        if (std.mem.eql(u8, class_name, "unittest.TestCase")) {
+            return true;
+        }
+
+        // Check if this is a known TestCase subclass from imported modules
+        // Common test base classes from CPython's test module
+        const known_test_bases = [_][]const u8{
+            "unittest.TestCase",
+            "list_tests.CommonTest",
+            "string_tests.CommonTest",
+            "string_tests.BaseTest",
+            "string_tests.MixinStrUnicodeUserStringTest",
+            "mapping_tests.BasicTestMappingProtocol",
+            "mapping_tests.TestHashMappingProtocol",
+            "seq_tests.CommonTest",
+            "support.TestCase",
+            "test.support.TestCase",
+        };
+
+        for (known_test_bases) |base| {
+            if (std.mem.eql(u8, class_name, base)) {
+                return true;
+            }
+        }
+
+        // Check class registry for local class definitions
+        if (self.class_registry.getClass(class_name)) |parent_class| {
+            if (parent_class.bases.len > 0) {
+                // Recursively check parent's base
+                return self.isTestCaseSubclass(parent_class.bases[0]);
+            }
+        }
+
+        // Check nested class definitions
+        if (self.nested_class_defs.get(class_name)) |parent_class| {
+            if (parent_class.bases.len > 0) {
+                return self.isTestCaseSubclass(parent_class.bases[0]);
+            }
+        }
+
+        return false;
+    }
+
     /// Get the class name from a variable's type
     /// Returns null if the variable is not an instance of a custom class
     fn getVarClassName(self: *NativeCodegen, expr: ast.Node) ?[]const u8 {
