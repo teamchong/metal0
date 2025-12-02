@@ -4,6 +4,16 @@ const ast = @import("ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 
+/// Special float string literals to Zig constants (O(1) lookup)
+const SpecialFloatLiterals = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "nan", "std.math.nan(f64)" },
+    .{ "-nan", "-std.math.nan(f64)" },
+    .{ "inf", "std.math.inf(f64)" },
+    .{ "infinity", "std.math.inf(f64)" },
+    .{ "-inf", "-std.math.inf(f64)" },
+    .{ "-infinity", "-std.math.inf(f64)" },
+});
+
 /// Generate code for float(obj)
 /// Converts to f64
 pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -40,32 +50,20 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Parse string to float
     if (arg_type == .string) {
         // Check for special float literals that can be used at module level without try
-        if (args[0] == .constant) {
-            if (args[0].constant.value == .string) {
-                const str_val = args[0].constant.value.string;
-                // Handle special float values that can be expressed as comptime constants
-                if (std.mem.eql(u8, str_val, "nan")) {
-                    try self.emit("std.math.nan(f64)");
-                    return;
-                } else if (std.mem.eql(u8, str_val, "-nan")) {
-                    try self.emit("-std.math.nan(f64)");
-                    return;
-                } else if (std.mem.eql(u8, str_val, "inf") or std.mem.eql(u8, str_val, "infinity")) {
-                    try self.emit("std.math.inf(f64)");
-                    return;
-                } else if (std.mem.eql(u8, str_val, "-inf") or std.mem.eql(u8, str_val, "-infinity")) {
-                    try self.emit("-std.math.inf(f64)");
-                    return;
-                }
-                // Try to parse as a numeric literal at comptime
-                if (std.fmt.parseFloat(f64, str_val)) |_| {
-                    // Valid numeric string - emit as literal
-                    try self.emit("@as(f64, ");
-                    try self.emit(str_val);
-                    try self.emit(")");
-                    return;
-                } else |_| {}
+        if (args[0] == .constant and args[0].constant.value == .string) {
+            const str_val = args[0].constant.value.string;
+            // Handle special float values via StaticStringMap (O(1) lookup)
+            if (SpecialFloatLiterals.get(str_val)) |zig_const| {
+                try self.emit(zig_const);
+                return;
             }
+            // Try to parse as a numeric literal at comptime
+            if (std.fmt.parseFloat(f64, str_val)) |_| {
+                try self.emit("@as(f64, ");
+                try self.emit(str_val);
+                try self.emit(")");
+                return;
+            } else |_| {}
         }
         // For non-literal strings, use runtime.parseFloatWithUnicode (handles Unicode digits)
         try self.emit("(runtime.parseFloatWithUnicode(");

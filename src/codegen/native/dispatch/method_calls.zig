@@ -10,6 +10,17 @@ const io_mod = @import("../io.zig");
 const pandas_mod = @import("../pandas.zig");
 const unittest_mod = @import("../unittest/mod.zig");
 
+/// Builtin types that support __new__ with value extraction
+const BuiltinNewTypes = std.StaticStringMap(void).initComptime(.{
+    .{ "str", {} }, .{ "int", {} }, .{ "float", {} }, .{ "bool", {} },
+});
+
+/// Default values for builtin types in __new__ without args
+const BuiltinTypeDefaults = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "bool", "false" }, .{ "int", "@as(i64, 0)" },
+    .{ "float", "@as(f64, 0.0)" }, .{ "str", "\"\"" },
+});
+
 // Handler type for standard methods (obj, args)
 const MethodHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
 
@@ -253,12 +264,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             const parent_name = if (obj == .name) obj.name.id else if (obj == .attribute) obj.attribute.attr else "";
 
             // For builtin types (str, int, float, bool), __new__ creates an instance with a value
-            // e.g., float.__new__(cls, 2*value) should return 2*value as the base value
-            const is_builtin_new = std.mem.eql(u8, method_name, "__new__") and
-                (std.mem.eql(u8, parent_name, "str") or
-                std.mem.eql(u8, parent_name, "int") or
-                std.mem.eql(u8, parent_name, "float") or
-                std.mem.eql(u8, parent_name, "bool"));
+            const is_builtin_new = std.mem.eql(u8, method_name, "__new__") and BuiltinNewTypes.has(parent_name);
 
             if (is_builtin_new) {
                 if (call.args.len >= 2) {
@@ -274,18 +280,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
                     return true;
                 } else {
                     // No value argument - return default for the type
-                    // bool.__new__(bool) -> false, int.__new__(int) -> 0, etc.
-                    if (std.mem.eql(u8, parent_name, "bool")) {
-                        try self.emit("false");
-                    } else if (std.mem.eql(u8, parent_name, "int")) {
-                        try self.emit("@as(i64, 0)");
-                    } else if (std.mem.eql(u8, parent_name, "float")) {
-                        try self.emit("@as(f64, 0.0)");
-                    } else if (std.mem.eql(u8, parent_name, "str")) {
-                        try self.emit("\"\"");
-                    } else {
-                        try self.emit("{}");
-                    }
+                    try self.emit(BuiltinTypeDefaults.get(parent_name) orelse "{}");
                     return true;
                 }
             }
