@@ -162,7 +162,7 @@ pub fn genSignature(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("return_annotation: ?[]const u8 = null,\n");
     try self.emitIndent();
-    try self.emit("pub fn bind(self: @This(), args: anytype) @This() { _ = self; _ = args; return @This(){}; }\n");
+    try self.emit("pub fn bind(self: @This(), args: anytype) @This() { _ = args; return @This(){}; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");

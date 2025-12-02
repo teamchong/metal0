@@ -59,11 +59,11 @@ pub fn genDircmp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("subdirs: hashmap_helper.StringHashMap(*@This()) = .{},\n");
     try self.emitIndent();
-    try self.emit("pub fn report(self: *@This()) void { _ = self; }\n");
+    try self.emit("pub fn report(__self: *@This()) void { }\n");
     try self.emitIndent();
-    try self.emit("pub fn report_partial_closure(self: *@This()) void { _ = self; }\n");
+    try self.emit("pub fn report_partial_closure(__self: *@This()) void { }\n");
     try self.emitIndent();
-    try self.emit("pub fn report_full_closure(self: *@This()) void { _ = self; }\n");
+    try self.emit("pub fn report_full_closure(__self: *@This()) void { }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");

@@ -132,17 +132,17 @@ pub fn genCapwords(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate string.Formatter class (placeholder)
 pub fn genFormatter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("struct { format: []const u8 = \"\", pub fn vformat(self: @This(), s: []const u8, _: anytype, _: anytype) []const u8 { _ = self; return s; } }{}");
+    try self.emit("struct { format: []const u8 = \"\", pub fn vformat(self: @This(), s: []const u8, _: anytype, _: anytype) []const u8 { return s; } }{}");
 }
 
 /// Generate string.Template class (placeholder)
 pub fn genTemplate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("struct { template: []const u8 = \"\", pub fn substitute(self: @This(), _: anytype) []const u8 { return self.template; } pub fn safe_substitute(self: @This(), _: anytype) []const u8 { return self.template; } }{}");
+        try self.emit("struct { template: []const u8 = \"\", pub fn substitute(self: @This(), _: anytype) []const u8 { return __self.template; } pub fn safe_substitute(self: @This(), _: anytype) []const u8 { return __self.template; } }{}");
         return;
     }
 
-    try self.emit("struct { template: []const u8, pub fn substitute(self: @This(), _: anytype) []const u8 { return self.template; } pub fn safe_substitute(self: @This(), _: anytype) []const u8 { return self.template; } }{ .template = ");
+    try self.emit("struct { template: []const u8, pub fn substitute(self: @This(), _: anytype) []const u8 { return __self.template; } pub fn safe_substitute(self: @This(), _: anytype) []const u8 { return __self.template; } }{ .template = ");
     try self.genExpr(args[0]);
     try self.emit(" }");
 }

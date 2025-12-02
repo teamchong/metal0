@@ -44,7 +44,7 @@ fn emitFractionStruct(self: *NativeCodegen) CodegenError!void {
     try self.emit("pub fn add(self: @This(), other: @This()) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return @This().init(self.numerator * other.denominator + other.numerator * self.denominator, self.denominator * other.denominator);\n");
+    try self.emit("return @This().init(__self.numerator * other.denominator + other.numerator * __self.denominator, __self.denominator * other.denominator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -52,7 +52,7 @@ fn emitFractionStruct(self: *NativeCodegen) CodegenError!void {
     try self.emit("pub fn sub(self: @This(), other: @This()) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return @This().init(self.numerator * other.denominator - other.numerator * self.denominator, self.denominator * other.denominator);\n");
+    try self.emit("return @This().init(__self.numerator * other.denominator - other.numerator * __self.denominator, __self.denominator * other.denominator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -60,7 +60,7 @@ fn emitFractionStruct(self: *NativeCodegen) CodegenError!void {
     try self.emit("pub fn mul(self: @This(), other: @This()) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return @This().init(self.numerator * other.numerator, self.denominator * other.denominator);\n");
+    try self.emit("return @This().init(__self.numerator * other.numerator, __self.denominator * other.denominator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -68,7 +68,7 @@ fn emitFractionStruct(self: *NativeCodegen) CodegenError!void {
     try self.emit("pub fn div(self: @This(), other: @This()) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return @This().init(self.numerator * other.denominator, self.denominator * other.numerator);\n");
+    try self.emit("return @This().init(__self.numerator * other.denominator, __self.denominator * other.numerator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -76,9 +76,9 @@ fn emitFractionStruct(self: *NativeCodegen) CodegenError!void {
     try self.emit("pub fn limit_denominator(self: @This(), max_denominator: i64) @This() {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("if (self.denominator <= max_denominator) return self;\n");
+    try self.emit("if (__self.denominator <= max_denominator) return self;\n");
     try self.emitIndent();
-    try self.emit("return @This().init(@divTrunc(self.numerator * max_denominator, self.denominator), max_denominator);\n");
+    try self.emit("return @This().init(@divTrunc(__self.numerator * max_denominator, __self.denominator), max_denominator);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -86,7 +86,7 @@ fn emitFractionStruct(self: *NativeCodegen) CodegenError!void {
     try self.emit("pub fn toFloat(self: @This()) f64 {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("return @as(f64, @floatFromInt(self.numerator)) / @as(f64, @floatFromInt(self.denominator));\n");
+    try self.emit("return @as(f64, @floatFromInt(__self.numerator)) / @as(f64, @floatFromInt(__self.denominator));\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

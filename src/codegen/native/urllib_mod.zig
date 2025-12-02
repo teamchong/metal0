@@ -102,7 +102,7 @@ pub fn genUrlparse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("fragment: []const u8,\n");
     try self.emitIndent();
-    try self.emit("pub fn geturl(self: *@This()) []const u8 {\n");
+    try self.emit("pub fn geturl(__self: *@This()) []const u8 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = self;\n");

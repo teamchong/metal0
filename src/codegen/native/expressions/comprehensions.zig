@@ -263,7 +263,13 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                 for (elements, 0..) |elt, idx| {
                     try self.emitIndent();
                     if (elt == .name) {
-                        try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ elt.name.id, gen_idx, idx });
+                        const var_name = elt.name.id;
+                        // Handle underscore discard pattern
+                        if (std.mem.eql(u8, var_name, "_")) {
+                            try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ gen_idx, idx });
+                        } else {
+                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ var_name, gen_idx, idx });
+                        }
                     }
                 }
             } else {
@@ -440,7 +446,13 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                 for (elements, 0..) |elt, idx| {
                     try self.emitIndent();
                     if (elt == .name) {
-                        try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ elt.name.id, gen_idx, idx });
+                        const var_name = elt.name.id;
+                        // Handle underscore discard pattern
+                        if (std.mem.eql(u8, var_name, "_")) {
+                            try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ gen_idx, idx });
+                        } else {
+                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ var_name, gen_idx, idx });
+                        }
                     }
                 }
             } else {
@@ -616,7 +628,13 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
                 for (elements, 0..) |elt, idx| {
                     try self.emitIndent();
                     if (elt == .name) {
-                        try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ elt.name.id, gen_idx, idx });
+                        const var_name = elt.name.id;
+                        // Handle underscore discard pattern
+                        if (std.mem.eql(u8, var_name, "_")) {
+                            try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ gen_idx, idx });
+                        } else {
+                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}__.@\"{d}\";\n", .{ var_name, gen_idx, idx });
+                        }
                     }
                 }
             } else {

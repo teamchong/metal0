@@ -227,7 +227,7 @@ pub fn genSystemRandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("struct {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("pub fn random(self: *@This()) f64 {\n");
+    try self.emit("pub fn random(__self: *@This()) f64 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = self;\n");

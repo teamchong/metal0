@@ -588,7 +588,7 @@ pub fn genAttrgetter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("attr: []const u8 = \"\",\n");
     try self.emitIndent();
-    try self.emit("pub fn __call__(self: @This(), obj: anytype) []const u8 { _ = self; _ = obj; return \"\"; }\n");
+    try self.emit("pub fn __call__(self: @This(), obj: anytype) []const u8 { _ = obj; return \"\"; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");
@@ -602,7 +602,7 @@ pub fn genItemgetter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("item: i64 = 0,\n");
     try self.emitIndent();
-    try self.emit("pub fn __call__(self: @This(), obj: anytype) @TypeOf(obj[0]) { return obj[@intCast(self.item)]; }\n");
+    try self.emit("pub fn __call__(self: @This(), obj: anytype) @TypeOf(obj[0]) { return obj[@intCast(__self.item)]; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");
@@ -616,7 +616,7 @@ pub fn genMethodcaller(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("name: []const u8 = \"\",\n");
     try self.emitIndent();
-    try self.emit("pub fn __call__(self: @This(), obj: anytype) void { _ = self; _ = obj; }\n");
+    try self.emit("pub fn __call__(self: @This(), obj: anytype) void { _ = obj; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");

@@ -162,9 +162,13 @@ pub fn isZigKeyword(name: []const u8) bool {
 }
 
 /// Escape identifier if it's a Zig keyword
-/// Returns @"name" for keywords, name otherwise
+/// Returns @"name" for keywords or bare underscore, name otherwise
 /// Caller must free returned slice if it was allocated
 pub fn escapeIfKeyword(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
+    if (name.len == 1 and name[0] == '_') {
+        return "@\"_\"";
+    }
     if (!isZigKeyword(name)) {
         return name;
     }
@@ -176,7 +180,10 @@ pub fn escapeIfKeyword(allocator: std.mem.Allocator, name: []const u8) ![]const 
 /// Write escaped identifier to writer
 /// This avoids allocation by writing directly
 pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
-    if (isZigKeyword(name)) {
+    // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
+    if (name.len == 1 and name[0] == '_') {
+        try writer.writeAll("@\"_\"");
+    } else if (isZigKeyword(name)) {
         try writer.print("@\"{s}\"", .{name});
     } else {
         try writer.writeAll(name);
@@ -186,7 +193,10 @@ pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
 /// Write local variable name, renaming if it would shadow a method
 /// Use this for local variable declarations and usages, NOT for method/field names
 pub fn writeLocalVarName(writer: anytype, name: []const u8) !void {
-    if (isZigKeyword(name)) {
+    // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
+    if (name.len == 1 and name[0] == '_') {
+        try writer.writeAll("@\"_\"");
+    } else if (isZigKeyword(name)) {
         try writer.print("@\"{s}\"", .{name});
     } else if (wouldShadowMethod(name)) {
         // Rename to avoid shadowing method names in struct scope

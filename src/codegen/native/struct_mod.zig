@@ -464,7 +464,7 @@ pub fn genIterUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("_ = _data;\n");
     try self.emitIndent();
     // Returns a simple iterator struct
-    try self.emit("break :struct_iter_unpack_blk struct { items: []const u8, pos: usize = 0, pub fn next(self: *@This()) ?i32 { if (self.pos + 4 <= self.items.len) { const val = std.mem.bytesToValue(i32, self.items[self.pos..][0..4]); self.pos += 4; return val; } return null; } }{ .items = _data };\n");
+    try self.emit("break :struct_iter_unpack_blk struct { items: []const u8, pos: usize = 0, pub fn next(__self: *@This()) ?i32 { if (__self.pos + 4 <= __self.items.len) { const val = std.mem.bytesToValue(i32, __self.items[__self.pos..][0..4]); __self.pos += 4; return val; } return null; } }{ .items = _data };\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

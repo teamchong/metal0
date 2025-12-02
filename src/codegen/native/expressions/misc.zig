@@ -8,6 +8,23 @@ const zig_keywords = @import("zig_keywords");
 const expressions_mod = @import("../expressions.zig");
 const producesBlockExpression = expressions_mod.producesBlockExpression;
 
+const FloatClassMethods = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "fromhex", "runtime.floatFromHex" },
+    .{ "hex", "runtime.floatToHex" },
+    .{ "__getformat__", "runtime.floatGetFormat" },
+});
+
+const NumpyArrayProps = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "shape", ")).shape" },
+    .{ "size", ")).size" },
+    .{ "ndim", ")).shape.len" },
+    .{ "data", ")).data" },
+});
+
+const PathProperties = std.StaticStringMap(void).initComptime(.{
+    .{ "parent", {} }, .{ "stem", {} }, .{ "suffix", {} }, .{ "name", {} },
+});
+
 /// Generate tuple literal as Zig anonymous struct
 /// Always uses anonymous tuple syntax (.{ elem1, elem2 }) for type compatibility
 /// This matches the type inference which generates struct types for tuples
@@ -137,18 +154,8 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
 
         if (std.mem.eql(u8, module_name, "float")) {
-            if (std.mem.eql(u8, attr_name, "fromhex")) {
-                try self.emit("runtime.floatFromHex");
-                return;
-            }
-            if (std.mem.eql(u8, attr_name, "hex")) {
-                try self.emit("runtime.floatToHex");
-                return;
-            }
-            if (std.mem.eql(u8, attr_name, "__getformat__")) {
-                // float.__getformat__(typestr) -> returns IEEE format string
-                // Since Zig uses IEEE 754 on modern platforms, return the appropriate string
-                try self.emit("runtime.floatGetFormat");
+            if (FloatClassMethods.get(attr_name)) |runtime_func| {
+                try self.emit(runtime_func);
                 return;
             }
         }
@@ -216,48 +223,27 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     // Check if this is a numpy array property access
     if (value_type == .numpy_array) {
         // NumPy array properties: .shape, .size, .T, .ndim, .dtype
-        if (std.mem.eql(u8, attr.attr, "shape")) {
-            // arr.shape -> extract array and get shape
+        if (NumpyArrayProps.get(attr.attr)) |suffix| {
             try self.emit("(try runtime.numpy_array.extractArray(");
             try genExpr(self, attr.value.*);
-            try self.emit(")).shape");
-            return;
-        } else if (std.mem.eql(u8, attr.attr, "size")) {
-            try self.emit("(try runtime.numpy_array.extractArray(");
-            try genExpr(self, attr.value.*);
-            try self.emit(")).size");
-            return;
-        } else if (std.mem.eql(u8, attr.attr, "ndim")) {
-            try self.emit("(try runtime.numpy_array.extractArray(");
-            try genExpr(self, attr.value.*);
-            try self.emit(")).shape.len");
+            try self.emit(suffix);
             return;
         } else if (std.mem.eql(u8, attr.attr, "T")) {
-            // Transpose: arr.T
             try self.emit("try numpy.transpose(");
             try genExpr(self, attr.value.*);
             try self.emit(", allocator)");
-            return;
-        } else if (std.mem.eql(u8, attr.attr, "data")) {
-            try self.emit("(try runtime.numpy_array.extractArray(");
-            try genExpr(self, attr.value.*);
-            try self.emit(")).data");
             return;
         }
     }
 
     // Check if this is a Path property access using type inference
     if (value_type == .path) {
-        // Path properties that need to be called as methods in Zig
-        const path_properties = [_][]const u8{ "parent", "stem", "suffix", "name" };
-        for (path_properties) |prop| {
-            if (std.mem.eql(u8, attr.attr, prop)) {
-                try genExpr(self, attr.value.*);
-                try self.emit(".");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-                try self.emit("()"); // Call as method in Zig
-                return;
-            }
+        if (PathProperties.has(attr.attr)) {
+            try genExpr(self, attr.value.*);
+            try self.emit(".");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+            try self.emit("()"); // Call as method in Zig
+            return;
         }
     }
 

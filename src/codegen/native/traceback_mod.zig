@@ -139,9 +139,9 @@ pub fn genTracebackException(self: *NativeCodegen, args: []ast.Node) CodegenErro
     try self.emitIndent();
     try self.emit("context: ?*@This() = null,\n");
     try self.emitIndent();
-    try self.emit("pub fn format(self: *@This()) [][]const u8 { _ = self; return &[_][]const u8{}; }\n");
+    try self.emit("pub fn format(__self: *@This()) [][]const u8 { return &[_][]const u8{}; }\n");
     try self.emitIndent();
-    try self.emit("pub fn format_exception_only(self: *@This()) [][]const u8 { _ = self; return &[_][]const u8{}; }\n");
+    try self.emit("pub fn format_exception_only(__self: *@This()) [][]const u8 { return &[_][]const u8{}; }\n");
     try self.emitIndent();
     try self.emit("pub fn from_exception(exc: anytype) @This() { _ = exc; return @This(){}; }\n");
     self.dedent();
@@ -161,7 +161,7 @@ pub fn genStackSummary(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("pub fn from_list(frames: anytype) @This() { _ = frames; return @This(){}; }\n");
     try self.emitIndent();
-    try self.emit("pub fn format(self: *@This()) [][]const u8 { _ = self; return &[_][]const u8{}; }\n");
+    try self.emit("pub fn format(__self: *@This()) [][]const u8 { return &[_][]const u8{}; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");

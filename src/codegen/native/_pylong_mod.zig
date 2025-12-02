@@ -35,11 +35,11 @@ pub fn genSpread(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("(struct {\n");
     try self.emit("    data: std.AutoHashMap(i64, i64) = .{},\n");
     try self.emit("    pub fn copy(self: @This()) @This() { return self; }\n");
-    try self.emit("    pub fn clear(self: *@This()) void { self.data.clearRetainingCapacity(); }\n");
-    try self.emit("    pub fn clearRetainingCapacity(self: *@This()) void { self.data.clearRetainingCapacity(); }\n");
-    try self.emit("    pub fn update(self: *@This(), other: @This()) void { _ = self; _ = other; }\n");
+    try self.emit("    pub fn clear(__self: *@This()) void { __self.data.clearRetainingCapacity(); }\n");
+    try self.emit("    pub fn clearRetainingCapacity(__self: *@This()) void { __self.data.clearRetainingCapacity(); }\n");
+    try self.emit("    pub fn update(self: *@This(), other: @This()) void { _ = other; }\n");
     try self.emit("    pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() { _ = allocator; return self; }\n");
-    try self.emit("    pub fn contains(self: @This(), key: i64) bool { return self.data.contains(key); }\n");
+    try self.emit("    pub fn contains(self: @This(), key: i64) bool { return __self.data.contains(key); }\n");
     try self.emit("}{})");
 }
 
