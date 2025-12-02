@@ -8,7 +8,7 @@ const NativeCodegen = h.NativeCodegen;
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "token_bytes", genTokenBytes }, .{ "token_hex", genTokenHex }, .{ "token_urlsafe", genTokenUrlsafe },
     .{ "randbelow", genRandbelow }, .{ "choice", genChoice }, .{ "randbits", genRandbits },
-    .{ "compare_digest", genCompareDigest },
+    .{ "compare_digest", h.compareDigest() },
     .{ "SystemRandom", h.c("struct { pub fn random(__self: *@This()) f64 { _ = __self; const bits = std.crypto.random.int(u53); return @as(f64, @floatFromInt(bits)) / @as(f64, @floatFromInt(@as(u53, 1) << 53)); } pub fn randint(__self: *@This(), a: i64, b: i64) i64 { _ = __self; return @as(i64, @intCast(std.crypto.random.intRangeAtMost(i64, a, b))); } }{}") },
     .{ "DEFAULT_ENTROPY", h.I64(32) },
 });
@@ -50,9 +50,4 @@ fn genRandbits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
     try self.emit("blk: { const _k: u6 = @intCast("); try self.genExpr(args[0]);
     try self.emit("); if (_k == 0) break :blk @as(i64, 0); const _mask: u64 = (@as(u64, 1) << _k) - 1; break :blk @as(i64, @intCast(std.crypto.random.int(u64) & _mask)); }");
-}
-fn genCompareDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-    try self.emit("blk: { const __cmp_left = "); try self.genExpr(args[0]); try self.emit("; const __cmp_right = "); try self.genExpr(args[1]);
-    try self.emit("; if (__cmp_left.len != __cmp_right.len) break :blk false; var __cmp_result: u8 = 0; for (__cmp_left, __cmp_right) |__cmp_ca, __cmp_cb| __cmp_result |= __cmp_ca ^ __cmp_cb; break :blk __cmp_result == 0; }");
 }
