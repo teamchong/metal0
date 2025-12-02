@@ -1,29 +1,22 @@
 /// Python nt module - Windows NT system calls
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "getcwd", genConst("\".\"") }, .{ "getcwdb", genConst("\".\"") }, .{ "chdir", genConst("{}") }, .{ "listdir", genConst("&[_][]const u8{}") },
-    .{ "mkdir", genConst("{}") }, .{ "rmdir", genConst("{}") }, .{ "remove", genConst("{}") }, .{ "unlink", genConst("{}") },
-    .{ "rename", genConst("{}") }, .{ "stat", genConst(".{ .st_mode = 0, .st_size = 0, .st_mtime = 0 }") },
-    .{ "lstat", genConst(".{ .st_mode = 0, .st_size = 0, .st_mtime = 0 }") }, .{ "fstat", genConst(".{ .st_mode = 0, .st_size = 0, .st_mtime = 0 }") },
-    .{ "open", genConst("-1") }, .{ "close", genConst("{}") }, .{ "read", genConst("\"\"") }, .{ "write", genConst("0") },
-    .{ "getpid", genConst("0") }, .{ "getppid", genConst("0") }, .{ "getlogin", genConst("\"\"") }, .{ "environ", genConst(".{}") },
-    .{ "getenv", genConst("null") }, .{ "putenv", genConst("{}") }, .{ "unsetenv", genConst("{}") }, .{ "access", genConst("false") },
-    .{ "f__o_k", genConst("0") }, .{ "r__o_k", genConst("4") }, .{ "w__o_k", genConst("2") }, .{ "x__o_k", genConst("1") },
-    .{ "o__r_d_o_n_l_y", genConst("0") }, .{ "o__w_r_o_n_l_y", genConst("1") }, .{ "o__r_d_w_r", genConst("2") },
-    .{ "o__a_p_p_e_n_d", genConst("8") }, .{ "o__c_r_e_a_t", genConst("0x100") }, .{ "o__t_r_u_n_c", genConst("0x200") },
-    .{ "o__e_x_c_l", genConst("0x400") }, .{ "o__b_i_n_a_r_y", genConst("0x8000") }, .{ "o__t_e_x_t", genConst("0x4000") },
-    .{ "sep", genConst("\"\\\\\"") }, .{ "altsep", genConst("\"/\"") }, .{ "extsep", genConst("\".\"") }, .{ "pathsep", genConst("\";\"") },
-    .{ "linesep", genConst("\"\\r\\n\"") }, .{ "devnull", genConst("\"nul\"") }, .{ "name", genConst("\"nt\"") },
-    .{ "curdir", genConst("\".\"") }, .{ "pardir", genConst("\"..\"") }, .{ "defpath", genConst("\".;C:\\\\bin\"") },
-    .{ "cpu_count", genConst("1") }, .{ "urandom", genConst("\"\"") }, .{ "strerror", genConst("\"\"") },
-    .{ "device_encoding", genConst("null") }, .{ "error", genConst("error.OSError") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "getcwd", h.c("\".\"") }, .{ "getcwdb", h.c("\".\"") }, .{ "chdir", h.c("{}") }, .{ "listdir", h.c("&[_][]const u8{}") },
+    .{ "mkdir", h.c("{}") }, .{ "rmdir", h.c("{}") }, .{ "remove", h.c("{}") }, .{ "unlink", h.c("{}") },
+    .{ "rename", h.c("{}") }, .{ "stat", h.c(".{ .st_mode = 0, .st_size = 0, .st_mtime = 0 }") },
+    .{ "lstat", h.c(".{ .st_mode = 0, .st_size = 0, .st_mtime = 0 }") }, .{ "fstat", h.c(".{ .st_mode = 0, .st_size = 0, .st_mtime = 0 }") },
+    .{ "open", h.c("-1") }, .{ "close", h.c("{}") }, .{ "read", h.c("\"\"") }, .{ "write", h.c("0") },
+    .{ "getpid", h.c("0") }, .{ "getppid", h.c("0") }, .{ "getlogin", h.c("\"\"") }, .{ "environ", h.c(".{}") },
+    .{ "getenv", h.c("null") }, .{ "putenv", h.c("{}") }, .{ "unsetenv", h.c("{}") }, .{ "access", h.c("false") },
+    .{ "f__o_k", h.c("0") }, .{ "r__o_k", h.c("4") }, .{ "w__o_k", h.c("2") }, .{ "x__o_k", h.c("1") },
+    .{ "o__r_d_o_n_l_y", h.c("0") }, .{ "o__w_r_o_n_l_y", h.c("1") }, .{ "o__r_d_w_r", h.c("2") },
+    .{ "o__a_p_p_e_n_d", h.c("8") }, .{ "o__c_r_e_a_t", h.c("0x100") }, .{ "o__t_r_u_n_c", h.c("0x200") },
+    .{ "o__e_x_c_l", h.c("0x400") }, .{ "o__b_i_n_a_r_y", h.c("0x8000") }, .{ "o__t_e_x_t", h.c("0x4000") },
+    .{ "sep", h.c("\"\\\\\"") }, .{ "altsep", h.c("\"/\"") }, .{ "extsep", h.c("\".\"") }, .{ "pathsep", h.c("\";\"") },
+    .{ "linesep", h.c("\"\\r\\n\"") }, .{ "devnull", h.c("\"nul\"") }, .{ "name", h.c("\"nt\"") },
+    .{ "curdir", h.c("\".\"") }, .{ "pardir", h.c("\"..\"") }, .{ "defpath", h.c("\".;C:\\\\bin\"") },
+    .{ "cpu_count", h.c("1") }, .{ "urandom", h.c("\"\"") }, .{ "strerror", h.c("\"\"") },
+    .{ "device_encoding", h.c("null") }, .{ "error", h.err("OSError") },
 });

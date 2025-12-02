@@ -1,20 +1,17 @@
 /// Python ntpath module - Windows pathname functions
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-fn genPathOp(comptime body: []const u8, comptime default: []const u8) ModuleHandler {
+fn genPathOp(comptime body: []const u8, comptime default: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; " ++ body ++ " }"); } else try self.emit(default);
     } }.f;
 }
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "abspath", genPathOp("var buf: [4096]u8 = undefined; break :blk std.fs.cwd().realpath(path, &buf) catch path;", "\"\"") },
     .{ "basename", genPathOp("break :blk std.fs.path.basename(path);", "\"\"") },
     .{ "dirname", genPathOp("break :blk std.fs.path.dirname(path) orelse \"\";", "\"\"") },
@@ -29,12 +26,12 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "normcase", genPathOp("var result = metal0_allocator.alloc(u8, path.len) catch break :blk path; for (path, 0..) |c, i| { result[i] = if (c >= 'A' and c <= 'Z') c + 32 else if (c == '/') '\\\\' else c; } break :blk result;", "\"\"") },
     .{ "normpath", genPassthrough }, .{ "realpath", genPathOp("var buf: [4096]u8 = undefined; break :blk std.fs.cwd().realpath(path, &buf) catch path;", "\"\"") },
     .{ "relpath", genPassthrough }, .{ "samefile", genSamefile }, .{ "split", genSplit }, .{ "splitdrive", genSplitdrive }, .{ "splitext", genSplitext },
-    .{ "commonpath", genConst("\"\"") }, .{ "commonprefix", genConst("\"\"") },
-    .{ "getatime", genConst("@as(f64, 0.0)") }, .{ "getctime", genConst("@as(f64, 0.0)") }, .{ "getmtime", genConst("@as(f64, 0.0)") },
-    .{ "ismount", genConst("false") }, .{ "sameopenfile", genConst("false") }, .{ "samestat", genConst("false") },
-    .{ "sep", genConst("\"\\\\\"") }, .{ "altsep", genConst("\"/\"") }, .{ "extsep", genConst("\".\"") },
-    .{ "pathsep", genConst("\";\"") }, .{ "defpath", genConst("\".;C:\\\\bin\"") }, .{ "devnull", genConst("\"nul\"") },
-    .{ "curdir", genConst("\".\"") }, .{ "pardir", genConst("\"..\"") },
+    .{ "commonpath", h.c("\"\"") }, .{ "commonprefix", h.c("\"\"") },
+    .{ "getatime", h.F64(0.0) }, .{ "getctime", h.F64(0.0) }, .{ "getmtime", h.F64(0.0) },
+    .{ "ismount", h.c("false") }, .{ "sameopenfile", h.c("false") }, .{ "samestat", h.c("false") },
+    .{ "sep", h.c("\"\\\\\"") }, .{ "altsep", h.c("\"/\"") }, .{ "extsep", h.c("\".\"") },
+    .{ "pathsep", h.c("\";\"") }, .{ "defpath", h.c("\".;C:\\\\bin\"") }, .{ "devnull", h.c("\"nul\"") },
+    .{ "curdir", h.c("\".\"") }, .{ "pardir", h.c("\"..\"") },
 });
 
 fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\""); }

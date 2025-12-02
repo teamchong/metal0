@@ -1,36 +1,32 @@
 /// Python math module - Mathematical functions
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-
 // Comptime generators
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-fn genBuiltin(comptime b: []const u8, comptime d: []const u8) ModuleHandler {
+fn genBuiltin(comptime b: []const u8, comptime d: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit(b ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
     } }.f;
 }
-fn genStdMath(comptime fn_name: []const u8, comptime d: []const u8) ModuleHandler {
+fn genStdMath(comptime fn_name: []const u8, comptime d: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit("std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
     } }.f;
 }
-fn genStdMathType(comptime fn_name: []const u8, comptime d: []const u8) ModuleHandler {
+fn genStdMathType(comptime fn_name: []const u8, comptime d: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit("std.math." ++ fn_name ++ "(f64, @as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
     } }.f;
 }
-fn genStdMathBinary(comptime fn_name: []const u8, comptime d: []const u8) ModuleHandler {
+fn genStdMathBinary(comptime fn_name: []const u8, comptime d: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len >= 2) { try self.emit("std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("), @as(f64, "); try self.genExpr(args[1]); try self.emit("))"); } else try self.emit(d);
     } }.f;
 }
-fn genRounding(comptime b: []const u8) ModuleHandler {
+fn genRounding(comptime b: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) {
             const t = self.type_inferrer.inferExpr(args[0]) catch .unknown;
@@ -41,10 +37,10 @@ fn genRounding(comptime b: []const u8) ModuleHandler {
     } }.f;
 }
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Constants
-    .{ "pi", genConst("@as(f64, 3.141592653589793)") }, .{ "e", genConst("@as(f64, 2.718281828459045)") },
-    .{ "tau", genConst("@as(f64, 6.283185307179586)") }, .{ "inf", genConst("std.math.inf(f64)") }, .{ "nan", genConst("std.math.nan(f64)") },
+    .{ "pi", h.F64(3.141592653589793) }, .{ "e", h.F64(2.718281828459045) },
+    .{ "tau", h.F64(6.283185307179586) }, .{ "inf", h.c("std.math.inf(f64)") }, .{ "nan", h.c("std.math.nan(f64)") },
     // Rounding
     .{ "ceil", genRounding("@ceil") }, .{ "floor", genRounding("@floor") }, .{ "trunc", genRounding("@trunc") }, .{ "fabs", genFabs },
     // Number-theoretic

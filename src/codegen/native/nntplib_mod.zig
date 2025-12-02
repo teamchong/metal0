@@ -1,23 +1,19 @@
 /// Python nntplib module - NNTP protocol client
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "NNTP", genConst(".{ .host = \"\", .port = @as(i32, 119), .timeout = @as(f64, -1.0) }") },
-    .{ "NNTP_SSL", genConst(".{ .host = \"\", .port = @as(i32, 563), .timeout = @as(f64, -1.0) }") },
-    .{ "NNTP_PORT", genConst("@as(i32, 119)") }, .{ "NNTP_SSL_PORT", genConst("@as(i32, 563)") },
-    .{ "NNTPError", genConst("error.NNTPError") }, .{ "NNTPReplyError", genConst("error.NNTPReplyError") },
-    .{ "NNTPTemporaryError", genConst("error.NNTPTemporaryError") }, .{ "NNTPPermanentError", genConst("error.NNTPPermanentError") },
-    .{ "NNTPProtocolError", genConst("error.NNTPProtocolError") }, .{ "NNTPDataError", genConst("error.NNTPDataError") },
-    .{ "GroupInfo", genConst(".{ .group = \"\", .last = @as(i32, 0), .first = @as(i32, 0), .flag = \"\" }") },
-    .{ "ArticleInfo", genConst(".{ .number = @as(i32, 0), .message_id = \"\", .lines = &[_][]const u8{} }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "NNTP", h.c(".{ .host = \"\", .port = @as(i32, 119), .timeout = @as(f64, -1.0) }") },
+    .{ "NNTP_SSL", h.c(".{ .host = \"\", .port = @as(i32, 563), .timeout = @as(f64, -1.0) }") },
+    .{ "NNTP_PORT", h.I32(119) }, .{ "NNTP_SSL_PORT", h.I32(563) },
+    .{ "NNTPError", h.err("NNTPError") }, .{ "NNTPReplyError", h.err("NNTPReplyError") },
+    .{ "NNTPTemporaryError", h.err("NNTPTemporaryError") }, .{ "NNTPPermanentError", h.err("NNTPPermanentError") },
+    .{ "NNTPProtocolError", h.err("NNTPProtocolError") }, .{ "NNTPDataError", h.err("NNTPDataError") },
+    .{ "GroupInfo", h.c(".{ .group = \"\", .last = @as(i32, 0), .first = @as(i32, 0), .flag = \"\" }") },
+    .{ "ArticleInfo", h.c(".{ .number = @as(i32, 0), .message_id = \"\", .lines = &[_][]const u8{} }") },
     .{ "decode_header", genDecodeHeader },
 });
 

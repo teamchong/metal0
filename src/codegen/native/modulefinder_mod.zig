@@ -1,26 +1,22 @@
 /// Python modulefinder module - Find modules used by a script
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "ModuleFinder", genConst(".{ .modules = .{}, .badmodules = .{}, .debug = 0, .indent = 0, .excludes = &[_][]const u8{}, .replace_paths = &[_]struct { []const u8, []const u8 }{} }") },
-    .{ "msg", genConst("{}") }, .{ "msgin", genConst("{}") }, .{ "msgout", genConst("{}") },
-    .{ "run_script", genConst("{}") }, .{ "load_file", genConst("{}") }, .{ "import_hook", genConst("null") },
-    .{ "determine_parent", genConst("null") }, .{ "find_head_package", genConst(".{ null, \"\" }") },
-    .{ "load_tail", genConst("null") }, .{ "ensure_fromlist", genConst("{}") }, .{ "find_all_submodules", genConst("{}") },
-    .{ "import_module", genConst("null") }, .{ "load_module", genConst("null") }, .{ "scan_code", genConst("{}") },
-    .{ "scan_opcodes", genConst("&[_]@TypeOf(.{}){}") }, .{ "any_missing", genConst("&[_][]const u8{}") },
-    .{ "any_missing_maybe", genConst(".{ &[_][]const u8{}, .{} }") }, .{ "replace_paths_in_code", genReplacePathsInCode },
-    .{ "report", genConst("{}") },
-    .{ "Module", genConst(".{ .__name__ = \"\", .__file__ = null, .__path__ = null, .__code__ = null, .globalnames = .{}, .starimports = .{} }") },
-    .{ "ReplacePackage", genConst("{}") }, .{ "AddPackagePath", genConst("{}") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "ModuleFinder", h.c(".{ .modules = .{}, .badmodules = .{}, .debug = 0, .indent = 0, .excludes = &[_][]const u8{}, .replace_paths = &[_]struct { []const u8, []const u8 }{} }") },
+    .{ "msg", h.c("{}") }, .{ "msgin", h.c("{}") }, .{ "msgout", h.c("{}") },
+    .{ "run_script", h.c("{}") }, .{ "load_file", h.c("{}") }, .{ "import_hook", h.c("null") },
+    .{ "determine_parent", h.c("null") }, .{ "find_head_package", h.c(".{ null, \"\" }") },
+    .{ "load_tail", h.c("null") }, .{ "ensure_fromlist", h.c("{}") }, .{ "find_all_submodules", h.c("{}") },
+    .{ "import_module", h.c("null") }, .{ "load_module", h.c("null") }, .{ "scan_code", h.c("{}") },
+    .{ "scan_opcodes", h.c("&[_]@TypeOf(.{}){}") }, .{ "any_missing", h.c("&[_][]const u8{}") },
+    .{ "any_missing_maybe", h.c(".{ &[_][]const u8{}, .{} }") }, .{ "replace_paths_in_code", genReplacePathsInCode },
+    .{ "report", h.c("{}") },
+    .{ "Module", h.c(".{ .__name__ = \"\", .__file__ = null, .__path__ = null, .__code__ = null, .globalnames = .{}, .starimports = .{} }") },
+    .{ "ReplacePackage", h.c("{}") }, .{ "AddPackagePath", h.c("{}") },
 });
 
 fn genReplacePathsInCode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
