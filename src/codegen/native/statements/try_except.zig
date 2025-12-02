@@ -391,6 +391,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.emitIndent();
         try self.emit("defer {\n");
         self.indent();
+        // Set inside_defer flag so generated code uses 'catch {}' instead of 'try'
+        const saved_inside_defer = self.inside_defer;
+        self.inside_defer = true;
+        defer self.inside_defer = saved_inside_defer;
         for (try_node.finalbody) |stmt| {
             try self.generateStmt(stmt);
         }

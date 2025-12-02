@@ -1,12 +1,9 @@
 /// Python crypt module - Function to check Unix passwords
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "crypt", genCrypt }, .{ "mksalt", h.c("\"$6$rounds=5000$\"") },
+    .{ "crypt", h.wrap("blk: { const word = ", "; _ = word; break :blk \"$6$rounds=5000$salt$hash\"; }", "\"\"") }, .{ "mksalt", h.c("\"$6$rounds=5000$\"") },
     .{ "METHOD_SHA512", h.c(".{ .name = \"SHA512\", .ident = \"$6$\", .salt_chars = 16, .total_size = 106 }") },
     .{ "METHOD_SHA256", h.c(".{ .name = \"SHA256\", .ident = \"$5$\", .salt_chars = 16, .total_size = 63 }") },
     .{ "METHOD_BLOWFISH", h.c(".{ .name = \"BLOWFISH\", .ident = \"$2b$\", .salt_chars = 22, .total_size = 59 }") },
@@ -14,8 +11,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "METHOD_CRYPT", h.c(".{ .name = \"CRYPT\", .ident = \"\", .salt_chars = 2, .total_size = 13 }") },
     .{ "methods", h.c("metal0_runtime.PyList(@TypeOf(.{ .name = \"\", .ident = \"\", .salt_chars = @as(i32, 0), .total_size = @as(i32, 0) })).init()") },
 });
-
-fn genCrypt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const word = "); try self.genExpr(args[0]); try self.emit("; _ = word; break :blk \"$6$rounds=5000$salt$hash\"; }"); }
-    else try self.emit("\"\"");
-}
