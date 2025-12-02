@@ -5,9 +5,13 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
+// Public exports for dispatch/builtins.zig
+pub const genDefaultdict = h.discard("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
+pub const genOrderedDict = h.discard("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Counter", genCounter }, .{ "defaultdict", genDefaultdict }, .{ "deque", genDeque },
-    .{ "OrderedDict", genOrderedDict }, .{ "namedtuple", genNamedtuple },
+    .{ "OrderedDict", genOrderedDict }, .{ "namedtuple", h.discard("struct {}") },
 });
 
 pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -20,24 +24,9 @@ pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 }
 
-pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
-}
-
 pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("std.ArrayList(i64){}"); return; }
     try self.emit("deque_blk: { const _iterable = ");
     try self.genExpr(args[0]);
     try self.emit("; var _deque = std.ArrayList(@TypeOf(_iterable[0])){}; for (_iterable) |item| { _deque.append(__global_allocator, item) catch continue; } break :deque_blk _deque; }");
-}
-
-pub fn genOrderedDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
-}
-
-pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct {}");
 }
