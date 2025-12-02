@@ -1,18 +1,14 @@
 /// Python _pydatetime module - Pure Python datetime implementation
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "date", genDate }, .{ "time", genConst(".{ .hour = 0, .minute = 0, .second = 0, .microsecond = 0, .tzinfo = null }") },
-    .{ "datetime", genDatetime }, .{ "timedelta", genConst(".{ .days = 0, .seconds = 0, .microseconds = 0 }") },
-    .{ "timezone", genConst(".{ .offset = .{ .days = 0, .seconds = 0, .microseconds = 0 }, .name = null }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "date", genDate }, .{ "time", h.c(".{ .hour = 0, .minute = 0, .second = 0, .microsecond = 0, .tzinfo = null }") },
+    .{ "datetime", genDatetime }, .{ "timedelta", h.c(".{ .days = 0, .seconds = 0, .microseconds = 0 }") },
+    .{ "timezone", h.c(".{ .offset = .{ .days = 0, .seconds = 0, .microseconds = 0 }, .name = null }") },
 });
 
 fn genDate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

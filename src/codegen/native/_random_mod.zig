@@ -1,17 +1,13 @@
 /// Python _random module - C accelerator for random (internal)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Random", genConst(".{ .state = std.Random.DefaultPrng.init(0) }") }, .{ "random", genConst("blk: { var prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); break :blk prng.random().float(f64); }") },
-    .{ "seed", genConst("{}") }, .{ "getstate", genConst(".{ .version = 3, .state = &[_]u32{} ** 625, .index = 624 }") }, .{ "setstate", genConst("{}") }, .{ "getrandbits", genGetrandbits },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "Random", h.c(".{ .state = std.Random.DefaultPrng.init(0) }") }, .{ "random", h.c("blk: { var prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); break :blk prng.random().float(f64); }") },
+    .{ "seed", h.c("{}") }, .{ "getstate", h.c(".{ .version = 3, .state = &[_]u32{} ** 625, .index = 624 }") }, .{ "setstate", h.c("{}") }, .{ "getrandbits", genGetrandbits },
 });
 
 fn genGetrandbits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
