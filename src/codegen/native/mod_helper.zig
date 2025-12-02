@@ -21,8 +21,14 @@ pub fn I32(comptime n: comptime_int) H {
 /// Generates a handler that emits @as(i64, N)
 pub fn I64(comptime n: comptime_int) H { return c(std.fmt.comptimePrint("@as(i64, {})", .{n})); }
 
+/// Generates a handler that emits @as(i16, N)
+pub fn I16(comptime n: comptime_int) H { return c(std.fmt.comptimePrint("@as(i16, {})", .{n})); }
+
 /// Generates a handler that emits @as(u8, N)
 pub fn U8(comptime n: comptime_int) H { return c(std.fmt.comptimePrint("@as(u8, {})", .{n})); }
+
+/// Generates a handler that emits @as(u16, N)
+pub fn U16(comptime n: comptime_int) H { return c(std.fmt.comptimePrint("@as(u16, {})", .{n})); }
 
 /// Generates a handler that emits @as(u32, N)
 pub fn U32(comptime n: comptime_int) H { return c(std.fmt.comptimePrint("@as(u32, {})", .{n})); }

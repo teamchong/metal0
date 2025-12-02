@@ -1,22 +1,18 @@
 /// Python shutil module - high-level file operations
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "copy", genCopy }, .{ "copy2", genCopy }, .{ "copyfile", genCopy },
-    .{ "copystat", genConst("{}") }, .{ "copymode", genConst("{}") },
+    .{ "copystat", h.c("{}") }, .{ "copymode", h.c("{}") },
     .{ "move", genMove }, .{ "rmtree", genRmtree }, .{ "copytree", genCopytree },
-    .{ "disk_usage", genConst(".{ @as(i64, 0), @as(i64, 0), @as(i64, 0) }") },
+    .{ "disk_usage", h.c(".{ @as(i64, 0), @as(i64, 0), @as(i64, 0) }") },
     .{ "which", genWhich },
-    .{ "get_terminal_size", genConst(".{ @as(i64, 80), @as(i64, 24) }") },
-    .{ "make_archive", genMakeArchive }, .{ "unpack_archive", genConst("{}") },
+    .{ "get_terminal_size", h.c(".{ @as(i64, 80), @as(i64, 24) }") },
+    .{ "make_archive", genMakeArchive }, .{ "unpack_archive", h.c("{}") },
 });
 
 fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
