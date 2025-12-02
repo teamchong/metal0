@@ -539,6 +539,13 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
                     .Add => try self.emit(" + "),
                     .Sub => try self.emit(" - "),
                     .Mult => try self.emit(" * "),
+                    .Div => try self.emit(" / "),
+                    .Mod => try self.emit(" % "),
+                    .BitAnd => try self.emit(" & "),
+                    .BitOr => try self.emit(" | "),
+                    .BitXor => try self.emit(" ^ "),
+                    .LShift => try self.emit(" << "),
+                    .RShift => try self.emit(" >> "),
                     else => try self.emit(" + "),
                 }
                 try self.emit("(");
@@ -555,6 +562,17 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
 
 fn genStatementInFrameNested(self: *NativeCodegen, stmt: ast.Node, frame_fields: []const []const u8) CodegenError!void {
     switch (stmt) {
+        .assign => |assign| {
+            // Handle regular assignment in nested context
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                const target_name = assign.targets[0].name.id;
+                try self.emit("                    ");
+                try self.emit(target_name);
+                try self.emit(" = ");
+                try genExprInFrameNested(self, assign.value.*, frame_fields);
+                try self.emit(";\n");
+            }
+        },
         .aug_assign => |aug| {
             if (aug.target.* == .name) {
                 const target_name = aug.target.*.name.id;
@@ -580,6 +598,13 @@ fn genStatementInFrameNested(self: *NativeCodegen, stmt: ast.Node, frame_fields:
                     .Add => try self.emit(" + "),
                     .Sub => try self.emit(" - "),
                     .Mult => try self.emit(" * "),
+                    .Div => try self.emit(" / "),
+                    .Mod => try self.emit(" % "),
+                    .BitAnd => try self.emit(" & "),
+                    .BitOr => try self.emit(" | "),
+                    .BitXor => try self.emit(" ^ "),
+                    .LShift => try self.emit(" << "),
+                    .RShift => try self.emit(" >> "),
                     else => try self.emit(" + "),
                 }
                 try self.emit("(");
@@ -633,7 +658,12 @@ fn genExprInFrameNested(self: *NativeCodegen, node: ast.Node, frame_fields: []co
                 .Mult => try self.emit(" * "),
                 .Div => try self.emit(" / "),
                 .Mod => try self.emit(" % "),
-                else => try self.emit(" ? "),
+                .BitAnd => try self.emit(" & "),
+                .BitOr => try self.emit(" | "),
+                .BitXor => try self.emit(" ^ "),
+                .LShift => try self.emit(" << "),
+                .RShift => try self.emit(" >> "),
+                else => try self.emit(" + "),
             }
             try genExprInFrameNested(self, bin.right.*, frame_fields);
             try self.emit(")");
@@ -706,7 +736,12 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                 .Mult => try self.emit(" * "),
                 .Div => try self.emit(" / "),
                 .Mod => try self.emit(" % "),
-                else => try self.emit(" ? "),
+                .BitAnd => try self.emit(" & "),
+                .BitOr => try self.emit(" | "),
+                .BitXor => try self.emit(" ^ "),
+                .LShift => try self.emit(" << "),
+                .RShift => try self.emit(" >> "),
+                else => try self.emit(" + "),
             }
             try genExprInFrame(self, bin.right.*, frame_fields);
             try self.emit(")");

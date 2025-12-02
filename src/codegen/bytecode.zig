@@ -32,6 +32,7 @@ pub const Instruction = struct {
 
 pub const Constant = union(enum) {
     int: i64,
+    float: f64,
     string: []const u8,
 };
 
@@ -66,6 +67,10 @@ pub const BytecodeProgram = struct {
                 .int => |i| {
                     try buffer.append(allocator, 0); // type tag: int
                     try buffer.appendSlice(allocator, &std.mem.toBytes(i));
+                },
+                .float => |f| {
+                    try buffer.append(allocator, 2); // type tag: float
+                    try buffer.appendSlice(allocator, &std.mem.toBytes(f));
                 },
                 .string => |s| {
                     try buffer.append(allocator, 1); // type tag: string
@@ -131,6 +136,7 @@ pub const Compiler = struct {
                 const const_idx: u32 = @intCast(self.constants.items.len);
                 const constant: Constant = switch (c.value) {
                     .int => |i| .{ .int = i },
+                    .float => |f| .{ .float = f },
                     .string => |s| .{ .string = s },
                     else => return error.UnsupportedConstant,
                 };
@@ -168,6 +174,21 @@ pub const Compiler = struct {
                     else => return error.UnsupportedComparator,
                 };
                 try self.instructions.append(self.allocator, .{ .op = op });
+            },
+            .unaryop => |u| {
+                try self.compileNode(u.operand.*);
+                switch (u.op) {
+                    .Invert => try self.instructions.append(self.allocator, .{ .op = .Invert }),
+                    .UAdd => {}, // +x is just x
+                    .USub => {
+                        // -x: multiply by -1
+                        const const_idx: u32 = @intCast(self.constants.items.len);
+                        try self.constants.append(self.allocator, .{ .int = -1 });
+                        try self.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx });
+                        try self.instructions.append(self.allocator, .{ .op = .Mult });
+                    },
+                    else => return error.UnsupportedUnaryOp,
+                }
             },
             else => return error.UnsupportedNode,
         }

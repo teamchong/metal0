@@ -7,6 +7,7 @@ const PyObject = runtime.PyObject;
 const PyInt = @import("pyint.zig").PyInt;
 const PyFloat = @import("pyfloat.zig").PyFloat;
 const PyBool = @import("pybool.zig").PyBool;
+const PyString = @import("pystring/core.zig").PyString;
 const BigInt = @import("bigint").BigInt;
 
 /// PyBigInt helper for creating BigInt-backed PyObjects
@@ -67,6 +68,30 @@ const PyBigInt = struct {
     }
 };
 
+/// Create a PyBytes object from data
+fn createPyBytes(allocator: std.mem.Allocator, data: []const u8) !*PyObject {
+    // Allocate PyBytesObject with extra space for the data
+    const total_size = @sizeOf(runtime.PyBytesObject) - 1 + data.len + 1; // -1 for ob_sval[1], +1 for null terminator
+    const mem = try allocator.alloc(u8, total_size);
+    const bytes_obj: *runtime.PyBytesObject = @ptrCast(@alignCast(mem.ptr));
+    bytes_obj.* = .{
+        .ob_base = .{
+            .ob_base = .{
+                .ob_refcnt = 1,
+                .ob_type = &runtime.PyBytes_Type,
+            },
+            .ob_size = @intCast(data.len),
+        },
+        .ob_shash = -1,
+        .ob_sval = undefined,
+    };
+    // Copy data into the trailing buffer
+    const dest = mem[@offsetOf(runtime.PyBytesObject, "ob_sval")..];
+    @memcpy(dest[0..data.len], data);
+    dest[data.len] = 0; // Null terminator
+    return @ptrCast(bytes_obj);
+}
+
 /// Bytecode instruction opcodes
 pub const OpCode = enum(u8) {
     // Stack operations
@@ -109,6 +134,7 @@ pub const Constant = union(enum) {
     int: i64,
     float: f64,
     string: []const u8,
+    bytes: []const u8,
     bool: bool,
     bigint: []const u8, // BigInt stored as decimal string for serialization
 };
@@ -362,7 +388,8 @@ pub const VM = struct {
                     const obj: *PyObject = switch (constant) {
                         .int => |i| try PyInt.create(self.allocator, i),
                         .float => |f| try PyFloat.create(self.allocator, f),
-                        .string => return error.NotImplemented,
+                        .string => |s| try PyString.create(self.allocator, s),
+                        .bytes => |b| try createPyBytes(self.allocator, b),
                         .bool => |b| try PyBool.create(self.allocator, b),
                         .bigint => |s| try PyBigInt.create(self.allocator, s),
                     };
@@ -544,8 +571,11 @@ pub const VM = struct {
 
         const val = self.stack.pop() orelse return error.StackUnderflow;
 
-        // Float cannot be inverted - raise TypeError
-        if (runtime.PyFloat_Check(val)) {
+        // Float, string, bytes cannot be inverted - raise TypeError
+        if (runtime.PyFloat_Check(val) or
+            runtime.PyUnicode_Check(val) or
+            runtime.PyBytes_Check(val))
+        {
             return error.TypeError;
         }
 
@@ -559,18 +589,20 @@ pub const VM = struct {
             const result_big = try plus_one.neg(self.allocator);
             const result = try PyBigInt.createFromBigInt(self.allocator, result_big);
             try self.stack.append(self.allocator, result);
-        } else {
-            // Get integer value (convert bool to int first)
-            const int_val: i64 = if (runtime.PyBool_Check(val))
-                (if (PyBool.getValue(val)) @as(i64, 1) else @as(i64, 0))
-            else
-                PyInt.getValue(val);
-
-            // Bitwise NOT: ~x = -(x+1) in Python
+        } else if (runtime.PyBool_Check(val)) {
+            // Bool first (before int check since bool is a subclass of int)
+            const int_val: i64 = if (PyBool.getValue(val)) 1 else 0;
             const result_val = ~int_val;
-
             const result = try PyInt.create(self.allocator, result_val);
             try self.stack.append(self.allocator, result);
+        } else if (runtime.PyLong_Check(val)) {
+            const int_val = PyInt.getValue(val);
+            const result_val = ~int_val;
+            const result = try PyInt.create(self.allocator, result_val);
+            try self.stack.append(self.allocator, result);
+        } else {
+            // Unknown type - raise TypeError
+            return error.TypeError;
         }
     }
 };
