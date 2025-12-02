@@ -1,16 +1,9 @@
 /// Python lib2to3 module - Python 2 to 3 conversion library
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "main", genConst("0") }, .{ "refactoring_tool", genConst(".{}") }, .{ "base_fix", genConst(".{}") },
-    .{ "base", genConst(".{}") }, .{ "node", genConst(".{}") }, .{ "leaf", genConst(".{}") },
-    .{ "python_grammar", genConst(".{}") }, .{ "python_grammar_no_print_statement", genConst(".{}") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "main", h.c("0") }, .{ "refactoring_tool", h.c(".{}") }, .{ "base_fix", h.c(".{}") },
+    .{ "base", h.c(".{}") }, .{ "node", h.c(".{}") }, .{ "leaf", h.c(".{}") },
+    .{ "python_grammar", h.c(".{}") }, .{ "python_grammar_no_print_statement", h.c(".{}") },
 });

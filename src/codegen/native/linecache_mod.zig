@@ -1,17 +1,10 @@
 /// Python linecache module - Random access to text lines
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "getline", genConst("\"\"") }, .{ "getlines", genConst("&[_][]const u8{}") },
-    .{ "clearcache", genConst("{}") }, .{ "checkcache", genConst("{}") },
-    .{ "updatecache", genConst("&[_][]const u8{}") }, .{ "lazycache", genConst("false") },
-    .{ "cache", genConst("hashmap_helper.StringHashMap([][]const u8).init(__global_allocator)") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "getline", h.c("\"\"") }, .{ "getlines", h.c("&[_][]const u8{}") },
+    .{ "clearcache", h.c("{}") }, .{ "checkcache", h.c("{}") },
+    .{ "updatecache", h.c("&[_][]const u8{}") }, .{ "lazycache", h.c("false") },
+    .{ "cache", h.c("hashmap_helper.StringHashMap([][]const u8).init(__global_allocator)") },
 });
