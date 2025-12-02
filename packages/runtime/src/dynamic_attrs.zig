@@ -97,3 +97,86 @@ pub fn locals_builtin() *PyDict {
     // For MVP: return empty dict placeholder
     @panic("locals not implemented");
 }
+
+/// Returns a list of names in the current local scope (if obj is null)
+/// or a list of valid attributes for the object (if obj is provided)
+pub fn dir_builtin(obj: anytype) []const []const u8 {
+    const T = @TypeOf(obj);
+
+    // If obj is null, return empty list (would need scope info for full implementation)
+    if (T == @TypeOf(null)) {
+        return &[_][]const u8{};
+    }
+
+    // For optional types, unwrap
+    const info = @typeInfo(T);
+    if (info == .optional) {
+        if (obj) |inner| {
+            return dir_builtin(inner);
+        }
+        return &[_][]const u8{};
+    }
+
+    // For pointers, get attributes of pointed-to type
+    if (info == .pointer) {
+        const Child = info.pointer.child;
+        return getTypeAttrs(Child);
+    }
+
+    return getTypeAttrs(T);
+}
+
+fn getTypeAttrs(comptime T: type) []const []const u8 {
+    const info = @typeInfo(T);
+
+    if (info == .@"struct") {
+        // Get all public declarations
+        const decls = @typeInfo(T).@"struct".decls;
+        const fields = @typeInfo(T).@"struct".fields;
+
+        // Count total attributes
+        const count = decls.len + fields.len;
+
+        // Build array of attribute names at comptime
+        comptime var attrs: [count][]const u8 = undefined;
+        comptime var i = 0;
+
+        // Add declarations (methods, constants)
+        inline for (decls) |decl| {
+            attrs[i] = decl.name;
+            i += 1;
+        }
+
+        // Add fields
+        inline for (fields) |field| {
+            attrs[i] = field.name;
+            i += 1;
+        }
+
+        return &attrs;
+    }
+
+    // For slices (strings), return string methods
+    if (info == .pointer and info.pointer.size == .slice) {
+        return &[_][]const u8{
+            "__add__",    "__class__",   "__contains__", "__eq__",
+            "__ge__",     "__getitem__", "__gt__",       "__hash__",
+            "__iter__",   "__le__",      "__len__",      "__lt__",
+            "__mul__",    "__ne__",      "__repr__",     "__str__",
+            "capitalize", "casefold",    "center",       "count",
+            "encode",     "endswith",    "expandtabs",   "find",
+            "format",     "index",       "isalnum",      "isalpha",
+            "isascii",    "isdecimal",   "isdigit",      "isidentifier",
+            "islower",    "isnumeric",   "isprintable",  "isspace",
+            "istitle",    "isupper",     "join",         "ljust",
+            "lower",      "lstrip",      "partition",    "replace",
+            "rfind",      "rindex",      "rjust",        "rpartition",
+            "rsplit",     "rstrip",      "split",        "splitlines",
+            "startswith", "strip",       "swapcase",     "title",
+            "translate",  "upper",       "zfill",
+        };
+    }
+
+    // Default: return empty list
+    return &[_][]const u8{};
+}

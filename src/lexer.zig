@@ -284,6 +284,14 @@ pub const Lexer = struct {
                 continue;
             }
 
+            // Unicode strings (Python 2 compatibility, same as regular string in Python 3)
+            if (c == 'u' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
+                _ = self.advance(); // consume 'u'
+                const token = try self.tokenizeString(start, start_column);
+                try tokens.append(self.allocator, token);
+                continue;
+            }
+
             // Identifiers and keywords
             if (self.isAlpha(c)) {
                 const token = try self.tokenizeIdentifier(start, start_column);
@@ -439,7 +447,8 @@ pub const Lexer = struct {
 
     pub fn isAlpha(self: *Lexer, c: u8) bool {
         _ = self;
-        return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
+        // ASCII letters, underscore, or UTF-8 multi-byte sequences (PEP 3131)
+        return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_' or c >= 0x80;
     }
 
     pub fn isDigit(self: *Lexer, c: u8) bool {
