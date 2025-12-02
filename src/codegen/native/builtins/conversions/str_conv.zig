@@ -15,23 +15,9 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // str(bytes, encoding) - decode bytes to string
     // In Zig, bytes are already []const u8, so just return the bytes
-    // But we need to "use" the encoding arg to avoid unused variable errors
+    // Encoding argument is ignored (UTF-8 is the only encoding we support)
     if (args.len >= 2) {
-        // str(bytes, "ascii") or str(bytes, "utf-8") etc.
-        // If encoding is a variable, we need to "use" it to avoid unused variable errors
-        // Generate: dec_N: { _ = encoding; break :dec_N bytes; }
-        if (args[1] == .name) {
-            const label = self.block_label_counter;
-            self.block_label_counter += 1;
-            try self.output.writer(self.allocator).print("dec_{d}: {{ _ = ", .{label});
-            try self.genExpr(args[1]); // Generate the encoding variable reference
-            try self.output.writer(self.allocator).print("; break :dec_{d} ", .{label});
-            try self.genExpr(args[0]);
-            try self.emit("; }");
-        } else {
-            // Encoding is a constant - just return the bytes
-            try self.genExpr(args[0]);
-        }
+        try self.genExpr(args[0]);
         return;
     }
 

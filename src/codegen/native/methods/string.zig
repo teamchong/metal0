@@ -385,42 +385,20 @@ pub const genStrIndex = genIndex;
 
 /// Generate code for text.encode(encoding="utf-8")
 /// In Zig, strings are already UTF-8, so this just returns the string as bytes
-/// We generate a block that discards the encoding arg to avoid "unused variable" errors
 pub fn genEncode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    // If encoding arg is a variable, we need to "use" it to avoid unused variable errors
-    // Generate: blk: { _ = encoding; break :blk str; }
-    if (args.len > 0 and args[0] == .name) {
-        const label = self.block_label_counter;
-        self.block_label_counter += 1;
-        try self.output.writer(self.allocator).print("enc_{d}: {{ _ = ", .{label});
-        try self.genExpr(args[0]); // Generate the encoding variable reference
-        try self.output.writer(self.allocator).print("; break :enc_{d} ", .{label});
-        try self.genExpr(obj);
-        try self.emit("; }");
-    } else {
-        // Encoding is a constant or no encoding specified - just return the string
-        try self.genExpr(obj);
-    }
+    // Just return the string - Zig strings are UTF-8 bytes already
+    // The encoding argument is ignored (UTF-8 is the only encoding we support)
+    _ = args;
+    try self.genExpr(obj);
 }
 
 /// Generate code for bytes.decode(encoding="utf-8")
 /// In Zig, bytes and strings are already UTF-8, so this just returns the bytes as string
-/// We generate a block that discards the encoding arg to avoid "unused variable" errors
 pub fn genDecode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    // If encoding arg is a variable, we need to "use" it to avoid unused variable errors
-    // Generate: blk: { _ = encoding; break :blk bytes; }
-    if (args.len > 0 and args[0] == .name) {
-        const label = self.block_label_counter;
-        self.block_label_counter += 1;
-        try self.output.writer(self.allocator).print("dec_{d}: {{ _ = ", .{label});
-        try self.genExpr(args[0]); // Generate the encoding variable reference
-        try self.output.writer(self.allocator).print("; break :dec_{d} ", .{label});
-        try self.genExpr(obj);
-        try self.emit("; }");
-    } else {
-        // Encoding is a constant or no encoding specified - just return the bytes
-        try self.genExpr(obj);
-    }
+    // Just return the bytes - Zig bytes are UTF-8 strings already
+    // The encoding argument is ignored (UTF-8 is the only encoding we support)
+    _ = args;
+    try self.genExpr(obj);
 }
 
 /// Generate code for text.splitlines([keepends])
