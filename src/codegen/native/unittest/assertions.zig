@@ -4,13 +4,8 @@ const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const parent = @import("../expressions.zig");
-
-const PyToZigTypes = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "int", "i64" },
-    .{ "bool", "bool" },
-    .{ "float", "f64" },
-    .{ "str", "[]const u8" },
-});
+const shared = @import("../shared_maps.zig");
+const PyToZigTypes = shared.PyTypeToZig;
 
 const FloatMethodInfo = struct { func: []const u8, needs_alloc: bool };
 const FloatMethods = std.StaticStringMap(FloatMethodInfo).initComptime(.{
