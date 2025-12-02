@@ -1,41 +1,37 @@
 /// Python typing_extensions module - Backports of typing features
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Annotated", genConst("@TypeOf(undefined)") }, .{ "ParamSpec", genConst("@TypeOf(undefined)") },
-    .{ "ParamSpecArgs", genConst("@TypeOf(undefined)") }, .{ "ParamSpecKwargs", genConst("@TypeOf(undefined)") },
-    .{ "Concatenate", genConst("@TypeOf(undefined)") }, .{ "TypeAlias", genConst("@TypeOf(undefined)") },
-    .{ "TypeGuard", genConst("@TypeOf(undefined)") }, .{ "TypeIs", genConst("@TypeOf(undefined)") },
-    .{ "Self", genConst("@TypeOf(undefined)") }, .{ "Never", genConst("noreturn") },
-    .{ "Required", genConst("@TypeOf(undefined)") }, .{ "NotRequired", genConst("@TypeOf(undefined)") },
-    .{ "LiteralString", genConst("[]const u8") }, .{ "Unpack", genConst("@TypeOf(undefined)") },
-    .{ "TypeVarTuple", genConst("@TypeOf(undefined)") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "Annotated", h.c("@TypeOf(undefined)") }, .{ "ParamSpec", h.c("@TypeOf(undefined)") },
+    .{ "ParamSpecArgs", h.c("@TypeOf(undefined)") }, .{ "ParamSpecKwargs", h.c("@TypeOf(undefined)") },
+    .{ "Concatenate", h.c("@TypeOf(undefined)") }, .{ "TypeAlias", h.c("@TypeOf(undefined)") },
+    .{ "TypeGuard", h.c("@TypeOf(undefined)") }, .{ "TypeIs", h.c("@TypeOf(undefined)") },
+    .{ "Self", h.c("@TypeOf(undefined)") }, .{ "Never", h.c("noreturn") },
+    .{ "Required", h.c("@TypeOf(undefined)") }, .{ "NotRequired", h.c("@TypeOf(undefined)") },
+    .{ "LiteralString", h.c("[]const u8") }, .{ "Unpack", h.c("@TypeOf(undefined)") },
+    .{ "TypeVarTuple", h.c("@TypeOf(undefined)") },
     .{ "override", genPassthrough }, .{ "final", genPassthrough }, .{ "deprecated", genPassthrough },
     .{ "dataclass_transform", genPassthrough }, .{ "runtime_checkable", genPassthrough },
-    .{ "Protocol", genConst("@TypeOf(undefined)") }, .{ "TypedDict", genConst(".{}") }, .{ "NamedTuple", genConst(".{}") },
-    .{ "get_type_hints", genConst(".{}") }, .{ "get_origin", genConst("@as(?@TypeOf(undefined), null)") },
-    .{ "get_args", genConst(".{}") }, .{ "is_typeddict", genConst("false") }, .{ "get_annotations", genConst(".{}") },
+    .{ "Protocol", h.c("@TypeOf(undefined)") }, .{ "TypedDict", h.c(".{}") }, .{ "NamedTuple", h.c(".{}") },
+    .{ "get_type_hints", h.c(".{}") }, .{ "get_origin", h.c("@as(?@TypeOf(undefined), null)") },
+    .{ "get_args", h.c(".{}") }, .{ "is_typeddict", h.c("false") }, .{ "get_annotations", h.c(".{}") },
     .{ "assert_type", genPassthrough }, .{ "reveal_type", genPassthrough },
-    .{ "assert_never", genConst("unreachable") }, .{ "clear_overloads", genConst("{}") },
-    .{ "get_overloads", genConst("&[_]*anyopaque{}") },
-    .{ "Doc", genConst("@TypeOf(undefined)") }, .{ "ReadOnly", genConst("@TypeOf(undefined)") },
-    .{ "Any", genConst("@TypeOf(undefined)") }, .{ "Union", genConst("@TypeOf(undefined)") },
-    .{ "Optional", genConst("@TypeOf(undefined)") }, .{ "List", genConst("@TypeOf(undefined)") },
-    .{ "Dict", genConst("@TypeOf(undefined)") }, .{ "Set", genConst("@TypeOf(undefined)") },
-    .{ "Tuple", genConst("@TypeOf(undefined)") }, .{ "Callable", genConst("@TypeOf(undefined)") },
-    .{ "Type", genConst("@TypeOf(undefined)") }, .{ "Literal", genConst("@TypeOf(undefined)") },
-    .{ "ClassVar", genConst("@TypeOf(undefined)") }, .{ "TypeVar", genConst("@TypeOf(undefined)") },
-    .{ "Generic", genConst("@TypeOf(undefined)") }, .{ "NoReturn", genConst("noreturn") },
+    .{ "assert_never", h.c("unreachable") }, .{ "clear_overloads", h.c("{}") },
+    .{ "get_overloads", h.c("&[_]*anyopaque{}") },
+    .{ "Doc", h.c("@TypeOf(undefined)") }, .{ "ReadOnly", h.c("@TypeOf(undefined)") },
+    .{ "Any", h.c("@TypeOf(undefined)") }, .{ "Union", h.c("@TypeOf(undefined)") },
+    .{ "Optional", h.c("@TypeOf(undefined)") }, .{ "List", h.c("@TypeOf(undefined)") },
+    .{ "Dict", h.c("@TypeOf(undefined)") }, .{ "Set", h.c("@TypeOf(undefined)") },
+    .{ "Tuple", h.c("@TypeOf(undefined)") }, .{ "Callable", h.c("@TypeOf(undefined)") },
+    .{ "Type", h.c("@TypeOf(undefined)") }, .{ "Literal", h.c("@TypeOf(undefined)") },
+    .{ "ClassVar", h.c("@TypeOf(undefined)") }, .{ "TypeVar", h.c("@TypeOf(undefined)") },
+    .{ "Generic", h.c("@TypeOf(undefined)") }, .{ "NoReturn", h.c("noreturn") },
     .{ "cast", genCast }, .{ "overload", genPassthrough }, .{ "no_type_check", genPassthrough },
-    .{ "TYPE_CHECKING", genConst("false") },
+    .{ "TYPE_CHECKING", h.c("false") },
 });
 
 fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
