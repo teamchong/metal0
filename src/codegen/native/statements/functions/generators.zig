@@ -11,6 +11,11 @@ const body = @import("generators/body.zig");
 const builtin_types = @import("generators/builtin_types.zig");
 const test_skip = @import("generators/test_skip.zig");
 
+const PyBuiltinTypes = std.StaticStringMap(void).initComptime(.{
+    .{ "int", {} }, .{ "float", {} }, .{ "str", {} },
+    .{ "bool", {} }, .{ "list", {} }, .{ "dict", {} },
+});
+
 // Re-exports
 pub const analyzeModuleLevelMutations = body.analyzeModuleLevelMutations;
 pub const BuiltinBaseInfo = builtin_types.BuiltinBaseInfo;
@@ -614,13 +619,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 const attr_name = assign.targets[0].name.id;
                 if (assign.value.* == .name) {
                     const type_name = assign.value.name.id;
-                    if (std.mem.eql(u8, type_name, "int") or
-                        std.mem.eql(u8, type_name, "float") or
-                        std.mem.eql(u8, type_name, "str") or
-                        std.mem.eql(u8, type_name, "bool") or
-                        std.mem.eql(u8, type_name, "list") or
-                        std.mem.eql(u8, type_name, "dict"))
-                    {
+                    if (PyBuiltinTypes.has(type_name)) {
                         const key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, attr_name });
                         try self.class_type_attrs.put(key, type_name);
                     }
@@ -717,13 +716,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 // Check if the value is a type reference (int, float, str, etc.)
                 if (assign.value.* == .name) {
                     const type_name = assign.value.name.id;
-                    if (std.mem.eql(u8, type_name, "int") or
-                        std.mem.eql(u8, type_name, "float") or
-                        std.mem.eql(u8, type_name, "str") or
-                        std.mem.eql(u8, type_name, "bool") or
-                        std.mem.eql(u8, type_name, "list") or
-                        std.mem.eql(u8, type_name, "dict"))
-                    {
+                    if (PyBuiltinTypes.has(type_name)) {
                         try self.emit("\n");
                         try self.emitIndent();
                         try self.emit("// Class-level type attribute\n");

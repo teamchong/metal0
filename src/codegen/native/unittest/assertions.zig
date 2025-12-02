@@ -5,6 +5,25 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const parent = @import("../expressions.zig");
 
+const PyToZigTypes = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "int", "i64" },
+    .{ "bool", "bool" },
+    .{ "float", "f64" },
+    .{ "str", "[]const u8" },
+});
+
+const FloatMethodInfo = struct { func: []const u8, needs_alloc: bool };
+const FloatMethods = std.StaticStringMap(FloatMethodInfo).initComptime(.{
+    .{ "as_integer_ratio", FloatMethodInfo{ .func = "AsIntegerRatio", .needs_alloc = false } },
+    .{ "is_integer", FloatMethodInfo{ .func = "IsInteger", .needs_alloc = false } },
+    .{ "hex", FloatMethodInfo{ .func = "Hex(__global_allocator, ", .needs_alloc = true } },
+    .{ "conjugate", FloatMethodInfo{ .func = "Conjugate", .needs_alloc = false } },
+    .{ "__floor__", FloatMethodInfo{ .func = "Floor(__global_allocator, ", .needs_alloc = true } },
+    .{ "__ceil__", FloatMethodInfo{ .func = "Ceil(__global_allocator, ", .needs_alloc = true } },
+    .{ "__trunc__", FloatMethodInfo{ .func = "Trunc(__global_allocator, ", .needs_alloc = true } },
+    .{ "__round__", FloatMethodInfo{ .func = "Round(__global_allocator, ", .needs_alloc = true } },
+});
+
 /// Handler type for assertion methods
 const AssertHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
 
@@ -76,18 +95,7 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
         const func_name = args[0].call.func.name.id;
         if (std.mem.eql(u8, func_name, "type") and args[0].call.args.len == 1) {
             if (args[1] == .name) {
-                const type_name = args[1].name.id;
-                const zig_type: ?[]const u8 = if (std.mem.eql(u8, type_name, "int"))
-                    "i64"
-                else if (std.mem.eql(u8, type_name, "bool"))
-                    "bool"
-                else if (std.mem.eql(u8, type_name, "float"))
-                    "f64"
-                else if (std.mem.eql(u8, type_name, "str"))
-                    "[]const u8"
-                else
-                    null;
-                if (zig_type) |ztype| {
+                if (PyToZigTypes.get(args[1].name.id)) |ztype| {
                     try self.emit("runtime.unittest.assertTypeIs(@TypeOf(");
                     try parent.genExpr(self, args[0].call.args[0]);
                     try self.emit("), ");
@@ -268,48 +276,12 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             // Attribute on a call result (e.g., zlib.decompressobj().flush)
             // Need to store the call result first, then access the method
             // Check if this is a float method that needs special dispatch
-            const is_float_method = std.mem.eql(u8, attr.attr, "as_integer_ratio") or
-                std.mem.eql(u8, attr.attr, "is_integer") or
-                std.mem.eql(u8, attr.attr, "hex") or
-                std.mem.eql(u8, attr.attr, "conjugate") or
-                std.mem.eql(u8, attr.attr, "__floor__") or
-                std.mem.eql(u8, attr.attr, "__ceil__") or
-                std.mem.eql(u8, attr.attr, "__trunc__") or
-                std.mem.eql(u8, attr.attr, "__round__");
-            if (is_float_method) {
-                // Float method dispatch: runtime.floatAsIntegerRatio(value)
+            if (FloatMethods.get(attr.attr)) |info| {
                 try self.emit("__ar_obj_blk: { const __ar_obj = ");
                 try parent.genExpr(self, attr.value.*);
                 try self.emit("; break :__ar_obj_blk runtime.float");
-                // Convert method name to function name (as_integer_ratio -> AsIntegerRatio)
-                if (std.mem.eql(u8, attr.attr, "as_integer_ratio")) {
-                    try self.emit("AsIntegerRatio");
-                } else if (std.mem.eql(u8, attr.attr, "is_integer")) {
-                    try self.emit("IsInteger");
-                } else if (std.mem.eql(u8, attr.attr, "hex")) {
-                    try self.emit("Hex(__global_allocator, ");
-                } else if (std.mem.eql(u8, attr.attr, "__floor__")) {
-                    try self.emit("Floor(__global_allocator, ");
-                } else if (std.mem.eql(u8, attr.attr, "__ceil__")) {
-                    try self.emit("Ceil(__global_allocator, ");
-                } else if (std.mem.eql(u8, attr.attr, "__trunc__")) {
-                    try self.emit("Trunc(__global_allocator, ");
-                } else if (std.mem.eql(u8, attr.attr, "__round__")) {
-                    try self.emit("Round(__global_allocator, ");
-                } else {
-                    // conjugate - just return the value
-                    try self.emit("Conjugate");
-                }
-                const needs_alloc = std.mem.eql(u8, attr.attr, "hex") or
-                    std.mem.eql(u8, attr.attr, "__floor__") or
-                    std.mem.eql(u8, attr.attr, "__ceil__") or
-                    std.mem.eql(u8, attr.attr, "__trunc__") or
-                    std.mem.eql(u8, attr.attr, "__round__");
-                if (!needs_alloc) {
-                    try self.emit("(__ar_obj)");
-                } else {
-                    try self.emit("__ar_obj)");
-                }
+                try self.emit(info.func);
+                try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
                 try self.emit("; }");
             } else {
                 // Generate: __ar_obj_blk: { const __ar_obj = <call>; break :__ar_obj_blk __ar_obj.<method>(<args>); }
