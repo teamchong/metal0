@@ -5,23 +5,21 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genI32(comptime n: comptime_int) fn (*NativeCodegen, []ast.Node) CodegenError!void {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, std.fmt.comptimePrint("@as(i32, {})", .{n})); } }.f;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
 }
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "openlog", genUnit }, .{ "syslog", genUnit }, .{ "closelog", genUnit }, .{ "setlogmask", genI32(0) },
-    .{ "LOG_EMERG", genI32(0) }, .{ "LOG_ALERT", genI32(1) }, .{ "LOG_CRIT", genI32(2) }, .{ "LOG_ERR", genI32(3) },
-    .{ "LOG_WARNING", genI32(4) }, .{ "LOG_NOTICE", genI32(5) }, .{ "LOG_INFO", genI32(6) }, .{ "LOG_DEBUG", genI32(7) },
-    .{ "LOG_KERN", genI32(0) }, .{ "LOG_USER", genI32(8) }, .{ "LOG_MAIL", genI32(16) }, .{ "LOG_DAEMON", genI32(24) },
-    .{ "LOG_AUTH", genI32(32) }, .{ "LOG_SYSLOG", genI32(40) }, .{ "LOG_LPR", genI32(48) }, .{ "LOG_NEWS", genI32(56) },
-    .{ "LOG_UUCP", genI32(64) }, .{ "LOG_CRON", genI32(72) },
-    .{ "LOG_LOCAL0", genI32(128) }, .{ "LOG_LOCAL1", genI32(136) }, .{ "LOG_LOCAL2", genI32(144) }, .{ "LOG_LOCAL3", genI32(152) },
-    .{ "LOG_LOCAL4", genI32(160) }, .{ "LOG_LOCAL5", genI32(168) }, .{ "LOG_LOCAL6", genI32(176) }, .{ "LOG_LOCAL7", genI32(184) },
-    .{ "LOG_PID", genI32(1) }, .{ "LOG_CONS", genI32(2) }, .{ "LOG_ODELAY", genI32(4) }, .{ "LOG_NDELAY", genI32(8) },
-    .{ "LOG_NOWAIT", genI32(16) }, .{ "LOG_PERROR", genI32(32) },
+    .{ "openlog", genConst("{}") }, .{ "syslog", genConst("{}") }, .{ "closelog", genConst("{}") }, .{ "setlogmask", genConst("@as(i32, 0)") },
+    .{ "LOG_EMERG", genConst("@as(i32, 0)") }, .{ "LOG_ALERT", genConst("@as(i32, 1)") }, .{ "LOG_CRIT", genConst("@as(i32, 2)") }, .{ "LOG_ERR", genConst("@as(i32, 3)") },
+    .{ "LOG_WARNING", genConst("@as(i32, 4)") }, .{ "LOG_NOTICE", genConst("@as(i32, 5)") }, .{ "LOG_INFO", genConst("@as(i32, 6)") }, .{ "LOG_DEBUG", genConst("@as(i32, 7)") },
+    .{ "LOG_KERN", genConst("@as(i32, 0)") }, .{ "LOG_USER", genConst("@as(i32, 8)") }, .{ "LOG_MAIL", genConst("@as(i32, 16)") }, .{ "LOG_DAEMON", genConst("@as(i32, 24)") },
+    .{ "LOG_AUTH", genConst("@as(i32, 32)") }, .{ "LOG_SYSLOG", genConst("@as(i32, 40)") }, .{ "LOG_LPR", genConst("@as(i32, 48)") }, .{ "LOG_NEWS", genConst("@as(i32, 56)") },
+    .{ "LOG_UUCP", genConst("@as(i32, 64)") }, .{ "LOG_CRON", genConst("@as(i32, 72)") },
+    .{ "LOG_LOCAL0", genConst("@as(i32, 128)") }, .{ "LOG_LOCAL1", genConst("@as(i32, 136)") }, .{ "LOG_LOCAL2", genConst("@as(i32, 144)") }, .{ "LOG_LOCAL3", genConst("@as(i32, 152)") },
+    .{ "LOG_LOCAL4", genConst("@as(i32, 160)") }, .{ "LOG_LOCAL5", genConst("@as(i32, 168)") }, .{ "LOG_LOCAL6", genConst("@as(i32, 176)") }, .{ "LOG_LOCAL7", genConst("@as(i32, 184)") },
+    .{ "LOG_PID", genConst("@as(i32, 1)") }, .{ "LOG_CONS", genConst("@as(i32, 2)") }, .{ "LOG_ODELAY", genConst("@as(i32, 4)") }, .{ "LOG_NDELAY", genConst("@as(i32, 8)") },
+    .{ "LOG_NOWAIT", genConst("@as(i32, 16)") }, .{ "LOG_PERROR", genConst("@as(i32, 32)") },
     .{ "LOG_MASK", genLOG_MASK }, .{ "LOG_UPTO", genLOG_UPTO },
 });
 

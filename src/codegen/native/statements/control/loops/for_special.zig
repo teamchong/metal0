@@ -107,8 +107,8 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         }
     }
 
-    // Check if item variable is used in body
-    const item_var_used = param_analyzer.isNameUsedInBody(body, item_var);
+    // Check if item variable is used in body - if item_is_tuple, we always need it for unpacking
+    const item_var_used = item_is_tuple or param_analyzer.isNameUsedInBody(body, item_var);
 
     try self.emit(") |");
     if (!item_var_used) {

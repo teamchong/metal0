@@ -18,7 +18,11 @@ fn isNoneArg(arg: ast.Node) bool {
 /// Generate code for abs(n)
 /// Returns absolute value
 pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    if (args.len != 1) {
+        // abs() requires exactly one argument - generate an error union for assertRaises
+        try self.emit("(error.TypeError)");
+        return;
+    }
 
     // Check if arg is a bool - need to cast to int first since @abs doesn't work on bool
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
@@ -40,7 +44,10 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for min(a, b, ...)
 /// Returns minimum value
 pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) {
+        try self.emit("(error.TypeError)");
+        return;
+    }
 
     if (args.len == 1) {
         // Single argument - iterable case: min([1, 2, 3]) or min(some_sequence)
@@ -65,7 +72,10 @@ pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for max(a, b, ...)
 /// Returns maximum value
 pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) {
+        try self.emit("(error.TypeError)");
+        return;
+    }
 
     if (args.len == 1) {
         // Single argument - iterable case: max([1, 2, 3]) or max(some_sequence)
@@ -118,7 +128,10 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for pow(base, exp) or pow(base, exp, mod)
 /// Returns base^exp or base^exp % mod (modular exponentiation)
 pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) {
+        try self.emit("(error.TypeError)");
+        return;
+    }
 
     if (args.len == 3) {
         // pow(base, exp, mod) - modular exponentiation
@@ -144,7 +157,10 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for chr(n)
 /// Converts integer to character
 pub fn genChr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    if (args.len != 1) {
+        try self.emit("(error.TypeError)");
+        return;
+    }
 
     // Generate: &[_]u8{@intCast(n)}
     try self.emit("&[_]u8{@intCast(");
@@ -155,7 +171,10 @@ pub fn genChr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for ord(c)
 /// Converts character to integer
 pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    if (args.len != 1) {
+        try self.emit("(error.TypeError)");
+        return;
+    }
 
     // Generate: @as(i64, str[0])
     // Assumes single-char string
@@ -167,7 +186,10 @@ pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for divmod(a, b)
 /// Returns tuple (a // b, a % b)
 pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 2) return;
+    if (args.len != 2) {
+        try self.emit("(error.TypeError)");
+        return;
+    }
 
     // Check if either argument is BigInt or unknown (could be anytype)
     const left_type = self.inferExprScoped(args[0]) catch .unknown;
@@ -200,7 +222,10 @@ pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for hash(obj)
 /// Returns integer hash of object
 pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    if (args.len != 1) {
+        try self.emit("(error.TypeError)");
+        return;
+    }
 
     // Check the type of the argument to generate appropriate code
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;

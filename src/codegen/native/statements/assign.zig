@@ -883,8 +883,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Handle subscript assignment: self.routes[path] = handler, dict[key] = value
             const subscript = target.subscript;
 
-            // Only handle index subscripts for now (not slices)
             if (subscript.slice == .index) {
+                // Index subscript: arr[idx] = value
                 // Determine the container type to generate appropriate code
                 const container_type = try self.inferExprScoped(subscript.value.*);
 
@@ -916,6 +916,118 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.genExpr(assign.value.*);
                     try self.emit(";\n");
                 }
+            } else if (subscript.slice == .slice) {
+                // Slice assignment: a[:] = data, a[1:3] = [x, y]
+                // This replaces the slice with the contents of the RHS
+                const slice = subscript.slice.slice;
+                const container_type = try self.inferExprScoped(subscript.value.*);
+                const is_full_slice = slice.lower == null and slice.upper == null;
+
+                try self.emitIndent();
+                try self.emit("{\n");
+                self.indent_level += 1;
+
+                // Get container reference
+                try self.emitIndent();
+                try self.emit("const __slice_target = &");
+                try self.genExpr(subscript.value.*);
+                try self.emit(";\n");
+
+                // Get source data
+                try self.emitIndent();
+                try self.emit("const __slice_src = ");
+                try self.genExpr(assign.value.*);
+                try self.emit(";\n");
+
+                if (container_type == .list) {
+                    if (is_full_slice) {
+                        // a[:] = data - replace entire list
+                        try self.emitIndent();
+                        try self.emit("__slice_target.clearRetainingCapacity();\n");
+                        try self.emitIndent();
+                        try self.emit("for (__slice_src.items) |__item| {\n");
+                        self.indent_level += 1;
+                        try self.emitIndent();
+                        try self.emit("__slice_target.append(__global_allocator, __item) catch {};\n");
+                        self.indent_level -= 1;
+                        try self.emitIndent();
+                        try self.emit("}\n");
+                    } else {
+                        // a[start:end] = data - replace slice with new data
+                        // Calculate start and end indices
+                        try self.emitIndent();
+                        if (slice.lower) |lower| {
+                            try self.emit("const __slice_start: usize = @intCast(");
+                            try self.genExpr(lower.*);
+                            try self.emit(");\n");
+                        } else {
+                            try self.emit("const __slice_start: usize = 0;\n");
+                        }
+
+                        try self.emitIndent();
+                        if (slice.upper) |upper| {
+                            try self.emit("const __slice_end: usize = @intCast(");
+                            try self.genExpr(upper.*);
+                            try self.emit(");\n");
+                        } else {
+                            try self.emit("const __slice_end: usize = __slice_target.items.len;\n");
+                        }
+
+                        // Remove elements in [start, end) range
+                        try self.emitIndent();
+                        try self.emit("var __i: usize = __slice_start;\n");
+                        try self.emitIndent();
+                        try self.emit("while (__i < __slice_end) : (__i += 1) {\n");
+                        self.indent_level += 1;
+                        try self.emitIndent();
+                        try self.emit("_ = __slice_target.orderedRemove(__slice_start);\n");
+                        self.indent_level -= 1;
+                        try self.emitIndent();
+                        try self.emit("}\n");
+
+                        // Insert new elements at start position
+                        try self.emitIndent();
+                        try self.emit("var __j: usize = 0;\n");
+                        try self.emitIndent();
+                        try self.emit("for (__slice_src.items) |__item| {\n");
+                        self.indent_level += 1;
+                        try self.emitIndent();
+                        try self.emit("__slice_target.insert(__global_allocator, __slice_start + __j, __item) catch {};\n");
+                        try self.emitIndent();
+                        try self.emit("__j += 1;\n");
+                        self.indent_level -= 1;
+                        try self.emitIndent();
+                        try self.emit("}\n");
+                    }
+                } else {
+                    // Fixed array/slice: copy items
+                    try self.emitIndent();
+                    if (slice.lower) |lower| {
+                        try self.emit("const __slice_start: usize = @intCast(");
+                        try self.genExpr(lower.*);
+                        try self.emit(");\n");
+                    } else {
+                        try self.emit("const __slice_start: usize = 0;\n");
+                    }
+
+                    try self.emitIndent();
+                    if (slice.upper) |upper| {
+                        try self.emit("const __slice_end: usize = @intCast(");
+                        try self.genExpr(upper.*);
+                        try self.emit(");\n");
+                    } else {
+                        try self.emit("const __slice_end: usize = __slice_target.len;\n");
+                    }
+
+                    try self.emitIndent();
+                    try self.emit("const __copy_len = @min(__slice_end - __slice_start, __slice_src.len);\n");
+                    try self.emitIndent();
+                    try self.emit("@memcpy(__slice_target.*[__slice_start..][0..__copy_len], __slice_src[0..__copy_len]);\n");
+                }
+
+                self.indent_level -= 1;
+                try self.emitIndent();
+                try self.emit("}\n");
             }
         }
     }

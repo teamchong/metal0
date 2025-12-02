@@ -381,7 +381,7 @@ const XmlrpcClientFuncs = xmlrpc_mod.ClientFuncs;
 const XmlrpcServerFuncs = xmlrpc_mod.ServerFuncs;
 
 /// stat module functions (same as _stat)
-const StatFuncs = _stat_mod.Funcs;
+const StatFuncs = stat_mod.Funcs;
 
 /// opcode module functions (moved to opcode_mod.zig)
 const OpcodeFuncs = opcode_mod.Funcs;
