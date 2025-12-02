@@ -355,68 +355,71 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "object", genObject },
     .{ "breakpoint", genBreakpoint },
     .{ "__import__", genImport },
-    .{ "Exception", genException },
-    .{ "BaseException", genBaseException },
-    .{ "TypeError", genTypeError },
-    .{ "ValueError", genValueError },
-    .{ "KeyError", genKeyError },
-    .{ "IndexError", genIndexError },
-    .{ "AttributeError", genAttributeError },
-    .{ "NameError", genNameError },
-    .{ "RuntimeError", genRuntimeError },
-    .{ "StopIteration", genStopIteration },
-    .{ "GeneratorExit", genGeneratorExit },
-    .{ "ArithmeticError", genArithmeticError },
-    .{ "ZeroDivisionError", genZeroDivisionError },
-    .{ "OverflowError", genOverflowError },
-    .{ "FloatingPointError", genFloatingPointError },
-    .{ "LookupError", genLookupError },
-    .{ "AssertionError", genAssertionError },
-    .{ "ImportError", genImportError },
-    .{ "ModuleNotFoundError", genModuleNotFoundError },
-    .{ "OSError", genOSError },
-    .{ "FileNotFoundError", genFileNotFoundError },
-    .{ "FileExistsError", genFileExistsError },
-    .{ "PermissionError", genPermissionError },
-    .{ "IsADirectoryError", genIsADirectoryError },
-    .{ "NotADirectoryError", genNotADirectoryError },
-    .{ "TimeoutError", genTimeoutError },
-    .{ "ConnectionError", genConnectionError },
-    .{ "BrokenPipeError", genBrokenPipeError },
-    .{ "ConnectionAbortedError", genConnectionAbortedError },
-    .{ "ConnectionRefusedError", genConnectionRefusedError },
-    .{ "ConnectionResetError", genConnectionResetError },
-    .{ "EOFError", genEOFError },
-    .{ "MemoryError", genMemoryError },
-    .{ "RecursionError", genRecursionError },
-    .{ "SystemError", genSystemError },
-    .{ "SystemExit", genSystemExit },
-    .{ "KeyboardInterrupt", genKeyboardInterrupt },
-    .{ "NotImplementedError", genNotImplementedError },
-    .{ "IndentationError", genIndentationError },
-    .{ "TabError", genTabError },
-    .{ "SyntaxError", genSyntaxError },
-    .{ "UnicodeError", genUnicodeError },
-    .{ "UnicodeDecodeError", genUnicodeDecodeError },
-    .{ "UnicodeEncodeError", genUnicodeEncodeError },
-    .{ "UnicodeTranslateError", genUnicodeTranslateError },
-    .{ "BufferError", genBufferError },
-    .{ "Warning", genWarning },
-    .{ "UserWarning", genUserWarning },
-    .{ "DeprecationWarning", genDeprecationWarning },
-    .{ "PendingDeprecationWarning", genPendingDeprecationWarning },
-    .{ "SyntaxWarning", genSyntaxWarning },
-    .{ "RuntimeWarning", genRuntimeWarning },
-    .{ "FutureWarning", genFutureWarning },
-    .{ "ImportWarning", genImportWarning },
-    .{ "UnicodeWarning", genUnicodeWarning },
-    .{ "BytesWarning", genBytesWarning },
-    .{ "ResourceWarning", genResourceWarning },
-    .{ "True", genTrue },
-    .{ "False", genFalse },
-    .{ "None", genNone },
-    .{ "Ellipsis", genEllipsis },
-    .{ "NotImplemented", genNotImplemented },
+    // Exception types - use comptime generator
+    .{ "Exception", genError("Exception") },
+    .{ "BaseException", genError("BaseException") },
+    .{ "TypeError", genError("TypeError") },
+    .{ "ValueError", genError("ValueError") },
+    .{ "KeyError", genError("KeyError") },
+    .{ "IndexError", genError("IndexError") },
+    .{ "AttributeError", genError("AttributeError") },
+    .{ "NameError", genError("NameError") },
+    .{ "RuntimeError", genError("RuntimeError") },
+    .{ "StopIteration", genError("StopIteration") },
+    .{ "GeneratorExit", genError("GeneratorExit") },
+    .{ "ArithmeticError", genError("ArithmeticError") },
+    .{ "ZeroDivisionError", genError("ZeroDivisionError") },
+    .{ "OverflowError", genError("OverflowError") },
+    .{ "FloatingPointError", genError("FloatingPointError") },
+    .{ "LookupError", genError("LookupError") },
+    .{ "AssertionError", genError("AssertionError") },
+    .{ "ImportError", genError("ImportError") },
+    .{ "ModuleNotFoundError", genError("ModuleNotFoundError") },
+    .{ "OSError", genError("OSError") },
+    .{ "FileNotFoundError", genError("FileNotFoundError") },
+    .{ "FileExistsError", genError("FileExistsError") },
+    .{ "PermissionError", genError("PermissionError") },
+    .{ "IsADirectoryError", genError("IsADirectoryError") },
+    .{ "NotADirectoryError", genError("NotADirectoryError") },
+    .{ "TimeoutError", genError("TimeoutError") },
+    .{ "ConnectionError", genError("ConnectionError") },
+    .{ "BrokenPipeError", genError("BrokenPipeError") },
+    .{ "ConnectionAbortedError", genError("ConnectionAbortedError") },
+    .{ "ConnectionRefusedError", genError("ConnectionRefusedError") },
+    .{ "ConnectionResetError", genError("ConnectionResetError") },
+    .{ "EOFError", genError("EOFError") },
+    .{ "MemoryError", genError("MemoryError") },
+    .{ "RecursionError", genError("RecursionError") },
+    .{ "SystemError", genError("SystemError") },
+    .{ "SystemExit", genError("SystemExit") },
+    .{ "KeyboardInterrupt", genError("KeyboardInterrupt") },
+    .{ "NotImplementedError", genError("NotImplementedError") },
+    .{ "IndentationError", genError("IndentationError") },
+    .{ "TabError", genError("TabError") },
+    .{ "SyntaxError", genError("SyntaxError") },
+    .{ "UnicodeError", genError("UnicodeError") },
+    .{ "UnicodeDecodeError", genError("UnicodeDecodeError") },
+    .{ "UnicodeEncodeError", genError("UnicodeEncodeError") },
+    .{ "UnicodeTranslateError", genError("UnicodeTranslateError") },
+    .{ "BufferError", genError("BufferError") },
+    // Warning types
+    .{ "Warning", genError("Warning") },
+    .{ "UserWarning", genError("UserWarning") },
+    .{ "DeprecationWarning", genError("DeprecationWarning") },
+    .{ "PendingDeprecationWarning", genError("PendingDeprecationWarning") },
+    .{ "SyntaxWarning", genError("SyntaxWarning") },
+    .{ "RuntimeWarning", genError("RuntimeWarning") },
+    .{ "FutureWarning", genError("FutureWarning") },
+    .{ "ImportWarning", genError("ImportWarning") },
+    .{ "UnicodeWarning", genError("UnicodeWarning") },
+    .{ "BytesWarning", genError("BytesWarning") },
+    .{ "ResourceWarning", genError("ResourceWarning") },
+    // Constants
+    .{ "True", genConst("true") },
+    .{ "False", genConst("false") },
+    .{ "None", genConst("null") },
+    .{ "Ellipsis", genConst(".{}") },
+    .{ "NotImplemented", genConst(".{}") },
 });
 
 /// Generate builtins.id
@@ -575,324 +578,21 @@ pub fn genImport(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("@as(?*anyopaque, null)");
 }
 
-// ============================================================================
-// Exception types accessible via builtins
-// ============================================================================
-
-pub fn genException(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.Exception");
+// Comptime generators for error types and constants
+fn genError(comptime name: []const u8) ModuleHandler {
+    return struct {
+        fn handler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+            _ = args;
+            try self.emit("error." ++ name);
+        }
+    }.handler;
 }
 
-pub fn genBaseException(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.BaseException");
-}
-
-pub fn genTypeError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.TypeError");
-}
-
-pub fn genValueError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ValueError");
-}
-
-pub fn genKeyError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.KeyError");
-}
-
-pub fn genIndexError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.IndexError");
-}
-
-pub fn genAttributeError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.AttributeError");
-}
-
-pub fn genNameError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NameError");
-}
-
-pub fn genRuntimeError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.RuntimeError");
-}
-
-pub fn genStopIteration(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.StopIteration");
-}
-
-pub fn genGeneratorExit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.GeneratorExit");
-}
-
-pub fn genArithmeticError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ArithmeticError");
-}
-
-pub fn genZeroDivisionError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ZeroDivisionError");
-}
-
-pub fn genOverflowError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.OverflowError");
-}
-
-pub fn genFloatingPointError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.FloatingPointError");
-}
-
-pub fn genLookupError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.LookupError");
-}
-
-pub fn genAssertionError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.AssertionError");
-}
-
-pub fn genImportError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ImportError");
-}
-
-pub fn genModuleNotFoundError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ModuleNotFoundError");
-}
-
-pub fn genOSError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.OSError");
-}
-
-pub fn genFileNotFoundError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.FileNotFoundError");
-}
-
-pub fn genFileExistsError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.FileExistsError");
-}
-
-pub fn genPermissionError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.PermissionError");
-}
-
-pub fn genIsADirectoryError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.IsADirectoryError");
-}
-
-pub fn genNotADirectoryError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NotADirectoryError");
-}
-
-pub fn genTimeoutError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.TimeoutError");
-}
-
-pub fn genConnectionError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ConnectionError");
-}
-
-pub fn genBrokenPipeError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.BrokenPipeError");
-}
-
-pub fn genConnectionAbortedError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ConnectionAbortedError");
-}
-
-pub fn genConnectionRefusedError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ConnectionRefusedError");
-}
-
-pub fn genConnectionResetError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ConnectionResetError");
-}
-
-pub fn genEOFError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.EOFError");
-}
-
-pub fn genMemoryError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.MemoryError");
-}
-
-pub fn genRecursionError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.RecursionError");
-}
-
-pub fn genSystemError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SystemError");
-}
-
-pub fn genSystemExit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SystemExit");
-}
-
-pub fn genKeyboardInterrupt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.KeyboardInterrupt");
-}
-
-pub fn genNotImplementedError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.NotImplementedError");
-}
-
-pub fn genIndentationError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.IndentationError");
-}
-
-pub fn genTabError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.TabError");
-}
-
-pub fn genSyntaxError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SyntaxError");
-}
-
-pub fn genUnicodeError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.UnicodeError");
-}
-
-pub fn genUnicodeDecodeError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.UnicodeDecodeError");
-}
-
-pub fn genUnicodeEncodeError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.UnicodeEncodeError");
-}
-
-pub fn genUnicodeTranslateError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.UnicodeTranslateError");
-}
-
-pub fn genBufferError(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.BufferError");
-}
-
-// ============================================================================
-// Warning types
-// ============================================================================
-
-pub fn genWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.Warning");
-}
-
-pub fn genUserWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.UserWarning");
-}
-
-pub fn genDeprecationWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.DeprecationWarning");
-}
-
-pub fn genPendingDeprecationWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.PendingDeprecationWarning");
-}
-
-pub fn genSyntaxWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.SyntaxWarning");
-}
-
-pub fn genRuntimeWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.RuntimeWarning");
-}
-
-pub fn genFutureWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.FutureWarning");
-}
-
-pub fn genImportWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ImportWarning");
-}
-
-pub fn genUnicodeWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.UnicodeWarning");
-}
-
-pub fn genBytesWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.BytesWarning");
-}
-
-pub fn genResourceWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("error.ResourceWarning");
-}
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-pub fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("true");
-}
-
-pub fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("false");
-}
-
-pub fn genNone(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("null");
-}
-
-pub fn genEllipsis(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}"); // Ellipsis singleton
-}
-
-pub fn genNotImplemented(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{}"); // NotImplemented singleton
+fn genConst(comptime value: []const u8) ModuleHandler {
+    return struct {
+        fn handler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+            _ = args;
+            try self.emit(value);
+        }
+    }.handler;
 }
