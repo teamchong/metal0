@@ -1,15 +1,8 @@
 /// Python _dbm module - Internal dbm support (C accelerator)
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "open", genConst(".{}") }, .{ "error", genConst("error.DbmError") }, .{ "close", genConst("{}") },
-    .{ "keys", genConst("&[_][]const u8{}") }, .{ "get", genConst("null") }, .{ "setdefault", genConst("\"\"") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "open", h.c(".{}") }, .{ "error", h.err("DbmError") }, .{ "close", h.c("{}") },
+    .{ "keys", h.c("&[_][]const u8{}") }, .{ "get", h.c("null") }, .{ "setdefault", h.c("\"\"") },
 });
