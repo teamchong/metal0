@@ -534,9 +534,18 @@ pub fn genFunctionBody(
         }
     }
 
-    // NOTE: Forward-referenced captured variables (class captures variable before it's declared)
-    // are a complex edge case that requires runtime type erasure. For now, these patterns
-    // may fail to compile. See test_equal_operator_modifying_operand for an example.
+    // Forward-referenced captured variables: emit var declarations with undefined
+    // before the class definitions, so `&list2` doesn't fail with "undeclared"
+    var forward_refs = try nested_captures.findForwardReferencedCaptures(self, func.body);
+    defer forward_refs.deinit(self.allocator);
+    for (forward_refs.items) |fwd_var| {
+        try self.emitIndent();
+        try self.emit("var ");
+        try self.emit(fwd_var);
+        try self.emit(": std.ArrayList(*anyopaque) = undefined;\n");
+        // Mark as forward-declared so assignment doesn't re-declare
+        try self.forward_declared_vars.put(fwd_var, {});
+    }
 
     // Detect type-check-raise patterns at the start of the function body for anytype params
     // These need comptime branching to prevent invalid type instantiations from being analyzed
