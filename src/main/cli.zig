@@ -109,6 +109,10 @@ pub fn main() !void {
         try cmdRun(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "test")) {
         try cmdTest(allocator);
+    } else if (std.mem.eql(u8, command, "test-batch")) {
+        try cmdTestBatch(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "setup-runtime")) {
+        try cmdSetupRuntime(allocator);
     } else if (std.mem.eql(u8, command, "version")) {
         cmdVersion();
     } else if (std.mem.eql(u8, command, "help")) {
@@ -823,6 +827,172 @@ fn cmdTest(allocator: std.mem.Allocator) !void {
     } else {
         printError("{d} passed, {d} failed", .{ p, f });
     }
+}
+
+/// Setup runtime files in .metal0/cache/ (Phase 0 for batch compilation)
+fn cmdSetupRuntime(allocator: std.mem.Allocator) !void {
+    const compiler_mod = @import("../compiler.zig");
+    try compiler_mod.setupRuntimeFiles(allocator);
+    printSuccess("Runtime files ready in .metal0/cache/", .{});
+}
+
+/// 3-phase batch test: codegen → compile → run (all parallel)
+fn cmdTestBatch(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    // Parse test directory from args or default to tests/cpython
+    const test_dir = if (args.len > 0) args[0] else "tests/cpython";
+
+    printInfo("=== 3-Phase Batch Test ===", .{});
+
+    // Phase 0: Setup runtime files once
+    std.debug.print("Phase 0: Setting up runtime...\n", .{});
+    const compiler_mod = @import("../compiler.zig");
+    try compiler_mod.setupRuntimeFiles(allocator);
+
+    // Discover test files
+    var test_files = std.ArrayList([]const u8){};
+    defer {
+        for (test_files.items) |f| allocator.free(f);
+        test_files.deinit(allocator);
+    }
+
+    if (std.fs.cwd().openDir(test_dir, .{ .iterate = true })) |dir| {
+        var d = dir;
+        var iter = d.iterate();
+        while (iter.next() catch null) |entry| {
+            if (entry.kind == .file and std.mem.startsWith(u8, entry.name, "test_") and std.mem.endsWith(u8, entry.name, ".py")) {
+                const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ test_dir, entry.name });
+                try test_files.append(allocator, path);
+            }
+        }
+    } else |_| {
+        printError("Cannot open test directory: {s}", .{test_dir});
+        return;
+    }
+
+    const total = test_files.items.len;
+    if (total == 0) {
+        printWarn("No test files found in {s}", .{test_dir});
+        return;
+    }
+
+    // Phase 1: Parallel codegen (emit .zig files only)
+    std.debug.print("Phase 1: Codegen ({d} files)...\n", .{total});
+
+    var codegen_passed = std.atomic.Value(usize).init(0);
+    var codegen_results = std.ArrayList([]const u8){};
+    defer {
+        for (codegen_results.items) |r| allocator.free(r);
+        codegen_results.deinit(allocator);
+    }
+
+    // Sequential codegen for now (parallel causes race conditions in file writes)
+    for (test_files.items) |file_path| {
+        const opts = CompileOptions{ .input_file = file_path, .mode = "build", .force = true, .emit_zig_only = true };
+        compile.compileFile(allocator, opts) catch continue;
+        _ = codegen_passed.fetchAdd(1, .monotonic);
+
+        // Extract test name for zig file path
+        const basename = std.fs.path.basename(file_path);
+        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
+        const zig_path = try std.fmt.allocPrint(allocator, "{s}", .{stem});
+        try codegen_results.append(allocator, zig_path);
+    }
+
+    const codegen_ok = codegen_passed.load(.acquire);
+    std.debug.print("  ✓ Codegen: {d}/{d}\n", .{ codegen_ok, total });
+
+    if (codegen_ok == 0) {
+        printError("All codegen failed", .{});
+        return;
+    }
+
+    // Phase 2: Batch compile using zig (parallel via zig's job system)
+    std.debug.print("Phase 2: Compiling {d} zig files...\n", .{codegen_ok});
+
+    var compile_passed = std.atomic.Value(usize).init(0);
+    var bin_paths = std.ArrayList([]const u8){};
+    defer {
+        for (bin_paths.items) |p| allocator.free(p);
+        bin_paths.deinit(allocator);
+    }
+
+    // Compile each zig file
+    for (codegen_results.items) |test_name| {
+        const zig_path = try std.fmt.allocPrint(allocator, ".metal0/cache/metal0_main_{s}.zig", .{test_name});
+        defer allocator.free(zig_path);
+
+        // Check if zig file exists (may have different naming)
+        const actual_zig = blk: {
+            if (std.fs.cwd().access(zig_path, .{})) |_| {
+                break :blk zig_path;
+            } else |_| {
+                // Try alternate naming
+                const alt_path = try std.fmt.allocPrint(allocator, ".metal0/cache/{s}.zig", .{test_name});
+                if (std.fs.cwd().access(alt_path, .{})) |_| {
+                    break :blk alt_path;
+                } else |_| {
+                    allocator.free(alt_path);
+                    continue;
+                }
+            }
+        };
+
+        const bin_path = try std.fmt.allocPrint(allocator, ".metal0/cache/cpython_bin/{s}", .{test_name});
+
+        // Run zig build-exe
+        const result = std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &[_][]const u8{
+                "zig",           "build-exe",
+                "-OReleaseFast", "-lc",
+                "-fno-stack-check",
+                try std.fmt.allocPrint(allocator, "-I.metal0/cache", .{}),
+                actual_zig,
+                try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{bin_path}),
+            },
+        }) catch {
+            allocator.free(bin_path);
+            continue;
+        };
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+
+        if (result.term.Exited == 0) {
+            _ = compile_passed.fetchAdd(1, .monotonic);
+            try bin_paths.append(allocator, bin_path);
+        } else {
+            allocator.free(bin_path);
+        }
+    }
+
+    const compile_ok = compile_passed.load(.acquire);
+    std.debug.print("  ✓ Compile: {d}/{d}\n", .{ compile_ok, codegen_ok });
+
+    // Phase 3: Run binaries
+    std.debug.print("Phase 3: Running {d} binaries...\n", .{compile_ok});
+
+    var run_passed = std.atomic.Value(usize).init(0);
+
+    for (bin_paths.items) |bin_path| {
+        const result = std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &[_][]const u8{bin_path},
+        }) catch {
+            continue;
+        };
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+
+        if (result.term.Exited == 0) {
+            _ = run_passed.fetchAdd(1, .monotonic);
+        }
+    }
+
+    const passed = run_passed.load(.acquire);
+    const failed = total - passed;
+
+    std.debug.print("\n", .{});
+    std.debug.print("CPython: {d}/{d} passed ({d} failed)\n", .{ passed, total, failed });
 }
 
 // Python-compatible commands (drop-in replacement for python3)

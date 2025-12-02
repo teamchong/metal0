@@ -3,7 +3,8 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "argv", h.c("blk: { const _os_args = std.os.argv; var _argv: std.ArrayList([]const u8) = .{}; for (_os_args) |arg| { _argv.append(__global_allocator, std.mem.span(arg)) catch continue; } break :blk _argv.items; }") },
+    // sys.argv references mutable global __sys_argv (initialized in main, can be assigned)
+    .{ "argv", h.c("__sys_argv") },
     .{ "exit", h.wrap("blk: { const _code: u8 = @intCast(", "); std.process.exit(_code); break :blk; }", "blk: { std.process.exit(0); break :blk; }") },
     .{ "path", h.c("&[_][]const u8{\".\" }") },
     .{ "platform", h.c("blk: { const _b = @import(\"builtin\"); break :blk switch (_b.os.tag) { .linux => \"linux\", .macos => \"darwin\", .windows => \"win32\", .freebsd => \"freebsd\", else => \"unknown\" }; }") },

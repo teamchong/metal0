@@ -37,7 +37,9 @@ pub fn genStandardClosure(
     try self.output.writer(self.allocator).print("const {s} = struct {{", .{capture_type_name});
     for (captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.emit(", ");
-        try self.output.writer(self.allocator).print(" {s}: i64", .{var_name});
+        try self.emit(" ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try self.emit(": i64");
     }
     try self.emit(" };\n");
 
@@ -291,7 +293,9 @@ pub fn genNestedFunctionWithOuterCapture(
     try self.output.writer(self.allocator).print("const {s} = struct {{", .{capture_type_name});
     for (captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.emit(", ");
-        try self.output.writer(self.allocator).print(" {s}: i64", .{var_name});
+        try self.emit(" ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try self.emit(": i64");
     }
     try self.emit(" };\n");
 

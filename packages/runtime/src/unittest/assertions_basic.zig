@@ -24,7 +24,10 @@ fn equalArrayList(a: anytype, b: anytype) bool {
             // Union types (like PyValue) - compare using deepEqualUnion
             if (!deepEqualUnion(a_elem, b_elem)) return false;
         } else if (@TypeOf(a_elem) == @TypeOf(b_elem)) {
-            if (!std.meta.eql(a_elem, b_elem)) return false;
+            // For slices, compare content not pointers
+            if (a_elem_info == .pointer and a_elem_info.pointer.size == .slice) {
+                if (!std.mem.eql(a_elem_info.pointer.child, a_elem, b_elem)) return false;
+            } else if (!std.meta.eql(a_elem, b_elem)) return false;
         } else {
             // Different types - try string comparison with __base_value__
             if (!equalWithBaseValue(a_elem, b_elem)) return false;
@@ -991,8 +994,14 @@ pub fn assertIn(item: anytype, container: anytype) void {
                     if (std.meta.eql(elem, item)) break :elem_blk true;
                 }
                 break :elem_blk false;
-            } else {
-                @compileError("assertIn: unsupported struct container type");
+            }
+            // User-defined class with __contains__ method (Python dunder)
+            else if (comptime @hasDecl(ContainerType, "__contains__")) {
+                break :elem_blk container.__contains__(item);
+            }
+            // Fallback for other structs - just return false (item not found)
+            else {
+                break :elem_blk false;
             }
         }
         // Arrays and slices - iterate directly
@@ -1072,8 +1081,14 @@ pub fn assertNotIn(item: anytype, container: anytype) void {
                     if (std.meta.eql(elem, item)) break :elem_blk true;
                 }
                 break :elem_blk false;
-            } else {
-                @compileError("assertNotIn: unsupported struct container type");
+            }
+            // User-defined class with __contains__ method (Python dunder)
+            else if (comptime @hasDecl(ContainerType, "__contains__")) {
+                break :elem_blk container.__contains__(item);
+            }
+            // Fallback for other structs - just return false (item not found)
+            else {
+                break :elem_blk false;
             }
         }
         // Arrays and slices - iterate directly

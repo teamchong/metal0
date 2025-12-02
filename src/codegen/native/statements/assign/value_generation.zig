@@ -65,15 +65,24 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
             }
 
+            // Use renamed version if in var_renames map (for exception handling)
+            const actual_name = self.var_renames.get(var_name) orelse var_name;
+
+            // Check if renamed name is a pointer dereference (ends with ".*")
+            // If so, this is a pointer assignment inside a try block helper - no const/var prefix needed
+            const is_pointer_deref = std.mem.endsWith(u8, actual_name, ".*");
+
             try self.emitIndent();
-            if (is_first_assignment) {
+            if (is_first_assignment and !is_pointer_deref) {
                 try self.emit("const ");
                 try self.declareVar(var_name);
             }
-            // Use renamed version if in var_renames map (for exception handling)
-            const actual_name = self.var_renames.get(var_name) orelse var_name;
             // Use writeLocalVarName to handle keywords AND method shadowing
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+            if (is_pointer_deref) {
+                try self.emit(actual_name);
+            } else {
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+            }
             if (is_list_type) {
                 // Use .items[i] for ArrayLists: __unpack_tmp_N.items[i]
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
@@ -168,15 +177,24 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
             }
 
+            // Use renamed version if in var_renames map (for exception handling)
+            const actual_name = self.var_renames.get(var_name) orelse var_name;
+
+            // Check if renamed name is a pointer dereference (ends with ".*")
+            // If so, this is a pointer assignment inside a try block helper - no const/var prefix needed
+            const is_pointer_deref = std.mem.endsWith(u8, actual_name, ".*");
+
             try self.emitIndent();
-            if (is_first_assignment) {
+            if (is_first_assignment and !is_pointer_deref) {
                 try self.emit("const ");
                 try self.declareVar(var_name);
             }
-            // Use renamed version if in var_renames map (for exception handling)
-            const actual_name = self.var_renames.get(var_name) orelse var_name;
             // Use writeLocalVarName to handle keywords AND method shadowing
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+            if (is_pointer_deref) {
+                try self.emit(actual_name);
+            } else {
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+            }
             if (is_list_type) {
                 // Use .items[i] for ArrayLists: __unpack_tmp_N.items[i]
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
@@ -239,6 +257,18 @@ pub fn emitVarDeclaration(
         return;
     }
 
+    // Use renamed version if in var_renames map (for exception handling)
+    const actual_name = self.var_renames.get(var_name) orelse var_name;
+
+    // Check if renamed name is a pointer dereference (ends with ".*")
+    // If so, this is a pointer assignment inside a try block helper - no const/var prefix needed
+    // Example: p_attr.* = ... (assigning through pointer, not declaring new variable)
+    if (std.mem.endsWith(u8, actual_name, ".*")) {
+        try self.emit(actual_name);
+        try self.emit(" = ");
+        return;
+    }
+
     // Check if variable is mutated (reassigned later)
     // This checks both module-level analysis AND function-local mutations
     const is_mutated = self.isVarMutated(var_name);
@@ -271,9 +301,6 @@ pub fn emitVarDeclaration(
     } else {
         try self.emit("const ");
     }
-
-    // Use renamed version if in var_renames map (for exception handling)
-    const actual_name = self.var_renames.get(var_name) orelse var_name;
 
     // Use writeLocalVarName to handle keywords AND method shadowing
     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);

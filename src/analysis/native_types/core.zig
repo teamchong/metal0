@@ -379,14 +379,15 @@ pub const NativeType = union(enum) {
             }
         }
 
-        // Handle None/optional widening: None + T = ?T
+        // Handle None/optional widening: None + T -> pyvalue (heterogeneous)
+        // Note: We can't create .optional here because we don't have an allocator
+        // to heap-allocate the inner type. Using pyvalue is safe and correct
+        // for runtime type handling.
         if (self_tag == .none and other_tag != .none) {
-            // Return optional version of other
-            return .{ .optional = @constCast(&other) };
+            return .pyvalue;
         }
         if (other_tag == .none and self_tag != .none) {
-            // Return optional version of self
-            return .{ .optional = @constCast(&self) };
+            return .pyvalue;
         }
 
         // String + non-numeric types = PyValue (heterogeneous list)

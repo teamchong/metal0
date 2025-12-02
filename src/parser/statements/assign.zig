@@ -45,6 +45,7 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
     }
 
     // Check if this is tuple unpacking (comma-separated targets)
+    // or a tuple expression statement like: foo(), bar()
     if (self.check(.Comma)) {
         var targets_list = std.ArrayList(ast.Node){};
         errdefer {
@@ -54,14 +55,26 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         try targets_list.append(self.allocator, expr);
 
         while (self.match(.Comma)) {
-            // Check for trailing comma before =
+            // Check for trailing comma before = or end of statement
             if (self.check(.Eq)) break;
+            // If next is newline/semicolon after comma, it's a trailing comma tuple expression
+            if (self.check(.Newline) or self.check(.Semicolon)) break;
             var target = try parseAssignTarget(self);
             errdefer target.deinit(self.allocator);
             try targets_list.append(self.allocator, target);
         }
 
-        if (!self.match(.Eq)) return error.UnexpectedToken;
+        // If there's no '=', this is a tuple expression statement, not assignment
+        if (!self.check(.Eq)) {
+            // Build tuple from the collected elements
+            const elts = try targets_list.toOwnedSlice(self.allocator);
+            targets_list = std.ArrayList(ast.Node){};
+            const tuple_expr = ast.Node{ .tuple = .{ .elts = elts } };
+            // Accept either newline or semicolon as statement terminator
+            if (!self.match(.Newline)) _ = self.match(.Semicolon);
+            return ast.Node{ .expr_stmt = .{ .value = try self.allocNode(tuple_expr) } };
+        }
+        _ = self.match(.Eq); // consume the '='
 
         // Create tuple from targets
         const targets_array = try targets_list.toOwnedSlice(self.allocator);

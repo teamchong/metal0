@@ -94,43 +94,58 @@ test-integration: build
 	done; \
 	echo "Integration: $$passed passed, $$failed failed"
 
-# CPython compatibility tests (3-phase: codegen parallel, zig parallel, run parallel)
+# CPython compatibility tests - TRUE 3-phase batch compilation
+# Phase 1: Setup runtime + parallel codegen (emit .zig only, FAST)
+# Phase 2: Batch zig compile (uses zig's parallelism)
+# Phase 3: Run all binaries in parallel
 test-cpython: build
-	@echo "=== Phase 1: Generating Zig code (parallel) ==="
-	@rm -rf .metal0/cache/cpython_tests && mkdir -p .metal0/cache/cpython_tests
-	@ls tests/cpython/test_*.py | xargs -P16 -I{} sh -c './zig-out/bin/metal0 "{}" --emit-zig --force >/dev/null 2>&1 || true'
-	@codegen_count=$$(ls .metal0/cache/*.zig 2>/dev/null | grep -E 'test_.*\.zig$$' | wc -l | tr -d ' '); \
-	echo "  ✓ Generated $$codegen_count Zig files"
-	@echo ""
-	@echo "=== Phase 2: Compiling binaries (parallel via xargs -P8) ==="
-	@total=$$(ls tests/cpython/test_*.py | wc -l | tr -d ' '); \
-	passed=$$(ls tests/cpython/test_*.py | xargs -P8 -I{} sh -c './zig-out/bin/metal0 "{}" --force >/dev/null 2>&1 && echo 1' 2>/dev/null | wc -l | tr -d ' '); \
+	@echo "=== CPython Tests (3-Phase Batch) ==="
+	@NCPU=$$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 8); \
+	total=$$(ls tests/cpython/test_*.py 2>/dev/null | wc -l | tr -d ' '); \
+	echo "Running $$total tests ($$NCPU parallel)..."; \
+	\
+	echo "Phase 1: Setup runtime + codegen..."; \
+	./zig-out/bin/metal0 setup-runtime 2>/dev/null; \
+	mkdir -p .metal0/cache/cpython_bin; \
+	rm -f /tmp/cpython_codegen_ok.txt; \
+	ls tests/cpython/test_*.py 2>/dev/null | xargs -P$$NCPU -I{} sh -c \
+		'./zig-out/bin/metal0 "{}" --emit-zig --force >/dev/null 2>&1 && basename "{}" .py >> /tmp/cpython_codegen_ok.txt' || true; \
+	codegen_ok=$$(wc -l < /tmp/cpython_codegen_ok.txt 2>/dev/null | tr -d ' ' || echo 0); \
+	echo "  Codegen: $$codegen_ok/$$total"; \
+	\
+	echo "Phase 2: Compile zig files..."; \
+	rm -f /tmp/cpython_compile_ok.txt; \
+	cat /tmp/cpython_codegen_ok.txt 2>/dev/null | xargs -P$$NCPU -I{} sh -c \
+		'zig build-exe -OReleaseFast -lc -fno-stack-check --cache-dir .zig-cache \
+			.metal0/cache/{}.zig -femit-bin=.metal0/cache/cpython_bin/{} 2>/dev/null && echo "{}" >> /tmp/cpython_compile_ok.txt' || true; \
+	compile_ok=$$(wc -l < /tmp/cpython_compile_ok.txt 2>/dev/null | tr -d ' ' || echo 0); \
+	echo "  Compile: $$compile_ok/$$codegen_ok"; \
+	\
+	echo "Phase 3: Run binaries..."; \
+	rm -f /tmp/cpython_run_ok.txt; \
+	cat /tmp/cpython_compile_ok.txt 2>/dev/null | xargs -P$$NCPU -I{} sh -c \
+		'.metal0/cache/cpython_bin/{} >/dev/null 2>&1 && echo "{}" >> /tmp/cpython_run_ok.txt' || true; \
+	passed=$$(wc -l < /tmp/cpython_run_ok.txt 2>/dev/null | tr -d ' ' || echo 0); \
 	failed=$$((total - passed)); \
+	echo ""; \
 	echo "CPython: $$passed/$$total passed ($$failed failed)"
 
-# CPython tests (single phase - for debugging individual test)
-test-cpython-seq: build
-	@echo "Running CPython tests (sequential)..."
-	@passed=0; failed=0; \
-	for f in tests/cpython/test_*.py; do \
-		if timeout 15 ./zig-out/bin/metal0 "$$f" --force >/dev/null 2>&1; then \
-			passed=$$((passed + 1)); \
-		else \
-			echo "✗ $$f"; \
-			failed=$$((failed + 1)); \
-		fi; \
-	done; \
-	echo "CPython: $$passed passed, $$failed failed"
-
-# CPython errors only - parallel error collection
+# Quick error summary - shows top errors across all tests
 test-cpython-errors: build
-	@echo "Collecting CPython test errors (parallel)..."
-	@ls tests/cpython/test_*.py | xargs -P16 -I{} sh -c './zig-out/bin/metal0 "{}" --force 2>&1 | grep -oE "error: [^$$]+" | head -1' 2>/dev/null | sort | uniq -c | sort -rn | head -40
+	@echo "Collecting errors (parallel)..."
+	@ls tests/cpython/test_*.py | xargs -P$$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 8) -I{} sh -c \
+		'./zig-out/bin/metal0 "{}" --force 2>&1 | grep -m1 "error:"' 2>/dev/null | \
+		sed 's/.*error:/error:/' | sort | uniq -c | sort -rn | head -30
 
-# Show specific failing tests with full errors
+# List failing test files
 test-cpython-failing: build
-	@echo "Finding failing tests..."
-	@ls tests/cpython/test_*.py | xargs -P16 -I{} sh -c 'if ! ./zig-out/bin/metal0 "{}" --force >/dev/null 2>&1; then echo "{}"; fi' 2>/dev/null | head -20
+	@ls tests/cpython/test_*.py | xargs -P$$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 8) -I{} sh -c \
+		'./zig-out/bin/metal0 "{}" --force >/dev/null 2>&1 || echo "{}"' 2>/dev/null
+
+# Debug single test
+test-cpython-one: build
+	@if [ -z "$(TEST)" ]; then echo "Usage: make test-cpython-one TEST=test_bool"; exit 1; fi
+	./zig-out/bin/metal0 tests/cpython/test_$(TEST).py --force
 
 # All tests
 test-all: build test-unit test-integration test-cpython

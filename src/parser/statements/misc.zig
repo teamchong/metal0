@@ -45,7 +45,8 @@ pub fn parseReturn(self: *Parser) ParseError!ast.Node {
         }
     } else null;
 
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
     return ast.Node{ .return_stmt = .{ .value = value_ptr } };
 }
@@ -403,7 +404,8 @@ pub fn parseRaise(self: *Parser) ParseError!ast.Node {
     }
     errdefer if (cause) |*c| c.deinit(self.allocator);
 
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
     return ast.Node{
         .raise_stmt = .{
@@ -415,19 +417,22 @@ pub fn parseRaise(self: *Parser) ParseError!ast.Node {
 
 pub fn parsePass(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Pass);
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
     return ast.Node{ .pass = {} };
 }
 
 pub fn parseBreak(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Break);
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
     return ast.Node{ .break_stmt = {} };
 }
 
 pub fn parseContinue(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Continue);
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
     return ast.Node{ .continue_stmt = {} };
 }
 
@@ -438,7 +443,8 @@ pub fn parseYield(self: *Parser) ParseError!ast.Node {
     if (self.match(.From)) {
         var value = try self.parseExpression();
         errdefer value.deinit(self.allocator);
-        _ = self.expect(.Newline) catch {};
+        // Accept either newline or semicolon as statement terminator
+        if (!self.match(.Newline)) _ = self.match(.Semicolon);
         return ast.Node{ .yield_from_stmt = .{ .value = try self.allocNode(value) } };
     }
 
@@ -472,14 +478,16 @@ pub fn parseYield(self: *Parser) ParseError!ast.Node {
         }
     } else null;
 
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
     return ast.Node{ .yield_stmt = .{ .value = value_ptr } };
 }
 
 pub fn parseEllipsis(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Ellipsis);
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
     return ast.Node{ .ellipsis_literal = {} };
 }
 
@@ -537,7 +545,8 @@ pub fn parseGlobal(self: *Parser) ParseError!ast.Node {
         try names.append(self.allocator, tok.lexeme);
     }
 
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
     return ast.Node{
         .global_stmt = .{
@@ -563,7 +572,8 @@ pub fn parseNonlocal(self: *Parser) ParseError!ast.Node {
         try names.append(self.allocator, tok.lexeme);
     }
 
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
     return ast.Node{
         .nonlocal_stmt = .{
@@ -594,7 +604,8 @@ pub fn parseDel(self: *Parser) ParseError!ast.Node {
         try targets.append(self.allocator, target);
     }
 
-    _ = self.expect(.Newline) catch {};
+    // Accept either newline or semicolon as statement terminator
+    if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
     // Success - transfer ownership
     const result = try targets.toOwnedSlice(self.allocator);

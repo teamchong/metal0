@@ -77,12 +77,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         const build_path = try std.fmt.allocPrint(self.allocator, BUILD_DIR ++ "/{s}" ++ MODULE_EXT, .{root_mod_name});
         defer self.allocator.free(build_path);
 
-        std.fs.cwd().access(build_path, .{}) catch |err| {
+        std.fs.cwd().access(build_path, .{}) catch {
             // Module not in cache, skip it
-            std.debug.print("[DEBUG generator] Module {s}: cache file not found at {s}, err={}\n", .{ root_mod_name, build_path, err });
             continue;
         };
-        std.debug.print("[DEBUG generator] Module {s}: generating @import for {s}\n", .{ root_mod_name, import_path });
 
         // Generate import statement (escape module name if it's a Zig keyword)
         const escaped_name = try zig_keywords.escapeIfKeyword(self.allocator, root_mod_name);
@@ -447,13 +445,19 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         return self.output.toOwnedSlice(self.allocator);
     }
 
+    // PHASE 5.4: Generate intern table for string literals (after first pass collects them)
+    // Note: The intern table is populated during code generation below
+    // We'll insert it at the end if needed
+
     // PHASE 5.5: Generate module-level allocator (only if needed)
     if (analysis.needs_allocator) {
         try self.emit("\n// Module-level allocator for async functions and f-strings\n");
         try self.emit("// Debug/WASM: GPA instance (release uses c_allocator, no instance needed)\n");
         try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};\n");
         try self.emit("var __global_allocator: std.mem.Allocator = undefined;\n");
-        try self.emit("var __allocator_initialized: bool = false;\n\n");
+        try self.emit("var __allocator_initialized: bool = false;\n");
+        // sys.argv mutable global - can be assigned by Python code
+        try self.emit("var __sys_argv: [][]const u8 = &[_][]const u8{};\n\n");
     }
 
     // PHASE 5.6: Generate module-level global variables (for 'global' keyword support)
@@ -599,6 +603,19 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("__global_allocator = allocator;\n");
         try self.emitIndent();
         try self.emit("__allocator_initialized = true;\n");
+        // Initialize sys.argv from OS args
+        try self.emitIndent();
+        try self.emit("__sys_argv = blk: {\n");
+        try self.emitIndent();
+        try self.emit("    const os_args = std.os.argv;\n");
+        try self.emitIndent();
+        try self.emit("    var argv_list = std.ArrayList([]const u8){};\n");
+        try self.emitIndent();
+        try self.emit("    for (os_args) |arg| argv_list.append(allocator, std.mem.span(arg)) catch continue;\n");
+        try self.emitIndent();
+        try self.emit("    break :blk argv_list.items;\n");
+        try self.emitIndent();
+        try self.emit("};\n");
         try self.emit("\n");
 
         // Initialize runtime modules that need allocator (from registry needs_init flag)
@@ -899,7 +916,7 @@ fn genClosureWrapperTypes(self: *NativeCodegen, module: ast.Node.Module) !void {
 /// This populates test_factories map with factory function name -> TestClassInfo[]
 fn analyzeTestFactories(self: *NativeCodegen, module: ast.Node.Module) !void {
     const generators = @import("../statements/functions/generators.zig");
-    const function_traits = @import("../../../analysis/function_traits.zig");
+    const function_traits = @import("function_traits");
 
     for (module.body) |stmt| {
         if (stmt != .function_def) continue;

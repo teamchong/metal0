@@ -280,10 +280,62 @@ fn emitBytecode(allocator: std.mem.Allocator, source: []const u8) !void {
     _ = try std.posix.write(std.posix.STDOUT_FILENO, bytes);
 }
 
+/// Fast codegen-only mode - skips import scanning, produces just .zig file
+pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    // Read source file
+    const source = try std.fs.cwd().readFileAlloc(aa, input_file, 10 * 1024 * 1024);
+
+    // Lexer
+    var lex = try lexer.Lexer.init(aa, source);
+    defer lex.deinit();
+    const tokens = try lex.tokenize();
+
+    // Parser
+    var p = parser.Parser.init(aa, tokens);
+    defer p.deinit();
+    const tree = try p.parse();
+
+    if (tree != .module) return error.InvalidAST;
+
+    // Skip all import scanning/compilation for speed
+
+    // Semantic analysis (required for codegen)
+    var semantic_info = semantic_types.SemanticInfo.init(aa);
+    _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 1);
+
+    // Type inference
+    var type_inferrer = try native_types.TypeInferrer.init(aa);
+    try type_inferrer.analyze(tree.module);
+
+    // Codegen
+    var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    defer native_gen.deinit();
+    try native_gen.buildCallGraph(tree.module);
+    const zig_code = try native_gen.generate(tree.module);
+
+    // Write .zig file to cache
+    try build_dirs.init();
+    const basename = std.fs.path.basename(input_file);
+    const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
+    const zig_path = try std.fmt.allocPrint(aa, build_dirs.CACHE ++ "/{s}.zig", .{stem});
+    const file = try std.fs.cwd().createFile(zig_path, .{});
+    defer file.close();
+    try file.writeAll(zig_code);
+}
+
 pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Check if input is a Jupyter notebook
     if (std.mem.endsWith(u8, opts.input_file, ".ipynb")) {
         return try compileNotebook(allocator, opts);
+    }
+
+    // Fast codegen-only mode for batch testing
+    if (opts.emit_zig_only) {
+        return try compileFileCodegenOnly(allocator, opts.input_file);
     }
 
     // Use arena allocator for all intermediate allocations to avoid leaks on errors
@@ -475,16 +527,6 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     // Get C libraries collected during import processing
     const c_libs = try native_gen.c_libraries.toOwnedSlice(aa);
-
-    // Emit Zig only mode - just write the .zig file and return
-    if (opts.emit_zig_only) {
-        // Zig code already written to .metal0/cache/ by native_gen
-        // Just print the path and return
-        const basename = std.fs.path.basename(opts.input_file);
-        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
-        std.debug.print("✓ Generated: .metal0/cache/{s}.zig\n", .{stem});
-        return;
-    }
 
     // Compile to WASM, shared library (.so), or binary
     if (opts.wasm) {

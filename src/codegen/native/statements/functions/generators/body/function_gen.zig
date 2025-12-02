@@ -4,7 +4,7 @@ const ast = @import("ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
 const CodeBuilder = @import("../../../../code_builder.zig").CodeBuilder;
-const function_traits = @import("../../../../../../analysis/function_traits.zig");
+const function_traits = @import("function_traits");
 const zig_keywords = @import("zig_keywords");
 
 const mutation_analysis = @import("mutation_analysis.zig");
@@ -891,6 +891,12 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         !std.mem.eql(u8, name, "self")
     else
         false;
+
+    // Track the first param name so we can recognize unittest calls like test_self.assertEqual()
+    // Save previous value and restore on exit (for nested class methods)
+    const saved_first_param = self.current_method_first_param;
+    self.current_method_first_param = first_param_name;
+    defer self.current_method_first_param = saved_first_param;
 
     // If first param isn't named "self", rename it to "self" for proper Zig self reference
     // Use the appropriate self name based on nesting depth (self vs __self)
