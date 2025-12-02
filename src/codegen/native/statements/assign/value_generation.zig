@@ -224,7 +224,7 @@ pub fn emitVarDeclaration(
     is_arraylist: bool,
     is_dict: bool,
     is_mutable_class_instance: bool,
-    is_listcomp: bool,
+    _: bool, // is_listcomp - no longer used for var/const decision
     is_iterator: bool,
 ) CodegenError!void {
     // Check if variable was forward-declared (captured by nested class before defined)
@@ -247,7 +247,6 @@ pub fn emitVarDeclaration(
     // hash_object needs var because update() mutates it
     const is_mutable_collection = (value_type == .deque or value_type == .counter or value_type == .hash_object);
 
-    // List comprehensions return ArrayLists which need var for deinit()
     // Iterators need var because next() mutates them
     // Note: hash_object types can use const unless explicitly mutated (is_mutated check)
     // Note: We do NOT check hasAttrMutation here because the mutation analyzer is module-scoped,
@@ -258,9 +257,14 @@ pub fn emitVarDeclaration(
     // isn't reassigned (e.g., via aug_assign), we can use const. But if the variable is reassigned
     // (e.g., x += 10 where __add__ returns new object), we need var.
     // Note: is_mutated tracks actual reassignment, not just attribute mutation.
+    //
+    // Note: List comprehensions and list() return ArrayLists which CAN use const unless mutated.
+    // Zig const ArrayList still allows .items access and .deinit() calls.
+    // Only use var if the variable is actually mutated (reassigned or has mutation analysis showing mutation).
     const is_immutable_class_instance = (value_type == .class_instance) and !is_mutable_class_instance and !is_mutated;
     const effective_is_mutated = if (is_immutable_class_instance) false else is_mutated;
-    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or effective_is_mutated or is_listcomp or is_mutable_collection or is_iterator;
+    // Removed is_listcomp from needs_var - listcomp results can use const unless mutated
+    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or effective_is_mutated or is_mutable_collection or is_iterator;
 
     if (needs_var) {
         try self.emit("var ");
@@ -520,6 +524,13 @@ pub fn trackVariableMetadata(
 
     // Track list comprehension variables (generates ArrayList)
     if (is_first_assignment and assign.value.* == .listcomp) {
+        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        try self.arraylist_vars.put(var_name_copy, {});
+    }
+
+    // Track list() builtin calls (generates ArrayList)
+    const type_handling = @import("type_handling.zig");
+    if (is_first_assignment and type_handling.isListBuiltinCall(assign.value.*)) {
         const var_name_copy = try self.allocator.dupe(u8, var_name);
         try self.arraylist_vars.put(var_name_copy, {});
     }

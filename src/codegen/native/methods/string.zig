@@ -387,9 +387,19 @@ pub const genStrIndex = genIndex;
 /// In Zig, strings are already UTF-8, so this just returns the string as bytes
 pub fn genEncode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // Just return the string - Zig strings are UTF-8 bytes already
-    // The encoding argument is ignored (UTF-8 is the only encoding we support)
-    _ = args;
-    try self.genExpr(obj);
+    // The encoding argument is discarded but we generate code to prevent "unused" errors
+    if (args.len > 0) {
+        // Generate: encode_blk: { _ = encoding_arg; break :encode_blk text; }
+        const id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("encode_{d}: {{ _ = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :encode_{d} ", .{id});
+        try self.genExpr(obj);
+        try self.emit("; }");
+    } else {
+        try self.genExpr(obj);
+    }
 }
 
 /// Generate code for bytes.decode(encoding="utf-8")

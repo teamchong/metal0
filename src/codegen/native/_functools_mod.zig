@@ -6,7 +6,7 @@ const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "reduce", genReduce }, .{ "cmp_to_key", genCmpToKey },
+    .{ "reduce", genReduce }, .{ "cmp_to_key", h.wrap("blk: { const cmp = ", "; break :blk .{ .cmp = cmp }; }", ".{}") },
 });
 
 fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -15,8 +15,4 @@ fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 2) try self.genExpr(args[2]) else try self.emit("null");
         try self.emit("; const items = "); try self.genExpr(args[1]); try self.emit("; _ = items; break :blk result; }");
     } else try self.emit("null");
-}
-
-fn genCmpToKey(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { const cmp = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ .cmp = cmp }; }"); } else { try self.emit(".{}"); }
 }
