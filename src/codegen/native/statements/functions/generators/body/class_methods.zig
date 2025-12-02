@@ -18,6 +18,46 @@ const function_gen = @import("function_gen.zig");
 // Type alias for builtin base info
 const BuiltinBaseInfo = generators.BuiltinBaseInfo;
 
+/// Check if a parameter name would shadow a method name in the class
+/// Python allows `def __init__(self, real):` and `def real(self):` in the same class,
+/// but in Zig these would conflict. We rename params that shadow methods.
+fn wouldShadowMethodInClass(param_name: []const u8, class_body: []const ast.Node) bool {
+    for (class_body) |stmt| {
+        if (stmt == .function_def) {
+            const method_name = stmt.function_def.name;
+            // Skip __init__ and __new__ - those are the methods we're checking params FOR
+            if (std.mem.eql(u8, method_name, "__init__") or std.mem.eql(u8, method_name, "__new__")) {
+                continue;
+            }
+            if (std.mem.eql(u8, param_name, method_name)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// Write init parameter name, renaming if it would shadow a method in the class
+fn writeInitParamName(
+    self: *NativeCodegen,
+    param_name: []const u8,
+    class_body: []const ast.Node,
+) CodegenError!void {
+    // First check Zig keywords
+    if (zig_keywords.isZigKeyword(param_name)) {
+        try self.output.writer(self.allocator).print("@\"{s}\"", .{param_name});
+    }
+    // Then check if it would shadow a method in this class
+    else if (wouldShadowMethodInClass(param_name, class_body)) {
+        try self.output.writer(self.allocator).print("{s}_param", .{param_name});
+    }
+    // Finally check common method names from zig_keywords
+    else if (zig_keywords.wouldShadowMethod(param_name)) {
+        try self.output.writer(self.allocator).print("{s}_arg", .{param_name});
+    } else {
+        try self.output.writer(self.allocator).writeAll(param_name);
+    }
+}
 
 /// Generate default init() method for classes without __init__
 /// Nested classes (in nested_class_names) are heap-allocated for Python reference semantics
@@ -398,10 +438,21 @@ pub fn genInitMethodWithBuiltinBase(
     builtin_base: ?BuiltinBaseInfo,
     complex_parent: ?generators.ComplexParentInfo,
     captured_vars: ?[][]const u8,
+    class_body: []const ast.Node,
 ) CodegenError!void {
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = if (is_nested) "__alloc" else "allocator";
+
+    // Track renamed params for cleanup at end (params that shadow methods)
+    var renamed_params = std.ArrayList([]const u8){};
+    defer {
+        // Clean up var_renames for renamed params
+        for (renamed_params.items) |param_name| {
+            _ = self.var_renames.swapRemove(param_name);
+        }
+        renamed_params.deinit(self.allocator);
+    }
 
     try self.emit("\n");
     try self.emitIndent();
@@ -469,7 +520,16 @@ pub fn genInitMethodWithBuiltinBase(
                 // Zig requires unused params to be named just "_", not "_name"
                 try self.emit("_: ");
             } else {
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                // Check if param would shadow a method in the class
+                // If so, register rename in var_renames for body generation
+                if (wouldShadowMethodInClass(arg.name, class_body)) {
+                    const renamed = try std.fmt.allocPrint(self.allocator, "{s}_param", .{arg.name});
+                    try self.var_renames.put(arg.name, renamed);
+                    try renamed_params.append(self.allocator, arg.name);
+                    try self.emit(renamed);
+                } else {
+                    try writeInitParamName(self, arg.name, class_body);
+                }
                 try self.emit(": ");
             }
             is_first_param = false;
@@ -697,10 +757,21 @@ pub fn genInitMethodFromNew(
     builtin_base: ?BuiltinBaseInfo,
     complex_parent: ?generators.ComplexParentInfo,
     captured_vars: ?[][]const u8,
+    class_body: []const ast.Node,
 ) CodegenError!void {
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = if (is_nested) "__alloc" else "allocator";
+
+    // Track renamed params for cleanup at end (params that shadow methods)
+    var renamed_params = std.ArrayList([]const u8){};
+    defer {
+        // Clean up var_renames for renamed params
+        for (renamed_params.items) |param_name| {
+            _ = self.var_renames.swapRemove(param_name);
+        }
+        renamed_params.deinit(self.allocator);
+    }
 
     try self.emit("\n");
     try self.emitIndent();
@@ -757,7 +828,16 @@ pub fn genInitMethodFromNew(
             // Zig requires unused params to be named just "_", not "_name"
             try self.emit("_: ");
         } else {
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            // Check if param would shadow a method in the class
+            // If so, register rename in var_renames for body generation
+            if (wouldShadowMethodInClass(arg.name, class_body)) {
+                const renamed = try std.fmt.allocPrint(self.allocator, "{s}_param", .{arg.name});
+                try self.var_renames.put(arg.name, renamed);
+                try renamed_params.append(self.allocator, arg.name);
+                try self.emit(renamed);
+            } else {
+                try writeInitParamName(self, arg.name, class_body);
+            }
             try self.emit(": ");
         }
         is_first_non_cls = false;

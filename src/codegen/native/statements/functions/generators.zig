@@ -154,8 +154,10 @@ pub fn getComplexParentInfo(base_name: []const u8) ?ComplexParentInfo {
 
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
-    // Check if function needs allocator parameter (for error union return type)
-    const needs_allocator_for_errors = allocator_analyzer.functionNeedsAllocator(func);
+    // Use function_traits for allocator decision (unified analysis)
+    // Falls back to allocator_analyzer for functions not in call graph
+    const needs_allocator_from_traits = self.funcNeedsAllocator(func.name);
+    const needs_allocator_for_errors = if (needs_allocator_from_traits) true else allocator_analyzer.functionNeedsAllocator(func);
 
     // Check if function actually uses the allocator param (not just __global_allocator)
     const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParam(func);
@@ -174,6 +176,14 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     if (func.is_async) {
         const func_name_copy = try self.allocator.dupe(u8, func.name);
         try self.async_functions.put(func_name_copy, {});
+    }
+
+    // Check if this is a generator function (contains yield)
+    // Use function_traits unified analysis
+    if (self.funcIsGenerator(func.name)) {
+        // TODO: Generate generator state machine when implemented
+        // For now, generators fall through to normal function generation
+        // with yield statements becoming pass (handled in main/generator.zig)
     }
 
     // Track functions with varargs (for call site generation)
@@ -660,17 +670,17 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Generate init() method from __init__, __new__, or inherit from parent
     // Priority: __init__ > __new__ > parent __init__ > default
     if (init_method) |init| {
-        try body.genInitMethodWithBuiltinBase(self, class.name, init, builtin_base, complex_parent, captured_vars);
+        try body.genInitMethodWithBuiltinBase(self, class.name, init, builtin_base, complex_parent, captured_vars, class.body);
     } else if (new_method) |new| {
         // No __init__ but has __new__ - use __new__'s parameters for init
-        try body.genInitMethodFromNew(self, class.name, new, builtin_base, complex_parent, captured_vars);
+        try body.genInitMethodFromNew(self, class.name, new, builtin_base, complex_parent, captured_vars, class.body);
     } else if (parent_class) |_| {
         // No __init__ but has parent class - inherit parent's __init__ signature
         // Recursively search the parent chain for __init__
         const parent_init = findInheritedInit(self, parent_class);
         if (parent_init) |pinit| {
             // Use parent's __init__ signature for our init
-            try body.genInitMethodWithBuiltinBase(self, class.name, pinit, builtin_base, complex_parent, captured_vars);
+            try body.genInitMethodWithBuiltinBase(self, class.name, pinit, builtin_base, complex_parent, captured_vars, class.body);
         } else {
             // No __init__ in parent chain, generate default
             try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base, complex_parent, captured_vars);
@@ -861,7 +871,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             if (assign.targets.len > 0 and assign.targets[0] == .name) {
                 const attr_name = assign.targets[0].name.id;
                 // Check if assigned to None
-                if (assign.value.* == .constant and assign.value.constant.value == .none) {
+                // Skip __bool__ and __len__ as they are handled specially above
+                if (assign.value.* == .constant and assign.value.constant.value == .none and
+                    !std.mem.eql(u8, attr_name, "__bool__") and
+                    !std.mem.eql(u8, attr_name, "__len__")) {
                     // Generate a stub method that raises TypeError
                     // Nested classes use pointer return types
                     const is_nested = self.nested_class_names.contains(class.name);
