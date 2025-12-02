@@ -142,6 +142,13 @@ pub fn passN(comptime n: usize, comptime d: []const u8) H {
     } }.f;
 }
 
+/// Generates wrap2: pre + arg0 + mid + arg1 + suf, or default (requires 2+ args)
+pub fn wrap2(comptime pre: []const u8, comptime mid: []const u8, comptime suf: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len >= 2) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(mid); try self.genExpr(args[1]); try self.emit(suf); } else try self.emit(d);
+    } }.f;
+}
+
 /// Emit a unique labeled block start and return the label ID for break
 pub fn emitUniqueBlockStart(self: *NativeCodegen, prefix: []const u8) CodegenError!u64 {
     const id = self.block_label_counter;

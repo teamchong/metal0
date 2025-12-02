@@ -1,12 +1,9 @@
 /// Python _sqlite3 module - Internal SQLite3 support (C accelerator)
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "connect", genConnect }, .{ "connection", h.c(".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }") },
+    .{ "connect", h.wrap("blk: { const db = ", "; _ = db; break :blk .{ .database = db, .isolation_level = \"\", .row_factory = null }; }", ".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }") }, .{ "connection", h.c(".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }") },
     .{ "cursor", h.c(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }") },
     .{ "row", h.c(".{}") }, .{ "cursor_method", h.c(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }") },
     .{ "commit", h.c("{}") }, .{ "rollback", h.c("{}") }, .{ "close", h.c("{}") },
@@ -25,10 +22,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "programming_error", h.err("ProgrammingError") }, .{ "operational_error", h.err("OperationalError") },
     .{ "not_supported_error", h.err("NotSupportedError") },
 });
-
-fn genConnect(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("blk: { const db = "); try self.genExpr(args[0]);
-        try self.emit("; _ = db; break :blk .{ .database = db, .isolation_level = \"\", .row_factory = null }; }");
-    } else try self.emit(".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }");
-}

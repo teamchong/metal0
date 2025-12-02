@@ -366,7 +366,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try self.emitFmt("mcall_{d}: {{ const __obj = ", .{mcall_label_id});
             try genExpr(self, attr.value.*);
             try self.emitFmt("; break :mcall_{d} ", .{mcall_label_id});
-            if (emit_try) {
+            // In defer blocks, 'try' is not allowed - use catch {} instead
+            if (emit_try and !self.inside_defer) {
                 try self.emit("try ");
             }
             try self.emit("__obj.");
@@ -393,10 +394,16 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, kwarg.value);
             }
 
-            try self.emit("); }");
+            // In defer blocks, append 'catch {}' to silence errors
+            if (emit_try and self.inside_defer) {
+                try self.emit(") catch {}; }");
+            } else {
+                try self.emit("); }");
+            }
         } else {
             // Normal path - no wrapping needed
-            if (emit_try) {
+            // In defer blocks, 'try' is not allowed - use catch {} at the end instead
+            if (emit_try and !self.inside_defer) {
                 try self.emit("try ");
             }
 
@@ -452,7 +459,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             }
 
-            try self.emit(")");
+            // In defer blocks, append 'catch {}' to silence errors
+            if (emit_try and self.inside_defer) {
+                try self.emit(") catch {}");
+            } else {
+                try self.emit(")");
+            }
         }
         return;
     }

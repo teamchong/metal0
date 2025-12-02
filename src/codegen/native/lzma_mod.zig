@@ -1,12 +1,9 @@
 /// Python lzma module - LZMA/XZ compression
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "compress", genPassthrough }, .{ "decompress", genPassthrough },
+    .{ "compress", h.pass("\"\"") }, .{ "decompress", h.pass("\"\"") },
     .{ "open", h.c("@as(?*anyopaque, null)") }, .{ "LZMAFile", h.c("@as(?*anyopaque, null)") },
     .{ "LZMACompressor", h.c(".{ .compress = struct { fn f(data: []const u8) []const u8 { return data; } }.f, .flush = struct { fn f() []const u8 { return \"\"; } }.f }") },
     .{ "LZMADecompressor", h.c(".{ .decompress = struct { fn f(data: []const u8) []const u8 { return data; } }.f, .eof = true, .needs_input = false, .unused_data = \"\" }") },
@@ -21,7 +18,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "FILTER_DELTA", h.c("@as(i64, 0x03)") }, .{ "FILTER_X86", h.c("@as(i64, 0x04)") },
     .{ "FILTER_ARM", h.c("@as(i64, 0x07)") }, .{ "FILTER_ARMTHUMB", h.c("@as(i64, 0x08)") }, .{ "FILTER_SPARC", h.c("@as(i64, 0x09)") },
 });
-
-fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\"");
-}
