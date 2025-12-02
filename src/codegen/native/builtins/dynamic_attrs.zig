@@ -5,6 +5,10 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 
 pub fn genGetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) {
+        try self.emit("return error.TypeError");
+        return;
+    }
     try self.emit("runtime.getattr_builtin(");
     try self.genExpr(args[0]); // object
     try self.emit(", ");
@@ -13,6 +17,10 @@ pub fn genGetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 3) {
+        try self.emit("return error.TypeError");
+        return;
+    }
     // For objects with __dict__, directly set the attribute
     // Need to handle str subclasses - extract __base_value__ if present for key
     // Zig 0.15: managed containers use put(key, value) not put(allocator, key, value)
@@ -29,6 +37,10 @@ pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 pub fn genHasattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) {
+        try self.emit("return error.TypeError");
+        return;
+    }
     try self.emit("runtime.hasattr_builtin(");
     try self.genExpr(args[0]);
     try self.emit(", ");

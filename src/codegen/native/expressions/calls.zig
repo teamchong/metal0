@@ -467,7 +467,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (self.lambda_vars.contains(raw_func_name)) {
             // Lambda call: square(5) -> square(5)
             // Function pointers in Zig are called directly
-            try self.emit(func_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
             try self.emit("(");
 
             for (call.args, 0..) |arg, i| {
@@ -553,7 +553,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // Check if this class has __call__ method
                 if (self.class_registry.findMethod(class_name, "__call__") != null) {
                     // Generate: instance.__call__()
-                    try self.emit(func_name);
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
                     try self.emit(".__call__(");
                     for (call.args, 0..) |arg, i| {
                         if (i > 0) try self.emit(", ");
@@ -614,7 +614,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (is_self_class_call) {
                     try self.emit("@This()");
                 } else {
-                    try self.emit(func_name);
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
                     // Track that we actually used this nested class in generated Zig code
                     // This is used to determine which classes need _ = ClassName; suppression
                     if (in_nested_names) {
@@ -629,7 +629,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             } else if (is_runtime_exception) {
                 // Runtime exception type: Exception(arg) -> runtime.Exception.initWithArg(__global_allocator, arg)
                 try self.emit("(try runtime.");
-                try self.emit(func_name);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
                 // Use initWithArg for single arg, initWithArgs for multiple, init for no args
                 if (call.args.len == 0 and call.keyword_args.len == 0) {
                     try self.emit(".init(__global_allocator))");
@@ -656,7 +656,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // Library classes like Path are dispatched separately, so if we reach here
                 // it's likely a local class that wasn't tracked in nested_class_names
                 // (e.g., due to scoping issues). User-defined init() returns struct directly.
-                try self.emit(func_name);
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
                 if (call.args.len == 0 and call.keyword_args.len == 0) {
                     try self.emit(".init(__global_allocator");
                 } else {
