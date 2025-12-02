@@ -8,9 +8,35 @@ const CodegenError = @import("main.zig").CodegenError;
 /// Handler function type
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 
+// Comptime generator for simple 1-arg numpy functions: numpy.func(arr, allocator)
+fn gen1Arg(comptime func_name: []const u8) ModuleHandler {
+    return struct {
+        fn handler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+            if (args.len == 0) return;
+            try self.emit("try numpy." ++ func_name ++ "(");
+            try self.genExpr(args[0]);
+            try self.emit(", allocator)");
+        }
+    }.handler;
+}
+
+// Comptime generator for simple 2-arg numpy functions: numpy.func(a, b, allocator)
+fn gen2Arg(comptime func_name: []const u8) ModuleHandler {
+    return struct {
+        fn handler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+            if (args.len < 2) return;
+            try self.emit("try numpy." ++ func_name ++ "(");
+            try self.genExpr(args[0]);
+            try self.emit(", ");
+            try self.genExpr(args[1]);
+            try self.emit(", allocator)");
+        }
+    }.handler;
+}
+
 /// Module function map - exported for dispatch
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    // Array creation
+    // Array creation (complex - keep custom handlers)
     .{ "array", genArray },
     .{ "zeros", genZeros },
     .{ "ones", genOnes },
@@ -21,103 +47,103 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "arange", genArange },
     .{ "linspace", genLinspace },
     .{ "logspace", genLogspace },
-    // Array manipulation
+    // Array manipulation (complex)
     .{ "reshape", genReshape },
-    .{ "ravel", genRavel },
-    .{ "flatten", genRavel },
+    .{ "ravel", gen1Arg("ravel") },
+    .{ "flatten", gen1Arg("ravel") },
     .{ "transpose", genTranspose },
-    .{ "squeeze", genSqueeze },
-    .{ "expand_dims", genExpandDims },
-    // Element-wise math
-    .{ "add", genAdd },
-    .{ "subtract", genSubtract },
-    .{ "multiply", genMultiply },
-    .{ "divide", genDivide },
-    .{ "power", genPower },
-    .{ "sqrt", genSqrt },
-    .{ "exp", genExp },
-    .{ "log", genLog },
-    .{ "sin", genSin },
-    .{ "cos", genCos },
-    .{ "abs", genAbs },
-    // Reductions
-    .{ "sum", genSum },
-    .{ "mean", genMean },
-    .{ "std", genStd },
-    .{ "var", genVar },
-    .{ "min", genMin },
-    .{ "max", genMax },
-    .{ "argmin", genArgmin },
-    .{ "argmax", genArgmax },
-    .{ "prod", genProd },
+    .{ "squeeze", gen1Arg("squeeze") },
+    .{ "expand_dims", gen2Arg("expandDims") },
+    // Element-wise math (simple 1-arg or 2-arg)
+    .{ "add", gen2Arg("add") },
+    .{ "subtract", gen2Arg("subtract") },
+    .{ "multiply", gen2Arg("multiply") },
+    .{ "divide", gen2Arg("divide") },
+    .{ "power", gen2Arg("power") },
+    .{ "sqrt", gen1Arg("sqrt") },
+    .{ "exp", gen1Arg("exp") },
+    .{ "log", gen1Arg("npLog") },
+    .{ "sin", gen1Arg("sin") },
+    .{ "cos", gen1Arg("cos") },
+    .{ "abs", gen1Arg("npAbs") },
+    // Reductions (simple 1-arg)
+    .{ "sum", gen1Arg("sum") },
+    .{ "mean", gen1Arg("mean") },
+    .{ "std", gen1Arg("npStd") },
+    .{ "var", gen1Arg("npVar") },
+    .{ "min", gen1Arg("npMin") },
+    .{ "max", gen1Arg("npMax") },
+    .{ "argmin", gen1Arg("argmin") },
+    .{ "argmax", gen1Arg("argmax") },
+    .{ "prod", gen1Arg("prod") },
     // Linear algebra
-    .{ "dot", genDot },
+    .{ "dot", gen2Arg("dot") },
     .{ "matmul", genMatmul },
-    .{ "inner", genInner },
-    .{ "outer", genOuter },
-    .{ "vdot", genVdot },
-    .{ "trace", genTrace },
+    .{ "inner", gen2Arg("inner") },
+    .{ "outer", gen2Arg("outer") },
+    .{ "vdot", gen2Arg("vdot") },
+    .{ "trace", gen1Arg("trace") },
     // Statistics
-    .{ "median", genMedian },
-    .{ "percentile", genPercentile },
+    .{ "median", gen1Arg("median") },
+    .{ "percentile", gen2Arg("percentile") },
     // Array manipulation
     .{ "concatenate", genConcatenate },
-    .{ "vstack", genVstack },
-    .{ "hstack", genHstack },
-    .{ "stack", genStack },
-    .{ "split", genSplit },
+    .{ "vstack", gen1Arg("vstack") },
+    .{ "hstack", gen1Arg("hstack") },
+    .{ "stack", gen2Arg("stack") },
+    .{ "split", gen2Arg("split") },
     // Conditional and rounding
     .{ "where", genWhere },
     .{ "clip", genClip },
-    .{ "floor", genFloor },
-    .{ "ceil", genCeil },
-    .{ "round", genRound },
-    .{ "rint", genRound },
+    .{ "floor", gen1Arg("floor") },
+    .{ "ceil", gen1Arg("ceil") },
+    .{ "round", gen1Arg("round") },
+    .{ "rint", gen1Arg("round") },
     // Sorting and searching
-    .{ "sort", genSort },
-    .{ "argsort", genArgsort },
-    .{ "unique", genUnique },
-    .{ "searchsorted", genSearchsorted },
+    .{ "sort", gen1Arg("sort") },
+    .{ "argsort", gen1Arg("argsort") },
+    .{ "unique", gen1Arg("unique") },
+    .{ "searchsorted", gen2Arg("searchsorted") },
     // Array copying
-    .{ "copy", genCopy },
-    .{ "asarray", genAsarray },
+    .{ "copy", gen1Arg("copy") },
+    .{ "asarray", gen1Arg("asarray") },
     // Repeating and flipping
-    .{ "tile", genTile },
-    .{ "repeat", genRepeat },
-    .{ "flip", genFlip },
-    .{ "flipud", genFlipud },
-    .{ "fliplr", genFliplr },
+    .{ "tile", gen2Arg("tile") },
+    .{ "repeat", gen2Arg("repeat") },
+    .{ "flip", gen1Arg("flip") },
+    .{ "flipud", gen1Arg("flipud") },
+    .{ "fliplr", gen1Arg("fliplr") },
     // Cumulative operations
-    .{ "cumsum", genCumsum },
-    .{ "cumprod", genCumprod },
-    .{ "diff", genDiff },
+    .{ "cumsum", gen1Arg("cumsum") },
+    .{ "cumprod", gen1Arg("cumprod") },
+    .{ "diff", gen1Arg("diff") },
     // Comparison
-    .{ "allclose", genAllclose },
-    .{ "array_equal", genArrayEqual },
+    .{ "allclose", gen2Arg("allclose") },
+    .{ "array_equal", gen2Arg("arrayEqual") },
     // Matrix construction
-    .{ "diag", genDiag },
-    .{ "triu", genTriu },
-    .{ "tril", genTril },
-    // Additional math
-    .{ "tan", genTan },
-    .{ "arcsin", genArcsin },
-    .{ "arccos", genArccos },
-    .{ "arctan", genArctan },
-    .{ "sinh", genSinh },
-    .{ "cosh", genCosh },
-    .{ "tanh", genTanh },
-    .{ "log10", genLog10 },
-    .{ "log2", genLog2 },
-    .{ "exp2", genExp2 },
-    .{ "expm1", genExpm1 },
-    .{ "log1p", genLog1p },
-    .{ "sign", genSign },
-    .{ "negative", genNegative },
-    .{ "reciprocal", genReciprocal },
-    .{ "square", genSquare },
-    .{ "cbrt", genCbrt },
-    .{ "maximum", genMaximum },
-    .{ "minimum", genMinimum },
+    .{ "diag", gen1Arg("diag") },
+    .{ "triu", gen1Arg("triu") },
+    .{ "tril", gen1Arg("tril") },
+    // Additional math (simple 1-arg)
+    .{ "tan", gen1Arg("tan") },
+    .{ "arcsin", gen1Arg("arcsin") },
+    .{ "arccos", gen1Arg("arccos") },
+    .{ "arctan", gen1Arg("arctan") },
+    .{ "sinh", gen1Arg("sinh") },
+    .{ "cosh", gen1Arg("cosh") },
+    .{ "tanh", gen1Arg("tanh") },
+    .{ "log10", gen1Arg("log10") },
+    .{ "log2", gen1Arg("log2") },
+    .{ "exp2", gen1Arg("exp2") },
+    .{ "expm1", gen1Arg("expm1") },
+    .{ "log1p", gen1Arg("log1p") },
+    .{ "sign", gen1Arg("sign") },
+    .{ "negative", gen1Arg("negative") },
+    .{ "reciprocal", gen1Arg("reciprocal") },
+    .{ "square", gen1Arg("square") },
+    .{ "cbrt", gen1Arg("cbrt") },
+    .{ "maximum", gen2Arg("maximum") },
+    .{ "minimum", gen2Arg("minimum") },
     .{ "mod", genMod },
     .{ "remainder", genMod },
     // Array manipulation (roll, rot90, pad, take, put, cross)
@@ -163,15 +189,15 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
 
 /// NumPy linalg module functions
 pub const LinalgFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "norm", genNorm },
-    .{ "det", genDet },
-    .{ "inv", genInv },
-    .{ "solve", genSolve },
-    .{ "qr", genQr },
-    .{ "cholesky", genCholesky },
-    .{ "eig", genEig },
-    .{ "svd", genSvd },
-    .{ "lstsq", genLstsq },
+    .{ "norm", gen1Arg("norm") },
+    .{ "det", gen1Arg("det") },
+    .{ "inv", gen1Arg("inv") },
+    .{ "solve", gen2Arg("solve") },
+    .{ "qr", gen1Arg("qr") },
+    .{ "cholesky", gen1Arg("cholesky") },
+    .{ "eig", gen1Arg("eig") },
+    .{ "svd", gen1Arg("svd") },
+    .{ "lstsq", gen2Arg("lstsq") },
 });
 
 /// NumPy random module functions
@@ -251,38 +277,6 @@ pub fn genArray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(arg);
         try self.emit(", allocator)");
     }
-}
-
-/// Generate numpy.dot() call
-/// Vector dot product using BLAS
-pub fn genDot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return; // Silently ignore invalid calls
-
-    try self.emit("try numpy.dot(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.sum() call
-/// Sum all array elements
-pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.sum(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.mean() call
-/// Calculate mean of array elements
-pub fn genMean(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.mean(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
 }
 
 /// Generate numpy.transpose() call
@@ -491,323 +485,6 @@ pub fn genReshape(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.ravel() or numpy.flatten() call
-pub fn genRavel(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.ravel(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.squeeze() call
-pub fn genSqueeze(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.squeeze(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.expand_dims() call
-pub fn genExpandDims(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.expand_dims(");
-    try self.genExpr(args[0]);
-    try self.emit(", @intCast(");
-    try self.genExpr(args[1]);
-    try self.emit("), allocator)");
-}
-
-// ============================================================================
-// Element-wise Math Functions
-// ============================================================================
-
-/// Generate numpy.add() call
-pub fn genAdd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.add(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.subtract() call
-pub fn genSubtract(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.subtract(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.multiply() call
-pub fn genMultiply(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.multiply(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.divide() call
-pub fn genDivide(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.divide(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.power() call
-pub fn genPower(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.power(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.sqrt() call
-pub fn genSqrt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.sqrt(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.exp() call
-pub fn genExp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.npExp(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.log() call
-pub fn genLog(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.npLog(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.sin() call
-pub fn genSin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.sin(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.cos() call
-pub fn genCos(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.cos(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.abs() call
-pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.npAbs(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Reduction Functions
-// ============================================================================
-
-/// Generate numpy.std() call
-pub fn genStd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.npStd(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.var() call
-pub fn genVar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.npVar(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.min() call
-pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.npMin(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.max() call
-pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.npMax(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.argmin() call
-pub fn genArgmin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.argmin(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.argmax() call
-pub fn genArgmax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.argmax(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.prod() call
-pub fn genProd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.prod(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Linear Algebra Functions
-// ============================================================================
-
-/// Generate numpy.inner() call
-pub fn genInner(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.inner(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.outer() call
-pub fn genOuter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.outer(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.vdot() call
-pub fn genVdot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.vdot(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.linalg.norm() call
-pub fn genNorm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.norm(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.linalg.det() call
-pub fn genDet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.det(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.linalg.inv() call
-pub fn genInv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.inv(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.linalg.solve() call
-pub fn genSolve(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.solve(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.trace() call
-pub fn genTrace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.trace(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Statistics Functions
-// ============================================================================
-
-/// Generate numpy.median() call
-pub fn genMedian(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.median(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.percentile() call
-pub fn genPercentile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.percentile(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
 // ============================================================================
 // Array Manipulation Functions
 // ============================================================================
@@ -832,77 +509,6 @@ pub fn genConcatenate(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
         try self.genExpr(arg);
         try self.emit("}, allocator)");
     }
-}
-
-/// Generate numpy.vstack() call - vertical stack (row-wise)
-pub fn genVstack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    const arg = args[0];
-    if (arg == .list) {
-        const arrays = arg.list.elts;
-        try self.emit("try numpy.vstack(&[_]*runtime.PyObject{");
-        for (arrays, 0..) |arr, i| {
-            if (i > 0) try self.emit(", ");
-            try self.genExpr(arr);
-        }
-        try self.emit("}, allocator)");
-    } else {
-        try self.emit("try numpy.vstack(&[_]*runtime.PyObject{");
-        try self.genExpr(arg);
-        try self.emit("}, allocator)");
-    }
-}
-
-/// Generate numpy.hstack() call - horizontal stack (column-wise)
-pub fn genHstack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    const arg = args[0];
-    if (arg == .list) {
-        const arrays = arg.list.elts;
-        try self.emit("try numpy.hstack(&[_]*runtime.PyObject{");
-        for (arrays, 0..) |arr, i| {
-            if (i > 0) try self.emit(", ");
-            try self.genExpr(arr);
-        }
-        try self.emit("}, allocator)");
-    } else {
-        try self.emit("try numpy.hstack(&[_]*runtime.PyObject{");
-        try self.genExpr(arg);
-        try self.emit("}, allocator)");
-    }
-}
-
-/// Generate numpy.stack() call - stack along new axis
-pub fn genStack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    const arg = args[0];
-    if (arg == .list) {
-        const arrays = arg.list.elts;
-        try self.emit("try numpy.stack(&[_]*runtime.PyObject{");
-        for (arrays, 0..) |arr, i| {
-            if (i > 0) try self.emit(", ");
-            try self.genExpr(arr);
-        }
-        try self.emit("}, allocator)");
-    } else {
-        try self.emit("try numpy.stack(&[_]*runtime.PyObject{");
-        try self.genExpr(arg);
-        try self.emit("}, allocator)");
-    }
-}
-
-/// Generate numpy.split() call - split array into sub-arrays
-pub fn genSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.split(");
-    try self.genExpr(args[0]); // array
-    try self.emit(", @intCast(");
-    try self.genExpr(args[1]); // num sections
-    try self.emit("), allocator)");
 }
 
 // ============================================================================
@@ -1047,431 +653,6 @@ pub fn genClip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.floor() call
-pub fn genFloor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.floor(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.ceil() call
-pub fn genCeil(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.ceil(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.round() or numpy.rint() call
-pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.npRound(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Sorting and Searching Functions
-// ============================================================================
-
-/// Generate numpy.sort() call
-pub fn genSort(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.sort(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.argsort() call
-pub fn genArgsort(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.argsort(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.unique() call
-pub fn genUnique(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.unique(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.searchsorted() call
-pub fn genSearchsorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.searchsorted(");
-    try self.genExpr(args[0]); // array
-    try self.emit(", ");
-    try self.genExpr(args[1]); // value
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Array Copying Functions
-// ============================================================================
-
-/// Generate numpy.copy() call
-pub fn genCopy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.copy(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.asarray() call
-pub fn genAsarray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.asarray(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Repeating and Flipping Functions
-// ============================================================================
-
-/// Generate numpy.tile() call - np.tile(arr, reps)
-pub fn genTile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.tile(");
-    try self.genExpr(args[0]); // array
-    try self.emit(", @intCast(");
-    try self.genExpr(args[1]); // reps
-    try self.emit("), allocator)");
-}
-
-/// Generate numpy.repeat() call - np.repeat(arr, reps)
-pub fn genRepeat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.repeat(");
-    try self.genExpr(args[0]); // array
-    try self.emit(", @intCast(");
-    try self.genExpr(args[1]); // reps
-    try self.emit("), allocator)");
-}
-
-/// Generate numpy.flip() call
-pub fn genFlip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.flip(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.flipud() call
-pub fn genFlipud(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.flipud(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.fliplr() call
-pub fn genFliplr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.fliplr(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Cumulative Operations
-// ============================================================================
-
-/// Generate numpy.cumsum() call
-pub fn genCumsum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.cumsum(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.cumprod() call
-pub fn genCumprod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.cumprod(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.diff() call
-pub fn genDiff(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.diff(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Comparison Functions
-// ============================================================================
-
-/// Generate numpy.allclose() call - np.allclose(a, b, rtol, atol)
-pub fn genAllclose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.allclose(");
-    try self.genExpr(args[0]); // a
-    try self.emit(", ");
-    try self.genExpr(args[1]); // b
-    try self.emit(", ");
-    // rtol (default 1e-5)
-    if (args.len > 2) {
-        try self.genExpr(args[2]);
-    } else {
-        try self.emit("1e-5");
-    }
-    try self.emit(", ");
-    // atol (default 1e-8)
-    if (args.len > 3) {
-        try self.genExpr(args[3]);
-    } else {
-        try self.emit("1e-8");
-    }
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.array_equal() call
-pub fn genArrayEqual(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.array_equal(");
-    try self.genExpr(args[0]); // a
-    try self.emit(", ");
-    try self.genExpr(args[1]); // b
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Matrix Construction Functions
-// ============================================================================
-
-/// Generate numpy.diag() call
-pub fn genDiag(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.diag(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.triu() call
-pub fn genTriu(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.triu(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.tril() call
-pub fn genTril(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.tril(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Additional Math Functions
-// ============================================================================
-
-/// Generate numpy.tan() call
-pub fn genTan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.tan(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.arcsin() call
-pub fn genArcsin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.arcsin(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.arccos() call
-pub fn genArccos(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.arccos(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.arctan() call
-pub fn genArctan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.arctan(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.sinh() call
-pub fn genSinh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.sinh(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.cosh() call
-pub fn genCosh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.cosh(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.tanh() call
-pub fn genTanh(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.tanh(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.log10() call
-pub fn genLog10(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.log10(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.log2() call
-pub fn genLog2(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.log2(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.exp2() call
-pub fn genExp2(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.exp2(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.expm1() call
-pub fn genExpm1(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.expm1(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.log1p() call
-pub fn genLog1p(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.log1p(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.sign() call
-pub fn genSign(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.sign(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.negative() call
-pub fn genNegative(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.negative(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.reciprocal() call
-pub fn genReciprocal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.reciprocal(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.square() call
-pub fn genSquare(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.square(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.cbrt() call
-pub fn genCbrt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.cbrt(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.maximum() call - np.maximum(a, b)
-pub fn genMaximum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.maximum(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.minimum() call - np.minimum(a, b)
-pub fn genMinimum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.minimum(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(", allocator)");
-}
-
 /// Generate numpy.mod() or numpy.remainder() call - np.mod(a, b)
 pub fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
@@ -1561,32 +742,23 @@ pub fn genCross(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-// ============================================================================
-// Logical Functions (any, all, logical_and/or/not/xor)
-// ============================================================================
-
-/// Generate numpy.any() call
-pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+// Logical functions use gen1Arg/gen2Arg via comptime generators
+fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.npAny(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.all() call
-pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.npAll(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.logical_and() call
-pub fn genLogicalAnd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genLogicalAnd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.logical_and(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1594,10 +766,8 @@ pub fn genLogicalAnd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.logical_or() call
-pub fn genLogicalOr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genLogicalOr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.logical_or(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1605,19 +775,15 @@ pub fn genLogicalOr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.logical_not() call
-pub fn genLogicalNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genLogicalNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.logical_not(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.logical_xor() call
-pub fn genLogicalXor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genLogicalXor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.logical_xor(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1625,14 +791,8 @@ pub fn genLogicalXor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-// ============================================================================
-// Set Functions (setdiff1d, union1d, intersect1d, isin)
-// ============================================================================
-
-/// Generate numpy.setdiff1d() call
-pub fn genSetdiff1d(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genSetdiff1d(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.setdiff1d(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1640,10 +800,8 @@ pub fn genSetdiff1d(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.union1d() call
-pub fn genUnion1d(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genUnion1d(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.union1d(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1651,10 +809,8 @@ pub fn genUnion1d(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.intersect1d() call
-pub fn genIntersect1d(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genIntersect1d(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.intersect1d(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1662,10 +818,8 @@ pub fn genIntersect1d(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.isin() call
-pub fn genIsin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genIsin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.isin(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1673,51 +827,39 @@ pub fn genIsin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-// ============================================================================
-// Numerical Functions (gradient, trapz, interp, convolve, correlate)
-// ============================================================================
-
-/// Generate numpy.gradient() call
-pub fn genGradient(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genGradient(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.gradient(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.trapz() call - np.trapz(y, dx=1.0)
-pub fn genTrapz(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genTrapz(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.trapz(");
     try self.genExpr(args[0]);
     try self.emit(", ");
     if (args.len > 1) {
-        try self.genExpr(args[1]); // dx
+        try self.genExpr(args[1]);
     } else {
-        try self.emit("1.0"); // default dx
+        try self.emit("1.0");
     }
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.interp() call - np.interp(x, xp, fp)
-pub fn genInterp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genInterp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 3) return;
-
     try self.emit("try numpy.interp(");
-    try self.genExpr(args[0]); // x
+    try self.genExpr(args[0]);
     try self.emit(", ");
-    try self.genExpr(args[1]); // xp
+    try self.genExpr(args[1]);
     try self.emit(", ");
-    try self.genExpr(args[2]); // fp
+    try self.genExpr(args[2]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.convolve() call - np.convolve(a, v, mode='full')
-pub fn genConvolve(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genConvolve(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.convolve(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1725,10 +867,8 @@ pub fn genConvolve(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.correlate() call - np.correlate(a, v, mode='valid')
-pub fn genCorrelate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genCorrelate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.correlate(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1736,41 +876,29 @@ pub fn genCorrelate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-// ============================================================================
-// Utility Functions (nonzero, count_nonzero, meshgrid, histogram, etc.)
-// ============================================================================
-
-/// Generate numpy.nonzero() call
-pub fn genNonzero(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genNonzero(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.nonzero(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.count_nonzero() call
-pub fn genCountNonzero(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genCountNonzero(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.count_nonzero(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.flatnonzero() call
-pub fn genFlatnonzero(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genFlatnonzero(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.flatnonzero(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.meshgrid() call - np.meshgrid(x, y)
-pub fn genMeshgrid(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genMeshgrid(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.meshgrid(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1778,10 +906,8 @@ pub fn genMeshgrid(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.histogram() call
-pub fn genHistogram(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genHistogram(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.histogram(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1790,24 +916,20 @@ pub fn genHistogram(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[1]);
         try self.emit(")");
     } else {
-        try self.emit("10"); // default bins
+        try self.emit("10");
     }
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.bincount() call
-pub fn genBincount(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genBincount(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.bincount(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.digitize() call - np.digitize(x, bins)
-pub fn genDigitize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genDigitize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
-
     try self.emit("try numpy.digitize(");
     try self.genExpr(args[0]);
     try self.emit(", ");
@@ -1815,98 +937,37 @@ pub fn genDigitize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.nan_to_num() call
-pub fn genNanToNum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genNanToNum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.nan_to_num(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.isnan() call
-pub fn genIsnan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genIsnan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.isnan(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.isinf() call
-pub fn genIsinf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genIsinf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.isinf(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.isfinite() call
-pub fn genIsfinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genIsfinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.isfinite(");
     try self.genExpr(args[0]);
     try self.emit(", allocator)");
 }
 
-/// Generate numpy.absolute() or numpy.fabs() call
-pub fn genAbsolute(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genAbsolute(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
-
     try self.emit("try numpy.absolute(");
     try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-// ============================================================================
-// Advanced Linear Algebra Functions (linalg module)
-// ============================================================================
-
-/// Generate numpy.linalg.qr() call - QR decomposition
-pub fn genQr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.qr(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.linalg.cholesky() call - Cholesky decomposition
-pub fn genCholesky(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.cholesky(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.linalg.eig() call - Eigenvalue decomposition
-pub fn genEig(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.eig(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.linalg.svd() call - Singular Value Decomposition
-pub fn genSvd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-
-    try self.emit("try numpy.svd(");
-    try self.genExpr(args[0]);
-    try self.emit(", allocator)");
-}
-
-/// Generate numpy.linalg.lstsq() call - Least squares solution
-pub fn genLstsq(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
-
-    try self.emit("try numpy.lstsq(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
     try self.emit(", allocator)");
 }

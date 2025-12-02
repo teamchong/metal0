@@ -6,7 +6,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 const dispatch = @import("../dispatch.zig");
 const lambda_mod = @import("lambda.zig");
 const zig_keywords = @import("zig_keywords");
-const allocator_analyzer = @import("../statements/functions/allocator_analyzer.zig");
+const function_traits = @import("../../../analysis/function_traits.zig");
 const import_registry = @import("../import_registry.zig");
 const generators = @import("../statements/functions/generators.zig");
 
@@ -336,9 +336,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         for (class_def.body) |stmt| {
                             if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
                                 is_class_method_call = true;
-                                // Use methodNeedsAllocatorInClass (same as signature generation)
+                                // Use analyzeNeedsAllocator (same as signature generation)
                                 // to ensure call-site allocator passing matches method signature
-                                class_method_needs_alloc = allocator_analyzer.methodNeedsAllocatorInClass(stmt.function_def, class_name);
+                                class_method_needs_alloc = function_traits.analyzeNeedsAllocator(stmt.function_def, class_name);
                                 break;
                             }
                         }
@@ -354,11 +354,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     if (self.class_registry.findMethod(class_name, attr.attr)) |method_info| {
                         is_class_method_call = true;
                         // Get the method's FunctionDef from the class and check if it needs allocator
-                        // Use methodNeedsAllocatorInClass to match method signature generation
+                        // Use analyzeNeedsAllocator to match method signature generation
                         if (self.class_registry.getClass(method_info.class_name)) |class_def| {
                             for (class_def.body) |stmt| {
                                 if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
-                                    class_method_needs_alloc = allocator_analyzer.methodNeedsAllocatorInClass(stmt.function_def, class_name);
+                                    class_method_needs_alloc = function_traits.analyzeNeedsAllocator(stmt.function_def, class_name);
                                     break;
                                 }
                             }
@@ -594,6 +594,27 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             return;
         }
 
+        // FIRST: Check if this is a callable class instance (variable holding instance with __call__)
+        // e.g., AbstractSuper = AbstractClass(bases=()) then AbstractSuper() should call __call__
+        const var_type = self.getVarType(raw_func_name);
+        if (var_type) |vt| {
+            if (vt == .class_instance) {
+                const class_name = vt.class_instance;
+                // Check if this class has __call__ method
+                if (self.class_registry.findMethod(class_name, "__call__") != null) {
+                    // Generate: instance.__call__()
+                    try self.emit(func_name);
+                    try self.emit(".__call__(");
+                    for (call.args, 0..) |arg, i| {
+                        if (i > 0) try self.emit(", ");
+                        try genExpr(self, arg);
+                    }
+                    try self.emit(")");
+                    return;
+                }
+            }
+        }
+
         // Check if this is a class constructor:
         // 1. Name starts with uppercase (Python convention), OR
         // 2. Name is in class registry (handles lowercase class names like "base_set")
@@ -806,7 +827,17 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             try self.emit(")");
                         }
                     } else {
-                        try genExpr(self, arg);
+                        // Check if passing 'self' from method context to class constructor
+                        // In Zig, 'self' in methods is *const @This(), but constructors expect value type
+                        // So we need to dereference: self -> self.*
+                        const is_self_in_method = arg == .name and
+                            std.mem.eql(u8, arg.name.id, "self") and
+                            self.current_class_name != null;
+                        if (is_self_in_method) {
+                            try self.emit("self.*");
+                        } else {
+                            try genExpr(self, arg);
+                        }
                     }
                 }
 
@@ -868,7 +899,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Fallback: regular function call
         // Use raw_func_name for registry lookups (original Python name)
         // Check if this is a user-defined function that needs allocator
-        const user_func_needs_alloc = self.functions_needing_allocator.contains(raw_func_name);
+        // Use BOTH: registry (for already-processed functions) AND funcNeedsAllocator (for forward references)
+        // This handles cases where function is called before it's defined in file order
+        const user_func_needs_alloc = self.functions_needing_allocator.contains(raw_func_name) or
+            self.funcNeedsAllocator(raw_func_name);
 
         // Check if this is a from-imported function that needs allocator
         const from_import_needs_alloc = self.from_import_needs_allocator.contains(raw_func_name);

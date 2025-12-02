@@ -5,162 +5,30 @@ const hashmap_helper = @import("hashmap_helper");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const DecoratedFunction = @import("../../main.zig").DecoratedFunction;
 const CodegenError = @import("../../main.zig").CodegenError;
-const allocator_analyzer = @import("allocator_analyzer.zig");
+const function_traits = @import("../../../../analysis/function_traits.zig");
 const signature = @import("generators/signature.zig");
 const body = @import("generators/body.zig");
+const builtin_types = @import("generators/builtin_types.zig");
+const test_skip = @import("generators/test_skip.zig");
 
-// Re-export module-level mutation analysis
+// Re-exports
 pub const analyzeModuleLevelMutations = body.analyzeModuleLevelMutations;
-
-/// Builtin types that can be inherited from
-pub const BuiltinBaseInfo = struct {
-    zig_type: []const u8,
-    zig_init: []const u8, // Zig code to initialize the base value
-    init_args: []const InitArg, // Arguments for the init function
-
-    pub const InitArg = struct {
-        name: []const u8,
-        zig_type: []const u8,
-        default: ?[]const u8 = null,
-    };
-};
-
-/// Get builtin base info if the class inherits from a builtin type
-pub fn getBuiltinBaseInfo(base_name: []const u8) ?BuiltinBaseInfo {
-    const builtin_bases = std.StaticStringMap(BuiltinBaseInfo).initComptime(.{
-        .{ "complex", BuiltinBaseInfo{
-            .zig_type = "runtime.PyComplex",
-            .zig_init = "runtime.PyComplex.create(real, imag)",
-            .init_args = &.{
-                .{ .name = "real", .zig_type = "f64", .default = "0.0" },
-                .{ .name = "imag", .zig_type = "f64", .default = "0.0" },
-            },
-        } },
-        .{ "int", BuiltinBaseInfo{
-            .zig_type = "i64",
-            .zig_init = "__value",
-            .init_args = &.{
-                .{ .name = "__value", .zig_type = "i64", .default = "0" },
-            },
-        } },
-        .{ "float", BuiltinBaseInfo{
-            .zig_type = "f64",
-            .zig_init = "__value",
-            .init_args = &.{
-                .{ .name = "__value", .zig_type = "f64", .default = "0.0" },
-            },
-        } },
-        .{ "str", BuiltinBaseInfo{
-            .zig_type = "[]const u8",
-            .zig_init = "__value",
-            .init_args = &.{
-                .{ .name = "__value", .zig_type = "[]const u8", .default = "\"\"" },
-            },
-        } },
-        .{ "bool", BuiltinBaseInfo{
-            .zig_type = "bool",
-            .zig_init = "__value",
-            .init_args = &.{
-                .{ .name = "__value", .zig_type = "bool", .default = "false" },
-            },
-        } },
-        .{ "bytes", BuiltinBaseInfo{
-            .zig_type = "[]const u8",
-            .zig_init = "__value",
-            .init_args = &.{
-                .{ .name = "__value", .zig_type = "[]const u8", .default = "\"\"" },
-            },
-        } },
-        .{ "bytearray", BuiltinBaseInfo{
-            .zig_type = "[]const u8",
-            .zig_init = "__value",
-            .init_args = &.{
-                .{ .name = "__value", .zig_type = "[]const u8", .default = "\"\"" },
-            },
-        } },
-    });
-
-    return builtin_bases.get(base_name);
-}
-
-/// Complex parent types with multiple fields (like array.array)
-pub const ComplexParentInfo = struct {
-    /// Fields to add to child class (in order)
-    fields: []const FieldInfo,
-    /// Methods inherited from parent (for parent method call resolution)
-    methods: []const MethodInfo,
-    /// Constructor arguments (for default init generation)
-    init_args: []const InitArg,
-    /// Zig code to initialize fields from constructor args
-    /// Use {alloc} for allocator, {0}, {1}, etc. for init args
-    field_init: []const FieldInit,
-
-    pub const FieldInfo = struct {
-        name: []const u8,
-        zig_type: []const u8,
-        default: []const u8,
-    };
-
-    pub const MethodInfo = struct {
-        name: []const u8,
-        /// The Zig code to inline when calling parent.method(self, ...)
-        /// Use {self} for the self parameter, {0}, {1}, etc. for other args
-        inline_code: []const u8,
-    };
-
-    pub const InitArg = struct {
-        name: []const u8,
-        zig_type: []const u8,
-    };
-
-    pub const FieldInit = struct {
-        field_name: []const u8,
-        /// Zig code to initialize the field, use {0}, {1} for args, {alloc} for allocator
-        init_code: []const u8,
-    };
-};
-
-/// Get complex parent info for module.class patterns (e.g., "array.array")
-pub fn getComplexParentInfo(base_name: []const u8) ?ComplexParentInfo {
-    const complex_parents = std.StaticStringMap(ComplexParentInfo).initComptime(.{
-        .{ "array.array", ComplexParentInfo{
-            .fields = &.{
-                .{ .name = "typecode", .zig_type = "u8", .default = "'l'" },
-                .{ .name = "__array_items", .zig_type = "std.ArrayList(i64)", .default = "std.ArrayList(i64){}" },
-            },
-            .methods = &.{
-                // __getitem__(self, i) -> self.__array_items.items[i]
-                .{ .name = "__getitem__", .inline_code = "{self}.__array_items.items[@as(usize, @intCast({0}))]" },
-                // __setitem__(self, i, v) -> self.__array_items.items[i] = v
-                .{ .name = "__setitem__", .inline_code = "{self}.__array_items.items[@as(usize, @intCast({0}))] = {1}" },
-                // __len__(self) -> self.__array_items.items.len
-                .{ .name = "__len__", .inline_code = "{self}.__array_items.items.len" },
-                // append(self, x) -> self.__array_items.append(x)
-                .{ .name = "append", .inline_code = "try {self}.__array_items.append(__global_allocator, {0})" },
-            },
-            .init_args = &.{
-                .{ .name = "typecode", .zig_type = "u8" },
-                .{ .name = "data", .zig_type = "[]const i64" },
-            },
-            .field_init = &.{
-                .{ .field_name = "typecode", .init_code = "typecode" },
-                .{ .field_name = "__array_items", .init_code = "blk: { var arr = std.ArrayList(i64){}; arr.appendSlice({alloc}, data) catch {}; break :blk arr; }" },
-            },
-        } },
-    });
-
-    return complex_parents.get(base_name);
-}
+pub const BuiltinBaseInfo = builtin_types.BuiltinBaseInfo;
+pub const ComplexParentInfo = builtin_types.ComplexParentInfo;
+pub const getBuiltinBaseInfo = builtin_types.getBuiltinBaseInfo;
+pub const getComplexParentInfo = builtin_types.getComplexParentInfo;
+pub const hasCPythonOnlyDecorator = test_skip.hasCPythonOnlyDecorator;
+pub const hasSkipUnlessCPythonModule = test_skip.hasSkipUnlessCPythonModule;
+pub const hasSkipIfModuleIsNone = test_skip.hasSkipIfModuleIsNone;
 
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
     // Use function_traits for allocator decision (unified analysis)
-    // Falls back to allocator_analyzer for functions not in call graph
     const needs_allocator_from_traits = self.funcNeedsAllocator(func.name);
-    const needs_allocator_for_errors = if (needs_allocator_from_traits) true else allocator_analyzer.functionNeedsAllocator(func);
+    const needs_allocator_for_errors = if (needs_allocator_from_traits) true else function_traits.analyzeNeedsAllocator(func, null);
 
     // Check if function actually uses the allocator param (not just __global_allocator)
-    const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParam(func);
+    const actually_uses_allocator = function_traits.analyzeUsesAllocatorParam(func, null);
 
     // In module mode, ALL functions get allocator for consistency at module boundaries
     // In script mode, only functions that need it get allocator
@@ -384,7 +252,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 const method_name = method.name;
                 if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
                     // Check if method body has fallible operations (needs allocator param)
-                    const method_needs_allocator = allocator_analyzer.functionNeedsAllocator(method);
+                    const method_needs_allocator = function_traits.analyzeNeedsAllocator(method, class.name);
 
                     // Check for decorators that indicate test should be skipped on non-CPython:
                     // 1. @support.cpython_only - tests CPython implementation details
@@ -402,23 +270,23 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     }
                     const class_names = class_names_list.items;
 
-                    const skip_reason: ?[]const u8 = if (hasCPythonOnlyDecorator(method.decorators))
+                    const skip_reason: ?[]const u8 = if (test_skip.hasCPythonOnlyDecorator(method.decorators))
                         "CPython implementation test (not applicable to metal0)"
-                    else if (hasSkipUnlessCPythonModule(method.decorators))
+                    else if (test_skip.hasSkipUnlessCPythonModule(method.decorators))
                         "Requires CPython-only module (_pylong or _decimal)"
-                    else if (hasSkipIfModuleIsNone(method.decorators, &self.skipped_modules))
+                    else if (test_skip.hasSkipIfModuleIsNone(method.decorators, &self.skipped_modules))
                         "Requires unavailable optional module"
-                    else if (hasTypeParameterDefault(method.args))
+                    else if (test_skip.hasTypeParameterDefault(method.args))
                         "Test uses runtime type parameters (cls=float)"
-                    else if (callsSelfMethodWithClassArg(method.body, class_names))
+                    else if (test_skip.callsSelfMethodWithClassArg(method.body, class_names))
                         "Test passes class as runtime argument (self.method(ClassName))"
-                    else if (hasSkipDocstring(method.body))
+                    else if (test_skip.hasSkipDocstring(method.body))
                         "Marked skip in docstring"
                     else
                         null;
 
                     // Count @mock.patch.object decorators (each injects a mock param)
-                    const mock_count = countMockPatchDecorators(method.decorators);
+                    const mock_count = test_skip.countMockPatchDecorators(method.decorators);
 
                     // Collect default parameters for test runner to pass
                     var default_params = std.ArrayList(core.TestDefaultParam){};
@@ -426,7 +294,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         if (std.mem.eql(u8, arg.name, "self")) continue;
                         if (arg.default) |default_expr| {
                             // Convert Python default value to Zig code
-                            const default_code = convertDefaultToZig(default_expr.*);
+                            const default_code = test_skip.convertDefaultToZig(default_expr.*);
                             if (default_code) |code| {
                                 try default_params.append(self.allocator, .{
                                     .name = arg.name,
@@ -1019,311 +887,17 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // See function_gen.zig emitNestedClassUnusedSuppression() for the deferred emit logic.
 }
 
-/// Convert Python default value to Zig code for test method parameters
-/// Returns null if the conversion is not supported
-fn convertDefaultToZig(default_expr: ast.Node) ?[]const u8 {
-    switch (default_expr) {
-        .name => |name| {
-            const id = name.id;
-            // Python builtin types to Zig type names
-            if (std.mem.eql(u8, id, "float")) return "f64";
-            if (std.mem.eql(u8, id, "int")) return "i64";
-            if (std.mem.eql(u8, id, "str")) return "[]const u8";
-            if (std.mem.eql(u8, id, "bool")) return "bool";
-            if (std.mem.eql(u8, id, "None")) return "null";
-            if (std.mem.eql(u8, id, "True")) return "true";
-            if (std.mem.eql(u8, id, "False")) return "false";
-            if (std.mem.eql(u8, id, "complex")) return "runtime.Complex";
-            if (std.mem.eql(u8, id, "repr")) return "runtime.repr";
-            // Class name - return as-is (caller should know to use the struct)
-            if (id.len > 0 and std.ascii.isUpper(id[0])) return id;
-            return null;
-        },
-        .constant => |constant| {
-            // Numeric constants
-            if (constant.value == .int) return null; // Would need to format
-            if (constant.value == .float) return null; // Would need to format
-            if (constant.value == .none) return "null";
-            if (constant.value == .bool) {
-                return if (constant.value.bool) "true" else "false";
-            }
-            return null;
-        },
-        else => return null,
-    }
-}
-
-/// Check if a test method has a parameter with a type as its default value
-/// e.g., def test_from_number(self, cls=float): - these can't be represented in Zig
-fn hasTypeParameterDefault(args: []const ast.Arg) bool {
-    for (args) |arg| {
-        if (std.mem.eql(u8, arg.name, "self")) continue;
-        if (arg.default) |default_expr| {
-            if (default_expr.* == .name) {
-                const name = default_expr.name.id;
-                // Check if default is a Python builtin type
-                if (std.mem.eql(u8, name, "float") or
-                    std.mem.eql(u8, name, "int") or
-                    std.mem.eql(u8, name, "str") or
-                    std.mem.eql(u8, name, "bool") or
-                    std.mem.eql(u8, name, "complex") or
-                    std.mem.eql(u8, name, "list") or
-                    std.mem.eql(u8, name, "dict") or
-                    std.mem.eql(u8, name, "set") or
-                    std.mem.eql(u8, name, "tuple") or
-                    std.mem.eql(u8, name, "bytes") or
-                    std.mem.eql(u8, name, "type"))
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
-/// Check if a test method calls self.method() with a class/type as argument
-/// e.g., self.test_from_number(FloatSubclass) - where FloatSubclass is a class
-fn callsSelfMethodWithClassArg(stmts: []const ast.Node, class_names: []const []const u8) bool {
-    for (stmts) |stmt| {
-        if (stmtCallsSelfMethodWithClassArg(stmt, class_names)) return true;
-    }
-    return false;
-}
-
-fn stmtCallsSelfMethodWithClassArg(stmt: ast.Node, class_names: []const []const u8) bool {
-    return switch (stmt) {
-        .expr_stmt => |e| exprCallsSelfMethodWithClassArg(e.value.*, class_names),
-        .assign => |a| exprCallsSelfMethodWithClassArg(a.value.*, class_names),
-        .return_stmt => |r| if (r.value) |v| exprCallsSelfMethodWithClassArg(v.*, class_names) else false,
-        .if_stmt => |i| blk: {
-            for (i.body) |s| {
-                if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
-            }
-            for (i.else_body) |s| {
-                if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
-            }
-            break :blk false;
-        },
-        else => false,
-    };
-}
-
-fn exprCallsSelfMethodWithClassArg(expr: ast.Node, class_names: []const []const u8) bool {
-    return switch (expr) {
-        .call => |c| blk: {
-            // Check if this is self.method(...) with a class as argument
-            if (c.func.* == .attribute) {
-                const attr = c.func.attribute;
-                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
-                    // Check if any argument is a class name
-                    for (c.args) |arg| {
-                        if (arg == .name) {
-                            for (class_names) |cn| {
-                                if (std.mem.eql(u8, arg.name.id, cn)) {
-                                    break :blk true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            break :blk false;
-        },
-        else => false,
-    };
-}
-
-/// Check if first statement in function body is a docstring containing "skip:"
-/// This allows test files to mark tests for skipping with: """skip: reason"""
-fn hasSkipDocstring(func_body: []const ast.Node) bool {
-    if (func_body.len == 0) return false;
-    // First statement should be an expression statement containing a string constant
-    if (func_body[0] == .expr_stmt) {
-        const expr = func_body[0].expr_stmt.value.*;
-        if (expr == .constant) {
-            if (expr.constant.value == .string) {
-                const docstring = expr.constant.value.string;
-                // Check if docstring starts with or contains "skip:"
-                return std.mem.startsWith(u8, docstring, "skip:") or
-                    std.mem.indexOf(u8, docstring, "skip:") != null;
-            }
-        }
-    }
-    return false;
-}
-
-/// Check if test has @support.cpython_only decorator
-/// These tests are CPython implementation details and should be skipped by non-CPython implementations
-pub fn hasCPythonOnlyDecorator(decorators: []const ast.Node) bool {
-    for (decorators) |decorator| {
-        if (decorator == .attribute) {
-            const attr = decorator.attribute;
-            // Check for support.cpython_only
-            if (std.mem.eql(u8, attr.attr, "cpython_only")) {
-                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "support")) {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
-/// Check if test has @unittest.skipUnless with CPython-only module (_pylong, _decimal)
-/// These modules are C extensions internal to CPython and not available in metal0
-pub fn hasSkipUnlessCPythonModule(decorators: []const ast.Node) bool {
-    for (decorators) |decorator| {
-        if (decorator == .call) {
-            const call = decorator.call;
-            // Check if it's unittest.skipUnless
-            if (call.func.* == .attribute) {
-                const func_attr = call.func.attribute;
-                if (std.mem.eql(u8, func_attr.attr, "skipUnless")) {
-                    if (func_attr.value.* == .name and std.mem.eql(u8, func_attr.value.name.id, "unittest")) {
-                        // Check first argument for _pylong or _decimal
-                        if (call.args.len > 0) {
-                            if (call.args[0] == .name) {
-                                const arg_name = call.args[0].name.id;
-                                if (std.mem.eql(u8, arg_name, "_pylong") or
-                                    std.mem.eql(u8, arg_name, "_decimal"))
-                                {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return false;
-}
-
-/// Check if test has @unittest.skipIf(module is None, ...) where module is unavailable
-/// This detects: @unittest.skipIf(_testcapi is None, 'needs _testcapi')
-/// and skips the test if _testcapi was marked as unavailable during try/except import
-fn hasSkipIfModuleIsNone(decorators: []const ast.Node, skipped_modules: *const hashmap_helper.StringHashMap(void)) bool {
-    for (decorators) |decorator| {
-        if (decorator == .call) {
-            const call = decorator.call;
-            // Check if it's unittest.skipIf
-            if (call.func.* == .attribute) {
-                const func_attr = call.func.attribute;
-                if (std.mem.eql(u8, func_attr.attr, "skipIf")) {
-                    if (func_attr.value.* == .name and std.mem.eql(u8, func_attr.value.name.id, "unittest")) {
-                        // Check first argument for: module_name is None
-                        if (call.args.len > 0) {
-                            if (call.args[0] == .compare) {
-                                const cmp = call.args[0].compare;
-                                // Check for "X is None" pattern
-                                if (cmp.ops.len > 0 and cmp.ops[0] == .Is) {
-                                    if (cmp.left.* == .name and cmp.comparators.len > 0) {
-                                        const module_name = cmp.left.name.id;
-                                        // Check if comparator is None
-                                        const comparator = cmp.comparators[0];
-                                        const is_none = if (comparator == .constant)
-                                            comparator.constant.value == .none
-                                        else
-                                            false;
-                                        if (is_none and skipped_modules.contains(module_name)) {
-                                            return true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return false;
-}
-
-/// Count @mock.patch.object and @mock.patch decorators (each injects a mock param)
-fn countMockPatchDecorators(decorators: []const ast.Node) usize {
-    var count: usize = 0;
-    for (decorators) |decorator| {
-        if (isMockPatchDecorator(decorator)) {
-            count += 1;
-        }
-    }
-    return count;
-}
-
-/// Check if a decorator is @mock.patch.object, @mock.patch, @unittest.mock.patch.object, etc.
-fn isMockPatchDecorator(decorator: ast.Node) bool {
-    // Decorator can be a call like @mock.patch.object(target, attr) or @mock.patch(target)
-    if (decorator == .call) {
-        const call = decorator.call;
-        return isMockPatchFunc(call.func.*);
-    }
-    // Or a bare attribute like @mock.patch (though less common)
-    return isMockPatchFunc(decorator);
-}
-
-/// Check if a node represents mock.patch.object or mock.patch
-fn isMockPatchFunc(node: ast.Node) bool {
-    if (node == .attribute) {
-        const attr = node.attribute;
-        // Check for patterns like:
-        // - mock.patch.object -> attr = "object", value = mock.patch
-        // - mock.patch -> attr = "patch", value = mock
-        // - unittest.mock.patch.object -> attr = "object", value = unittest.mock.patch
-        if (std.mem.eql(u8, attr.attr, "object")) {
-            // Check if it's mock.patch.object or unittest.mock.patch.object
-            if (attr.value.* == .attribute) {
-                const parent = attr.value.attribute;
-                if (std.mem.eql(u8, parent.attr, "patch")) {
-                    // Check if parent is mock or unittest.mock
-                    if (parent.value.* == .name) {
-                        return std.mem.eql(u8, parent.value.name.id, "mock");
-                    } else if (parent.value.* == .attribute) {
-                        // unittest.mock
-                        const grandparent = parent.value.attribute;
-                        return std.mem.eql(u8, grandparent.attr, "mock");
-                    }
-                }
-            }
-        } else if (std.mem.eql(u8, attr.attr, "patch")) {
-            // Check for mock.patch or unittest.mock.patch (without .object)
-            if (attr.value.* == .name) {
-                return std.mem.eql(u8, attr.value.name.id, "mock");
-            } else if (attr.value.* == .attribute) {
-                const parent = attr.value.attribute;
-                return std.mem.eql(u8, parent.attr, "mock");
-            }
-        }
-    }
-    return false;
-}
-
 /// Recursively find __init__ method in parent chain
-/// For classes without __init__, searches up the inheritance chain
 fn findInheritedInit(self: *NativeCodegen, parent_class: ?ast.Node.ClassDef) ?ast.Node.FunctionDef {
     var current = parent_class;
     while (current) |parent| {
-        // Check if this parent has __init__
         for (parent.body) |stmt| {
-            if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, "__init__")) {
+            if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, "__init__"))
                 return stmt.function_def;
-            }
         }
-
-        // No __init__ in this parent - check its parent
         if (parent.bases.len > 0) {
-            // First check class_registry for module-level classes
-            current = self.class_registry.getClass(parent.bases[0]);
-            if (current == null) {
-                // Then check nested_class_defs for nested classes
-                current = self.nested_class_defs.get(parent.bases[0]);
-            }
-        } else {
-            // No more parents
-            break;
-        }
+            current = self.class_registry.getClass(parent.bases[0]) orelse self.nested_class_defs.get(parent.bases[0]);
+        } else break;
     }
     return null;
 }
-

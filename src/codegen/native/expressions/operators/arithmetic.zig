@@ -658,16 +658,6 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         return;
     }
 
-    // Special handling for floor division
-    if (binop.op == .FloorDiv) {
-        try self.emit("@divFloor(");
-        try genExpr(self, binop.left.*);
-        try self.emit(", ");
-        try genExpr(self, binop.right.*);
-        try self.emit(")");
-        return;
-    }
-
     // Special handling for power
     if (binop.op == .Pow) {
         // Check types for bool handling
@@ -792,44 +782,6 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             } else {
                 try genExpr(self, binop.right.*);
             }
-            try self.emit(")");
-        }
-        return;
-    }
-
-    // Special handling for floor division - returns int
-    if (binop.op == .FloorDiv) {
-        // At module level (indent_level == 0), we can't use 'try'
-        if (self.indent_level == 0) {
-            try self.emit("@divFloor(");
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
-        } else {
-            try self.emit("try runtime.divideInt(");
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
-        }
-        return;
-    }
-
-    // Special handling for modulo - can throw ZeroDivisionError
-    if (binop.op == .Mod) {
-        // At module level (indent_level == 0), we can't use 'try'
-        if (self.indent_level == 0) {
-            try self.emit("@mod(");
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
-        } else {
-            try self.emit("try runtime.moduloInt(");
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
             try self.emit(")");
         }
         return;

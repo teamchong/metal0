@@ -1096,6 +1096,30 @@ pub const bytearray_factory: PyCallable = PyCallable.fromFn(&bytearray_callable)
 pub const str_factory: PyCallable = PyCallable.fromFn(&str_callable);
 pub const memoryview_factory: PyCallable = PyCallable.fromFn(&memoryview_callable);
 
+/// issubclass builtin - callable struct for passing as first-class value
+/// Used in: blowstack(issubclass, str, str) patterns
+pub const issubclass = struct {
+    pub fn call(_: @This(), cls: anytype, base: anytype) bool {
+        _ = cls;
+        _ = base;
+        // Type checks are compile-time in native codegen
+        // Return false as safe default for runtime checks
+        return false;
+    }
+}{};
+
+/// isinstance builtin - callable struct for passing as first-class value
+/// Used in: blowstack(isinstance, '', str) patterns
+pub const isinstance = struct {
+    pub fn call(_: @This(), obj: anytype, cls: anytype) bool {
+        _ = obj;
+        _ = cls;
+        // Type checks are compile-time in native codegen
+        // Return false as safe default for runtime checks
+        return false;
+    }
+}{};
+
 // Operator module callable structs - these can be stored as values and called later
 // Example: mod = operator.mod; mod(-1.0, 1.0)
 

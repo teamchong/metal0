@@ -213,6 +213,14 @@ pub const TypeInferrer = struct {
                     try self.checkConstructorCall(expr.value.call, arena_alloc);
                 }
             },
+            .return_stmt => |ret| {
+                // Check for return AbstractInstance(self)
+                if (ret.value) |val| {
+                    if (val.* == .call) {
+                        try self.checkConstructorCall(val.call, arena_alloc);
+                    }
+                }
+            },
             .if_stmt => |if_stmt| {
                 for (if_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
                 for (if_stmt.else_body) |s| try self.collectConstructorArgs(s, arena_alloc);
@@ -225,6 +233,26 @@ pub const TypeInferrer = struct {
             },
             .function_def => |func_def| {
                 for (func_def.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+            },
+            .class_def => |class_def| {
+                // Set up 'self' as class_instance for method bodies
+                const old_self = self.var_types.get("self");
+                try self.var_types.put("self", .{ .class_instance = class_def.name });
+                defer {
+                    if (old_self) |os| {
+                        self.var_types.put("self", os) catch {};
+                    } else {
+                        _ = self.var_types.swapRemove("self");
+                    }
+                }
+                // Traverse all methods in the class
+                for (class_def.body) |method_stmt| {
+                    if (method_stmt == .function_def) {
+                        for (method_stmt.function_def.body) |s| {
+                            self.collectConstructorArgs(s, arena_alloc) catch {};
+                        }
+                    }
+                }
             },
             else => {},
         }

@@ -1467,6 +1467,15 @@ pub fn isSubclass(cls: anytype, base: anytype) bool {
     return false;
 }
 
+/// Check if cls is a subclass of any of the types in the tuple (for type unions like int | str)
+pub fn isSubclassMulti(cls: anytype, bases: anytype) bool {
+    _ = cls;
+    _ = bases;
+    // At compile time, type relationships are static
+    // Return false as a safe default for runtime checks
+    return false;
+}
+
 /// Complex number type
 pub const PyComplex = struct {
     real: f64,

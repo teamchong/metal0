@@ -351,6 +351,7 @@ pub fn analyzeModuleLevelMutations(self: *NativeCodegen, module_body: []const as
 
 /// Count assignments with scope awareness
 /// scope_id: unique identifier for each scope (using pointer address of the AST node)
+/// parent_scope_id: the containing scope (for detecting cross-scope mutations)
 pub fn countAssignmentsWithScope(
     aug_vars: *hashmap_helper.StringHashMap(void),
     scoped_counts: *hashmap_helper.StringHashMap(usize),
@@ -369,6 +370,15 @@ pub fn countAssignmentsWithScope(
                     defer allocator.free(scoped_key);
                     const current = scoped_counts.get(scoped_key) orelse 0;
                     try scoped_counts.put(try allocator.dupe(u8, scoped_key), current + 1);
+                    // ALSO count at function scope (0) if we're in a nested scope
+                    // This handles: x = 1 (scope 0) + x = 2 (nested loop) -> x is mutated
+                    // In Python, assignments in nested scopes mutate outer scope variables
+                    if (scope_id != 0) {
+                        const func_scope_key = try std.fmt.allocPrint(allocator, "{s}:0", .{name});
+                        defer allocator.free(func_scope_key);
+                        const func_current = scoped_counts.get(func_scope_key) orelse 0;
+                        try scoped_counts.put(try allocator.dupe(u8, func_scope_key), func_current + 1);
+                    }
                 } else if (target == .subscript) {
                     // Subscript assignment: x[0] = value mutates x
                     const subscript = target.subscript;

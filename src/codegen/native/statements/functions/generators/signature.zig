@@ -454,6 +454,17 @@ pub fn genFunctionSignature(
         const is_func = param_analyzer.isParameterUsedAsFunction(func.body, arg.name);
         const is_iter = param_analyzer.isParameterUsedAsIterator(func.body, arg.name);
         const is_type_check = param_analyzer.isParameterUsedInTypeCheck(func.body, arg.name);
+        const is_passed_to_callable = param_analyzer.isParameterPassedToCallableParam(func.body, arg.name, func.args);
+        // Check if function has any callable parameter - if so, all other params need anytype
+        // since they may be passed (directly or indirectly) to the callable
+        const has_callable_param = blk: {
+            for (func.args) |p| {
+                if (param_analyzer.isParameterUsedAsFunction(func.body, p.name)) {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        };
         if (is_func and arg.default == null) {
             try self.emit("anytype"); // For decorators and higher-order functions (without defaults)
             try self.anytype_params.put(arg.name, {});
@@ -465,6 +476,12 @@ pub fn genFunctionSignature(
         } else if (is_type_check and arg.type_annotation == null) {
             // Parameter used in isinstance() type check - use anytype for runtime type checking
             // e.g., def isint(x): return isinstance(x, int)
+            try self.emit("anytype");
+            try self.anytype_params.put(arg.name, {});
+        } else if ((is_passed_to_callable or has_callable_param) and arg.type_annotation == null) {
+            // Parameter passed to another param that is called as a function, OR
+            // function has a callable param (may be passed indirectly)
+            // e.g., def foo(fxn, arg, x): fxn(arg); y = (x,) - all non-callable need anytype
             try self.emit("anytype");
             try self.anytype_params.put(arg.name, {});
         } else if (arg.type_annotation) |_| {
@@ -1202,6 +1219,10 @@ fn getReturnedNestedClassConstructor(body: []const ast.Node, self: *NativeCodege
                             if (std.mem.eql(u8, func_name, ccn)) {
                                 return func_name;
                             }
+                        }
+                        // Also check class_registry for top-level user-defined classes
+                        if (self.class_registry.getClass(func_name) != null) {
+                            return func_name;
                         }
                     }
                 }

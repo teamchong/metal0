@@ -4,7 +4,7 @@ const ast = @import("ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
 const CodeBuilder = @import("../../../../code_builder.zig").CodeBuilder;
-const allocator_analyzer = @import("../../allocator_analyzer.zig");
+const function_traits = @import("../../../../../../analysis/function_traits.zig");
 const zig_keywords = @import("zig_keywords");
 
 const mutation_analysis = @import("mutation_analysis.zig");
@@ -666,8 +666,8 @@ pub fn genAsyncFunctionBody(
 /// Generate method body with self-usage detection
 pub fn genMethodBody(self: *NativeCodegen, method: ast.Node.FunctionDef) CodegenError!void {
     // genMethodBodyWithAllocatorInfo with automatic detection
-    const needs_allocator = allocator_analyzer.functionNeedsAllocator(method);
-    const actually_uses = allocator_analyzer.functionActuallyUsesAllocatorParam(method);
+    const needs_allocator = function_traits.analyzeNeedsAllocator(method, null);
+    const actually_uses = function_traits.analyzeUsesAllocatorParam(method, null);
     try genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses);
 }
 

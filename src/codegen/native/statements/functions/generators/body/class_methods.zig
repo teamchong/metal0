@@ -6,7 +6,7 @@ const CodegenError = @import("../../../../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
 const signature = @import("../signature.zig");
 const class_fields = @import("class_fields.zig");
-const allocator_analyzer = @import("../../allocator_analyzer.zig");
+const function_traits = @import("../../../../../../analysis/function_traits.zig");
 const zig_keywords = @import("zig_keywords");
 const generators = @import("../../generators.zig");
 
@@ -1050,9 +1050,9 @@ pub fn genClassMethods(
             }
 
             const mutates_self = body.methodMutatesSelf(method);
-            // Use methodNeedsAllocatorInClass to detect same-class constructor calls like Rat(x)
-            const needs_allocator = allocator_analyzer.methodNeedsAllocatorInClass(method, class.name);
-            const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParamInClass(method, class.name);
+            // Use analyzeNeedsAllocator to detect same-class constructor calls like Rat(x)
+            const needs_allocator = function_traits.analyzeNeedsAllocator(method, class.name);
+            const actually_uses_allocator = function_traits.analyzeUsesAllocatorParam(method, class.name);
 
             // Track allocator needs for nested class methods so call sites know whether to pass allocator
             // This is needed because nested classes are not in the class_registry
@@ -1274,9 +1274,9 @@ fn inheritMethodsFromClass(
 
             // Copy parent method to child class
             const mutates_self = body.methodMutatesSelf(parent_method);
-            // Use methodNeedsAllocatorInClass with parent class name for inherited methods
-            const needs_allocator = allocator_analyzer.methodNeedsAllocatorInClass(parent_method, parent.name);
-            const actually_uses_allocator = allocator_analyzer.functionActuallyUsesAllocatorParamInClass(parent_method, parent.name);
+            // Use analyzeNeedsAllocator with parent class name for inherited methods
+            const needs_allocator = function_traits.analyzeNeedsAllocator(parent_method, parent.name);
+            const actually_uses_allocator = function_traits.analyzeUsesAllocatorParam(parent_method, parent.name);
 
             // Before generating signature, add parent to nested_class_names for return type detection
             // (e.g., aug_test.__add__ returns aug_test(...) which needs parent to be known)

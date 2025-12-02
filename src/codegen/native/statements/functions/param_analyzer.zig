@@ -731,3 +731,87 @@ fn isTypeCheckCall(expr: ast.Node, param_name: []const u8) bool {
     }
     return false;
 }
+
+/// Check if a parameter is passed as an argument to another parameter that is called as a function
+/// Pattern: def foo(fxn, arg): fxn(arg) - here arg is passed to fxn which is a callable
+/// These params should be anytype since they can be any type
+pub fn isParameterPassedToCallableParam(body: []ast.Node, param_name: []const u8, func_params: []ast.Arg) bool {
+    // First, find all parameters that are used as callables (functions)
+    var callable_params_buf: [32][]const u8 = undefined;
+    var num_callable_params: usize = 0;
+
+    for (func_params) |arg| {
+        if (isParameterCalled(body, arg.name) and num_callable_params < callable_params_buf.len) {
+            callable_params_buf[num_callable_params] = arg.name;
+            num_callable_params += 1;
+        }
+    }
+
+    // Now check if param_name is passed to any of those callable params
+    for (body) |stmt| {
+        if (isParamPassedToCallableInStmt(stmt, param_name, callable_params_buf[0..num_callable_params])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn isParamPassedToCallableInStmt(stmt: ast.Node, param_name: []const u8, callable_params: [][]const u8) bool {
+    return switch (stmt) {
+        .expr_stmt => |expr| isParamPassedToCallableInExpr(expr.value.*, param_name, callable_params),
+        .assign => |assign| isParamPassedToCallableInExpr(assign.value.*, param_name, callable_params),
+        .return_stmt => |ret| if (ret.value) |val| isParamPassedToCallableInExpr(val.*, param_name, callable_params) else false,
+        .if_stmt => |if_stmt| {
+            for (if_stmt.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            for (if_stmt.else_body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            for (while_stmt.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            for (for_stmt.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            return false;
+        },
+        else => false,
+    };
+}
+
+fn isParamPassedToCallableInExpr(expr: ast.Node, param_name: []const u8, callable_params: [][]const u8) bool {
+    return switch (expr) {
+        .call => |call| {
+            // Check if the function being called is one of our callable params
+            if (call.func.* == .name) {
+                const func_name = call.func.name.id;
+                for (callable_params) |cp| {
+                    if (std.mem.eql(u8, func_name, cp)) {
+                        // This is a call to a callable param - check if our param is in args
+                        for (call.args) |arg| {
+                            if (arg == .name and std.mem.eql(u8, arg.name.id, param_name)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            // Also check nested calls
+            for (call.args) |arg| {
+                if (isParamPassedToCallableInExpr(arg, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        .binop => |binop| {
+            if (isParamPassedToCallableInExpr(binop.left.*, param_name, callable_params)) return true;
+            if (isParamPassedToCallableInExpr(binop.right.*, param_name, callable_params)) return true;
+            return false;
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elt| {
+                if (isParamPassedToCallableInExpr(elt, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        else => false,
+    };
+}

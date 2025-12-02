@@ -627,6 +627,15 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             try self.emit("0, .{}");
         }
         try self.emit(")");
+    } else if (args[1] == .name) {
+        // Name-based callable - use proper call dispatch for builtins like isinstance
+        const call_args: []ast.Node = if (args.len > 2) @constCast(args[2..]) else @constCast(&[_]ast.Node{});
+        const call = ast.Node.Call{
+            .func = @constCast(&args[1]),
+            .args = call_args,
+            .keyword_args = @constCast(&[_]ast.Node.KeywordArg{}),
+        };
+        try parent.genCall(self, call);
     } else {
         // Simple name or other callable
         try parent.genExpr(self, args[1]);

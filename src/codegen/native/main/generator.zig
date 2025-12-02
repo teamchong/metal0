@@ -898,7 +898,7 @@ fn genClosureWrapperTypes(self: *NativeCodegen, module: ast.Node.Module) !void {
 /// This populates test_factories map with factory function name -> TestClassInfo[]
 fn analyzeTestFactories(self: *NativeCodegen, module: ast.Node.Module) !void {
     const generators = @import("../statements/functions/generators.zig");
-    const allocator_analyzer = @import("../statements/functions/allocator_analyzer.zig");
+    const function_traits = @import("../../../analysis/function_traits.zig");
 
     for (module.body) |stmt| {
         if (stmt != .function_def) continue;
@@ -936,7 +936,7 @@ fn analyzeTestFactories(self: *NativeCodegen, module: ast.Node.Module) !void {
                 const method_name = method.name;
 
                 if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
-                    const method_needs_allocator = allocator_analyzer.functionNeedsAllocator(method);
+                    const method_needs_allocator = function_traits.analyzeNeedsAllocator(method, class.name);
                     const skip_reason: ?[]const u8 = if (generators.hasCPythonOnlyDecorator(method.decorators))
                         "CPython implementation test"
                     else if (generators.hasSkipUnlessCPythonModule(method.decorators))

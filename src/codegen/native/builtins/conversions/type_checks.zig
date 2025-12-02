@@ -176,6 +176,19 @@ pub fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 }
 
+/// Collect all types from a union expression (e.g., int | str | float)
+/// Returns the types as a list that can be generated as a tuple
+fn collectUnionTypes(node: ast.Node, out: *std.ArrayList(ast.Node), allocator: std.mem.Allocator) !void {
+    if (node == .binop and node.binop.op == .BitOr) {
+        // Recursively collect from left and right
+        try collectUnionTypes(node.binop.left.*, out, allocator);
+        try collectUnionTypes(node.binop.right.*, out, allocator);
+    } else {
+        // Base case: add this type to the list
+        try out.append(allocator, node);
+    }
+}
+
 /// Generate code for issubclass(cls, classinfo)
 /// Returns True if cls is a subclass of classinfo
 pub fn genIssubclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -201,6 +214,33 @@ pub fn genIssubclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("true");
             return;
         }
+    }
+
+    // Check if the second argument is a type union (e.g., int | str | float)
+    // Python 3.10+ allows isinstance(x, int | str) which creates a union type
+    // We need to convert this to a tuple for runtime.isSubclass
+    if (args[1] == .binop and args[1].binop.op == .BitOr) {
+        // Collect all types from the union
+        var union_types = std.ArrayList(ast.Node){};
+        defer union_types.deinit(self.allocator);
+        collectUnionTypes(args[1], &union_types, self.allocator) catch {
+            // Fallback to direct generation if collection fails
+            try self.emit("runtime.isSubclass(");
+            try self.genExpr(args[0]);
+            try self.emit(", .{})");
+            return;
+        };
+
+        // Generate: runtime.isSubclassMulti(cls, .{type1, type2, ...})
+        try self.emit("runtime.isSubclassMulti(");
+        try self.genExpr(args[0]);
+        try self.emit(", .{");
+        for (union_types.items, 0..) |type_node, i| {
+            if (i > 0) try self.emit(", ");
+            try self.genExpr(type_node);
+        }
+        try self.emit("})");
+        return;
     }
 
     // Runtime check
