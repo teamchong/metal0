@@ -773,21 +773,54 @@ pub const NumpyArray = struct {
     // ============================================================================
     // Reduction operations (return scalar)
     // ============================================================================
+    // SIMD-optimized reduction operations
+    // ============================================================================
 
-    /// Sum all elements
+    const VecSize = 4; // 256-bit SIMD = 4 x f64
+    const F64Vec = @Vector(VecSize, f64);
+
+    /// Sum all elements (SIMD-optimized)
     pub fn sum(self: *NumpyArray) f64 {
-        var total: f64 = 0.0;
-        for (self.data) |val| {
-            total += val;
+        const data = self.data;
+        const len = data.len;
+        var i: usize = 0;
+        var vec_sum: F64Vec = @splat(0.0);
+
+        // SIMD loop - process 4 elements at a time
+        while (i + VecSize <= len) : (i += VecSize) {
+            const chunk: F64Vec = data[i..][0..VecSize].*;
+            vec_sum += chunk;
+        }
+
+        // Horizontal sum of vector
+        var total: f64 = @reduce(.Add, vec_sum);
+
+        // Scalar tail
+        while (i < len) : (i += 1) {
+            total += data[i];
         }
         return total;
     }
 
-    /// Product of all elements
+    /// Product of all elements (SIMD-optimized)
     pub fn prod(self: *NumpyArray) f64 {
-        var total: f64 = 1.0;
-        for (self.data) |val| {
-            total *= val;
+        const data = self.data;
+        const len = data.len;
+        var i: usize = 0;
+        var vec_prod: F64Vec = @splat(1.0);
+
+        // SIMD loop
+        while (i + VecSize <= len) : (i += VecSize) {
+            const chunk: F64Vec = data[i..][0..VecSize].*;
+            vec_prod *= chunk;
+        }
+
+        // Horizontal product
+        var total: f64 = @reduce(.Mul, vec_prod);
+
+        // Scalar tail
+        while (i < len) : (i += 1) {
+            total *= data[i];
         }
         return total;
     }
@@ -797,14 +830,31 @@ pub const NumpyArray = struct {
         return self.sum() / @as(f64, @floatFromInt(self.size));
     }
 
-    /// Standard deviation (named stddev to avoid conflict with std import)
+    /// Standard deviation (SIMD-optimized)
     pub fn stddev(self: *NumpyArray) f64 {
         const m = self.mean();
-        var sum_sq: f64 = 0.0;
-        for (self.data) |val| {
-            const diff = val - m;
+        const data = self.data;
+        const len = data.len;
+        var i: usize = 0;
+        const mean_vec: F64Vec = @splat(m);
+        var vec_sum_sq: F64Vec = @splat(0.0);
+
+        // SIMD loop
+        while (i + VecSize <= len) : (i += VecSize) {
+            const chunk: F64Vec = data[i..][0..VecSize].*;
+            const diff = chunk - mean_vec;
+            vec_sum_sq += diff * diff;
+        }
+
+        // Horizontal sum
+        var sum_sq: f64 = @reduce(.Add, vec_sum_sq);
+
+        // Scalar tail
+        while (i < len) : (i += 1) {
+            const diff = data[i] - m;
             sum_sq += diff * diff;
         }
+
         return @sqrt(sum_sq / @as(f64, @floatFromInt(self.size)));
     }
 
@@ -814,20 +864,52 @@ pub const NumpyArray = struct {
         return s * s;
     }
 
-    /// Minimum value
+    /// Minimum value (SIMD-optimized)
     pub fn min(self: *NumpyArray) f64 {
-        var result = self.data[0];
-        for (self.data[1..]) |val| {
-            if (val < result) result = val;
+        const data = self.data;
+        const len = data.len;
+        if (len == 0) return 0.0;
+
+        var i: usize = 0;
+        var vec_min: F64Vec = @splat(data[0]);
+
+        // SIMD loop
+        while (i + VecSize <= len) : (i += VecSize) {
+            const chunk: F64Vec = data[i..][0..VecSize].*;
+            vec_min = @min(vec_min, chunk);
+        }
+
+        // Horizontal min
+        var result: f64 = @reduce(.Min, vec_min);
+
+        // Scalar tail
+        while (i < len) : (i += 1) {
+            if (data[i] < result) result = data[i];
         }
         return result;
     }
 
-    /// Maximum value
+    /// Maximum value (SIMD-optimized)
     pub fn max(self: *NumpyArray) f64 {
-        var result = self.data[0];
-        for (self.data[1..]) |val| {
-            if (val > result) result = val;
+        const data = self.data;
+        const len = data.len;
+        if (len == 0) return 0.0;
+
+        var i: usize = 0;
+        var vec_max: F64Vec = @splat(data[0]);
+
+        // SIMD loop
+        while (i + VecSize <= len) : (i += VecSize) {
+            const chunk: F64Vec = data[i..][0..VecSize].*;
+            vec_max = @max(vec_max, chunk);
+        }
+
+        // Horizontal max
+        var result: f64 = @reduce(.Max, vec_max);
+
+        // Scalar tail
+        while (i < len) : (i += 1) {
+            if (data[i] > result) result = data[i];
         }
         return result;
     }

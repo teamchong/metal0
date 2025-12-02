@@ -497,6 +497,23 @@ pub fn genInitMethodWithBuiltinBase(
             if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
                 zig_type = "std.ArrayList([]const u8)";
             }
+            // Check if zig_type contains a nested class name (self-referential/recursive types)
+            // If so, use *anyopaque instead to avoid "use of undeclared identifier" errors
+            var has_nested_class_ref = false;
+            if (std.mem.indexOf(u8, zig_type, class_name) != null) {
+                has_nested_class_ref = true;
+            } else {
+                var nc_iter = self.nested_class_names.iterator();
+                while (nc_iter.next()) |entry| {
+                    if (std.mem.indexOf(u8, zig_type, entry.key_ptr.*) != null) {
+                        has_nested_class_ref = true;
+                        break;
+                    }
+                }
+            }
+            if (has_nested_class_ref) {
+                zig_type = "*anyopaque";
+            }
             // Check if this captured variable is mutated - use * instead of *const if so
             var mutation_key_buf: [256]u8 = undefined;
             const mutation_key = std.fmt.bufPrint(&mutation_key_buf, "{s}.{s}", .{ class_name, var_name }) catch var_name;
@@ -815,6 +832,23 @@ pub fn genInitMethodFromNew(
             // Map to appropriate Zig type: PyObject -> []const u8 for string lists
             if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
                 zig_type = "std.ArrayList([]const u8)";
+            }
+            // Check if zig_type contains a nested class name (self-referential/recursive types)
+            // If so, use *anyopaque instead to avoid "use of undeclared identifier" errors
+            var has_nested_class_ref = false;
+            if (std.mem.indexOf(u8, zig_type, class_name) != null) {
+                has_nested_class_ref = true;
+            } else {
+                var nc_iter = self.nested_class_names.iterator();
+                while (nc_iter.next()) |entry| {
+                    if (std.mem.indexOf(u8, zig_type, entry.key_ptr.*) != null) {
+                        has_nested_class_ref = true;
+                        break;
+                    }
+                }
+            }
+            if (has_nested_class_ref) {
+                zig_type = "*anyopaque";
             }
             // Check if this captured variable is mutated - use * instead of *const if so
             var mutation_key_buf: [256]u8 = undefined;
