@@ -13,6 +13,24 @@ const ClosureError = error{
     NotAClosure,
 } || CodegenError;
 
+const UnittestMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "assertEqual", {} },         .{ "assertTrue", {} },          .{ "assertFalse", {} },
+    .{ "assertIsNone", {} },        .{ "assertGreater", {} },       .{ "assertLess", {} },
+    .{ "assertGreaterEqual", {} },  .{ "assertLessEqual", {} },     .{ "assertNotEqual", {} },
+    .{ "assertIs", {} },            .{ "assertIsNot", {} },         .{ "assertIsNotNone", {} },
+    .{ "assertIn", {} },            .{ "assertNotIn", {} },         .{ "assertAlmostEqual", {} },
+    .{ "assertNotAlmostEqual", {} }, .{ "assertCountEqual", {} },   .{ "assertRaises", {} },
+    .{ "assertRaisesRegex", {} },   .{ "assertRegex", {} },         .{ "assertNotRegex", {} },
+    .{ "assertIsInstance", {} },    .{ "assertNotIsInstance", {} }, .{ "assertIsSubclass", {} },
+    .{ "assertNotIsSubclass", {} }, .{ "assertWarns", {} },         .{ "assertWarnsRegex", {} },
+    .{ "assertStartsWith", {} },    .{ "assertNotStartsWith", {} }, .{ "assertEndsWith", {} },
+    .{ "assertHasAttr", {} },       .{ "assertNotHasAttr", {} },    .{ "assertSequenceEqual", {} },
+    .{ "assertListEqual", {} },     .{ "assertTupleEqual", {} },    .{ "assertSetEqual", {} },
+    .{ "assertDictEqual", {} },     .{ "assertMultiLineEqual", {} }, .{ "assertLogs", {} },
+    .{ "assertNoLogs", {} },        .{ "fail", {} },                .{ "skipTest", {} },
+    .{ "assertFloatsAreIdentical", {} },
+});
+
 /// Check if lambda body is itself a lambda (closure case)
 fn isClosureLambda(body: ast.Node) bool {
     return body == .lambda;
@@ -510,55 +528,7 @@ fn isSelfOnlyForUnittest(body: ast.Node, captured_vars: [][]const u8) bool {
 
 /// Check if a method name is a unittest assertion method
 fn isUnittestMethod(method_name: []const u8) bool {
-    const unittest_methods = [_][]const u8{
-        "assertEqual",
-        "assertTrue",
-        "assertFalse",
-        "assertIsNone",
-        "assertGreater",
-        "assertLess",
-        "assertGreaterEqual",
-        "assertLessEqual",
-        "assertNotEqual",
-        "assertIs",
-        "assertIsNot",
-        "assertIsNotNone",
-        "assertIn",
-        "assertNotIn",
-        "assertAlmostEqual",
-        "assertNotAlmostEqual",
-        "assertCountEqual",
-        "assertRaises",
-        "assertRaisesRegex",
-        "assertRegex",
-        "assertNotRegex",
-        "assertIsInstance",
-        "assertNotIsInstance",
-        "assertIsSubclass",
-        "assertNotIsSubclass",
-        "assertWarns",
-        "assertWarnsRegex",
-        "assertStartsWith",
-        "assertNotStartsWith",
-        "assertEndsWith",
-        "assertHasAttr",
-        "assertNotHasAttr",
-        "assertSequenceEqual",
-        "assertListEqual",
-        "assertTupleEqual",
-        "assertSetEqual",
-        "assertDictEqual",
-        "assertMultiLineEqual",
-        "assertLogs",
-        "assertNoLogs",
-        "fail",
-        "skipTest",
-        "assertFloatsAreIdentical",
-    };
-    for (unittest_methods) |m| {
-        if (std.mem.eql(u8, method_name, m)) return true;
-    }
-    return false;
+    return UnittestMethods.has(method_name);
 }
 
 /// Infer return type from lambda body expression
