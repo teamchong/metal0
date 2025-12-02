@@ -9,6 +9,13 @@ const genExpr = expressions.genExpr;
 const producesBlockExpression = expressions.producesBlockExpression;
 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
 
+/// BigInt method names for standard binary operations (left.method(&right, allocator))
+const BigIntStdMethods = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "add" }, .{ "Sub", "sub" }, .{ "Mult", "mul" },
+    .{ "FloorDiv", "floorDiv" }, .{ "Mod", "mod" },
+    .{ "BitAnd", "bitAnd" }, .{ "BitOr", "bitOr" }, .{ "BitXor", "bitXor" },
+});
+
 /// Generate expression, wrapping in parentheses if it's a block expression
 fn genExprWrapped(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     if (producesBlockExpression(expr)) {
@@ -113,53 +120,22 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
         }
     }.emit;
 
+    // Standard BigInt operations: left.method(&right, allocator)
+    const op_name = @tagName(binop.op);
+    if (BigIntStdMethods.get(op_name)) |method| {
+        try self.emit("(");
+        try emitLeftOperand(self, left_type, binop.left, alloc_name);
+        try self.emit(".");
+        try self.emit(method);
+        try self.emit("(");
+        try emitRightOperand(self, right_type, binop.right, alloc_name);
+        try self.emit(", ");
+        try self.emit(alloc_name);
+        try self.emit(") catch unreachable)");
+        return;
+    }
+
     switch (binop.op) {
-        .Add => {
-            // bigint.add(&other, allocator)
-            try self.emit("(");
-            try emitLeftOperand(self, left_type, binop.left, alloc_name);
-            try self.emit(".add(");
-            try emitRightOperand(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
-        },
-        .Sub => {
-            try self.emit("(");
-            try emitLeftOperand(self, left_type, binop.left, alloc_name);
-            try self.emit(".sub(");
-            try emitRightOperand(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
-        },
-        .Mult => {
-            try self.emit("(");
-            try emitLeftOperand(self, left_type, binop.left, alloc_name);
-            try self.emit(".mul(");
-            try emitRightOperand(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
-        },
-        .FloorDiv => {
-            try self.emit("(");
-            try emitLeftOperand(self, left_type, binop.left, alloc_name);
-            try self.emit(".floorDiv(");
-            try emitRightOperand(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
-        },
-        .Mod => {
-            try self.emit("(");
-            try emitLeftOperand(self, left_type, binop.left, alloc_name);
-            try self.emit(".mod(");
-            try emitRightOperand(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
-        },
         .RShift => {
             // bigint.shr(shift_amount, allocator)
             try self.emit("(");
@@ -176,33 +152,6 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
             try self.emit(".shl(@as(usize, @intCast(");
             try genExpr(self, binop.right.*);
             try self.emit(")), ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
-        },
-        .BitAnd => {
-            try self.emit("(");
-            try emitLeftOperand(self, left_type, binop.left, alloc_name);
-            try self.emit(".bitAnd(");
-            try emitRightOperand(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
-        },
-        .BitOr => {
-            try self.emit("(");
-            try emitLeftOperand(self, left_type, binop.left, alloc_name);
-            try self.emit(".bitOr(");
-            try emitRightOperand(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
-        },
-        .BitXor => {
-            try self.emit("(");
-            try emitLeftOperand(self, left_type, binop.left, alloc_name);
-            try self.emit(".bitXor(");
-            try emitRightOperand(self, right_type, binop.right, alloc_name);
-            try self.emit(", ");
             try self.emit(alloc_name);
             try self.emit(") catch unreachable)");
         },
