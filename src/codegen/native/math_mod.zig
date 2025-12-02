@@ -78,8 +78,6 @@ const genDist = h.wrap2("blk: { const p = ", "; const q = ", "; var sum: f64 = 0
 const genFsum = h.wrap("blk: { var sum: f64 = 0; for (", ") |item| { sum += item; } break :blk sum; }", "@as(f64, 0.0)");
 const genProd = h.wrap("blk: { var product: f64 = 1; for (", ") |item| { product *= item; } break :blk product; }", "@as(f64, 1.0)");
 
-fn genNextafter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2) { try self.emit("blk: { const x = @as(f64, "); try self.genExpr(args[0]); try self.emit("); const y = @as(f64, "); try self.genExpr(args[1]); try self.emit("); if (x < y) break :blk x + std.math.floatMin(f64) else if (x > y) break :blk x - std.math.floatMin(f64) else break :blk y; }"); } else try self.emit("@as(f64, 0.0)");
-}
+const genNextafter = h.wrap2("blk: { const x = @as(f64, ", "); const y = @as(f64, ", "); if (x < y) break :blk x + std.math.floatMin(f64) else if (x > y) break :blk x - std.math.floatMin(f64) else break :blk y; }", "@as(f64, 0.0)");
 const genUlp = h.wrap("blk: { const x = @abs(@as(f64, ", ")); const exp = @as(i32, @intFromFloat(@log2(x))); break :blk std.math.ldexp(@as(f64, 1.0), exp - 52); }", "std.math.floatMin(f64)");
 
