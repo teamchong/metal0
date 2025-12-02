@@ -5,21 +5,18 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "FileIO", genFileIO }, .{ "BytesIO", genBytesIO }, .{ "StringIO", genStringIO },
     .{ "BufferedReader", genBuffered }, .{ "BufferedWriter", genBuffered }, .{ "BufferedRandom", genBuffered },
-    .{ "BufferedRWPair", genBufferedRW }, .{ "TextIOWrapper", genTextIO }, .{ "IncrementalNewlineDecoder", genNewline },
+    .{ "BufferedRWPair", genBufferedRW }, .{ "TextIOWrapper", genTextIO }, .{ "IncrementalNewlineDecoder", genConst(".{ .translate = true }") },
     .{ "open", genFileIO }, .{ "open_code", genOpenCode }, .{ "text_encoding", genTextEnc },
-    .{ "IOBase", genEmpty }, .{ "RawIOBase", genEmpty }, .{ "BufferedIOBase", genEmpty }, .{ "TextIOBase", genEmpty },
-    .{ "DEFAULT_BUFFER_SIZE", genBufSize }, .{ "UnsupportedOperation", genUnsupErr }, .{ "BlockingIOError", genBlockErr },
+    .{ "IOBase", genConst(".{}") }, .{ "RawIOBase", genConst(".{}") }, .{ "BufferedIOBase", genConst(".{}") }, .{ "TextIOBase", genConst(".{}") },
+    .{ "DEFAULT_BUFFER_SIZE", genConst("@as(i64, 8192)") }, .{ "UnsupportedOperation", genConst("error.UnsupportedOperation") }, .{ "BlockingIOError", genConst("error.BlockingIOError") },
 });
-
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
-fn genBufSize(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 8192)"); }
-fn genUnsupErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.UnsupportedOperation"); }
-fn genBlockErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.BlockingIOError"); }
-fn genNewline(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .translate = true }"); }
 
 fn genFileIO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; break :blk std.fs.cwd().openFile(path, .{}) catch null; }"); } else { try self.emit("@as(?std.fs.File, null)"); }

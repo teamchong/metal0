@@ -5,13 +5,14 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "heappush", genPush }, .{ "heappop", genPop }, .{ "heapify", genUnit }, .{ "heapreplace", genReplace },
+    .{ "heappush", genPush }, .{ "heappop", genPop }, .{ "heapify", genConst("{}") }, .{ "heapreplace", genReplace },
     .{ "heappushpop", genPushPop }, .{ "nlargest", genNlargest }, .{ "nsmallest", genNlargest },
 });
-
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
 
 fn genPush(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) { try self.emit("blk: { var heap = "); try self.genExpr(args[0]); try self.emit("; heap.append(__global_allocator, "); try self.genExpr(args[1]); try self.emit(") catch {}; break :blk {}; }"); } else { try self.emit("{}"); }

@@ -5,13 +5,14 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "Element", genElement }, .{ "SubElement", genSubElement },
-    .{ "TreeBuilder", genTreeBuilder }, .{ "XMLParser", genXMLParser }, .{ "ParseError", genParseError },
+    .{ "TreeBuilder", genConst(".{ .element_factory = null, .data = &[_][]const u8{}, .elem = &[_]@TypeOf(.{}){}, .last = null }") },
+    .{ "XMLParser", genConst(".{ .target = null, .parser = null }") }, .{ "ParseError", genConst("error.ParseError") },
 });
 
 const elem_default = ".{ .tag = \"\", .attrib = .{}, .text = null, .tail = null }";
@@ -25,13 +26,3 @@ fn genSubElement(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) { try self.emit("blk: { const tag = "); try self.genExpr(args[1]); try self.emit("; break :blk .{ .tag = tag, .attrib = .{}, .text = null, .tail = null }; }"); }
     else { try self.emit(elem_default); }
 }
-
-fn genTreeBuilder(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genConst(self, args, ".{ .element_factory = null, .data = &[_][]const u8{}, .elem = &[_]@TypeOf(.{}){}, .last = null }");
-}
-
-fn genXMLParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genConst(self, args, ".{ .target = null, .parser = null }");
-}
-
-fn genParseError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.ParseError"); }
