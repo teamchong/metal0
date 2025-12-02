@@ -1,4 +1,4 @@
-.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-regex benchmark-tokenizer benchmark-numpy clean format
+.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-regex benchmark-tokenizer benchmark-numpy benchmark-asyncio benchmark-asyncio-io clean format
 
 # =============================================================================
 # HELP
@@ -29,6 +29,8 @@ help:
 	@echo "  make benchmark-regex     Regex (metal0 vs Python vs Rust vs Go)"
 	@echo "  make benchmark-tokenizer BPE tokenizer (vs tiktoken/HuggingFace)"
 	@echo "  make benchmark-numpy     NumPy matmul (metal0+BLAS vs Python+NumPy)"
+	@echo "  make benchmark-asyncio   Async CPU (SHA256 hashing, metal0 vs all)"
+	@echo "  make benchmark-asyncio-io Async I/O (concurrent sleep, metal0 vs all)"
 	@echo ""
 	@echo "Other:"
 	@echo "  make format         Format Zig code"
@@ -184,6 +186,16 @@ benchmark-numpy: build-release
 	@# Install numpy for PyPy if missing
 	@pypy3 -c "import numpy" 2>/dev/null || pypy3 -m pip install numpy -q 2>/dev/null || true
 	@cd benchmarks/numpy && bash bench.sh
+
+benchmark-asyncio: build-release
+	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
+	@echo "Async CPU Benchmark: SHA256 hashing (metal0 vs Rust vs Go vs PyPy vs Python)"
+	@cd benchmarks/asyncio && bash bench.sh
+
+benchmark-asyncio-io: build-release
+	@command -v hyperfine >/dev/null || { echo "Install: brew install hyperfine"; exit 1; }
+	@echo "Async I/O Benchmark: Concurrent sleep (metal0 vs Rust vs Go vs PyPy vs Python)"
+	@cd benchmarks/asyncio && bash bench_io.sh
 
 # =============================================================================
 # UTILITIES
