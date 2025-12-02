@@ -23,6 +23,9 @@ pub const _string = @import("_string.zig");
 /// Export AST executor for eval() support
 pub const ast_executor = @import("ast_executor.zig");
 
+/// Export calendar module
+pub const calendar = @import("calendar.zig");
+
 /// Export dynamic attribute access stubs
 const dynamic_attrs = @import("dynamic_attrs.zig");
 

@@ -1,18 +1,14 @@
 /// Python textwrap module - text wrapping and filling
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "wrap", genWrap }, .{ "fill", genFill }, .{ "dedent", genDedent },
     .{ "indent", genIndent }, .{ "shorten", genShorten },
-    .{ "TextWrapper", genConst("struct { width: usize = 70, initial_indent: []const u8 = \"\", subsequent_indent: []const u8 = \"\", pub fn wrap(__self: *@This(), text: []const u8) [][]const u8 { _ = __self; _ = text; return &.{}; } pub fn fill(__self: *@This(), text: []const u8) []const u8 { _ = __self; return text; } }{}") },
+    .{ "TextWrapper", h.c("struct { width: usize = 70, initial_indent: []const u8 = \"\", subsequent_indent: []const u8 = \"\", pub fn wrap(__self: *@This(), text: []const u8) [][]const u8 { _ = __self; _ = text; return &.{}; } pub fn fill(__self: *@This(), text: []const u8) []const u8 { _ = __self; return text; } }{}") },
 });
 
 fn genWidth(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

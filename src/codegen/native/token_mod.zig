@@ -1,24 +1,17 @@
 /// Python token module - Token constants and utilities
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-fn genI32(comptime n: comptime_int) ModuleHandler {
-    return genConst(std.fmt.comptimePrint("@as(i32, {})", .{n}));
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "ENDMARKER", genI32(0) }, .{ "NAME", genI32(1) }, .{ "NUMBER", genI32(2) }, .{ "STRING", genI32(3) },
-    .{ "NEWLINE", genI32(4) }, .{ "INDENT", genI32(5) }, .{ "DEDENT", genI32(6) }, .{ "OP", genI32(54) },
-    .{ "ERRORTOKEN", genI32(59) }, .{ "COMMENT", genI32(60) }, .{ "NL", genI32(61) }, .{ "ENCODING", genI32(62) },
-    .{ "N_TOKENS", genI32(63) }, .{ "NT_OFFSET", genI32(256) },
-    .{ "tok_name", genConst("metal0_runtime.PyDict(i32, []const u8).init()") },
-    .{ "EXACT_TOKEN_TYPES", genConst("metal0_runtime.PyDict([]const u8, i32).init()") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "ENDMARKER", h.I32(0) }, .{ "NAME", h.I32(1) }, .{ "NUMBER", h.I32(2) }, .{ "STRING", h.I32(3) },
+    .{ "NEWLINE", h.I32(4) }, .{ "INDENT", h.I32(5) }, .{ "DEDENT", h.I32(6) }, .{ "OP", h.I32(54) },
+    .{ "ERRORTOKEN", h.I32(59) }, .{ "COMMENT", h.I32(60) }, .{ "NL", h.I32(61) }, .{ "ENCODING", h.I32(62) },
+    .{ "N_TOKENS", h.I32(63) }, .{ "NT_OFFSET", h.I32(256) },
+    .{ "tok_name", h.c("metal0_runtime.PyDict(i32, []const u8).init()") },
+    .{ "EXACT_TOKEN_TYPES", h.c("metal0_runtime.PyDict([]const u8, i32).init()") },
     .{ "ISTERMINAL", genIsTerm }, .{ "ISNONTERMINAL", genIsNonterm }, .{ "ISEOF", genIsEof },
 });
 

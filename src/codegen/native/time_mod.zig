@@ -1,30 +1,26 @@
 /// Python time module - time-related functions
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "time", genConst("@as(f64, @floatFromInt(std.time.timestamp()))") },
-    .{ "time_ns", genConst("@as(i64, @intCast(std.time.nanoTimestamp()))") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "time", h.c("@as(f64, @floatFromInt(std.time.timestamp()))") },
+    .{ "time_ns", h.c("@as(i64, @intCast(std.time.nanoTimestamp()))") },
     .{ "sleep", genSleep },
-    .{ "perf_counter", genConst("blk: { const _t = std.time.nanoTimestamp(); break :blk @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }") },
-    .{ "perf_counter_ns", genConst("@as(i64, @intCast(std.time.nanoTimestamp()))") },
-    .{ "monotonic", genConst("blk: { const _t = std.time.nanoTimestamp(); break :blk @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }") },
-    .{ "monotonic_ns", genConst("@as(i64, @intCast(std.time.nanoTimestamp()))") },
-    .{ "process_time", genConst("@as(f64, @floatFromInt(std.time.nanoTimestamp())) / 1_000_000_000.0") },
-    .{ "process_time_ns", genConst("@as(i64, @intCast(std.time.nanoTimestamp()))") },
-    .{ "ctime", genConst("\"Thu Jan  1 00:00:00 1970\"") },
+    .{ "perf_counter", h.c("blk: { const _t = std.time.nanoTimestamp(); break :blk @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }") },
+    .{ "perf_counter_ns", h.c("@as(i64, @intCast(std.time.nanoTimestamp()))") },
+    .{ "monotonic", h.c("blk: { const _t = std.time.nanoTimestamp(); break :blk @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }") },
+    .{ "monotonic_ns", h.c("@as(i64, @intCast(std.time.nanoTimestamp()))") },
+    .{ "process_time", h.c("@as(f64, @floatFromInt(std.time.nanoTimestamp())) / 1_000_000_000.0") },
+    .{ "process_time_ns", h.c("@as(i64, @intCast(std.time.nanoTimestamp()))") },
+    .{ "ctime", h.c("\"Thu Jan  1 00:00:00 1970\"") },
     .{ "gmtime", genGmtime }, .{ "localtime", genGmtime },
-    .{ "mktime", genConst("@as(f64, @floatFromInt(std.time.timestamp()))") },
+    .{ "mktime", h.c("@as(f64, @floatFromInt(std.time.timestamp()))") },
     .{ "strftime", genStrftime },
-    .{ "strptime", genConst(".{ .tm_year = 1970, .tm_mon = 1, .tm_mday = 1, .tm_hour = 0, .tm_min = 0, .tm_sec = 0, .tm_wday = 0, .tm_yday = 0, .tm_isdst = 0 }") },
-    .{ "get_clock_info", genConst(".{ .implementation = \"std.time\", .monotonic = true, .adjustable = false, .resolution = 1e-9 }") },
+    .{ "strptime", h.c(".{ .tm_year = 1970, .tm_mon = 1, .tm_mday = 1, .tm_hour = 0, .tm_min = 0, .tm_sec = 0, .tm_wday = 0, .tm_yday = 0, .tm_isdst = 0 }") },
+    .{ "get_clock_info", h.c(".{ .implementation = \"std.time\", .monotonic = true, .adjustable = false, .resolution = 1e-9 }") },
 });
 
 fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
