@@ -37,8 +37,8 @@ pub fn genCapwords(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     self.dedent(); try self.emitIndent(); try self.emit("}");
 }
 
+const tmpl = "struct { template: []const u8, pub fn substitute(__self: @This(), _: anytype) []const u8 { return __self.template; } pub fn safe_substitute(__self: @This(), _: anytype) []const u8 { return __self.template; } }";
 fn genTemplate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("struct { template: []const u8 = \"\", pub fn substitute(self: @This(), _: anytype) []const u8 { return __self.template; } pub fn safe_substitute(self: @This(), _: anytype) []const u8 { return __self.template; } }{}"); return; }
-    try self.emit("struct { template: []const u8, pub fn substitute(self: @This(), _: anytype) []const u8 { return __self.template; } pub fn safe_substitute(self: @This(), _: anytype) []const u8 { return __self.template; } }{ .template = ");
-    try self.genExpr(args[0]); try self.emit(" }");
+    if (args.len == 0) { try self.emit(tmpl ++ "{ .template = \"\" }"); return; }
+    try self.emit(tmpl ++ "{ .template = "); try self.genExpr(args[0]); try self.emit(" }");
 }

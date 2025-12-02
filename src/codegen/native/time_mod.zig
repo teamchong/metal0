@@ -5,19 +5,15 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
-// gmtime_noarg uses current timestamp when no arg provided
-const gmtime_noarg = "blk: { const _ts: i64 = @intCast(std.time.timestamp()); const _epoch = std.time.epoch.EpochSeconds{ .secs = @intCast(_ts) }; const _day = _epoch.getEpochDay(); const _year_day = _day.calculateYearDay(); const _day_seconds = _epoch.getDaySeconds(); break :blk .{ .tm_year = _year_day.year, .tm_mon = @as(i32, @intFromEnum(_year_day.month)), .tm_mday = _day.calculateYearDay().day_of_month, .tm_hour = _day_seconds.getHoursIntoDay(), .tm_min = _day_seconds.getMinutesIntoHour(), .tm_sec = _day_seconds.getSecondsIntoMinute(), .tm_wday = @as(i32, @intFromEnum(_day.dayOfWeek())), .tm_yday = _year_day.getDayOfYear(), .tm_isdst = 0 }; }";
+const ns_to_sec = h.c("blk: { const _t = std.time.nanoTimestamp(); break :blk @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }");
+const nano_ts = h.c("@as(i64, @intCast(std.time.nanoTimestamp()))");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "time", h.c("@as(f64, @floatFromInt(std.time.timestamp()))") },
-    .{ "time_ns", h.c("@as(i64, @intCast(std.time.nanoTimestamp()))") },
-    .{ "sleep", genSleep },
-    .{ "perf_counter", h.c("blk: { const _t = std.time.nanoTimestamp(); break :blk @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }") },
-    .{ "perf_counter_ns", h.c("@as(i64, @intCast(std.time.nanoTimestamp()))") },
-    .{ "monotonic", h.c("blk: { const _t = std.time.nanoTimestamp(); break :blk @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }") },
-    .{ "monotonic_ns", h.c("@as(i64, @intCast(std.time.nanoTimestamp()))") },
-    .{ "process_time", h.c("@as(f64, @floatFromInt(std.time.nanoTimestamp())) / 1_000_000_000.0") },
-    .{ "process_time_ns", h.c("@as(i64, @intCast(std.time.nanoTimestamp()))") },
+    .{ "time_ns", nano_ts }, .{ "sleep", genSleep },
+    .{ "perf_counter", ns_to_sec }, .{ "perf_counter_ns", nano_ts },
+    .{ "monotonic", ns_to_sec }, .{ "monotonic_ns", nano_ts },
+    .{ "process_time", ns_to_sec }, .{ "process_time_ns", nano_ts },
     .{ "ctime", h.c("\"Thu Jan  1 00:00:00 1970\"") },
     .{ "gmtime", genGmtime }, .{ "localtime", genGmtime },
     .{ "mktime", genMktime },
