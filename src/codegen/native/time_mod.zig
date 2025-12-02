@@ -51,4 +51,3 @@ fn genGmtime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(".tm_min = _day_seconds.getMinutesIntoHour(), .tm_sec = _day_seconds.getSecondsIntoMinute(), ");
     try self.emit(".tm_wday = @as(i32, @intFromEnum(_day.dayOfWeek())), .tm_yday = _year_day.getDayOfYear(), .tm_isdst = 0 }; }");
 }
-
