@@ -1,28 +1,24 @@
 /// Python string module - string constants and utilities
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
-
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 // Public exports for use in builtins.zig
-pub const genAsciiLowercase = genConst("\"abcdefghijklmnopqrstuvwxyz\"");
-pub const genAsciiUppercase = genConst("\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\"");
-pub const genAsciiLetters = genConst("\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"");
-pub const genDigits = genConst("\"0123456789\"");
-pub const genPunctuation = genConst("\"!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~\"");
+pub const genAsciiLowercase = h.c("\"abcdefghijklmnopqrstuvwxyz\"");
+pub const genAsciiUppercase = h.c("\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\"");
+pub const genAsciiLetters = h.c("\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"");
+pub const genDigits = h.c("\"0123456789\"");
+pub const genPunctuation = h.c("\"!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~\"");
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "ascii_lowercase", genAsciiLowercase }, .{ "ascii_uppercase", genAsciiUppercase },
     .{ "ascii_letters", genAsciiLetters }, .{ "digits", genDigits },
-    .{ "hexdigits", genConst("\"0123456789abcdefABCDEF\"") }, .{ "octdigits", genConst("\"01234567\"") },
-    .{ "punctuation", genPunctuation }, .{ "whitespace", genConst("\" \\t\\n\\r\\x0b\\x0c\"") },
-    .{ "printable", genConst("\"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~ \\t\\n\\r\\x0b\\x0c\"") },
-    .{ "capwords", genCapwords }, .{ "Formatter", genConst("struct { format: []const u8 = \"\", pub fn vformat(self: @This(), s: []const u8, _: anytype, _: anytype) []const u8 { return s; } }{}") },
+    .{ "hexdigits", h.c("\"0123456789abcdefABCDEF\"") }, .{ "octdigits", h.c("\"01234567\"") },
+    .{ "punctuation", genPunctuation }, .{ "whitespace", h.c("\" \\t\\n\\r\\x0b\\x0c\"") },
+    .{ "printable", h.c("\"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~ \\t\\n\\r\\x0b\\x0c\"") },
+    .{ "capwords", genCapwords }, .{ "Formatter", h.c("struct { format: []const u8 = \"\", pub fn vformat(self: @This(), s: []const u8, _: anytype, _: anytype) []const u8 { return s; } }{}") },
     .{ "Template", genTemplate },
 });
 

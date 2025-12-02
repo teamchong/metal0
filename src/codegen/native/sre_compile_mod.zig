@@ -1,21 +1,17 @@
 /// Python sre_compile module - Internal support module for sre
 const std = @import("std");
 const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "compile", genCompile }, .{ "isstring", genConst("true") }, .{ "MAXCODE", genConst("@as(u32, 65535)") }, .{ "MAXGROUPS", genConst("@as(u32, 100)") },
-    .{ "_code", genConst("&[_]u32{}") }, .{ "_compile", genConst("{}") }, .{ "_compile_charset", genConst("{}") },
-    .{ "_optimize_charset", genConst("&[_]@TypeOf(.{}){}") }, .{ "_generate_overlap_table", genConst("&[_]i32{}") }, .{ "_compile_info", genConst("{}") },
-    .{ "SRE_FLAG_TEMPLATE", genConst("@as(u32, 1)") }, .{ "SRE_FLAG_IGNORECASE", genConst("@as(u32, 2)") }, .{ "SRE_FLAG_LOCALE", genConst("@as(u32, 4)") },
-    .{ "SRE_FLAG_MULTILINE", genConst("@as(u32, 8)") }, .{ "SRE_FLAG_DOTALL", genConst("@as(u32, 16)") }, .{ "SRE_FLAG_UNICODE", genConst("@as(u32, 32)") },
-    .{ "SRE_FLAG_VERBOSE", genConst("@as(u32, 64)") }, .{ "SRE_FLAG_DEBUG", genConst("@as(u32, 128)") }, .{ "SRE_FLAG_ASCII", genConst("@as(u32, 256)") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "compile", genCompile }, .{ "isstring", h.c("true") }, .{ "MAXCODE", h.U32(65535) }, .{ "MAXGROUPS", h.U32(100) },
+    .{ "_code", h.c("&[_]u32{}") }, .{ "_compile", h.c("{}") }, .{ "_compile_charset", h.c("{}") },
+    .{ "_optimize_charset", h.c("&[_]@TypeOf(.{}){}") }, .{ "_generate_overlap_table", h.c("&[_]i32{}") }, .{ "_compile_info", h.c("{}") },
+    .{ "SRE_FLAG_TEMPLATE", h.U32(1) }, .{ "SRE_FLAG_IGNORECASE", h.U32(2) }, .{ "SRE_FLAG_LOCALE", h.U32(4) },
+    .{ "SRE_FLAG_MULTILINE", h.U32(8) }, .{ "SRE_FLAG_DOTALL", h.U32(16) }, .{ "SRE_FLAG_UNICODE", h.U32(32) },
+    .{ "SRE_FLAG_VERBOSE", h.U32(64) }, .{ "SRE_FLAG_DEBUG", h.U32(128) }, .{ "SRE_FLAG_ASCII", h.U32(256) },
 });
 
 fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
