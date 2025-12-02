@@ -1,22 +1,18 @@
 /// Python _sre module - Internal SRE support (C accelerator for regex)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "compile", genCompile }, .{ "c_o_d_e_s_i_z_e", genConst("@as(i32, 4)") }, .{ "m_a_g_i_c", genConst("@as(i32, 20171005)") },
-    .{ "getlower", genGetlower }, .{ "getcodesize", genConst("@as(i32, 4)") },
-    .{ "match", genConst("null") }, .{ "fullmatch", genConst("null") }, .{ "search", genConst("null") },
-    .{ "findall", genConst("&[_][]const u8{}") }, .{ "finditer", genConst("&[_]@TypeOf(null){}") },
-    .{ "sub", genSub }, .{ "subn", genSubn }, .{ "split", genConst("&[_][]const u8{}") },
-    .{ "group", genConst("\"\"") }, .{ "groups", genConst(".{}") }, .{ "groupdict", genConst(".{}") },
-    .{ "start", genConst("@as(i64, 0)") }, .{ "end", genConst("@as(i64, 0)") }, .{ "span", genConst(".{ @as(i64, 0), @as(i64, 0) }") }, .{ "expand", genConst("\"\"") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "compile", genCompile }, .{ "c_o_d_e_s_i_z_e", h.I32(4) }, .{ "m_a_g_i_c", h.I32(20171005) },
+    .{ "getlower", genGetlower }, .{ "getcodesize", h.I32(4) },
+    .{ "match", h.c("null") }, .{ "fullmatch", h.c("null") }, .{ "search", h.c("null") },
+    .{ "findall", h.c("&[_][]const u8{}") }, .{ "finditer", h.c("&[_]@TypeOf(null){}") },
+    .{ "sub", genSub }, .{ "subn", genSubn }, .{ "split", h.c("&[_][]const u8{}") },
+    .{ "group", h.c("\"\"") }, .{ "groups", h.c(".{}") }, .{ "groupdict", h.c(".{}") },
+    .{ "start", h.I64(0) }, .{ "end", h.I64(0) }, .{ "span", h.c(".{ @as(i64, 0), @as(i64, 0) }") }, .{ "expand", h.c("\"\"") },
 });
 
 fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
