@@ -5,20 +5,15 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "null"); }
-fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
-fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
-fn genI32_m1(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, -1)"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "input", genInput }, .{ "filename", genEmptyStr }, .{ "fileno", genI32_m1 },
-    .{ "lineno", genI64_0 }, .{ "filelineno", genI64_0 },
-    .{ "isfirstline", genFalse }, .{ "isstdin", genFalse }, .{ "nextfile", genUnit }, .{ "close", genUnit },
-    .{ "FileInput", genFileInput }, .{ "hook_compressed", genNull }, .{ "hook_encoded", genNull },
+    .{ "input", genConst(".{ .files = &[_][]const u8{}, .inplace = false, .backup = \"\", .mode = \"r\" }") },
+    .{ "filename", genConst("\"\"") }, .{ "fileno", genConst("@as(i32, -1)") },
+    .{ "lineno", genConst("@as(i64, 0)") }, .{ "filelineno", genConst("@as(i64, 0)") },
+    .{ "isfirstline", genConst("false") }, .{ "isstdin", genConst("false") }, .{ "nextfile", genConst("{}") }, .{ "close", genConst("{}") },
+    .{ "FileInput", genConst(".{ .files = &[_][]const u8{}, .inplace = false, .backup = \"\", .mode = \"r\", .encoding = null, .errors = null }") },
+    .{ "hook_compressed", genConst("null") }, .{ "hook_encoded", genConst("null") },
 });
-
-fn genInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .files = &[_][]const u8{}, .inplace = false, .backup = \"\", .mode = \"r\" }"); }
-fn genFileInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .files = &[_][]const u8{}, .inplace = false, .backup = \"\", .mode = \"r\", .encoding = null, .errors = null }"); }

@@ -5,16 +5,14 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
-fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
-fn genI64_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 0)"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Chunk", genChunk }, .{ "getname", genEmptyStr }, .{ "getsize", genI64_0 },
-    .{ "close", genUnit }, .{ "isatty", genFalse }, .{ "seek", genUnit },
-    .{ "tell", genI64_0 }, .{ "read", genEmptyStr }, .{ "skip", genUnit },
+    .{ "Chunk", genChunk }, .{ "getname", genConst("\"\"") }, .{ "getsize", genConst("@as(i64, 0)") },
+    .{ "close", genConst("{}") }, .{ "isatty", genConst("false") }, .{ "seek", genConst("{}") },
+    .{ "tell", genConst("@as(i64, 0)") }, .{ "read", genConst("\"\"") }, .{ "skip", genConst("{}") },
 });
 
 fn genChunk(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
