@@ -6,5 +6,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Profile", h.c(".{ .stats = @as(?*anyopaque, null) }") },
     .{ "run", h.c("{}") }, .{ "runctx", h.c("{}") },
 });
-
-pub const genCProfile = h.c(".{ .stats = @as(?*anyopaque, null) }");

@@ -16,4 +16,4 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "QUOTE_NONE", h.I64(3) },
 });
 
-pub const genWriter = h.c("struct { buffer: std.ArrayList(u8), delim: u8 = ',', pub fn writerow(s: *@This(), r: anytype) void { var f = true; for (r) |x| { if (!f) s.buffer.append(__global_allocator, s.delim) catch {}; f = false; s.buffer.appendSlice(__global_allocator, x) catch {}; } s.buffer.append(__global_allocator, '\\n') catch {}; } pub fn writerows(s: *@This(), rs: anytype) void { for (rs) |r| s.writerow(r); } pub fn getvalue(s: *@This()) []const u8 { return s.buffer.items; } }{ .buffer = .{} }");
+const genWriter = h.c("struct { buffer: std.ArrayList(u8), delim: u8 = ',', pub fn writerow(s: *@This(), r: anytype) void { var f = true; for (r) |x| { if (!f) s.buffer.append(__global_allocator, s.delim) catch {}; f = false; s.buffer.appendSlice(__global_allocator, x) catch {}; } s.buffer.append(__global_allocator, '\\n') catch {}; } pub fn writerows(s: *@This(), rs: anytype) void { for (rs) |r| s.writerow(r); } pub fn getvalue(s: *@This()) []const u8 { return s.buffer.items; } }{ .buffer = .{} }");

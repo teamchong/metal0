@@ -76,7 +76,7 @@ pub fn genUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 pub const genCalcsize = h.wrap("struct_calcsize_blk: { const _fmt = ", "; var _size: usize = 0; for (_fmt) |c| { _size += switch (c) { 'b', 'B', 'c', '?', 'x' => 1, 'h', 'H' => 2, 'i', 'I', 'l', 'L', 'f' => 4, 'q', 'Q', 'd' => 8, else => 0 }; } break :struct_calcsize_blk @as(i64, @intCast(_size)); }", "@as(i64, 0)");
 
-pub fn genPackInto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genPackInto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 3) return;
     try self.emit("struct_pack_into_blk: { const _fmt = "); try self.genExpr(args[0]);
     try self.emit("; const _buf = "); try self.genExpr(args[1]);
@@ -90,7 +90,7 @@ pub fn genPackInto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("break :struct_pack_into_blk; }");
 }
 
-pub fn genUnpackFrom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genUnpackFrom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
     try self.emit("struct_unpack_from_blk: { const _fmt = "); try self.genExpr(args[0]);
     try self.emit("; const _data = "); try self.genExpr(args[1]); try self.emit("; const _offset: usize = ");
@@ -98,4 +98,4 @@ pub fn genUnpackFrom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("; _ = _fmt; const _val = std.mem.bytesToValue(i32, _data[_offset..][0..4]); break :struct_unpack_from_blk .{_val}; }");
 }
 
-pub const genIterUnpack = h.wrap2("struct_iter_unpack_blk: { const _fmt = ", "; const _data = ", "; _ = _fmt; _ = _data; break :struct_iter_unpack_blk struct { items: []const u8, pos: usize = 0, pub fn next(__self: *@This()) ?i32 { if (__self.pos + 4 <= __self.items.len) { const val = std.mem.bytesToValue(i32, __self.items[__self.pos..][0..4]); __self.pos += 4; return val; } return null; } }{ .items = _data }; }", "struct { pub fn next(__self: *@This()) ?i32 { _ = __self; return null; } }{}");
+const genIterUnpack = h.wrap2("struct_iter_unpack_blk: { const _fmt = ", "; const _data = ", "; _ = _fmt; _ = _data; break :struct_iter_unpack_blk struct { items: []const u8, pos: usize = 0, pub fn next(__self: *@This()) ?i32 { if (__self.pos + 4 <= __self.items.len) { const val = std.mem.bytesToValue(i32, __self.items[__self.pos..][0..4]); __self.pos += 4; return val; } return null; } }{ .items = _data }; }", "struct { pub fn next(__self: *@This()) ?i32 { _ = __self; return null; } }{}");
