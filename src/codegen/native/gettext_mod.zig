@@ -1,22 +1,18 @@
 /// Python gettext module - Internationalization services
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "gettext", genPassthrough }, .{ "ngettext", genNgettext }, .{ "pgettext", genPgettext },
     .{ "npgettext", genNpgettext }, .{ "dgettext", genPgettext }, .{ "dngettext", genNpgettext },
-    .{ "bindtextdomain", genBindtextdomain }, .{ "textdomain", genTextdomain }, .{ "install", genConst("{}") },
-    .{ "translation", genConst(".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f, .ngettext = struct { fn f(s: []const u8, p: []const u8, n: i64) []const u8 { return if (n == 1) s else p; } }.f, .info = struct { fn f() []const u8 { return \"\"; } }.f, .charset = struct { fn f() []const u8 { return \"UTF-8\"; } }.f }") },
-    .{ "find", genConst("null") },
-    .{ "GNUTranslations", genConst(".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f }") },
-    .{ "NullTranslations", genConst(".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f }") },
+    .{ "bindtextdomain", genBindtextdomain }, .{ "textdomain", genTextdomain }, .{ "install", h.c("{}") },
+    .{ "translation", h.c(".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f, .ngettext = struct { fn f(s: []const u8, p: []const u8, n: i64) []const u8 { return if (n == 1) s else p; } }.f, .info = struct { fn f() []const u8 { return \"\"; } }.f, .charset = struct { fn f() []const u8 { return \"UTF-8\"; } }.f }") },
+    .{ "find", h.c("null") },
+    .{ "GNUTranslations", h.c(".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f }") },
+    .{ "NullTranslations", h.c(".{ .gettext = struct { fn f(msg: []const u8) []const u8 { return msg; } }.f }") },
 });
 
 fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

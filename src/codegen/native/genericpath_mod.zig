@@ -1,19 +1,15 @@
 /// Python genericpath module - Common path operations (shared by os.path implementations)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "exists", genExists }, .{ "isfile", genIsfile }, .{ "isdir", genIsdir },
-    .{ "getsize", genGetsize }, .{ "getatime", genConst("@as(f64, 0.0)") }, .{ "getmtime", genConst("@as(f64, 0.0)") }, .{ "getctime", genConst("@as(f64, 0.0)") },
-    .{ "commonprefix", genConst("\"\"") }, .{ "samestat", genConst("false") }, .{ "samefile", genSamefile },
-    .{ "sameopenfile", genConst("false") }, .{ "islink", genIslink },
+    .{ "getsize", genGetsize }, .{ "getatime", h.F64(0.0) }, .{ "getmtime", h.F64(0.0) }, .{ "getctime", h.F64(0.0) },
+    .{ "commonprefix", h.c("\"\"") }, .{ "samestat", h.c("false") }, .{ "samefile", genSamefile },
+    .{ "sameopenfile", h.c("false") }, .{ "islink", genIslink },
 });
 
 fn genExists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
