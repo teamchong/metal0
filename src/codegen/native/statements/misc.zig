@@ -426,22 +426,6 @@ fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *cons
     }
 }
 
-/// Hoist a variable with an explicit type (for special cases like ContextManager)
-fn hoistVarWithType(self: *NativeCodegen, var_name: []const u8, type_name: []const u8) CodegenError!void {
-    // Only hoist if not already declared in scope or previously hoisted
-    if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
-        try self.emitIndent();
-        try self.emit("var ");
-        try self.emit(var_name);
-        try self.emit(": ");
-        try self.emit(type_name);
-        try self.emit(" = undefined;\n");
-
-        // Mark as hoisted so assignment generation skips declaration
-        try self.hoisted_vars.put(var_name, {});
-    }
-}
-
 /// Generate with statement (context manager)
 /// with open("file") as f: body => var f = ...; defer f.close(); body
 /// In Python, 'f' is accessible after the with block, so we don't use nested blocks
