@@ -9,6 +9,28 @@ const genExpr = expressions.genExpr;
 const producesBlockExpression = expressions.producesBlockExpression;
 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
 
+/// Comparison operator to Zig operator string mapping
+const CompOpStrings = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Eq", " == " }, .{ "NotEq", " != " },
+    .{ "Lt", " < " }, .{ "LtEq", " <= " },
+    .{ "Gt", " > " }, .{ "GtEq", " >= " },
+    .{ "Is", " == " }, .{ "IsNot", " != " },
+});
+
+/// NumPy comparison operator to method name mapping
+const NumpyCompOps = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Lt", ".lt" }, .{ "LtEq", ".le" },
+    .{ "Gt", ".gt" }, .{ "GtEq", ".ge" },
+    .{ "Eq", ".eq" }, .{ "NotEq", ".ne" },
+});
+
+/// BigInt comparison operator to enum value mapping
+const BigIntCompOps = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Eq", ", .eq)" }, .{ "NotEq", ", .ne)" },
+    .{ "Lt", ", .lt)" }, .{ "LtEq", ", .le)" },
+    .{ "Gt", ", .gt)" }, .{ "GtEq", ", .ge)" },
+});
+
 /// Check if an expression is a call to eval()
 fn isEvalCall(expr: ast.Node) bool {
     if (expr != .call) return false;
@@ -27,17 +49,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
     // Only supports single comparison (no chained comparisons for arrays)
     if (left_type == .numpy_array and compare.ops.len == 1) {
         const op = compare.ops[0];
-        const op_str = switch (op) {
-            .Lt => ".lt",
-            .LtEq => ".le",
-            .Gt => ".gt",
-            .GtEq => ".ge",
-            .Eq => ".eq",
-            .NotEq => ".ne",
-            else => null,
-        };
-
-        if (op_str) |op_enum| {
+        if (NumpyCompOps.get(@tagName(op))) |op_enum| {
             // Check if right side is a constant (scalar comparison)
             const right = compare.comparators[0];
             const right_type = try self.inferExprScoped(right);
@@ -156,14 +168,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 else => {
                     // String comparison operators other than == and != not supported
                     try genExpr(self, current_left);
-                    const op_str = switch (op) {
-                        .Lt => " < ",
-                        .LtEq => " <= ",
-                        .Gt => " > ",
-                        .GtEq => " >= ",
-                        else => " == ", // Fallback to == for any unknown ops
-                    };
-                    try self.emit(op_str);
+                    try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
                     try genExpr(self, compare.comparators[i]);
                 },
             }
@@ -360,12 +365,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 } else {
                     // Both are None - compare normally
                     try genExpr(self, current_left);
-                    const op_str = switch (op) {
-                        .Eq => " == ",
-                        .NotEq => " != ",
-                        else => " == ", // Other comparisons default to ==
-                    };
-                    try self.emit(op_str);
+                    try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
                     try genExpr(self, compare.comparators[i]);
                 }
             }
@@ -427,25 +427,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 }
             } else {
                 // For <, >, <=, >= with eval(), extract int value then compare
-                // This is a simplification - full Python would handle more types
                 try self.emit("(runtime.pyObjToInt(");
                 try genExpr(self, current_left);
                 try self.emit(")");
-                const op_str = switch (op) {
-                    .Lt => " < ",
-                    .LtEq => " <= ",
-                    .Gt => " > ",
-                    .GtEq => " >= ",
-                    else => " == ",
-                };
-                try self.emit(op_str);
-                if (right_is_eval) {
-                    try self.emit("runtime.pyObjToInt(");
-                }
+                try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
+                if (right_is_eval) try self.emit("runtime.pyObjToInt(");
                 try genExpr(self, compare.comparators[i]);
-                if (right_is_eval) {
-                    try self.emit(")");
-                }
+                if (right_is_eval) try self.emit(")");
                 try self.emit(")");
             }
         }
@@ -697,15 +685,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             try genExpr(self, current_left);
             try self.emit(", ");
             try genExpr(self, compare.comparators[i]);
-            switch (op) {
-                .Eq => try self.emit(", .eq)"),
-                .NotEq => try self.emit(", .ne)"),
-                .Lt => try self.emit(", .lt)"),
-                .LtEq => try self.emit(", .le)"),
-                .Gt => try self.emit(", .gt)"),
-                .GtEq => try self.emit(", .ge)"),
-                else => try self.emit(", .eq)"),
-            }
+            try self.emit(BigIntCompOps.get(@tagName(op)) orelse ", .eq)");
         } else {
             // Regular comparisons for non-strings
             // Check for type mismatches between usize and i64
@@ -733,18 +713,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try self.emit("))");
             }
 
-            const op_str = switch (op) {
-                .Eq => " == ",
-                .NotEq => " != ",
-                .Lt => " < ",
-                .LtEq => " <= ",
-                .Gt => " > ",
-                .GtEq => " >= ",
-                .Is => " == ",
-                .IsNot => " != ",
-                else => " ? ",
-            };
-            try self.emit(op_str);
+            try self.emit(CompOpStrings.get(@tagName(op)) orelse " ? ");
 
             // Cast right operand if needed
             if (right_is_usize and needs_cast) {
