@@ -8,6 +8,7 @@
 /// We record the initializer expression so we can use @TypeOf(expr) for type inference.
 const std = @import("std");
 const ast = @import("ast");
+const hashmap_helper = @import("hashmap_helper");
 
 /// Variable that needs hoisting due to scope escape
 pub const EscapedVar = struct {
@@ -39,11 +40,11 @@ pub fn analyzeScopes(body: []const ast.Node, allocator: std.mem.Allocator) !Scop
     errdefer result.escaped_vars.deinit(allocator);
 
     // Track variables declared at each scope level
-    var declared_in_inner = std.StringHashMap(EscapedVar){};
+    var declared_in_inner = hashmap_helper.StringHashMap(EscapedVar).init(allocator);
     defer declared_in_inner.deinit();
 
     // Track all variable uses at function level
-    var used_at_outer = std.StringHashMap(void){};
+    var used_at_outer = hashmap_helper.StringHashMap(void).init(allocator);
     defer used_at_outer.deinit();
 
     // First pass: collect variables declared in inner scopes
@@ -69,7 +70,7 @@ pub fn analyzeScopes(body: []const ast.Node, allocator: std.mem.Allocator) !Scop
 
 /// Collect variables declared inside inner scopes (with, try, etc.)
 fn collectInnerScopeDecls(
-    decls: *std.StringHashMap(EscapedVar),
+    decls: *hashmap_helper.StringHashMap(EscapedVar),
     node: ast.Node,
     allocator: std.mem.Allocator,
 ) !void {
@@ -146,7 +147,7 @@ fn collectInnerScopeDecls(
 
 /// Collect assignments that create new variables
 fn collectAssignments(
-    decls: *std.StringHashMap(EscapedVar),
+    decls: *hashmap_helper.StringHashMap(EscapedVar),
     node: ast.Node,
     source: EscapedVar.source,
     allocator: std.mem.Allocator,
@@ -173,7 +174,7 @@ fn collectAssignments(
 /// Collect variable uses at the outer (function) level
 /// These are uses that are NOT inside inner scopes
 fn collectOuterUses(
-    uses: *std.StringHashMap(void),
+    uses: *hashmap_helper.StringHashMap(void),
     node: ast.Node,
     allocator: std.mem.Allocator,
 ) !void {
@@ -201,7 +202,7 @@ fn collectOuterUses(
 
 /// Recursively collect all variable name references in an expression
 fn collectVarRefs(
-    uses: *std.StringHashMap(void),
+    uses: *hashmap_helper.StringHashMap(void),
     node: ast.Node,
     allocator: std.mem.Allocator,
 ) !void {

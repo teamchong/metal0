@@ -33,7 +33,7 @@ pub fn genZeroCaptureClosure(
     self.lambda_counter += 1;
 
     // Build param name mappings for unique names to avoid shadowing outer scope
-    var param_renames = std.StringHashMap([]const u8).init(self.allocator);
+    var param_renames = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer param_renames.deinit();
 
     try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{impl_name});
@@ -207,9 +207,8 @@ pub fn genZeroCaptureClosure(
     }
 
     // Free renamed param names
-    var rename_iter = param_renames.valueIterator();
-    while (rename_iter.next()) |renamed| {
-        self.allocator.free(renamed.*);
+    for (param_renames.values()) |renamed| {
+        self.allocator.free(renamed);
     }
 
     self.popScope();
@@ -368,10 +367,9 @@ pub fn genModuleLevelZeroCaptureClosure(
     defer self.allocator.free(inner_fn_name);
 
     // Build param name mappings for unique names
-    var param_renames = std.StringHashMap([]const u8).init(self.allocator);
+    var param_renames = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer {
-        var iter = param_renames.valueIterator();
-        while (iter.next()) |v| self.allocator.free(v.*);
+        for (param_renames.values()) |v| self.allocator.free(v);
         param_renames.deinit();
     }
 

@@ -76,7 +76,7 @@ pub fn genStandardClosure(
 
     // Generate renamed parameters to avoid shadowing outer scope
     // Build a mapping from original param names to renamed versions
-    var param_renames = std.StringHashMap([]const u8).init(self.allocator);
+    var param_renames = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer param_renames.deinit();
 
     for (func.args) |arg| {
@@ -328,7 +328,7 @@ pub fn genNestedFunctionWithOuterCapture(
     }
 
     // Generate renamed parameters to avoid shadowing outer scope (duplicate of above section)
-    var param_renames = std.StringHashMap([]const u8).init(self.allocator);
+    var param_renames = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer param_renames.deinit();
 
     for (func.args) |arg| {
