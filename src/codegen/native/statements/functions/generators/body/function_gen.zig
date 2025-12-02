@@ -510,15 +510,13 @@ pub fn genFunctionBody(
 
         // Check if this parameter is reassigned in the function body
         if (var_tracking.isParamReassignedInStmts(arg.name, func.body)) {
-            // For anytype parameters, check if ALL reassignments are type-changing
-            // (e.g., other = Rat(other)) - if so, we skip the mutable copy since
-            // these assignments will be skipped in codegen
-            const is_anytype = self.anytype_params.contains(arg.name);
+            // If ALL reassignments are type-changing (e.g., object = Class(object)),
+            // we don't need a mutable copy because these become shadow variables
+            // (const object__123 = Class.init(object)) - the original param is never mutated
             const all_type_changing = var_tracking.areAllReassignmentsTypeChanging(arg.name, func.body);
 
-            if (is_anytype and all_type_changing) {
-                // Don't create mutable copy - type-changing assignments will be skipped
-                // Still add to var_renames so references use original name
+            if (all_type_changing) {
+                // Don't create mutable copy - type-changing assignments use shadowing
                 continue;
             }
 
@@ -902,14 +900,13 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // Check if this parameter is reassigned in the method body
         // Zig function parameters are const, so we need a mutable copy
         if (var_tracking.isParamReassignedInStmts(arg.name, method.body)) {
-            // For anytype parameters, check if ALL reassignments are type-changing
-            // (e.g., other = Rat(other)) - if so, we skip the mutable copy since
-            // these assignments will be skipped in codegen
-            const is_anytype = self.anytype_params.contains(arg.name);
+            // If ALL reassignments are type-changing (e.g., object = Class(object)),
+            // we don't need a mutable copy because these become shadow variables
+            // (const object__123 = Class.init(object)) - the original param is never mutated
             const all_type_changing = var_tracking.areAllReassignmentsTypeChanging(arg.name, method.body);
 
-            if (is_anytype and all_type_changing) {
-                // Don't create mutable copy - type-changing assignments will be skipped
+            if (all_type_changing) {
+                // Don't create mutable copy - type-changing assignments use shadowing
                 continue;
             }
 

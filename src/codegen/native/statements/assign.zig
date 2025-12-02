@@ -290,6 +290,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             const is_allocated_string = typeHandling.isAllocatedString(self, assign.value.*);
             const is_mutable_class_instance = typeHandling.isMutableClassInstance(self, assign.value.*);
 
+            // Track pending shadow rename - applied AFTER RHS generation to avoid self-reference issues
+            // e.g., object = Class(object) must use OLD object value on RHS, not the new shadow name
+            var pending_shadow_rename: ?struct { old_name: []const u8, new_name: []const u8 } = null;
+
             // Check if value is an iter() call - iterators need to be mutable for next() to work
             const is_iterator = typeHandling.isIteratorCall(assign.value.*);
 
@@ -569,8 +573,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit(unique_name);
                     try self.emit(" = ");
 
-                    // Register the rename so future references use the new name
-                    try self.var_renames.put(var_name, unique_name);
+                    // DEFER rename registration until AFTER RHS is generated!
+                    // This prevents self-referential issues like: object = Class(object)
+                    // where RHS needs the OLD value of object, not the new shadowed name.
+                    // The rename will be applied after genExpr() below.
+                    pending_shadow_rename = .{ .old_name = var_name, .new_name = unique_name };
 
                     // Declare type for BOTH the original name and unique name
                     // Original name: needed for tracking
@@ -766,6 +773,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Emit value normally
                 try self.genExpr(assign.value.*);
                 try self.emit(";\n");
+            }
+
+            // Apply pending shadow rename AFTER RHS generation
+            // This ensures: object = Class(object) uses OLD object on RHS
+            if (pending_shadow_rename) |rename| {
+                try self.var_renames.put(rename.old_name, rename.new_name);
             }
 
             // For iterators, add pointer discard to suppress "never mutated" warnings

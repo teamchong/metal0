@@ -5,13 +5,13 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "getline", genEmptyStr }, .{ "getlines", genStrArr }, .{ "clearcache", genUnit }, .{ "checkcache", genUnit }, .{ "updatecache", genStrArr }, .{ "lazycache", genFalse }, .{ "cache", genCache },
-});
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
-fn genStrArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{}"); }
-fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
-fn genCache(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "hashmap_helper.StringHashMap([][]const u8).init(__global_allocator)"); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "getline", genConst("\"\"") }, .{ "getlines", genConst("&[_][]const u8{}") },
+    .{ "clearcache", genConst("{}") }, .{ "checkcache", genConst("{}") },
+    .{ "updatecache", genConst("&[_][]const u8{}") }, .{ "lazycache", genConst("false") },
+    .{ "cache", genConst("hashmap_helper.StringHashMap([][]const u8).init(__global_allocator)") },
+});

@@ -253,19 +253,76 @@ fn isParamReassignedInNode(param_name: []const u8, node: ast.Node) bool {
     };
 }
 
+/// Simple bounded array for local class names
+const LocalClassArray = struct {
+    items: [32][]const u8 = undefined,
+    len: usize = 0,
+
+    pub fn append(self: *@This(), item: []const u8) void {
+        if (self.len < 32) {
+            self.items[self.len] = item;
+            self.len += 1;
+        }
+    }
+
+    pub fn constSlice(self: *const @This()) []const []const u8 {
+        return self.items[0..self.len];
+    }
+};
+
 /// Check if all reassignments of a parameter are type-changing assignments (to constructors)
 /// Type-changing pattern: param = ClassName(param, ...)
 /// Returns true only if ALL reassignments match this pattern
 pub fn areAllReassignmentsTypeChanging(param_name: []const u8, stmts: []ast.Node) bool {
+    // First, collect all locally defined class names
+    var local_classes = LocalClassArray{};
+    collectLocalClassNames(stmts, &local_classes);
+
     for (stmts) |stmt| {
-        if (!isReassignmentTypeChangingInNode(param_name, stmt)) return false;
+        if (!isReassignmentTypeChangingInNodeWithClasses(param_name, stmt, local_classes.constSlice())) {
+            return false;
+        }
     }
     return true;
 }
 
+/// Collect class names defined in statements
+fn collectLocalClassNames(stmts: []ast.Node, classes: *LocalClassArray) void {
+    for (stmts) |stmt| {
+        collectLocalClassNamesInNode(stmt, classes);
+    }
+}
+
+fn collectLocalClassNamesInNode(node: ast.Node, classes: *LocalClassArray) void {
+    switch (node) {
+        .class_def => |c| {
+            classes.append(c.name);
+        },
+        .if_stmt => |i| {
+            for (i.body) |s| collectLocalClassNamesInNode(s, classes);
+            for (i.else_body) |s| collectLocalClassNamesInNode(s, classes);
+        },
+        .for_stmt => |f| {
+            for (f.body) |s| collectLocalClassNamesInNode(s, classes);
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| collectLocalClassNamesInNode(s, classes);
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| collectLocalClassNamesInNode(s, classes);
+            for (t.handlers) |h| {
+                for (h.body) |s| collectLocalClassNamesInNode(s, classes);
+            }
+            for (t.else_body) |s| collectLocalClassNamesInNode(s, classes);
+            for (t.finalbody) |s| collectLocalClassNamesInNode(s, classes);
+        },
+        else => {},
+    }
+}
+
 /// Check if a node's reassignment (if any) is type-changing
 /// Returns true if: no reassignment in this node, or the reassignment is type-changing
-fn isReassignmentTypeChangingInNode(param_name: []const u8, node: ast.Node) bool {
+fn isReassignmentTypeChangingInNodeWithClasses(param_name: []const u8, node: ast.Node, local_classes: []const []const u8) bool {
     return switch (node) {
         .assign => |a| blk: {
             for (a.targets) |target| {
@@ -273,13 +330,29 @@ fn isReassignmentTypeChangingInNode(param_name: []const u8, node: ast.Node) bool
                     // Check if RHS is a constructor call (ClassName(...))
                     if (a.value.* == .call and a.value.call.func.* == .name) {
                         const func_name = a.value.call.func.name.id;
-                        // Check if starts with uppercase (class constructor)
+                        // Check if starts with uppercase (class constructor) OR is a locally defined class
                         if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
-                            break :blk true; // This is a type-changing assignment
+                            break :blk true; // Conventional class name
+                        }
+                        // Check if it's a locally defined class (even lowercase)
+                        for (local_classes) |class_name| {
+                            if (std.mem.eql(u8, func_name, class_name)) {
+                                break :blk true; // Local class constructor
+                            }
                         }
                     }
                     // Not a type-changing assignment
                     break :blk false;
+                }
+                // Handle tuple unpacking: a, b = ...
+                // Tuple reassignments are NOT type-changing (they assign raw values)
+                if (target == .tuple) {
+                    for (target.tuple.elts) |elt| {
+                        if (elt == .name and std.mem.eql(u8, elt.name.id, param_name)) {
+                            // Found our param in tuple - this is NOT a type-changing assignment
+                            break :blk false;
+                        }
+                    }
                 }
             }
             // This assignment doesn't target our param
@@ -293,40 +366,48 @@ fn isReassignmentTypeChangingInNode(param_name: []const u8, node: ast.Node) bool
             break :blk true;
         },
         .if_stmt => |i| blk: {
+            // Collect classes from if body
+            var local_if_classes = LocalClassArray{};
+            for (local_classes) |c| local_if_classes.append(c);
+            collectLocalClassNames(i.body, &local_if_classes);
+            collectLocalClassNames(i.else_body, &local_if_classes);
+
             for (i.body) |s| {
-                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+                if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_if_classes.constSlice())) {
+                    break :blk false;
+                }
             }
             for (i.else_body) |s| {
-                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+                if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_if_classes.constSlice())) break :blk false;
             }
             break :blk true;
         },
         .for_stmt => |f| blk: {
             for (f.body) |s| {
-                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+                if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
             }
             break :blk true;
         },
         .while_stmt => |w| blk: {
             for (w.body) |s| {
-                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+                if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
             }
             break :blk true;
         },
         .try_stmt => |t| blk: {
             for (t.body) |s| {
-                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+                if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
             }
             for (t.handlers) |h| {
                 for (h.body) |s| {
-                    if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+                    if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
                 }
             }
             for (t.else_body) |s| {
-                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+                if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
             }
             for (t.finalbody) |s| {
-                if (!isReassignmentTypeChangingInNode(param_name, s)) break :blk false;
+                if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
             }
             break :blk true;
         },
