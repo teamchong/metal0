@@ -149,6 +149,13 @@ pub fn wrap2(comptime pre: []const u8, comptime mid: []const u8, comptime suf: [
     } }.f;
 }
 
+/// Generates wrap3: pre + arg0 + mid1 + arg1 + mid2 + arg2 + suf, or default (requires 3+ args)
+pub fn wrap3(comptime pre: []const u8, comptime mid1: []const u8, comptime mid2: []const u8, comptime suf: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len >= 3) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(mid1); try self.genExpr(args[1]); try self.emit(mid2); try self.genExpr(args[2]); try self.emit(suf); } else try self.emit(d);
+    } }.f;
+}
+
 /// Generates type test: ((arg & mask) == expected) for stat module
 pub fn typeTest(comptime expected: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
