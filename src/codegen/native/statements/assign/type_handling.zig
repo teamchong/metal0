@@ -164,3 +164,11 @@ pub fn isIteratorCall(value: ast.Node) bool {
     const func_name = value.call.func.name.id;
     return std.mem.eql(u8, func_name, "iter");
 }
+
+/// Check if value is a list() builtin call - converts iterable to ArrayList
+pub fn isListBuiltinCall(value: ast.Node) bool {
+    if (value != .call) return false;
+    if (value.call.func.* != .name) return false;
+    const func_name = value.call.func.name.id;
+    return std.mem.eql(u8, func_name, "list");
+}

@@ -128,6 +128,20 @@ pub fn shift(comptime op: []const u8) H {
     } }.f;
 }
 
+/// Generates wrap: pre + arg + suf, or default
+pub fn wrap(comptime pre: []const u8, comptime suf: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); } else try self.emit(d);
+    } }.f;
+}
+
+/// Passthrough Nth argument (0-indexed) or default
+pub fn passN(comptime n: usize, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > n) try self.genExpr(args[n]) else try self.emit(d);
+    } }.f;
+}
+
 /// Emit a unique labeled block start and return the label ID for break
 pub fn emitUniqueBlockStart(self: *NativeCodegen, prefix: []const u8) CodegenError!u64 {
     const id = self.block_label_counter;

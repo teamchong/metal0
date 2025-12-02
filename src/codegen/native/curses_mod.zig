@@ -1,9 +1,6 @@
 /// Python curses module - Terminal handling for character-cell displays
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Window/screen
@@ -12,7 +9,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "cbreak", h.c("{}") }, .{ "nocbreak", h.c("{}") }, .{ "echo", h.c("{}") }, .{ "noecho", h.c("{}") }, .{ "raw", h.c("{}") }, .{ "noraw", h.c("{}") },
     // Colors
     .{ "start_color", h.c("{}") }, .{ "has_colors", h.c("true") }, .{ "can_change_color", h.c("true") },
-    .{ "init_pair", h.c("{}") }, .{ "init_color", h.c("{}") }, .{ "color_pair", genColorPair }, .{ "pair_number", genPairNumber },
+    .{ "init_pair", h.c("{}") }, .{ "init_color", h.c("{}") }, .{ "color_pair", h.wrap("(@as(i32, ", ") << 8)", "@as(i32, 0)") }, .{ "pair_number", h.wrap("((@as(i32, ", ") >> 8) & 0xFF)", "@as(i32, 0)") },
     // Input
     .{ "getch", h.I32(-1) }, .{ "getkey", h.c("\"\"") }, .{ "ungetch", h.c("{}") }, .{ "getstr", h.c("\"\"") },
     // Output
@@ -42,6 +39,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "beep", h.c("{}") }, .{ "flash", h.c("{}") }, .{ "napms", h.c("{}") }, .{ "wrapper", h.c("{}") },
     .{ "use_default_colors", h.c("{}") }, .{ "keypad", h.c("{}") }, .{ "nodelay", h.c("{}") }, .{ "halfdelay", h.c("{}") }, .{ "timeout", h.c("{}") },
 });
-
-fn genColorPair(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) { try self.emit("(@as(i32, "); try self.genExpr(args[0]); try self.emit(") << 8)"); } else try self.emit("@as(i32, 0)"); }
-fn genPairNumber(self: *NativeCodegen, args: []ast.Node) CodegenError!void { if (args.len > 0) { try self.emit("((@as(i32, "); try self.genExpr(args[0]); try self.emit(") >> 8) & 0xFF)"); } else try self.emit("@as(i32, 0)"); }
