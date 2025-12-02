@@ -11,28 +11,11 @@ const zig_keywords = @import("zig_keywords");
 const shared = @import("../shared_maps.zig");
 const BinOpStrings = shared.BinOpStrings;
 const CompOpStrings = shared.CompOpStrings;
+const method_calls = @import("../dispatch/method_calls.zig");
 
 const ClosureError = error{
     NotAClosure,
 } || CodegenError;
-
-const UnittestMethods = std.StaticStringMap(void).initComptime(.{
-    .{ "assertEqual", {} },         .{ "assertTrue", {} },          .{ "assertFalse", {} },
-    .{ "assertIsNone", {} },        .{ "assertGreater", {} },       .{ "assertLess", {} },
-    .{ "assertGreaterEqual", {} },  .{ "assertLessEqual", {} },     .{ "assertNotEqual", {} },
-    .{ "assertIs", {} },            .{ "assertIsNot", {} },         .{ "assertIsNotNone", {} },
-    .{ "assertIn", {} },            .{ "assertNotIn", {} },         .{ "assertAlmostEqual", {} },
-    .{ "assertNotAlmostEqual", {} }, .{ "assertCountEqual", {} },   .{ "assertRaises", {} },
-    .{ "assertRaisesRegex", {} },   .{ "assertRegex", {} },         .{ "assertNotRegex", {} },
-    .{ "assertIsInstance", {} },    .{ "assertNotIsInstance", {} }, .{ "assertIsSubclass", {} },
-    .{ "assertNotIsSubclass", {} }, .{ "assertWarns", {} },         .{ "assertWarnsRegex", {} },
-    .{ "assertStartsWith", {} },    .{ "assertNotStartsWith", {} }, .{ "assertEndsWith", {} },
-    .{ "assertHasAttr", {} },       .{ "assertNotHasAttr", {} },    .{ "assertSequenceEqual", {} },
-    .{ "assertListEqual", {} },     .{ "assertTupleEqual", {} },    .{ "assertSetEqual", {} },
-    .{ "assertDictEqual", {} },     .{ "assertMultiLineEqual", {} }, .{ "assertLogs", {} },
-    .{ "assertNoLogs", {} },        .{ "fail", {} },                .{ "skipTest", {} },
-    .{ "assertFloatsAreIdentical", {} },
-});
 
 /// Check if lambda body is itself a lambda (closure case)
 fn isClosureLambda(body: ast.Node) bool {
@@ -383,8 +366,6 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                             // Check if method is a unittest assertion method
                             if (isUnittestMethod(func_attr.attr)) {
                                 // Use existing method dispatch which handles unittest assertions properly
-                                // Create a node with 'self' as the object (not __closure.self)
-                                const method_calls = @import("../dispatch/method_calls.zig");
                                 // Build call args with captured vars - need to generate these first
                                 var temp_args = std.ArrayList(u8){};
                                 for (c.args, 0..) |arg, i| {
@@ -505,7 +486,7 @@ fn isSelfOnlyForUnittest(body: ast.Node, captured_vars: [][]const u8) bool {
 
 /// Check if a method name is a unittest assertion method
 fn isUnittestMethod(method_name: []const u8) bool {
-    return UnittestMethods.has(method_name);
+    return method_calls.UnittestMethods.has(method_name);
 }
 
 /// Infer return type from lambda body expression

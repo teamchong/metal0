@@ -786,14 +786,16 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Track local variables and analyze nested class captures for closure support
     // Clear all maps for each method to avoid pollution from sibling methods
     // (e.g., class A in test_sane_len should not affect class A in test_blocked)
-    // BUT: Preserve nested_class_names/bases when current class is nested (in nested_class_names)
+    // BUT: Preserve nested_class_names/bases/captures when current class is nested (in nested_class_names)
     // or when deeply nested (class_nesting_depth > 1)
+    // This is CRITICAL: nested_class_captures must NOT be cleared when generating methods
+    // of a nested class, because sibling classes defined in the parent scope need their captures preserved
     self.func_local_vars.clearRetainingCapacity();
-    self.nested_class_captures.clearRetainingCapacity();
     const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
     if (!current_class_is_nested and self.class_nesting_depth <= 1) {
         self.nested_class_names.clearRetainingCapacity();
         self.nested_class_bases.clearRetainingCapacity();
+        self.nested_class_captures.clearRetainingCapacity();
     }
     try nested_captures.analyzeNestedClassCaptures(self, method);
 
