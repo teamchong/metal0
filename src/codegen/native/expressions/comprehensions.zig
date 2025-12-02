@@ -15,6 +15,15 @@ const BoolReturningBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "isinstance", {} }, .{ "callable", {} }, .{ "hasattr", {} }, .{ "bool", {} },
 });
 
+/// Binary operator to Zig operator string mapping
+const BinOpStrings = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", " + " }, .{ "Sub", " - " }, .{ "Mult", " * " },
+    .{ "Div", " / " }, .{ "FloorDiv", " / " }, .{ "Mod", " % " },
+    .{ "Pow", " ** " }, .{ "BitAnd", " & " }, .{ "BitOr", " | " },
+    .{ "BitXor", " ^ " }, .{ "LShift", " << " }, .{ "RShift", " >> " },
+    .{ "MatMul", " @ " },
+});
+
 /// Generate expression with variable substitutions for comprehensions
 fn genExprWithSubs(
     self: *NativeCodegen,
@@ -33,22 +42,7 @@ fn genExprWithSubs(
         .binop => |b| {
             try self.emit("(");
             try genExprWithSubs(self, b.left.*, subs);
-            const op_str = switch (b.op) {
-                .Add => " + ",
-                .Sub => " - ",
-                .Mult => " * ",
-                .Div => " / ",
-                .Mod => " % ",
-                .Pow => " ** ",
-                .BitAnd => " & ",
-                .BitOr => " | ",
-                .BitXor => " ^ ",
-                .LShift => " << ",
-                .RShift => " >> ",
-                .FloorDiv => " / ",
-                else => " ? ",
-            };
-            try self.emit(op_str);
+            try self.emit(BinOpStrings.get(@tagName(b.op)) orelse " ? ");
             try genExprWithSubs(self, b.right.*, subs);
             try self.emit(")");
         },

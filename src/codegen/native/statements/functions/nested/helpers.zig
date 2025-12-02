@@ -4,6 +4,15 @@ const ast = @import("ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 
+/// Binary operator to Zig operator string mapping
+const BinOpStrings = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", " + " }, .{ "Sub", " - " }, .{ "Mult", " * " },
+    .{ "Div", " / " }, .{ "FloorDiv", " / " }, .{ "Mod", " % " },
+    .{ "Pow", " ** " }, .{ "BitAnd", " & " }, .{ "BitOr", " | " },
+    .{ "BitXor", " ^ " }, .{ "LShift", " << " }, .{ "RShift", " >> " },
+    .{ "MatMul", " @ " },
+});
+
 /// Generate statement with captured variable references prefixed with capture param name
 pub fn genStmtWithCaptureStruct(
     self: *NativeCodegen,
@@ -81,24 +90,7 @@ pub fn genExprWithCaptureStruct(
         .binop => |b| {
             try self.emit("(");
             try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
-
-            const op_str = switch (b.op) {
-                .Add => " + ",
-                .Sub => " - ",
-                .Mult => " * ",
-                .MatMul => " @ ", // Matrix multiplication - handled by numpy at runtime
-                .Div => " / ",
-                .FloorDiv => " / ",
-                .Mod => " % ",
-                .Pow => " ** ",
-                .BitAnd => " & ",
-                .BitOr => " | ",
-                .BitXor => " ^ ",
-                .LShift => " << ",
-                .RShift => " >> ",
-            };
-            try self.emit(op_str);
-
+            try self.emit(BinOpStrings.get(@tagName(b.op)) orelse " ? ");
             try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
             try self.emit(")");
         },

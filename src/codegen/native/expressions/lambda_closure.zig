@@ -31,6 +31,15 @@ const UnittestMethods = std.StaticStringMap(void).initComptime(.{
     .{ "assertFloatsAreIdentical", {} },
 });
 
+/// Binary operator to Zig operator string mapping
+const BinOpStrings = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", " + " }, .{ "Sub", " - " }, .{ "Mult", " * " },
+    .{ "Div", " / " }, .{ "FloorDiv", " / " }, .{ "Mod", " % " },
+    .{ "Pow", " ** " }, .{ "BitAnd", " & " }, .{ "BitOr", " | " },
+    .{ "BitXor", " ^ " }, .{ "LShift", " << " }, .{ "RShift", " >> " },
+    .{ "MatMul", " @ " },
+});
+
 /// Check if lambda body is itself a lambda (closure case)
 fn isClosureLambda(body: ast.Node) bool {
     return body == .lambda;
@@ -354,24 +363,7 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
         .binop => |b| {
             try self.emit("(");
             try genExprWithCapture(self, b.left.*, captured_vars);
-
-            const op_str = switch (b.op) {
-                .Add => " + ",
-                .Sub => " - ",
-                .Mult => " * ",
-                .MatMul => " @ ", // Matrix multiplication - runtime only
-                .Div => " / ",
-                .FloorDiv => " / ",
-                .Mod => " % ",
-                .Pow => " ** ",
-                .BitAnd => " & ",
-                .BitOr => " | ",
-                .BitXor => " ^ ",
-                .LShift => " << ",
-                .RShift => " >> ",
-            };
-            try self.emit(op_str);
-
+            try self.emit(BinOpStrings.get(@tagName(b.op)) orelse " ? ");
             try genExprWithCapture(self, b.right.*, captured_vars);
             try self.emit(")");
         },
