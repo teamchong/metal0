@@ -1,18 +1,14 @@
 /// Python _contextvars module - Internal contextvars support (C accelerator)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "context_var", genContextVar }, .{ "context", genConst(".{}") }, .{ "token", genConst(".{ .var = null, .old_value = null, .used = false }") },
-    .{ "copy_context", genConst(".{}") }, .{ "get", genConst("null") }, .{ "set", genConst(".{ .var = null, .old_value = null, .used = false }") },
-    .{ "reset", genConst("{}") }, .{ "run", genConst("null") }, .{ "copy", genConst(".{}") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "context_var", genContextVar }, .{ "context", h.c(".{}") }, .{ "token", h.c(".{ .var = null, .old_value = null, .used = false }") },
+    .{ "copy_context", h.c(".{}") }, .{ "get", h.c("null") }, .{ "set", h.c(".{ .var = null, .old_value = null, .used = false }") },
+    .{ "reset", h.c("{}") }, .{ "run", h.c("null") }, .{ "copy", h.c(".{}") },
 });
 
 fn genContextVar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

@@ -73,7 +73,11 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
             return;
         }
 
-        try self.emit("blk: {\n");
+        // Use unique label to avoid redefinition with nested boolean ops
+        const label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+
+        try self.emitFmt("boolop_{d}: {{\n", .{label_id});
         try self.emit("const _a = ");
         try genExpr(self, a);
         try self.emit(";\n");
@@ -95,10 +99,10 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
 
         if (boolop.op == .Or) {
             // "a or b": return a if truthy, else b
-            try self.emitFmt("break :blk if ({s}) _a else _b;\n", .{truthy_check});
+            try self.emitFmt("break :boolop_{d} if ({s}) _a else _b;\n", .{ label_id, truthy_check });
         } else {
             // "a and b": return a if falsy, else b
-            try self.emitFmt("break :blk if (!({s})) _a else _b;\n", .{truthy_check});
+            try self.emitFmt("break :boolop_{d} if (!({s})) _a else _b;\n", .{ label_id, truthy_check });
         }
         try self.emit("}");
         return;

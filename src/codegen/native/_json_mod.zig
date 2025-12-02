@@ -1,16 +1,12 @@
 /// Python _json module - C accelerator for json (internal)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "encode_basestring", genEncodeBase }, .{ "encode_basestring_ascii", genEncodeAscii }, .{ "scanstring", genScan }, .{ "make_encoder", genConst(".{}") }, .{ "make_scanner", genConst(".{}") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "encode_basestring", genEncodeBase }, .{ "encode_basestring_ascii", genEncodeAscii }, .{ "scanstring", genScan }, .{ "make_encoder", h.c(".{}") }, .{ "make_scanner", h.c(".{}") },
 });
 
 fn genEncodeBase(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
