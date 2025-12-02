@@ -5,46 +5,43 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Annotated", genType }, .{ "ParamSpec", genType }, .{ "ParamSpecArgs", genType }, .{ "ParamSpecKwargs", genType },
-    .{ "Concatenate", genType }, .{ "TypeAlias", genType }, .{ "TypeGuard", genType }, .{ "TypeIs", genType },
-    .{ "Self", genType }, .{ "Never", genNever }, .{ "Required", genType }, .{ "NotRequired", genType },
-    .{ "LiteralString", genLiteralString }, .{ "Unpack", genType }, .{ "TypeVarTuple", genType },
+    .{ "Annotated", genConst("@TypeOf(undefined)") }, .{ "ParamSpec", genConst("@TypeOf(undefined)") },
+    .{ "ParamSpecArgs", genConst("@TypeOf(undefined)") }, .{ "ParamSpecKwargs", genConst("@TypeOf(undefined)") },
+    .{ "Concatenate", genConst("@TypeOf(undefined)") }, .{ "TypeAlias", genConst("@TypeOf(undefined)") },
+    .{ "TypeGuard", genConst("@TypeOf(undefined)") }, .{ "TypeIs", genConst("@TypeOf(undefined)") },
+    .{ "Self", genConst("@TypeOf(undefined)") }, .{ "Never", genConst("noreturn") },
+    .{ "Required", genConst("@TypeOf(undefined)") }, .{ "NotRequired", genConst("@TypeOf(undefined)") },
+    .{ "LiteralString", genConst("[]const u8") }, .{ "Unpack", genConst("@TypeOf(undefined)") },
+    .{ "TypeVarTuple", genConst("@TypeOf(undefined)") },
     .{ "override", genPassthrough }, .{ "final", genPassthrough }, .{ "deprecated", genPassthrough },
     .{ "dataclass_transform", genPassthrough }, .{ "runtime_checkable", genPassthrough },
-    .{ "Protocol", genType }, .{ "TypedDict", genEmpty }, .{ "NamedTuple", genEmpty },
-    .{ "get_type_hints", genEmpty }, .{ "get_origin", genNullType }, .{ "get_args", genEmpty },
-    .{ "is_typeddict", genFalse }, .{ "get_annotations", genEmpty },
+    .{ "Protocol", genConst("@TypeOf(undefined)") }, .{ "TypedDict", genConst(".{}") }, .{ "NamedTuple", genConst(".{}") },
+    .{ "get_type_hints", genConst(".{}") }, .{ "get_origin", genConst("@as(?@TypeOf(undefined), null)") },
+    .{ "get_args", genConst(".{}") }, .{ "is_typeddict", genConst("false") }, .{ "get_annotations", genConst(".{}") },
     .{ "assert_type", genPassthrough }, .{ "reveal_type", genPassthrough },
-    .{ "assert_never", genUnreachable }, .{ "clear_overloads", genUnit }, .{ "get_overloads", genEmptySlice },
-    .{ "Doc", genType }, .{ "ReadOnly", genType }, .{ "Any", genType }, .{ "Union", genType },
-    .{ "Optional", genType }, .{ "List", genType }, .{ "Dict", genType }, .{ "Set", genType },
-    .{ "Tuple", genType }, .{ "Callable", genType }, .{ "Type", genType }, .{ "Literal", genType },
-    .{ "ClassVar", genType }, .{ "TypeVar", genType }, .{ "Generic", genType }, .{ "NoReturn", genNever },
+    .{ "assert_never", genConst("unreachable") }, .{ "clear_overloads", genConst("{}") },
+    .{ "get_overloads", genConst("&[_]*anyopaque{}") },
+    .{ "Doc", genConst("@TypeOf(undefined)") }, .{ "ReadOnly", genConst("@TypeOf(undefined)") },
+    .{ "Any", genConst("@TypeOf(undefined)") }, .{ "Union", genConst("@TypeOf(undefined)") },
+    .{ "Optional", genConst("@TypeOf(undefined)") }, .{ "List", genConst("@TypeOf(undefined)") },
+    .{ "Dict", genConst("@TypeOf(undefined)") }, .{ "Set", genConst("@TypeOf(undefined)") },
+    .{ "Tuple", genConst("@TypeOf(undefined)") }, .{ "Callable", genConst("@TypeOf(undefined)") },
+    .{ "Type", genConst("@TypeOf(undefined)") }, .{ "Literal", genConst("@TypeOf(undefined)") },
+    .{ "ClassVar", genConst("@TypeOf(undefined)") }, .{ "TypeVar", genConst("@TypeOf(undefined)") },
+    .{ "Generic", genConst("@TypeOf(undefined)") }, .{ "NoReturn", genConst("noreturn") },
     .{ "cast", genCast }, .{ "overload", genPassthrough }, .{ "no_type_check", genPassthrough },
-    .{ "TYPE_CHECKING", genFalse },
+    .{ "TYPE_CHECKING", genConst("false") },
 });
 
-// Helper
-fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
-
-// Type placeholder
-fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@TypeOf(undefined)"); }
-fn genNever(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "noreturn"); }
-fn genLiteralString(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "[]const u8"); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
-fn genNullType(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?@TypeOf(undefined), null)"); }
-fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
-fn genUnreachable(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "unreachable"); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genEmptySlice(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]*anyopaque{}"); }
-
-// Passthrough decorator: returns arg[0] or null
 fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) try self.genExpr(args[0]) else try self.emit("@as(?*anyopaque, null)");
 }
 
-// cast(typ, val) returns val
 pub fn genCast(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) try self.genExpr(args[1]) else if (args.len == 1) try self.genExpr(args[0]) else try self.emit("@as(?*anyopaque, null)");
 }

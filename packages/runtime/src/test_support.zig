@@ -31,6 +31,13 @@ pub const _2G: i64 = 2 * 1024 * 1024 * 1024;
 /// 4GB constant
 pub const _4G: i64 = 4 * 1024 * 1024 * 1024;
 
+/// Maximum value for Py_ssize_t (platform dependent)
+/// On 64-bit: 2^63 - 1, on 32-bit: 2^31 - 1
+pub const MAX_Py_ssize_t: i64 = if (@sizeOf(usize) == 8)
+    std.math.maxInt(i64)
+else
+    std.math.maxInt(i32);
+
 /// Short timeout for tests (seconds)
 pub const SHORT_TIMEOUT: f64 = 30.0;
 

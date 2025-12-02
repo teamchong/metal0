@@ -5,45 +5,37 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "urlopen", genUrlopen }, .{ "install_opener", genUnit }, .{ "build_opener", genBuildOpener },
-    .{ "pathname2url", genPassthrough }, .{ "url2pathname", genPassthrough }, .{ "getproxies", genEmpty },
-    .{ "Request", genRequest }, .{ "OpenerDirector", genBuildOpener },
-    .{ "BaseHandler", genEmpty }, .{ "HTTPDefaultErrorHandler", genEmpty },
-    .{ "HTTPRedirectHandler", genRedirectHandler }, .{ "HTTPCookieProcessor", genCookieProcessor },
-    .{ "ProxyHandler", genProxyHandler }, .{ "HTTPPasswordMgr", genEmpty },
-    .{ "HTTPPasswordMgrWithDefaultRealm", genEmpty }, .{ "HTTPPasswordMgrWithPriorAuth", genEmpty },
-    .{ "AbstractBasicAuthHandler", genPasswdHandler }, .{ "HTTPBasicAuthHandler", genPasswdHandler },
-    .{ "ProxyBasicAuthHandler", genPasswdHandler }, .{ "AbstractDigestAuthHandler", genPasswdHandler },
-    .{ "HTTPDigestAuthHandler", genPasswdHandler }, .{ "ProxyDigestAuthHandler", genPasswdHandler },
-    .{ "HTTPHandler", genEmpty }, .{ "HTTPSHandler", genHTTPSHandler },
-    .{ "FileHandler", genEmpty }, .{ "FTPHandler", genEmpty },
-    .{ "CacheFTPHandler", genCacheFTPHandler }, .{ "DataHandler", genEmpty },
-    .{ "UnknownHandler", genEmpty }, .{ "HTTPErrorProcessor", genEmpty },
-    .{ "URLError", genURLError }, .{ "HTTPError", genHTTPError }, .{ "ContentTooShortError", genContentTooShortError },
+    .{ "urlopen", genConst(".{ .status = @as(i32, 200), .reason = \"OK\", .headers = .{}, .url = \"\" }") },
+    .{ "install_opener", genConst("{}") },
+    .{ "build_opener", genConst(".{ .handlers = &[_]*anyopaque{} }") },
+    .{ "pathname2url", genPassthrough }, .{ "url2pathname", genPassthrough },
+    .{ "getproxies", genConst(".{}") },
+    .{ "Request", genRequest }, .{ "OpenerDirector", genConst(".{ .handlers = &[_]*anyopaque{} }") },
+    .{ "BaseHandler", genConst(".{}") }, .{ "HTTPDefaultErrorHandler", genConst(".{}") },
+    .{ "HTTPRedirectHandler", genConst(".{ .max_redirections = @as(i32, 10), .max_repeats = @as(i32, 4) }") },
+    .{ "HTTPCookieProcessor", genConst(".{ .cookiejar = @as(?*anyopaque, null) }") },
+    .{ "ProxyHandler", genConst(".{ .proxies = .{} }") },
+    .{ "HTTPPasswordMgr", genConst(".{}") }, .{ "HTTPPasswordMgrWithDefaultRealm", genConst(".{}") },
+    .{ "HTTPPasswordMgrWithPriorAuth", genConst(".{}") },
+    .{ "AbstractBasicAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "HTTPBasicAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "ProxyBasicAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "AbstractDigestAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "HTTPDigestAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "ProxyDigestAuthHandler", genConst(".{ .passwd = @as(?*anyopaque, null) }") },
+    .{ "HTTPHandler", genConst(".{}") }, .{ "HTTPSHandler", genConst(".{ .context = @as(?*anyopaque, null), .check_hostname = @as(?bool, null) }") },
+    .{ "FileHandler", genConst(".{}") }, .{ "FTPHandler", genConst(".{}") },
+    .{ "CacheFTPHandler", genConst(".{ .max_conns = @as(i32, 0) }") }, .{ "DataHandler", genConst(".{}") },
+    .{ "UnknownHandler", genConst(".{}") }, .{ "HTTPErrorProcessor", genConst(".{}") },
+    .{ "URLError", genConst("error.URLError") }, .{ "HTTPError", genConst("error.HTTPError") },
+    .{ "ContentTooShortError", genConst("error.ContentTooShortError") },
 });
 
-// Helpers
-fn genConst(self: *NativeCodegen, args: []ast.Node, value: []const u8) CodegenError!void { _ = args; try self.emit(value); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
-
-// Struct constants
-fn genUrlopen(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .status = @as(i32, 200), .reason = \"OK\", .headers = .{}, .url = \"\" }"); }
-fn genBuildOpener(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .handlers = &[_]*anyopaque{} }"); }
-fn genRedirectHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .max_redirections = @as(i32, 10), .max_repeats = @as(i32, 4) }"); }
-fn genCookieProcessor(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .cookiejar = @as(?*anyopaque, null) }"); }
-fn genProxyHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .proxies = .{} }"); }
-fn genPasswdHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .passwd = @as(?*anyopaque, null) }"); }
-fn genHTTPSHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .context = @as(?*anyopaque, null), .check_hostname = @as(?bool, null) }"); }
-fn genCacheFTPHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .max_conns = @as(i32, 0) }"); }
-
-// Exceptions
-fn genURLError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.URLError"); }
-fn genHTTPError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.HTTPError"); }
-fn genContentTooShortError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.ContentTooShortError"); }
-
-// Functions with logic
 fn genPassthrough(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\"");
 }

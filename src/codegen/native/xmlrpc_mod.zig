@@ -5,33 +5,30 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
-fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
-fn genTransport(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .use_datetime = false, .use_builtin_types = false }"); }
-fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"<?xml version='1.0'?><methodCall></methodCall>\""); }
-fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .params = &[_]@TypeOf(@as(i32, 0)){}, .method_name = @as(?[]const u8, null) }"); }
-fn genFault(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.Fault"); }
-fn genProtocolError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.ProtocolError"); }
-fn genResponseError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.ResponseError"); }
-fn genDateTime(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .year = @as(i32, 1970), .month = @as(i32, 1), .day = @as(i32, 1), .hour = @as(i32, 0), .minute = @as(i32, 0), .second = @as(i32, 0) }"); }
-fn genMAXINT(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, 2147483647)"); }
-fn genMININT(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i64, -2147483648)"); }
-fn genSimpleServer(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .addr = .{ \"\", @as(i32, 8000) }, .allow_none = false, .encoding = @as(?[]const u8, null) }"); }
-fn genCGIHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .allow_none = false, .encoding = @as(?[]const u8, null) }"); }
-fn genDocServer(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .addr = .{ \"\", @as(i32, 8000) } }"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const ClientFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "ServerProxy", genServerProxy }, .{ "Transport", genTransport }, .{ "SafeTransport", genTransport },
-    .{ "dumps", genDumps }, .{ "loads", genLoads }, .{ "gzip_encode", genEmptyStr }, .{ "gzip_decode", genEmptyStr },
-    .{ "Fault", genFault }, .{ "ProtocolError", genProtocolError }, .{ "ResponseError", genResponseError },
-    .{ "Boolean", genBoolean }, .{ "DateTime", genDateTime }, .{ "Binary", genBinary },
-    .{ "MAXINT", genMAXINT }, .{ "MININT", genMININT },
+    .{ "ServerProxy", genServerProxy },
+    .{ "Transport", genConst(".{ .use_datetime = false, .use_builtin_types = false }") },
+    .{ "SafeTransport", genConst(".{ .use_datetime = false, .use_builtin_types = false }") },
+    .{ "dumps", genConst("\"<?xml version='1.0'?><methodCall></methodCall>\"") },
+    .{ "loads", genConst(".{ .params = &[_]@TypeOf(@as(i32, 0)){}, .method_name = @as(?[]const u8, null) }") },
+    .{ "gzip_encode", genConst("\"\"") }, .{ "gzip_decode", genConst("\"\"") },
+    .{ "Fault", genConst("error.Fault") }, .{ "ProtocolError", genConst("error.ProtocolError") },
+    .{ "ResponseError", genConst("error.ResponseError") },
+    .{ "Boolean", genBoolean }, .{ "DateTime", genConst(".{ .year = @as(i32, 1970), .month = @as(i32, 1), .day = @as(i32, 1), .hour = @as(i32, 0), .minute = @as(i32, 0), .second = @as(i32, 0) }") },
+    .{ "Binary", genBinary },
+    .{ "MAXINT", genConst("@as(i64, 2147483647)") }, .{ "MININT", genConst("@as(i64, -2147483648)") },
 });
 
 pub const ServerFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "SimpleXMLRPCServer", genSimpleServer }, .{ "CGIXMLRPCRequestHandler", genCGIHandler },
-    .{ "SimpleXMLRPCRequestHandler", genEmpty }, .{ "DocXMLRPCServer", genDocServer }, .{ "DocCGIXMLRPCRequestHandler", genEmpty },
+    .{ "SimpleXMLRPCServer", genConst(".{ .addr = .{ \"\", @as(i32, 8000) }, .allow_none = false, .encoding = @as(?[]const u8, null) }") },
+    .{ "CGIXMLRPCRequestHandler", genConst(".{ .allow_none = false, .encoding = @as(?[]const u8, null) }") },
+    .{ "SimpleXMLRPCRequestHandler", genConst(".{}") },
+    .{ "DocXMLRPCServer", genConst(".{ .addr = .{ \"\", @as(i32, 8000) } }") },
+    .{ "DocCGIXMLRPCRequestHandler", genConst(".{}") },
 });
 
 fn genServerProxy(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

@@ -5,29 +5,28 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{}"); }
-fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.WSGIWarning"); }
-fn genServer(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .server_address = .{ \"\", @as(i32, 8000) } }"); }
-fn genWSGIServer(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .server_address = .{ \"\", @as(i32, 8000) }, .application = @as(?*anyopaque, null) }"); }
-fn genReqUri(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"/\""); }
-fn genAppUri(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"http://localhost/\""); }
-fn genShiftPath(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?[]const u8, null)"); }
-fn genFileWrapper(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .filelike = @as(?*anyopaque, null), .blksize = @as(i32, 8192) }"); }
-fn genHeaders(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .headers = &[_].{ []const u8, []const u8 }{} }"); }
-fn genBaseHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .wsgi_multithread = true, .wsgi_multiprocess = true, .wsgi_run_once = false }"); }
-fn genSimpleHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .stdin = @as(?*anyopaque, null), .stdout = @as(?*anyopaque, null), .stderr = @as(?*anyopaque, null), .environ = .{} }"); }
-fn genDemoApp(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{\"Hello world!\"}"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "validator", genValidator }, .{ "assert_", genUnit }, .{ "check_status", genUnit }, .{ "check_headers", genUnit },
-    .{ "check_content_type", genUnit }, .{ "check_exc_info", genUnit }, .{ "check_environ", genUnit }, .{ "WSGIWarning", genErr },
-    .{ "make_server", genServer }, .{ "WSGIServer", genWSGIServer }, .{ "WSGIRequestHandler", genEmpty }, .{ "demo_app", genDemoApp },
-    .{ "setup_testing_defaults", genUnit }, .{ "request_uri", genReqUri }, .{ "application_uri", genAppUri },
-    .{ "shift_path_info", genShiftPath }, .{ "FileWrapper", genFileWrapper }, .{ "Headers", genHeaders },
-    .{ "BaseHandler", genBaseHandler }, .{ "SimpleHandler", genSimpleHandler }, .{ "BaseCGIHandler", genSimpleHandler },
-    .{ "CGIHandler", genEmpty }, .{ "IISCGIHandler", genEmpty },
+    .{ "validator", genValidator },
+    .{ "assert_", genConst("{}") }, .{ "check_status", genConst("{}") }, .{ "check_headers", genConst("{}") },
+    .{ "check_content_type", genConst("{}") }, .{ "check_exc_info", genConst("{}") }, .{ "check_environ", genConst("{}") },
+    .{ "WSGIWarning", genConst("error.WSGIWarning") },
+    .{ "make_server", genConst(".{ .server_address = .{ \"\", @as(i32, 8000) } }") },
+    .{ "WSGIServer", genConst(".{ .server_address = .{ \"\", @as(i32, 8000) }, .application = @as(?*anyopaque, null) }") },
+    .{ "WSGIRequestHandler", genConst(".{}") },
+    .{ "demo_app", genConst("&[_][]const u8{\"Hello world!\"}") },
+    .{ "setup_testing_defaults", genConst("{}") },
+    .{ "request_uri", genConst("\"/\"") }, .{ "application_uri", genConst("\"http://localhost/\"") },
+    .{ "shift_path_info", genConst("@as(?[]const u8, null)") },
+    .{ "FileWrapper", genConst(".{ .filelike = @as(?*anyopaque, null), .blksize = @as(i32, 8192) }") },
+    .{ "Headers", genConst(".{ .headers = &[_].{ []const u8, []const u8 }{} }") },
+    .{ "BaseHandler", genConst(".{ .wsgi_multithread = true, .wsgi_multiprocess = true, .wsgi_run_once = false }") },
+    .{ "SimpleHandler", genConst(".{ .stdin = @as(?*anyopaque, null), .stdout = @as(?*anyopaque, null), .stderr = @as(?*anyopaque, null), .environ = .{} }") },
+    .{ "BaseCGIHandler", genConst(".{ .stdin = @as(?*anyopaque, null), .stdout = @as(?*anyopaque, null), .stderr = @as(?*anyopaque, null), .environ = .{} }") },
+    .{ "CGIHandler", genConst(".{}") }, .{ "IISCGIHandler", genConst(".{}") },
 });
 
 fn genValidator(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
