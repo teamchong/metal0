@@ -191,3 +191,58 @@ pub fn emitUniqueBlockStart(self: *NativeCodegen, prefix: []const u8) CodegenErr
 pub fn emitBlockBreak(self: *NativeCodegen, prefix: []const u8, id: u64) CodegenError!void {
     try self.emitFmt("; break :{s}_{d} ", .{ prefix, id });
 }
+
+// === Complex number helpers (cmath) ===
+
+/// Generates complex from @builtin: .{ .re = @builtin(arg), .im = 0.0 }
+pub fn complexBuiltin(comptime b: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(".{ .re = " ++ d ++ ", .im = 0.0 }"); return; }
+        try self.emit(".{ .re = " ++ b ++ "(@as(f64, @floatFromInt("); try self.genExpr(args[0]); try self.emit("))), .im = 0.0 }");
+    } }.f;
+}
+
+/// Generates complex from std.math: .{ .re = std.math.fn(arg), .im = 0.0 }
+pub fn complexStdMath(comptime fn_name: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(".{ .re = " ++ d ++ ", .im = 0.0 }"); return; }
+        try self.emit(".{ .re = std.math." ++ fn_name ++ "(@as(f64, @floatFromInt("); try self.genExpr(args[0]); try self.emit("))), .im = 0.0 }");
+    } }.f;
+}
+
+// === Base64 helpers ===
+
+/// Base64 encode using specified encoder
+pub fn b64enc(comptime encoder: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) return;
+        try self.emit("blk: { const d = "); try self.genExpr(args[0]);
+        try self.emit("; const len = std.base64." ++ encoder ++ ".Encoder.calcSize(d.len); const buf = __global_allocator.alloc(u8, len) catch break :blk \"\"; break :blk std.base64." ++ encoder ++ ".Encoder.encode(buf, d); }");
+    } }.f;
+}
+
+/// Base64 decode using specified decoder
+pub fn b64dec(comptime decoder: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) return;
+        try self.emit("blk: { const d = "); try self.genExpr(args[0]);
+        try self.emit("; const len = std.base64." ++ decoder ++ ".Decoder.calcSizeForSlice(d) catch break :blk \"\"; const buf = __global_allocator.alloc(u8, len) catch break :blk \"\"; std.base64." ++ decoder ++ ".Decoder.decode(buf, d) catch break :blk \"\"; break :blk buf; }");
+    } }.f;
+}
+
+/// Stub that discards arg and returns result
+pub fn stub(comptime result: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) return;
+        try self.emit("blk: { _ = "); try self.genExpr(args[0]); try self.emit("; break :blk " ++ result ++ "; }");
+    } }.f;
+}
+
+// === Hash helpers ===
+
+/// Generates hash constructor: hashlib.name() with optional initial data
+pub fn hashNew(comptime name: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit("(blk: { var _h = hashlib." ++ name ++ "(); _h.update("); try self.genExpr(args[0]); try self.emit("); break :blk _h; })"); } else try self.emit("hashlib." ++ name ++ "()");
+    } }.f;
+}
