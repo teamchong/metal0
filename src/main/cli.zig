@@ -122,13 +122,6 @@ pub fn main() !void {
 }
 
 fn cmdInstall(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    if (args.len == 0) {
-        printError("No packages specified", .{});
-        std.debug.print("\nUsage: metal0 install <package> [package...] [options]\n", .{});
-        std.debug.print("       metal0 install -r requirements.txt\n", .{});
-        return;
-    }
-
     var packages = std.ArrayList([]const u8){};
     defer packages.deinit(allocator);
 
@@ -138,6 +131,10 @@ fn cmdInstall(allocator: std.mem.Allocator, args: []const []const u8) !void {
         for (allocated_pkgs.items) |p| allocator.free(p);
         allocated_pkgs.deinit(allocator);
     }
+
+    // Track extras for pyproject.toml
+    var extras = std.ArrayList([]const u8){};
+    defer extras.deinit(allocator);
 
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -166,8 +163,61 @@ fn cmdInstall(allocator: std.mem.Allocator, args: []const []const u8) !void {
                     else => {}, // Skip options, editables, etc. for now
                 }
             }
+        } else if (std.mem.eql(u8, arg, "-e") or std.mem.eql(u8, arg, "--extra")) {
+            // Optional dependency extra (for pyproject.toml)
+            i += 1;
+            if (i >= args.len) {
+                printError("-e requires an extra name", .{});
+                return;
+            }
+            try extras.append(allocator, args[i]);
         } else if (!std.mem.startsWith(u8, arg, "-")) {
             try packages.append(allocator, arg);
+        }
+    }
+
+    // If no packages specified, look for pyproject.toml
+    if (packages.items.len == 0) {
+        // Try to find pyproject.toml
+        const maybe_path: ?[]const u8 = pkg.pyproject.findPyproject(allocator, ".") catch null;
+        const pyproject_path = maybe_path orelse {
+            printInfo("No pyproject.toml found", .{});
+            printError("No packages specified. Usage: metal0 install <package>", .{});
+            return;
+        };
+        defer allocator.free(pyproject_path);
+        printInfo("Found {s}", .{pyproject_path});
+        {
+            var pyproj = pkg.pyproject.parseFile(allocator, pyproject_path) catch |err| {
+                printError("Failed to parse pyproject.toml: {any}", .{err});
+                return;
+            };
+            defer pyproj.deinit();
+
+            if (pyproj.name) |name| {
+                printInfo("Installing dependencies for {s}{s}{s}", .{ Color.bold, name, Color.reset });
+            }
+
+            // Add all dependencies
+            for (pyproj.dependencies) |dep| {
+                const name_copy = try allocator.dupe(u8, dep.name);
+                try allocated_pkgs.append(allocator, name_copy);
+                try packages.append(allocator, name_copy);
+            }
+
+            // Add extra dependencies if requested
+            for (extras.items) |extra| {
+                if (pyproj.optional_dependencies.get(extra)) |extra_deps| {
+                    printInfo("Including extra: {s}", .{extra});
+                    for (extra_deps) |dep| {
+                        const name_copy = try allocator.dupe(u8, dep.name);
+                        try allocated_pkgs.append(allocator, name_copy);
+                        try packages.append(allocator, name_copy);
+                    }
+                } else {
+                    printWarn("Unknown extra: {s}", .{extra});
+                }
+            }
         }
     }
 
