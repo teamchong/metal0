@@ -122,17 +122,15 @@ test-cpython-seq: build
 	done; \
 	echo "CPython: $$passed passed, $$failed failed"
 
-# CPython errors only - show which tests fail and why
+# CPython errors only - parallel error collection
 test-cpython-errors: build
-	@echo "Showing CPython test errors..."
-	@for f in tests/cpython/test_*.py; do \
-		output=$$(./zig-out/bin/metal0 "$$f" --force 2>&1); \
-		if [ $$? -ne 0 ]; then \
-			echo ""; \
-			echo "=== $$f ==="; \
-			echo "$$output" | grep -E "error:|Error" | head -3; \
-		fi; \
-	done
+	@echo "Collecting CPython test errors (parallel)..."
+	@ls tests/cpython/test_*.py | xargs -P16 -I{} sh -c './zig-out/bin/metal0 "{}" --force 2>&1 | grep -oE "error: [^$$]+" | head -1' 2>/dev/null | sort | uniq -c | sort -rn | head -40
+
+# Show specific failing tests with full errors
+test-cpython-failing: build
+	@echo "Finding failing tests..."
+	@ls tests/cpython/test_*.py | xargs -P16 -I{} sh -c 'if ! ./zig-out/bin/metal0 "{}" --force >/dev/null 2>&1; then echo "{}"; fi' 2>/dev/null | head -20
 
 # All tests
 test-all: build test-unit test-integration test-cpython

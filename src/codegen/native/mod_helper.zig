@@ -9,7 +9,7 @@ pub const H = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 
 /// Generates a handler that emits a constant string
 pub fn c(comptime v: []const u8) H {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+    return struct { pub fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
 }
 
 /// Generates a handler that emits @as(i32, N)
