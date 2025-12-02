@@ -1,31 +1,27 @@
 /// Python _signal module - C accelerator for signal (internal)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "signal", genSignal }, .{ "getsignal", genConst("null") }, .{ "raise_signal", genConst("{}") }, .{ "alarm", genAlarm },
-    .{ "pause", genConst("{}") }, .{ "getitimer", genConst(".{ .interval = 0.0, .value = 0.0 }") }, .{ "setitimer", genConst(".{ .interval = 0.0, .value = 0.0 }") },
-    .{ "siginterrupt", genConst("{}") }, .{ "set_wakeup_fd", genConst("@as(i32, -1)") }, .{ "sigwait", genConst("@as(i32, 0)") },
-    .{ "pthread_kill", genConst("{}") }, .{ "pthread_sigmask", genConst("&[_]i32{}") }, .{ "sigpending", genConst("&[_]i32{}") },
-    .{ "valid_signals", genConst("&[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 }") },
-    .{ "SIGHUP", genConst("@as(i32, 1)") }, .{ "SIGINT", genConst("@as(i32, 2)") }, .{ "SIGQUIT", genConst("@as(i32, 3)") }, .{ "SIGILL", genConst("@as(i32, 4)") },
-    .{ "SIGTRAP", genConst("@as(i32, 5)") }, .{ "SIGABRT", genConst("@as(i32, 6)") }, .{ "SIGFPE", genConst("@as(i32, 8)") }, .{ "SIGKILL", genConst("@as(i32, 9)") },
-    .{ "SIGBUS", genConst("@as(i32, 10)") }, .{ "SIGSEGV", genConst("@as(i32, 11)") }, .{ "SIGSYS", genConst("@as(i32, 12)") }, .{ "SIGPIPE", genConst("@as(i32, 13)") },
-    .{ "SIGALRM", genConst("@as(i32, 14)") }, .{ "SIGTERM", genConst("@as(i32, 15)") }, .{ "SIGURG", genConst("@as(i32, 16)") }, .{ "SIGSTOP", genConst("@as(i32, 17)") },
-    .{ "SIGTSTP", genConst("@as(i32, 18)") }, .{ "SIGCONT", genConst("@as(i32, 19)") }, .{ "SIGCHLD", genConst("@as(i32, 20)") }, .{ "SIGTTIN", genConst("@as(i32, 21)") },
-    .{ "SIGTTOU", genConst("@as(i32, 22)") }, .{ "SIGIO", genConst("@as(i32, 23)") }, .{ "SIGXCPU", genConst("@as(i32, 24)") }, .{ "SIGXFSZ", genConst("@as(i32, 25)") },
-    .{ "SIGVTALRM", genConst("@as(i32, 26)") }, .{ "SIGPROF", genConst("@as(i32, 27)") }, .{ "SIGWINCH", genConst("@as(i32, 28)") }, .{ "SIGINFO", genConst("@as(i32, 29)") },
-    .{ "SIGUSR1", genConst("@as(i32, 30)") }, .{ "SIGUSR2", genConst("@as(i32, 31)") },
-    .{ "SIG_DFL", genConst("@as(i32, 0)") }, .{ "SIG_IGN", genConst("@as(i32, 1)") },
-    .{ "ITIMER_REAL", genConst("@as(i32, 0)") }, .{ "ITIMER_VIRTUAL", genConst("@as(i32, 1)") }, .{ "ITIMER_PROF", genConst("@as(i32, 2)") },
-    .{ "SIG_BLOCK", genConst("@as(i32, 1)") }, .{ "SIG_UNBLOCK", genConst("@as(i32, 2)") }, .{ "SIG_SETMASK", genConst("@as(i32, 3)") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "signal", genSignal }, .{ "getsignal", h.c("null") }, .{ "raise_signal", h.c("{}") }, .{ "alarm", genAlarm },
+    .{ "pause", h.c("{}") }, .{ "getitimer", h.c(".{ .interval = 0.0, .value = 0.0 }") }, .{ "setitimer", h.c(".{ .interval = 0.0, .value = 0.0 }") },
+    .{ "siginterrupt", h.c("{}") }, .{ "set_wakeup_fd", h.I32(-1) }, .{ "sigwait", h.I32(0) },
+    .{ "pthread_kill", h.c("{}") }, .{ "pthread_sigmask", h.c("&[_]i32{}") }, .{ "sigpending", h.c("&[_]i32{}") },
+    .{ "valid_signals", h.c("&[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 }") },
+    .{ "SIGHUP", h.I32(1) }, .{ "SIGINT", h.I32(2) }, .{ "SIGQUIT", h.I32(3) }, .{ "SIGILL", h.I32(4) },
+    .{ "SIGTRAP", h.I32(5) }, .{ "SIGABRT", h.I32(6) }, .{ "SIGFPE", h.I32(8) }, .{ "SIGKILL", h.I32(9) },
+    .{ "SIGBUS", h.I32(10) }, .{ "SIGSEGV", h.I32(11) }, .{ "SIGSYS", h.I32(12) }, .{ "SIGPIPE", h.I32(13) },
+    .{ "SIGALRM", h.I32(14) }, .{ "SIGTERM", h.I32(15) }, .{ "SIGURG", h.I32(16) }, .{ "SIGSTOP", h.I32(17) },
+    .{ "SIGTSTP", h.I32(18) }, .{ "SIGCONT", h.I32(19) }, .{ "SIGCHLD", h.I32(20) }, .{ "SIGTTIN", h.I32(21) },
+    .{ "SIGTTOU", h.I32(22) }, .{ "SIGIO", h.I32(23) }, .{ "SIGXCPU", h.I32(24) }, .{ "SIGXFSZ", h.I32(25) },
+    .{ "SIGVTALRM", h.I32(26) }, .{ "SIGPROF", h.I32(27) }, .{ "SIGWINCH", h.I32(28) }, .{ "SIGINFO", h.I32(29) },
+    .{ "SIGUSR1", h.I32(30) }, .{ "SIGUSR2", h.I32(31) },
+    .{ "SIG_DFL", h.I32(0) }, .{ "SIG_IGN", h.I32(1) },
+    .{ "ITIMER_REAL", h.I32(0) }, .{ "ITIMER_VIRTUAL", h.I32(1) }, .{ "ITIMER_PROF", h.I32(2) },
+    .{ "SIG_BLOCK", h.I32(1) }, .{ "SIG_UNBLOCK", h.I32(2) }, .{ "SIG_SETMASK", h.I32(3) },
 });
 
 fn genSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
