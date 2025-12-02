@@ -20,10 +20,7 @@ pub fn genReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("break :blk struct { data: []const u8, pos: usize = 0, delim: u8, pub fn next(s: *@This()) ?[][]const u8 { if (s.pos >= s.data.len) return null; var le = std.mem.indexOfScalarPos(u8, s.data, s.pos, '\\n') orelse s.data.len; const ln = s.data[s.pos..le]; s.pos = le + 1; var fs: std.ArrayList([]const u8) = .{}; var it = std.mem.splitScalar(u8, ln, s.delim); while (it.next()) |f| fs.append(__global_allocator, f) catch continue; return fs.items; } }{ .data = _f, .delim = _d }; }");
 }
 
-pub fn genWriter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("struct { buffer: std.ArrayList(u8), delim: u8 = ',', pub fn writerow(s: *@This(), r: anytype) void { var f = true; for (r) |x| { if (!f) s.buffer.append(__global_allocator, s.delim) catch {}; f = false; s.buffer.appendSlice(__global_allocator, x) catch {}; } s.buffer.append(__global_allocator, '\\n') catch {}; } pub fn writerows(s: *@This(), rs: anytype) void { for (rs) |r| s.writerow(r); } pub fn getvalue(s: *@This()) []const u8 { return s.buffer.items; } }{ .buffer = .{} }");
-}
+pub const genWriter = h.c("struct { buffer: std.ArrayList(u8), delim: u8 = ',', pub fn writerow(s: *@This(), r: anytype) void { var f = true; for (r) |x| { if (!f) s.buffer.append(__global_allocator, s.delim) catch {}; f = false; s.buffer.appendSlice(__global_allocator, x) catch {}; } s.buffer.append(__global_allocator, '\\n') catch {}; } pub fn writerows(s: *@This(), rs: anytype) void { for (rs) |r| s.writerow(r); } pub fn getvalue(s: *@This()) []const u8 { return s.buffer.items; } }{ .buffer = .{} }");
 
 pub fn genDictReader(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
