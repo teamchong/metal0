@@ -123,3 +123,19 @@ pub const PythonBuiltinNames = std.StaticStringMap(void).initComptime(.{
     .{ "math", {} }, .{ "os", {} }, .{ "sys", {} }, .{ "re", {} }, .{ "json", {} },
     .{ "time", {} }, .{ "datetime", {} }, .{ "random", {} },
 });
+
+/// String methods that return strings (for type inference)
+pub const StringMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "upper", {} }, .{ "lower", {} }, .{ "strip", {} }, .{ "lstrip", {} }, .{ "rstrip", {} },
+    .{ "split", {} }, .{ "replace", {} }, .{ "join", {} }, .{ "capitalize", {} }, .{ "title", {} },
+    .{ "swapcase", {} }, .{ "center", {} }, .{ "ljust", {} }, .{ "rjust", {} },
+    .{ "startswith", {} }, .{ "endswith", {} }, .{ "find", {} }, .{ "index", {} },
+    .{ "decode", {} }, .{ "encode", {} }, .{ "format", {} }, .{ "zfill", {} },
+});
+
+/// String methods that allocate memory (excludes strip/lstrip/rstrip which use std.mem.trim)
+pub const AllocatingStringMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "upper", {} }, .{ "lower", {} }, .{ "replace", {} }, .{ "capitalize", {} },
+    .{ "title", {} }, .{ "swapcase", {} }, .{ "center", {} }, .{ "ljust", {} },
+    .{ "rjust", {} }, .{ "join", {} }, .{ "split", {} }, .{ "format", {} }, .{ "zfill", {} },
+});
