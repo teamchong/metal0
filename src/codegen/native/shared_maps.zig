@@ -50,6 +50,7 @@ pub const PythonBuiltinTypes = std.StaticStringMap(void).initComptime(.{
     .{ "bool", {} }, .{ "int", {} }, .{ "float", {} },
     .{ "str", {} }, .{ "list", {} }, .{ "dict", {} },
     .{ "set", {} }, .{ "tuple", {} }, .{ "bytes", {} },
+    .{ "type", {} }, .{ "complex", {} },
 });
 
 /// Collection methods that mutate in-place (list/dict/set mutations)

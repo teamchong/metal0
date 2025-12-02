@@ -2,11 +2,8 @@
 const std = @import("std");
 const ast = @import("ast");
 const hashmap_helper = @import("hashmap_helper");
-
-const TypeParamDefaults = std.StaticStringMap(void).initComptime(.{
-    .{ "float", {} }, .{ "int", {} }, .{ "str", {} }, .{ "bool", {} }, .{ "complex", {} },
-    .{ "list", {} }, .{ "dict", {} }, .{ "set", {} }, .{ "tuple", {} }, .{ "bytes", {} }, .{ "type", {} },
-});
+const shared = @import("../../../shared_maps.zig");
+const TypeParamDefaults = shared.PythonBuiltinTypes;
 
 const PyNameToZig = std.StaticStringMap([]const u8).initComptime(.{
     .{ "float", "f64" }, .{ "int", "i64" }, .{ "str", "[]const u8" }, .{ "bool", "bool" },
