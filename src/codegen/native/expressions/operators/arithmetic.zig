@@ -616,6 +616,30 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     }
 
     // Regular numeric operations
+    // Special handling for floor division (//): use @divFloor for Python semantics
+    if (binop.op == .FloorDiv) {
+        const left_type = try self.inferExprScoped(binop.left.*);
+        const right_type = try self.inferExprScoped(binop.right.*);
+        try self.emit("@divFloor(");
+        if (left_type == .bool) {
+            try self.emit("@as(i64, @intFromBool(");
+            try genExpr(self, binop.left.*);
+            try self.emit("))");
+        } else {
+            try genExpr(self, binop.left.*);
+        }
+        try self.emit(", ");
+        if (right_type == .bool) {
+            try self.emit("@as(i64, @intFromBool(");
+            try genExpr(self, binop.right.*);
+            try self.emit("))");
+        } else {
+            try genExpr(self, binop.right.*);
+        }
+        try self.emit(")");
+        return;
+    }
+
     // Special handling for modulo / string formatting
     if (binop.op == .Mod) {
         // Check if this is Python string formatting: "%d" % value

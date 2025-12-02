@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
+const hashmap_helper = @import("hashmap_helper");
 
 /// Analyze nested classes for captured outer variables
 /// Populates func_local_vars with variables defined in function scope
@@ -403,7 +404,7 @@ pub fn findForwardReferencedCaptures(
     stmts: []ast.Node,
 ) CodegenError!std.ArrayList([]const u8) {
     var forward_refs = std.ArrayList([]const u8){};
-    var declared_vars = std.StringHashMap(void).init(self.allocator);
+    var declared_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer declared_vars.deinit();
 
     // Track which variables are captured and which are declared, in order
