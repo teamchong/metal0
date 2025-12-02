@@ -3,50 +3,6 @@ const std = @import("std");
 const hashmap_helper = @import("hashmap_helper");
 const ast = @import("ast");
 
-/// unittest assertion methods that dispatch to runtime (self isn't used in generated code)
-const UnittestMethods = std.StaticStringMap(void).initComptime(.{
-    .{ "assertEqual", {} },
-    .{ "assertTrue", {} },
-    .{ "assertFalse", {} },
-    .{ "assertIsNone", {} },
-    .{ "assertGreater", {} },
-    .{ "assertLess", {} },
-    .{ "assertGreaterEqual", {} },
-    .{ "assertLessEqual", {} },
-    .{ "assertNotEqual", {} },
-    .{ "assertIs", {} },
-    .{ "assertIsNot", {} },
-    .{ "assertIsNotNone", {} },
-    .{ "assertIn", {} },
-    .{ "assertNotIn", {} },
-    .{ "assertAlmostEqual", {} },
-    .{ "assertNotAlmostEqual", {} },
-    .{ "assertCountEqual", {} },
-    .{ "assertRaises", {} },
-    .{ "assertRaisesRegex", {} },
-    .{ "assertWarns", {} },
-    .{ "assertWarnsRegex", {} },
-    .{ "assertLogs", {} },
-    .{ "assertNoLogs", {} },
-    .{ "assertRegex", {} },
-    .{ "assertNotRegex", {} },
-    .{ "assertIsInstance", {} },
-    .{ "assertNotIsInstance", {} },
-    .{ "assertIsSubclass", {} },
-    .{ "assertMultiLineEqual", {} },
-    .{ "assertSequenceEqual", {} },
-    .{ "assertListEqual", {} },
-    .{ "assertTupleEqual", {} },
-    .{ "assertSetEqual", {} },
-    .{ "assertDictEqual", {} },
-    .{ "assertHasAttr", {} },
-    .{ "assertNotHasAttr", {} },
-    .{ "addCleanup", {} },
-    .{ "subTest", {} },
-    .{ "fail", {} },
-    .{ "skipTest", {} },
-});
-
 /// Find all variables used in an expression
 fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), allocator: std.mem.Allocator) !void {
     switch (node) {
