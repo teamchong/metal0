@@ -54,10 +54,8 @@ fn genMode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("stats_mode_blk: { const _data = &"); try self.genExpr(args[0]);
     try self.emit("; if (_data.len == 0) break :stats_mode_blk @as(@TypeOf(_data[0]), undefined); break :stats_mode_blk _data[0]; }");
 }
-fn genMultimode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("&[_]i64{}"); return; }
-    try self.emit("&[_]@TypeOf("); try self.genExpr(args[0]); try self.emit("[0]){}");
-}
+const genMultimode = h.wrap("&[_]@TypeOf(", "[0]){}", "&[_]i64{}");
+
 fn genPstdev(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try emitVar(self, args, "stats_pstdev_blk", "1", "", true); }
 fn genPvariance(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try emitVar(self, args, "stats_pvar_blk", "1", "", false); }
 fn genStdev(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try emitVar(self, args, "stats_stdev_blk", "2", " - 1", true); }
