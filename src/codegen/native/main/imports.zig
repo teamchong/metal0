@@ -6,6 +6,7 @@ const NativeCodegen = core.NativeCodegen;
 const statements = @import("../statements.zig");
 const import_resolver = @import("../../../import_resolver.zig");
 const fnv_hash = @import("fnv_hash");
+const build_dirs = @import("../../../build_dirs.zig");
 
 const hashmap_helper = @import("hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
@@ -396,7 +397,7 @@ pub fn collectImports(
                 try imports.append(self.allocator, python_module);
             } else {
                 // Check if module was already compiled by import_scanner (e.g., stdlib modules)
-                const compiled_path = try std.fmt.allocPrint(self.allocator, ".build/{s}.zig", .{python_module});
+                const compiled_path = try std.fmt.allocPrint(self.allocator, build_dirs.CACHE ++ "/{s}.zig", .{python_module});
                 defer self.allocator.free(compiled_path);
                 const already_compiled = blk: {
                     std.fs.cwd().access(compiled_path, .{}) catch break :blk false;

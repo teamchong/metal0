@@ -1,10 +1,13 @@
 const std = @import("std");
 const compiler_utils = @import("compiler_utils.zig");
+const build_dirs = @import("build_dirs.zig");
 
-/// Get build directory (reuse .build for all processes)
+/// Get build directory - uses new .metal0/cache structure
 fn getBuildDir(allocator: std.mem.Allocator) ![]const u8 {
     _ = allocator;
-    return ".build";
+    // Initialize directory structure
+    try build_dirs.init();
+    return build_dirs.getBuildDir();
 }
 
 /// Compile Zig source code to native binary
@@ -87,16 +90,16 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     // Copy utils directory to build dir (for hashmap_helper, wyhash)
     try compiler_utils.copySrcUtilsDir(aa, build_dir);
 
-    // Copy any compiled modules from .build/ to per-process build dir
-    // (Skip this if build_dir is .build itself to avoid copying files to themselves)
-    if (!std.mem.eql(u8, build_dir, ".build")) {
-        if (std.fs.cwd().openDir(".build", .{ .iterate = true })) |build_iter_dir| {
+    // Copy any compiled modules from cache to per-process build dir
+    // (Skip this if build_dir is cache itself to avoid copying files to themselves)
+    if (!std.mem.eql(u8, build_dir, build_dirs.CACHE)) {
+        if (std.fs.cwd().openDir(build_dirs.CACHE, .{ .iterate = true })) |build_iter_dir| {
             var mut_dir = build_iter_dir;
             defer mut_dir.close();
             var walker = mut_dir.iterate();
             while (try walker.next()) |entry| {
                 if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
-                    const src_path = try std.fmt.allocPrint(aa, ".build/{s}", .{entry.name});
+                    const src_path = try std.fmt.allocPrint(aa, build_dirs.CACHE ++ "/{s}", .{entry.name});
                     const dst_path = try std.fmt.allocPrint(aa, "{s}/{s}", .{ build_dir, entry.name });
 
                     const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
@@ -127,10 +130,10 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
 
     // DEBUG: Verify runtime files before zig compilation
     {
-        const check = try std.fs.cwd().openFile(".build/runtime.zig", .{});
+        const check = try std.fs.cwd().openFile(build_dirs.CACHE ++ "/runtime.zig", .{});
         defer check.close();
         const stat = try check.stat();
-        std.debug.print("RIGHT BEFORE ZIG: .build/runtime.zig is {d} bytes\n", .{stat.size});
+        std.debug.print("RIGHT BEFORE ZIG: " ++ build_dirs.CACHE ++ "/runtime.zig is {d} bytes\n", .{stat.size});
     }
 
     // Shell out to zig build-exe
@@ -250,14 +253,14 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     // Copy utils directory to build dir (for hashmap_helper, wyhash)
     try compiler_utils.copySrcUtilsDir(allocator, build_dir);
 
-    // Copy any compiled modules from .build/ to per-process build dir
-    if (std.fs.cwd().openDir(".build", .{ .iterate = true })) |build_iter_dir| {
+    // Copy any compiled modules from cache to per-process build dir
+    if (std.fs.cwd().openDir(build_dirs.CACHE, .{ .iterate = true })) |build_iter_dir| {
         var mut_dir = build_iter_dir;
         defer mut_dir.close();
         var walker = mut_dir.iterate();
         while (try walker.next()) |entry| {
             if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
-                const src_path = try std.fmt.allocPrint(allocator, ".build/{s}", .{entry.name});
+                const src_path = try std.fmt.allocPrint(allocator, build_dirs.CACHE ++ "/{s}", .{entry.name});
                 defer allocator.free(src_path);
                 const dst_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ build_dir, entry.name });
                 defer allocator.free(dst_path);
