@@ -280,3 +280,19 @@ pub fn checkCond(comptime cond: []const u8) H {
         if (args.len > 0) { try self.emit("blk: { const x = "); try self.genExpr(args[0]); try self.emit("; break :blk " ++ cond ++ "; }"); } else try self.emit("false");
     } }.f;
 }
+
+/// Debug print: std.debug.print(prefix ++ fmt, .{arg}) or default
+pub fn debugPrint(comptime prefix: []const u8, comptime fmt: []const u8, comptime default: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(default); return; }
+        try self.emit("std.debug.print(\"" ++ prefix ++ fmt ++ "\\n\", .{"); try self.genExpr(args[0]); try self.emit("})");
+    } }.f;
+}
+
+/// Buffer print: bufPrint to get string representation
+pub fn bufPrint(comptime fmt: []const u8, comptime default: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(default); return; }
+        try self.emit("blk: { var buf: [4096]u8 = undefined; break :blk std.fmt.bufPrint(&buf, \"" ++ fmt ++ "\", .{"); try self.genExpr(args[0]); try self.emit("}) catch \"\"; }");
+    } }.f;
+}
