@@ -144,7 +144,7 @@ pub fn genElementTree(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     try self.emitIndent();
     try self.emit("pub fn getroot(__self: *@This()) ?*Element { return __self.root; }\n");
     try self.emitIndent();
-    try self.emit("pub fn write(self: *@This(), file: []const u8) void { _ = file; }\n");
+    try self.emit("pub fn write(__self: *@This(), file: []const u8) void { _ = file; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");
@@ -207,7 +207,7 @@ pub fn genElementStruct(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emitIndent();
     try self.emit("children: std.ArrayList(*Element) = .{},\n");
     try self.emitIndent();
-    try self.emit("pub fn get(self: *@This(), key: []const u8, default: ?[]const u8) ?[]const u8 {\n");
+    try self.emit("pub fn get(__self: *@This(), key: []const u8, default: ?[]const u8) ?[]const u8 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("return __self.attrib.get(key) orelse default;\n");
@@ -215,7 +215,7 @@ pub fn genElementStruct(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn set(self: *@This(), key: []const u8, value: []const u8) void {\n");
+    try self.emit("pub fn set(__self: *@This(), key: []const u8, value: []const u8) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("__self.attrib.put(key, value) catch {};\n");
@@ -223,7 +223,7 @@ pub fn genElementStruct(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn find(self: *@This(), path: []const u8) ?*Element {\n");
+    try self.emit("pub fn find(__self: *@This(), path: []const u8) ?*Element {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("for (__self.children.items) |child| if (std.mem.eql(u8, child.tag, path)) return child;\n");
@@ -233,7 +233,7 @@ pub fn genElementStruct(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn findall(self: *@This(), path: []const u8) []*Element {\n");
+    try self.emit("pub fn findall(__self: *@This(), path: []const u8) []*Element {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("var result: std.ArrayList(*Element) = .{};\n");
@@ -247,9 +247,9 @@ pub fn genElementStruct(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     try self.emitIndent();
     try self.emit("pub fn iter(__self: *@This()) []*Element { return __self.children.items; }\n");
     try self.emitIndent();
-    try self.emit("pub fn append(self: *@This(), elem: *Element) void { __self.children.append(__global_allocator, elem) catch {}; }\n");
+    try self.emit("pub fn append(__self: *@This(), elem: *Element) void { __self.children.append(__global_allocator, elem) catch {}; }\n");
     try self.emitIndent();
-    try self.emit("pub fn remove(self: *@This(), elem: *Element) void { _ = elem; }\n");
+    try self.emit("pub fn remove(__self: *@This(), elem: *Element) void { _ = elem; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

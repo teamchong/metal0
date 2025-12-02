@@ -29,11 +29,11 @@ pub fn genSequenceMatcher(self: *NativeCodegen, args: []ast.Node) CodegenError!v
     try self.emitIndent();
     try self.emit("b: []const u8 = \"\",\n");
     try self.emitIndent();
-    try self.emit("pub fn set_seqs(self: *@This(), a: []const u8, b: []const u8) void { __self.a = a; __self.b = b; }\n");
+    try self.emit("pub fn set_seqs(__self: *@This(), a: []const u8, b: []const u8) void { __self.a = a; __self.b = b; }\n");
     try self.emitIndent();
-    try self.emit("pub fn set_seq1(self: *@This(), a: []const u8) void { __self.a = a; }\n");
+    try self.emit("pub fn set_seq1(__self: *@This(), a: []const u8) void { __self.a = a; }\n");
     try self.emitIndent();
-    try self.emit("pub fn set_seq2(self: *@This(), b: []const u8) void { __self.b = b; }\n");
+    try self.emit("pub fn set_seq2(__self: *@This(), b: []const u8) void { __self.b = b; }\n");
     try self.emitIndent();
     try self.emit("pub fn ratio(__self: *@This()) f64 {\n");
     self.indent();
@@ -59,7 +59,7 @@ pub fn genSequenceMatcher(self: *NativeCodegen, args: []ast.Node) CodegenError!v
     try self.emitIndent();
     try self.emit("pub fn get_opcodes(__self: *@This()) []struct { tag: []const u8, i1: usize, i2: usize, j1: usize, j2: usize } { return &.{}; }\n");
     try self.emitIndent();
-    try self.emit("pub fn get_grouped_opcodes(self: *@This(), n: usize) [][]struct { tag: []const u8, i1: usize, i2: usize, j1: usize, j2: usize } { _ = n; return &.{}; }\n");
+    try self.emit("pub fn get_grouped_opcodes(__self: *@This(), n: usize) [][]struct { tag: []const u8, i1: usize, i2: usize, j1: usize, j2: usize } { _ = n; return &.{}; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");

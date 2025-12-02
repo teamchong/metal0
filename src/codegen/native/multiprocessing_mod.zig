@@ -49,7 +49,7 @@ pub fn genProcess(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("pub fn run(__self: *@This()) void { }\n");
     try self.emitIndent();
-    try self.emit("pub fn join(self: *@This(), timeout: ?f64) void { _ = timeout; __self._alive = false; }\n");
+    try self.emit("pub fn join(__self: *@This(), timeout: ?f64) void { _ = timeout; __self._alive = false; }\n");
     try self.emitIndent();
     try self.emit("pub fn is_alive(__self: *@This()) bool { return __self._alive; }\n");
     try self.emitIndent();
@@ -71,7 +71,7 @@ pub fn genPool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_processes: usize = 4,\n");
     try self.emitIndent();
-    try self.emit("pub fn apply(self: *@This(), func: anytype, args: anytype) @TypeOf(func(args)) {\n");
+    try self.emit("pub fn apply(__self: *@This(), func: anytype, args: anytype) @TypeOf(func(args)) {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = self;\n");
@@ -81,7 +81,7 @@ pub fn genPool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn apply_async(self: *@This(), func: anytype, args: anytype) AsyncResult {\n");
+    try self.emit("pub fn apply_async(__self: *@This(), func: anytype, args: anytype) AsyncResult {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = self; _ = func; _ = args;\n");
@@ -91,7 +91,7 @@ pub fn genPool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn map(self: *@This(), func: anytype, iterable: anytype) []@TypeOf(func(iterable[0])) {\n");
+    try self.emit("pub fn map(__self: *@This(), func: anytype, iterable: anytype) []@TypeOf(func(iterable[0])) {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = self;\n");
@@ -105,7 +105,7 @@ pub fn genPool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn map_async(self: *@This(), func: anytype, iterable: anytype) AsyncResult {\n");
+    try self.emit("pub fn map_async(__self: *@This(), func: anytype, iterable: anytype) AsyncResult {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = self; _ = func; _ = iterable;\n");
@@ -115,7 +115,7 @@ pub fn genPool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn imap(self: *@This(), func: anytype, iterable: anytype) []@TypeOf(func(iterable[0])) {\n");
+    try self.emit("pub fn imap(__self: *@This(), func: anytype, iterable: anytype) []@TypeOf(func(iterable[0])) {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("return __self.map(func, iterable);\n");
@@ -123,7 +123,7 @@ pub fn genPool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn imap_unordered(self: *@This(), func: anytype, iterable: anytype) []@TypeOf(func(iterable[0])) {\n");
+    try self.emit("pub fn imap_unordered(__self: *@This(), func: anytype, iterable: anytype) []@TypeOf(func(iterable[0])) {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("return __self.map(func, iterable);\n");
@@ -131,7 +131,7 @@ pub fn genPool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn starmap(self: *@This(), func: anytype, iterable: anytype) []anyopaque {\n");
+    try self.emit("pub fn starmap(__self: *@This(), func: anytype, iterable: anytype) []anyopaque {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = self; _ = func; _ = iterable;\n");
@@ -173,7 +173,7 @@ pub fn genQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("items: std.ArrayList(anyopaque) = .{},\n");
     try self.emitIndent();
-    try self.emit("pub fn put(self: *@This(), item: anytype, block: bool, timeout: ?f64) void {\n");
+    try self.emit("pub fn put(__self: *@This(), item: anytype, block: bool, timeout: ?f64) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = block; _ = timeout;\n");
@@ -183,9 +183,9 @@ pub fn genQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn put_nowait(self: *@This(), item: anytype) void { __self.put(item, false, null); }\n");
+    try self.emit("pub fn put_nowait(__self: *@This(), item: anytype) void { __self.put(item, false, null); }\n");
     try self.emitIndent();
-    try self.emit("pub fn get(self: *@This(), block: bool, timeout: ?f64) ?*anyopaque {\n");
+    try self.emit("pub fn get(__self: *@This(), block: bool, timeout: ?f64) ?*anyopaque {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = block; _ = timeout;\n");
@@ -295,7 +295,7 @@ pub fn genManager(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("pub fn dict(self: @This()) hashmap_helper.StringHashMap(anyopaque) { return hashmap_helper.StringHashMap(anyopaque).init(__global_allocator); }\n");
     try self.emitIndent();
-    try self.emit("pub fn Namespace(self: @This()) @This() { return self; }\n");
+    try self.emit("pub fn Namespace(self: @This()) @This() { return __self; }\n");
     try self.emitIndent();
     try self.emit("pub fn Value(self: @This(), typecode: []const u8, value: anytype) anyopaque { _ = typecode; _ = value; return undefined; }\n");
     try self.emitIndent();
@@ -329,7 +329,7 @@ pub fn genLock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_locked: bool = false,\n");
     try self.emitIndent();
-    try self.emit("pub fn acquire(self: *@This(), block: bool, timeout: ?f64) bool {\n");
+    try self.emit("pub fn acquire(__self: *@This(), block: bool, timeout: ?f64) bool {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = block; _ = timeout;\n");
@@ -357,7 +357,7 @@ pub fn genRLock(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_count: usize = 0,\n");
     try self.emitIndent();
-    try self.emit("pub fn acquire(self: *@This(), block: bool, timeout: ?f64) bool {\n");
+    try self.emit("pub fn acquire(__self: *@This(), block: bool, timeout: ?f64) bool {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = block; _ = timeout;\n");
@@ -383,7 +383,7 @@ pub fn genSemaphore(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_value: usize = 1,\n");
     try self.emitIndent();
-    try self.emit("pub fn acquire(self: *@This(), block: bool, timeout: ?f64) bool {\n");
+    try self.emit("pub fn acquire(__self: *@This(), block: bool, timeout: ?f64) bool {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = block; _ = timeout;\n");
@@ -397,7 +397,7 @@ pub fn genSemaphore(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn release(self: *@This(), n: usize) void { __self._value += n; }\n");
+    try self.emit("pub fn release(__self: *@This(), n: usize) void { __self._value += n; }\n");
     try self.emitIndent();
     try self.emit("pub fn get_value(__self: *@This()) usize { return __self._value; }\n");
     self.dedent();
@@ -419,7 +419,7 @@ pub fn genEvent(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("pub fn clear(__self: *@This()) void { __self._flag = false; }\n");
     try self.emitIndent();
-    try self.emit("pub fn wait(self: *@This(), timeout: ?f64) bool { _ = timeout; return __self._flag; }\n");
+    try self.emit("pub fn wait(__self: *@This(), timeout: ?f64) bool { _ = timeout; return __self._flag; }\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}{}");
@@ -435,11 +435,11 @@ pub fn genCondition(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("pub fn release(__self: *@This()) void { }\n");
     try self.emitIndent();
-    try self.emit("pub fn wait(self: *@This(), timeout: ?f64) bool { _ = timeout; return true; }\n");
+    try self.emit("pub fn wait(__self: *@This(), timeout: ?f64) bool { _ = timeout; return true; }\n");
     try self.emitIndent();
-    try self.emit("pub fn wait_for(self: *@This(), predicate: anytype, timeout: ?f64) bool { _ = predicate; _ = timeout; return true; }\n");
+    try self.emit("pub fn wait_for(__self: *@This(), predicate: anytype, timeout: ?f64) bool { _ = predicate; _ = timeout; return true; }\n");
     try self.emitIndent();
-    try self.emit("pub fn notify(self: *@This(), n: usize) void { _ = n; }\n");
+    try self.emit("pub fn notify(__self: *@This(), n: usize) void { _ = n; }\n");
     try self.emitIndent();
     try self.emit("pub fn notify_all(__self: *@This()) void { }\n");
     self.dedent();
@@ -459,7 +459,7 @@ pub fn genBarrier(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("broken: bool = false,\n");
     try self.emitIndent();
-    try self.emit("pub fn wait(self: *@This(), timeout: ?f64) usize {\n");
+    try self.emit("pub fn wait(__self: *@This(), timeout: ?f64) usize {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = timeout;\n");

@@ -22,7 +22,7 @@ pub fn genTopologicalSorter(self: *NativeCodegen, args: []ast.Node) CodegenError
     try self.emitIndent();
     try self.emit("prepared: bool = false,\n");
     try self.emitIndent();
-    try self.emit("pub fn add(self: *@This(), node: []const u8, predecessors: anytype) void {\n");
+    try self.emit("pub fn add(__self: *@This(), node: []const u8, predecessors: anytype) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("__self.nodes.append(__global_allocator, node) catch {};\n");
@@ -46,7 +46,7 @@ pub fn genTopologicalSorter(self: *NativeCodegen, args: []ast.Node) CodegenError
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn done(self: *@This(), nodes: anytype) void { _ = nodes; }\n");
+    try self.emit("pub fn done(__self: *@This(), nodes: anytype) void { _ = nodes; }\n");
     try self.emitIndent();
     try self.emit("pub fn static_order(__self: *@This()) [][]const u8 {\n");
     self.indent();

@@ -42,7 +42,7 @@ pub fn genMmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("pub fn closed(__self: *@This()) bool { return __self._closed; }\n");
     try self.emitIndent();
-    try self.emit("pub fn find(self: *@This(), sub: []const u8, start: ?usize, end: ?usize) isize {\n");
+    try self.emit("pub fn find(__self: *@This(), sub: []const u8, start: ?usize, end: ?usize) isize {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const s = start orelse 0;\n");
@@ -56,7 +56,7 @@ pub fn genMmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn rfind(self: *@This(), sub: []const u8, start: ?usize, end: ?usize) isize {\n");
+    try self.emit("pub fn rfind(__self: *@This(), sub: []const u8, start: ?usize, end: ?usize) isize {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const s = start orelse 0;\n");
@@ -70,9 +70,9 @@ pub fn genMmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn flush(self: *@This(), offset: ?usize, size: ?usize) void { _ = offset; _ = size; }\n");
+    try self.emit("pub fn flush(__self: *@This(), offset: ?usize, size: ?usize) void { _ = offset; _ = size; }\n");
     try self.emitIndent();
-    try self.emit("pub fn move(self: *@This(), dest: usize, src: usize, count: usize) void {\n");
+    try self.emit("pub fn move(__self: *@This(), dest: usize, src: usize, count: usize) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("std.mem.copyBackwards(u8, __self._data[dest..dest+count], __self._data[src..src+count]);\n");
@@ -80,7 +80,7 @@ pub fn genMmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn read(self: *@This(), n: ?usize) []const u8 {\n");
+    try self.emit("pub fn read(__self: *@This(), n: ?usize) []const u8 {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const count = n orelse (__self._data.len - __self._pos);\n");
@@ -124,7 +124,7 @@ pub fn genMmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn resize(self: *@This(), newsize: usize) void {\n");
+    try self.emit("pub fn resize(__self: *@This(), newsize: usize) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("_ = self; _ = newsize;\n");
@@ -132,7 +132,7 @@ pub fn genMmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn seek(self: *@This(), pos: usize, whence: ?i32) void {\n");
+    try self.emit("pub fn seek(__self: *@This(), pos: usize, whence: ?i32) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const w = whence orelse 0;\n");
@@ -150,7 +150,7 @@ pub fn genMmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("pub fn tell(__self: *@This()) usize { return __self._pos; }\n");
     try self.emitIndent();
-    try self.emit("pub fn write(self: *@This(), data: []const u8) usize {\n");
+    try self.emit("pub fn write(__self: *@This(), data: []const u8) usize {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const count = @min(data.len, __self._data.len - __self._pos);\n");
@@ -164,7 +164,7 @@ pub fn genMmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("pub fn write_byte(self: *@This(), byte: u8) void {\n");
+    try self.emit("pub fn write_byte(__self: *@This(), byte: u8) void {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("if (__self._pos < __self._data.len) {\n");

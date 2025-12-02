@@ -189,7 +189,7 @@ pub fn genLogger(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate logging.Handler class
 pub fn genHandler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("struct { pub fn setFormatter(self: *@This(), f: anytype) void { _ = f; } pub fn setLevel(self: *@This(), l: i64) void { _ = l; } }{}");
+    try self.emit("struct { pub fn setFormatter(__self: *@This(), f: anytype) void { _ = f; } pub fn setLevel(__self: *@This(), l: i64) void { _ = l; } }{}");
 }
 
 /// Generate logging.StreamHandler class
