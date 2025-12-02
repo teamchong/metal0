@@ -5,11 +5,14 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "wrap", genWrap }, .{ "fill", genFill }, .{ "dedent", genDedent },
-    .{ "indent", genIndent }, .{ "shorten", genShorten }, .{ "TextWrapper", genTextWrapper },
+    .{ "indent", genIndent }, .{ "shorten", genShorten },
+    .{ "TextWrapper", genConst("struct { width: usize = 70, initial_indent: []const u8 = \"\", subsequent_indent: []const u8 = \"\", pub fn wrap(__self: *@This(), text: []const u8) [][]const u8 { _ = __self; _ = text; return &.{}; } pub fn fill(__self: *@This(), text: []const u8) []const u8 { _ = __self; return text; } }{}") },
 });
 
 fn genWidth(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -46,8 +49,4 @@ fn genShorten(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
     try self.emit("blk: { const _text = "); try self.genExpr(args[0]); try self.emit("; const _width: usize = @intCast("); try self.genExpr(args[1]);
     try self.emit("); if (_text.len <= _width) break :blk _text; if (_width <= 3) break :blk \"...\"; var _result = __global_allocator.alloc(u8, _width) catch break :blk _text; @memcpy(_result[0.._width-3], _text[0.._width-3]); @memcpy(_result[_width-3..], \"...\"); break :blk _result; }");
-}
-
-fn genTextWrapper(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try genConst(self, args, "struct { width: usize = 70, initial_indent: []const u8 = \"\", subsequent_indent: []const u8 = \"\", pub fn wrap(__self: *@This(), text: []const u8) [][]const u8 { _ = __self; _ = text; return &.{}; } pub fn fill(__self: *@This(), text: []const u8) []const u8 { _ = __self; return text; } }{}");
 }
