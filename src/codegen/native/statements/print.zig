@@ -5,6 +5,11 @@ const main = @import("../main.zig");
 const NativeCodegen = main.NativeCodegen;
 const CodegenError = main.CodegenError;
 
+const AllocatingMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "upper", {} }, .{ "lower", {} }, .{ "strip", {} }, .{ "lstrip", {} }, .{ "rstrip", {} },
+    .{ "replace", {} }, .{ "capitalize", {} }, .{ "title", {} }, .{ "swapcase", {} },
+});
+
 /// Flatten nested string concat: (s1 + " ") + s2 => [s1, " ", s2]
 fn flattenConcat(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayList(ast.Node)) CodegenError!void {
     if (node == .binop and node.binop.op == .Add) {
@@ -34,11 +39,7 @@ fn isAllocatingMethodCall(self: *NativeCodegen, node: ast.Node) bool {
     const attr = node.call.func.attribute;
     const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch return false;
     if (obj_type != .string) return false;
-    const allocating_methods = [_][]const u8{ "upper", "lower", "strip", "lstrip", "rstrip", "replace", "capitalize", "title", "swapcase" };
-    for (allocating_methods) |method| {
-        if (std.mem.eql(u8, attr.attr, method)) return true;
-    }
-    return false;
+    return AllocatingMethods.has(attr.attr);
 }
 
 /// Generate print() function call

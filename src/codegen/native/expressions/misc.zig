@@ -25,6 +25,18 @@ const PathProperties = std.StaticStringMap(void).initComptime(.{
     .{ "parent", {} }, .{ "stem", {} }, .{ "suffix", {} }, .{ "name", {} },
 });
 
+const UnittestAssertions = std.StaticStringMap(void).initComptime(.{
+    .{ "assertEqual", {} },       .{ "assertNotEqual", {} },    .{ "assertTrue", {} },        .{ "assertFalse", {} },
+    .{ "assertIs", {} },          .{ "assertIsNot", {} },       .{ "assertIsNone", {} },      .{ "assertIsNotNone", {} },
+    .{ "assertIn", {} },          .{ "assertNotIn", {} },       .{ "assertIsInstance", {} },  .{ "assertNotIsInstance", {} },
+    .{ "assertRaises", {} },      .{ "assertRaisesRegex", {} }, .{ "assertWarns", {} },       .{ "assertWarnsRegex", {} },
+    .{ "assertLogs", {} },        .{ "assertNoLogs", {} },      .{ "assertAlmostEqual", {} }, .{ "assertNotAlmostEqual", {} },
+    .{ "assertGreater", {} },     .{ "assertGreaterEqual", {} }, .{ "assertLess", {} },       .{ "assertLessEqual", {} },
+    .{ "assertRegex", {} },       .{ "assertNotRegex", {} },    .{ "assertCountEqual", {} },  .{ "assertMultiLineEqual", {} },
+    .{ "assertSequenceEqual", {} }, .{ "assertListEqual", {} }, .{ "assertTupleEqual", {} },  .{ "assertSetEqual", {} },
+    .{ "assertDictEqual", {} },   .{ "fail", {} },              .{ "failIf", {} },            .{ "failUnless", {} },
+});
+
 /// Generate tuple literal as Zig anonymous struct
 /// Always uses anonymous tuple syntax (.{ elem1, elem2 }) for type compatibility
 /// This matches the type inference which generates struct types for tuples
@@ -264,23 +276,10 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
 
     // Check if this is a unittest assertion method reference (e.g., eq = self.assertEqual)
     if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
-        const unittest_methods = [_][]const u8{
-            "assertEqual",       "assertNotEqual",    "assertTrue",        "assertFalse",
-            "assertIs",          "assertIsNot",       "assertIsNone",      "assertIsNotNone",
-            "assertIn",          "assertNotIn",       "assertIsInstance",  "assertNotIsInstance",
-            "assertRaises",      "assertRaisesRegex", "assertWarns",       "assertWarnsRegex",
-            "assertLogs",        "assertNoLogs",      "assertAlmostEqual", "assertNotAlmostEqual",
-            "assertGreater",     "assertGreaterEqual", "assertLess",       "assertLessEqual",
-            "assertRegex",       "assertNotRegex",    "assertCountEqual",  "assertMultiLineEqual",
-            "assertSequenceEqual", "assertListEqual", "assertTupleEqual",  "assertSetEqual",
-            "assertDictEqual",   "fail",              "failIf",            "failUnless",
-        };
-        for (unittest_methods) |method| {
-            if (std.mem.eql(u8, attr.attr, method)) {
-                try self.emit("runtime.unittest.");
-                try self.emit(method);
-                return;
-            }
+        if (UnittestAssertions.has(attr.attr)) {
+            try self.emit("runtime.unittest.");
+            try self.emit(attr.attr);
+            return;
         }
 
         // Check if this is a class-level type attribute reference (e.g., int_class = self.int_class)
@@ -454,22 +453,7 @@ fn isDynamicAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
     }
 
     // Check for unittest assertion methods (self.assertEqual, etc.)
-    const unittest_methods = [_][]const u8{
-        "assertEqual",       "assertNotEqual",    "assertTrue",        "assertFalse",
-        "assertIs",          "assertIsNot",       "assertIsNone",      "assertIsNotNone",
-        "assertIn",          "assertNotIn",       "assertIsInstance",  "assertNotIsInstance",
-        "assertRaises",      "assertRaisesRegex", "assertWarns",       "assertWarnsRegex",
-        "assertLogs",        "assertNoLogs",      "assertAlmostEqual", "assertNotAlmostEqual",
-        "assertGreater",     "assertGreaterEqual", "assertLess",       "assertLessEqual",
-        "assertRegex",       "assertNotRegex",    "assertCountEqual",  "assertMultiLineEqual",
-        "assertSequenceEqual", "assertListEqual", "assertTupleEqual",  "assertSetEqual",
-        "assertDictEqual",   "fail",              "failIf",            "failUnless",
-    };
-    for (unittest_methods) |method| {
-        if (std.mem.eql(u8, attr.attr, method)) {
-            return false; // Known unittest method
-        }
-    }
+    if (UnittestAssertions.has(attr.attr)) return false;
 
     // Unknown field - dynamic attribute
     return true;
