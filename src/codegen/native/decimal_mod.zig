@@ -5,38 +5,24 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Decimal", genDecimal }, .{ "getcontext", genCtx }, .{ "setcontext", genUnit }, .{ "localcontext", genCtx },
-    .{ "BasicContext", genCtx }, .{ "ExtendedContext", genCtx }, .{ "DefaultContext", genCtx },
-    .{ "ROUND_CEILING", genRCeil }, .{ "ROUND_DOWN", genRDown }, .{ "ROUND_FLOOR", genRFloor },
-    .{ "ROUND_HALF_DOWN", genRHD }, .{ "ROUND_HALF_EVEN", genRHE }, .{ "ROUND_HALF_UP", genRHU },
-    .{ "ROUND_UP", genRUp }, .{ "ROUND_05UP", genR05 },
-    .{ "DecimalException", genExDec }, .{ "InvalidOperation", genExInv }, .{ "DivisionByZero", genExDiv },
-    .{ "Overflow", genExOv }, .{ "Underflow", genExUn }, .{ "Inexact", genExIn }, .{ "Rounded", genExRo },
-    .{ "Subnormal", genExSu }, .{ "FloatOperation", genExFl }, .{ "Clamped", genExCl },
-});
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genUnit(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "{}"); }
-fn genCtx(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}"); }
-fn genRCeil(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_CEILING\""); }
-fn genRDown(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_DOWN\""); }
-fn genRFloor(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_FLOOR\""); }
-fn genRHD(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_HALF_DOWN\""); }
-fn genRHE(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_HALF_EVEN\""); }
-fn genRHU(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_HALF_UP\""); }
-fn genRUp(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_UP\""); }
-fn genR05(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"ROUND_05UP\""); }
-fn genExDec(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"DecimalException\""); }
-fn genExInv(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"InvalidOperation\""); }
-fn genExDiv(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"DivisionByZero\""); }
-fn genExOv(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"Overflow\""); }
-fn genExUn(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"Underflow\""); }
-fn genExIn(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"Inexact\""); }
-fn genExRo(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"Rounded\""); }
-fn genExSu(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"Subnormal\""); }
-fn genExFl(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"FloatOperation\""); }
-fn genExCl(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"Clamped\""); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "Decimal", genDecimal }, .{ "setcontext", genConst("{}") },
+    .{ "getcontext", genConst("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
+    .{ "localcontext", genConst("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
+    .{ "BasicContext", genConst("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
+    .{ "ExtendedContext", genConst("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
+    .{ "DefaultContext", genConst("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
+    .{ "ROUND_CEILING", genConst("\"ROUND_CEILING\"") }, .{ "ROUND_DOWN", genConst("\"ROUND_DOWN\"") }, .{ "ROUND_FLOOR", genConst("\"ROUND_FLOOR\"") },
+    .{ "ROUND_HALF_DOWN", genConst("\"ROUND_HALF_DOWN\"") }, .{ "ROUND_HALF_EVEN", genConst("\"ROUND_HALF_EVEN\"") }, .{ "ROUND_HALF_UP", genConst("\"ROUND_HALF_UP\"") },
+    .{ "ROUND_UP", genConst("\"ROUND_UP\"") }, .{ "ROUND_05UP", genConst("\"ROUND_05UP\"") },
+    .{ "DecimalException", genConst("\"DecimalException\"") }, .{ "InvalidOperation", genConst("\"InvalidOperation\"") }, .{ "DivisionByZero", genConst("\"DivisionByZero\"") },
+    .{ "Overflow", genConst("\"Overflow\"") }, .{ "Underflow", genConst("\"Underflow\"") }, .{ "Inexact", genConst("\"Inexact\"") }, .{ "Rounded", genConst("\"Rounded\"") },
+    .{ "Subnormal", genConst("\"Subnormal\"") }, .{ "FloatOperation", genConst("\"FloatOperation\"") }, .{ "Clamped", genConst("\"Clamped\"") },
+});
 
 fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("runtime.Decimal{ .value = 0 }"); return; }

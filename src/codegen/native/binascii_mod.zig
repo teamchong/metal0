@@ -5,14 +5,16 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genEmpty(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "hexlify", genHexlify }, .{ "unhexlify", genUnhexlify }, .{ "b2a_hex", genHexlify }, .{ "a2b_hex", genUnhexlify },
     .{ "b2a_base64", genB2a_base64 }, .{ "a2b_base64", genA2b_base64 },
-    .{ "b2a_uu", genEmpty }, .{ "a2b_uu", genEmpty }, .{ "b2a_qp", genEmpty }, .{ "a2b_qp", genEmpty },
-    .{ "crc32", genCrc32 }, .{ "crc_hqx", genCrc_hqx }, .{ "Error", genError }, .{ "Incomplete", genIncomplete },
+    .{ "b2a_uu", genConst("\"\"") }, .{ "a2b_uu", genConst("\"\"") }, .{ "b2a_qp", genConst("\"\"") }, .{ "a2b_qp", genConst("\"\"") },
+    .{ "crc32", genCrc32 }, .{ "crc_hqx", genConst("@as(i32, 0)") },
+    .{ "Error", genConst("error.BinasciiError") }, .{ "Incomplete", genConst("error.Incomplete") },
 });
 
 fn genHexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -43,7 +45,3 @@ fn genCrc32(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("@as(u32, 0)"); return; }
     try self.emit("blk: { const data = "); try self.genExpr(args[0]); try self.emit("; break :blk @as(u32, std.hash.crc.Crc32.hash(data)); }");
 }
-
-fn genCrc_hqx(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
-fn genError(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.BinasciiError"); }
-fn genIncomplete(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.Incomplete"); }

@@ -5,18 +5,15 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genFTP(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 21), .timeout = @as(f64, -1.0), .source_address = @as(?[]const u8, null), .encoding = \"utf-8\" }"); }
-fn genPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 21)"); }
-fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FTPError"); }
-fn genReplyErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FTPReplyError"); }
-fn genTempErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FTPTempError"); }
-fn genPermErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FTPPermError"); }
-fn genProtoErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.FTPProtoError"); }
-fn genAllErrs(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_]type{ error.FTPError, error.FTPReplyError, error.FTPTempError, error.FTPPermError, error.FTPProtoError }"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "FTP", genFTP }, .{ "FTP_TLS", genFTP }, .{ "FTP_PORT", genPort },
-    .{ "error", genErr }, .{ "error_reply", genReplyErr }, .{ "error_temp", genTempErr },
-    .{ "error_perm", genPermErr }, .{ "error_proto", genProtoErr }, .{ "all_errors", genAllErrs },
+    .{ "FTP", genConst(".{ .host = \"\", .port = @as(i32, 21), .timeout = @as(f64, -1.0), .source_address = @as(?[]const u8, null), .encoding = \"utf-8\" }") },
+    .{ "FTP_TLS", genConst(".{ .host = \"\", .port = @as(i32, 21), .timeout = @as(f64, -1.0), .source_address = @as(?[]const u8, null), .encoding = \"utf-8\" }") },
+    .{ "FTP_PORT", genConst("@as(i32, 21)") },
+    .{ "error", genConst("error.FTPError") }, .{ "error_reply", genConst("error.FTPReplyError") }, .{ "error_temp", genConst("error.FTPTempError") },
+    .{ "error_perm", genConst("error.FTPPermError") }, .{ "error_proto", genConst("error.FTPProtoError") },
+    .{ "all_errors", genConst("&[_]type{ error.FTPError, error.FTPReplyError, error.FTPTempError, error.FTPPermError, error.FTPProtoError }") },
 });

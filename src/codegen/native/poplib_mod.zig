@@ -5,13 +5,13 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genPOP3(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 110), .timeout = @as(f64, -1.0) }"); }
-fn genPOP3_SSL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 995), .timeout = @as(f64, -1.0) }"); }
-fn genPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 110)"); }
-fn genSslPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 995)"); }
-fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.POP3ProtoError"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "POP3", genPOP3 }, .{ "POP3_SSL", genPOP3_SSL }, .{ "POP3_PORT", genPort }, .{ "POP3_SSL_PORT", genSslPort }, .{ "error_proto", genErr },
+    .{ "POP3", genConst(".{ .host = \"\", .port = @as(i32, 110), .timeout = @as(f64, -1.0) }") },
+    .{ "POP3_SSL", genConst(".{ .host = \"\", .port = @as(i32, 995), .timeout = @as(f64, -1.0) }") },
+    .{ "POP3_PORT", genConst("@as(i32, 110)") }, .{ "POP3_SSL_PORT", genConst("@as(i32, 995)") },
+    .{ "error_proto", genConst("error.POP3ProtoError") },
 });

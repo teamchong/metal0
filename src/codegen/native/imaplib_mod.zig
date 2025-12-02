@@ -5,22 +5,15 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genIMAP4(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 143), .state = \"LOGOUT\", .capabilities = &[_][]const u8{} }"); }
-fn genIMAP4_SSL(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .port = @as(i32, 993), .state = \"LOGOUT\", .capabilities = &[_][]const u8{} }"); }
-fn genIMAP4_stream(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .host = \"\", .state = \"LOGOUT\" }"); }
-fn genPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 143)"); }
-fn genSslPort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 993)"); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(?*anyopaque, null)"); }
-fn genEmptyStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"\""); }
-fn genEmptyArr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "&[_][]const u8{}"); }
-fn genErr(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.IMAP4Error"); }
-fn genAbort(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.IMAP4Abort"); }
-fn genReadonly(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "error.IMAP4Readonly"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "IMAP4", genIMAP4 }, .{ "IMAP4_SSL", genIMAP4_SSL }, .{ "IMAP4_stream", genIMAP4_stream },
-    .{ "IMAP4_PORT", genPort }, .{ "IMAP4_SSL_PORT", genSslPort }, .{ "Commands", genNull },
-    .{ "IMAP4.error", genErr }, .{ "IMAP4.abort", genAbort }, .{ "IMAP4.readonly", genReadonly },
-    .{ "Internaldate2tuple", genNull }, .{ "Int2AP", genEmptyStr }, .{ "ParseFlags", genEmptyArr }, .{ "Time2Internaldate", genEmptyStr },
+    .{ "IMAP4", genConst(".{ .host = \"\", .port = @as(i32, 143), .state = \"LOGOUT\", .capabilities = &[_][]const u8{} }") },
+    .{ "IMAP4_SSL", genConst(".{ .host = \"\", .port = @as(i32, 993), .state = \"LOGOUT\", .capabilities = &[_][]const u8{} }") },
+    .{ "IMAP4_stream", genConst(".{ .host = \"\", .state = \"LOGOUT\" }") },
+    .{ "IMAP4_PORT", genConst("@as(i32, 143)") }, .{ "IMAP4_SSL_PORT", genConst("@as(i32, 993)") }, .{ "Commands", genConst("@as(?*anyopaque, null)") },
+    .{ "IMAP4.error", genConst("error.IMAP4Error") }, .{ "IMAP4.abort", genConst("error.IMAP4Abort") }, .{ "IMAP4.readonly", genConst("error.IMAP4Readonly") },
+    .{ "Internaldate2tuple", genConst("@as(?*anyopaque, null)") }, .{ "Int2AP", genConst("\"\"") }, .{ "ParseFlags", genConst("&[_][]const u8{}") }, .{ "Time2Internaldate", genConst("\"\"") },
 });

@@ -5,12 +5,14 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
+
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "getpass", genGetpass }, .{ "getuser", genGetuser }, .{ "GetPassWarning", genWarning },
+    .{ "getpass", genGetpass }, .{ "getuser", genGetuser }, .{ "GetPassWarning", genConst("\"GetPassWarning\"") },
 });
 
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genWarning(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "\"GetPassWarning\""); }
 fn genGetpass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("getpass_blk: {\n"); self.indent(); try self.emitIndent();
