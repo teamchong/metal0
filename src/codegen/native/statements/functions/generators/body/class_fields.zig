@@ -119,9 +119,9 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     }
 
                     // Use nativeTypeToZigType for proper type conversion (handles dict, list, etc.)
-                    // For unknown types, default to i64 (consistent with inferParamType fallback)
+                    // For unknown types, use *runtime.PyObject for dynamic typing
                     const field_type_str = if (inferred == .unknown)
-                        try self.allocator.dupe(u8, "i64")
+                        try self.allocator.dupe(u8, "*runtime.PyObject")
                     else
                         try self.nativeTypeToZigType(inferred);
                     defer self.allocator.free(field_type_str);

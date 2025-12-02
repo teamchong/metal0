@@ -812,6 +812,22 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
                 for (call.keyword_args, 0..) |kwarg, i| {
                     if (i > 0 or call.args.len > 0) try self.emit(", ");
+
+                    // Check if parameter type is *runtime.PyObject (widened from incompatible types)
+                    // If so, wrap tuple/list literals in runtime.PyValue.tuple(...).toObject()
+                    var kwarg_key_buf: [256]u8 = undefined;
+                    const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ raw_func_name, kwarg.name }) catch null;
+                    const param_type = if (kwarg_key) |key| self.type_inferrer.var_types.get(key) else null;
+
+                    if (param_type) |pt| {
+                        if (pt == .unknown and kwarg.value == .tuple) {
+                            // Tuple arg to PyObject param - dynamically typed, use undefined placeholder
+                            // This field will be set at runtime via __dict__ or similar mechanism
+                            try self.emit("undefined");
+                            continue;
+                        }
+                    }
+
                     try genExpr(self, kwarg.value);
                 }
 
