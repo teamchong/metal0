@@ -16,7 +16,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "process_time", ns_to_sec }, .{ "process_time_ns", nano_ts },
     .{ "ctime", h.c("\"Thu Jan  1 00:00:00 1970\"") },
     .{ "gmtime", genGmtime }, .{ "localtime", genGmtime },
-    .{ "mktime", genMktime },
+    .{ "mktime", h.stub("@as(f64, @floatFromInt(std.time.timestamp()))") },
     .{ "strftime", h.pass("\"\"") },
     .{ "strptime", h.c(".{ .tm_year = 1970, .tm_mon = 1, .tm_mday = 1, .tm_hour = 0, .tm_min = 0, .tm_sec = 0, .tm_wday = 0, .tm_yday = 0, .tm_isdst = 0 }") },
     .{ "get_clock_info", h.c(".{ .implementation = \"std.time\", .monotonic = true, .adjustable = false, .resolution = 1e-9 }") },
@@ -52,15 +52,3 @@ fn genGmtime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(".tm_wday = @as(i32, @intFromEnum(_day.dayOfWeek())), .tm_yday = _year_day.getDayOfYear(), .tm_isdst = 0 }; }");
 }
 
-/// Generate mktime(tuple) - convert struct_time back to seconds
-fn genMktime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) {
-        try self.emit("@as(f64, @floatFromInt(std.time.timestamp()))");
-        return;
-    }
-    // TODO: Properly implement mktime with tuple argument
-    // For now, just return current time and discard the arg
-    try self.emit("blk: { _ = ");
-    try self.genExpr(args[0]);
-    try self.emit("; break :blk @as(f64, @floatFromInt(std.time.timestamp())); }");
-}
