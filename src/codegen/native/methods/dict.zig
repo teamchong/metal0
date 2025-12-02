@@ -26,9 +26,10 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 
     if (is_dict_literal) {
         // Wrap in block with intermediate variable
+        // Use parentheses to prevent "label:" from being parsed as named argument
         const label_id = self.block_label_counter;
         self.block_label_counter += 1;
-        try self.output.writer(self.allocator).print("dget_{d}: {{\n", .{label_id});
+        try self.output.writer(self.allocator).print("(dget_{d}: {{\n", .{label_id});
         self.indent();
         try self.emitIndent();
         try self.emit("const __dict_temp = ");
@@ -50,7 +51,7 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
         try self.emit(";\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit("}");
+        try self.emit("})");
     } else {
         if (default_val) |def| {
             // Generate: dict.get(key) orelse default

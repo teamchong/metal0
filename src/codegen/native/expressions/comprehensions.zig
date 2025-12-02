@@ -137,8 +137,9 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     var subs = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer subs.deinit();
 
-    // Generate: comp_N: { ... }
-    try self.emit(try std.fmt.allocPrint(self.allocator, "comp_{d}: {{\n", .{label_id}));
+    // Generate: (comp_N: { ... })
+    // Wrap in parentheses to prevent "label:" from being parsed as named argument
+    try self.emit(try std.fmt.allocPrint(self.allocator, "(comp_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Determine element type - check if element is an async function call
@@ -315,7 +316,7 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try self.emit("})");
 }
 
 pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenError!void {
@@ -330,8 +331,9 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
 
-    // Generate: dict_N: { ... }
-    try self.emit(try std.fmt.allocPrint(self.allocator, "dict_{d}: {{\n", .{label_id}));
+    // Generate: (dict_N: { ... })
+    // Wrap in parentheses to prevent "label:" from being parsed as named argument
+    try self.emit(try std.fmt.allocPrint(self.allocator, "(dict_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Generate HashMap instead of ArrayList for compatibility with print(dict)
@@ -499,7 +501,7 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try self.emit("})");
 }
 
 /// Generate generator expression: (x * 2 for x in range(5))
@@ -514,8 +516,9 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
 
-    // Generate: gen_N: { ... }
-    try self.emit(try std.fmt.allocPrint(self.allocator, "gen_{d}: {{\n", .{label_id}));
+    // Generate: (gen_N: { ... })
+    // Wrap in parentheses to prevent "label:" from being parsed as named argument
+    try self.emit(try std.fmt.allocPrint(self.allocator, "(gen_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Determine element type from the expression being yielded
@@ -679,7 +682,7 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try self.emit("})");
 }
 
 /// Check if an expression evaluates to an integer type
