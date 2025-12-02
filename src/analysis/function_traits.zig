@@ -95,10 +95,20 @@ pub const FunctionTraits = struct {
     /// Return type hint (if determinable)
     return_type_hint: ?TypeHint = null,
 
+    // ========== ESCAPE ANALYSIS ==========
+    /// Which parameters escape this function (returned, stored globally, passed to escaping call)
+    escaping_params: []bool = &.{},
+    /// Local variables that escape (by name)
+    escaping_locals: []const []const u8 = &.{},
+    /// If return value aliases a parameter, which one? (for ownership tracking)
+    return_aliases_param: ?usize = null,
+
     pub fn deinit(self: *FunctionTraits, allocator: std.mem.Allocator) void {
         if (self.mutates_params.len > 0) allocator.free(self.mutates_params);
         if (self.captured_vars.len > 0) allocator.free(self.captured_vars);
         if (self.calls.len > 0) allocator.free(self.calls);
+        if (self.escaping_params.len > 0) allocator.free(self.escaping_params);
+        if (self.escaping_locals.len > 0) allocator.free(self.escaping_locals);
     }
 };
 
@@ -122,6 +132,162 @@ pub const TypeHint = enum {
     object,
     any,
 };
+
+// ============================================================================
+// SIMD Vectorization Analysis
+// ============================================================================
+
+/// SIMD vectorization info for list comprehensions
+pub const SimdInfo = struct {
+    /// Can this comprehension be vectorized?
+    vectorizable: bool = false,
+    /// Element type (i64, f64)
+    element_type: SimdElementType = .i64,
+    /// The vectorizable operation
+    op: SimdOp = .none,
+    /// Vector width to use (4, 8, 16)
+    vector_width: u8 = 8,
+    /// Is the source a contiguous range?
+    is_range: bool = false,
+    /// Static range bounds (if known)
+    range_start: ?i64 = null,
+    range_end: ?i64 = null,
+};
+
+pub const SimdElementType = enum { i64, f64, i32, f32 };
+
+pub const SimdOp = enum {
+    none,
+    // Arithmetic
+    add, // x + c or c + x
+    sub, // x - c or c - x
+    mul, // x * c or c * x
+    div, // x / c
+    neg, // -x
+    // Bitwise
+    bit_and,
+    bit_or,
+    bit_xor,
+    shl, // x << c
+    shr, // x >> c
+    // Compound
+    mul_add, // x * a + b (FMA)
+    square, // x * x
+};
+
+/// Analyze a list comprehension for SIMD vectorization potential
+pub fn analyzeListCompForSimd(listcomp: ast.Node.ListComp) SimdInfo {
+    var info = SimdInfo{};
+
+    // Must have exactly one generator with no conditions
+    if (listcomp.generators.len != 1) return info;
+    const gen = listcomp.generators[0];
+    if (gen.ifs.len > 0) return info; // Conditionals break vectorization
+
+    // Check if iterating over range()
+    if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
+        if (std.mem.eql(u8, gen.iter.call.func.name.id, "range")) {
+            info.is_range = true;
+            const args = gen.iter.call.args;
+            // Extract static bounds if possible
+            if (args.len >= 1 and args[0] == .constant and args[0].constant.value == .int) {
+                if (args.len == 1) {
+                    info.range_start = 0;
+                    info.range_end = args[0].constant.value.int;
+                } else if (args.len >= 2 and args[1] == .constant and args[1].constant.value == .int) {
+                    info.range_start = args[0].constant.value.int;
+                    info.range_end = args[1].constant.value.int;
+                }
+            }
+        }
+    }
+
+    // Target must be a simple name
+    if (gen.target.* != .name) return info;
+    const loop_var = gen.target.name.id;
+
+    // Analyze the element expression
+    const elt = listcomp.elt.*;
+    const op_info = analyzeSimdExpr(elt, loop_var);
+    if (op_info.op == .none) return info;
+
+    info.vectorizable = true;
+    info.op = op_info.op;
+    info.element_type = op_info.element_type;
+
+    // Choose vector width based on element type
+    info.vector_width = switch (info.element_type) {
+        .i64, .f64 => 4, // 256-bit vectors / 64-bit = 4 elements
+        .i32, .f32 => 8, // 256-bit vectors / 32-bit = 8 elements
+    };
+
+    return info;
+}
+
+const SimdExprInfo = struct {
+    op: SimdOp = .none,
+    element_type: SimdElementType = .i64,
+    constant: ?i64 = null,
+};
+
+/// Analyze expression to determine if it's a simple vectorizable op
+fn analyzeSimdExpr(expr: ast.Node, loop_var: []const u8) SimdExprInfo {
+    var info = SimdExprInfo{};
+
+    switch (expr) {
+        .name => |n| {
+            // Just the loop variable: identity (can still vectorize as copy)
+            if (std.mem.eql(u8, n.id, loop_var)) {
+                info.op = .add; // x + 0 is identity
+                info.constant = 0;
+                return info;
+            }
+        },
+        .binop => |b| {
+            // Check for simple patterns: x op const, const op x
+            const left_is_var = b.left.* == .name and std.mem.eql(u8, b.left.name.id, loop_var);
+            const right_is_var = b.right.* == .name and std.mem.eql(u8, b.right.name.id, loop_var);
+            const left_is_const = b.left.* == .constant and b.left.constant.value == .int;
+            const right_is_const = b.right.* == .constant and b.right.constant.value == .int;
+
+            // x * x pattern (square)
+            if (left_is_var and right_is_var and b.op == .Mult) {
+                info.op = .square;
+                return info;
+            }
+
+            // x op const or const op x
+            if ((left_is_var and right_is_const) or (left_is_const and right_is_var)) {
+                const c = if (right_is_const) b.right.constant.value.int else b.left.constant.value.int;
+                info.constant = c;
+
+                info.op = switch (b.op) {
+                    .Add => .add,
+                    .Sub => if (left_is_var) .sub else .none, // const - x not simple
+                    .Mult => .mul,
+                    .Div, .FloorDiv => if (left_is_var) .div else .none,
+                    .BitOr => .bit_or,
+                    .BitAnd => .bit_and,
+                    .BitXor => .bit_xor,
+                    .LShift => if (left_is_var) .shl else .none,
+                    .RShift => if (left_is_var) .shr else .none,
+                    else => .none,
+                };
+                return info;
+            }
+        },
+        .unaryop => |u| {
+            // -x pattern
+            if (u.op == .USub and u.operand.* == .name and std.mem.eql(u8, u.operand.name.id, loop_var)) {
+                info.op = .neg;
+                return info;
+            }
+        },
+        else => {},
+    }
+
+    return info;
+}
 
 /// Call graph built from module analysis
 pub const CallGraph = struct {
@@ -231,6 +397,12 @@ const AnalyzerContext = struct {
     await_count: usize = 0,
     has_loops: bool = false,
 
+    // Escape analysis
+    escaping_params: std.ArrayList(bool),
+    escaping_locals: std.ArrayList([]const u8),
+    local_vars: hashmap_helper.StringHashMap(void), // Track locally defined vars
+    return_aliases_param: ?usize = null,
+
     pub fn init(allocator: std.mem.Allocator) AnalyzerContext {
         return .{
             .allocator = allocator,
@@ -238,6 +410,9 @@ const AnalyzerContext = struct {
             .param_mutations = std.ArrayList(bool){},
             .calls = std.ArrayList(FunctionRef){},
             .captured = std.ArrayList([]const u8){},
+            .escaping_params = std.ArrayList(bool){},
+            .escaping_locals = std.ArrayList([]const u8){},
+            .local_vars = hashmap_helper.StringHashMap(void).init(allocator),
         };
     }
 
@@ -246,6 +421,9 @@ const AnalyzerContext = struct {
         self.param_mutations.deinit(self.allocator);
         self.calls.deinit(self.allocator);
         self.captured.deinit(self.allocator);
+        self.escaping_params.deinit(self.allocator);
+        self.escaping_locals.deinit(self.allocator);
+        self.local_vars.deinit();
     }
 
     pub fn reset(self: *AnalyzerContext) void {
@@ -253,6 +431,9 @@ const AnalyzerContext = struct {
         self.param_mutations.clearRetainingCapacity();
         self.calls.clearRetainingCapacity();
         self.captured.clearRetainingCapacity();
+        self.escaping_params.clearRetainingCapacity();
+        self.escaping_locals.clearRetainingCapacity();
+        self.local_vars.clearRetainingCapacity();
         self.has_await = false;
         self.has_io = false;
         self.can_error = false;
@@ -265,6 +446,7 @@ const AnalyzerContext = struct {
         self.op_count = 0;
         self.await_count = 0;
         self.has_loops = false;
+        self.return_aliases_param = null;
     }
 };
 
@@ -422,6 +604,7 @@ fn analyzeStatement(stmt: ast.Node, graph: *CallGraph, ctx: *AnalyzerContext) !v
                 try param_names.append(ctx.allocator, arg.name);
                 try ctx.scope_vars.put(arg.name, {});
                 try ctx.param_mutations.append(ctx.allocator, false);
+                try ctx.escaping_params.append(ctx.allocator, false); // Initialize escape tracking
             }
             ctx.param_names = param_names.items;
 
@@ -466,6 +649,15 @@ fn analyzeStatement(stmt: ast.Node, graph: *CallGraph, ctx: *AnalyzerContext) !v
                 traits.captured_vars = try ctx.allocator.dupe([]const u8, ctx.captured.items);
             }
 
+            // Copy escape analysis results
+            if (ctx.escaping_params.items.len > 0) {
+                traits.escaping_params = try ctx.allocator.dupe(bool, ctx.escaping_params.items);
+            }
+            if (ctx.escaping_locals.items.len > 0) {
+                traits.escaping_locals = try ctx.allocator.dupe([]const u8, ctx.escaping_locals.items);
+            }
+            traits.return_aliases_param = ctx.return_aliases_param;
+
             try graph.functions.put(func.name, traits);
         },
         .class_def => |class| {
@@ -501,6 +693,15 @@ fn analyzeStmtForTraits(stmt: ast.Node, ctx: *AnalyzerContext) !void {
             // Check for parameter mutation via attribute/subscript assignment
             for (assign.targets) |target| {
                 try checkMutation(target, ctx);
+                // Track local variable definitions
+                if (target == .name) {
+                    try ctx.local_vars.put(target.name.id, {});
+                }
+                // Check if storing param into global (escape)
+                if (target == .name and !ctx.scope_vars.contains(target.name.id)) {
+                    // Global assignment - check if value is a param
+                    try markEscapingExpr(assign.value.*, ctx);
+                }
             }
             try analyzeExprForTraits(assign.value.*, ctx);
             ctx.op_count += 1;
@@ -513,6 +714,17 @@ fn analyzeStmtForTraits(stmt: ast.Node, ctx: *AnalyzerContext) !void {
         .return_stmt => |ret| {
             if (ret.value) |val| {
                 try analyzeExprForTraits(val.*, ctx);
+                // Mark returned values as escaping
+                try markEscapingExpr(val.*, ctx);
+                // Check if return directly aliases a param
+                if (val.* == .name) {
+                    for (ctx.param_names, 0..) |param, i| {
+                        if (std.mem.eql(u8, param, val.name.id)) {
+                            ctx.return_aliases_param = i;
+                            break;
+                        }
+                    }
+                }
             }
             ctx.op_count += 1;
         },
@@ -755,6 +967,56 @@ fn checkParamMutation(name: []const u8, ctx: *AnalyzerContext) !void {
     }
 }
 
+/// Mark expression as escaping (returned, stored globally, passed to external func)
+fn markEscapingExpr(expr: ast.Node, ctx: *AnalyzerContext) !void {
+    switch (expr) {
+        .name => |n| {
+            // Check if it's a param
+            for (ctx.param_names, 0..) |param, i| {
+                if (std.mem.eql(u8, param, n.id)) {
+                    if (i < ctx.escaping_params.items.len) {
+                        ctx.escaping_params.items[i] = true;
+                    }
+                    return;
+                }
+            }
+            // Check if it's a local var
+            if (ctx.local_vars.contains(n.id)) {
+                // Check if already marked
+                for (ctx.escaping_locals.items) |local| {
+                    if (std.mem.eql(u8, local, n.id)) return;
+                }
+                try ctx.escaping_locals.append(ctx.allocator, n.id);
+            }
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| try markEscapingExpr(elt, ctx);
+        },
+        .list => |l| {
+            for (l.elts) |elt| try markEscapingExpr(elt, ctx);
+        },
+        .subscript => |sub| {
+            // x[i] escapes → x escapes
+            try markEscapingExpr(sub.value.*, ctx);
+        },
+        .attribute => |attr| {
+            // x.attr escapes → x escapes
+            try markEscapingExpr(attr.value.*, ctx);
+        },
+        .call => |call| {
+            // Function call result can escape - args passed to external func escape
+            for (call.args) |arg| {
+                try markEscapingExpr(arg, ctx);
+            }
+        },
+        .if_expr => |tern| {
+            try markEscapingExpr(tern.body.*, ctx);
+            try markEscapingExpr(tern.orelse_value.*, ctx);
+        },
+        else => {},
+    }
+}
+
 /// Check if a statement is a tail-recursive return
 fn isTailRecursive(stmt: ast.Node, func_name: []const u8) bool {
     if (stmt != .return_stmt) return false;
@@ -923,6 +1185,50 @@ pub fn getAsyncComplexity(graph: *const CallGraph, name: []const u8) AsyncComple
         return traits.async_complexity;
     }
     return .trivial;
+}
+
+// ============================================================================
+// Escape Analysis Query API
+// ============================================================================
+
+/// Check if a parameter escapes its function (returned, stored globally, etc.)
+/// If param doesn't escape → can stack allocate caller's argument
+pub fn paramEscapes(graph: *const CallGraph, func_name: []const u8, param_idx: usize) bool {
+    if (graph.functions.get(func_name)) |traits| {
+        if (param_idx < traits.escaping_params.len) {
+            return traits.escaping_params[param_idx];
+        }
+    }
+    return true; // Conservative: assume escapes if unknown
+}
+
+/// Check if a local variable can be stack allocated (doesn't escape)
+pub fn canStackAllocate(graph: *const CallGraph, func_name: []const u8, var_name: []const u8) bool {
+    if (graph.functions.get(func_name)) |traits| {
+        // If in escaping_locals list, can't stack allocate
+        for (traits.escaping_locals) |local| {
+            if (std.mem.eql(u8, local, var_name)) return false;
+        }
+        return true; // Not in escaping list → safe for stack
+    }
+    return false; // Conservative: heap allocate if unknown
+}
+
+/// Get which parameter the return value aliases (if any)
+/// Useful for ownership tracking and avoiding copies
+pub fn getReturnAliasParam(graph: *const CallGraph, func_name: []const u8) ?usize {
+    if (graph.functions.get(func_name)) |traits| {
+        return traits.return_aliases_param;
+    }
+    return null;
+}
+
+/// Get all non-escaping locals in a function (candidates for stack allocation)
+pub fn getNonEscapingLocals(graph: *const CallGraph, func_name: []const u8) []const []const u8 {
+    _ = graph;
+    _ = func_name;
+    // TODO: Return inverse of escaping_locals once we track all locals
+    return &.{};
 }
 
 // ============================================================================

@@ -6,6 +6,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
 const shared = @import("../shared_maps.zig");
 const BinOpStrings = shared.BinOpStrings;
+const function_traits = @import("function_traits");
 
 /// Builtins that return int for type inference
 const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{
@@ -119,9 +120,155 @@ fn genExprWithSubs(
     }
 }
 
+/// Generate SIMD-vectorized list comprehension when possible
+/// Pattern: [x * 2 for x in range(N)] → SIMD vector operations
+fn genSimdListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, simd: function_traits.SimdInfo) CodegenError!void {
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    const gen = listcomp.generators[0];
+    const loop_var = gen.target.name.id;
+
+    // Get range bounds
+    const start = simd.range_start orelse 0;
+    const end = simd.range_end orelse return genListCompScalar(self, listcomp); // Fallback if dynamic
+    const count = end - start;
+    if (count <= 0) return genListCompScalar(self, listcomp);
+
+    const vec_width: i64 = simd.vector_width;
+
+    // Generate SIMD block
+    try self.emit(try std.fmt.allocPrint(self.allocator, "(simd_{d}: {{\n", .{label_id}));
+    self.indent();
+
+    // Allocate result array
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("var __result: [{d}]i64 = undefined;\n", .{count});
+
+    // Generate constant vector if needed
+    if (simd.op != .neg and simd.op != .square) {
+        // Get the constant from the expression
+        const c = getConstantFromExpr(listcomp.elt.*, loop_var) orelse 0;
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __c_vec: @Vector({d}, i64) = @splat({d});\n", .{ vec_width, c });
+    }
+
+    // Main vectorized loop
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("var __i: usize = 0;\n", .{});
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("while (__i + {d} <= {d}) : (__i += {d}) {{\n", .{ vec_width, count, vec_width });
+    self.indent();
+
+    // Load input vector (for range, it's just sequential indices)
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const __base: @Vector({d}, i64) = .{{ ", .{vec_width});
+    var i: i64 = 0;
+    while (i < vec_width) : (i += 1) {
+        if (i > 0) try self.emit(", ");
+        try self.output.writer(self.allocator).print("{d}", .{i});
+    }
+    try self.emit(" };\n");
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const __idx: @Vector({d}, i64) = __base +% @as(@Vector({d}, i64), @splat(@as(i64, @intCast(__i)) + {d}));\n", .{ vec_width, vec_width, start });
+
+    // Apply operation
+    try self.emitIndent();
+    const op_str = switch (simd.op) {
+        .add => "const __r = __idx +% __c_vec;\n",
+        .sub => "const __r = __idx -% __c_vec;\n",
+        .mul => "const __r = __idx *% __c_vec;\n",
+        .neg => try std.fmt.allocPrint(self.allocator, "const __r = -%__idx;\n", .{}),
+        .square => "const __r = __idx *% __idx;\n",
+        .bit_and => "const __r = __idx & __c_vec;\n",
+        .bit_or => "const __r = __idx | __c_vec;\n",
+        .bit_xor => "const __r = __idx ^ __c_vec;\n",
+        .shl => "const __r = __idx << @intCast(__c_vec);\n",
+        .shr => "const __r = __idx >> @intCast(__c_vec);\n",
+        else => "const __r = __idx;\n",
+    };
+    try self.emit(op_str);
+
+    // Store result
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("inline for (0..{d}) |__j| {{\n", .{vec_width});
+    self.indent();
+    try self.emitIndent();
+    try self.emit("__result[__i + __j] = __r[__j];\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+
+    // Scalar cleanup for remaining elements
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("while (__i < {d}) : (__i += 1) {{\n", .{count});
+    self.indent();
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const {s}: i64 = @as(i64, @intCast(__i)) + {d};\n", .{ loop_var, start });
+    try self.emitIndent();
+    try self.emit("__result[__i] = ");
+    const parent = @import("../expressions.zig");
+    try parent.genExpr(self, listcomp.elt.*);
+    try self.emit(";\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+
+    // Convert to ArrayList for compatibility
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("var __list = std.ArrayList(i64){{}};\n", .{});
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("try __list.appendSlice(__global_allocator, &__result);\n", .{});
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("break :simd_{d} __list;\n", .{label_id});
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("})");
+}
+
+/// Get constant value from binop expression
+fn getConstantFromExpr(expr: ast.Node, loop_var: []const u8) ?i64 {
+    if (expr != .binop) return null;
+    const b = expr.binop;
+    const left_is_var = b.left.* == .name and std.mem.eql(u8, b.left.name.id, loop_var);
+    const right_is_const = b.right.* == .constant and b.right.constant.value == .int;
+    const left_is_const = b.left.* == .constant and b.left.constant.value == .int;
+
+    if (left_is_var and right_is_const) return b.right.constant.value.int;
+    if (left_is_const) return b.left.constant.value.int;
+    return null;
+}
+
+/// Scalar fallback for list comprehension
+fn genListCompScalar(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenError!void {
+    // Call the regular implementation
+    return genListCompImpl(self, listcomp);
+}
+
 /// Generate list comprehension: [x * 2 for x in range(5)]
-/// Generates as imperative loop that builds ArrayList
+/// Generates as imperative loop that builds ArrayList (or SIMD when possible)
 pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenError!void {
+    // Check for SIMD vectorization opportunity
+    const simd = function_traits.analyzeListCompForSimd(listcomp);
+    if (simd.vectorizable and simd.is_range and simd.range_end != null) {
+        const count = (simd.range_end orelse 0) - (simd.range_start orelse 0);
+        // Only use SIMD for larger arrays (overhead not worth it for small)
+        if (count >= 16) {
+            return genSimdListComp(self, listcomp, simd);
+        }
+    }
+
+    return genListCompImpl(self, listcomp);
+}
+
+/// Internal list comprehension implementation (scalar)
+fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenError!void {
     // Forward declare genExpr - it's in parent module
     const parent = @import("../expressions.zig");
     const genExpr = parent.genExpr;
