@@ -1,21 +1,12 @@
 /// Python colorsys module - Color system conversions
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "rgb_to_yiq", genColorTuple },
-    .{ "yiq_to_rgb", genColorTuple },
-    .{ "rgb_to_hls", genColorTuple },
-    .{ "hls_to_rgb", genColorTuple },
-    .{ "rgb_to_hsv", genColorTuple },
-    .{ "hsv_to_rgb", genColorTuple },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "rgb_to_yiq", h.c(".{ @as(f64, 0.0), @as(f64, 0.0), @as(f64, 0.0) }") },
+    .{ "yiq_to_rgb", h.c(".{ @as(f64, 0.0), @as(f64, 0.0), @as(f64, 0.0) }") },
+    .{ "rgb_to_hls", h.c(".{ @as(f64, 0.0), @as(f64, 0.0), @as(f64, 0.0) }") },
+    .{ "hls_to_rgb", h.c(".{ @as(f64, 0.0), @as(f64, 0.0), @as(f64, 0.0) }") },
+    .{ "rgb_to_hsv", h.c(".{ @as(f64, 0.0), @as(f64, 0.0), @as(f64, 0.0) }") },
+    .{ "hsv_to_rgb", h.c(".{ @as(f64, 0.0), @as(f64, 0.0), @as(f64, 0.0) }") },
 });
-
-/// All color conversions return (0.0, 0.0, 0.0) placeholder
-fn genColorTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ @as(f64, 0.0), @as(f64, 0.0), @as(f64, 0.0) }");
-}

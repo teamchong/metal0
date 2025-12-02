@@ -1,37 +1,10 @@
 /// Python code module - Interactive interpreter base classes
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "InteractiveConsole", genInteractiveConsole },
-    .{ "InteractiveInterpreter", genInteractiveInterpreter },
-    .{ "compile_command", genCompile_command },
-    .{ "interact", genInteract },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "InteractiveConsole", h.c(".{ .locals = @as(?*anyopaque, null), .filename = \"<console>\" }") },
+    .{ "InteractiveInterpreter", h.c(".{ .locals = @as(?*anyopaque, null) }") },
+    .{ "compile_command", h.c("@as(?*anyopaque, null)") },
+    .{ "interact", h.c("{}") },
 });
-
-/// Generate code.InteractiveConsole class
-pub fn genInteractiveConsole(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .locals = @as(?*anyopaque, null), .filename = \"<console>\" }");
-}
-
-/// Generate code.InteractiveInterpreter class
-pub fn genInteractiveInterpreter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit(".{ .locals = @as(?*anyopaque, null) }");
-}
-
-/// Generate code.compile_command(source, filename, symbol)
-pub fn genCompile_command(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("@as(?*anyopaque, null)");
-}
-
-/// Generate code.interact(banner=None, readfunc=None, local=None, exitmsg=None)
-pub fn genInteract(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    try self.emit("{}");
-}

@@ -1,18 +1,14 @@
 /// Python chunk module - Read IFF chunked data
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Chunk", genChunk }, .{ "getname", genConst("\"\"") }, .{ "getsize", genConst("@as(i64, 0)") },
-    .{ "close", genConst("{}") }, .{ "isatty", genConst("false") }, .{ "seek", genConst("{}") },
-    .{ "tell", genConst("@as(i64, 0)") }, .{ "read", genConst("\"\"") }, .{ "skip", genConst("{}") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "Chunk", genChunk }, .{ "getname", h.c("\"\"") }, .{ "getsize", h.I64(0) },
+    .{ "close", h.c("{}") }, .{ "isatty", h.c("false") }, .{ "seek", h.c("{}") },
+    .{ "tell", h.I64(0) }, .{ "read", h.c("\"\"") }, .{ "skip", h.c("{}") },
 });
 
 fn genChunk(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
