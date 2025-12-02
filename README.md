@@ -384,17 +384,17 @@ metal0 compiles Python's `asyncio` to optimized native code:
 - **I/O-bound**: State machine coroutines with kqueue netpoller (single thread, high concurrency)
 - **CPU-bound**: Thread pool with M:N scheduling (parallel execution across cores)
 
-**Parallel Scaling: SHA256 Hashing (8 workers × 5K hashes each)**
+**Parallel Scaling: SHA256 Hashing (8 workers × 50K hashes each)**
 
 | Runtime | Speedup | Efficiency | Notes |
 |---------|---------|------------|-------|
-| **metal0** | **5.21x** | **65%** 🏆 | Thread pool + stack alloc |
-| Go (goroutines) | 2.58x | 32% | M:N scheduler |
+| **metal0** | **6.05x** | **76%** 🏆 | Thread pool + stack alloc, no GC |
+| Go (goroutines) | 3.72x | 47% | M:N scheduler, GC overhead |
 | Rust (rayon) | 1.04x | 13% | Work-stealing overhead |
 | CPython | 1.07x | 13% | GIL blocks parallelism |
 | PyPy | 0.98x | 12% | GIL + JIT overhead |
 
-*Speedup = Sequential / Parallel. Ideal: 8x for 8 cores. metal0 achieves 2x better parallel efficiency than Go!*
+*Speedup = Sequential / Parallel. Ideal: 8x for 8 cores. metal0 achieves 1.6x better parallel efficiency than Go!*
 
 **I/O-Bound: Concurrent Sleep (10,000 tasks × 100ms each)**
 

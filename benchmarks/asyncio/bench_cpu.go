@@ -12,7 +12,7 @@ import (
 
 const (
 	NUM_WORKERS     = 8
-	WORK_PER_WORKER = 5000
+	WORK_PER_WORKER = 50000 // 50K hash iterations per worker
 )
 
 func doWork(workerID int, iterations int) int {
