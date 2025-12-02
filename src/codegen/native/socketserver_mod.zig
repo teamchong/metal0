@@ -1,13 +1,11 @@
 /// Python socketserver module - Framework for network servers
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "BaseServer", h.c(".{ .server_address = .{ \"0.0.0.0\", 0 }, .RequestHandlerClass = null }") },
-    .{ "TCPServer", genTCPServer }, .{ "UDPServer", genUDPServer },
+    .{ "TCPServer", h.discard(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null, .allow_reuse_address = false, .request_queue_size = 5 }") },
+    .{ "UDPServer", h.discard(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null, .allow_reuse_address = false, .max_packet_size = 8192 }") },
     .{ "UnixStreamServer", h.c(".{ .server_address = \"\", .socket = null }") },
     .{ "UnixDatagramServer", h.c(".{ .server_address = \"\", .socket = null }") },
     .{ "ForkingMixIn", h.c(".{ .timeout = 300, .active_children = null, .max_children = 40, .block_on_close = true }") },
@@ -24,11 +22,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "serve_forever", h.c("{}") }, .{ "shutdown", h.c("{}") }, .{ "handle_request", h.c("{}") }, .{ "server_close", h.c("{}") },
 });
 
-fn genTCPServer(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 1) { try self.emit("blk: { const addr = "); try self.genExpr(args[0]); try self.emit("; _ = addr; break :blk .{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null, .allow_reuse_address = false, .request_queue_size = 5 }; }"); }
-    else { try self.emit(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null, .allow_reuse_address = false, .request_queue_size = 5 }"); }
-}
-fn genUDPServer(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 1) { try self.emit("blk: { const addr = "); try self.genExpr(args[0]); try self.emit("; _ = addr; break :blk .{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null, .allow_reuse_address = false, .max_packet_size = 8192 }; }"); }
-    else { try self.emit(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null, .allow_reuse_address = false, .max_packet_size = 8192 }"); }
-}
