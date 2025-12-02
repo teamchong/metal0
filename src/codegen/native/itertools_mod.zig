@@ -10,6 +10,14 @@ fn needsItems(self: *NativeCodegen, arg: ast.Node) bool {
     return t == .list or t == .deque;
 }
 
+fn predFilter(self: *NativeCodegen, args: []ast.Node, comptime label: []const u8, comptime body: []const u8) CodegenError!void {
+    if (args.len < 2) { try self.emit("std.ArrayList(i64){}"); return; }
+    try self.emit(label ++ "_blk: { const _pred = "); try self.genExpr(args[0]);
+    try self.emit("; const _iter = "); try self.genExpr(args[1]);
+    if (needsItems(self, args[1])) try self.emit(".items");
+    try self.emit("; var _result = std.ArrayList(@TypeOf(_iter[0])){}; " ++ body ++ " break :" ++ label ++ "_blk _result; }");
+}
+
 const pt = h.pass("std.ArrayList(i64){}");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
@@ -24,27 +32,13 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genTakewhile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("std.ArrayList(i64){}"); return; }
-    try self.emit("takewhile_blk: { const _pred = "); try self.genExpr(args[0]);
-    try self.emit("; const _iter = "); try self.genExpr(args[1]);
-    if (needsItems(self, args[1])) try self.emit(".items");
-    try self.emit("; var _result = std.ArrayList(@TypeOf(_iter[0])){}; for (_iter) |item| { if (!_pred(item)) break; _result.append(__global_allocator, item) catch continue; } break :takewhile_blk _result; }");
+    try predFilter(self, args, "takewhile", "for (_iter) |item| { if (!_pred(item)) break; _result.append(__global_allocator, item) catch continue; }");
 }
-
 fn genDropwhile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("std.ArrayList(i64){}"); return; }
-    try self.emit("dropwhile_blk: { const _pred = "); try self.genExpr(args[0]);
-    try self.emit("; const _iter = "); try self.genExpr(args[1]);
-    if (needsItems(self, args[1])) try self.emit(".items");
-    try self.emit("; var _result = std.ArrayList(@TypeOf(_iter[0])){}; var _dropping = true; for (_iter) |item| { if (_dropping and _pred(item)) continue; _dropping = false; _result.append(__global_allocator, item) catch continue; } break :dropwhile_blk _result; }");
+    try predFilter(self, args, "dropwhile", "var _dropping = true; for (_iter) |item| { if (_dropping and _pred(item)) continue; _dropping = false; _result.append(__global_allocator, item) catch continue; }");
 }
-
 fn genFilterfalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("std.ArrayList(i64){}"); return; }
-    try self.emit("filterfalse_blk: { const _pred = "); try self.genExpr(args[0]);
-    try self.emit("; const _iter = "); try self.genExpr(args[1]);
-    if (needsItems(self, args[1])) try self.emit(".items");
-    try self.emit("; var _result = std.ArrayList(@TypeOf(_iter[0])){}; for (_iter) |item| { if (!_pred(item)) _result.append(__global_allocator, item) catch continue; } break :filterfalse_blk _result; }");
+    try predFilter(self, args, "filterfalse", "for (_iter) |item| { if (!_pred(item)) _result.append(__global_allocator, item) catch continue; }");
 }
 
 pub fn genChain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
