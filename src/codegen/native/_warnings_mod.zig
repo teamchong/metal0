@@ -1,15 +1,8 @@
 /// Python _warnings module - Internal warnings support (C accelerator)
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "warn", genConst("{}") }, .{ "warn_explicit", genConst("{}") }, .{ "_filters_mutated", genConst("{}") },
-    .{ "filters", genConst("&[_]@TypeOf(.{}){}") }, .{ "_defaultaction", genConst("\"default\"") }, .{ "_onceregistry", genConst(".{}") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "warn", h.c("{}") }, .{ "warn_explicit", h.c("{}") }, .{ "_filters_mutated", h.c("{}") },
+    .{ "filters", h.c("&[_]@TypeOf(.{}){}") }, .{ "_defaultaction", h.c("\"default\"") }, .{ "_onceregistry", h.c(".{}") },
 });
