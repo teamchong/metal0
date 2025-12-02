@@ -1,27 +1,23 @@
 /// Python decimal module - Decimal fixed-point arithmetic
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "Decimal", genDecimal }, .{ "setcontext", genConst("{}") },
-    .{ "getcontext", genConst("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
-    .{ "localcontext", genConst("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
-    .{ "BasicContext", genConst("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
-    .{ "ExtendedContext", genConst("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
-    .{ "DefaultContext", genConst("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
-    .{ "ROUND_CEILING", genConst("\"ROUND_CEILING\"") }, .{ "ROUND_DOWN", genConst("\"ROUND_DOWN\"") }, .{ "ROUND_FLOOR", genConst("\"ROUND_FLOOR\"") },
-    .{ "ROUND_HALF_DOWN", genConst("\"ROUND_HALF_DOWN\"") }, .{ "ROUND_HALF_EVEN", genConst("\"ROUND_HALF_EVEN\"") }, .{ "ROUND_HALF_UP", genConst("\"ROUND_HALF_UP\"") },
-    .{ "ROUND_UP", genConst("\"ROUND_UP\"") }, .{ "ROUND_05UP", genConst("\"ROUND_05UP\"") },
-    .{ "DecimalException", genConst("\"DecimalException\"") }, .{ "InvalidOperation", genConst("\"InvalidOperation\"") }, .{ "DivisionByZero", genConst("\"DivisionByZero\"") },
-    .{ "Overflow", genConst("\"Overflow\"") }, .{ "Underflow", genConst("\"Underflow\"") }, .{ "Inexact", genConst("\"Inexact\"") }, .{ "Rounded", genConst("\"Rounded\"") },
-    .{ "Subnormal", genConst("\"Subnormal\"") }, .{ "FloatOperation", genConst("\"FloatOperation\"") }, .{ "Clamped", genConst("\"Clamped\"") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "Decimal", genDecimal }, .{ "setcontext", h.c("{}") },
+    .{ "getcontext", h.c("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
+    .{ "localcontext", h.c("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
+    .{ "BasicContext", h.c("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
+    .{ "ExtendedContext", h.c("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
+    .{ "DefaultContext", h.c("struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}") },
+    .{ "ROUND_CEILING", h.c("\"ROUND_CEILING\"") }, .{ "ROUND_DOWN", h.c("\"ROUND_DOWN\"") }, .{ "ROUND_FLOOR", h.c("\"ROUND_FLOOR\"") },
+    .{ "ROUND_HALF_DOWN", h.c("\"ROUND_HALF_DOWN\"") }, .{ "ROUND_HALF_EVEN", h.c("\"ROUND_HALF_EVEN\"") }, .{ "ROUND_HALF_UP", h.c("\"ROUND_HALF_UP\"") },
+    .{ "ROUND_UP", h.c("\"ROUND_UP\"") }, .{ "ROUND_05UP", h.c("\"ROUND_05UP\"") },
+    .{ "DecimalException", h.c("\"DecimalException\"") }, .{ "InvalidOperation", h.c("\"InvalidOperation\"") }, .{ "DivisionByZero", h.c("\"DivisionByZero\"") },
+    .{ "Overflow", h.c("\"Overflow\"") }, .{ "Underflow", h.c("\"Underflow\"") }, .{ "Inexact", h.c("\"Inexact\"") }, .{ "Rounded", h.c("\"Rounded\"") },
+    .{ "Subnormal", h.c("\"Subnormal\"") }, .{ "FloatOperation", h.c("\"FloatOperation\"") }, .{ "Clamped", h.c("\"Clamped\"") },
 });
 
 fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

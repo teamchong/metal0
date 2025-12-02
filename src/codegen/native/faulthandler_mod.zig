@@ -1,16 +1,9 @@
 /// Python faulthandler module - Dump Python tracebacks on fault signals
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "enable", genConst("{}") }, .{ "disable", genConst("{}") }, .{ "is_enabled", genConst("true") },
-    .{ "dump_traceback", genConst("{}") }, .{ "dump_traceback_later", genConst("{}") },
-    .{ "cancel_dump_traceback_later", genConst("{}") }, .{ "register", genConst("{}") }, .{ "unregister", genConst("{}") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "enable", h.c("{}") }, .{ "disable", h.c("{}") }, .{ "is_enabled", h.c("true") },
+    .{ "dump_traceback", h.c("{}") }, .{ "dump_traceback_later", h.c("{}") },
+    .{ "cancel_dump_traceback_later", h.c("{}") }, .{ "register", h.c("{}") }, .{ "unregister", h.c("{}") },
 });

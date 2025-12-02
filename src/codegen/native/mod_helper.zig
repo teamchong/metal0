@@ -13,7 +13,10 @@ pub fn c(comptime v: []const u8) H {
 }
 
 /// Generates a handler that emits @as(i32, N)
-pub fn I32(comptime n: comptime_int) H { return c(std.fmt.comptimePrint("@as(i32, {})", .{n})); }
+pub fn I32(comptime n: comptime_int) H {
+    @setEvalBranchQuota(100000);
+    return c(std.fmt.comptimePrint("@as(i32, {})", .{n}));
+}
 
 /// Generates a handler that emits @as(i64, N)
 pub fn I64(comptime n: comptime_int) H { return c(std.fmt.comptimePrint("@as(i64, {})", .{n})); }
