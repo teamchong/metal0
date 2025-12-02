@@ -5,13 +5,12 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "true"); }
-fn genFalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "false"); }
-fn genI32_0(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, "@as(i32, 0)"); }
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "stack_effect", genI32_0 }, .{ "is_valid", genTrue }, .{ "has_arg", genTrue },
-    .{ "has_const", genFalse }, .{ "has_name", genFalse }, .{ "has_jump", genFalse },
-    .{ "has_free", genFalse }, .{ "has_local", genFalse }, .{ "has_exc", genFalse },
+    .{ "stack_effect", genConst("@as(i32, 0)") }, .{ "is_valid", genConst("true") }, .{ "has_arg", genConst("true") },
+    .{ "has_const", genConst("false") }, .{ "has_name", genConst("false") }, .{ "has_jump", genConst("false") },
+    .{ "has_free", genConst("false") }, .{ "has_local", genConst("false") }, .{ "has_exc", genConst("false") },
 });

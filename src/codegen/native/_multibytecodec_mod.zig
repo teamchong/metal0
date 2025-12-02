@@ -5,12 +5,11 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "multibyte_codec", genCodec }, .{ "multibyte_incremental_encoder", genIncCodec }, .{ "multibyte_incremental_decoder", genIncCodec },
-    .{ "multibyte_stream_reader", genStream }, .{ "multibyte_stream_writer", genStream }, .{ "create_codec", genCodec },
-});
+fn genConst(comptime v: []const u8) ModuleHandler {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+}
 
-fn genConst(self: *NativeCodegen, args: []ast.Node, v: []const u8) CodegenError!void { _ = args; try self.emit(v); }
-fn genCodec(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .name = \"\" }"); }
-fn genIncCodec(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .codec = null, .errors = \"strict\" }"); }
-fn genStream(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genConst(self, args, ".{ .stream = null, .errors = \"strict\" }"); }
+pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    .{ "multibyte_codec", genConst(".{ .name = \"\" }") }, .{ "multibyte_incremental_encoder", genConst(".{ .codec = null, .errors = \"strict\" }") }, .{ "multibyte_incremental_decoder", genConst(".{ .codec = null, .errors = \"strict\" }") },
+    .{ "multibyte_stream_reader", genConst(".{ .stream = null, .errors = \"strict\" }") }, .{ "multibyte_stream_writer", genConst(".{ .stream = null, .errors = \"strict\" }") }, .{ "create_codec", genConst(".{ .name = \"\" }") },
+});
