@@ -5,6 +5,17 @@ const lexer = @import("../../lexer.zig");
 const ParseError = @import("../../parser.zig").ParseError;
 const Parser = @import("../../parser.zig").Parser;
 
+/// Parse an expression that can optionally be starred (*expr)
+/// Used in implicit tuples like `return 1, *z` or `yield a, *b` or `for x in *a, *b:`
+pub fn parseStarredExpr(self: *Parser) ParseError!ast.Node {
+    if (self.match(.Star)) {
+        var value = try self.parseExpression();
+        errdefer value.deinit(self.allocator);
+        return ast.Node{ .starred = .{ .value = try self.allocNode(value) } };
+    }
+    return self.parseExpression();
+}
+
 pub fn parseReturn(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Return);
 
@@ -25,13 +36,13 @@ pub fn parseReturn(self: *Parser) ParseError!ast.Node {
 
             try elements.append(self.allocator, first_value);
 
-            // Parse remaining elements
+            // Parse remaining elements (can include starred: return 1, *z)
             while (true) {
                 if (self.peek()) |next_tok| {
                     if (next_tok.type == .Newline or next_tok.type == .Eof) break;
                 } else break;
 
-                var elem = try self.parseExpression();
+                var elem = try parseStarredExpr(self);
                 errdefer elem.deinit(self.allocator);
                 try elements.append(self.allocator, elem);
                 if (!self.match(.Comma)) break;
@@ -221,6 +232,18 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
                                 _ = self.advance();
                             } else break;
                         }
+                    }
+                }
+
+                // Handle comma-separated exception types without parens: except EOFError, TypeError, ZeroDivisionError:
+                while (self.match(.Comma)) {
+                    // Skip dotted exception type
+                    while (self.peek()) |next_type| {
+                        if (next_type.type == .Ident) {
+                            _ = self.advance();
+                            // Skip dots in the name
+                            if (!self.match(.Dot)) break;
+                        } else break;
                     }
                 }
             } else if (tok.type == .LParen) {
@@ -465,7 +488,11 @@ pub fn parseYield(self: *Parser) ParseError!ast.Node {
             try value_list.append(self.allocator, first_value);
 
             while (self.match(.Comma)) {
-                var val = try self.parseExpression();
+                // Check for trailing comma (next token is statement terminator)
+                if (self.check(.Newline) or self.check(.Semicolon) or self.check(.Eof)) {
+                    break;
+                }
+                var val = try parseStarredExpr(self);
                 errdefer val.deinit(self.allocator);
                 try value_list.append(self.allocator, val);
             }
@@ -598,7 +625,12 @@ pub fn parseDel(self: *Parser) ParseError!ast.Node {
     try targets.append(self.allocator, first_target);
 
     // Parse additional targets separated by commas
+    // Support trailing comma: `del y,` is valid (single-element tuple)
     while (self.match(.Comma)) {
+        // Check for trailing comma (next token is statement terminator)
+        if (self.check(.Newline) or self.check(.Semicolon) or self.check(.Eof)) {
+            break;
+        }
         var target = try self.parseExpression();
         errdefer target.deinit(self.allocator);
         try targets.append(self.allocator, target);
@@ -621,7 +653,7 @@ pub fn parseDel(self: *Parser) ParseError!ast.Node {
 /// Context manager info for multi-context with statements
 const ContextManager = struct {
     expr: ast.Node,
-    var_name: ?[]const u8,
+    target: ?*ast.Node, // Target node: name, tuple, list, attribute, etc.
 };
 
 /// Parse with statement: with expr as var: body
@@ -646,14 +678,14 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
 
     // Parse first context expression
     const context_expr = try self.parseExpression();
-    var optional_vars: ?[]const u8 = null;
+    var optional_target: ?*ast.Node = null;
 
-    // Check for optional "as variable"
+    // Check for optional "as target"
     if (self.match(.As)) {
-        optional_vars = try parseAsTarget(self);
+        optional_target = try parseAsTarget(self);
     }
 
-    try contexts.append(self.allocator, .{ .expr = context_expr, .var_name = optional_vars });
+    try contexts.append(self.allocator, .{ .expr = context_expr, .target = optional_target });
 
     // Handle additional context managers
     while (self.match(.Comma)) {
@@ -661,13 +693,13 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
         if (has_parens and self.check(.RParen)) break;
 
         const next_expr = try self.parseExpression();
-        var next_var: ?[]const u8 = null;
+        var next_target: ?*ast.Node = null;
 
         if (self.match(.As)) {
-            next_var = try parseAsTarget(self);
+            next_target = try parseAsTarget(self);
         }
 
-        try contexts.append(self.allocator, .{ .expr = next_expr, .var_name = next_var });
+        try contexts.append(self.allocator, .{ .expr = next_expr, .target = next_target });
     }
 
     // Close parenthesis for Python 3.10+ syntax
@@ -717,7 +749,7 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
         const with_node = ast.Node{
             .with_stmt = .{
                 .context_expr = try self.allocNode(expr_copy),
-                .optional_vars = ctx.var_name,
+                .optional_vars = ctx.target,
                 .body = current_body,
             },
         };
@@ -737,26 +769,63 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
     }
 }
 
-/// Parse "as target" part of with statement, returning variable name if simple identifier
-fn parseAsTarget(self: *Parser) ParseError!?[]const u8 {
+/// Parse "as target" part of with statement, returning the full target node
+fn parseAsTarget(self: *Parser) ParseError!?*ast.Node {
     if (self.peek()) |tok| {
         if (tok.type == .Ident) {
-            // Could be simple name or attribute access - parse as expression and extract name
-            const start_pos = self.current;
-            var target = try self.parsePostfix();
-            defer target.deinit(self.allocator);
-            // For simple names, use the name directly; for complex targets, ignore
-            if (target == .name) {
-                return self.tokens[start_pos].lexeme;
-            }
-            // For attribute access like os.environ, we parsed it but don't store the var name
-            return null;
+            // Could be simple name or attribute access - parse as expression
+            const target = try self.parsePostfix();
+            return try self.allocNode(target);
         } else if (tok.type == .LParen) {
-            // Tuple target: as (a, b)
+            // Tuple target: as (a, b, c)
             _ = self.advance(); // consume (
-            _ = try self.parseExpression(); // skip tuple
+            var elts = std.ArrayList(ast.Node){};
+            errdefer {
+                for (elts.items) |*e| e.deinit(self.allocator);
+                elts.deinit(self.allocator);
+            }
+
+            // Parse first element
+            if (!self.check(.RParen)) {
+                const first = try self.parseExpression();
+                try elts.append(self.allocator, first);
+
+                // Parse remaining elements
+                while (self.match(.Comma)) {
+                    if (self.check(.RParen)) break; // trailing comma
+                    const elt = try self.parseExpression();
+                    try elts.append(self.allocator, elt);
+                }
+            }
+
             _ = try self.expect(.RParen);
-            return null;
+            const elts_slice = try elts.toOwnedSlice(self.allocator);
+            return try self.allocNode(ast.Node{ .tuple = .{ .elts = elts_slice } });
+        } else if (tok.type == .LBracket) {
+            // List target: as [a, b, c]
+            _ = self.advance(); // consume [
+            var elts = std.ArrayList(ast.Node){};
+            errdefer {
+                for (elts.items) |*e| e.deinit(self.allocator);
+                elts.deinit(self.allocator);
+            }
+
+            // Parse first element
+            if (!self.check(.RBracket)) {
+                const first = try self.parseExpression();
+                try elts.append(self.allocator, first);
+
+                // Parse remaining elements
+                while (self.match(.Comma)) {
+                    if (self.check(.RBracket)) break; // trailing comma
+                    const elt = try self.parseExpression();
+                    try elts.append(self.allocator, elt);
+                }
+            }
+
+            _ = try self.expect(.RBracket);
+            const elts_slice = try elts.toOwnedSlice(self.allocator);
+            return try self.allocNode(ast.Node{ .list = .{ .elts = elts_slice } });
         }
     }
     return null;

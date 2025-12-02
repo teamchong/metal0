@@ -1448,6 +1448,7 @@ pub const hasattr_builtin = dynamic_attrs.hasattr_builtin;
 pub const vars_builtin = dynamic_attrs.vars_builtin;
 pub const globals_builtin = dynamic_attrs.globals_builtin;
 pub const locals_builtin = dynamic_attrs.locals_builtin;
+pub const dir_builtin = dynamic_attrs.dir_builtin;
 
 // Type checking functions
 /// Check if a value is callable (has a __call__ method or is a function)

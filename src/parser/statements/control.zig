@@ -257,13 +257,15 @@ pub fn parseForInternal(self: *Parser, is_async: bool) ParseError!ast.Node {
 
     // Check for comma-separated targets (tuple unpacking)
     while (self.match(.Comma)) {
+        // Check for trailing comma (next token is 'in')
+        if (self.check(.In)) break;
         try targets.append(self.allocator, try parseForTarget(self));
     }
 
     _ = try self.expect(.In);
 
-    // Parse iterable - may be a tuple without parens (e.g., 1, 2, 3)
-    var first_expr = try self.parseExpression();
+    // Parse iterable - may be a tuple without parens (e.g., 1, 2, 3) or starred (e.g., *a, *b, *c)
+    var first_expr = try misc.parseStarredExpr(self);
     errdefer first_expr.deinit(self.allocator);
 
     const iter = blk: {
@@ -277,7 +279,7 @@ pub fn parseForInternal(self: *Parser, is_async: bool) ParseError!ast.Node {
             while (self.match(.Comma)) {
                 // Check if we hit the colon (trailing comma case)
                 if (self.check(.Colon)) break;
-                try elts.append(self.allocator, try self.parseExpression());
+                try elts.append(self.allocator, try misc.parseStarredExpr(self));
             }
 
             break :blk ast.Node{ .tuple = .{ .elts = try elts.toOwnedSlice(self.allocator) } };
@@ -326,10 +328,29 @@ pub fn parseForInternal(self: *Parser, is_async: bool) ParseError!ast.Node {
     if (self.check(.Else)) {
         _ = self.advance(); // consume 'else'
         _ = try self.expect(.Colon);
-        _ = try self.expect(.Newline);
-        _ = try self.expect(.Indent);
-        orelse_body = try misc.parseBlock(self);
-        _ = try self.expect(.Dedent);
+
+        // Check for one-liner else clause
+        if (self.peek()) |next_tok| {
+            const is_oneliner_else = next_tok.type == .Pass or
+                next_tok.type == .Ellipsis or
+                next_tok.type == .Return or
+                next_tok.type == .Break or
+                next_tok.type == .Continue or
+                next_tok.type == .Raise or
+                next_tok.type == .Ident;
+
+            if (is_oneliner_else) {
+                const stmt = try self.parseStatement();
+                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                body_slice[0] = stmt;
+                orelse_body = body_slice;
+            } else {
+                _ = try self.expect(.Newline);
+                _ = try self.expect(.Indent);
+                orelse_body = try misc.parseBlock(self);
+                _ = try self.expect(.Dedent);
+            }
+        }
     }
 
     return ast.Node{
@@ -381,10 +402,29 @@ pub fn parseWhile(self: *Parser) ParseError!ast.Node {
     if (self.check(.Else)) {
         _ = self.advance(); // consume 'else'
         _ = try self.expect(.Colon);
-        _ = try self.expect(.Newline);
-        _ = try self.expect(.Indent);
-        orelse_body = try misc.parseBlock(self);
-        _ = try self.expect(.Dedent);
+
+        // Check for one-liner else clause
+        if (self.peek()) |next_tok| {
+            const is_oneliner_else = next_tok.type == .Pass or
+                next_tok.type == .Ellipsis or
+                next_tok.type == .Return or
+                next_tok.type == .Break or
+                next_tok.type == .Continue or
+                next_tok.type == .Raise or
+                next_tok.type == .Ident;
+
+            if (is_oneliner_else) {
+                const stmt = try self.parseStatement();
+                const body_slice = try self.allocator.alloc(ast.Node, 1);
+                body_slice[0] = stmt;
+                orelse_body = body_slice;
+            } else {
+                _ = try self.expect(.Newline);
+                _ = try self.expect(.Indent);
+                orelse_body = try misc.parseBlock(self);
+                _ = try self.expect(.Dedent);
+            }
+        }
     }
 
     return ast.Node{

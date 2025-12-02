@@ -13,6 +13,20 @@ const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "len", {} }, .{ "int", {} }, .{ "ord", {} },
 });
 
+/// Emit a for-loop target variable name (raw identifier, no closure transformation)
+/// For-loop targets create new local bindings, not references to captured variables
+fn emitForLoopTarget(self: *NativeCodegen, target: ast.Node) CodegenError!void {
+    switch (target) {
+        .name => |n| try self.emit(n.id),
+        else => {
+            // Fallback for complex targets - shouldn't happen in practice
+            // since tuple targets are handled separately
+            const parent = @import("../expressions.zig");
+            try parent.genExpr(self, target);
+        },
+    }
+}
+
 /// Builtins that return bool for type inference
 const BoolReturningBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "isinstance", {} }, .{ "callable", {} }, .{ "hasattr", {} }, .{ "bool", {} },
@@ -479,7 +493,7 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                 }
             } else {
                 try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
-                try genExpr(self, gen.target.*);
+                try emitForLoopTarget(self, gen.target.*);
                 try self.emit("| {\n");
                 self.indent();
             }
@@ -663,7 +677,7 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                 }
             } else {
                 try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
-                try genExpr(self, gen.target.*);
+                try emitForLoopTarget(self, gen.target.*);
                 try self.emit("| {\n");
                 self.indent();
             }
@@ -846,7 +860,7 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
                 }
             } else {
                 try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
-                try genExpr(self, gen.target.*);
+                try emitForLoopTarget(self, gen.target.*);
                 try self.emit("| {\n");
                 self.indent();
             }

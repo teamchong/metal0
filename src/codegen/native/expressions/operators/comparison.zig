@@ -51,7 +51,15 @@ fn isEvalCall(expr: ast.Node) bool {
 
 /// Generate comparison operations (==, !=, <, <=, >, >=)
 /// Handles Python chained comparisons: 1 < x < 10 becomes (1 < x) and (x < 10)
+/// ALWAYS wraps output in parentheses to prevent Zig chained comparison errors
+/// when a compare is used as a sub-expression in another compare
 pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!void {
+    // Always wrap comparison in parentheses to make it safe as a sub-expression
+    // This prevents: "False is (x is y)" from generating "false == x == y"
+    // which Zig rejects as chained comparison
+    try self.emit("(");
+    defer self.emit(")") catch {};
+
     // Check if we're comparing strings (need std.mem.eql instead of ==)
     const left_type = try self.inferExprScoped(compare.left.*);
 
