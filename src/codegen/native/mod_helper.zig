@@ -263,3 +263,13 @@ pub fn memOrder() H {
         try self.emit("std.mem.order(u8, "); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")");
     } }.f;
 }
+
+// === Unicode helpers ===
+
+/// Character function: label: { const c = arg[0]; body }
+pub fn charFunc(comptime label: []const u8, comptime default: []const u8, comptime body: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(default); return; }
+        try self.emit(label ++ ": { const c = "); try self.genExpr(args[0]); try self.emit("[0]; " ++ body ++ " }");
+    } }.f;
+}
