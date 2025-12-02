@@ -1,11 +1,11 @@
 /// Python heapq module - Heap queue algorithm (priority queue)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "heappush", genHeappush }, .{ "heappop", genHeappop }, .{ "heapify", genHeapify },
     .{ "heapreplace", genHeapreplace }, .{ "heappushpop", genHeappushpop },
     .{ "nlargest", genNlargest }, .{ "nsmallest", genNsmallest }, .{ "merge", genMerge },
