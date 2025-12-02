@@ -48,32 +48,32 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "__call__", h.wrap("", "()", "void{}") },
 });
 
-pub fn genTruediv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genTruediv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("(runtime.builtins.OperatorTruediv{})"); return; }
     if (args.len < 2) { try self.emit("@as(f64, 0.0)"); return; }
     try self.emit("(@as(f64, @floatFromInt("); try self.genExpr(args[0]); try self.emit(")) / @as(f64, @floatFromInt("); try self.genExpr(args[1]); try self.emit(")))");
 }
-pub fn genFloordiv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genFloordiv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("(runtime.builtins.OperatorFloordiv{})"); return; }
     if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
     try self.emit("@divFloor("); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")");
 }
-pub fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("(runtime.builtins.OperatorMod{})"); return; }
     if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
     try self.emit("@mod("); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")");
 }
-pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("runtime.builtins.OperatorPow{}"); return; }
     if (args.len < 2) { try self.emit("@as(i64, 1)"); return; }
     try self.emit("(std.math.powi(i64, @as(i64, "); try self.genExpr(args[0]); try self.emit("), @as(u32, @intCast("); try self.genExpr(args[1]); try self.emit("))) catch 0)");
 }
-pub fn genIs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genIs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("false"); return; }
     const both_bool = (args[0] == .constant and args[0].constant.value == .bool) and (args[1] == .constant and args[1].constant.value == .bool);
     try self.emit(if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try self.emit(" == "); try self.emit(if (both_bool) "" else "&"); try self.genExpr(args[1]); try self.emit(")");
 }
-pub fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("true"); return; }
     const both_bool = (args[0] == .constant and args[0].constant.value == .bool) and (args[1] == .constant and args[1].constant.value == .bool);
     try self.emit(if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try self.emit(" != "); try self.emit(if (both_bool) "" else "&"); try self.genExpr(args[1]); try self.emit(")");
