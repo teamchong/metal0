@@ -17,6 +17,7 @@ const utils = @import("utils.zig");
 const import_resolver = @import("../import_resolver.zig");
 const import_scanner = @import("../import_scanner.zig");
 const import_registry = @import("../codegen/native/import_registry.zig");
+const build_dirs = @import("../build_dirs.zig");
 
 // Submodules
 const cache = @import("compile/cache.zig");
@@ -111,8 +112,8 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
         return error.InvalidAST;
     // zig_code allocated by arena - no defer needed
 
-    // Save to .build/module_name.zig (use arena)
-    const output_path = try std.fmt.allocPrint(aa, ".build/{s}.zig", .{mod_name});
+    // Save to cache/module_name.zig (use arena)
+    const output_path = try std.fmt.allocPrint(aa, build_dirs.CACHE ++ "/{s}.zig", .{mod_name});
     // output_path allocated by arena - no defer needed
 
     const file = try std.fs.cwd().createFile(output_path, .{});
@@ -370,10 +371,8 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     }
 
     // Compile each imported module in dependency order
-    // Ensure .build directory exists for module Zig output
-    std.fs.cwd().makeDir(".build") catch |err| {
-        if (err != error.PathAlreadyExists) return err;
-    };
+    // Ensure build directories exist
+    try build_dirs.init();
     std.debug.print("Compiling {d} imported modules...\n", .{import_graph.modules.count()});
     var iter = import_graph.modules.iterator();
     while (iter.next()) |entry| {

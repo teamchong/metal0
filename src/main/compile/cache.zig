@@ -1,5 +1,11 @@
 /// Compilation cache management (content-hash based)
+///
+/// Cache structure under .metal0/cache/:
+/// - {module}.zig   - Generated Zig source
+/// - {module}.o     - Compiled object file
+/// - {module}.o.hash - Source hash for incremental detection
 const std = @import("std");
+const build_dirs = @import("../../build_dirs.zig");
 
 /// Compute SHA256 hash of source content
 pub fn computeHash(source: []const u8) [32]u8 {
@@ -10,7 +16,7 @@ pub fn computeHash(source: []const u8) [32]u8 {
 
 /// Get cache file path for a binary
 pub fn getCachePath(allocator: std.mem.Allocator, bin_path: []const u8) ![]const u8 {
-    // Cache file next to binary: .metal0/fibonacci.hash
+    // Cache file in .metal0/cache/: {name}.hash
     return try std.fmt.allocPrint(allocator, "{s}.hash", .{bin_path});
 }
 

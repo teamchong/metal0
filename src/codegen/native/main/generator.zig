@@ -12,9 +12,10 @@ const expressions = @import("../expressions.zig");
 const import_resolver = @import("../../../import_resolver.zig");
 const zig_keywords = @import("zig_keywords");
 const hashmap_helper = @import("hashmap_helper");
+const build_dirs = @import("../../../build_dirs.zig");
 
 // Comptime constants for code generation (zero runtime cost)
-const BUILD_DIR = ".build";
+const BUILD_DIR = build_dirs.CACHE;
 const MODULE_EXT = ".zig";
 const IMPORT_PREFIX = "./";
 const MAIN_NAME = "__main__";
