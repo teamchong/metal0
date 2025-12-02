@@ -626,6 +626,81 @@ fn isFirstParamUsedNonUnittestInExpr(expr: ast.Node, name: []const u8) bool {
     };
 }
 
+/// Check if a parameter is compared to a string constant using == or !=
+/// Pattern: if param == "string": ... or param != "string"
+/// Such parameters should be typed as []const u8 (string type)
+pub fn isParameterComparedToString(body: []ast.Node, param_name: []const u8) bool {
+    for (body) |stmt| {
+        if (isParamComparedToStringInStmt(stmt, param_name)) return true;
+    }
+    return false;
+}
+
+fn isParamComparedToStringInStmt(stmt: ast.Node, param_name: []const u8) bool {
+    return switch (stmt) {
+        .if_stmt => |if_stmt| {
+            if (isParamComparedToStringInExpr(if_stmt.condition.*, param_name)) return true;
+            if (isParameterComparedToString(if_stmt.body, param_name)) return true;
+            if (isParameterComparedToString(if_stmt.else_body, param_name)) return true;
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            if (isParamComparedToStringInExpr(while_stmt.condition.*, param_name)) return true;
+            if (isParameterComparedToString(while_stmt.body, param_name)) return true;
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            if (isParameterComparedToString(for_stmt.body, param_name)) return true;
+            return false;
+        },
+        .return_stmt => |ret| {
+            if (ret.value) |val| return isParamComparedToStringInExpr(val.*, param_name);
+            return false;
+        },
+        .assign => |assign| isParamComparedToStringInExpr(assign.value.*, param_name),
+        .expr_stmt => |expr| isParamComparedToStringInExpr(expr.value.*, param_name),
+        .function_def => |func_def| isParameterComparedToString(func_def.body, param_name),
+        else => false,
+    };
+}
+
+fn isParamComparedToStringInExpr(expr: ast.Node, param_name: []const u8) bool {
+    return switch (expr) {
+        .compare => |comp| {
+            // Check if left side is the parameter and compared to a string
+            if (comp.left.* == .name and std.mem.eql(u8, comp.left.name.id, param_name)) {
+                for (comp.comparators) |comparator| {
+                    if (comparator == .constant and comparator.constant.value == .string) {
+                        return true;
+                    }
+                }
+            }
+            // Check if any comparator is the parameter and left/other comparators are strings
+            if (comp.left.* == .constant and comp.left.constant.value == .string) {
+                for (comp.comparators) |comparator| {
+                    if (comparator == .name and std.mem.eql(u8, comparator.name.id, param_name)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        },
+        .boolop => |boolop| {
+            for (boolop.values) |val| {
+                if (isParamComparedToStringInExpr(val, param_name)) return true;
+            }
+            return false;
+        },
+        .if_expr => |tern| {
+            if (isParamComparedToStringInExpr(tern.condition.*, param_name)) return true;
+            if (isParamComparedToStringInExpr(tern.body.*, param_name)) return true;
+            if (isParamComparedToStringInExpr(tern.orelse_value.*, param_name)) return true;
+            return false;
+        },
+        else => false,
+    };
+}
+
 /// Check if a parameter is used in isinstance() or similar type-checking call
 /// Pattern: return isinstance(param, type) or isinstance(param, (type1, type2))
 /// Such parameters should use anytype to accept any value for runtime type checking
