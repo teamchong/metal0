@@ -1,22 +1,18 @@
 /// Python _thread module - Low-level threading primitives
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "start_new_thread", genStartThread }, .{ "interrupt_main", genConst("{}") }, .{ "exit", genConst("return") },
-    .{ "allocate_lock", genConst(".{ .mutex = std.Thread.Mutex{} }") }, .{ "get_ident", genConst("@as(i64, @intFromPtr(std.Thread.getCurrentId()))") },
-    .{ "get_native_id", genConst("@as(i64, @intFromPtr(std.Thread.getCurrentId()))") },
-    .{ "stack_size", genConst("@as(i64, 0)") }, .{ "TIMEOUT_MAX", genConst("@as(f64, 4294967.0)") },
-    .{ "LockType", genConst("@TypeOf(.{ .mutex = std.Thread.Mutex{} })") },
-    .{ "RLock", genConst(".{ .mutex = std.Thread.Mutex{}, .count = 0, .owner = null }") },
-    .{ "error", genConst("error.ThreadError") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "start_new_thread", genStartThread }, .{ "interrupt_main", h.c("{}") }, .{ "exit", h.c("return") },
+    .{ "allocate_lock", h.c(".{ .mutex = std.Thread.Mutex{} }") }, .{ "get_ident", h.c("@as(i64, @intFromPtr(std.Thread.getCurrentId()))") },
+    .{ "get_native_id", h.c("@as(i64, @intFromPtr(std.Thread.getCurrentId()))") },
+    .{ "stack_size", h.I64(0) }, .{ "TIMEOUT_MAX", h.F64(4294967.0) },
+    .{ "LockType", h.c("@TypeOf(.{ .mutex = std.Thread.Mutex{} })") },
+    .{ "RLock", h.c(".{ .mutex = std.Thread.Mutex{}, .count = 0, .owner = null }") },
+    .{ "error", h.err("ThreadError") },
 });
 
 fn genStartThread(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

@@ -1,17 +1,10 @@
 /// Python _tracemalloc module - Internal tracemalloc support (C accelerator)
 const std = @import("std");
-const ast = @import("ast");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const h = @import("mod_helper.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "start", genConst("{}") }, .{ "stop", genConst("{}") }, .{ "is_tracing", genConst("false") }, .{ "clear_traces", genConst("{}") },
-    .{ "get_traceback_limit", genConst("@as(i32, 1)") }, .{ "get_traced_memory", genConst(".{ @as(i64, 0), @as(i64, 0) }") }, .{ "reset_peak", genConst("{}") },
-    .{ "get_tracemalloc_memory", genConst("@as(i64, 0)") }, .{ "get_object_traceback", genConst("null") }, .{ "get_traces", genConst("&[_]@TypeOf(.{}){}") },
-    .{ "get_object_traceback_internal", genConst("null") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "start", h.c("{}") }, .{ "stop", h.c("{}") }, .{ "is_tracing", h.c("false") }, .{ "clear_traces", h.c("{}") },
+    .{ "get_traceback_limit", h.I32(1) }, .{ "get_traced_memory", h.c(".{ @as(i64, 0), @as(i64, 0) }") }, .{ "reset_peak", h.c("{}") },
+    .{ "get_tracemalloc_memory", h.I64(0) }, .{ "get_object_traceback", h.c("null") }, .{ "get_traces", h.c("&[_]@TypeOf(.{}){}") },
+    .{ "get_object_traceback_internal", h.c("null") },
 });

@@ -1,17 +1,13 @@
 /// Python _struct module - C accelerator for struct (internal)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "pack", genPack }, .{ "pack_into", genConst("{}") }, .{ "unpack", genUnpack }, .{ "unpack_from", genUnpack },
-    .{ "iter_unpack", genConst("&[_]@TypeOf(.{}){}") }, .{ "calcsize", genCalcsize }, .{ "Struct", genStruct }, .{ "error", genConst("error.StructError") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "pack", genPack }, .{ "pack_into", h.c("{}") }, .{ "unpack", genUnpack }, .{ "unpack_from", genUnpack },
+    .{ "iter_unpack", h.c("&[_]@TypeOf(.{}){}") }, .{ "calcsize", genCalcsize }, .{ "Struct", genStruct }, .{ "error", h.err("StructError") },
 });
 
 fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

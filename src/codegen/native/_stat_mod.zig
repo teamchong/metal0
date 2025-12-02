@@ -1,44 +1,40 @@
 /// Python _stat module - Constants/functions from stat.h (internal)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // File type constants
-    .{ "S_IFMT", genConst("@as(u32, 0o170000)") }, .{ "S_IFDIR", genConst("@as(u32, 0o040000)") }, .{ "S_IFCHR", genConst("@as(u32, 0o020000)") },
-    .{ "S_IFBLK", genConst("@as(u32, 0o060000)") }, .{ "S_IFREG", genConst("@as(u32, 0o100000)") }, .{ "S_IFIFO", genConst("@as(u32, 0o010000)") },
-    .{ "S_IFLNK", genConst("@as(u32, 0o120000)") }, .{ "S_IFSOCK", genConst("@as(u32, 0o140000)") },
+    .{ "S_IFMT", h.U32(0o170000) }, .{ "S_IFDIR", h.U32(0o040000) }, .{ "S_IFCHR", h.U32(0o020000) },
+    .{ "S_IFBLK", h.U32(0o060000) }, .{ "S_IFREG", h.U32(0o100000) }, .{ "S_IFIFO", h.U32(0o010000) },
+    .{ "S_IFLNK", h.U32(0o120000) }, .{ "S_IFSOCK", h.U32(0o140000) },
     // Permission bits
-    .{ "S_ISUID", genConst("@as(u32, 0o4000)") }, .{ "S_ISGID", genConst("@as(u32, 0o2000)") }, .{ "S_ISVTX", genConst("@as(u32, 0o1000)") },
-    .{ "S_IRWXU", genConst("@as(u32, 0o700)") }, .{ "S_IRUSR", genConst("@as(u32, 0o400)") }, .{ "S_IWUSR", genConst("@as(u32, 0o200)") }, .{ "S_IXUSR", genConst("@as(u32, 0o100)") },
-    .{ "S_IRWXG", genConst("@as(u32, 0o070)") }, .{ "S_IRGRP", genConst("@as(u32, 0o040)") }, .{ "S_IWGRP", genConst("@as(u32, 0o020)") }, .{ "S_IXGRP", genConst("@as(u32, 0o010)") },
-    .{ "S_IRWXO", genConst("@as(u32, 0o007)") }, .{ "S_IROTH", genConst("@as(u32, 0o004)") }, .{ "S_IWOTH", genConst("@as(u32, 0o002)") }, .{ "S_IXOTH", genConst("@as(u32, 0o001)") },
+    .{ "S_ISUID", h.U32(0o4000) }, .{ "S_ISGID", h.U32(0o2000) }, .{ "S_ISVTX", h.U32(0o1000) },
+    .{ "S_IRWXU", h.U32(0o700) }, .{ "S_IRUSR", h.U32(0o400) }, .{ "S_IWUSR", h.U32(0o200) }, .{ "S_IXUSR", h.U32(0o100) },
+    .{ "S_IRWXG", h.U32(0o070) }, .{ "S_IRGRP", h.U32(0o040) }, .{ "S_IWGRP", h.U32(0o020) }, .{ "S_IXGRP", h.U32(0o010) },
+    .{ "S_IRWXO", h.U32(0o007) }, .{ "S_IROTH", h.U32(0o004) }, .{ "S_IWOTH", h.U32(0o002) }, .{ "S_IXOTH", h.U32(0o001) },
     // Type test functions
     .{ "S_ISDIR", genTypeTest("0o040000") }, .{ "S_ISCHR", genTypeTest("0o020000") }, .{ "S_ISBLK", genTypeTest("0o060000") },
     .{ "S_ISREG", genTypeTest("0o100000") }, .{ "S_ISFIFO", genTypeTest("0o010000") }, .{ "S_ISLNK", genTypeTest("0o120000") }, .{ "S_ISSOCK", genTypeTest("0o140000") },
     .{ "S_IMODE", genS_IMODE }, .{ "filemode", genFilemode },
     // stat_result field indices
-    .{ "ST_MODE", genConst("@as(i32, 0)") }, .{ "ST_INO", genConst("@as(i32, 1)") }, .{ "ST_DEV", genConst("@as(i32, 2)") }, .{ "ST_NLINK", genConst("@as(i32, 3)") },
-    .{ "ST_UID", genConst("@as(i32, 4)") }, .{ "ST_GID", genConst("@as(i32, 5)") }, .{ "ST_SIZE", genConst("@as(i32, 6)") },
-    .{ "ST_ATIME", genConst("@as(i32, 7)") }, .{ "ST_MTIME", genConst("@as(i32, 8)") }, .{ "ST_CTIME", genConst("@as(i32, 9)") },
+    .{ "ST_MODE", h.I32(0) }, .{ "ST_INO", h.I32(1) }, .{ "ST_DEV", h.I32(2) }, .{ "ST_NLINK", h.I32(3) },
+    .{ "ST_UID", h.I32(4) }, .{ "ST_GID", h.I32(5) }, .{ "ST_SIZE", h.I32(6) },
+    .{ "ST_ATIME", h.I32(7) }, .{ "ST_MTIME", h.I32(8) }, .{ "ST_CTIME", h.I32(9) },
     // Windows file attributes
-    .{ "FILE_ATTRIBUTE_ARCHIVE", genConst("@as(u32, 32)") }, .{ "FILE_ATTRIBUTE_COMPRESSED", genConst("@as(u32, 2048)") },
-    .{ "FILE_ATTRIBUTE_DEVICE", genConst("@as(u32, 64)") }, .{ "FILE_ATTRIBUTE_DIRECTORY", genConst("@as(u32, 16)") },
-    .{ "FILE_ATTRIBUTE_ENCRYPTED", genConst("@as(u32, 16384)") }, .{ "FILE_ATTRIBUTE_HIDDEN", genConst("@as(u32, 2)") },
-    .{ "FILE_ATTRIBUTE_NORMAL", genConst("@as(u32, 128)") }, .{ "FILE_ATTRIBUTE_NOT_CONTENT_INDEXED", genConst("@as(u32, 8192)") },
-    .{ "FILE_ATTRIBUTE_OFFLINE", genConst("@as(u32, 4096)") }, .{ "FILE_ATTRIBUTE_READONLY", genConst("@as(u32, 1)") },
-    .{ "FILE_ATTRIBUTE_REPARSE_POINT", genConst("@as(u32, 1024)") }, .{ "FILE_ATTRIBUTE_SPARSE_FILE", genConst("@as(u32, 512)") },
-    .{ "FILE_ATTRIBUTE_SYSTEM", genConst("@as(u32, 4)") }, .{ "FILE_ATTRIBUTE_TEMPORARY", genConst("@as(u32, 256)") },
-    .{ "FILE_ATTRIBUTE_VIRTUAL", genConst("@as(u32, 65536)") },
+    .{ "FILE_ATTRIBUTE_ARCHIVE", h.U32(32) }, .{ "FILE_ATTRIBUTE_COMPRESSED", h.U32(2048) },
+    .{ "FILE_ATTRIBUTE_DEVICE", h.U32(64) }, .{ "FILE_ATTRIBUTE_DIRECTORY", h.U32(16) },
+    .{ "FILE_ATTRIBUTE_ENCRYPTED", h.U32(16384) }, .{ "FILE_ATTRIBUTE_HIDDEN", h.U32(2) },
+    .{ "FILE_ATTRIBUTE_NORMAL", h.U32(128) }, .{ "FILE_ATTRIBUTE_NOT_CONTENT_INDEXED", h.U32(8192) },
+    .{ "FILE_ATTRIBUTE_OFFLINE", h.U32(4096) }, .{ "FILE_ATTRIBUTE_READONLY", h.U32(1) },
+    .{ "FILE_ATTRIBUTE_REPARSE_POINT", h.U32(1024) }, .{ "FILE_ATTRIBUTE_SPARSE_FILE", h.U32(512) },
+    .{ "FILE_ATTRIBUTE_SYSTEM", h.U32(4) }, .{ "FILE_ATTRIBUTE_TEMPORARY", h.U32(256) },
+    .{ "FILE_ATTRIBUTE_VIRTUAL", h.U32(65536) },
 });
 
-fn genTypeTest(comptime expected: []const u8) ModuleHandler {
+fn genTypeTest(comptime expected: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit("(("); try self.genExpr(args[0]); try self.emit(" & 0o170000) == " ++ expected ++ ")"); } else try self.emit("false");
     } }.f;
