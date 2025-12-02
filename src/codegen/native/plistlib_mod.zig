@@ -1,19 +1,15 @@
 /// Python plistlib module - Apple plist file handling
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "load", genConst(".{}") }, .{ "loads", genConst(".{}") }, .{ "dump", genConst("{}") }, .{ "dumps", genConst("\"\"") },
-    .{ "UID", genUID }, .{ "FMT_XML", genConst("@as(i32, 1)") }, .{ "FMT_BINARY", genConst("@as(i32, 2)") },
-    .{ "Dict", genConst(".{}") }, .{ "Data", genData }, .{ "InvalidFileException", genConst("error.InvalidFileException") },
-    .{ "readPlist", genConst(".{}") }, .{ "writePlist", genConst("{}") }, .{ "readPlistFromBytes", genConst(".{}") }, .{ "writePlistToBytes", genConst("\"\"") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "load", h.c(".{}") }, .{ "loads", h.c(".{}") }, .{ "dump", h.c("{}") }, .{ "dumps", h.c("\"\"") },
+    .{ "UID", genUID }, .{ "FMT_XML", h.I32(1) }, .{ "FMT_BINARY", h.I32(2) },
+    .{ "Dict", h.c(".{}") }, .{ "Data", genData }, .{ "InvalidFileException", h.err("InvalidFileException") },
+    .{ "readPlist", h.c(".{}") }, .{ "writePlist", h.c("{}") }, .{ "readPlistFromBytes", h.c(".{}") }, .{ "writePlistToBytes", h.c("\"\"") },
 });
 
 fn genUID(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

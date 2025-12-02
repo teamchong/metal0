@@ -1,21 +1,17 @@
 /// Python pickle module - Object serialization (uses JSON as backing format)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const json = @import("json.zig");
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "dumps", genDumps }, .{ "loads", genLoads }, .{ "dump", genDump }, .{ "load", genLoad },
-    .{ "HIGHEST_PROTOCOL", genConst("@as(i64, 5)") }, .{ "DEFAULT_PROTOCOL", genConst("@as(i64, 4)") },
-    .{ "PicklingError", genConst("error.PicklingError") }, .{ "UnpicklingError", genConst("error.UnpicklingError") },
-    .{ "Pickler", genConst("try runtime.io.BytesIO.create(__global_allocator)") },
-    .{ "Unpickler", genConst("try runtime.io.BytesIO.create(__global_allocator)") },
+    .{ "HIGHEST_PROTOCOL", h.I64(5) }, .{ "DEFAULT_PROTOCOL", h.I64(4) },
+    .{ "PicklingError", h.err("PicklingError") }, .{ "UnpicklingError", h.err("UnpicklingError") },
+    .{ "Pickler", h.c("try runtime.io.BytesIO.create(__global_allocator)") },
+    .{ "Unpickler", h.c("try runtime.io.BytesIO.create(__global_allocator)") },
 });
 
 pub fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

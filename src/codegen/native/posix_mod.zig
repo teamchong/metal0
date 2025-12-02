@@ -1,23 +1,20 @@
 /// Python posix module - POSIX system calls (low-level os operations)
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-fn genPathOp(comptime body: []const u8, comptime default: []const u8) ModuleHandler {
+fn genPathOp(comptime body: []const u8, comptime default: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit("blk: { const path = "); try self.genExpr(args[0]); try self.emit("; " ++ body ++ " }"); } else try self.emit(default);
     } }.f;
 }
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "getcwd", genConst("blk: { var buf: [4096]u8 = undefined; break :blk std.fs.cwd().realpath(\".\", &buf) catch \".\"; }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "getcwd", h.c("blk: { var buf: [4096]u8 = undefined; break :blk std.fs.cwd().realpath(\".\", &buf) catch \".\"; }") },
     .{ "chdir", genPathOp("std.posix.chdir(path) catch {}; break :blk {};", "{}") },
-    .{ "listdir", genConst("metal0_runtime.PyList([]const u8).init()") },
+    .{ "listdir", h.c("metal0_runtime.PyList([]const u8).init()") },
     .{ "mkdir", genPathOp("std.fs.cwd().makeDir(path) catch {}; break :blk {};", "{}") },
     .{ "rmdir", genPathOp("std.fs.cwd().deleteDir(path) catch {}; break :blk {};", "{}") },
     .{ "unlink", genPathOp("std.fs.cwd().deleteFile(path) catch {}; break :blk {};", "{}") },
@@ -27,23 +24,23 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "access", genPathOp("_ = std.fs.cwd().statFile(path) catch break :blk false; break :blk true;", "false") },
     .{ "symlink", genSymlink }, .{ "readlink", genPathOp("var buf: [4096]u8 = undefined; break :blk std.fs.cwd().readLink(path, &buf) catch \"\";", "\"\"") },
     .{ "urandom", genUrandom },
-    .{ "fstat", genConst(".{ .st_size = 0, .st_mode = 0 }") },
-    .{ "getpid", genConst("@as(i32, @intCast(std.c.getpid()))") },
-    .{ "getppid", genConst("@as(i32, @intCast(std.c.getppid()))") },
-    .{ "getuid", genConst("@as(u32, std.c.getuid())") },
-    .{ "getgid", genConst("@as(u32, std.c.getgid())") },
-    .{ "geteuid", genConst("@as(u32, std.c.geteuid())") },
-    .{ "getegid", genConst("@as(u32, std.c.getegid())") },
-    .{ "fork", genConst("@as(i32, @intCast(std.c.fork()))") },
-    .{ "read", genConst("\"\"") }, .{ "write", genConst("@as(i64, 0)") },
-    .{ "pipe", genConst(".{ @as(i32, -1), @as(i32, -1) }") },
-    .{ "dup", genConst("@as(i32, -1)") }, .{ "dup2", genConst("@as(i32, -1)") },
-    .{ "chmod", genConst("{}") }, .{ "chown", genConst("{}") },
-    .{ "umask", genConst("@as(i32, 0o022)") },
-    .{ "uname", genConst(".{ .sysname = \"Darwin\", .nodename = \"localhost\", .release = \"21.0.0\", .version = \"Darwin Kernel\", .machine = \"x86_64\" }") },
-    .{ "error", genConst("error.OSError") },
-    .{ "wait", genConst(".{ @as(i32, 0), @as(i32, 0) }") },
-    .{ "waitpid", genConst(".{ @as(i32, 0), @as(i32, 0) }") },
+    .{ "fstat", h.c(".{ .st_size = 0, .st_mode = 0 }") },
+    .{ "getpid", h.c("@as(i32, @intCast(std.c.getpid()))") },
+    .{ "getppid", h.c("@as(i32, @intCast(std.c.getppid()))") },
+    .{ "getuid", h.c("@as(u32, std.c.getuid())") },
+    .{ "getgid", h.c("@as(u32, std.c.getgid())") },
+    .{ "geteuid", h.c("@as(u32, std.c.geteuid())") },
+    .{ "getegid", h.c("@as(u32, std.c.getegid())") },
+    .{ "fork", h.c("@as(i32, @intCast(std.c.fork()))") },
+    .{ "read", h.c("\"\"") }, .{ "write", h.I64(0) },
+    .{ "pipe", h.c(".{ @as(i32, -1), @as(i32, -1) }") },
+    .{ "dup", h.I32(-1) }, .{ "dup2", h.I32(-1) },
+    .{ "chmod", h.c("{}") }, .{ "chown", h.c("{}") },
+    .{ "umask", h.c("@as(i32, 0o022)") },
+    .{ "uname", h.c(".{ .sysname = \"Darwin\", .nodename = \"localhost\", .release = \"21.0.0\", .version = \"Darwin Kernel\", .machine = \"x86_64\" }") },
+    .{ "error", h.err("OSError") },
+    .{ "wait", h.c(".{ @as(i32, 0), @as(i32, 0) }") },
+    .{ "waitpid", h.c(".{ @as(i32, 0), @as(i32, 0) }") },
 });
 
 fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

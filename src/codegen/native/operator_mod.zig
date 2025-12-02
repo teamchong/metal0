@@ -1,37 +1,33 @@
 /// Python operator module - Standard operators as functions
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-
 // Comptime generators
-fn genBinary(comptime name: []const u8, comptime op: []const u8, comptime d: []const u8) ModuleHandler {
+fn genBinary(comptime name: []const u8, comptime op: []const u8, comptime d: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) { try self.emit("(runtime.builtins.Operator" ++ name ++ "{})"); return; }
         if (args.len < 2) { try self.emit(d); return; }
         try self.emit("("); try self.genExpr(args[0]); try self.emit(op); try self.genExpr(args[1]); try self.emit(")");
     } }.f;
 }
-fn genUnary(comptime name: []const u8, comptime pre: []const u8, comptime suf: []const u8) ModuleHandler {
+fn genUnary(comptime name: []const u8, comptime pre: []const u8, comptime suf: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) { try self.emit("(runtime.builtins.Operator" ++ name ++ "{})"); return; }
         try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf);
     } }.f;
 }
-fn genShift(comptime name: []const u8, comptime op: []const u8) ModuleHandler {
+fn genShift(comptime name: []const u8, comptime op: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) { try self.emit("(runtime.builtins.Operator" ++ name ++ "{})"); return; }
         if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
         try self.emit("("); try self.genExpr(args[0]); try self.emit(op); try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit("))");
     } }.f;
 }
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Arithmetic
     .{ "add", genBinary("Add", " + ", "@as(i64, 0)") }, .{ "sub", genBinary("Sub", " - ", "@as(i64, 0)") },
     .{ "mul", genBinary("Mul", " * ", "@as(i64, 0)") }, .{ "truediv", genTruediv }, .{ "floordiv", genFloordiv },
@@ -53,14 +49,14 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "is_", genIs }, .{ "is_not", genIsNot },
     // Sequence
     .{ "concat", genConcat }, .{ "contains", genContains },
-    .{ "countOf", genConst("@as(i64, 0)") }, .{ "indexOf", genConst("@as(i64, -1)") },
+    .{ "countOf", h.I64(0) }, .{ "indexOf", h.I64(-1) },
     // Item
     .{ "getitem", genGetitem }, .{ "setitem", genSetitem },
-    .{ "delitem", genConst("null") }, .{ "length_hint", genConst("@as(i64, 0)") },
+    .{ "delitem", h.c("null") }, .{ "length_hint", h.I64(0) },
     // Getters
-    .{ "attrgetter", genConst("struct { attr: []const u8 = \"\", pub fn __call__(self: @This(), obj: anytype) []const u8 { _ = obj; return \"\"; } }{}") },
-    .{ "itemgetter", genConst("struct { item: i64 = 0, pub fn __call__(__self: @This(), obj: anytype) @TypeOf(obj[0]) { return obj[@intCast(__self.item)]; } }{}") },
-    .{ "methodcaller", genConst("struct { name: []const u8 = \"\", pub fn __call__(self: @This(), obj: anytype) void { _ = obj; } }{}") },
+    .{ "attrgetter", h.c("struct { attr: []const u8 = \"\", pub fn __call__(self: @This(), obj: anytype) []const u8 { _ = obj; return \"\"; } }{}") },
+    .{ "itemgetter", h.c("struct { item: i64 = 0, pub fn __call__(__self: @This(), obj: anytype) @TypeOf(obj[0]) { return obj[@intCast(__self.item)]; } }{}") },
+    .{ "methodcaller", h.c("struct { name: []const u8 = \"\", pub fn __call__(self: @This(), obj: anytype) void { _ = obj; } }{}") },
     // Index
     .{ "index", genIndex },
     // In-place (same as regular)
