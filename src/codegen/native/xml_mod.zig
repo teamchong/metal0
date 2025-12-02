@@ -8,7 +8,7 @@ const NativeCodegen = h.NativeCodegen;
 const element_tree_struct = "struct { root: ?*Element = null, pub fn getroot(s: *@This()) ?*Element { return s.root; } pub fn write(s: *@This(), f: []const u8) void { _ = s; _ = f; } }{}";
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "parse", genParse }, .{ "fromstring", genFromstring }, .{ "tostring", genTostring },
+    .{ "parse", genParse }, .{ "fromstring", h.discard("Element{}") }, .{ "tostring", genTostring },
     .{ "Element", genElement }, .{ "SubElement", genSubElement }, .{ "ElementTree", h.c(element_tree_struct) },
     .{ "Comment", h.c("Element{ .tag = \"!--\" }") }, .{ "ProcessingInstruction", h.c("Element{ .tag = \"?\" }") },
     .{ "QName", genQName }, .{ "indent", h.c("{}") }, .{ "dump", h.c("{}") }, .{ "iselement", h.c("true") },
@@ -20,10 +20,6 @@ fn genParse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("; const f = std.fs.cwd().openFile(_src, .{}) catch break :blk " ++ element_tree_struct ++ "; defer f.close(); _ = f.readToEndAlloc(__global_allocator, 10*1024*1024) catch {}; break :blk " ++ element_tree_struct ++ "; }");
 }
 
-fn genFromstring(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
-    try self.emit("blk: { _ = "); try self.genExpr(args[0]); try self.emit("; break :blk Element{}; }");
-}
 
 fn genTostring(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;

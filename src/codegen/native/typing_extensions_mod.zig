@@ -1,6 +1,5 @@
 /// Python typing_extensions module - Backports of typing features
 const std = @import("std");
-const ast = @import("ast");
 const h = @import("mod_helper.zig");
 
 const passthrough = h.pass("@as(?*anyopaque, null)");
@@ -30,10 +29,6 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Type", h.c("@TypeOf(undefined)") }, .{ "Literal", h.c("@TypeOf(undefined)") },
     .{ "ClassVar", h.c("@TypeOf(undefined)") }, .{ "TypeVar", h.c("@TypeOf(undefined)") },
     .{ "Generic", h.c("@TypeOf(undefined)") }, .{ "NoReturn", h.c("noreturn") },
-    .{ "cast", genCast }, .{ "overload", passthrough }, .{ "no_type_check", passthrough },
+    .{ "cast", h.passN(1, "@as(?*anyopaque, null)") }, .{ "overload", passthrough }, .{ "no_type_check", passthrough },
     .{ "TYPE_CHECKING", h.c("false") },
 });
-
-fn genCast(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    if (args.len >= 2) try self.genExpr(args[1]) else if (args.len == 1) try self.genExpr(args[0]) else try self.emit("@as(?*anyopaque, null)");
-}

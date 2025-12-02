@@ -23,7 +23,7 @@ Python is slow. Packaging is painful. metal0 fixes both:
 
 ## Benchmarks
 
-All benchmarks on Apple M2. [Full methodology](benchmarks/RESULTS.md).
+All benchmarks on Apple M2.
 
 ### Compute
 
