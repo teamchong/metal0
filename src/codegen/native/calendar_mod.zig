@@ -78,11 +78,5 @@ fn genMonthrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// calendar.monthcalendar(year, month) - returns matrix of weeks
-fn genMonthcalendar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("&[_][]const i32{}"); return; }
-    try self.emit("runtime.calendar.monthcalendar(__global_allocator, ");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(")"    );
-}
+const genMonthcalendar = h.wrap2("runtime.calendar.monthcalendar(__global_allocator, ", ", ", ")", "&[_][]const i32{}");
+
