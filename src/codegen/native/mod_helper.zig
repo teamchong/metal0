@@ -49,6 +49,59 @@ pub fn pass(comptime default: []const u8) H {
     } }.f;
 }
 
+// === Math helpers ===
+
+/// Generates @builtin(@as(f64, arg)) or default
+pub fn builtin1(comptime b: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit(b ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
+    } }.f;
+}
+
+/// Generates std.math.fn(@as(f64, arg)) or default
+pub fn stdmath1(comptime fn_name: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit("std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
+    } }.f;
+}
+
+/// Generates std.math.fn(f64, @as(f64, arg)) or default
+pub fn stdmathT(comptime fn_name: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit("std.math." ++ fn_name ++ "(f64, @as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
+    } }.f;
+}
+
+/// Generates std.math.fn(@as(f64, a), @as(f64, b)) or default
+pub fn stdmath2(comptime fn_name: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len >= 2) { try self.emit("std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("), @as(f64, "); try self.genExpr(args[1]); try self.emit("))"); } else try self.emit(d);
+    } }.f;
+}
+
+// === Operator helpers ===
+
+/// Generates binary operator: (a op b) or default
+pub fn binop(comptime op: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len >= 2) { try self.emit("("); try self.genExpr(args[0]); try self.emit(op); try self.genExpr(args[1]); try self.emit(")"); } else try self.emit(d);
+    } }.f;
+}
+
+/// Generates unary: pre + arg + suf
+pub fn unary(comptime pre: []const u8, comptime suf: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); } else try self.emit("@as(i64, 0)");
+    } }.f;
+}
+
+/// Generates shift: (a op @intCast(b)) or default
+pub fn shift(comptime op: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len >= 2) { try self.emit("("); try self.genExpr(args[0]); try self.emit(op); try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit("))"); } else try self.emit("@as(i64, 0)");
+    } }.f;
+}
+
 /// Emit a unique labeled block start and return the label ID for break
 pub fn emitUniqueBlockStart(self: *NativeCodegen, prefix: []const u8) CodegenError!u64 {
     const id = self.block_label_counter;

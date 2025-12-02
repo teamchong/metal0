@@ -2,8 +2,8 @@
 const std = @import("std");
 const ast = @import("ast");
 const h = @import("mod_helper.zig");
-const CodegenError = @import("main.zig").CodegenError;
-const NativeCodegen = @import("main.zig").NativeCodegen;
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
 
 const module_spec = ".{ .name = \"\", .loader = @as(?*anyopaque, null), .origin = @as(?[]const u8, null), .submodule_search_locations = @as(?*anyopaque, null), .cached = @as(?[]const u8, null), .parent = @as(?[]const u8, null), .has_location = false }";
 const module_type = ".{ .__name__ = \"\", .__doc__ = @as(?[]const u8, null), .__package__ = @as(?[]const u8, null), .__loader__ = @as(?*anyopaque, null), .__spec__ = @as(?*anyopaque, null) }";
