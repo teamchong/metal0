@@ -867,6 +867,20 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             const is_dynamic = try isDynamicAttrAssign(self, attr);
 
             try self.emitIndent();
+
+            // Check for sys.stdout/stderr assignment - these are not assignable in Zig
+            // Just discard the value and emit a comment
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "sys")) {
+                if (std.mem.eql(u8, attr.attr, "stdout") or std.mem.eql(u8, attr.attr, "stderr")) {
+                    try self.emit("runtime.discard(");
+                    try self.genExpr(assign.value.*);
+                    try self.emit("); // sys.");
+                    try self.emit(attr.attr);
+                    try self.emit(" assignment is a no-op in metal0\n");
+                    return;
+                }
+            }
+
             if (is_dynamic) {
                 // Dynamic attribute: use __dict__.put() with type wrapping
                 // Use @constCast since the object may be declared as const (HashMap stores data via pointers,
