@@ -516,6 +516,16 @@ pub fn genFunctionSignature(
                 try self.emit("?");
             }
             try self.emit(zig_type);
+        } else if (param_analyzer.isParameterComparedToString(func.body, arg.name)) {
+            // Parameter compared to string constant - infer as string type
+            // e.g., def foo(encoding): if encoding == "utf-8": ...
+            if (arg.default != null) {
+                try self.emit("?");
+            }
+            try self.emit("[]const u8");
+            // Also register with type inferrer so comparison codegen knows to use std.mem.eql
+            // Use var_types directly since we're not in a scope yet (signature runs before body)
+            try self.type_inferrer.var_types.put(arg.name, .{ .string = .literal });
         } else if (self.getVarTypeInScope(func.name, arg.name)) |var_type| {
             // Use scoped type inference for function parameters
             // This avoids type pollution from variables with same name in other scopes
