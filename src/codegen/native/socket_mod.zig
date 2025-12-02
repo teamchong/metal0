@@ -1,31 +1,28 @@
 /// Python socket module - Basic TCP/UDP socket operations
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-fn genByteSwap(comptime pre: []const u8, comptime ty: []const u8, comptime func: []const u8) ModuleHandler {
+fn genByteSwap(comptime pre: []const u8, comptime ty: []const u8, comptime func: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) return;
         try self.emit(pre ++ "std.mem." ++ func ++ "(" ++ ty ++ ", @intCast("); try self.genExpr(args[0]); try self.emit("))))");
     } }.f;
 }
 
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "socket", genConst("blk: { const _sock = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch break :blk @as(i64, -1); break :blk @as(i64, @intCast(_sock)); }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "socket", h.c("blk: { const _sock = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch break :blk @as(i64, -1); break :blk @as(i64, @intCast(_sock)); }") },
     .{ "create_connection", genCreateConnection },
-    .{ "gethostname", genConst("blk: { var _buf: [std.posix.HOST_NAME_MAX]u8 = undefined; const _result = std.posix.gethostname(&_buf); if (_result) |_name| { break :blk __global_allocator.dupe(u8, _name) catch \"\"; } else |_| break :blk \"\"; }") },
-    .{ "getfqdn", genConst("blk: { var _buf: [std.posix.HOST_NAME_MAX]u8 = undefined; const _result = std.posix.gethostname(&_buf); if (_result) |_name| { break :blk __global_allocator.dupe(u8, _name) catch \"\"; } else |_| break :blk \"\"; }") },
+    .{ "gethostname", h.c("blk: { var _buf: [std.posix.HOST_NAME_MAX]u8 = undefined; const _result = std.posix.gethostname(&_buf); if (_result) |_name| { break :blk __global_allocator.dupe(u8, _name) catch \"\"; } else |_| break :blk \"\"; }") },
+    .{ "getfqdn", h.c("blk: { var _buf: [std.posix.HOST_NAME_MAX]u8 = undefined; const _result = std.posix.gethostname(&_buf); if (_result) |_name| { break :blk __global_allocator.dupe(u8, _name) catch \"\"; } else |_| break :blk \"\"; }") },
     .{ "inet_aton", genInetAton }, .{ "inet_ntoa", genInetNtoa },
     .{ "htons", genByteSwap("@as(i64, @intCast(", "u16", "nativeToBig") },
     .{ "htonl", genByteSwap("@as(i64, @intCast(", "u32", "nativeToBig") },
     .{ "ntohs", genByteSwap("@as(i64, @intCast(", "u16", "bigToNative") },
     .{ "ntohl", genByteSwap("@as(i64, @intCast(", "u32", "bigToNative") },
-    .{ "setdefaulttimeout", genConst("{}") }, .{ "getdefaulttimeout", genConst("null") },
+    .{ "setdefaulttimeout", h.c("{}") }, .{ "getdefaulttimeout", h.c("null") },
 });
 
 fn genCreateConnection(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

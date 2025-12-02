@@ -1,20 +1,16 @@
 /// Python secrets module - cryptographically secure random numbers
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "token_bytes", genTokenBytes }, .{ "token_hex", genTokenHex }, .{ "token_urlsafe", genTokenUrlsafe },
     .{ "randbelow", genRandbelow }, .{ "choice", genChoice }, .{ "randbits", genRandbits },
     .{ "compare_digest", genCompareDigest },
-    .{ "SystemRandom", genConst("struct { pub fn random(__self: *@This()) f64 { _ = __self; const bits = std.crypto.random.int(u53); return @as(f64, @floatFromInt(bits)) / @as(f64, @floatFromInt(@as(u53, 1) << 53)); } pub fn randint(__self: *@This(), a: i64, b: i64) i64 { _ = __self; return @as(i64, @intCast(std.crypto.random.intRangeAtMost(i64, a, b))); } }{}") },
-    .{ "DEFAULT_ENTROPY", genConst("@as(i64, 32)") },
+    .{ "SystemRandom", h.c("struct { pub fn random(__self: *@This()) f64 { _ = __self; const bits = std.crypto.random.int(u53); return @as(f64, @floatFromInt(bits)) / @as(f64, @floatFromInt(@as(u53, 1) << 53)); } pub fn randint(__self: *@This(), a: i64, b: i64) i64 { _ = __self; return @as(i64, @intCast(std.crypto.random.intRangeAtMost(i64, a, b))); } }{}") },
+    .{ "DEFAULT_ENTROPY", h.I64(32) },
 });
 
 const nbytes_init = "const _nbytes: usize = ";

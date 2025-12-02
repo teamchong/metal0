@@ -1,31 +1,27 @@
 /// Python socketserver module - Framework for network servers
 const std = @import("std");
 const ast = @import("ast");
+const h = @import("mod_helper.zig");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 
-const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
-fn genConst(comptime v: []const u8) ModuleHandler {
-    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
-}
-
-pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
-    .{ "BaseServer", genConst(".{ .server_address = .{ \"0.0.0.0\", 0 }, .RequestHandlerClass = null }") },
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    .{ "BaseServer", h.c(".{ .server_address = .{ \"0.0.0.0\", 0 }, .RequestHandlerClass = null }") },
     .{ "TCPServer", genTCPServer }, .{ "UDPServer", genUDPServer },
-    .{ "UnixStreamServer", genConst(".{ .server_address = \"\", .socket = null }") },
-    .{ "UnixDatagramServer", genConst(".{ .server_address = \"\", .socket = null }") },
-    .{ "ForkingMixIn", genConst(".{ .timeout = 300, .active_children = null, .max_children = 40, .block_on_close = true }") },
-    .{ "ThreadingMixIn", genConst(".{ .daemon_threads = false, .block_on_close = true }") },
-    .{ "ForkingTCPServer", genConst(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null }") },
-    .{ "ForkingUDPServer", genConst(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null }") },
-    .{ "ThreadingTCPServer", genConst(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null }") },
-    .{ "ThreadingUDPServer", genConst(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null }") },
-    .{ "ThreadingUnixStreamServer", genConst(".{ .server_address = \"\" }") },
-    .{ "ThreadingUnixDatagramServer", genConst(".{ .server_address = \"\" }") },
-    .{ "BaseRequestHandler", genConst(".{ .request = null, .client_address = null, .server = null }") },
-    .{ "StreamRequestHandler", genConst(".{ .request = null, .client_address = null, .server = null, .rfile = null, .wfile = null, .rbufsize = -1, .wbufsize = 0, .timeout = null, .disable_nagle_algorithm = false }") },
-    .{ "DatagramRequestHandler", genConst(".{ .request = null, .client_address = null, .server = null, .rfile = null, .wfile = null }") },
-    .{ "serve_forever", genConst("{}") }, .{ "shutdown", genConst("{}") }, .{ "handle_request", genConst("{}") }, .{ "server_close", genConst("{}") },
+    .{ "UnixStreamServer", h.c(".{ .server_address = \"\", .socket = null }") },
+    .{ "UnixDatagramServer", h.c(".{ .server_address = \"\", .socket = null }") },
+    .{ "ForkingMixIn", h.c(".{ .timeout = 300, .active_children = null, .max_children = 40, .block_on_close = true }") },
+    .{ "ThreadingMixIn", h.c(".{ .daemon_threads = false, .block_on_close = true }") },
+    .{ "ForkingTCPServer", h.c(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null }") },
+    .{ "ForkingUDPServer", h.c(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null }") },
+    .{ "ThreadingTCPServer", h.c(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null }") },
+    .{ "ThreadingUDPServer", h.c(".{ .server_address = .{ \"0.0.0.0\", 0 }, .socket = null }") },
+    .{ "ThreadingUnixStreamServer", h.c(".{ .server_address = \"\" }") },
+    .{ "ThreadingUnixDatagramServer", h.c(".{ .server_address = \"\" }") },
+    .{ "BaseRequestHandler", h.c(".{ .request = null, .client_address = null, .server = null }") },
+    .{ "StreamRequestHandler", h.c(".{ .request = null, .client_address = null, .server = null, .rfile = null, .wfile = null, .rbufsize = -1, .wbufsize = 0, .timeout = null, .disable_nagle_algorithm = false }") },
+    .{ "DatagramRequestHandler", h.c(".{ .request = null, .client_address = null, .server = null, .rfile = null, .wfile = null }") },
+    .{ "serve_forever", h.c("{}") }, .{ "shutdown", h.c("{}") }, .{ "handle_request", h.c("{}") }, .{ "server_close", h.c("{}") },
 });
 
 fn genTCPServer(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
