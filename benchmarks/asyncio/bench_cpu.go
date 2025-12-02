@@ -1,5 +1,5 @@
-// CPU-Bound Benchmark: Fan-out/Fan-in (Go goroutines)
-// Using SHA256 hashing for fair comparison with Python
+// CPU-Bound Benchmark: Parallel Scaling Test (Go goroutines)
+// Measures true parallelism: Sequential vs Parallel speedup
 package main
 
 import (
@@ -11,30 +11,35 @@ import (
 )
 
 const (
-	NUM_TASKS     = 100
-	WORK_PER_TASK = 10000 // 10K hash iterations per task
+	NUM_WORKERS     = 8
+	WORK_PER_WORKER = 5000
 )
 
-func worker(taskID int) int {
+func doWork(workerID int, iterations int) int {
 	h := sha256.New()
-	for i := 0; i < WORK_PER_TASK; i++ {
-		h.Write([]byte(strconv.Itoa(taskID + i)))
+	for i := 0; i < iterations; i++ {
+		h.Write([]byte(strconv.Itoa(workerID + i)))
 	}
-	result := h.Sum(nil)
-	return len(fmt.Sprintf("%x", result))
+	return len(fmt.Sprintf("%x", h.Sum(nil)))
 }
 
 func main() {
-	start := time.Now()
+	// Sequential: 1 worker does ALL work
+	seqStart := time.Now()
+	seqTotal := doWork(0, NUM_WORKERS*WORK_PER_WORKER)
+	seqTime := time.Since(seqStart)
+	_ = seqTotal
 
-	results := make(chan int, NUM_TASKS)
+	// Parallel: N workers split work
+	parStart := time.Now()
+	results := make(chan int, NUM_WORKERS)
 	var wg sync.WaitGroup
 
-	for i := 0; i < NUM_TASKS; i++ {
+	for i := 0; i < NUM_WORKERS; i++ {
 		wg.Add(1)
-		go func(taskID int) {
+		go func(workerID int) {
 			defer wg.Done()
-			results <- worker(taskID)
+			results <- doWork(workerID, WORK_PER_WORKER)
 		}(i)
 	}
 
@@ -43,17 +48,21 @@ func main() {
 		close(results)
 	}()
 
-	var total int = 0
+	parTotal := 0
 	for result := range results {
-		total += result
+		parTotal += result
 	}
+	parTime := time.Since(parStart)
+	_ = parTotal
 
-	elapsed := time.Since(start)
+	speedup := float64(seqTime.Nanoseconds()) / float64(parTime.Nanoseconds())
+	efficiency := (speedup / float64(NUM_WORKERS)) * 100
 
-	fmt.Println("Benchmark: CPU-bound (SHA256)")
-	fmt.Printf("Tasks: %d\n", NUM_TASKS)
-	fmt.Printf("Work per task: %d hashes\n", WORK_PER_TASK)
-	fmt.Printf("Total result: %d\n", total)
-	fmt.Printf("Time: %.2fms\n", float64(elapsed.Nanoseconds())/1e6)
-	fmt.Printf("Tasks/sec: %.0f\n", float64(NUM_TASKS)/(float64(elapsed.Nanoseconds())/1e9))
+	fmt.Println("Benchmark: Parallel Scaling (SHA256)")
+	fmt.Printf("Workers: %d\n", NUM_WORKERS)
+	fmt.Printf("Work/worker: %d hashes\n", WORK_PER_WORKER)
+	fmt.Printf("Sequential: %.2fms\n", float64(seqTime.Nanoseconds())/1e6)
+	fmt.Printf("Parallel:   %.2fms\n", float64(parTime.Nanoseconds())/1e6)
+	fmt.Printf("Speedup:    %.2fx\n", speedup)
+	fmt.Printf("Efficiency: %.0f%%\n", efficiency)
 }

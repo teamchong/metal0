@@ -8,9 +8,8 @@ const self_analyzer = @import("../self_analyzer.zig");
 const zig_keywords = @import("zig_keywords");
 const state_machine = @import("../../../async_state_machine.zig");
 
-/// Use state machine async (true non-blocking) vs thread-based (blocking)
-/// State machines allow 1000x+ concurrent I/O operations (like Go/Rust)
-const USE_STATE_MACHINE_ASYNC = true;
+// NOTE: Async strategy is now determined per-function via function_traits
+// Query self.shouldUseStateMachineAsync(func.name) instead of hardcoded constant
 
 /// Python type hint to Zig type mapping (comptime optimized)
 const TypeHints = std.StaticStringMap([]const u8).initComptime(.{
@@ -532,8 +531,10 @@ fn genAsyncFunctionSignature(
 ) CodegenError!void {
     _ = needs_allocator; // Async functions always need allocator
 
-    // Use state machine approach for true non-blocking I/O
-    if (USE_STATE_MACHINE_ASYNC) {
+    // Use state machine approach when ANY async function has I/O (for gather compatibility)
+    // State machine: single-threaded, kqueue netpoller - optimal for I/O concurrency
+    // Thread pool: multi-threaded, parallel execution - optimal for CPU-bound work
+    if (self.anyAsyncHasIO()) {
         return state_machine.genAsyncStateMachine(self, func);
     }
 
@@ -646,6 +647,10 @@ fn genAsyncFunctionSignature(
 
 /// Generate return type for function signature
 fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocator: bool) CodegenError!void {
+    // Check if function needs error union via function_traits analysis
+    // This detects: raise, assert, try/except, int/float conversion, etc.
+    const needs_error = needs_allocator or self.funcNeedsErrorUnion(func.name);
+
     if (func.return_type) |type_hint| {
         // Use explicit return type annotation if provided
         // First try simple type mapping
@@ -654,8 +659,8 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
             std.mem.eql(u8, type_hint, "int");
 
         if (is_simple_type) {
-            // Add error union if function needs allocator (allocations can fail)
-            if (needs_allocator) {
+            // Add error union if function needs allocator or can raise errors
+            if (needs_error) {
                 try self.emit("!");
             }
             try self.emit(simple_zig_type);
@@ -679,7 +684,7 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
                 self.allocator.free(return_type_str);
             };
 
-            if (needs_allocator) {
+            if (needs_error) {
                 try self.emit("!");
             }
             try self.emit(return_type_str);
@@ -722,14 +727,14 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
             // Check if we have a pre-declared closure type for this
             const closure_type_name = self.pending_closure_types.get(nested_func_name);
             if (closure_type_name) |type_name| {
-                if (needs_allocator) {
+                if (needs_error) {
                     try self.emit("!");
                 }
                 try self.emit(type_name);
                 try self.emit(" {\n");
             } else {
                 // No pre-declared type - fallback to i64 (will cause type error if actually returned)
-                if (needs_allocator) {
+                if (needs_error) {
                     try self.emit("!");
                 }
                 try self.emit("i64 {\n");
@@ -753,16 +758,16 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
                 self.allocator.free(return_type_str);
             };
 
-            // Add error union if function needs allocator
-            if (needs_allocator) {
+            // Add error union if function needs allocator or can raise errors
+            if (needs_error) {
                 try self.emit("!");
             }
             try self.emit(return_type_str);
             try self.emit(" {\n");
         }
     } else {
-        // Functions with allocator but no return still need error union for void
-        if (needs_allocator) {
+        // Functions with allocator or errors but no return still need error union for void
+        if (needs_error) {
             try self.emit("!void {\n");
         } else {
             try self.emit("void {\n");
@@ -1013,8 +1018,10 @@ pub fn genMethodSignatureWithSkip(
         }
     }
 
-    // Determine return type (add error union if allocator needed)
-    if (needs_allocator) {
+    // Determine return type (add error union if allocator needed or function can error)
+    // Note: funcNeedsErrorUnion uses simple name lookup, which works for most methods
+    const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
+    if (needs_error) {
         try self.emit("!");
     }
     if (method.return_type) |type_hint| {

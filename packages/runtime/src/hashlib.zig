@@ -1,5 +1,6 @@
 /// Hashlib - Cryptographic Hash Functions
 /// Python-compatible API for hashlib module
+/// Uses incremental hashing for O(n) performance instead of O(n²) accumulation
 const std = @import("std");
 
 // Use Zig's built-in crypto
@@ -19,60 +20,79 @@ pub const Algorithm = enum {
     sha512,
 };
 
-/// Generic hash object interface
+/// Hasher union - stores the actual incremental hasher state
+const HasherState = union(Algorithm) {
+    md5: Md5,
+    sha1: Sha1,
+    sha224: Sha224,
+    sha256: Sha256,
+    sha384: Sha384,
+    sha512: Sha512,
+};
+
+/// Generic hash object interface - uses incremental hashing
 pub const HashObject = struct {
-    algorithm: Algorithm,
-    // We store the accumulated data and compute on demand
-    // This is simpler than trying to store hasher state
-    data: std.ArrayList(u8),
+    state: HasherState,
     digest_size: usize,
     block_size: usize,
     name: []const u8,
 
-    /// Update hash with more data
+    /// Update hash with more data - O(n) incremental!
     pub fn update(self: *HashObject, input: []const u8) void {
-        self.data.appendSlice(std.heap.page_allocator, input) catch {};
+        switch (self.state) {
+            .md5 => |*h| h.update(input),
+            .sha1 => |*h| h.update(input),
+            .sha224 => |*h| h.update(input),
+            .sha256 => |*h| h.update(input),
+            .sha384 => |*h| h.update(input),
+            .sha512 => |*h| h.update(input),
+        }
     }
 
     /// Get the digest as bytes (returns a copy that caller must free)
-    pub fn digest(self: *const HashObject, allocator: std.mem.Allocator) ![]u8 {
-        const d = self.data.items;
-        switch (self.algorithm) {
-            .md5 => {
+    pub fn digest(self: *HashObject, allocator: std.mem.Allocator) ![]u8 {
+        switch (self.state) {
+            .md5 => |*h| {
                 const result = try allocator.alloc(u8, Md5.digest_length);
-                Md5.hash(d, result[0..Md5.digest_length], .{});
+                var hasher = h.*;
+                hasher.final(result[0..Md5.digest_length]);
                 return result;
             },
-            .sha1 => {
+            .sha1 => |*h| {
                 const result = try allocator.alloc(u8, Sha1.digest_length);
-                Sha1.hash(d, result[0..Sha1.digest_length], .{});
+                var hasher = h.*;
+                hasher.final(result[0..Sha1.digest_length]);
                 return result;
             },
-            .sha224 => {
+            .sha224 => |*h| {
                 const result = try allocator.alloc(u8, Sha224.digest_length);
-                Sha224.hash(d, result[0..Sha224.digest_length], .{});
+                var hasher = h.*;
+                hasher.final(result[0..Sha224.digest_length]);
                 return result;
             },
-            .sha256 => {
+            .sha256 => |*h| {
                 const result = try allocator.alloc(u8, Sha256.digest_length);
-                Sha256.hash(d, result[0..Sha256.digest_length], .{});
+                var hasher = h.*;
+                hasher.final(result[0..Sha256.digest_length]);
                 return result;
             },
-            .sha384 => {
+            .sha384 => |*h| {
                 const result = try allocator.alloc(u8, Sha384.digest_length);
-                Sha384.hash(d, result[0..Sha384.digest_length], .{});
+                var hasher = h.*;
+                hasher.final(result[0..Sha384.digest_length]);
                 return result;
             },
-            .sha512 => {
+            .sha512 => |*h| {
                 const result = try allocator.alloc(u8, Sha512.digest_length);
-                Sha512.hash(d, result[0..Sha512.digest_length], .{});
+                var hasher = h.*;
+                hasher.final(result[0..Sha512.digest_length]);
                 return result;
             },
         }
     }
 
     /// Get the digest as hex string
-    pub fn hexdigest(self: *const HashObject, allocator: std.mem.Allocator) ![]u8 {
+    pub fn hexdigest(self: *HashObject, allocator: std.mem.Allocator) ![]u8 {
         const d = try self.digest(allocator);
         defer allocator.free(d);
         const hex = try allocator.alloc(u8, d.len * 2);
@@ -84,30 +104,26 @@ pub const HashObject = struct {
         return hex;
     }
 
-    /// Copy the hash object
-    pub fn copy(self: *const HashObject, allocator: std.mem.Allocator) !HashObject {
-        var new_obj = HashObject{
-            .algorithm = self.algorithm,
-            .data = std.ArrayList(u8){},
+    /// Copy the hash object (copies hasher state)
+    pub fn copy(self: *const HashObject) HashObject {
+        return HashObject{
+            .state = self.state,
             .digest_size = self.digest_size,
             .block_size = self.block_size,
             .name = self.name,
         };
-        try new_obj.data.appendSlice(allocator, self.data.items);
-        return new_obj;
     }
 
-    /// Free the hash object resources
+    /// Free the hash object resources (no-op for incremental hasher)
     pub fn deinit(self: *HashObject) void {
-        self.data.deinit(std.heap.page_allocator);
+        _ = self;
     }
 };
 
 /// Create MD5 hash object
 pub fn md5() HashObject {
     return HashObject{
-        .algorithm = .md5,
-        .data = std.ArrayList(u8){},
+        .state = .{ .md5 = Md5.init(.{}) },
         .digest_size = Md5.digest_length,
         .block_size = Md5.block_length,
         .name = "md5",
@@ -117,8 +133,7 @@ pub fn md5() HashObject {
 /// Create SHA1 hash object
 pub fn sha1() HashObject {
     return HashObject{
-        .algorithm = .sha1,
-        .data = std.ArrayList(u8){},
+        .state = .{ .sha1 = Sha1.init(.{}) },
         .digest_size = Sha1.digest_length,
         .block_size = Sha1.block_length,
         .name = "sha1",
@@ -128,8 +143,7 @@ pub fn sha1() HashObject {
 /// Create SHA224 hash object
 pub fn sha224() HashObject {
     return HashObject{
-        .algorithm = .sha224,
-        .data = std.ArrayList(u8){},
+        .state = .{ .sha224 = Sha224.init(.{}) },
         .digest_size = Sha224.digest_length,
         .block_size = Sha224.block_length,
         .name = "sha224",
@@ -139,8 +153,7 @@ pub fn sha224() HashObject {
 /// Create SHA256 hash object
 pub fn sha256() HashObject {
     return HashObject{
-        .algorithm = .sha256,
-        .data = std.ArrayList(u8){},
+        .state = .{ .sha256 = Sha256.init(.{}) },
         .digest_size = Sha256.digest_length,
         .block_size = Sha256.block_length,
         .name = "sha256",
@@ -150,8 +163,7 @@ pub fn sha256() HashObject {
 /// Create SHA384 hash object
 pub fn sha384() HashObject {
     return HashObject{
-        .algorithm = .sha384,
-        .data = std.ArrayList(u8){},
+        .state = .{ .sha384 = Sha384.init(.{}) },
         .digest_size = Sha384.digest_length,
         .block_size = Sha384.block_length,
         .name = "sha384",
@@ -161,8 +173,7 @@ pub fn sha384() HashObject {
 /// Create SHA512 hash object
 pub fn sha512() HashObject {
     return HashObject{
-        .algorithm = .sha512,
-        .data = std.ArrayList(u8){},
+        .state = .{ .sha512 = Sha512.init(.{}) },
         .digest_size = Sha512.digest_length,
         .block_size = Sha512.block_length,
         .name = "sha512",

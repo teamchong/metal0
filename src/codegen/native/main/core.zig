@@ -542,6 +542,15 @@ pub const NativeCodegen = struct {
         return false;
     }
 
+    /// Query: Does ANY async function in module have I/O?
+    /// Used to ensure all async functions use same interface (for gather compatibility)
+    pub fn anyAsyncHasIO(self: *const NativeCodegen) bool {
+        if (self.call_graph) |*cg| {
+            return function_traits.anyAsyncHasIO(cg);
+        }
+        return false;
+    }
+
     /// Query: Is parameter mutated? (var vs const)
     pub fn isParamMutated(self: *const NativeCodegen, func_name: []const u8, param_idx: usize) bool {
         if (self.call_graph) |*cg| {

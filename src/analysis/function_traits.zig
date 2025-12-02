@@ -175,12 +175,12 @@ pub const CallGraph = struct {
         var visited = hashmap_helper.StringHashMap(void).init(allocator);
         defer visited.deinit();
 
-        var result = std.ArrayList(FunctionRef).init(allocator);
-        errdefer result.deinit();
+        var result = std.ArrayList(FunctionRef){};
+        errdefer result.deinit(allocator);
 
-        try self.collectTransitiveCalls(name, &visited, &result);
+        try self.collectTransitiveCalls(name, &visited, &result, allocator);
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 
     fn collectTransitiveCalls(
@@ -188,14 +188,15 @@ pub const CallGraph = struct {
         name: []const u8,
         visited: *hashmap_helper.StringHashMap(void),
         result: *std.ArrayList(FunctionRef),
+        allocator: std.mem.Allocator,
     ) !void {
         if (visited.contains(name)) return;
         try visited.put(name, {});
 
         if (self.functions.get(name)) |traits| {
             for (traits.calls) |call| {
-                try result.append(call);
-                try self.collectTransitiveCalls(call.name, visited, result);
+                try result.append(allocator, call);
+                try self.collectTransitiveCalls(call.name, visited, result, allocator);
             }
         }
     }
@@ -231,17 +232,17 @@ const AnalyzerContext = struct {
         return .{
             .allocator = allocator,
             .scope_vars = hashmap_helper.StringHashMap(void).init(allocator),
-            .param_mutations = std.ArrayList(bool).init(allocator),
-            .calls = std.ArrayList(FunctionRef).init(allocator),
-            .captured = std.ArrayList([]const u8).init(allocator),
+            .param_mutations = std.ArrayList(bool){},
+            .calls = std.ArrayList(FunctionRef){},
+            .captured = std.ArrayList([]const u8){},
         };
     }
 
     pub fn deinit(self: *AnalyzerContext) void {
         self.scope_vars.deinit();
-        self.param_mutations.deinit();
-        self.calls.deinit();
-        self.captured.deinit();
+        self.param_mutations.deinit(self.allocator);
+        self.calls.deinit(self.allocator);
+        self.captured.deinit(self.allocator);
     }
 
     pub fn reset(self: *AnalyzerContext) void {
@@ -264,14 +265,37 @@ const AnalyzerContext = struct {
     }
 };
 
-/// I/O function names that mark impure functions
+/// I/O function names that trigger state machine async (actual async I/O operations)
+/// NOTE: Excludes print (sync), includes only operations that benefit from kqueue/epoll
 const IoFunctions = std.StaticStringMap(void).initComptime(.{
-    .{ "print", {} },
-    .{ "input", {} },
+    // File I/O (async benefits from OS-level polling)
+    .{ "input", {} },  // stdin waits for user input
     .{ "open", {} },
     .{ "read", {} },
     .{ "write", {} },
     .{ "close", {} },
+    // Network/HTTP
+    .{ "get", {} },
+    .{ "post", {} },
+    .{ "put", {} },
+    .{ "delete", {} },
+    .{ "patch", {} },
+    .{ "request", {} },
+    .{ "fetch", {} },
+    .{ "connect", {} },
+    .{ "send", {} },
+    .{ "recv", {} },
+    .{ "sendall", {} },
+    .{ "recvfrom", {} },
+    .{ "sendto", {} },
+    // Async I/O (actual I/O operations, not coordination primitives)
+    .{ "sleep", {} },  // Timer I/O via kqueue/epoll
+    // Subprocess
+    .{ "call", {} },
+    .{ "check_call", {} },
+    .{ "check_output", {} },
+    .{ "communicate", {} },
+    .{ "Popen", {} },
 });
 
 /// Functions that can raise errors
@@ -338,8 +362,8 @@ fn collectDefinitions(stmt: ast.Node, graph: *CallGraph, ctx: *AnalyzerContext) 
             try graph.functions.put(func.name, FunctionTraits{ .ref = ref });
         },
         .class_def => |class| {
-            var methods = std.ArrayList([]const u8).init(ctx.allocator);
-            errdefer methods.deinit();
+            var methods = std.ArrayList([]const u8){};
+            errdefer methods.deinit(ctx.allocator);
 
             const old_class = ctx.current_class;
             ctx.current_class = class.name;
@@ -347,12 +371,12 @@ fn collectDefinitions(stmt: ast.Node, graph: *CallGraph, ctx: *AnalyzerContext) 
 
             for (class.body) |body_stmt| {
                 if (body_stmt == .function_def) {
-                    try methods.append(body_stmt.function_def.name);
+                    try methods.append(ctx.allocator, body_stmt.function_def.name);
                     try collectDefinitions(body_stmt, graph, ctx);
                 }
             }
 
-            try graph.classes.put(class.name, try methods.toOwnedSlice());
+            try graph.classes.put(class.name, try methods.toOwnedSlice(ctx.allocator));
         },
         else => {},
     }
@@ -366,13 +390,13 @@ fn analyzeStatement(stmt: ast.Node, graph: *CallGraph, ctx: *AnalyzerContext) !v
             ctx.current_func = func.name;
 
             // Set up parameter tracking
-            var param_names = std.ArrayList([]const u8).init(ctx.allocator);
-            defer param_names.deinit();
+            var param_names = std.ArrayList([]const u8){};
+            defer param_names.deinit(ctx.allocator);
 
-            for (func.args.args) |arg| {
-                try param_names.append(arg.arg);
-                try ctx.scope_vars.put(arg.arg, {});
-                try ctx.param_mutations.append(false);
+            for (func.args) |arg| {
+                try param_names.append(ctx.allocator, arg.name);
+                try ctx.scope_vars.put(arg.name, {});
+                try ctx.param_mutations.append(ctx.allocator, false);
             }
             ctx.param_names = param_names.items;
 
@@ -523,7 +547,10 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
             ctx.await_count += 1;
             try analyzeExprForTraits(await_expr.value.*, ctx);
         },
-        .yield_expr => {
+        .yield_stmt => {
+            ctx.is_generator = true;
+        },
+        .yield_from_stmt => {
             ctx.is_generator = true;
         },
         .call => |call| {
@@ -553,7 +580,7 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
                 }
 
                 // Record call
-                try ctx.calls.append(.{
+                try ctx.calls.append(ctx.allocator, .{
                     .module = "",
                     .name = func_name,
                     .class_name = null,
@@ -562,11 +589,14 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
                 const attr = call.func.attribute;
                 const method_name = attr.attr;
 
-                // I/O methods
-                if (std.mem.eql(u8, method_name, "write") or
-                    std.mem.eql(u8, method_name, "read") or
-                    std.mem.eql(u8, method_name, "close") or
-                    std.mem.eql(u8, method_name, "flush"))
+                // I/O methods (also check IoFunctions for method calls)
+                if (IoFunctions.has(method_name) or
+                    std.mem.eql(u8, method_name, "flush") or
+                    std.mem.eql(u8, method_name, "readline") or
+                    std.mem.eql(u8, method_name, "readlines") or
+                    std.mem.eql(u8, method_name, "writelines") or
+                    std.mem.eql(u8, method_name, "json") or // response.json()
+                    std.mem.eql(u8, method_name, "text")) // response.text()
                 {
                     ctx.has_io = true;
                     ctx.is_pure = false;
@@ -602,7 +632,7 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
             // Check if accessing variable from outer scope (closure capture)
             if (!ctx.scope_vars.contains(n.id)) {
                 // Could be a captured variable or global
-                try ctx.captured.append(n.id);
+                try ctx.captured.append(ctx.allocator, n.id);
                 ctx.reads_globals = true;
             }
         },
@@ -746,8 +776,8 @@ fn computeAsyncComplexity(ctx: *const AnalyzerContext) AsyncComplexity {
 
 /// Mark functions reachable from entry points
 fn markReachable(graph: *CallGraph, allocator: std.mem.Allocator) !void {
-    var worklist = std.ArrayList([]const u8).init(allocator);
-    defer worklist.deinit();
+    var worklist = std.ArrayList([]const u8){};
+    defer worklist.deinit(allocator);
 
     // Entry points: module-level code, main, test functions
     var it = graph.functions.iterator();
@@ -760,19 +790,19 @@ fn markReachable(graph: *CallGraph, allocator: std.mem.Allocator) !void {
             std.mem.eql(u8, name, "__new__"))
         {
             entry.value_ptr.is_called = true;
-            try worklist.append(name);
+            try worklist.append(allocator, name);
         }
     }
 
     // Propagate reachability
     while (worklist.items.len > 0) {
-        const name = worklist.pop();
+        const name = worklist.pop() orelse break;
         if (graph.functions.get(name)) |traits| {
             for (traits.calls) |call| {
                 if (graph.functions.getPtr(call.name)) |callee_ptr| {
                     if (!callee_ptr.is_called) {
                         callee_ptr.is_called = true;
-                        try worklist.append(call.name);
+                        try worklist.append(allocator, call.name);
                     }
                 }
             }
@@ -788,6 +818,17 @@ fn markReachable(graph: *CallGraph, allocator: std.mem.Allocator) !void {
 pub fn shouldUseStateMachineAsync(graph: *const CallGraph, name: []const u8) bool {
     if (graph.functions.get(name)) |traits| {
         return traits.has_await and traits.has_io;
+    }
+    return false;
+}
+
+/// Check if ANY async function in module has I/O
+/// Used to ensure all async functions use same interface (for gather compatibility)
+pub fn anyAsyncHasIO(graph: *const CallGraph) bool {
+    var it = graph.functions.iterator();
+    while (it.next()) |entry| {
+        const traits = entry.value_ptr.*;
+        if (traits.has_await and traits.has_io) return true;
     }
     return false;
 }

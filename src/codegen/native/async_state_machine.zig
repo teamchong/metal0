@@ -199,6 +199,31 @@ fn findVarsInNode(allocator: std.mem.Allocator, node: ast.Node, vars: *std.Array
     }
 }
 
+/// Find async callee name from tasks list comprehension (e.g., tasks = [worker(i) for i in ...])
+fn findTasksCalleeName(body: []ast.Node) ?[]const u8 {
+    for (body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (getAssignTarget(assign.targets)) |target| {
+                if (std.mem.eql(u8, target, "tasks")) {
+                    // Check if value is listcomp
+                    if (assign.value.* == .listcomp) {
+                        const listcomp = assign.value.*.listcomp;
+                        // Check if element is a call
+                        if (listcomp.elt.* == .call) {
+                            const call = listcomp.elt.*.call;
+                            if (call.func.* == .name) {
+                                return call.func.*.name.id;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+
 /// Generate a state machine async function
 /// This replaces the old spawn-based approach with pollable frames
 pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
@@ -213,6 +238,9 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
     // Find all local variables that need to be stored in frame
     const local_vars = findLocalVariables(allocator, func.body) catch return error.OutOfMemory;
     defer allocator.free(local_vars);
+
+    // Find the async function called in tasks = [...] comprehension
+    const tasks_callee = findTasksCalleeName(func.body);
 
     // If no await points, generate simple sync function
     if (await_points.len == 0) {
@@ -290,7 +318,14 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
             try self.emit(var_name);
             // Special handling for common async patterns
             if (std.mem.eql(u8, var_name, "tasks")) {
-                try self.emit(": std.ArrayList(*worker_Frame) = .{},\n");
+                // Use the actual callee name from list comprehension
+                if (tasks_callee) |callee| {
+                    try self.emit(": std.ArrayList(*");
+                    try self.emit(callee);
+                    try self.emit("_Frame) = .{},\n");
+                } else {
+                    try self.emit(": std.ArrayList(*anyopaque) = .{},\n");
+                }
             } else if (std.mem.eql(u8, var_name, "start") or std.mem.eql(u8, var_name, "elapsed") or std.mem.eql(u8, var_name, "end")) {
                 try self.emit(": f64 = 0,\n");
             } else {
@@ -323,7 +358,7 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
     try self.emit("    switch (frame.state) {\n");
 
     // Generate state handlers
-    try genStateHandlers(self, func, await_points, local_vars);
+    try genStateHandlers(self, func, await_points, local_vars, tasks_callee);
 
     try self.emit("    }\n");
     try self.emit("}\n\n");
@@ -356,7 +391,7 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
     try self.emit("}\n\n");
 }
 
-fn genStateHandlers(self: *NativeCodegen, func: ast.Node.FunctionDef, await_points: []const AwaitPoint, local_vars: []const []const u8) CodegenError!void {
+fn genStateHandlers(self: *NativeCodegen, func: ast.Node.FunctionDef, await_points: []const AwaitPoint, local_vars: []const []const u8, tasks_callee: ?[]const u8) CodegenError!void {
     // Collect frame field names for variable remapping
     var frame_fields = std.ArrayList([]const u8){};
     defer frame_fields.deinit(self.allocator);
@@ -398,7 +433,7 @@ fn genStateHandlers(self: *NativeCodegen, func: ast.Node.FunctionDef, await_poin
             try self.emit("        .await_");
             try emitInt(self, current_await);
             try self.emit(" => {\n");
-            try genAwaitCheck(self, await_points[current_await], await_points);
+            try genAwaitCheck(self, await_points[current_await], await_points, tasks_callee);
 
             current_await += 1;
         } else if (stmt == .return_stmt) {
@@ -777,8 +812,18 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
 
             if (is_async_call) {
                 // Handle list comprehension with catch unreachable (poll function can't use try)
+                // Extract function name from the call
+                var fn_name: []const u8 = "worker";
+                if (comp.elt.* == .call) {
+                    const elem_call = comp.elt.*.call;
+                    if (elem_call.func.* == .name) {
+                        fn_name = elem_call.func.*.name.id;
+                    }
+                }
                 try self.emit("comp_blk: {\n");
-                try self.emit("    var __comp_result = std.ArrayList(*worker_Frame){};\n");
+                try self.emit("    var __comp_result = std.ArrayList(*");
+                try self.emit(fn_name);
+                try self.emit("_Frame){};\n");
                 // Generate for loop
                 if (comp.generators.len > 0) {
                     const gen = comp.generators[0];
@@ -794,15 +839,9 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                     try self.emit(") : (__comp_i += 1) {\n");
                     // Generate element
                     try self.emit("        __comp_result.append(__global_allocator, ");
-                    // comp.elt is the worker(i) call
-                    if (comp.elt.* == .call) {
-                        const elem_call = comp.elt.*.call;
-                        if (elem_call.func.* == .name) {
-                            const fn_name = elem_call.func.*.name.id;
-                            try self.emit(fn_name);
-                            try self.emit("_async(__comp_i)");
-                        }
-                    }
+                    // comp.elt is the async function call
+                    try self.emit(fn_name);
+                    try self.emit("_async(__comp_i)");
                     try self.emit(" catch unreachable) catch unreachable;\n");
                     try self.emit("    }\n");
                 }
@@ -892,7 +931,7 @@ fn genCodeBeforeAwait(self: *NativeCodegen, stmt: ast.Node, point: AwaitPoint) C
     }
 }
 
-fn genAwaitCheck(self: *NativeCodegen, point: AwaitPoint, await_points: []const AwaitPoint) CodegenError!void {
+fn genAwaitCheck(self: *NativeCodegen, point: AwaitPoint, await_points: []const AwaitPoint, tasks_callee: ?[]const u8) CodegenError!void {
     _ = await_points;
     switch (point.await_type) {
         .sleep => {
@@ -944,7 +983,13 @@ fn genAwaitCheck(self: *NativeCodegen, point: AwaitPoint, await_points: []const 
             try self.emit("                std.Thread.yield() catch {};\n");
             try self.emit("                for (frame.tasks.items, 0..) |__frame, __idx| {\n");
             try self.emit("                    if (!__done[__idx]) {\n");
-            try self.emit("                        if (worker_poll(__frame)) |__r| {\n");
+            try self.emit("                        if (");
+            if (tasks_callee) |callee| {
+                try self.emit(callee);
+            } else {
+                try self.emit("worker");
+            }
+            try self.emit("_poll(__frame)) |__r| {\n");
             if (point.target_var) |var_name| {
                 try self.emit("                            frame.");
                 try self.emit(var_name);

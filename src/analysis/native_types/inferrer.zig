@@ -236,8 +236,11 @@ pub const TypeInferrer = struct {
             const func_name = call.func.name.id;
             // Class names start with uppercase
             if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
-                // Infer types of constructor arguments
-                const arg_types = try arena_alloc.alloc(NativeType, call.args.len);
+                // Infer types of all arguments (positional + keyword)
+                const total_args = call.args.len + call.keyword_args.len;
+                const arg_types = try arena_alloc.alloc(NativeType, total_args);
+
+                // Positional args first
                 for (call.args, 0..) |arg, i| {
                     arg_types[i] = try expressions.inferExpr(
                         arena_alloc,
@@ -247,7 +250,40 @@ pub const TypeInferrer = struct {
                         arg,
                     );
                 }
+
+                // Keyword args after positional
+                for (call.keyword_args, 0..) |kwarg, i| {
+                    arg_types[call.args.len + i] = try expressions.inferExpr(
+                        arena_alloc,
+                        &self.var_types,
+                        &self.class_fields,
+                        &self.func_return_types,
+                        kwarg.value,
+                    );
+                }
+
                 try self.class_constructor_args.put(func_name, arg_types);
+
+                // Also store keyword arg name -> type mapping for name-based lookup
+                // Widen types if there are multiple calls with different types
+                for (call.keyword_args) |kwarg| {
+                    const kwarg_type = try expressions.inferExpr(
+                        arena_alloc,
+                        &self.var_types,
+                        &self.class_fields,
+                        &self.func_return_types,
+                        kwarg.value,
+                    );
+                    // Store as "ClassName.param_name" -> type
+                    const key = try std.fmt.allocPrint(arena_alloc, "{s}.{s}", .{ func_name, kwarg.name });
+                    // Widen with existing type if present
+                    if (self.var_types.get(key)) |existing| {
+                        const widened = existing.widen(kwarg_type);
+                        try self.var_types.put(key, widened);
+                    } else {
+                        try self.var_types.put(key, kwarg_type);
+                    }
+                }
             }
         }
     }

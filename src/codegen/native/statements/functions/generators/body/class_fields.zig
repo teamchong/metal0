@@ -40,11 +40,25 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
     const constructor_arg_types = self.type_inferrer.class_constructor_args.get(class_name);
 
     // Temporarily register constructor parameter types so expressions like `x + y` can be inferred
+    // Priority: 1) annotation, 2) widened keyword arg type, 3) positional constructor arg type
     for (init.args, 0..) |arg, param_idx| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
 
-        // Determine param type from annotation or constructor call site
+        // Method 1: Use type annotation if available
         var param_type = signature.pythonTypeToNativeType(arg.type_annotation);
+
+        // Method 2: Try widened keyword arg type (stored as "ClassName.param_name")
+        if (param_type == .unknown) {
+            var kwarg_key_buf: [256]u8 = undefined;
+            const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_name, arg.name }) catch null;
+            if (kwarg_key) |key| {
+                if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
+                    param_type = kwarg_type;
+                }
+            }
+        }
+
+        // Method 3: Fall back to positional constructor arg type (only if no kwarg type found)
         if (param_type == .unknown) {
             if (constructor_arg_types) |arg_types| {
                 const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
@@ -53,6 +67,7 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                 }
             }
         }
+
         if (param_type != .unknown) {
             self.type_inferrer.var_types.put(arg.name, param_type) catch {};
         }
@@ -70,27 +85,31 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
 
                     // Determine field type by inferring the value's type
                     var inferred = try self.type_inferrer.inferExpr(assign.value.*);
+                    std.debug.print("DEBUG class_fields: field={s} inferred={}\n", .{ field_name, inferred });
 
                     // If unknown and value is a parameter reference, try different methods
                     if (inferred == .unknown and assign.value.* == .name) {
                         const param_name = assign.value.name.id;
 
                         // Find the parameter index and check annotation
-                        for (init.args, 0..) |arg, param_idx| {
+                        for (init.args) |arg| {
                             if (std.mem.eql(u8, arg.name, param_name)) {
                                 // Method 1: Use type annotation if available
                                 inferred = signature.pythonTypeToNativeType(arg.type_annotation);
 
-                                // Method 2: If still unknown, use constructor call arg types
+                                // Method 2: Try keyword arg lookup (has proper type widening)
+                                // Stored as "ClassName.param_name" in var_types, widened across all calls
                                 if (inferred == .unknown) {
-                                    if (constructor_arg_types) |arg_types| {
-                                        // param_idx includes 'self', so subtract 1 for arg index
-                                        const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
-                                        if (arg_idx < arg_types.len) {
-                                            inferred = arg_types[arg_idx];
+                                    var kwarg_key_buf: [256]u8 = undefined;
+                                    const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_name, arg.name }) catch null;
+                                    if (kwarg_key) |key| {
+                                        if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
+                                            inferred = kwarg_type;
                                         }
                                     }
                                 }
+                                // Method 2's result is final - no fallback to positional args
+                                // This ensures widened types (including .unknown from incompatible tuples) are preserved
                                 break;
                             }
                         }

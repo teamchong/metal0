@@ -319,7 +319,8 @@ pub const NativeType = union(enum) {
         if (self_tag == other_tag) {
             // Special handling for tuple types - widen element-wise
             if (self_tag == .tuple) {
-                // Tuples: same length required for widening
+                // Tuples with different lengths -> use unknown (becomes PyObject in codegen)
+                // This handles Python's dynamic tuple sizing (e.g., bases=() vs bases=(cls,))
                 if (self.tuple.len != other.tuple.len) return .unknown;
                 // Note: Can't allocate here, so we return self if all elements match
                 // Element-wise widening would need an allocator

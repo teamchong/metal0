@@ -252,7 +252,7 @@ test "pre-release parsing" {
 test "post-release parsing" {
     const allocator = std.testing.allocator;
 
-    const cases = [_]struct { input: []const u8, expected: ?u32 }{
+    const cases = [_]struct { input: []const u8, expected: ?u64 }{
         .{ .input = "1.0", .expected = null },
         .{ .input = "1.0.post1", .expected = 1 },
         .{ .input = "1.0.post456", .expected = 456 },
@@ -274,7 +274,7 @@ test "post-release parsing" {
 test "dev-release parsing" {
     const allocator = std.testing.allocator;
 
-    const cases = [_]struct { input: []const u8, expected: ?u32 }{
+    const cases = [_]struct { input: []const u8, expected: ?u64 }{
         .{ .input = "1.0", .expected = null },
         .{ .input = "1.0.dev0", .expected = 0 },
         .{ .input = "1.0.dev6", .expected = 6 },

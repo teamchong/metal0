@@ -1,34 +1,44 @@
-// Rust Fan-out/Fan-in Benchmark (CPU-bound)
-// Using rayon thread pool - fair comparison with Go goroutines
+// Rust Parallel Scaling Benchmark
+// Measures true parallelism: Sequential vs Parallel speedup
 
 use rayon::prelude::*;
+use sha2::{Digest, Sha256};
 use std::time::Instant;
 
-const NUM_TASKS: i64 = 1000;
-const WORK_PER_TASK: i64 = 10000;
+const NUM_WORKERS: usize = 8;
+const WORK_PER_WORKER: usize = 5000;
 
-fn worker(task_id: i64) -> i64 {
-    let mut result: i64 = 0;
-    for i in 0..WORK_PER_TASK {
-        result += i * task_id;
+fn do_work(worker_id: usize, iterations: usize) -> usize {
+    let mut hasher = Sha256::new();
+    for i in 0..iterations {
+        hasher.update((worker_id + i).to_string().as_bytes());
     }
-    result
+    let result = hasher.finalize();
+    format!("{:x}", result).len()
 }
 
 fn main() {
-    let start = Instant::now();
+    // Sequential: 1 worker does ALL work
+    let seq_start = Instant::now();
+    let _seq_total = do_work(0, NUM_WORKERS * WORK_PER_WORKER);
+    let seq_time = seq_start.elapsed();
 
-    // Fan-out/Fan-in using parallel iterator (work-stealing thread pool)
-    let total: i64 = (0..NUM_TASKS)
+    // Parallel: N workers split work
+    let par_start = Instant::now();
+    let _par_total: usize = (0..NUM_WORKERS)
         .into_par_iter()
-        .map(worker)
+        .map(|id| do_work(id, WORK_PER_WORKER))
         .sum();
+    let par_time = par_start.elapsed();
 
-    let elapsed = start.elapsed();
+    let speedup = seq_time.as_secs_f64() / par_time.as_secs_f64();
+    let efficiency = (speedup / NUM_WORKERS as f64) * 100.0;
 
-    println!("Tasks: {}", NUM_TASKS);
-    println!("Work per task: {}", WORK_PER_TASK);
-    println!("Total result: {}", total);
-    println!("Time: {:.2}ms", elapsed.as_secs_f64() * 1000.0);
-    println!("Tasks/sec: {:.0}", NUM_TASKS as f64 / elapsed.as_secs_f64());
+    println!("Benchmark: Parallel Scaling (SHA256)");
+    println!("Workers: {}", NUM_WORKERS);
+    println!("Work/worker: {} hashes", WORK_PER_WORKER);
+    println!("Sequential: {:.2}ms", seq_time.as_secs_f64() * 1000.0);
+    println!("Parallel:   {:.2}ms", par_time.as_secs_f64() * 1000.0);
+    println!("Speedup:    {:.2}x", speedup);
+    println!("Efficiency: {:.0}%", efficiency);
 }
