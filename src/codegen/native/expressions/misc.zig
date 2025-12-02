@@ -335,9 +335,15 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
 
     if (is_property) {
         // Property method: call it automatically (Python @property semantics)
+        // Check if there's a getter function name to use (for property() assignments)
+        const getter_name = try getPropertyGetter(self, attr);
         try genExpr(self, attr.value.*);
         try self.emit(".");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+        if (getter_name) |gn| {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), gn);
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+        }
         try self.emit("()");
     } else if (is_dynamic) {
         // Special case: __dict__ attribute is the dict itself, not a key in the dict
@@ -403,6 +409,25 @@ fn isPropertyMethod(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
     }
 
     return false;
+}
+
+/// Get the getter function name for a property (if it was defined via property() call)
+fn getPropertyGetter(self: *NativeCodegen, attr: ast.Node.Attribute) !?[]const u8 {
+    // Get object type
+    const obj_type = try self.type_inferrer.inferExpr(attr.value.*);
+    if (obj_type != .class_instance) return null;
+
+    const class_name = obj_type.class_instance;
+
+    // Check if there's a getter function name registered
+    const class_info = self.type_inferrer.class_fields.get(class_name);
+    if (class_info) |info| {
+        if (info.property_getters.get(attr.attr)) |getter_name| {
+            return getter_name;
+        }
+    }
+
+    return null;
 }
 
 /// Check if attribute is dynamic (not in class fields)

@@ -711,10 +711,15 @@ fn inferBinOp(
 
     // Type promotion: int + float → float
     if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or binop.op == .Div) {
+        // Class instances with dunder methods may return class type, not float
+        // E.g., Rat.__truediv__ returns Rat, not float
+        if (left_tag == .class_instance or right_tag == .class_instance) {
+            return .unknown; // Class dunder method - type determined by method return
+        }
         if (left_tag == .float or right_tag == .float) {
             return .float; // Any arithmetic with float produces float
         }
-        // Python's / operator ALWAYS returns float (true division)
+        // Python's / operator ALWAYS returns float (true division) for primitives
         if (binop.op == .Div) {
             return .float; // Division always produces float
         }

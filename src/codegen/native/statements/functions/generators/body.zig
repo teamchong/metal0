@@ -26,6 +26,7 @@ pub const genInitMethodWithBuiltinBase = class_methods.genInitMethodWithBuiltinB
 pub const genInitMethodFromNew = class_methods.genInitMethodFromNew;
 pub const genClassMethods = class_methods.genClassMethods;
 pub const genInheritedMethods = class_methods.genInheritedMethods;
+pub const genPolymorphicReturnHelpers = class_methods.genPolymorphicReturnHelpers;
 
 // Re-export mutation analysis functions
 pub const methodMutatesSelf = mutation_analysis.methodMutatesSelf;

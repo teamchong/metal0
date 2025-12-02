@@ -11,8 +11,8 @@ This is where async runtimes shine - handling many concurrent I/O operations.
 import asyncio
 import time
 
-NUM_TASKS = 100000
-SLEEP_MS = 1  # 1ms simulated I/O latency per task
+NUM_TASKS = 10000
+SLEEP_MS = 100  # 100ms simulated I/O latency per task
 
 async def worker(task_id: int) -> int:
     """Simulated async worker that waits for I/O"""

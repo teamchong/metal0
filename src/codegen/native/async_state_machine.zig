@@ -487,10 +487,158 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
                 try self.generateStmt(stmt);
             }
         },
+        .for_stmt => |for_stmt| {
+            // Generate for loop with frame variable access
+            try self.emit("            {\n");
+            try self.emit("                var __i: i64 = 0;\n");
+            try self.emit("                while (__i < ");
+            // Extract range end
+            if (for_stmt.iter.* == .call) {
+                const call = for_stmt.iter.*.call;
+                if (call.args.len > 0) {
+                    try genExprInFrame(self, call.args[0], frame_fields);
+                }
+            }
+            try self.emit(") : (__i += 1) {\n");
+            // Bind loop variable
+            if (for_stmt.target.* == .name) {
+                try self.emit("                    const ");
+                try self.emit(for_stmt.target.*.name.id);
+                try self.emit(" = __i;\n");
+            }
+            // Generate body with frame prefix
+            for (for_stmt.body) |body_stmt| {
+                try genStatementInFrameNested(self, body_stmt, frame_fields);
+            }
+            try self.emit("                }\n");
+            try self.emit("            }\n");
+        },
+        .aug_assign => |aug| {
+            // Handle augmented assignment with frame prefix
+            if (aug.target.* == .name) {
+                const target_name = aug.target.*.name.id;
+                // Check if target is a frame field
+                var is_frame_field = false;
+                for (frame_fields) |field| {
+                    if (std.mem.eql(u8, field, target_name)) {
+                        is_frame_field = true;
+                        break;
+                    }
+                }
+                try self.emit("            ");
+                if (is_frame_field) {
+                    try self.emit("frame.");
+                }
+                try self.emit(target_name);
+                try self.emit(" = ");
+                if (is_frame_field) {
+                    try self.emit("frame.");
+                }
+                try self.emit(target_name);
+                switch (aug.op) {
+                    .Add => try self.emit(" + "),
+                    .Sub => try self.emit(" - "),
+                    .Mult => try self.emit(" * "),
+                    else => try self.emit(" + "),
+                }
+                try self.emit("(");
+                try genExprInFrame(self, aug.value.*, frame_fields);
+                try self.emit(");\n");
+            }
+        },
         else => {
             try self.emit("            ");
             try self.generateStmt(stmt);
         },
+    }
+}
+
+fn genStatementInFrameNested(self: *NativeCodegen, stmt: ast.Node, frame_fields: []const []const u8) CodegenError!void {
+    switch (stmt) {
+        .aug_assign => |aug| {
+            if (aug.target.* == .name) {
+                const target_name = aug.target.*.name.id;
+                // Check if target is a frame field
+                var is_frame_field = false;
+                for (frame_fields) |field| {
+                    if (std.mem.eql(u8, field, target_name)) {
+                        is_frame_field = true;
+                        break;
+                    }
+                }
+                try self.emit("                    ");
+                if (is_frame_field) {
+                    try self.emit("frame.");
+                }
+                try self.emit(target_name);
+                try self.emit(" = ");
+                if (is_frame_field) {
+                    try self.emit("frame.");
+                }
+                try self.emit(target_name);
+                switch (aug.op) {
+                    .Add => try self.emit(" + "),
+                    .Sub => try self.emit(" - "),
+                    .Mult => try self.emit(" * "),
+                    else => try self.emit(" + "),
+                }
+                try self.emit("(");
+                try genExprInFrameNested(self, aug.value.*, frame_fields);
+                try self.emit(");\n");
+            }
+        },
+        else => {
+            try self.emit("                    ");
+            try self.generateStmt(stmt);
+        },
+    }
+}
+
+fn genExprInFrameNested(self: *NativeCodegen, node: ast.Node, frame_fields: []const []const u8) CodegenError!void {
+    switch (node) {
+        .name => |n| {
+            // Check if this is a frame field
+            for (frame_fields) |field| {
+                if (std.mem.eql(u8, n.id, field)) {
+                    try self.emit("frame.");
+                    try self.emit(n.id);
+                    return;
+                }
+            }
+            // Local variable - might be loop var, cast to i64
+            if (std.mem.eql(u8, n.id, "i")) {
+                try self.emit("@as(i64, @intCast(");
+                try self.emit(n.id);
+                try self.emit("))");
+            } else {
+                try self.emit(n.id);
+            }
+        },
+        .constant => |c| {
+            switch (c.value) {
+                .int => |i| {
+                    var buf: [32]u8 = undefined;
+                    const slice = std.fmt.bufPrint(&buf, "{d}", .{i}) catch return error.OutOfMemory;
+                    try self.emit(slice);
+                },
+                else => try self.emit("0"),
+            }
+        },
+        .binop => |bin| {
+            try self.emit("(");
+            try genExprInFrameNested(self, bin.left.*, frame_fields);
+            switch (bin.op) {
+                .Add => try self.emit(" + "),
+                .Sub => try self.emit(" - "),
+                .Mult => try self.emit(" * "),
+                .Div => try self.emit(" / "),
+                .Mod => try self.emit(" % "),
+                else => try self.emit(" ? "),
+            }
+            try genExprInFrameNested(self, bin.right.*, frame_fields);
+            try self.emit(")");
+        },
+        else => try self.emit("0"),
     }
 }
 
@@ -973,7 +1121,7 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
                     else => try self.emit(" + "),
                 }
                 try self.emit("(");
-                try genSyncExprInFrame(self, aug.value.*, args);
+                try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
                 try self.emit(");\n");
             }
         },
@@ -988,6 +1136,55 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
             try self.emit(";\n");
         },
         else => {},
+    }
+}
+
+fn genSyncExprInFrameWithLoopVar(self: *NativeCodegen, node: ast.Node, args: []ast.Arg, loop_var: []const u8) CodegenError!void {
+    switch (node) {
+        .name => |n| {
+            // Check if this is a parameter (frame field)
+            for (args) |arg| {
+                if (std.mem.eql(u8, arg.name, n.id)) {
+                    try self.emit("frame.");
+                    try self.emit(n.id);
+                    return;
+                }
+            }
+            // Check if it's the loop variable (needs cast)
+            if (std.mem.eql(u8, n.id, "i") or std.mem.eql(u8, n.id, loop_var)) {
+                try self.emit("@as(i64, @intCast(");
+                try self.emit(n.id);
+                try self.emit("))");
+                return;
+            }
+            // Local variable
+            try self.emit(n.id);
+        },
+        .constant => |c| {
+            switch (c.value) {
+                .int => |i| {
+                    var buf: [32]u8 = undefined;
+                    const slice = std.fmt.bufPrint(&buf, "{d}", .{i}) catch return error.OutOfMemory;
+                    try self.emit(slice);
+                },
+                else => try self.emit("0"),
+            }
+        },
+        .binop => |bin| {
+            try self.emit("(");
+            try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
+            switch (bin.op) {
+                .Add => try self.emit(" + "),
+                .Sub => try self.emit(" - "),
+                .Mult => try self.emit(" * "),
+                .Div => try self.emit(" / "),
+                .Mod => try self.emit(" % "),
+                else => try self.emit(" ? "),
+            }
+            try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
+            try self.emit(")");
+        },
+        else => try self.emit("0"),
     }
 }
 

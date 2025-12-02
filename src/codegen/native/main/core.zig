@@ -624,6 +624,12 @@ pub const NativeCodegen = struct {
             if (self.nested_class_instances.get(original_name)) |class_name| {
                 return .{ .class_instance = class_name };
             }
+            // Check if this is "self" inside a class method - refers to current class instance
+            if (std.mem.eql(u8, original_name, "self")) {
+                if (self.current_class_name) |class_name| {
+                    return .{ .class_instance = class_name };
+                }
+            }
             // If name wasn't found in local scope with a known type, it might be
             // a function parameter generated as anytype - return unknown to be safe
             // This covers both null and .unknown returns from getType()

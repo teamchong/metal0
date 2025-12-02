@@ -5,6 +5,88 @@ const hashmap_helper = @import("hashmap_helper");
 const import_resolver = @import("../../../import_resolver.zig");
 const zig_keywords = @import("zig_keywords");
 
+/// Check if operator function name is known
+fn isKnownOperatorFunc(name: []const u8) bool {
+    const known = std.StaticStringMap(void).initComptime(.{
+        .{ "eq", {} },
+        .{ "ne", {} },
+        .{ "lt", {} },
+        .{ "le", {} },
+        .{ "gt", {} },
+        .{ "ge", {} },
+        .{ "add", {} },
+        .{ "sub", {} },
+        .{ "mul", {} },
+        .{ "truediv", {} },
+        .{ "floordiv", {} },
+        .{ "mod", {} },
+        .{ "pow", {} },
+        .{ "neg", {} },
+        .{ "pos", {} },
+        .{ "abs", {} },
+        .{ "invert", {} },
+        .{ "lshift", {} },
+        .{ "rshift", {} },
+        .{ "and_", {} },
+        .{ "or_", {} },
+        .{ "xor", {} },
+        .{ "not_", {} },
+        .{ "truth", {} },
+        .{ "concat", {} },
+        .{ "contains", {} },
+        .{ "getitem", {} },
+        .{ "setitem", {} },
+        .{ "delitem", {} },
+        .{ "is_", {} },
+        .{ "is_not", {} },
+    });
+    return known.has(name);
+}
+
+/// Generate wrapper function for operator module function
+fn generateOperatorWrapper(self: *NativeCodegen, name: []const u8, symbol_name: []const u8) !void {
+    // Generate a wrapper function that calls the operator
+    // For comparison ops, use runtime.operatorEq which handles different types
+    try self.emit("fn ");
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+
+    // Map operator to actual operation
+    if (std.mem.eql(u8, name, "eq")) {
+        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorEq(a, b); }\n");
+    } else if (std.mem.eql(u8, name, "ne")) {
+        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorNe(a, b); }\n");
+    } else if (std.mem.eql(u8, name, "lt")) {
+        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorLt(a, b); }\n");
+    } else if (std.mem.eql(u8, name, "le")) {
+        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorLe(a, b); }\n");
+    } else if (std.mem.eql(u8, name, "gt")) {
+        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorGt(a, b); }\n");
+    } else if (std.mem.eql(u8, name, "ge")) {
+        try self.emit("(a: anytype, b: anytype) bool { return runtime.operatorGe(a, b); }\n");
+    } else if (std.mem.eql(u8, name, "add")) {
+        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { return a + b; }\n");
+    } else if (std.mem.eql(u8, name, "sub")) {
+        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { return a - b; }\n");
+    } else if (std.mem.eql(u8, name, "mul")) {
+        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { return a * b; }\n");
+    } else if (std.mem.eql(u8, name, "truediv")) {
+        try self.emit("(a: anytype, b: anytype) f64 { return @as(f64, @floatFromInt(a)) / @as(f64, @floatFromInt(b)); }\n");
+    } else if (std.mem.eql(u8, name, "floordiv")) {
+        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { return @divFloor(a, b); }\n");
+    } else if (std.mem.eql(u8, name, "mod")) {
+        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { return @rem(a, b); }\n");
+    } else if (std.mem.eql(u8, name, "neg")) {
+        try self.emit("(a: anytype) @TypeOf(a) { return -a; }\n");
+    } else if (std.mem.eql(u8, name, "not_")) {
+        try self.emit("(a: anytype) bool { return !runtime.toBool(a); }\n");
+    } else if (std.mem.eql(u8, name, "truth")) {
+        try self.emit("(a: anytype) bool { return runtime.toBool(a); }\n");
+    } else {
+        // Default: generate placeholder
+        try self.emit("(a: anytype, b: anytype) @TypeOf(a) { _ = b; return a; }\n");
+    }
+}
+
 /// Generate from-import symbol re-exports with deduplication
 /// For "from json import loads", generates: const loads = json.loads;
 pub fn generateFromImports(self: *NativeCodegen) !void {
@@ -21,6 +103,32 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
         // Skip builtin modules (they're not compiled, so can't reference them)
         if (import_resolver.isBuiltinModule(from_imp.module)) {
+            continue;
+        }
+
+        // Handle operator module specially - generate wrapper functions
+        if (std.mem.eql(u8, from_imp.module, "operator")) {
+            for (from_imp.names, 0..) |name, i| {
+                // Skip import * for now
+                if (std.mem.eql(u8, name, "*")) continue;
+
+                const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                    from_imp.asnames[i].?
+                else
+                    name;
+
+                // Skip if already generated
+                if (generated_symbols.contains(symbol_name)) continue;
+
+                // Generate wrapper function for known operator functions
+                if (isKnownOperatorFunc(name)) {
+                    try generateOperatorWrapper(self, name, symbol_name);
+                    try generated_symbols.put(symbol_name, {});
+                } else {
+                    // Unknown operator function - register for inline dispatch
+                    try self.local_from_imports.put(symbol_name, from_imp.module);
+                }
+            }
             continue;
         }
 

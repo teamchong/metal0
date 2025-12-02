@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	NUM_TASKS = 100000
-	SLEEP_MS  = 1
+	NUM_TASKS = 10000
+	SLEEP_MS  = 100  // 100ms simulated I/O latency
 )
 
 func worker(taskID int) int {

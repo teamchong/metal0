@@ -117,9 +117,11 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     };
 
     // If we found a __float__ method, generate method call
+    // Use try since __float__ may return error union
     if (has_magic_method and args[0] == .name) {
+        try self.emit("(try ");
         try self.genExpr(args[0]);
-        try self.emit(".__float__(__global_allocator)");
+        try self.emit(".__float__(__global_allocator))");
         return;
     }
 

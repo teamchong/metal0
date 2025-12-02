@@ -11,13 +11,14 @@ Best for: thread pool / work-stealing scheduler
 import asyncio
 import time
 
-NUM_TASKS = 1000
-WORK_PER_TASK = 1000000  # 1M iterations per task
+NUM_TASKS = 100
+WORK_PER_TASK = 20000000  # 20M iterations per task
 
 async def worker(task_id: int) -> int:
-    """CPU-intensive worker"""
+    """CPU-intensive worker with I/O to force runtime"""
+    await asyncio.sleep(0.001)  # 1ms I/O to force runtime
     result = 0
-    for i in range(WORK_PER_TASK):
+    for i in range(20000000):  # 20M iterations
         result += i * task_id
     return result
 

@@ -11,8 +11,8 @@ Best for: event loop / netpoller
 import asyncio
 import time
 
-NUM_TASKS = 100000
-SLEEP_MS = 1  # 1ms simulated I/O latency
+NUM_TASKS = 10000
+SLEEP_MS = 100  # 100ms simulated I/O latency
 
 async def worker(task_id: int) -> int:
     """I/O-bound worker (simulated network call)"""

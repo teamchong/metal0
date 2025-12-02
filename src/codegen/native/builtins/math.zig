@@ -184,12 +184,12 @@ pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(alloc_name);
         try self.emit(")");
     } else {
-        // Generate: .{ @divFloor(a, b), @rem(a, b) }
+        // Generate: .{ @divFloor(a, b), @mod(a, b) }
         try self.emit(".{ @divFloor(");
         try self.genExpr(args[0]);
         try self.emit(", ");
         try self.genExpr(args[1]);
-        try self.emit("), @rem(");
+        try self.emit("), @mod(");
         try self.genExpr(args[0]);
         try self.emit(", ");
         try self.genExpr(args[1]);
