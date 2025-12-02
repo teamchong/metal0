@@ -4,6 +4,8 @@ const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
+const shared = @import("../shared_maps.zig");
+const BinOpStrings = shared.BinOpStrings;
 
 /// Builtins that return int for type inference
 const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{
@@ -13,15 +15,6 @@ const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{
 /// Builtins that return bool for type inference
 const BoolReturningBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "isinstance", {} }, .{ "callable", {} }, .{ "hasattr", {} }, .{ "bool", {} },
-});
-
-/// Binary operator to Zig operator string mapping
-const BinOpStrings = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Add", " + " }, .{ "Sub", " - " }, .{ "Mult", " * " },
-    .{ "Div", " / " }, .{ "FloorDiv", " / " }, .{ "Mod", " % " },
-    .{ "Pow", " ** " }, .{ "BitAnd", " & " }, .{ "BitOr", " | " },
-    .{ "BitXor", " ^ " }, .{ "LShift", " << " }, .{ "RShift", " >> " },
-    .{ "MatMul", " @ " },
 });
 
 /// Generate expression with variable substitutions for comprehensions

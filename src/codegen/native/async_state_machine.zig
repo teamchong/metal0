@@ -16,15 +16,8 @@ const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
-
-/// Binary operator to Zig operator string mapping
-const BinOpStrings = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Add", " + " }, .{ "Sub", " - " }, .{ "Mult", " * " },
-    .{ "Div", " / " }, .{ "FloorDiv", " / " }, .{ "Mod", " % " },
-    .{ "BitAnd", " & " }, .{ "BitOr", " | " }, .{ "BitXor", " ^ " },
-    .{ "LShift", " << " }, .{ "RShift", " >> " },
-    .{ "MatMul", " * " }, .{ "Pow", " * " },
-});
+const shared = @import("shared_maps.zig");
+const BinOpStrings = shared.BinOpStrings;
 
 /// Emit binary operator string (DRY helper)
 fn emitBinOp(self: *NativeCodegen, op: ast.Operator) CodegenError!void {

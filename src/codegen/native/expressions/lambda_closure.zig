@@ -8,6 +8,9 @@ const CodegenError = @import("../main.zig").CodegenError;
 const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
 const zig_keywords = @import("zig_keywords");
+const shared = @import("../shared_maps.zig");
+const BinOpStrings = shared.BinOpStrings;
+const CompOpStrings = shared.CompOpStrings;
 
 const ClosureError = error{
     NotAClosure,
@@ -29,22 +32,6 @@ const UnittestMethods = std.StaticStringMap(void).initComptime(.{
     .{ "assertDictEqual", {} },     .{ "assertMultiLineEqual", {} }, .{ "assertLogs", {} },
     .{ "assertNoLogs", {} },        .{ "fail", {} },                .{ "skipTest", {} },
     .{ "assertFloatsAreIdentical", {} },
-});
-
-/// Binary operator to Zig operator string mapping
-const BinOpStrings = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Add", " + " }, .{ "Sub", " - " }, .{ "Mult", " * " },
-    .{ "Div", " / " }, .{ "FloorDiv", " / " }, .{ "Mod", " % " },
-    .{ "Pow", " ** " }, .{ "BitAnd", " & " }, .{ "BitOr", " | " },
-    .{ "BitXor", " ^ " }, .{ "LShift", " << " }, .{ "RShift", " >> " },
-    .{ "MatMul", " @ " },
-});
-
-/// Comparison operator to Zig operator string mapping
-const CompOpStrings = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Eq", " == " }, .{ "NotEq", " != " },
-    .{ "Lt", " < " }, .{ "LtEq", " <= " },
-    .{ "Gt", " > " }, .{ "GtEq", " >= " },
 });
 
 /// Check if lambda body is itself a lambda (closure case)
