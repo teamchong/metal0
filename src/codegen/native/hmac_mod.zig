@@ -10,4 +10,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "digest", h.wrap2("hmac_digest_blk: { const _key = ", "; const _msg = ", digestBody, "\"\"") },
     .{ "compare_digest", h.compareDigest() },
 });
-

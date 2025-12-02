@@ -73,4 +73,3 @@ fn genMonthrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// calendar.monthcalendar(year, month) - returns matrix of weeks
 const genMonthcalendar = h.wrap2("runtime.calendar.monthcalendar(__global_allocator, ", ", ", ")", "&[_][]const i32{}");
-

@@ -31,4 +31,3 @@ fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitFmt("; _ = file; break :marshal_load_{d} null; }}", .{uid});
     } else try self.emit("null");
 }
-

@@ -80,4 +80,3 @@ const genProd = h.wrap("blk: { var product: f64 = 1; for (", ") |item| { product
 
 const genNextafter = h.wrap2("blk: { const x = @as(f64, ", "); const y = @as(f64, ", "); if (x < y) break :blk x + std.math.floatMin(f64) else if (x > y) break :blk x - std.math.floatMin(f64) else break :blk y; }", "@as(f64, 0.0)");
 const genUlp = h.wrap("blk: { const x = @abs(@as(f64, ", ")); const exp = @as(i32, @intFromFloat(@log2(x))); break :blk std.math.ldexp(@as(f64, 1.0), exp - 52); }", "std.math.floatMin(f64)");
-

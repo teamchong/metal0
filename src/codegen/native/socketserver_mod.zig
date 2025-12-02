@@ -21,4 +21,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "DatagramRequestHandler", h.c(".{ .request = null, .client_address = null, .server = null, .rfile = null, .wfile = null }") },
     .{ "serve_forever", h.c("{}") }, .{ "shutdown", h.c("{}") }, .{ "handle_request", h.c("{}") }, .{ "server_close", h.c("{}") },
 });
-

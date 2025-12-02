@@ -29,4 +29,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "URLError", h.err("URLError") }, .{ "HTTPError", h.err("HTTPError") },
     .{ "ContentTooShortError", h.err("ContentTooShortError") },
 });
-

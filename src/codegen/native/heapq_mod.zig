@@ -18,4 +18,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "nsmallest", h.wrap2("blk: { const _n: usize = @intCast(", "); const _items = ", nsmallestBody, "&[_]i64{}") },
     .{ "merge", h.wrap("", ".items", "&[_]i64{}") },
 });
-

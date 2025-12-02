@@ -15,4 +15,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "version", h.c("\"3.0.0\"") }, .{ "sqlite_version", h.c("\"3.39.0\"") },
     .{ "register_adapter", h.c("{}") }, .{ "register_converter", h.c("{}") },
 });
-

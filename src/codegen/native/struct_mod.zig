@@ -100,4 +100,3 @@ pub fn genUnpackFrom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 pub const genIterUnpack = h.wrap2("struct_iter_unpack_blk: { const _fmt = ", "; const _data = ", "; _ = _fmt; _ = _data; break :struct_iter_unpack_blk struct { items: []const u8, pos: usize = 0, pub fn next(__self: *@This()) ?i32 { if (__self.pos + 4 <= __self.items.len) { const val = std.mem.bytesToValue(i32, __self.items[__self.pos..][0..4]); __self.pos += 4; return val; } return null; } }{ .items = _data }; }", "struct { pub fn next(__self: *@This()) ?i32 { _ = __self; return null; } }{}");
-

@@ -57,5 +57,3 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 const genDLL = h.wrap("struct { _name: []const u8 = ", ", _handle: ?*anyopaque = null }{}", "struct { _name: []const u8 = \"\", _handle: ?*anyopaque = null }{}");
-
-
