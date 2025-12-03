@@ -410,26 +410,31 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 self.output = saved_output;
             },
             .format_expr => |fe| {
-                // Convert Python format spec to Zig format spec
-                const zig_spec = try convertFormatSpec(self.allocator, fe.format_spec);
-                defer self.allocator.free(zig_spec);
+                // Use runtime.pyFormat for ALL format specs to handle Python's format mini-language
+                // Python format specs like #10x, 08b, .2f are different from Zig's format specs
+                try format_buf.writer(self.allocator).writeAll("{s}");
 
-                try format_buf.writer(self.allocator).print("{{{s}}}", .{zig_spec});
-
-                // Generate expression code
+                // Generate: runtime.pyFormat(__global_allocator, <expr>, "<format_spec>")
                 const saved_output = self.output;
                 self.output = std.ArrayList(u8){};
 
-                // Handle conversion specifier (!r, !s, !a)
-                // For now, all conversions just pass the value - repr/str/ascii are TODO
-                if (fe.conversion) |_| {
-                    try genExpr(self, fe.expr.*);
-                } else {
-                    try genExpr(self, fe.expr.*);
+                try self.emit("(try runtime.pyFormat(__global_allocator, ");
+                try genExpr(self, fe.expr.*);
+                try self.emit(", \"");
+                // Escape the format spec for Zig string literal
+                for (fe.format_spec) |c| {
+                    if (c == '"') {
+                        try self.emit("\\\"");
+                    } else if (c == '\\') {
+                        try self.emit("\\\\");
+                    } else {
+                        try self.output.append(self.allocator, c);
+                    }
                 }
+                try self.emit("\"))");
+
                 const expr_code = try self.output.toOwnedSlice(self.allocator);
                 try args_list.append(self.allocator, expr_code);
-
                 self.output = saved_output;
             },
             .conv_expr => |ce| {

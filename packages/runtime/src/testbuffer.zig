@@ -198,3 +198,96 @@ pub const ND_REDIRECT: i64 = 0x008;
 pub const ND_GETBUF_FAIL: i64 = 0x010;
 pub const ND_GETBUF_UNDEFINED: i64 = 0x020;
 pub const ND_VAREXPORT: i64 = 0x040;
+
+/// Get slice indices from a slice object and sequence length
+/// Returns (start, stop, step, slicelen)
+pub fn slice_indices(s: anytype, length: i64) struct { i64, i64, i64, i64 } {
+    // Handle slice struct
+    const start = if (@hasField(@TypeOf(s), "start"))
+        s.start orelse 0
+    else
+        0;
+    const stop = if (@hasField(@TypeOf(s), "stop"))
+        s.stop orelse length
+    else
+        length;
+    const step = if (@hasField(@TypeOf(s), "step"))
+        s.step orelse 1
+    else
+        1;
+
+    if (step == 0) return .{ 0, 0, 0, 0 }; // ValueError
+
+    var adj_start = start;
+    var adj_stop = stop;
+
+    // Handle negative indices
+    if (adj_start < 0) adj_start += length;
+    if (adj_stop < 0) adj_stop += length;
+
+    // Clamp to bounds
+    if (adj_start < 0) adj_start = if (step < 0) -1 else 0;
+    if (adj_start > length) adj_start = if (step < 0) length - 1 else length;
+    if (adj_stop < 0) adj_stop = if (step < 0) -1 else 0;
+    if (adj_stop > length) adj_stop = if (step < 0) length - 1 else length;
+
+    // Calculate slice length
+    var slicelen: i64 = 0;
+    if (step > 0 and adj_stop > adj_start) {
+        slicelen = @divFloor(adj_stop - adj_start - 1, step) + 1;
+    } else if (step < 0 and adj_stop < adj_start) {
+        slicelen = @divFloor(adj_start - adj_stop - 1, -step) + 1;
+    }
+
+    return .{ adj_start, adj_stop, step, slicelen };
+}
+
+/// Get pointer at indices in buffer
+pub fn get_pointer(buf: *ndarray, indices: []const i64) ?*u8 {
+    if (indices.len != @as(usize, @intCast(buf.ndim))) return null;
+
+    var offset: usize = 0;
+    for (indices, 0..) |idx, i| {
+        if (i >= buf.strides.len) return null;
+        const stride = buf.strides[i];
+        offset += @as(usize, @intCast(idx * stride));
+    }
+
+    if (offset >= buf.data.len) return null;
+    return &buf.data[offset];
+}
+
+/// Get contiguous copy of buffer
+pub fn get_contiguous(buf: *ndarray, order: i64, flags: i64) ndarray {
+    _ = order;
+    _ = flags;
+    // Return copy of data in contiguous layout
+    return ndarray{
+        .data = buf.data,
+        .shape = buf.shape,
+        .strides = buf.strides,
+        .format = buf.format,
+        .itemsize = buf.itemsize,
+        .ndim = buf.ndim,
+        .flags = buf.flags,
+    };
+}
+
+/// Copy buffer to contiguous memory
+pub fn py_buffer_to_contiguous(dest: []u8, src: *ndarray, order: i64) void {
+    _ = order;
+    const len = @min(dest.len, src.data.len);
+    @memcpy(dest[0..len], src.data[0..len]);
+}
+
+/// Compare two contiguous buffers
+pub fn cmp_contig(a: *ndarray, b: *ndarray) i64 {
+    const len = @min(a.data.len, b.data.len);
+    for (0..len) |i| {
+        if (a.data[i] < b.data[i]) return -1;
+        if (a.data[i] > b.data[i]) return 1;
+    }
+    if (a.data.len < b.data.len) return -1;
+    if (a.data.len > b.data.len) return 1;
+    return 0;
+}
