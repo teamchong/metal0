@@ -11,7 +11,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "version", h.c("\"3.12.0 (metal0 compiled)\"") },
     .{ "version_info", h.c(".{ .major = 3, .minor = 12, .micro = 0, .releaselevel = \"final\", .serial = 0 }") },
     .{ "executable", h.c("blk: { const _args = std.os.argv; if (_args.len > 0) break :blk std.mem.span(_args[0]); break :blk \"\"; }") },
-    .{ "stdin", h.c("std.io.getStdIn()") }, .{ "stdout", h.c("std.io.getStdOut()") }, .{ "stderr", h.c("std.io.getStdErr()") },
+    .{ "stdin", h.c("(try runtime.PyFile.create(__global_allocator, std.fs.File{ .handle = std.posix.STDIN_FILENO }, \"r\"))") }, .{ "stdout", h.c("(try runtime.PyFile.create(__global_allocator, std.fs.File{ .handle = std.posix.STDOUT_FILENO }, \"w\"))") }, .{ "stderr", h.c("(try runtime.PyFile.create(__global_allocator, std.fs.File{ .handle = std.posix.STDERR_FILENO }, \"w\"))") },
     .{ "maxsize", h.c("@as(i128, std.math.maxInt(i64))") },
     .{ "byteorder", h.c("blk: { const _native = @import(\"builtin\").cpu.arch.endian(); break :blk if (_native == .little) \"little\" else \"big\"; }") },
     .{ "getsizeof", h.wrap("@as(i64, @intCast(@sizeOf(@TypeOf(", "))))", "@as(i64, 0)") }, .{ "getrecursionlimit", h.I64(1000) }, .{ "setrecursionlimit", h.c("{}") },

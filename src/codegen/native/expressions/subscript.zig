@@ -234,6 +234,13 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try self.emit(", ");
                 try genExpr(self, subscript.slice.index.*);
                 try self.emit(").?");
+            } else if (is_unknown_pyobject and (index_type == .int)) {
+                // PyObject list access: runtime.PyList.get(obj, index)
+                try self.emit("(try runtime.PyList.get(");
+                try genExpr(self, subscript.value.*);
+                try self.emit(", ");
+                try genExpr(self, subscript.slice.index.*);
+                try self.emit("))");
             } else if (is_dict or is_counter or is_tracked_dict) {
                 // Native dict/Counter access: dict.get(key).? for raw StringHashMap
                 // Counter returns 0 for missing keys in Python
