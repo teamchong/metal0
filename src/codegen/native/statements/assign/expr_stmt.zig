@@ -196,7 +196,12 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         }
 
         // Pattern 2: Try expressions for runtime module functions that return values
-        if (std.mem.startsWith(u8, generated, "try runtime.tokenizer.init(")) {
+        if (std.mem.startsWith(u8, generated, "try runtime.tokenizer.")) {
+            break :blk true;
+        }
+
+        // Pattern 3: Expressions ending with .len (count_tokens returns usize)
+        if (std.mem.endsWith(u8, generated, ").len")) {
             break :blk true;
         }
 

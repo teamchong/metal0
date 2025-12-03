@@ -103,3 +103,54 @@ pub fn ZeroClosure(comptime ArgT: type, comptime RetT: type, comptime func: fn (
         }
     };
 }
+
+/// Universal closure with any-typed arguments (for Python closures with mixed types)
+/// Uses anytype parameters to accept strings, ints, etc.
+/// Return type is inferred from the wrapped function's return type
+pub fn AnyClosure0(comptime CaptureT: type, comptime func: anytype) type {
+    const RetType = @typeInfo(@TypeOf(func)).@"fn".return_type.?;
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self) RetType {
+            return @call(.auto, func, .{self.captures});
+        }
+    };
+}
+
+/// Universal 1-arg closure with anytype
+pub fn AnyClosure1(comptime CaptureT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg })) {
+            return @call(.auto, func, .{ self.captures, arg });
+        }
+    };
+}
+
+/// Universal 2-arg closure with anytype
+pub fn AnyClosure2(comptime CaptureT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: anytype, arg2: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2 })) {
+            return @call(.auto, func, .{ self.captures, arg1, arg2 });
+        }
+    };
+}
+
+/// Universal 3-arg closure with anytype
+pub fn AnyClosure3(comptime CaptureT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: anytype, arg2: anytype, arg3: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2, arg3 })) {
+            return @call(.auto, func, .{ self.captures, arg1, arg2, arg3 });
+        }
+    };
+}

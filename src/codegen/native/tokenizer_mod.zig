@@ -27,12 +27,16 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
 
 /// Generate code for tokenizer.encode(text)
 fn handleEncode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // Wrap in PyList - tokens are arena-allocated and reset each call
-    try self.emit("(blk: { const __enc_tokens = try runtime.tokenizer.encode(__global_allocator, ");
+    // Wrap in PyList for Python compatibility
+    try self.emit("(blk: { ");
+    try self.emit("const __enc_tokens = try runtime.tokenizer.encode(__global_allocator, ");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     }
-    try self.emit("); const __enc_list = try runtime.PyList.create(__global_allocator); for (__enc_tokens) |__enc_tok| { try runtime.PyList.append(__enc_list, try runtime.PyInt.create(__global_allocator, @intCast(__enc_tok))); } break :blk __enc_list; })");
+    try self.emit("); ");
+    try self.emit("const __enc_list = try runtime.PyList.create(__global_allocator); ");
+    try self.emit("for (__enc_tokens) |__enc_tok| { try runtime.PyList.append(__enc_list, try runtime.PyInt.create(__global_allocator, @intCast(__enc_tok))); } ");
+    try self.emit("break :blk __enc_list; })");
 }
 
 /// Generate code for tokenizer.decode(tokens)
