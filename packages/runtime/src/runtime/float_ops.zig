@@ -270,6 +270,39 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
         return @as(f64, first);
     }
     if (first_info == .pointer) {
+        // Check if pointer points to a struct with __base_value__ (float subclass instance)
+        const child_type = first_info.pointer.child;
+        const child_info = @typeInfo(child_type);
+        if (child_info == .@"struct") {
+            if (@hasField(child_type, "__base_value__")) {
+                const base_value = first.__base_value__;
+                const BaseType = @TypeOf(base_value);
+                const base_info = @typeInfo(BaseType);
+                if (base_info == .float or base_info == .comptime_float) {
+                    return @as(f64, base_value);
+                }
+                if (base_info == .int or base_info == .comptime_int) {
+                    return @as(f64, @floatFromInt(base_value));
+                }
+                if (base_info == .pointer or base_info == .array) {
+                    return parseFloatWithUnicode(base_value) catch return PythonError.ValueError;
+                }
+            }
+            // Check for __float__ method on pointed-to struct
+            if (@hasDecl(child_type, "__float__")) {
+                const result = first.__float__();
+                const ResultType = @TypeOf(result);
+                const result_info = @typeInfo(ResultType);
+                if (result_info == .error_union) {
+                    return result catch return PythonError.ValueError;
+                }
+                if (result_info == .float or result_info == .comptime_float) {
+                    return result;
+                }
+                return @as(f64, @floatFromInt(result));
+            }
+        }
+        // Otherwise treat as string
         return parseFloatWithUnicode(first) catch return PythonError.ValueError;
     }
     // Handle custom classes that inherit from str/bytes/float (have __base_value__ field)
@@ -342,6 +375,14 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
     }
     if (first_info == .pointer and first_info.pointer.size == .slice) {
         return first.len > 0;
+    }
+    // Handle pointers to arrays (string literals like "" are *const [N:0]u8)
+    if (first_info == .pointer and first_info.pointer.size == .one) {
+        const child_info = @typeInfo(first_info.pointer.child);
+        if (child_info == .array) {
+            // Array length determines truthiness - empty array is falsy
+            return child_info.array.len > 0;
+        }
     }
     // Handle pointers to structs (dereference and check struct)
     if (first_info == .pointer and first_info.pointer.size == .one) {
@@ -692,13 +733,20 @@ pub fn toFloat(value: anytype) f64 {
         if (@hasField(T, "__base_value__")) {
             return value.__base_value__;
         }
-        // Check for value field with PyValue (passthrough pattern)
+        // Check for value field (passthrough pattern)
         if (@hasField(T, "value")) {
             const field_type = @TypeOf(value.value);
-            // Need to import PyValue type - for now just return 0.0
-            // This will need to be fixed when PyValue is properly imported
-            _ = field_type;
-            return 0.0;
+            const field_info = @typeInfo(field_type);
+            // If value field is a tagged union (like PyValue), extract float from it
+            if (field_info == .@"union") {
+                if (@hasDecl(field_type, "toFloat")) {
+                    // PyValue has toFloat() method
+                    if (value.value.toFloat()) |f| return f;
+                }
+            } else {
+                // Native type - recurse
+                return toFloat(value.value);
+            }
         }
     }
 

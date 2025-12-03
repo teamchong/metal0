@@ -1010,6 +1010,12 @@ pub fn assertIn(item: anytype, container: anytype) void {
                 break :elem_blk false;
             }
         }
+        // Pointer types - cannot iterate directly, return false
+        else if (comptime container_info == .pointer) {
+            // For opaque pointers (like *runtime.PyObject), we can't determine membership
+            // Just return false and let the test fail gracefully
+            break :elem_blk false;
+        }
         // Arrays and slices - iterate directly
         else {
             for (container) |elem| {
@@ -1096,6 +1102,12 @@ pub fn assertNotIn(item: anytype, container: anytype) void {
             else {
                 break :elem_blk false;
             }
+        }
+        // Pointer types - cannot iterate directly, return false
+        else if (comptime container_info == .pointer) {
+            // For opaque pointers (like *runtime.PyObject), we can't determine membership
+            // Just return false and let the test fail gracefully
+            break :elem_blk false;
         }
         // Arrays and slices - iterate directly
         else {

@@ -113,8 +113,22 @@ fn stmtUsesFirstParamWithContext(node: ast.Node, param_name: []const u8, has_par
         .expr_stmt => |expr| exprUsesFirstParamWithContext(expr.value.*, param_name, has_parent),
         .return_stmt => |ret| if (ret.value) |val| exprUsesFirstParamWithContext(val.*, param_name, has_parent) else false,
         .if_stmt => |if_stmt| {
+            // Check for dead code patterns: if 0: or if False:
+            const is_dead_code = blk: {
+                if (if_stmt.condition.* == .constant) {
+                    const const_val = if_stmt.condition.constant.value;
+                    if (const_val == .int and const_val.int == 0) break :blk true;
+                    if (const_val == .bool and const_val.bool == false) break :blk true;
+                }
+                if (if_stmt.condition.* == .name) {
+                    const name_val = if_stmt.condition.name;
+                    if (std.mem.eql(u8, name_val.id, "False")) break :blk true;
+                }
+                break :blk false;
+            };
             if (exprUsesFirstParamWithContext(if_stmt.condition.*, param_name, has_parent)) return true;
-            if (usesFirstParamWithContext(if_stmt.body, param_name, has_parent)) return true;
+            // Skip body analysis for if 0: and if False: (dead code)
+            if (!is_dead_code and usesFirstParamWithContext(if_stmt.body, param_name, has_parent)) return true;
             if (usesFirstParamWithContext(if_stmt.else_body, param_name, has_parent)) return true;
             return false;
         },
@@ -141,6 +155,10 @@ fn stmtUsesFirstParamWithContext(node: ast.Node, param_name: []const u8, has_par
             return false;
         },
         .function_def => |func_def| {
+            // Check if param is in captured_vars (closure captures from outer scope)
+            for (func_def.captured_vars) |captured| {
+                if (std.mem.eql(u8, captured, param_name)) return true;
+            }
             // Check if nested function body uses param (closures that capture param)
             return usesFirstParamWithContext(func_def.body, param_name, has_parent);
         },

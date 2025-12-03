@@ -106,33 +106,45 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                         const param_name = assign.value.name.id;
 
                         // Find the parameter index and check annotation
-                        for (init.args) |arg| {
+                        for (init.args, 0..) |arg, param_idx| {
                             if (std.mem.eql(u8, arg.name, param_name)) {
                                 // Method 1: Use type annotation if available
                                 inferred = signature.pythonTypeToNativeType(arg.type_annotation);
 
                                 // Method 2: Try keyword arg lookup (has proper type widening)
                                 // Stored as "ClassName.param_name" in var_types, widened across all calls
+                                var found_kwarg_type = false;
                                 if (inferred == .unknown) {
                                     var kwarg_key_buf: [256]u8 = undefined;
                                     const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_name, arg.name }) catch null;
                                     if (kwarg_key) |key| {
                                         if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
                                             inferred = kwarg_type;
+                                            found_kwarg_type = true;
                                         }
                                     }
                                 }
-                                // Method 2's result is final - no fallback to positional args
-                                // This ensures widened types (including .unknown from incompatible tuples) are preserved
+
+                                // Method 3: Fall back to positional constructor arg type
+                                // Only if Method 2 didn't find a type (widened types are authoritative)
+                                if (!found_kwarg_type and inferred == .unknown) {
+                                    if (constructor_arg_types) |arg_types| {
+                                        const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
+                                        if (arg_idx < arg_types.len) {
+                                            inferred = arg_types[arg_idx];
+                                        }
+                                    }
+                                }
+
                                 break;
                             }
                         }
                     }
 
                     // Use nativeTypeToZigType for proper type conversion (handles dict, list, etc.)
-                    // For unknown types, use *runtime.PyObject for dynamic typing
+                    // For unknown types, use runtime.PyValue for dynamic typing
                     const field_type_str = if (inferred == .unknown)
-                        try self.allocator.dupe(u8, "*runtime.PyObject")
+                        try self.allocator.dupe(u8, "runtime.PyValue")
                     else
                         try self.nativeTypeToZigType(inferred);
                     defer self.allocator.free(field_type_str);
@@ -279,9 +291,9 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
     const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_name, param_name }) catch null;
     if (kwarg_key) |key| {
         if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
-            // Widened type is authoritative - if .unknown, use runtime.PyValue
+            // Widened type is authoritative - if .unknown, use anytype for params
             if (kwarg_type == .unknown) {
-                return try self.allocator.dupe(u8, "*runtime.PyObject");
+                return try self.allocator.dupe(u8, "anytype");
             }
             return try self.nativeTypeToZigType(kwarg_type);
         }
@@ -304,9 +316,9 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
     if (constructor_arg_types) |arg_types| {
         if (param_idx < arg_types.len) {
             const inferred = arg_types[param_idx];
-            // For unknown types, default to i64 (consistent with fallback)
+            // For unknown types, use anytype to accept any value
             if (inferred == .unknown) {
-                return try self.allocator.dupe(u8, "i64");
+                return try self.allocator.dupe(u8, "anytype");
             }
             return try self.nativeTypeToZigType(inferred);
         }
@@ -319,16 +331,16 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
             if (assign.value.* == .name and std.mem.eql(u8, assign.value.name.id, param_name)) {
                 // Found usage - infer type from the value
                 const inferred = try self.type_inferrer.inferExpr(assign.value.*);
-                // For unknown types, default to i64 (consistent with fallback)
+                // For unknown types, use anytype to accept any value
                 if (inferred == .unknown) {
-                    return try self.allocator.dupe(u8, "i64");
+                    return try self.allocator.dupe(u8, "anytype");
                 }
                 return try self.nativeTypeToZigType(inferred);
             }
         }
     }
-    // Fallback: use i64 as default (must allocate since caller frees)
-    return try self.allocator.dupe(u8, "i64");
+    // Fallback: use anytype for maximum flexibility (must allocate since caller frees)
+    return try self.allocator.dupe(u8, "anytype");
 }
 
 /// Check if a class with given name is defined inside the method body

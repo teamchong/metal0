@@ -125,44 +125,52 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
                 try self.emit("ctx.instance.setUp(ctx.allocator) catch {};\n");
             }
 
-            // Run test
+            // Run test - check if method returns error union
             try self.emitIndent();
-            if (method_info.needs_allocator and !method_info.is_skipped) {
-                try self.emit("ctx.instance.");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_info.name);
-                try self.emit("(ctx.allocator");
-                for (method_info.default_params) |default_param| {
-                    try self.emit(", ");
-                    try self.emit(default_param.default_code);
+            if (method_info.returns_error) {
+                // Method returns error union - use catch block
+                if (method_info.needs_allocator and !method_info.is_skipped) {
+                    try self.emit("ctx.instance.");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_info.name);
+                    try self.emit("(ctx.allocator");
+                    for (method_info.default_params) |default_param| {
+                        try self.emit(", ");
+                        try self.emit(default_param.default_code);
+                    }
+                    try self.emit(") catch {\n");
+                } else if (method_info.default_params.len > 0) {
+                    try self.emit("ctx.instance.");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_info.name);
+                    try self.emit("(");
+                    for (method_info.default_params, 0..) |default_param, i| {
+                        if (i > 0) try self.emit(", ");
+                        try self.emit(default_param.default_code);
+                    }
+                    try self.emit(") catch {\n");
+                } else {
+                    try self.emit("ctx.instance.");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_info.name);
+                    try self.emit("() catch {\n");
                 }
-                try self.emit(") catch {\n");
-            } else if (method_info.default_params.len > 0) {
-                try self.emit("ctx.instance.");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_info.name);
-                try self.emit("(");
-                for (method_info.default_params, 0..) |default_param, i| {
-                    if (i > 0) try self.emit(", ");
-                    try self.emit(default_param.default_code);
+                self.indent();
+                // tearDown on failure
+                if (class_info.has_tearDown) {
+                    try self.emitIndent();
+                    try self.emit("ctx.instance.tearDown(ctx.allocator) catch {};\n");
                 }
-                try self.emit(") catch {\n");
-            } else {
-                try self.emit("ctx.instance.");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_info.name);
-                try self.emit("() catch {\n");
-            }
-            self.indent();
-            // tearDown on failure
-            if (class_info.has_tearDown) {
                 try self.emitIndent();
-                try self.emit("ctx.instance.tearDown(ctx.allocator) catch {};\n");
+                try self.emit("ctx.result.store(2, .release);\n"); // 2 = failed
+                try self.emitIndent();
+                try self.emit("return;\n");
+                self.dedent();
+                try self.emitIndent();
+                try self.emit("};\n");
+            } else {
+                // Method returns void - no catch needed
+                try self.emit("ctx.instance.");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_info.name);
+                try self.emit("();\n");
             }
-            try self.emitIndent();
-            try self.emit("ctx.result.store(2, .release);\n"); // 2 = failed
-            try self.emitIndent();
-            try self.emit("return;\n");
-            self.dedent();
-            try self.emitIndent();
-            try self.emit("};\n");
 
             // tearDown on success
             if (class_info.has_tearDown) {

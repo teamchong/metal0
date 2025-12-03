@@ -39,7 +39,12 @@ pub fn genStandardClosure(
         if (i > 0) try self.emit(", ");
         try self.emit(" ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        try self.emit(": i64");
+        // If capturing 'self' in a class context, use correct type
+        if (std.mem.eql(u8, var_name, "self") and self.current_class_name != null) {
+            try self.output.writer(self.allocator).print(": *const {s}", .{self.current_class_name.?});
+        } else {
+            try self.emit(": i64");
+        }
     }
     try self.emit(" };\n");
 
@@ -92,16 +97,52 @@ pub fn genStandardClosure(
                 .{ arg.name, saved_counter },
             );
             try param_renames.put(arg.name, unique_param_name);
-            try self.output.writer(self.allocator).print(", {s}: i64", .{unique_param_name});
+            try self.output.writer(self.allocator).print(", {s}: anytype", .{unique_param_name});
         } else {
-            try self.output.writer(self.allocator).print(", _: i64", .{});
+            try self.output.writer(self.allocator).print(", _: anytype", .{});
         }
     }
-    try self.emit(") i64 {\n");
+    // Determine return type based on body analysis:
+    // - Has return with value -> anyerror!i64
+    // - Can produce errors (calls, etc.) -> anyerror!void
+    // - Neither -> void
+    if (var_tracking.hasReturnWithValue(func.body)) {
+        try self.emit(") anyerror!i64 {\n");
+    } else if (var_tracking.canProduceErrors(func.body)) {
+        try self.emit(") anyerror!void {\n");
+    } else {
+        try self.emit(") void {\n");
+    }
 
     // Generate body with captured vars renamed to capture_param.varname
     self.indent();
     try self.pushScope();
+
+    // Add discard for capture param to avoid unused parameter warnings
+    // (unittest methods like assertEqual bypass captured self and call runtime directly)
+    if (captures_used) {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("_ = &{s};\n", .{capture_param_name});
+    }
+
+    // Create mutable local copies for parameters that are reassigned in body
+    // (anytype params are const, but Python allows reassigning parameters)
+    for (func.args) |arg| {
+        if (param_renames.get(arg.name)) |renamed| {
+            if (var_tracking.isParamReassignedInStmts(arg.name, func.body)) {
+                // Create: var __p_name_local = __p_name;
+                const local_name = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{s}_local",
+                    .{renamed},
+                );
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("var {s} = {s};\n", .{ local_name, renamed });
+                // Update rename to use local copy
+                try param_renames.put(arg.name, local_name);
+            }
+        }
+    }
 
     // Save and populate func_local_uses for this nested function
     // This prevents incorrect "unused variable" detection for local vars
@@ -172,42 +213,33 @@ pub fn genStandardClosure(
     defer self.allocator.free(closure_var_name);
 
     try self.emitIndent();
+    // Use AnyClosure for flexible parameter types (strings, ints, etc.)
     if (func.args.len == 0) {
-        // No arguments - use Closure0
         try self.output.writer(self.allocator).print(
-            "const {s} = runtime.Closure0({s}, ",
+            "const {s} = runtime.AnyClosure0({s}, ",
             .{ closure_var_name, capture_type_name },
         );
     } else if (func.args.len == 1) {
         try self.output.writer(self.allocator).print(
-            "const {s} = runtime.Closure1({s}, ",
+            "const {s} = runtime.AnyClosure1({s}, ",
             .{ closure_var_name, capture_type_name },
         );
     } else if (func.args.len == 2) {
         try self.output.writer(self.allocator).print(
-            "const {s} = runtime.Closure2({s}, ",
+            "const {s} = runtime.AnyClosure2({s}, ",
             .{ closure_var_name, capture_type_name },
         );
     } else if (func.args.len == 3) {
         try self.output.writer(self.allocator).print(
-            "const {s} = runtime.Closure3({s}, ",
+            "const {s} = runtime.AnyClosure3({s}, ",
             .{ closure_var_name, capture_type_name },
         );
     } else {
         // Fallback to single arg tuple
         try self.output.writer(self.allocator).print(
-            "const {s} = runtime.Closure1({s}, ",
+            "const {s} = runtime.AnyClosure1({s}, ",
             .{ closure_var_name, capture_type_name },
         );
-    }
-
-    // Arg types (skip for zero-arg closures)
-    for (func.args, 0..) |_, i| {
-        if (func.args.len > 1 and i > 0) try self.emit(", ");
-        try self.emit("i64");
-        if (func.args.len == 1 or i == func.args.len - 1) {
-            try self.emit(", ");
-        }
     }
 
     // Return type and function - use saved_counter for consistency
@@ -219,7 +251,7 @@ pub fn genStandardClosure(
     defer self.allocator.free(impl_fn_ref);
 
     try self.output.writer(self.allocator).print(
-        "i64, {s}.{s}){{ .captures = .{{",
+        "{s}.{s}){{ .captures = .{{",
         .{ closure_impl_name, impl_fn_ref },
     );
 
@@ -304,7 +336,12 @@ pub fn genNestedFunctionWithOuterCapture(
         if (i > 0) try self.emit(", ");
         try self.emit(" ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        try self.emit(": i64");
+        // If capturing 'self' in a class context, use correct type
+        if (std.mem.eql(u8, var_name, "self") and self.current_class_name != null) {
+            try self.output.writer(self.allocator).print(": *const {s}", .{self.current_class_name.?});
+        } else {
+            try self.emit(": i64");
+        }
     }
     try self.emit(" };\n");
 
@@ -355,16 +392,45 @@ pub fn genNestedFunctionWithOuterCapture(
                 .{ arg.name, saved_counter },
             );
             try param_renames.put(arg.name, unique_param_name);
-            try self.output.writer(self.allocator).print(", {s}: i64", .{unique_param_name});
+            try self.output.writer(self.allocator).print(", {s}: anytype", .{unique_param_name});
         } else {
-            try self.output.writer(self.allocator).print(", _: i64", .{});
+            try self.output.writer(self.allocator).print(", _: anytype", .{});
         }
     }
-    try self.emit(") i64 {\n");
+    // Determine return type based on body analysis
+    if (var_tracking.hasReturnWithValue(func.body)) {
+        try self.emit(") anyerror!i64 {\n");
+    } else if (var_tracking.canProduceErrors(func.body)) {
+        try self.emit(") anyerror!void {\n");
+    } else {
+        try self.emit(") void {\n");
+    }
 
     // Generate body with captured vars renamed to capture_param.varname
     self.indent();
     try self.pushScope();
+
+    // Add discard for capture param to avoid unused parameter warnings
+    if (captures_used) {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("_ = &{s};\n", .{capture_param_name});
+    }
+
+    // Create mutable local copies for parameters that are reassigned in body
+    for (func.args) |arg| {
+        if (param_renames.get(arg.name)) |renamed| {
+            if (var_tracking.isParamReassignedInStmts(arg.name, func.body)) {
+                const local_name = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{s}_local",
+                    .{renamed},
+                );
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("var {s} = {s};\n", .{ local_name, renamed });
+                try param_renames.put(arg.name, local_name);
+            }
+        }
+    }
 
     // Save and populate func_local_uses for this nested function
     const saved_func_local_uses = self.func_local_uses;
@@ -478,7 +544,7 @@ pub fn genNestedFunctionWithOuterCapture(
     defer self.allocator.free(impl_fn_ref);
 
     try self.output.writer(self.allocator).print(
-        "i64, {s}.{s}){{ .captures = .{{",
+        "{s}.{s}){{ .captures = .{{",
         .{ closure_impl_name, impl_fn_ref },
     );
 

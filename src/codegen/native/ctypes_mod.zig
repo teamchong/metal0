@@ -8,6 +8,8 @@ const CodegenError = @import("main.zig").CodegenError;
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 
 pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
+    // pythonapi - access to Python C API symbols
+    .{ "pythonapi", genPythonApi },
     // DLLs - actual dynamic library loading
     .{ "CDLL", genCDLL },
     .{ "WinDLL", genCDLL },
@@ -443,4 +445,10 @@ fn genCFunctype(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
     // Function type factory - returns generic function pointer type
     // Actual function signature would need more complex type analysis
     try self.emit("*const fn() callconv(.c) void");
+}
+
+fn genPythonApi(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    // pythonapi - object that provides access to CPython C API symbols
+    // Returns a PythonAPI struct that supports subscript access
+    try self.emit("runtime.ctypes.PythonAPI{}");
 }

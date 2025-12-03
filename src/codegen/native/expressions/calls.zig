@@ -626,26 +626,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
             try self.emit(".call(");
 
-            // Pass args directly - closure fn params are anytype so accept all types
-            // Pass class instances by pointer for Python reference semantics
+            // Pass args directly - closure fn params are anytype
+            // Class instances are already pointers (*Self from init()), never add &
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
-                const arg_type = self.inferExprScoped(arg) catch .unknown;
-                if (arg_type == .class_instance) {
-                    // Don't add & for renamed variables (param reassignment creates var, already a value)
-                    const is_renamed_var = if (arg == .name)
-                        self.var_renames.contains(arg.name.id)
-                    else
-                        false;
-                    // Don't add & for anytype params - they need actual value for type checking
-                    const is_anytype_param = if (arg == .name)
-                        self.anytype_params.contains(arg.name.id)
-                    else
-                        false;
-                    if (!is_renamed_var and !is_anytype_param) {
-                        try self.emit("&");
-                    }
-                }
                 try genExpr(self, arg);
             }
 

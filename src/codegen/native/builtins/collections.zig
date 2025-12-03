@@ -299,11 +299,39 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for reversed(iterable)
-/// Returns reversed copy of list
+/// Returns reversed copy of list, or reversed keys for dict
 pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // Wrong number of args - emit error for assertRaises compatibility
         try self.emit("return error.TypeError");
+        return;
+    }
+
+    // Check if arg is a dict literal or dict() call
+    const is_dict = blk: {
+        if (args[0] == .dict) break :blk true;
+        if (args[0] == .call) {
+            const call = args[0].call;
+            if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "dict")) {
+                break :blk true;
+            }
+        }
+        break :blk false;
+    };
+
+    const alloc_name = "__global_allocator";
+
+    if (is_dict) {
+        // For dicts, reversed() returns reversed keys
+        try self.emit("__rev_dict_blk: {\n");
+        try self.emit("const _raw_iterable = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+        try self.emit("const _iterable = if (@typeInfo(@TypeOf(_raw_iterable)) == .error_union) try _raw_iterable else _raw_iterable;\n");
+        try self.emitFmt("const copy = try {s}.dupe([]const u8, _iterable.keys());\n", .{alloc_name});
+        try self.emit("std.mem.reverse([]const u8, copy);\n");
+        try self.emit("break :__rev_dict_blk copy;\n");
+        try self.emit("}");
         return;
     }
 
@@ -317,6 +345,7 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try arg_type.list.*.toZigType(self.allocator, &type_buf);
             break :blk try type_buf.toOwnedSlice(self.allocator);
         },
+        .dict => "[]const u8", // Dict keys are strings
         else => "i64", // Default to i64 for unknown types
     };
 
@@ -325,8 +354,6 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   std.mem.reverse(elem_type, copy);
     //   break :blk copy;
     // }
-    // Always use __global_allocator since method allocator param may be discarded as "_"
-    const alloc_name = "__global_allocator";
 
     try self.emit("blk: {\n");
     try self.emitFmt("const copy = try {s}.dupe({s}, ", .{ alloc_name, elem_zig_type });

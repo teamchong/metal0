@@ -716,6 +716,117 @@ pub fn collectUsedNames(stmts: []ast.Node, uses: *hashmap_helper.StringHashMap(v
     }
 }
 
+/// Check if function body has any return statements with values
+/// Returns true if there's at least one `return expr` (not just `return`)
+pub fn hasReturnWithValue(stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        if (hasReturnWithValueInNode(stmt)) return true;
+    }
+    return false;
+}
+
+/// Check if function body can produce errors (has try-worthy operations)
+/// Used to determine if closure return type should be error union
+pub fn canProduceErrors(stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        if (canProduceErrorsInNode(stmt)) return true;
+    }
+    return false;
+}
+
+fn canProduceErrorsInNode(node: ast.Node) bool {
+    return switch (node) {
+        // Operations that generate try in Zig
+        .call => true, // All Python calls can potentially error
+        .attribute => true, // Attribute access can fail
+        .subscript => true, // Subscript can fail
+        .expr_stmt => |e| canProduceErrorsInNode(e.value.*),
+        .assign => |a| canProduceErrorsInNode(a.value.*),
+        .if_stmt => |i| blk: {
+            if (canProduceErrors(i.body)) break :blk true;
+            if (canProduceErrors(i.else_body)) break :blk true;
+            break :blk canProduceErrorsInNode(i.condition.*);
+        },
+        .for_stmt => |f| blk: {
+            if (canProduceErrors(f.body)) break :blk true;
+            if (f.orelse_body) |ob| if (canProduceErrors(ob)) break :blk true;
+            break :blk canProduceErrorsInNode(f.iter.*);
+        },
+        .while_stmt => |w| blk: {
+            if (canProduceErrors(w.body)) break :blk true;
+            break :blk canProduceErrorsInNode(w.condition.*);
+        },
+        .try_stmt => true, // try/except can error
+        .with_stmt => |w| blk: {
+            if (canProduceErrors(w.body)) break :blk true;
+            break :blk canProduceErrorsInNode(w.context_expr.*);
+        },
+        .return_stmt => |r| if (r.value) |v| canProduceErrorsInNode(v.*) else false,
+        .binop => |b| canProduceErrorsInNode(b.left.*) or canProduceErrorsInNode(b.right.*),
+        .unaryop => |u| canProduceErrorsInNode(u.operand.*),
+        .compare => |c| blk: {
+            if (canProduceErrorsInNode(c.left.*)) break :blk true;
+            for (c.comparators) |comp| {
+                if (canProduceErrorsInNode(comp)) break :blk true;
+            }
+            break :blk false;
+        },
+        .if_expr => |ie| canProduceErrorsInNode(ie.condition.*) or
+            canProduceErrorsInNode(ie.body.*) or
+            canProduceErrorsInNode(ie.orelse_value.*),
+        .list => |l| blk: {
+            for (l.elts) |elt| if (canProduceErrorsInNode(elt)) break :blk true;
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |elt| if (canProduceErrorsInNode(elt)) break :blk true;
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys) |k| if (canProduceErrorsInNode(k)) break :blk true;
+            for (d.values) |v| if (canProduceErrorsInNode(v)) break :blk true;
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+fn hasReturnWithValueInNode(node: ast.Node) bool {
+    return switch (node) {
+        .return_stmt => |r| r.value != null,
+        .if_stmt => |i| blk: {
+            if (hasReturnWithValue(i.body)) break :blk true;
+            if (hasReturnWithValue(i.else_body)) break :blk true;
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            if (hasReturnWithValue(f.body)) break :blk true;
+            if (f.orelse_body) |ob| {
+                if (hasReturnWithValue(ob)) break :blk true;
+            }
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            if (hasReturnWithValue(w.body)) break :blk true;
+            if (w.orelse_body) |ob| {
+                if (hasReturnWithValue(ob)) break :blk true;
+            }
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            if (hasReturnWithValue(t.body)) break :blk true;
+            for (t.handlers) |h| {
+                if (hasReturnWithValue(h.body)) break :blk true;
+            }
+            if (hasReturnWithValue(t.else_body)) break :blk true;
+            if (hasReturnWithValue(t.finalbody)) break :blk true;
+            break :blk false;
+        },
+        .with_stmt => |w| hasReturnWithValue(w.body),
+        else => false,
+    };
+}
+
 fn collectUsedNamesFromNode(node: ast.Node, uses: *hashmap_helper.StringHashMap(void)) error{OutOfMemory}!void {
     switch (node) {
         .name => |n| {

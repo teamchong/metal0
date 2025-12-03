@@ -319,6 +319,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         .name = method_name,
                         .skip_reason = skip_reason,
                         .needs_allocator = method_needs_allocator,
+                        .returns_error = method_needs_allocator, // Methods needing allocator typically have fallible ops
                         .is_skipped = skip_reason != null,
                         .mock_patch_count = mock_count,
                         .default_params = default_params.toOwnedSlice(self.allocator) catch &.{},
@@ -1317,6 +1318,33 @@ fn checkSelfUsedInNode(node: ast.Node) bool {
         },
         .binop => |b| return checkSelfUsedInNode(b.left.*) or checkSelfUsedInNode(b.right.*),
         .expr_stmt => |e| return checkSelfUsedInNode(e.value.*),
+        // Nested functions - check if they capture 'self'
+        .function_def => |f| {
+            // Check if self is in captured_vars (populated by closure analysis)
+            for (f.captured_vars) |captured| {
+                if (std.mem.eql(u8, captured, "self")) return true;
+            }
+            // Also recurse into body in case there are deeper nested functions
+            return checkSelfUsedInBody(f.body);
+        },
+        .if_stmt => |i| {
+            if (checkSelfUsedInNode(i.condition.*)) return true;
+            if (checkSelfUsedInBody(i.body)) return true;
+            if (checkSelfUsedInBody(i.else_body)) return true;
+            return false;
+        },
+        .for_stmt => |f| {
+            if (checkSelfUsedInNode(f.iter.*)) return true;
+            return checkSelfUsedInBody(f.body);
+        },
+        .while_stmt => |w| {
+            if (checkSelfUsedInNode(w.condition.*)) return true;
+            return checkSelfUsedInBody(w.body);
+        },
+        .with_stmt => |w| {
+            if (checkSelfUsedInNode(w.context_expr.*)) return true;
+            return checkSelfUsedInBody(w.body);
+        },
         else => return false,
     }
 }

@@ -293,18 +293,14 @@ pub fn emitVarDeclaration(
     // not function-scoped. Different variables named 'o' in different functions would collide.
     // Instead, setattr/delattr codegen uses the object directly (not copying it).
     //
-    // Special case for class instances: If the class doesn't have mutating methods AND the variable
-    // isn't reassigned (e.g., via aug_assign), we can use const. But if the variable is reassigned
-    // (e.g., x += 10 where __add__ returns new object), we need var.
-    // Note: is_mutated tracks actual reassignment, not just attribute mutation.
-    //
-    // Note: List comprehensions and list() return ArrayLists which CAN use const unless mutated.
-    // Zig const ArrayList still allows .items access and .deinit() calls.
-    // Only use var if the variable is actually mutated (reassigned or has mutation analysis showing mutation).
-    const is_immutable_class_instance = (value_type == .class_instance) and !is_mutable_class_instance and !is_mutated;
-    const effective_is_mutated = if (is_immutable_class_instance) false else is_mutated;
+    // Class instances are stored as pointers (*Self from init()). The variable holding the pointer
+    // only needs `var` if it's reassigned. Whether the object has self-mutating methods is irrelevant
+    // because mutations go through the pointer, not by reassigning the variable.
+    // Note: is_mutable_class_instance was previously used when closure calls added `&` for class args,
+    // but now closures pass class instances directly (no &), so this flag is no longer needed.
+    _ = is_mutable_class_instance; // No longer used for var/const decision
     // Removed is_listcomp from needs_var - listcomp results can use const unless mutated
-    const needs_var = is_arraylist or is_dict or is_mutable_class_instance or effective_is_mutated or is_mutable_collection or is_iterator;
+    const needs_var = is_arraylist or is_dict or is_mutated or is_mutable_collection or is_iterator;
 
     if (needs_var) {
         try self.emit("var ");

@@ -19,6 +19,12 @@ const FloatMethods = std.StaticStringMap(FloatMethodInfo).initComptime(.{
     .{ "__round__", FloatMethodInfo{ .func = "Round(__global_allocator, ", .needs_alloc = true } },
 });
 
+// Float class methods (e.g., float.__getformat__) - maps Python method names to runtime function names
+const FloatClassMethods = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "fromhex", "runtime.floatFromHex" },
+    .{ "__getformat__", "runtime.floatGetFormat" },
+});
+
 /// Handler type for assertion methods
 const AssertHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
 
@@ -296,19 +302,46 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             const base_name = attr.value.name.id;
             // Check if base is a builtin type (int, float, bool, str) - these need runtime dispatch
             if (PyToZigTypes.has(base_name)) {
-                // Builtin type method: int.__new__ -> runtime.int__new__(args)
-                // Note: attr starts with __ so we get int__new__, not int___new__
-                try self.emit("runtime.");
-                try self.emit(base_name);
-                try self.emit(attr.attr);
-                try self.emit("(");
-                if (args.len > 2) {
-                    for (args[2..], 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
-                        try parent.genExpr(self, arg);
+                // Check for special float class methods with explicit mappings
+                if (std.mem.eql(u8, base_name, "float")) {
+                    if (FloatClassMethods.get(attr.attr)) |func_name| {
+                        try self.emit(func_name);
+                        try self.emit("(");
+                        if (args.len > 2) {
+                            for (args[2..], 0..) |arg, i| {
+                                if (i > 0) try self.emit(", ");
+                                try parent.genExpr(self, arg);
+                            }
+                        }
+                        try self.emit(")");
+                    } else {
+                        // Fallback for other float class methods
+                        try self.emit("runtime.float");
+                        try self.emit(attr.attr);
+                        try self.emit("(");
+                        if (args.len > 2) {
+                            for (args[2..], 0..) |arg, i| {
+                                if (i > 0) try self.emit(", ");
+                                try parent.genExpr(self, arg);
+                            }
+                        }
+                        try self.emit(")");
                     }
+                } else {
+                    // Builtin type method: int.__new__ -> runtime.int__new__(args)
+                    // Note: attr starts with __ so we get int__new__, not int___new__
+                    try self.emit("runtime.");
+                    try self.emit(base_name);
+                    try self.emit(attr.attr);
+                    try self.emit("(");
+                    if (args.len > 2) {
+                        for (args[2..], 0..) |arg, i| {
+                            if (i > 0) try self.emit(", ");
+                            try parent.genExpr(self, arg);
+                        }
+                    }
+                    try self.emit(")");
                 }
-                try self.emit(")");
             } else {
                 // Simple variable attribute - local variable's method
                 // Generate: var_name.@"method"(args)

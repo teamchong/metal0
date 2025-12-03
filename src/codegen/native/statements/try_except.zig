@@ -370,9 +370,21 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
         }
 
+        // Check if var_name would shadow a module-level import
+        // If so, use a prefixed name to avoid Zig's "shadows declaration" error
+        var actual_var_name = var_name;
+        if (self.imported_modules.contains(var_name) and !self.var_renames.contains(var_name)) {
+            const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
+            self.lambda_counter += 1;
+            try self.var_renames.put(var_name, prefixed_name);
+            actual_var_name = prefixed_name;
+        } else if (self.var_renames.get(var_name)) |renamed| {
+            actual_var_name = renamed;
+        }
+
         try self.emitIndent();
         try self.emit("var ");
-        try self.emit(var_name);
+        try self.emit(actual_var_name);
         try self.emit(": ");
         try self.emit(zig_type);
         try self.emit(" = undefined;\n");
@@ -611,6 +623,22 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.var_renames.put(var_name, renamed);
         }
 
+        // Save any existing import-shadowing renames for hoisted vars before overwriting
+        // (we'll restore them after generating the helper body)
+        var saved_hoisted_renames = std.ArrayList(struct { name: []const u8, rename: []const u8 }){};
+        defer saved_hoisted_renames.deinit(self.allocator);
+        for (declared_vars.items) |hoisted| {
+            if (self.var_renames.get(hoisted.name)) |existing_rename| {
+                // Don't save if it's a p_* rename from a previous helper
+                if (!std.mem.startsWith(u8, existing_rename, "p_")) {
+                    try saved_hoisted_renames.append(self.allocator, .{
+                        .name = hoisted.name,
+                        .rename = try self.allocator.dupe(u8, existing_rename),
+                    });
+                }
+            }
+        }
+
         // Create aliases for declared variables (dereference pointers)
         // Also suppress unused parameter warnings since these vars may only be set in except block
         for (declared_vars.items) |hoisted| {
@@ -652,6 +680,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (self.var_renames.fetchSwapRemove(hoisted.name)) |entry| {
                 self.allocator.free(entry.value);
             }
+        }
+
+        // Restore import-shadowing renames for hoisted vars (needed for helper call)
+        for (saved_hoisted_renames.items) |saved| {
+            try self.var_renames.put(saved.name, saved.rename);
         }
 
         self.dedent();
@@ -698,7 +731,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         for (declared_vars.items) |hoisted| {
             if (call_param_count > 0) try self.emit(", ");
             try self.emit("&");
-            try self.emit(hoisted.name);
+            // Use renamed name if variable was renamed to avoid shadowing imports
+            const actual_name = self.var_renames.get(hoisted.name) orelse hoisted.name;
+            try self.emit(actual_name);
             call_param_count += 1;
         }
 

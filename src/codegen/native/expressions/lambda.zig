@@ -609,6 +609,93 @@ fn referencesNestedClass(self: *NativeCodegen, node: ast.Node) bool {
     }
 }
 
+/// Check if a lambda body calls a nested class constructor
+/// This is used to determine if the inline lambda needs an error union return type
+/// because nested class init methods return error unions and will be wrapped with try
+fn bodyCallsNestedClass(self: *NativeCodegen, node: ast.Node) bool {
+    // Skip if no nested classes are tracked
+    if (self.nested_class_names.count() == 0) return false;
+
+    switch (node) {
+        .call => |c| {
+            // Check if function is a direct call to a nested class (e.g., CustomStr(...))
+            if (c.func.* == .name) {
+                if (self.nested_class_names.contains(c.func.name.id)) return true;
+            }
+            // Recurse into arguments
+            for (c.args) |arg| {
+                if (bodyCallsNestedClass(self, arg)) return true;
+            }
+            for (c.keyword_args) |kw| {
+                if (bodyCallsNestedClass(self, kw.value)) return true;
+            }
+            return false;
+        },
+        .binop => |b| {
+            return bodyCallsNestedClass(self, b.left.*) or
+                bodyCallsNestedClass(self, b.right.*);
+        },
+        .compare => |cmp| {
+            if (bodyCallsNestedClass(self, cmp.left.*)) return true;
+            for (cmp.comparators) |comp| {
+                if (bodyCallsNestedClass(self, comp)) return true;
+            }
+            return false;
+        },
+        .attribute => |attr| {
+            return bodyCallsNestedClass(self, attr.value.*);
+        },
+        .subscript => |sub| {
+            if (bodyCallsNestedClass(self, sub.value.*)) return true;
+            return switch (sub.slice) {
+                .index => |idx| bodyCallsNestedClass(self, idx.*),
+                .slice => |s| (if (s.lower) |l| bodyCallsNestedClass(self, l.*) else false) or
+                    (if (s.upper) |u| bodyCallsNestedClass(self, u.*) else false) or
+                    (if (s.step) |st| bodyCallsNestedClass(self, st.*) else false),
+            };
+        },
+        .if_expr => |ie| {
+            return bodyCallsNestedClass(self, ie.condition.*) or
+                bodyCallsNestedClass(self, ie.body.*) or
+                bodyCallsNestedClass(self, ie.orelse_value.*);
+        },
+        .unaryop => |u| {
+            return bodyCallsNestedClass(self, u.operand.*);
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                if (bodyCallsNestedClass(self, elt)) return true;
+            }
+            return false;
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                if (bodyCallsNestedClass(self, elt)) return true;
+            }
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |key| {
+                if (bodyCallsNestedClass(self, key)) return true;
+            }
+            for (d.values) |val| {
+                if (bodyCallsNestedClass(self, val)) return true;
+            }
+            return false;
+        },
+        .lambda => |lam| {
+            return bodyCallsNestedClass(self, lam.body.*);
+        },
+        .boolop => |bo| {
+            for (bo.values) |v| {
+                if (bodyCallsNestedClass(self, v)) return true;
+            }
+            return false;
+        },
+        else => return false,
+    }
+}
+
 /// Generate an inline struct lambda for lambdas that reference nested types
 /// This keeps the type in scope instead of hoisting to module level.
 ///
@@ -644,9 +731,15 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
         }
     }
 
-    // Return type
+    // Return type - if body calls nested class, it will generate try, so need error union + pointer
     const return_type = try inferReturnType(self, lambda.body.*);
     try self.emit(") ");
+    // Check if body contains a call to a nested class - if so, needs error union return with pointer
+    // Nested classes use heap allocation and return !*@This()
+    const body_calls_nested_class = bodyCallsNestedClass(self, lambda.body.*);
+    if (body_calls_nested_class) {
+        try self.emit("!*");
+    }
     try self.emit(return_type);
     try self.emit(" { return ");
 

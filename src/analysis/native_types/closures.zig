@@ -51,24 +51,10 @@ fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), alloc
             }
         },
         .call => |c| {
-            // Check for self.method() calls - skip adding 'self' to used vars
-            // because in codegen, self.method() is dispatched specially and doesn't
-            // need the actual self value captured
-            const is_self_method_call = blk: {
-                if (c.func.* == .attribute) {
-                    const func_attr = c.func.attribute;
-                    if (func_attr.value.* == .name and
-                        std.mem.eql(u8, func_attr.value.name.id, "self"))
-                    {
-                        break :blk true;
-                    }
-                }
-                break :blk false;
-            };
-            if (!is_self_method_call) {
-                try findUsedVars(c.func.*, vars, allocator);
-            }
-            // Still check arguments (they might use other captured vars)
+            // Include self in used vars for self.method() calls
+            // Nested functions need to capture 'self' to call methods on it
+            try findUsedVars(c.func.*, vars, allocator);
+            // Check arguments too
             for (c.args) |arg| {
                 try findUsedVars(arg, vars, allocator);
             }

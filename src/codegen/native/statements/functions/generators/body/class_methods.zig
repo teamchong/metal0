@@ -404,7 +404,18 @@ pub fn genInitMethod(
                     try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
-                    try self.genExpr(assign.value.*);
+                    // Check if value is an anytype param - wrap with runtime.PyValue.from()
+                    const is_anytype_param = if (assign.value.* == .name)
+                        self.anytype_params.contains(assign.value.name.id)
+                    else
+                        false;
+                    if (is_anytype_param) {
+                        try self.emit("runtime.PyValue.from(");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(")");
+                    } else {
+                        try self.genExpr(assign.value.*);
+                    }
                     try self.emit(",\n");
                 }
             }
@@ -677,7 +688,18 @@ pub fn genInitMethodWithBuiltinBase(
                     try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
-                    try self.genExpr(assign.value.*);
+                    // Check if value is an anytype param - wrap with runtime.PyValue.from()
+                    const is_anytype_param = if (assign.value.* == .name)
+                        self.anytype_params.contains(assign.value.name.id)
+                    else
+                        false;
+                    if (is_anytype_param) {
+                        try self.emit("runtime.PyValue.from(");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(")");
+                    } else {
+                        try self.genExpr(assign.value.*);
+                    }
                     try self.emit(",\n");
                 }
             }
@@ -794,7 +816,12 @@ pub fn genInitMethodFromNew(
     }
 
     // Use @This() for self-referential return type
-    try self.emit(") @This() {\n");
+    // Nested classes need error union with pointer for heap allocation
+    if (is_nested) {
+        try self.emit(") !*@This() {\n");
+    } else {
+        try self.emit(") @This() {\n");
+    }
     self.indent();
 
     // Set captured vars context for expression generation
@@ -853,8 +880,16 @@ pub fn genInitMethodFromNew(
     }
 
     // Generate return statement with field initializers
-    try self.emitIndent();
-    try self.emit("return @This(){\n");
+    // Nested classes use heap allocation for Python reference semantics
+    if (is_nested) {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
+        try self.emitIndent();
+        try self.emit("__ptr.* = @This(){\n");
+    } else {
+        try self.emitIndent();
+        try self.emit("return @This(){\n");
+    }
     self.indent();
 
     // Initialize captured variable pointers first
@@ -915,7 +950,18 @@ pub fn genInitMethodFromNew(
                     try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
-                    try self.genExpr(assign.value.*);
+                    // Check if value is an anytype param - wrap with runtime.PyValue.from()
+                    const is_anytype_param = if (assign.value.* == .name)
+                        self.anytype_params.contains(assign.value.name.id)
+                    else
+                        false;
+                    if (is_anytype_param) {
+                        try self.emit("runtime.PyValue.from(");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(")");
+                    } else {
+                        try self.genExpr(assign.value.*);
+                    }
                     try self.emit(",\n");
                 }
             }
@@ -929,6 +975,11 @@ pub fn genInitMethodFromNew(
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
+
+    if (is_nested) {
+        try self.emitIndent();
+        try self.emit("return __ptr;\n");
+    }
 
     self.dedent();
     try self.emitIndent();
