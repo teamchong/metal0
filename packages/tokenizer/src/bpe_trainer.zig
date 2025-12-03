@@ -568,6 +568,15 @@ pub const BpeTrainer = struct {
         const next_prefix_match = try self.allocator.alloc(u32, vocab_r.count());
         @memset(next_prefix_match, 0);
 
+        // Build single-byte lookup table
+        var single_byte_tokens: [256]u32 = [_]u32{0xFFFFFFFF} ** 256;
+        for (0..256) |b| {
+            const byte_arr = [1]u8{@intCast(b)};
+            if (vocab.get(&byte_arr)) |token_id| {
+                single_byte_tokens[b] = token_id;
+            }
+        }
+
         return Tokenizer{
             .vocab = vocab,
             .vocab_r = vocab_r,
@@ -580,6 +589,7 @@ pub const BpeTrainer = struct {
             .next_prefix_match = next_prefix_match,
             .allocator = self.allocator,
             .encode_arena = std.heap.ArenaAllocator.init(self.allocator),
+            .single_byte_tokens = single_byte_tokens,
         };
     }
 };

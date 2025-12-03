@@ -76,9 +76,20 @@ pub const Tokenizer = struct {
     allocator: Allocator,
     encode_arena: std.heap.ArenaAllocator, // Reused across encode() calls - eliminates 116,600 syscalls
     owns_vocab_data: bool = true, // false if vocab keys are mmap'd (don't free!)
+    single_byte_tokens: [256]u32, // O(1) lookup for single bytes (vs HashMap)
 
     pub fn initFromData(json_data: []const u8, allocator: Allocator) !Tokenizer {
         const data = try parser.initFromData(json_data, allocator);
+
+        // Build single-byte lookup table
+        var single_byte_tokens: [256]u32 = [_]u32{0xFFFFFFFF} ** 256;
+        for (0..256) |b| {
+            const byte_arr = [1]u8{@intCast(b)};
+            if (data.vocab.get(&byte_arr)) |token_id| {
+                single_byte_tokens[b] = token_id;
+            }
+        }
+
         return Tokenizer{
             .vocab = data.vocab,
             .vocab_r = data.vocab_r,
@@ -91,11 +102,22 @@ pub const Tokenizer = struct {
             .next_prefix_match = data.next_prefix_match,
             .allocator = data.allocator,
             .encode_arena = std.heap.ArenaAllocator.init(getBestArenaAllocator(allocator)),
+            .single_byte_tokens = single_byte_tokens,
         };
     }
 
     pub fn init(tokenizer_path: []const u8, allocator: Allocator) !Tokenizer {
         const data = try parser.initFromFile(tokenizer_path, allocator);
+
+        // Build single-byte lookup table
+        var single_byte_tokens: [256]u32 = [_]u32{0xFFFFFFFF} ** 256;
+        for (0..256) |b| {
+            const byte_arr = [1]u8{@intCast(b)};
+            if (data.vocab.get(&byte_arr)) |token_id| {
+                single_byte_tokens[b] = token_id;
+            }
+        }
+
         return Tokenizer{
             .vocab = data.vocab,
             .vocab_r = data.vocab_r,
@@ -109,6 +131,7 @@ pub const Tokenizer = struct {
             .allocator = data.allocator,
             .encode_arena = std.heap.ArenaAllocator.init(getBestArenaAllocator(allocator)),
             .owns_vocab_data = data.owns_vocab_data, // false if mmap'd
+            .single_byte_tokens = single_byte_tokens,
         };
     }
 
@@ -171,22 +194,13 @@ pub const Tokenizer = struct {
         return owned;
     }
 
-    /// SIMD-optimized initial byte tokenization
-    inline fn tokenizeBytesOptimized(self: *Tokenizer, text: []const u8, output: []u32) void {
-        // Fast path: for ASCII text, we can optimize vocab lookups
-        // Most single bytes map to their own token ID
-        if (simd.isAsciiSIMD(text)) {
-            // ASCII fast path - likely direct mapping
-            for (text, 0..) |byte, i| {
-                const byte_slice = @as(*const [1]u8, &byte)[0..1];
-                output[i] = self.vocab.get(byte_slice) orelse byte;
-            }
-        } else {
-            // UTF-8 slow path - need proper vocab lookups
-            for (text, 0..) |byte, i| {
-                const byte_slice = @as(*const [1]u8, &byte)[0..1];
-                output[i] = self.vocab.get(byte_slice) orelse byte;
-            }
+    /// O(1) single-byte tokenization using precomputed lookup table
+    inline fn tokenizeBytesOptimized(self: *const Tokenizer, text: []const u8, output: []u32) void {
+        @setRuntimeSafety(false);
+        const table = &self.single_byte_tokens;
+        for (text, 0..) |byte, i| {
+            const token = table[byte];
+            output[i] = if (token != 0xFFFFFFFF) token else byte;
         }
     }
 
