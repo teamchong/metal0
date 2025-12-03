@@ -216,6 +216,40 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (args.len != 1) return;
 
+    // Special case: set(feature_macros) or set(get_feature_macros())
+    // FeatureMacros is a struct, not iterable - use .keys() to get string array
+    const is_feature_macros = blk: {
+        switch (args[0]) {
+            .name => |n| {
+                if (std.mem.eql(u8, n.id, "feature_macros")) {
+                    break :blk true;
+                }
+            },
+            .call => |call| {
+                if (call.func.* == .name) {
+                    const func_name = call.func.*.name.id;
+                    if (std.mem.eql(u8, func_name, "get_feature_macros")) {
+                        break :blk true;
+                    }
+                }
+            },
+            else => {},
+        }
+        break :blk false;
+    };
+
+    if (is_feature_macros) {
+        // Generate set from FeatureMacros.keys()
+        try self.emit("set_blk: {\n");
+        try self.emitFmt("var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
+        try self.emit("for (runtime.FeatureMacros.keys()) |_item| {\n");
+        try self.emit("try _set.put(_item, {});\n");
+        try self.emit("}\n");
+        try self.emit("break :set_blk _set;\n");
+        try self.emit("}");
+        return;
+    }
+
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
     // Already a set - just return it
