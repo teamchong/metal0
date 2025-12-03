@@ -314,6 +314,37 @@ pub const PyTypeObject = extern struct {
 };
 
 /// ============================================================================
+/// PYMODULEDEF - EXACT CPYTHON 3.12 LAYOUT
+/// ============================================================================
+
+/// PyModuleDef_Base - module definition base
+pub const PyModuleDef_Base = extern struct {
+    ob_base: PyObject,
+    m_init: ?*const fn () callconv(.c) ?*PyObject,
+    m_index: isize,
+    m_copy: ?*PyObject,
+};
+
+/// PyModuleDef_Slot - module slot
+pub const PyModuleDef_Slot = extern struct {
+    slot: c_int,
+    value: ?*anyopaque,
+};
+
+/// PyModuleDef - module definition
+pub const PyModuleDef = extern struct {
+    m_base: PyModuleDef_Base,
+    m_name: ?[*:0]const u8,
+    m_doc: ?[*:0]const u8,
+    m_size: isize,
+    m_methods: ?[*]PyMethodDef,
+    m_slots: ?[*]PyModuleDef_Slot,
+    m_traverse: traverseproc,
+    m_clear: inquiry,
+    m_free: freefunc,
+};
+
+/// ============================================================================
 /// PYLONGOBJECT - EXACT CPYTHON 3.12 LAYOUT (Bigint)
 /// ============================================================================
 ///
