@@ -720,7 +720,11 @@ pub fn parseFunctionDefInternal(self: *Parser, is_async: bool) ParseError!ast.No
             next_tok.type == .Raise or
             next_tok.type == .Yield or // async def _ag(): yield
             next_tok.type == .Ident or // for assignments and expressions like self.x = v
-            next_tok.type == .String; // def f(): """docstring"""
+            next_tok.type == .String or // def f(): """docstring"""
+            next_tok.type == .Number or // def f(): 1, (yield 1)
+            next_tok.type == .LParen or // def f(): (1, 2)
+            next_tok.type == .LBracket or // def f(): [1, 2]
+            next_tok.type == .LBrace; // def f(): {1: 2}
 
         if (is_oneliner) {
             // Parse single statement without Indent/Dedent

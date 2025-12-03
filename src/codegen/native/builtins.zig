@@ -69,6 +69,7 @@ pub const genHasattr = dynamic_attrs.genHasattr;
 pub const genVars = dynamic_attrs.genVars;
 pub const genGlobals = dynamic_attrs.genGlobals;
 pub const genLocals = dynamic_attrs.genLocals;
+pub const genDir = dynamic_attrs.genDir;
 
 // I/O
 pub const genOpen = io.genOpen;

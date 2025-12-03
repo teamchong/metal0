@@ -2,6 +2,29 @@ const std = @import("std");
 const ast = @import("ast");
 const types = @import("types.zig");
 
+/// Record variable uses from an assignment target (handles name, tuple, list)
+fn recordTargetVariables(info: *types.SemanticInfo, node: ast.Node, line: usize) !void {
+    switch (node) {
+        .name => |name| {
+            try info.recordVariableUse(name.id, line, true);
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elt| {
+                try recordTargetVariables(info, elt, line);
+            }
+        },
+        .list => |list| {
+            for (list.elts) |elt| {
+                try recordTargetVariables(info, elt, line);
+            }
+        },
+        .starred => |starred| {
+            try recordTargetVariables(info, starred.value.*, line);
+        },
+        else => {}, // Ignore other patterns (attribute, subscript, etc.)
+    }
+}
+
 /// Track variable lifetimes through the AST
 pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line: usize) !usize {
     var line = current_line;
@@ -314,9 +337,9 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             // Analyze context expression
             line = try analyzeLifetimes(info, with_stmt.context_expr.*, line);
 
-            // Record variable if "as var" is present
-            if (with_stmt.optional_vars) |var_name| {
-                try info.recordVariableUse(var_name, line, true);
+            // Record variables from target if "as target" is present
+            if (with_stmt.optional_vars) |target| {
+                try recordTargetVariables(info, target.*, line);
             }
             line += 1;
 

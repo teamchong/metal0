@@ -75,6 +75,22 @@ pub fn genZeroCaptureClosure(
             try self.emit("_: anytype");
         }
     }
+    // Handle kwarg (**kwargs) parameter
+    if (func.kwarg) |kwarg_name| {
+        if (func.args.len > 0 or func.vararg != null) try self.emit(", ");
+        const is_kwarg_used = var_tracking.isParamUsedInStmts(kwarg_name, func.body);
+        if (is_kwarg_used) {
+            const unique_kwarg_name = try std.fmt.allocPrint(
+                self.allocator,
+                "__p_{s}_{d}",
+                .{ kwarg_name, saved_counter },
+            );
+            try param_renames.put(kwarg_name, unique_kwarg_name);
+            try self.output.writer(self.allocator).print("{s}: anytype", .{unique_kwarg_name});
+        } else {
+            try self.emit("_: anytype");
+        }
+    }
     // Look up the function's inferred return type from type inference
     // Use it for proper type safety, falling back to anytype workaround via @TypeOf
     const return_type = self.type_inferrer.func_return_types.get(func.name);
@@ -143,6 +159,21 @@ pub fn genZeroCaptureClosure(
         }
     }
 
+    // Handle kwarg scope declaration and rename mapping
+    if (func.kwarg) |kwarg_name| {
+        try self.declareVar(kwarg_name);
+        if (param_renames.get(kwarg_name)) |renamed| {
+            const is_reassigned = var_tracking.isParamReassignedInStmts(kwarg_name, func.body);
+            if (is_reassigned) {
+                const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ kwarg_name, saved_counter });
+                try reassigned_param_vars.append(self.allocator, var_name);
+                try self.var_renames.put(kwarg_name, var_name);
+            } else {
+                try self.var_renames.put(kwarg_name, renamed);
+            }
+        }
+    }
+
     // Emit var copies for reassigned parameters
     for (func.args) |arg| {
         if (var_tracking.isParamReassignedInStmts(arg.name, func.body) and param_renames.get(arg.name) != null) {
@@ -156,6 +187,14 @@ pub fn genZeroCaptureClosure(
         if (var_tracking.isParamReassignedInStmts(vararg_name, func.body) and param_renames.get(vararg_name) != null) {
             try self.emitIndent();
             try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ vararg_name, saved_counter, vararg_name, saved_counter });
+        }
+    }
+
+    // Emit var copy for reassigned kwarg
+    if (func.kwarg) |kwarg_name| {
+        if (var_tracking.isParamReassignedInStmts(kwarg_name, func.body) and param_renames.get(kwarg_name) != null) {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ kwarg_name, saved_counter, kwarg_name, saved_counter });
         }
     }
 
@@ -335,6 +374,19 @@ pub fn genZeroCaptureClosure(
     // Suppress unused local constant warning for the wrapper
     try self.emitIndent();
     try self.output.writer(self.allocator).print("_ = &{s};\n", .{wrapper_name});
+
+    // Emit alias so original name can be used: const f = __closure_f_0;
+    // This allows code like [f, C.m] to work
+    try self.emitIndent();
+    try self.emit("const ");
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
+    try self.output.writer(self.allocator).print(" = {s};\n", .{wrapper_name});
+
+    // Suppress unused local constant warning for the alias
+    try self.emitIndent();
+    try self.emit("_ = &");
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
+    try self.emit(";\n");
 
     // Mark as closure so calls use .call() syntax
     const func_name_copy = try self.allocator.dupe(u8, func.name);

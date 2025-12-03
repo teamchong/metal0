@@ -114,12 +114,34 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         } else first_value;
         errdefer value.deinit(self.allocator);
 
-        // Handle chained assignment: ka, va = ta = expr
+        // Handle chained assignment: ka, va = ta = expr or ka, va = ta = 1, 2, 3
         while (self.match(.Eq)) {
             // Current value is actually another target
             try all_targets.append(self.allocator, value);
-            // Parse the next value
-            value = try self.parseExpression();
+            // Parse the next value (may be a tuple)
+            var next_value = try parseAssignTarget(self);
+            errdefer next_value.deinit(self.allocator);
+
+            // Check if this value is a tuple (comma-separated)
+            value = if (self.check(.Comma) and !self.check(.Eq)) inner: {
+                var value_list = std.ArrayList(ast.Node){};
+                errdefer {
+                    for (value_list.items) |*v| v.deinit(self.allocator);
+                    value_list.deinit(self.allocator);
+                }
+                try value_list.append(self.allocator, next_value);
+
+                while (self.match(.Comma)) {
+                    if (self.check(.Eq) or self.check(.Newline) or self.check(.Semicolon)) break;
+                    var val = try parseAssignTarget(self);
+                    errdefer val.deinit(self.allocator);
+                    try value_list.append(self.allocator, val);
+                }
+
+                const value_array = try value_list.toOwnedSlice(self.allocator);
+                value_list = std.ArrayList(ast.Node){};
+                break :inner ast.Node{ .tuple = .{ .elts = value_array } };
+            } else next_value;
         }
 
         // Accept either newline or semicolon as statement terminator
@@ -204,12 +226,34 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
         } else first_value;
         errdefer value.deinit(self.allocator);
 
-        // Handle chained assignment: a = b = c
+        // Handle chained assignment: a = b = c = value or a = b = c = 1, 2, 3
         while (self.match(.Eq)) {
             // Current value is actually another target
             try all_targets.append(self.allocator, value);
-            // Parse the next value
-            value = try self.parseExpression();
+            // Parse the next value (may be a tuple)
+            var next_value = try parseAssignTarget(self);
+            errdefer next_value.deinit(self.allocator);
+
+            // Check if this value is a tuple (comma-separated): x = y = 1, 2, 3
+            value = if (self.check(.Comma) and !self.check(.Eq)) inner: {
+                var value_list = std.ArrayList(ast.Node){};
+                errdefer {
+                    for (value_list.items) |*v| v.deinit(self.allocator);
+                    value_list.deinit(self.allocator);
+                }
+                try value_list.append(self.allocator, next_value);
+
+                while (self.match(.Comma)) {
+                    if (self.check(.Eq) or self.check(.Newline) or self.check(.Semicolon)) break;
+                    var val = try parseAssignTarget(self);
+                    errdefer val.deinit(self.allocator);
+                    try value_list.append(self.allocator, val);
+                }
+
+                const value_array = try value_list.toOwnedSlice(self.allocator);
+                value_list = std.ArrayList(ast.Node){};
+                break :inner ast.Node{ .tuple = .{ .elts = value_array } };
+            } else next_value;
         }
 
         // Accept either newline or semicolon as statement terminator

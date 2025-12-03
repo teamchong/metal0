@@ -66,86 +66,22 @@ test: build test-unit
 	@echo ""
 	@echo "✓ Quick tests passed"
 
-# Unit tests - compile individual .py files
+# Unit tests - native metal0 test command
 test-unit: build
-	@echo "Running unit tests..."
-	@passed=0; failed=0; \
-	for f in tests/unit/test_*.py; do \
-		if ./zig-out/bin/metal0 "$$f" --force >/dev/null 2>&1; then \
-			passed=$$((passed + 1)); \
-		else \
-			echo "✗ $$f"; \
-			failed=$$((failed + 1)); \
-		fi; \
-	done; \
-	echo "Unit: $$passed passed, $$failed failed"
+	@./zig-out/bin/metal0 test tests/unit
 
-# Integration tests - larger programs
+# Integration tests - native metal0 test command
 test-integration: build
-	@echo "Running integration tests..."
-	@passed=0; failed=0; \
-	for f in tests/integration/test_*.py; do \
-		if timeout 5 ./zig-out/bin/metal0 "$$f" --force >/dev/null 2>&1; then \
-			passed=$$((passed + 1)); \
-		else \
-			echo "✗ $$f"; \
-			failed=$$((failed + 1)); \
-		fi; \
-	done; \
-	echo "Integration: $$passed passed, $$failed failed"
+	@./zig-out/bin/metal0 test tests/integration
 
-# CPython compatibility tests - TRUE 3-phase batch compilation
-# Phase 1: Setup runtime + parallel codegen (emit .zig only, FAST)
-# Phase 2: Batch zig compile (uses zig's parallelism)
-# Phase 3: Run all binaries in parallel
+# CPython compatibility tests - native metal0 test command
 test-cpython: build
-	@echo "=== CPython Tests (3-Phase Batch) ==="
-	@NCPU=$$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 8); \
-	total=$$(ls tests/cpython/test_*.py 2>/dev/null | wc -l | tr -d ' '); \
-	echo "Running $$total tests ($$NCPU parallel)..."; \
-	\
-	echo "Phase 1: Setup runtime + codegen..."; \
-	./zig-out/bin/metal0 setup-runtime 2>/dev/null; \
-	mkdir -p .metal0/cache/cpython_bin; \
-	rm -f /tmp/cpython_codegen_ok.txt; \
-	ls tests/cpython/test_*.py 2>/dev/null | xargs -P$$NCPU -I{} sh -c \
-		'./zig-out/bin/metal0 "{}" --emit-zig --force >/dev/null 2>&1 && basename "{}" .py >> /tmp/cpython_codegen_ok.txt' || true; \
-	codegen_ok=$$(wc -l < /tmp/cpython_codegen_ok.txt 2>/dev/null | tr -d ' ' || echo 0); \
-	echo "  Codegen: $$codegen_ok/$$total"; \
-	\
-	echo "Phase 2: Compile zig files..."; \
-	rm -f /tmp/cpython_compile_ok.txt; \
-	cat /tmp/cpython_codegen_ok.txt 2>/dev/null | xargs -P$$NCPU -I{} sh -c \
-		'zig build-exe -OReleaseFast -lc -fno-stack-check --cache-dir .zig-cache \
-			.metal0/cache/{}.zig -femit-bin=.metal0/cache/cpython_bin/{} 2>/dev/null && echo "{}" >> /tmp/cpython_compile_ok.txt' || true; \
-	compile_ok=$$(wc -l < /tmp/cpython_compile_ok.txt 2>/dev/null | tr -d ' ' || echo 0); \
-	echo "  Compile: $$compile_ok/$$codegen_ok"; \
-	\
-	echo "Phase 3: Run binaries..."; \
-	rm -f /tmp/cpython_run_ok.txt; \
-	cat /tmp/cpython_compile_ok.txt 2>/dev/null | xargs -P$$NCPU -I{} sh -c \
-		'.metal0/cache/cpython_bin/{} >/dev/null 2>&1 && echo "{}" >> /tmp/cpython_run_ok.txt' || true; \
-	passed=$$(wc -l < /tmp/cpython_run_ok.txt 2>/dev/null | tr -d ' ' || echo 0); \
-	failed=$$((total - passed)); \
-	echo ""; \
-	echo "CPython: $$passed/$$total passed ($$failed failed)"
-
-# Quick error summary - shows top errors across all tests
-test-cpython-errors: build
-	@echo "Collecting errors (parallel)..."
-	@ls tests/cpython/test_*.py | xargs -P$$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 8) -I{} sh -c \
-		'./zig-out/bin/metal0 "{}" --force 2>&1 | grep -m1 "error:"' 2>/dev/null | \
-		sed 's/.*error:/error:/' | sort | uniq -c | sort -rn | head -30
-
-# List failing test files
-test-cpython-failing: build
-	@ls tests/cpython/test_*.py | xargs -P$$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 8) -I{} sh -c \
-		'./zig-out/bin/metal0 "{}" --force >/dev/null 2>&1 || echo "{}"' 2>/dev/null
+	@./zig-out/bin/metal0 test tests/cpython
 
 # Debug single test
 test-cpython-one: build
 	@if [ -z "$(TEST)" ]; then echo "Usage: make test-cpython-one TEST=test_bool"; exit 1; fi
-	./zig-out/bin/metal0 tests/cpython/test_$(TEST).py --force
+	@./zig-out/bin/metal0 test tests/cpython/test_$(TEST).py
 
 # All tests
 test-all: build test-unit test-integration test-cpython

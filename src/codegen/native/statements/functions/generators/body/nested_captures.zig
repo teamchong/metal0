@@ -8,6 +8,29 @@ const shared = @import("../../../../shared_maps.zig");
 const MutatingMethods = shared.MutatingMethods;
 const BuiltinNames = shared.PythonBuiltinNames;
 
+/// Collect variable names from an assignment target (handles name, tuple, list)
+fn collectTargetVars(self: *NativeCodegen, node: ast.Node) CodegenError!void {
+    switch (node) {
+        .name => |n| {
+            try self.func_local_vars.put(n.id, {});
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                try collectTargetVars(self, elt);
+            }
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                try collectTargetVars(self, elt);
+            }
+        },
+        .starred => |s| {
+            try collectTargetVars(self, s.value.*);
+        },
+        else => {}, // Ignore attribute, subscript, etc.
+    }
+}
+
 /// Analyze nested classes for captured outer variables
 /// Populates func_local_vars with variables defined in function scope
 /// Populates nested_class_captures with outer variables referenced by each nested class
@@ -70,9 +93,9 @@ pub fn collectLocalVarsInStmts(self: *NativeCodegen, stmts: []ast.Node) CodegenE
                 try collectLocalVarsInStmts(self, try_stmt.finalbody);
             },
             .with_stmt => |with_stmt| {
-                // with_stmt.optional_vars is ?[]const u8 - just a string var name
-                if (with_stmt.optional_vars) |var_name| {
-                    try self.func_local_vars.put(var_name, {});
+                // with_stmt.optional_vars is ?*Node - can be name, tuple, list
+                if (with_stmt.optional_vars) |target| {
+                    try collectTargetVars(self, target.*);
                 }
                 try collectLocalVarsInStmts(self, with_stmt.body);
             },

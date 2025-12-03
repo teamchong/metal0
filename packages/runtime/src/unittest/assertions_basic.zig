@@ -371,6 +371,9 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                     if (param_type == B or param_type == *const B) {
                         break :blk a.eql(b);
                     }
+                } else {
+                    // param_type is null means anytype - call eql directly
+                    break :blk a.eql(b);
                 }
             }
         }
@@ -382,6 +385,9 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                     if (param_type == A or param_type == *const A) {
                         break :blk b.eql(a);
                     }
+                } else {
+                    // param_type is null means anytype - call eql directly
+                    break :blk b.eql(a);
                 }
             }
         }

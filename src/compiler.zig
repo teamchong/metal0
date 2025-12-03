@@ -284,6 +284,9 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         .allocator = aa,
         .argv = argv,
     });
+    // CRITICAL: Child.run allocates stdout/stderr - must free to avoid leaks!
+    // Using arena so no explicit free needed, but if we returned early we'd leak
+    // The arena.deinit() at function end handles cleanup
 
     if (result.term.Exited != 0) {
         std.debug.print("Zig compilation failed:\n{s}\n", .{result.stderr});

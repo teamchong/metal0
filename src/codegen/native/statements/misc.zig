@@ -368,19 +368,22 @@ fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!
                 }
             }
         } else if (stmt == .with_stmt) {
-            // Nested with statement - hoist its variable if it has one
-            if (stmt.with_stmt.optional_vars) |var_name| {
-                if (isUnittestContextManager(stmt.with_stmt.context_expr.*)) {
-                    // Unittest context managers need hoisting too - err may be used after with block
-                    // Hoist as ContextManager type - use const since it's only assigned once
-                    try self.emitIndent();
-                    try self.emit("const ");
-                    try self.emit(var_name);
-                    try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
-                    try self.hoisted_vars.put(var_name, {});
-                } else {
-                    // Use @TypeOf(context_expr) for comptime type inference
-                    try hoistVarWithExpr(self, var_name, stmt.with_stmt.context_expr);
+            // Nested with statement - hoist its variable if it has one (only simple name targets)
+            if (stmt.with_stmt.optional_vars) |target| {
+                if (target.* == .name) {
+                    const var_name = target.name.id;
+                    if (isUnittestContextManager(stmt.with_stmt.context_expr.*)) {
+                        // Unittest context managers need hoisting too - err may be used after with block
+                        // Hoist as ContextManager type - use const since it's only assigned once
+                        try self.emitIndent();
+                        try self.emit("const ");
+                        try self.emit(var_name);
+                        try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
+                        try self.hoisted_vars.put(var_name, {});
+                    } else {
+                        // Use @TypeOf(context_expr) for comptime type inference
+                        try hoistVarWithExpr(self, var_name, stmt.with_stmt.context_expr);
+                    }
                 }
             }
             // Handle tuple context managers with named expressions
@@ -452,29 +455,33 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             }
         }
 
-        // If there's a variable name (as cm), declare it as a dummy value
+        // If there's a target (as cm), declare it as a dummy value
         // Python code might use cm.exception.args[0] after the with block
-        if (with_node.optional_vars) |var_name| {
-            // Check if variable was hoisted or already declared (for multiple assertRaises in same scope)
-            const is_hoisted = self.hoisted_vars.contains(var_name);
-            const is_declared = self.isDeclared(var_name);
-            const needs_decl = !is_hoisted and !is_declared;
+        // Only handle simple name targets for unittest contexts (tuples not supported)
+        if (with_node.optional_vars) |target| {
+            if (target.* == .name) {
+                const var_name = target.name.id;
+                // Check if variable was hoisted or already declared (for multiple assertRaises in same scope)
+                const is_hoisted = self.hoisted_vars.contains(var_name);
+                const is_declared = self.isDeclared(var_name);
+                const needs_decl = !is_hoisted and !is_declared;
 
-            // Only emit declaration if variable not already declared
-            // For repeated with statements using same variable, the const is already set
-            if (needs_decl) {
-                try self.emitIndent();
-                // Use const for context manager variables (they're read-only)
-                try self.emit("const ");
-                try self.emit(var_name);
-                try self.emit(" = runtime.unittest.ContextManager{};\n");
-                // Always discard pointer to suppress unused warning
-                // Using pointer avoids "pointless discard" when variable IS used later
-                try self.emitIndent();
-                try self.emit("_ = &");
-                try self.emit(var_name);
-                try self.emit(";\n");
-                try self.declareVar(var_name);
+                // Only emit declaration if variable not already declared
+                // For repeated with statements using same variable, the const is already set
+                if (needs_decl) {
+                    try self.emitIndent();
+                    // Use const for context manager variables (they're read-only)
+                    try self.emit("const ");
+                    try self.emit(var_name);
+                    try self.emit(" = runtime.unittest.ContextManager{};\n");
+                    // Always discard pointer to suppress unused warning
+                    // Using pointer avoids "pointless discard" when variable IS used later
+                    try self.emitIndent();
+                    try self.emit("_ = &");
+                    try self.emit(var_name);
+                    try self.emit(";\n");
+                    try self.declareVar(var_name);
+                }
             }
         }
 
@@ -559,52 +566,109 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         return;
     }
 
-    // If there's a variable name (as f), declare it at current scope
-    if (with_node.optional_vars) |var_name| {
-        // Check if already declared or hoisted (for nested with)
-        const is_declared = self.isDeclared(var_name);
-        const is_hoisted = self.hoisted_vars.contains(var_name);
-        const needs_var = !is_declared and !is_hoisted;
-
-        // Infer and register the type of the context expression
-        // This is critical for operations like `for line in file:` to work correctly
+    // If there's a target (as f) or (as (a, b)), declare it at current scope
+    if (with_node.optional_vars) |target| {
+        // Infer the type of the context expression
         const context_type = try self.type_inferrer.inferExpr(with_node.context_expr.*);
-        try self.type_inferrer.var_types.put(var_name, context_type);
 
-        // Declare variable at outer scope so it's accessible after with block
-        try self.emitIndent();
-        if (needs_var) {
-            // Use const for context manager variables (they're not reassigned)
-            try self.emit("const ");
-        }
-        try self.emit(var_name);
-        try self.emit(" = ");
-        try self.genExpr(with_node.context_expr.*);
-        try self.emit(";\n");
+        if (target.* == .name) {
+            // Simple name target: `with ctx() as f:`
+            const var_name = target.name.id;
+            const is_declared = self.isDeclared(var_name);
+            const is_hoisted = self.hoisted_vars.contains(var_name);
+            const needs_var = !is_declared and !is_hoisted;
 
-        // Mark as declared for body (unless hoisted)
-        if (needs_var) {
-            try self.declareVar(var_name);
-        }
+            try self.type_inferrer.var_types.put(var_name, context_type);
 
-        // Open a block for defer scope - defer fires at end of this block, not function
-        // This ensures file is closed immediately after with body completes
-        try self.emitIndent();
-        try self.emit("{\n");
-        self.indent();
-
-        // Add defer for cleanup (close, __exit__, etc.)
-        // For file objects, emit runtime.PyFile.close(f) as static method
-        // For other context managers, emit f.close()
-        try self.emitIndent();
-        if (context_type == .file) {
-            try self.emit("defer runtime.PyFile.close(");
+            // Declare variable at outer scope so it's accessible after with block
+            try self.emitIndent();
+            if (needs_var) {
+                try self.emit("const ");
+            }
             try self.emit(var_name);
-            try self.emit(");\n");
+            try self.emit(" = ");
+            try self.genExpr(with_node.context_expr.*);
+            try self.emit(";\n");
+
+            if (needs_var) {
+                try self.declareVar(var_name);
+            }
+
+            // Open a block for defer scope
+            try self.emitIndent();
+            try self.emit("{\n");
+            self.indent();
+
+            // Add defer for cleanup
+            try self.emitIndent();
+            if (context_type == .file) {
+                try self.emit("defer runtime.PyFile.close(");
+                try self.emit(var_name);
+                try self.emit(");\n");
+            } else {
+                try self.emit("defer ");
+                try self.emit(var_name);
+                try self.emit(".close();\n");
+            }
+        } else if (target.* == .tuple or target.* == .list) {
+            // Tuple/list unpacking target: `with ctx() as (a, b):`
+            // Python semantics: (a, b) = context_manager.__enter__()
+            const elts = if (target.* == .tuple) target.tuple.elts else target.list.elts;
+
+            // Open a block for defer scope first
+            try self.emitIndent();
+            try self.emit("{\n");
+            self.indent();
+
+            // Store the context manager itself (for cleanup)
+            try self.emitIndent();
+            try self.emit("const __with_cm = ");
+            try self.genExpr(with_node.context_expr.*);
+            try self.emit(";\n");
+
+            // Add defer for cleanup (calls __exit__ / close on the context manager)
+            try self.emitIndent();
+            if (context_type == .file) {
+                try self.emit("defer runtime.PyFile.close(__with_cm);\n");
+            } else {
+                try self.emit("defer __with_cm.close();\n");
+            }
+
+            // Call __enter__() to get the value to unpack
+            // For most context managers, __enter__() returns a tuple/value
+            try self.emitIndent();
+            try self.emit("const __with_val = __with_cm.__enter__();\n");
+
+            // Unpack tuple elements from __enter__()'s return value
+            for (elts, 0..) |elt, i| {
+                if (elt == .name) {
+                    const elt_name = elt.name.id;
+                    const is_declared = self.isDeclared(elt_name);
+                    const is_hoisted = self.hoisted_vars.contains(elt_name);
+
+                    try self.emitIndent();
+                    if (!is_declared and !is_hoisted) {
+                        try self.emit("const ");
+                    }
+                    try self.emit(elt_name);
+                    try self.output.writer(self.allocator).print(" = __with_val[{d}];\n", .{i});
+
+                    if (!is_declared and !is_hoisted) {
+                        try self.declareVar(elt_name);
+                    }
+                }
+            }
         } else {
-            try self.emit("defer ");
-            try self.emit(var_name);
-            try self.emit(".close();\n");
+            // Unsupported target type - just open block and generate context
+            try self.emitIndent();
+            try self.emit("{\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("const __with_ctx = ");
+            try self.genExpr(with_node.context_expr.*);
+            try self.emit(";\n");
+            try self.emitIndent();
+            try self.emit("defer __with_ctx.close();\n");
         }
     } else {
         // No variable - just execute context expression and defer cleanup

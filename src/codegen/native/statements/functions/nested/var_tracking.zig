@@ -5,6 +5,29 @@ const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const hashmap_helper = @import("hashmap_helper");
 
+/// Collect variable names from an assignment target (handles name, tuple, list)
+fn collectTargetVarsToList(allocator: std.mem.Allocator, node: ast.Node, list: *std.ArrayList([]const u8)) !void {
+    switch (node) {
+        .name => |n| {
+            try addUniqueVar(allocator, list, n.id);
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                try collectTargetVarsToList(allocator, elt, list);
+            }
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                try collectTargetVarsToList(allocator, elt, list);
+            }
+        },
+        .starred => |s| {
+            try collectTargetVarsToList(allocator, s.value.*, list);
+        },
+        else => {}, // Ignore attribute, subscript, etc.
+    }
+}
+
 /// Find variables captured from outer scope by nested function
 pub fn findCapturedVars(
     self: *NativeCodegen,
@@ -124,9 +147,9 @@ fn collectLocallyAssignedVarsInNode(allocator: std.mem.Allocator, node: ast.Node
             }
         },
         .with_stmt => |w| {
-            // with ... as var: introduces local var
-            if (w.optional_vars) |var_name| {
-                try addUniqueVar(allocator, assigned, var_name);
+            // with ... as target: introduces local var(s)
+            if (w.optional_vars) |target| {
+                try collectTargetVarsToList(allocator, target.*, assigned);
             }
             for (w.body) |s| {
                 try collectLocallyAssignedVarsInNode(allocator, s, assigned);

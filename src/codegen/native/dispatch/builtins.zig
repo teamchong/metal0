@@ -84,6 +84,7 @@ const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "vars", builtins.genVars },
     .{ "globals", builtins.genGlobals },
     .{ "locals", builtins.genLocals },
+    .{ "dir", builtins.genDir },
     // I/O
     .{ "open", builtins.genOpen },
     // Other builtins

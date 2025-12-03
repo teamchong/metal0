@@ -497,6 +497,55 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     try self.output.writer(self.allocator).print("{s}const {s} = struct {{\n", .{ pub_prefix, effective_class_name });
     self.indent();
 
+    // Add Python class introspection attributes
+    try self.emitIndent();
+    try self.emit("// Python class metadata\n");
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("pub const __name__: []const u8 = \"{s}\";\n", .{class.name});
+    try self.emitIndent();
+    // Extract docstring from first statement if it's a string literal
+    // String values include Python quotes, so we strip them and escape for Zig
+    const raw_docstring: ?[]const u8 = blk: {
+        if (class.body.len > 0) {
+            const first_stmt = class.body[0];
+            if (first_stmt == .expr_stmt) {
+                if (first_stmt.expr_stmt.value.* == .constant) {
+                    if (first_stmt.expr_stmt.value.constant.value == .string) {
+                        break :blk first_stmt.expr_stmt.value.constant.value.string;
+                    }
+                }
+            }
+        }
+        break :blk null;
+    };
+    if (raw_docstring) |raw| {
+        // Strip Python quotes: """...""" or '''...''' or "..." or '...'
+        const doc = if (raw.len >= 6 and (std.mem.startsWith(u8, raw, "\"\"\"") or std.mem.startsWith(u8, raw, "'''")))
+            raw[3 .. raw.len - 3]
+        else if (raw.len >= 2)
+            raw[1 .. raw.len - 1]
+        else
+            raw;
+        // Write escaped docstring
+        try self.emit("pub const __doc__: ?[]const u8 = \"");
+        for (doc) |c| {
+            switch (c) {
+                '"' => try self.emit("\\\""),
+                '\\' => try self.emit("\\\\"),
+                '\n' => try self.emit("\\n"),
+                '\r' => try self.emit("\\r"),
+                '\t' => try self.emit("\\t"),
+                else => try self.output.append(self.allocator, c),
+            }
+        }
+        try self.emit("\";\n");
+    } else {
+        try self.emit("pub const __doc__: ?[]const u8 = null;\n");
+    }
+    // __module__ is the module where the class is defined (global __name__)
+    // We use @This().__name__ to avoid ambiguity with global __name__
+    try self.emit("\n");
+
     // Set current class name early so init() and all methods use @This() for self-references
     // Save previous value for nested class support
     const prev_class_name = self.current_class_name;

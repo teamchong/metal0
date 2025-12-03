@@ -300,7 +300,7 @@ pub const Node = union(enum) {
     /// With statement: with expr as var: body
     pub const With = struct {
         context_expr: *Node, // Expression (e.g., open("file"))
-        optional_vars: ?[]const u8, // Variable name (e.g., "f") or null
+        optional_vars: ?*Node, // Target node: name, tuple, list, etc. (e.g., "f" or "(a, b)")
         body: []Node, // Body statements
     };
 

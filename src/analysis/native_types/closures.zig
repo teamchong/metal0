@@ -3,6 +3,29 @@ const std = @import("std");
 const hashmap_helper = @import("hashmap_helper");
 const ast = @import("ast");
 
+/// Collect variable names from an assignment target (handles name, tuple, list)
+fn collectTargetVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void)) !void {
+    switch (node) {
+        .name => |n| {
+            try vars.put(n.id, {});
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                try collectTargetVars(elt, vars);
+            }
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                try collectTargetVars(elt, vars);
+            }
+        },
+        .starred => |s| {
+            try collectTargetVars(s.value.*, vars);
+        },
+        else => {}, // Ignore attribute, subscript, etc.
+    }
+}
+
 /// Find all variables used in an expression
 fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), allocator: std.mem.Allocator) !void {
     switch (node) {
@@ -261,9 +284,9 @@ fn findLocalVarsInStmt(stmt: ast.Node, vars: *hashmap_helper.StringHashMap(void)
             try findLocalVarsInStmts(t.finalbody, vars);
         },
         .with_stmt => |w| {
-            // With statement may bind to a name (as var)
-            if (w.optional_vars) |var_name| {
-                try vars.put(var_name, {});
+            // With statement may bind to a name or tuple (as target)
+            if (w.optional_vars) |target| {
+                try collectTargetVars(target.*, vars);
             }
             try findLocalVarsInStmts(w.body, vars);
         },

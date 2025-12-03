@@ -100,9 +100,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 // But only if not shadowed by a local variable
                 try self.emit("runtime.builtins.");
                 try self.emit(name_to_use);
-            } else if (self.closure_vars.contains(name_to_use)) {
-                // Closure variable - the variable already has the closure assigned to it
-                // Just use the variable name (e.g., "decorate" which was assigned __closure_decorate_1)
+            } else if (self.closure_vars.contains(n.id)) {
+                // Closure variable - use the renamed version (e.g., f -> __closure_f_0)
+                // The closure was registered with original name, but we emit the renamed wrapper
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
             } else if (isCapturedByCurrentClass(self, name_to_use)) {
                 // Variable captured from outer scope by current nested class

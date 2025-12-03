@@ -65,3 +65,13 @@ pub fn genLocals(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("runtime.locals_builtin()");
 }
+
+pub fn genDir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try self.emit("runtime.dir_builtin(");
+    if (args.len > 0) {
+        try self.genExpr(args[0]);
+    } else {
+        try self.emit("null");
+    }
+    try self.emit(")");
+}
