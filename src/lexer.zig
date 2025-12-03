@@ -226,8 +226,12 @@ pub const Lexer = struct {
                 continue;
             }
 
-            // Raw f-strings: fr"" or rf"" (check before f"" and r"")
-            if ((c == 'f' and self.peekAhead(1) == 'r') or (c == 'r' and self.peekAhead(1) == 'f')) {
+            // Raw f-strings: fr"", rf"", FR"", RF"", fR"", Rf"", etc. (check before f"" and r"")
+            // Python is case-insensitive for string prefixes
+            const c_lower = if (c >= 'A' and c <= 'Z') c + 32 else c;
+            const peek1 = self.peekAhead(1);
+            const peek1_lower = if (peek1 != null and peek1.? >= 'A' and peek1.? <= 'Z') peek1.? + 32 else peek1;
+            if ((c_lower == 'f' and peek1_lower == 'r') or (c_lower == 'r' and peek1_lower == 'f')) {
                 const quote = self.peekAhead(2);
                 if (quote == '"' or quote == '\'') {
                     _ = self.advance(); // consume first prefix
@@ -239,9 +243,9 @@ pub const Lexer = struct {
                 }
             }
 
-            // F-strings (check before identifiers)
-            if (c == 'f' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
-                _ = self.advance(); // consume 'f'
+            // F-strings: f"" or F"" (check before identifiers)
+            if (c_lower == 'f' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
+                _ = self.advance(); // consume 'f' or 'F'
                 const token = try self.tokenizeFString(start, start_column, false);
                 try tokens.append(self.allocator, token);
                 continue;
@@ -255,8 +259,8 @@ pub const Lexer = struct {
                 continue;
             }
 
-            // Raw byte strings: br"" or rb"" (check before b"" and r"")
-            if ((c == 'b' and self.peekAhead(1) == 'r') or (c == 'r' and self.peekAhead(1) == 'b')) {
+            // Raw byte strings: br"", rb"", BR"", RB"", bR"", etc. (check before b"" and r"")
+            if ((c_lower == 'b' and peek1_lower == 'r') or (c_lower == 'r' and peek1_lower == 'b')) {
                 const quote = self.peekAhead(2);
                 if (quote == '"' or quote == '\'') {
                     _ = self.advance(); // consume first prefix
@@ -267,25 +271,25 @@ pub const Lexer = struct {
                 }
             }
 
-            // Byte strings (check before identifiers)
-            if (c == 'b' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
-                _ = self.advance(); // consume 'b'
+            // Byte strings: b"" or B"" (check before identifiers)
+            if (c_lower == 'b' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
+                _ = self.advance(); // consume 'b' or 'B'
                 const token = try self.tokenizeByteString(start, start_column);
                 try tokens.append(self.allocator, token);
                 continue;
             }
 
-            // Raw strings (check before identifiers)
-            if (c == 'r' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
-                _ = self.advance(); // consume 'r'
+            // Raw strings: r"" or R"" (check before identifiers)
+            if (c_lower == 'r' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
+                _ = self.advance(); // consume 'r' or 'R'
                 const token = try self.tokenizeRawString(start, start_column);
                 try tokens.append(self.allocator, token);
                 continue;
             }
 
-            // Unicode strings (Python 2 compatibility, same as regular string in Python 3)
-            if (c == 'u' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
-                _ = self.advance(); // consume 'u'
+            // Unicode strings: u"" or U"" (Python 2 compatibility, same as regular string in Python 3)
+            if (c_lower == 'u' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
+                _ = self.advance(); // consume 'u' or 'U'
                 const token = try self.tokenizeString(start, start_column);
                 try tokens.append(self.allocator, token);
                 continue;

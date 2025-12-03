@@ -213,7 +213,7 @@ pub fn deinit(self: *NativeCodegen) void {
 }
 
 /// Helper: free all keys in a hashmap
-fn freeMapKeys(allocator: std.mem.Allocator, map: anytype) void {
+pub fn freeMapKeys(allocator: std.mem.Allocator, map: anytype) void {
     for (map.keys()) |key| {
         allocator.free(key);
     }
