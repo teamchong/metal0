@@ -256,6 +256,10 @@ pub const NativeCodegen = struct {
     // Maps module name -> void (e.g., "mymath" -> {})
     imported_modules: FnvVoidMap,
 
+    // Track import aliases (import X as Y)
+    // Maps alias name -> module name (e.g., "support" -> "test.support")
+    import_aliases: FnvStringMap,
+
     // Track variable mutations (for list ArrayList vs fixed array decision)
     // Maps variable name -> mutation info
     mutation_info: ?*const @import("../../../analysis/native_types/mutation_analyzer.zig").MutationMap,
@@ -545,6 +549,7 @@ pub const NativeCodegen = struct {
             .kwarg_params = FnvVoidMap.init(allocator),
             .function_signatures = FnvFuncSigMap.init(allocator),
             .imported_modules = FnvVoidMap.init(allocator),
+            .import_aliases = FnvStringMap.init(allocator),
             .mutation_info = null,
             .in_assert_raises_context = false,
             .c_libraries = std.ArrayList([]const u8){},
@@ -1039,8 +1044,16 @@ pub const NativeCodegen = struct {
             return false;
         }
 
-        // At function scope (current_scope_id == 0), use original logic
+        // At function scope (current_scope_id == 0), check both bare name and scoped key
+        // Bare name: aug_assign variables are stored with just var_name
+        // Scoped key: multi-assign variables are stored as "var_name:0"
         if (self.func_local_mutations.contains(var_name)) {
+            return true;
+        }
+        // Also check scoped key for function-level multi-assigns
+        var scoped_key_buf: [256]u8 = undefined;
+        const scoped_key = std.fmt.bufPrint(&scoped_key_buf, "{s}:0", .{var_name}) catch var_name;
+        if (self.func_local_mutations.contains(scoped_key)) {
             return true;
         }
         // If we're inside a function/method (func_local_uses has been populated),

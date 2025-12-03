@@ -133,7 +133,9 @@ pub fn tokenizeNumber(self: *Lexer, start: usize, start_column: usize) !Token {
     if (self.peek() == '.') {
         const next = self.peekAhead(1);
         // Check it's not an attribute access like 1.bit_length() or ellipsis 1...
-        const is_attr_or_ellipsis = if (next) |n| (n >= 'a' and n <= 'z') or (n >= 'A' and n <= 'Z') or n == '_' or n == '.' else false;
+        // BUT allow 0.j as complex number (j/J suffix)
+        const is_complex_suffix = if (next) |n| n == 'j' or n == 'J' else false;
+        const is_attr_or_ellipsis = if (next) |n| ((n >= 'a' and n <= 'z') or (n >= 'A' and n <= 'Z') or n == '_' or n == '.') and !is_complex_suffix else false;
         if (!is_attr_or_ellipsis) {
             _ = self.advance(); // consume '.'
             // Consume any fractional digits (optional - 1. is valid)

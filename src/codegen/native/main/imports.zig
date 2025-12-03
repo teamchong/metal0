@@ -262,12 +262,9 @@ pub fn collectImports(
     // Clear previous from-imports
     self.from_imports.clearRetainingCapacity();
 
-    // Track import aliases: alias -> module_name
-    var import_aliases = FnvStringMap.init(self.allocator);
-    defer {
-        freeMapKeys(self.allocator, &import_aliases);
-        import_aliases.deinit();
-    }
+    // Clear previous import_aliases (stored on self for generator.zig to use)
+    // Keys are freed in cleanup.zig
+    self.import_aliases.clearRetainingCapacity();
 
     // Recursive helper to scan imports from statement list
     const ScanHelper = struct {
@@ -275,7 +272,6 @@ pub fn collectImports(
             s: *NativeCodegen,
             stmts: []ast.Node,
             mod_names: *FnvVoidMap,
-            imp_aliases: *FnvStringMap,
         ) !void {
             for (stmts) |stmt| {
                 switch (stmt) {
@@ -287,7 +283,7 @@ pub fn collectImports(
                         }
                         if (imp.asname) |alias| {
                             const alias_copy = try s.allocator.dupe(u8, alias);
-                            try imp_aliases.put(alias_copy, module_name);
+                            try s.import_aliases.put(alias_copy, module_name);
                         }
                     },
                     .import_from => |imp| {
@@ -304,16 +300,16 @@ pub fn collectImports(
                     },
                     // Scan nested blocks for imports
                     .try_stmt => |t| {
-                        try scanStatements(s, t.body, mod_names, imp_aliases);
+                        try scanStatements(s, t.body, mod_names);
                         for (t.handlers) |h| {
-                            try scanStatements(s, h.body, mod_names, imp_aliases);
+                            try scanStatements(s, h.body, mod_names);
                         }
-                        try scanStatements(s, t.else_body, mod_names, imp_aliases);
-                        try scanStatements(s, t.finalbody, mod_names, imp_aliases);
+                        try scanStatements(s, t.else_body, mod_names);
+                        try scanStatements(s, t.finalbody, mod_names);
                     },
                     .if_stmt => |i| {
-                        try scanStatements(s, i.body, mod_names, imp_aliases);
-                        try scanStatements(s, i.else_body, mod_names, imp_aliases);
+                        try scanStatements(s, i.body, mod_names);
+                        try scanStatements(s, i.else_body, mod_names);
                     },
                     else => {},
                 }
@@ -321,7 +317,7 @@ pub fn collectImports(
         }
     };
 
-    try ScanHelper.scanStatements(self, module.body, &module_names, &import_aliases);
+    try ScanHelper.scanStatements(self, module.body, &module_names);
 
     // Process each module using registry
     for (module_names.keys()) |python_module| {
@@ -419,8 +415,8 @@ pub fn collectImports(
                 // Mark as C extension - loaded at runtime via PyImport_ImportModule
                 // Find alias for this module (e.g., np for numpy)
                 var alias_name: []const u8 = python_module;
-                for (import_aliases.keys()) |alias| {
-                    if (std.mem.eql(u8, import_aliases.get(alias).?, python_module)) {
+                for (self.import_aliases.keys()) |alias| {
+                    if (std.mem.eql(u8, self.import_aliases.get(alias).?, python_module)) {
                         alias_name = alias;
                         break;
                     }
@@ -456,8 +452,8 @@ pub fn collectImports(
                     std.debug.print("Warning: External module '{s}' not found, skipping import\n", .{python_module});
                     try self.markSkippedModule(python_module);
                     // Also mark any alias as skipped
-                    for (import_aliases.keys()) |alias| {
-                        if (std.mem.eql(u8, import_aliases.get(alias).?, python_module)) {
+                    for (self.import_aliases.keys()) |alias| {
+                        if (std.mem.eql(u8, self.import_aliases.get(alias).?, python_module)) {
                             try self.markSkippedModule(alias);
                         }
                     }

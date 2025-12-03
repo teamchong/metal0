@@ -204,6 +204,16 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         // User/stdlib modules without registry entry are handled via @import above
     }
 
+    // PHASE 3.7.1: Emit import aliases (import X as Y -> const Y = @"X";)
+    for (self.import_aliases.keys()) |alias| {
+        const module_name = self.import_aliases.get(alias).?;
+        try self.emit("const ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias);
+        try self.emit(" = ");
+        try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), module_name);
+        try self.emit(";\n");
+    }
+
     try self.emit("\n");
 
     // PHASE 3.6: Generate from-import symbol re-exports
