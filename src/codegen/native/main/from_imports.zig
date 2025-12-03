@@ -179,6 +179,8 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         .{ .name = "get_contiguous", .value = "runtime.TestBuffer.get_contiguous" },
                         .{ .name = "py_buffer_to_contiguous", .value = "runtime.TestBuffer.py_buffer_to_contiguous" },
                         .{ .name = "cmp_contig", .value = "runtime.TestBuffer.cmp_contig" },
+                        // Optional imports that may not be available (set to null)
+                        .{ .name = "numpy_array", .value = "@as(?*anyopaque, null)" },
                     };
                     for (testbuffer_exports) |exp| {
                         if (generated_symbols.contains(exp.name)) continue;
@@ -254,15 +256,22 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 continue;
             }
         } else {
-            // Module not in registry - mark all imported symbols as skipped
-            // so functions that reference them can be detected and skipped
-            for (from_imp.names) |name| {
-                // Skip import * for now
-                if (!std.mem.eql(u8, name, "*")) {
-                    try self.skipped_modules.put(name, {});
-                }
+            // Module not in registry - generate null placeholders for optional imports
+            // This handles try/except ImportError patterns like: from numpy import ndarray as numpy_array
+            for (from_imp.names, 0..) |name, i| {
+                if (std.mem.eql(u8, name, "*")) continue;
+                const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                    from_imp.asnames[i].?
+                else
+                    name;
+                if (generated_symbols.contains(symbol_name)) continue;
+                // Generate: const symbol_name = null; for unavailable modules
+                try self.emit("const ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                try self.emit(": ?*anyopaque = null;\n");
+                try generated_symbols.put(symbol_name, {});
             }
-            continue; // Skip from-import generation
+            continue;
         }
 
         // Check if this is a Tier 1 runtime module (functions need allocator)
