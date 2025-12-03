@@ -248,6 +248,7 @@ const _ctypes_mod = @import("../_ctypes_mod.zig");
 const _curses_mod = @import("../_curses_mod.zig");
 const _decimal_mod = @import("../_decimal_mod.zig");
 const _testcapi_mod = @import("../_testcapi_mod.zig");
+const _testbuffer_mod = @import("../_testbuffer_mod.zig");
 const _elementtree_mod = @import("../_elementtree_mod.zig");
 const _md5_mod = @import("../_md5_mod.zig");
 const _multiprocessing_mod = @import("../_multiprocessing_mod.zig");
@@ -692,6 +693,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "_curses", _curses_mod.Funcs },
     .{ "_decimal", _decimal_mod.Funcs },
     .{ "_testcapi", _testcapi_mod.Funcs },
+    .{ "_testbuffer", _testbuffer_mod.Funcs },
     .{ "_elementtree", _elementtree_mod.Funcs },
     .{ "_md5", _md5_mod.Funcs },
     .{ "_multiprocessing", _multiprocessing_mod.Funcs },

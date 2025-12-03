@@ -1433,6 +1433,7 @@ pub const pickle = @import("pickle.zig");
 pub const test_support = @import("test_support.zig");
 pub const base64 = @import("base64.zig");
 pub const pylong = @import("pylong.zig");
+pub const TestBuffer = @import("testbuffer.zig");
 
 // Green thread runtime (real M:N scheduler) - use module imports to avoid conflicts with h2
 pub const GreenThread = @import("green_thread").GreenThread;

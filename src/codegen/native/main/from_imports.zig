@@ -133,6 +133,73 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
+        // Handle _testbuffer module specially - expand all constants for "from _testbuffer import *"
+        if (std.mem.eql(u8, from_imp.module, "_testbuffer")) {
+            for (from_imp.names, 0..) |name, i| {
+                // Handle "import *" - expand all _testbuffer constants
+                if (std.mem.eql(u8, name, "*")) {
+                    // Expand all _testbuffer constants and classes
+                    const testbuffer_exports = [_]struct { name: []const u8, value: []const u8 }{
+                        // PyBUF_* constants
+                        .{ .name = "PyBUF_SIMPLE", .value = "@as(i64, 0)" },
+                        .{ .name = "PyBUF_WRITABLE", .value = "@as(i64, 0x0001)" },
+                        .{ .name = "PyBUF_WRITE", .value = "@as(i64, 0x0001)" },
+                        .{ .name = "PyBUF_READ", .value = "@as(i64, 0x100)" },
+                        .{ .name = "PyBUF_FORMAT", .value = "@as(i64, 0x0004)" },
+                        .{ .name = "PyBUF_ND", .value = "@as(i64, 0x0008)" },
+                        .{ .name = "PyBUF_STRIDES", .value = "@as(i64, 0x0018)" },
+                        .{ .name = "PyBUF_C_CONTIGUOUS", .value = "@as(i64, 0x0038)" },
+                        .{ .name = "PyBUF_F_CONTIGUOUS", .value = "@as(i64, 0x0058)" },
+                        .{ .name = "PyBUF_ANY_CONTIGUOUS", .value = "@as(i64, 0x0098)" },
+                        .{ .name = "PyBUF_INDIRECT", .value = "@as(i64, 0x0118)" },
+                        .{ .name = "PyBUF_CONTIG", .value = "@as(i64, 0x0009)" },
+                        .{ .name = "PyBUF_CONTIG_RO", .value = "@as(i64, 0x0008)" },
+                        .{ .name = "PyBUF_STRIDED", .value = "@as(i64, 0x0019)" },
+                        .{ .name = "PyBUF_STRIDED_RO", .value = "@as(i64, 0x0018)" },
+                        .{ .name = "PyBUF_RECORDS", .value = "@as(i64, 0x001d)" },
+                        .{ .name = "PyBUF_RECORDS_RO", .value = "@as(i64, 0x001c)" },
+                        .{ .name = "PyBUF_FULL", .value = "@as(i64, 0x011d)" },
+                        .{ .name = "PyBUF_FULL_RO", .value = "@as(i64, 0x011c)" },
+                        // ND_* constants
+                        .{ .name = "ND_MAX_NDIM", .value = "@as(i64, 64)" },
+                        .{ .name = "ND_WRITABLE", .value = "@as(i64, 0x001)" },
+                        .{ .name = "ND_FORTRAN", .value = "@as(i64, 0x002)" },
+                        .{ .name = "ND_PIL", .value = "@as(i64, 0x004)" },
+                        .{ .name = "ND_REDIRECT", .value = "@as(i64, 0x008)" },
+                        .{ .name = "ND_GETBUF_FAIL", .value = "@as(i64, 0x010)" },
+                        .{ .name = "ND_GETBUF_UNDEFINED", .value = "@as(i64, 0x020)" },
+                        .{ .name = "ND_VAREXPORT", .value = "@as(i64, 0x040)" },
+                        // Classes
+                        .{ .name = "ndarray", .value = "runtime.TestBuffer.ndarray" },
+                        .{ .name = "staticarray", .value = "runtime.TestBuffer.staticarray" },
+                        // Functions
+                        .{ .name = "get_sizeof_void_p", .value = "@as(i64, @sizeOf(*anyopaque))" },
+                    };
+                    for (testbuffer_exports) |exp| {
+                        if (generated_symbols.contains(exp.name)) continue;
+                        try self.emit("const ");
+                        try self.emit(exp.name);
+                        try self.emit(" = ");
+                        try self.emit(exp.value);
+                        try self.emit(";\n");
+                        try generated_symbols.put(exp.name, {});
+                    }
+                    continue;
+                }
+
+                const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                    from_imp.asnames[i].?
+                else
+                    name;
+
+                if (generated_symbols.contains(symbol_name)) continue;
+
+                // Register for dispatch routing
+                try self.local_from_imports.put(symbol_name, from_imp.module);
+            }
+            continue;
+        }
+
         // Handle _testcapi module specially - generate wrapper functions
         if (std.mem.eql(u8, from_imp.module, "_testcapi")) {
             for (from_imp.names, 0..) |name, i| {
