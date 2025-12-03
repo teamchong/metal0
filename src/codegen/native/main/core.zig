@@ -186,7 +186,7 @@ pub const NativeCodegen = struct {
     // Compile-time evaluator for constant folding
     comptime_evaluator: comptime_eval.ComptimeEvaluator,
 
-    // C library import context (for numpy, etc.)
+    // C library import context (for ctypes FFI)
     import_ctx: ?*const @import("c_interop").ImportContext,
 
     // Source file path (for resolving relative imports)
@@ -428,6 +428,16 @@ pub const NativeCodegen = struct {
     // Query via function_traits.isPure(), .needsAllocator(), .canUseTCO(), etc.
     call_graph: ?function_traits.CallGraph,
 
+    // Track generic type parameters in current scope (for Generic[T, U] classes)
+    // Maps type param name -> void (e.g., "T" -> {})
+    // Used during codegen to identify when a name refers to a comptime type param
+    generic_type_params: FnvVoidMap,
+
+    // Track generic classes (classes that inherit from Generic[T, U, ...])
+    // Maps class name -> number of type params (e.g., "Box" -> 1, "Pair" -> 2)
+    // Used at instantiation to generate Box(i64).init() instead of Box.init()
+    generic_classes: hashmap_helper.StringHashMap(usize),
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -538,6 +548,8 @@ pub const NativeCodegen = struct {
             .callable_global_vars = FnvVoidMap.init(allocator),
             .forward_declared_vars = FnvVoidMap.init(allocator),
             .call_graph = null,
+            .generic_type_params = FnvVoidMap.init(allocator),
+            .generic_classes = hashmap_helper.StringHashMap(usize).init(allocator),
         };
         return self;
     }

@@ -86,9 +86,6 @@ pub const NativeType = union(enum) {
     }, // Function pointer type: *const fn(T, U) R
     callable: void, // Type-erased callable (PyCallable) - for heterogeneous callable lists
 
-    // Library types (DEPRECATED - remove after implementing Python classes properly)
-    dataframe: void, // DEPRECATED: pandas.DataFrame - should be generic class type
-
     // Class types
     class_instance: []const u8, // Instance of a custom class (stores class name)
 
@@ -99,9 +96,7 @@ pub const NativeType = union(enum) {
     unknown: void, // Fallback to PyObject* (should be rare)
     path: void, // pathlib.Path
     flask_app: void, // flask.Flask application instance
-    numpy_array: void, // NumPy ndarray - wraps *runtime.PyObject with numpy_array type_id
-    bool_array: void, // Boolean array - result of numpy comparison operations
-    usize_slice: void, // []const usize - used for numpy shape/strides
+    usize_slice: void, // []const usize - used for slices
     stringio: void, // io.StringIO in-memory text stream
     bytesio: void, // io.BytesIO in-memory binary stream
     file: void, // File object from open()
@@ -264,7 +259,6 @@ pub const NativeType = union(enum) {
                 try buf.appendSlice(allocator, ") ");
                 try fn_type.return_type.toZigType(allocator, buf);
             },
-            .dataframe => try buf.appendSlice(allocator, "pandas.DataFrame"),
             .class_instance => |class_name| {
                 // For class instances, use the class name as the type (not pointer)
                 try buf.appendSlice(allocator, class_name);
@@ -278,8 +272,6 @@ pub const NativeType = union(enum) {
             .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .path => try buf.appendSlice(allocator, "*pathlib.Path"),
             .flask_app => try buf.appendSlice(allocator, "*runtime.flask.Flask"),
-            .numpy_array => try buf.appendSlice(allocator, "*runtime.PyObject"),
-            .bool_array => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .usize_slice => try buf.appendSlice(allocator, "[]const usize"),
             .stringio => try buf.appendSlice(allocator, "*runtime.io.StringIO"),
             .bytesio => try buf.appendSlice(allocator, "*runtime.io.BytesIO"),

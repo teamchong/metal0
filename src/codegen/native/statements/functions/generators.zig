@@ -123,6 +123,11 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
 /// Generate class definition with __init__ constructor
 pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!void {
+    // Handle Generic[T, U, ...] classes - generate comptime generic function
+    if (class.type_params.len > 0) {
+        return genGenericClassDef(self, class);
+    }
+
     // Track nested class names for instance detection and heap allocation
     // Only add to nested_class_names if inside a function (current_function_name is set)
     // Module-level classes should NOT be in nested_class_names
@@ -1003,6 +1008,317 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // 1. Classes may be used later in the same scope (e.g., class D defined before being referenced)
     // 2. Classes may be used in Python statements that don't translate to Zig
     // See function_gen.zig emitNestedClassUnusedSuppression() for the deferred emit logic.
+}
+
+/// Generate Generic[T, U, ...] class as a comptime generic function
+/// Python: class Box(Generic[T]): def __init__(self, value: T): self.value = value
+/// Zig: fn Box(comptime T: type) type { return struct { value: T, ... }; }
+fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!void {
+    // Register this as a generic class for instantiation handling
+    try self.generic_classes.put(class.name, class.type_params.len);
+
+    // Store type params for use in type resolution
+    for (class.type_params) |tp| {
+        try self.generic_type_params.put(tp, {});
+    }
+    defer {
+        for (class.type_params) |tp| {
+            _ = self.generic_type_params.swapRemove(tp);
+        }
+    }
+
+    // Generate function header: fn ClassName(comptime T: type, comptime U: type) type {
+    try self.emitIndent();
+    const pub_prefix: []const u8 = if (self.mode == .module and self.indent_level == 0) "pub " else "";
+    try self.output.writer(self.allocator).print("{s}fn {s}(", .{ pub_prefix, class.name });
+
+    // Generate comptime type params
+    for (class.type_params, 0..) |tp, i| {
+        if (i > 0) try self.emit(", ");
+        try self.output.writer(self.allocator).print("comptime {s}: type", .{tp});
+    }
+    try self.emit(") type {\n");
+    self.indent();
+
+    try self.emitIndent();
+    try self.emit("return struct {\n");
+    self.indent();
+
+    // Set current class name for method generation
+    const prev_class_name = self.current_class_name;
+    self.current_class_name = class.name;
+    defer self.current_class_name = prev_class_name;
+
+    // Add Python class introspection attributes
+    try self.emitIndent();
+    try self.emit("// Python class metadata\n");
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("pub const __name__: []const u8 = \"{s}\";\n", .{class.name});
+    try self.emitIndent();
+    try self.emit("pub const __doc__: ?[]const u8 = null;\n\n");
+
+    // Find __init__ method for field extraction
+    var init_method: ?ast.Node.FunctionDef = null;
+    for (class.body) |stmt| {
+        if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, "__init__")) {
+            init_method = stmt.function_def;
+            break;
+        }
+    }
+
+    // Extract fields from __init__ body (self.x = ...) with generic type resolution
+    if (init_method) |init| {
+        try genGenericClassFields(self, init, class.type_params);
+    }
+
+    // Generate init() method
+    if (init_method) |init| {
+        try genGenericInitMethod(self, init, class.type_params);
+    } else {
+        // Default init method
+        try self.emitIndent();
+        try self.emit("pub fn init() @This() {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("return @This(){};\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    // Generate regular methods (non-__init__)
+    for (class.body) |stmt| {
+        if (stmt == .function_def) {
+            const method = stmt.function_def;
+            if (std.mem.eql(u8, method.name, "__init__")) continue;
+            try self.emit("\n");
+            try genGenericMethod(self, method, class.type_params);
+        }
+    }
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+}
+
+/// Generate fields for generic class
+fn genGenericClassFields(self: *NativeCodegen, init: ast.Node.FunctionDef, type_params: [][]const u8) CodegenError!void {
+    for (init.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                const attr = assign.targets[0].attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                    const field_name = attr.attr;
+                    // Determine field type from init parameter annotation
+                    var field_type: []const u8 = "i64"; // default
+                    for (init.args) |arg| {
+                        if (std.mem.eql(u8, arg.name, "self")) continue;
+                        // Check if this param is assigned to this field
+                        if (assign.value.* == .name and std.mem.eql(u8, assign.value.name.id, arg.name)) {
+                            if (arg.type_annotation) |ann| {
+                                // Check if annotation is a type param
+                                for (type_params) |tp| {
+                                    if (std.mem.eql(u8, ann, tp)) {
+                                        field_type = tp;
+                                        break;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("{s}: {s},\n", .{ field_name, field_type });
+                }
+            }
+        }
+    }
+}
+
+/// Generate init method for generic class
+fn genGenericInitMethod(self: *NativeCodegen, init: ast.Node.FunctionDef, type_params: [][]const u8) CodegenError!void {
+    try self.emitIndent();
+    try self.emit("pub fn init(");
+
+    // Generate parameters
+    var first = true;
+    for (init.args) |arg| {
+        if (std.mem.eql(u8, arg.name, "self")) continue;
+        if (!first) try self.emit(", ");
+        first = false;
+
+        // Get parameter type
+        var param_type: []const u8 = "i64";
+        if (arg.type_annotation) |ann| {
+            // Check if annotation is a type param
+            for (type_params) |tp| {
+                if (std.mem.eql(u8, ann, tp)) {
+                    param_type = tp;
+                    break;
+                }
+            }
+        }
+        try self.output.writer(self.allocator).print("{s}: {s}", .{ arg.name, param_type });
+    }
+
+    try self.emit(") @This() {\n");
+    self.indent();
+
+    try self.emitIndent();
+    try self.emit("return @This(){\n");
+    self.indent();
+
+    // Generate field initializations
+    for (init.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                const attr = assign.targets[0].attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print(".{s} = ", .{attr.attr});
+                    try self.genExpr(assign.value.*);
+                    try self.emit(",\n");
+                }
+            }
+        }
+    }
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+}
+
+/// Generate a method for generic class
+fn genGenericMethod(self: *NativeCodegen, method: ast.Node.FunctionDef, type_params: [][]const u8) CodegenError!void {
+    // Set method context so self.field generates correctly
+    const prev_inside_method = self.inside_method_with_self;
+    self.inside_method_with_self = true;
+    defer self.inside_method_with_self = prev_inside_method;
+
+    try self.emitIndent();
+    try self.emit("pub fn ");
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method.name);
+    try self.emit("(");
+
+    // Check if self is used in method body
+    var has_self_param = false;
+    var self_is_used = false;
+    for (method.args) |arg| {
+        if (std.mem.eql(u8, arg.name, "self")) {
+            has_self_param = true;
+            break;
+        }
+    }
+    if (has_self_param) {
+        self_is_used = checkSelfUsedInBody(method.body);
+    }
+
+    // Generate parameters
+    var first = true;
+    for (method.args) |arg| {
+        if (!first) try self.emit(", ");
+        first = false;
+
+        if (std.mem.eql(u8, arg.name, "self")) {
+            // Use _ prefix if self is not used
+            if (self_is_used) {
+                try self.emit("self: *const @This()");
+            } else {
+                try self.emit("_: *const @This()");
+            }
+        } else {
+            var param_type: []const u8 = "i64";
+            if (arg.type_annotation) |ann| {
+                for (type_params) |tp| {
+                    if (std.mem.eql(u8, ann, tp)) {
+                        param_type = tp;
+                        break;
+                    }
+                }
+            }
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.output.writer(self.allocator).print(": {s}", .{param_type});
+        }
+    }
+    try self.emit(") ");
+
+    // Return type
+    var return_type: []const u8 = "void";
+    if (method.return_type) |rt| {
+        for (type_params) |tp| {
+            if (std.mem.eql(u8, rt, tp)) {
+                return_type = tp;
+                break;
+            }
+        }
+    } else {
+        // Check for return statements to infer return type
+        for (method.body) |stmt| {
+            if (stmt == .return_stmt and stmt.return_stmt.value != null) {
+                const ret_expr = stmt.return_stmt.value.?;
+                if (ret_expr.* == .attribute and ret_expr.attribute.value.* == .name and
+                    std.mem.eql(u8, ret_expr.attribute.value.name.id, "self"))
+                {
+                    // returning self.field - get field type from init
+                    // Just use first type param for simplicity if returning a field
+                    if (type_params.len > 0) {
+                        return_type = type_params[0];
+                    }
+                }
+                break;
+            }
+        }
+    }
+    try self.output.writer(self.allocator).print("{s} {{\n", .{return_type});
+    self.indent();
+
+    // Generate method body
+    for (method.body) |stmt| {
+        try self.generateStmt(stmt);
+    }
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+}
+
+/// Check if self is actually used in method body
+fn checkSelfUsedInBody(stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        if (checkSelfUsedInNode(stmt)) return true;
+    }
+    return false;
+}
+
+fn checkSelfUsedInNode(node: ast.Node) bool {
+    switch (node) {
+        .name => |n| return std.mem.eql(u8, n.id, "self"),
+        .attribute => |a| return checkSelfUsedInNode(a.value.*),
+        .return_stmt => |r| {
+            if (r.value) |v| return checkSelfUsedInNode(v.*);
+            return false;
+        },
+        .call => |c| {
+            if (checkSelfUsedInNode(c.func.*)) return true;
+            for (c.args) |arg| {
+                if (checkSelfUsedInNode(arg)) return true;
+            }
+            return false;
+        },
+        .binop => |b| return checkSelfUsedInNode(b.left.*) or checkSelfUsedInNode(b.right.*),
+        .expr_stmt => |e| return checkSelfUsedInNode(e.value.*),
+        else => return false,
+    }
 }
 
 /// Recursively find __init__ method in parent chain

@@ -17,7 +17,6 @@ pub const PyObject = runtime_impl.PyObject;
 pub const PyInt = runtime_impl.PyInt;
 pub const PyFloat = runtime_impl.PyFloat;
 pub const PyString = runtime_impl.PyString;
-pub const NumpyArray = runtime_impl.NumpyArray;
 const Allocator = std.mem.Allocator;
 
 /// Python type identifiers for marshaling
@@ -28,7 +27,6 @@ pub const PyType = enum {
     string,        // Python str → []const u8
     bytes,         // Python bytes → []const u8
     list,          // Python list → PyObject*
-    numpy_array,   // NumPy array → []f64
     void,          // No return value
     pyobject,      // Generic PyObject*
 };
@@ -62,7 +60,7 @@ pub const FunctionSpec = struct {
     /// C function name (e.g., "cblas_ddot")
     c_func_name: []const u8,
 
-    /// Python function name (e.g., "numpy.dot")
+    /// Python function name (e.g., "math.fsum")
     py_func_name: []const u8,
 
     /// Argument specifications
@@ -112,19 +110,6 @@ pub fn MarshalPyToC(comptime py_type: PyType, comptime c_type: type) type {
                         @compileError("Unsupported float type: " ++ @typeName(c_type));
                     }
                 },
-                .numpy_array => {
-                    // Extract NumpyArray → []f64 (CPython-compatible)
-                    if (!runtime_impl.Py_IS_TYPE(py_obj, &runtime_impl.PyNumpyArray_Type)) return error.TypeError;
-                    const arr = try runtime_impl.numpy_array.extractArray(py_obj);
-
-                    if (c_type == []f64 or c_type == []const f64) {
-                        return arr.data;
-                    } else if (c_type == *NumpyArray) {
-                        return arr;
-                    } else {
-                        @compileError("Unsupported numpy_array target type: " ++ @typeName(c_type));
-                    }
-                },
                 .string => {
                     // Extract PyUnicodeObject → []const u8 (CPython-compatible)
                     if (!runtime_impl.PyUnicode_Check(py_obj)) return error.TypeError;
@@ -169,17 +154,6 @@ pub fn MarshalCToPy(comptime py_type: PyType, comptime c_type: type) type {
 
                     return try PyFloat.create(allocator, float_val);
                 },
-                .numpy_array => {
-                    // Wrap []f64 or *NumpyArray → PyObject
-                    if (c_type == []f64 or c_type == []const f64) {
-                        const arr = try NumpyArray.fromSlice(allocator, c_value);
-                        return try runtime_impl.numpy_array.createPyObject(allocator, arr);
-                    } else if (c_type == *NumpyArray) {
-                        return try runtime_impl.numpy_array.createPyObject(allocator, c_value);
-                    } else {
-                        @compileError("Cannot wrap " ++ @typeName(c_type) ++ " as numpy_array");
-                    }
-                },
                 .string => {
                     // Wrap []const u8 → PyString
                     if (c_type == []const u8 or c_type == []u8) {
@@ -208,11 +182,11 @@ pub fn MarshalCToPy(comptime py_type: PyType, comptime c_type: type) type {
 ///
 /// Example usage:
 /// ```zig
-/// const numpy_sum = comptimeGenerateWrapper(.{
+/// const cblas_dasum = comptimeGenerateWrapper(.{
 ///     .c_func_name = "cblas_dasum",
-///     .py_func_name = "numpy.sum",
+///     .py_func_name = "math.fsum",
 ///     .args = &[_]ArgSpec{
-///         .{ .name = "array", .py_type = .numpy_array, .c_type = []f64 },
+///         .{ .name = "n", .py_type = .int, .c_type = i64 },
 ///     },
 ///     .returns = .{ .py_type = .float, .c_type = f64 },
 /// });
@@ -254,31 +228,7 @@ pub fn comptimeGenerateWrapper(comptime spec: FunctionSpec) type {
     };
 }
 
-/// Example: Generate wrapper for cblas_ddot at comptime
-pub const CBLAS_DDOT_SPEC = FunctionSpec{
-    .c_func_name = "cblas_ddot",
-    .py_func_name = "numpy.dot",
-    .args = &[_]ArgSpec{
-        .{ .name = "a", .py_type = .numpy_array, .c_type = []f64 },
-        .{ .name = "b", .py_type = .numpy_array, .c_type = []f64 },
-    },
-    .returns = .{ .py_type = .float, .c_type = f64 },
-};
-
-// Generate the wrapper at comptime!
-// pub const numpy_dot = comptimeGenerateWrapper(CBLAS_DDOT_SPEC);
-
-/// Batch wrapper generation - define 50 functions in 5 minutes!
-///
-/// Example:
-/// ```zig
-/// const numpy_functions = .{
-///     comptimeGenerateWrapper(CBLAS_DDOT_SPEC),
-///     comptimeGenerateWrapper(CBLAS_DGEMM_SPEC),
-///     comptimeGenerateWrapper(CBLAS_DASUM_SPEC),
-///     // ... 47 more (copy-paste spec, done in 5 min)
-/// };
-/// ```
+/// Batch wrapper generation for multiple C functions
 pub fn comptimeBatchGenerate(comptime specs: []const FunctionSpec) type {
     comptime {
         var fields: [specs.len]std.builtin.Type.StructField = undefined;
@@ -342,28 +292,6 @@ test "marshal PyInt to i64" {
     const c_value = try Marshaler.extract(py_int, allocator);
 
     try std.testing.expectEqual(@as(i64, 99), c_value);
-}
-
-test "marshal NumpyArray to []f64" {
-    const allocator = std.testing.allocator;
-
-    // Create NumpyArray
-    const data = [_]f64{ 1.0, 2.0, 3.0, 4.0 };
-    const arr = try NumpyArray.fromSlice(allocator, &data);
-    const py_obj = try runtime_impl.numpy_array.createPyObject(allocator, arr);
-    defer {
-        const extracted = runtime_impl.numpy_array.extractArray(py_obj) catch unreachable;
-        extracted.deinit();
-        allocator.destroy(py_obj);
-    }
-
-    // Extract using comptime marshaler
-    const Marshaler = MarshalPyToC(.numpy_array, []f64);
-    const c_array = try Marshaler.extract(py_obj, allocator);
-
-    try std.testing.expectEqual(@as(usize, 4), c_array.len);
-    try std.testing.expectEqual(@as(f64, 1.0), c_array[0]);
-    try std.testing.expectEqual(@as(f64, 4.0), c_array[3]);
 }
 
 test "comptime wrapper architecture" {

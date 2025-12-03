@@ -4,7 +4,7 @@
 //! It implements the three-tier strategy:
 //!
 //! Tier 1 (zig_runtime): Performance-critical modules (json, http, async)
-//! Tier 2 (c_library): C library wrappers (numpy, sqlite3, ssl)
+//! Tier 2 (c_library): C library wrappers (sqlite3, zlib, ssl - CPython stdlib only)
 //! Tier 3 (compile_python): Pure Python modules (pathlib, urllib)
 //!
 //! Usage:
@@ -40,7 +40,7 @@ pub const FunctionMeta = struct {
 
 /// Information about how to import a Python module
 pub const ImportInfo = struct {
-    /// Python module name (e.g. "json", "numpy")
+    /// Python module name (e.g. "json", "os")
     python_module: []const u8,
 
     /// Strategy to use
@@ -194,14 +194,6 @@ const Sqlite3FuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
     .{ "connect", Sqlite3ErrorFn },
 });
 
-/// numpy module: C interop functions (no allocator needed from Python side)
-const NumpyFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
-    .{ "array", FunctionMeta{ .no_alloc = true, .returns_error = true } },
-    .{ "zeros", FunctionMeta{ .no_alloc = true, .returns_error = true } },
-    .{ "ones", FunctionMeta{ .no_alloc = true, .returns_error = true } },
-    .{ "sum", FunctionMeta{ .no_alloc = true, .returns_error = false } },
-    .{ "mean", FunctionMeta{ .no_alloc = true, .returns_error = false } },
-});
 
 /// zlib module: compression functions (no allocator needed from Python side)
 const ZlibFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
@@ -231,8 +223,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     // requests: needs_init=true, has function metadata
     try registry.registerWithMeta("requests", .zig_runtime, "runtime.requests", null, true, &RequestsFuncMeta);
 
-    // Tier 2: C library wrappers
-    try registry.registerWithMeta("numpy", .c_library, "@import(\"./c_interop/c_interop.zig\").numpy", "blas", false, &NumpyFuncMeta);
+    // Tier 2: C library wrappers (CPython stdlib modules only)
     try registry.registerWithMeta("sqlite3", .c_library, "@import(\"./c_interop/c_interop.zig\").sqlite3", "sqlite3", false, &Sqlite3FuncMeta);
     try registry.registerWithMeta("zlib", .c_library, "@import(\"./c_interop/c_interop.zig\").zlib", "z", false, &ZlibFuncMeta);
     try registry.register("ssl", .c_library, "@import(\"./c_interop/c_interop.zig\").ssl", "ssl");

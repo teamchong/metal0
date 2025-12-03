@@ -128,6 +128,9 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             // Free each base class name string that was allocated with dupe()
             for (c.bases) |base| allocator.free(base);
             allocator.free(c.bases);
+            // Free type params (from Generic[T, U])
+            for (c.type_params) |tp| allocator.free(tp);
+            if (c.type_params.len > 0) allocator.free(c.type_params);
         },
         .return_stmt => |r| {
             if (r.value) |v| {

@@ -29,10 +29,6 @@ pub fn inferModuleFunctionCall(
     const module_hash = fnv_hash.hash(module_name);
     const JSON_HASH = comptime fnv_hash.hash("json");
     const MATH_HASH = comptime fnv_hash.hash("math");
-    const PANDAS_HASH = comptime fnv_hash.hash("pandas");
-    const PD_HASH = comptime fnv_hash.hash("pd");
-    const NUMPY_HASH = comptime fnv_hash.hash("numpy");
-    const NP_HASH = comptime fnv_hash.hash("np");
     const IO_HASH = comptime fnv_hash.hash("io");
     const HASHLIB_HASH = comptime fnv_hash.hash("hashlib");
     const STRUCT_HASH = comptime fnv_hash.hash("struct");
@@ -574,14 +570,6 @@ pub fn inferModuleFunctionCall(
             if (static_maps.MathIntFuncs.has(func_name)) return .{ .int = .bounded };
             if (static_maps.MathBoolFuncs.has(func_name)) return .bool;
             return .float; // All other math functions return float
-        },
-        PANDAS_HASH, PD_HASH => if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("DataFrame")) return .dataframe,
-        NUMPY_HASH, NP_HASH => {
-            // NumPy function type inference
-            if (static_maps.NumpyArrayFuncs.has(func_name)) return .numpy_array;
-            if (static_maps.NumpyScalarFuncs.has(func_name)) return .float;
-            if (static_maps.NumpyIntFuncs.has(func_name)) return .{ .int = .bounded };
-            if (static_maps.NumpyBoolFuncs.has(func_name)) return .bool;
         },
         else => {},
     }

@@ -7,7 +7,6 @@ const zig_keywords = @import("zig_keywords");
 
 const methods = @import("../methods.zig");
 const io_mod = @import("../io.zig");
-const pandas_mod = @import("../pandas.zig");
 const unittest_mod = @import("../unittest/mod.zig");
 
 /// Builtin types that support __new__ with value extraction
@@ -24,8 +23,6 @@ const BuiltinTypeDefaults = std.StaticStringMap([]const u8).initComptime(.{
 // Handler type for standard methods (obj, args)
 const MethodHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
 
-// Handler type for pandas column methods (obj only)
-const ColumnHandler = *const fn (*NativeCodegen, ast.Node) CodegenError!void;
 
 // String methods - O(1) lookup via StaticStringMap
 const StringMethods = std.StaticStringMap(MethodHandler).initComptime(.{
@@ -132,15 +129,6 @@ const HashMethods = std.StaticStringMap(void).initComptime(.{
     .{ "copy", {} },
 });
 
-// Pandas column methods - O(1) lookup via StaticStringMap
-const PandasColumnMethods = std.StaticStringMap(ColumnHandler).initComptime(.{
-    .{ "sum", pandas_mod.genColumnSum },
-    .{ "mean", pandas_mod.genColumnMean },
-    .{ "describe", pandas_mod.genColumnDescribe },
-    .{ "min", pandas_mod.genColumnMin },
-    .{ "max", pandas_mod.genColumnMax },
-    .{ "std", pandas_mod.genColumnStd },
-});
 
 // Special method types for dispatch
 const SpecialMethodType = enum { count, index, get };
@@ -370,14 +358,6 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // SQLite3 methods (Connection and Cursor)
     if (try handleSqliteMethods(self, call, method_name, obj)) {
         return true;
-    }
-
-    // Pandas column methods (DataFrame column operations)
-    if (obj == .subscript) { // df['col'].method()
-        if (PandasColumnMethods.get(method_name)) |handler| {
-            try handler(self, obj);
-            return true;
-        }
     }
 
     // unittest assertion methods (self.assertEqual, etc.)

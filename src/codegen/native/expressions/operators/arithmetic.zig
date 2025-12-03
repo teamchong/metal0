@@ -709,12 +709,12 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try genExpr(self, binop.left.*);
             try self.emit(")");
         } else {
-            // For numpy arrays, use numpy.matmulAuto
-            try self.emit("try numpy.matmulAuto(");
+            // Generic fallback - call __matmul__ on left
+            try self.emit("try ");
             try genExpr(self, binop.left.*);
-            try self.emit(", ");
+            try self.emit(".__matmul__(__global_allocator, ");
             try genExpr(self, binop.right.*);
-            try self.emit(", allocator)");
+            try self.emit(")");
         }
         return;
     }

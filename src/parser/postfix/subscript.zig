@@ -86,7 +86,7 @@ fn parseMultiDimFromStart(self: *Parser, node_ptr: *ast.Node) ParseError!ast.Nod
     };
 }
 
-/// Parse slice starting with colon: [:end] or [:end:step] or [::step] or [:, idx, ...] (numpy 2D)
+/// Parse slice starting with colon: [:end] or [:end:step] or [::step] or [:, idx, ...] (2D indexing)
 fn parseSliceFromStart(self: *Parser, node_ptr: *ast.Node) ParseError!ast.Node {
     _ = self.advance(); // consume first colon
 
@@ -193,7 +193,7 @@ fn parseSliceWithLower(self: *Parser, node_ptr: *ast.Node, lower: ast.Node) Pars
     };
 }
 
-/// Parse multi-element subscript: arr[0, 1, 2] or arr[0, :] or arr[:42, ..., :24:, 24, 100] (numpy-style)
+/// Parse multi-element subscript: arr[0, 1, 2] or arr[0, :] or arr[:42, ..., :24:, 24, 100]
 fn parseMultiSubscript(self: *Parser, node_ptr: *ast.Node, first: ast.Node) ParseError!ast.Node {
     var indices = std.ArrayList(ast.Node){};
     defer indices.deinit(self.allocator);

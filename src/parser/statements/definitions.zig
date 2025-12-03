@@ -6,6 +6,63 @@ const ParseError = @import("../../parser.zig").ParseError;
 const Parser = @import("../../parser.zig").Parser;
 const misc = @import("misc.zig");
 
+/// Check if a subscript expression is Generic[T, U, ...] and extract type params
+/// Returns type param names (allocated), or null if not a Generic subscript
+fn extractGenericTypeParams(self: *Parser, node: ast.Node) ?[][]const u8 {
+    if (node != .subscript) return null;
+    const subscript = node.subscript;
+
+    // Check if base is "Generic" or "typing.Generic"
+    const is_generic = blk: {
+        if (subscript.value.* == .name) {
+            break :blk std.mem.eql(u8, subscript.value.name.id, "Generic");
+        }
+        if (subscript.value.* == .attribute) {
+            const attr = subscript.value.attribute;
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "typing")) {
+                break :blk std.mem.eql(u8, attr.attr, "Generic");
+            }
+        }
+        break :blk false;
+    };
+    if (!is_generic) return null;
+
+    // Extract type params from subscript slice
+    var type_params = std.ArrayList([]const u8){};
+    errdefer {
+        for (type_params.items) |p| self.allocator.free(p);
+        type_params.deinit(self.allocator);
+    }
+
+    switch (subscript.slice) {
+        .index => |idx| {
+            // Single type param: Generic[T]
+            if (idx.* == .name) {
+                const param_name = self.allocator.dupe(u8, idx.name.id) catch return null;
+                type_params.append(self.allocator, param_name) catch {
+                    self.allocator.free(param_name);
+                    return null;
+                };
+            } else if (idx.* == .tuple) {
+                // Multiple type params: Generic[T, U, V]
+                for (idx.tuple.elts) |elt| {
+                    if (elt == .name) {
+                        const param_name = self.allocator.dupe(u8, elt.name.id) catch return null;
+                        type_params.append(self.allocator, param_name) catch {
+                            self.allocator.free(param_name);
+                            return null;
+                        };
+                    }
+                }
+            }
+        },
+        .slice => return null, // Not valid for Generic
+    }
+
+    if (type_params.items.len == 0) return null;
+    return type_params.toOwnedSlice(self.allocator) catch null;
+}
+
 /// Extract base class name from expression node (for class bases)
 /// Returns newly allocated string, or null for complex expressions like function calls
 fn extractBaseName(self: *Parser, node: ast.Node) ?[]const u8 {
@@ -800,8 +857,9 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
 
     // Parse optional base classes: class Dog(Animal):
     // Supports: simple names (Animal), dotted names (abc.ABC), keyword args (metaclass=ABCMeta),
-    // and function calls (with_metaclass(ABCMeta)) - function calls are parsed but not stored
+    // Generic[T, U] for type parameters, and function calls (parsed but not stored)
     var bases = std.ArrayList([]const u8){};
+    var type_params = std.ArrayList([]const u8){};
     var body_alloc: ?[]ast.Node = null;
     var metaclass: ?[]const u8 = null;
     errdefer {
@@ -810,6 +868,11 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
             self.allocator.free(base);
         }
         bases.deinit(self.allocator);
+        // Clean up type params
+        for (type_params.items) |tp| {
+            self.allocator.free(tp);
+        }
+        type_params.deinit(self.allocator);
         // Clean up body if allocated
         if (body_alloc) |b| {
             for (b) |*stmt| {
@@ -870,13 +933,22 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
             }
 
             // Parse base class as a full expression
-            // This handles: simple names, dotted names, and function calls
+            // This handles: simple names, dotted names, Generic[T], and function calls
             const expr = try self.parseExpression();
 
-            // Extract name from expression if it's a simple name or attribute access
-            const base_name = extractBaseName(self, expr);
-            if (base_name) |name| {
-                try bases.append(self.allocator, name);
+            // Check for Generic[T, U, ...] subscript - extract type params
+            if (extractGenericTypeParams(self, expr)) |params| {
+                // This is a Generic[T, U] base - store type params, don't add to bases
+                for (params) |p| {
+                    try type_params.append(self.allocator, p);
+                }
+                self.allocator.free(params);
+            } else {
+                // Extract name from expression if it's a simple name or attribute access
+                const base_name = extractBaseName(self, expr);
+                if (base_name) |name| {
+                    try bases.append(self.allocator, name);
+                }
             }
             // If it's a function call or other complex expression, we skip adding it to bases
             // (codegen won't use it, but at least parsing succeeds)
@@ -921,6 +993,8 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
     // Success - transfer ownership
     const final_bases = try bases.toOwnedSlice(self.allocator);
     bases = std.ArrayList([]const u8){}; // Reset so errdefer doesn't double-free
+    const final_type_params = try type_params.toOwnedSlice(self.allocator);
+    type_params = std.ArrayList([]const u8){}; // Reset so errdefer doesn't double-free
     const final_body = body_alloc.?;
     body_alloc = null; // Clear so errdefer doesn't double-free
 
@@ -930,6 +1004,7 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
             .bases = final_bases,
             .body = final_body,
             .metaclass = metaclass,
+            .type_params = final_type_params,
         },
     };
 }

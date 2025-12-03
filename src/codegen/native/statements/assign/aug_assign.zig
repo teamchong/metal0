@@ -593,23 +593,12 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Regular operators: +=, -=, *=, /=, &=, |=, ^=
     // Handle matrix multiplication separately
     if (aug.op == .MatMul) {
-        // MatMul: target @= value => call __imatmul__ if available, else numpy.matmulAuto
-        // NOTE: target_type already computed above for class instance operators
-        if (target_type == .class_instance or target_type == .unknown) {
-            // User class with __imatmul__: try target.__imatmul__(allocator, value)
-            try self.emit("try ");
-            try self.genExpr(aug.target.*);
-            try self.emit(".__imatmul__(__global_allocator, ");
-            try self.genExpr(aug.value.*);
-            try self.emit(");\n");
-        } else {
-            // numpy arrays: numpy.matmulAuto(target, value, allocator)
-            try self.emit("try numpy.matmulAuto(");
-            try self.genExpr(aug.target.*);
-            try self.emit(", ");
-            try self.genExpr(aug.value.*);
-            try self.emit(", allocator);\n");
-        }
+        // MatMul: target @= value => call __imatmul__ method
+        try self.emit("try ");
+        try self.genExpr(aug.target.*);
+        try self.emit(".__imatmul__(__global_allocator, ");
+        try self.genExpr(aug.value.*);
+        try self.emit(");\n");
         return;
     }
 

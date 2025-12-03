@@ -1,5 +1,6 @@
 // C Library Mapping Registry
 // Central registry of all available library mappings
+// Used for ctypes-style FFI to call real C libraries
 
 const std = @import("std");
 const mapper = @import("mapper.zig");
@@ -10,19 +11,13 @@ pub const ImportContext = detection.ImportContext;
 pub const MappingRegistry = mapper.MappingRegistry;
 pub const FunctionMapping = mapper.FunctionMapping;
 
-// Import all mapping modules
-const numpy = @import("mappings/numpy.zig");
-
 /// Global registry containing all available mappings
 pub var global_registry: ?*mapper.MappingRegistry = null;
 
 /// Initialize the global registry with all known mappings
 pub fn initGlobalRegistry(allocator: std.mem.Allocator) !void {
-    // Collect all mapping references
-    const all_mappings = [_]*const mapper.CLibraryMapping{
-        &numpy.numpy_mapping,
-        // Add more mappings here as they're implemented
-    };
+    // Empty for now - mappings will be added via ctypes/cffi at runtime
+    const all_mappings = [_]*const mapper.CLibraryMapping{};
 
     const registry = try allocator.create(mapper.MappingRegistry);
     registry.* = mapper.MappingRegistry.init(allocator, &all_mappings);
@@ -62,22 +57,4 @@ pub fn getSupportedPackages(allocator: std.mem.Allocator) ![]const []const u8 {
     }
 
     return packages.toOwnedSlice();
-}
-
-test "registry initialization" {
-    const testing = std.testing;
-    const allocator = testing.allocator;
-
-    try initGlobalRegistry(allocator);
-    defer deinitGlobalRegistry(allocator);
-
-    const registry = try getGlobalRegistry();
-
-    // Test numpy is registered
-    try testing.expect(isPackageSupported("numpy"));
-
-    // Test numpy.sum function exists
-    const sum_func = registry.findFunction("numpy.sum");
-    try testing.expect(sum_func != null);
-    try testing.expectEqualStrings("cblas_dasum", sum_func.?.c_name);
 }

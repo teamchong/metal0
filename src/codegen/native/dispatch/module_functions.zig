@@ -1,4 +1,4 @@
-/// Module function dispatchers (json, http, asyncio, numpy, pandas, os)
+/// Module function dispatchers (json, http, asyncio, os, etc.)
 const std = @import("std");
 const ast = @import("ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
@@ -8,8 +8,6 @@ const CodegenError = @import("../main.zig").CodegenError;
 const json = @import("../json.zig");
 const http = @import("../http.zig");
 const async_mod = @import("../async.zig");
-const numpy_mod = @import("../numpy.zig");
-const pandas_mod = @import("../pandas.zig");
 const unittest_mod = @import("../unittest/mod.zig");
 const re_mod = @import("../re.zig");
 const os_mod = @import("../os.zig");
@@ -421,15 +419,6 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "json", json.Funcs },
     .{ "http", http.Funcs },
     .{ "asyncio", async_mod.Funcs },
-    .{ "numpy", numpy_mod.Funcs },
-    .{ "np", numpy_mod.Funcs },
-    .{ "numpy.linalg", numpy_mod.LinalgFuncs },
-    .{ "np.linalg", numpy_mod.LinalgFuncs },
-    .{ "linalg", numpy_mod.LinalgFuncs },
-    .{ "numpy.random", numpy_mod.RandomFuncs },
-    .{ "np.random", numpy_mod.RandomFuncs },
-    .{ "pandas", pandas_mod.Funcs },
-    .{ "pd", pandas_mod.Funcs },
     .{ "unittest", unittest_mod.Funcs },
     .{ "re", re_mod.Funcs },
     .{ "os", os_mod.Funcs },
@@ -774,7 +763,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "winsound", winsound_mod.Funcs },
 });
 
-/// Try to dispatch module function call (e.g., json.loads, numpy.array)
+/// Try to dispatch module function call (e.g., json.loads, os.getcwd)
 /// Returns true if dispatched successfully
 pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []const u8, call: ast.Node.Call) CodegenError!bool {
     // Check for importlib.import_module() (defensive - import already blocked)

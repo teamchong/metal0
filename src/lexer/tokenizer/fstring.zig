@@ -4,7 +4,7 @@ const Token = @import("../../lexer.zig").Token;
 const FStringPart = @import("../../lexer.zig").FStringPart;
 const Lexer = @import("../../lexer.zig").Lexer;
 
-pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
+pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: bool) !Token {
     const quote = self.advance().?; // Consume opening quote
     var parts = std.ArrayList(FStringPart){};
     errdefer parts.deinit(self.allocator);
@@ -26,7 +26,22 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
                 break;
             }
         } else {
+            // In raw strings, backslash before quote allows quote to be included (but backslash is preserved)
+            // So \' in a single-quoted raw string is NOT the end, but literal backslash + quote
             if (self.peek() == quote) {
+                // Check if preceded by odd number of backslashes (escape)
+                var backslash_count: usize = 0;
+                var pos = self.current;
+                while (pos > 0 and self.source[pos - 1] == '\\') {
+                    backslash_count += 1;
+                    pos -= 1;
+                }
+                // Odd number of backslashes means quote is escaped (even in raw strings this allows including quotes)
+                if (is_raw and backslash_count > 0 and backslash_count % 2 == 1) {
+                    // Escaped quote in raw string - advance past quote and continue
+                    _ = self.advance();
+                    continue;
+                }
                 break;
             }
         }
@@ -51,6 +66,7 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
             var brace_depth: usize = 1;
             var bracket_depth: usize = 0; // Track [] for slice expressions
             var paren_depth: usize = 0; // Track () for function calls
+            var in_string: u8 = 0; // Track string delimiters (', ", or 0 if not in string)
             var has_format_spec = false;
             var has_conversion = false;
             var conversion_char: u8 = 0;
@@ -59,6 +75,55 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
 
             while (brace_depth > 0 and !self.isAtEnd()) {
                 const c = self.peek().?;
+
+                // Handle string literals inside expression - ignore braces while in strings
+                if (in_string != 0) {
+                    if (c == '\\') {
+                        // Skip escaped char in string
+                        _ = self.advance();
+                        if (!self.isAtEnd()) _ = self.advance();
+                        continue;
+                    } else if (c == in_string) {
+                        // Check for triple quote end
+                        if (self.peekAhead(1) == in_string and self.peekAhead(2) == in_string) {
+                            _ = self.advance();
+                            _ = self.advance();
+                            _ = self.advance();
+                            in_string = 0;
+                        } else {
+                            _ = self.advance();
+                            in_string = 0;
+                        }
+                        continue;
+                    }
+                    _ = self.advance();
+                    continue;
+                }
+
+                // Check for string start
+                if (c == '"' or c == '\'') {
+                    // Check for triple quote
+                    if (self.peekAhead(1) == c and self.peekAhead(2) == c) {
+                        in_string = c;
+                        _ = self.advance();
+                        _ = self.advance();
+                        _ = self.advance();
+                    } else {
+                        in_string = c;
+                        _ = self.advance();
+                    }
+                    continue;
+                }
+
+                // Handle # comment inside f-string expression - skip to end of line
+                if (c == '#') {
+                    while (!self.isAtEnd()) {
+                        const ch = self.peek().?;
+                        if (ch == '\n') break;
+                        _ = self.advance();
+                    }
+                    continue;
+                }
 
                 if (c == '{') {
                     brace_depth += 1;
@@ -101,8 +166,17 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
                     _ = self.advance(); // consume ':'
                     format_spec_start = self.current;
 
-                    // Parse format spec until }
-                    while (self.peek() != '}' and !self.isAtEnd()) {
+                    // Parse format spec until } - but track nested braces!
+                    // Format specs like {value:{ width}.{precision}} have nested expressions
+                    var format_brace_depth: usize = 0;
+                    while (!self.isAtEnd()) {
+                        const fc = self.peek().?;
+                        if (fc == '{') {
+                            format_brace_depth += 1;
+                        } else if (fc == '}') {
+                            if (format_brace_depth == 0) break;
+                            format_brace_depth -= 1;
+                        }
                         _ = self.advance();
                     }
 
@@ -143,7 +217,8 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize) !Token {
             }
 
             literal_start = self.current;
-        } else if (self.peek() == '\\') {
+        } else if (self.peek() == '\\' and !is_raw) {
+            // Only process backslash escapes in non-raw f-strings
             _ = self.advance(); // Consume backslash
             if (!self.isAtEnd()) {
                 _ = self.advance(); // Consume escaped character

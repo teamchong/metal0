@@ -17,14 +17,6 @@ const AllocatorBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "str", {} },
 });
 
-const NumpyAllocFuncs = std.StaticStringMap(void).initComptime(.{
-    .{ "array", {} },
-    .{ "zeros", {} },
-    .{ "ones", {} },
-    .{ "transpose", {} },
-    .{ "matmul", {} },
-});
-
 const CollectionsDictTypes = std.StaticStringMap(void).initComptime(.{
     .{ "Counter", {} }, .{ "defaultdict", {} }, .{ "OrderedDict", {} },
 });
@@ -362,11 +354,6 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
                         analysis.needs_async = true;
                         analysis.needs_runtime = true;
                         analysis.needs_allocator = true;
-                    } else if (std.mem.eql(u8, module_name, "numpy") or std.mem.eql(u8, module_name, "np")) {
-                        // NumPy functions that need allocator
-                        if (NumpyAllocFuncs.has(attr.attr)) {
-                            analysis.needs_allocator = true;
-                        }
                     } else if (std.mem.eql(u8, module_name, "collections")) {
                         if (CollectionsDictTypes.has(attr.attr)) {
                             analysis.needs_hashmap_helper = true;
