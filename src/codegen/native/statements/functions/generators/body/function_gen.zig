@@ -12,6 +12,7 @@ const usage_analysis = @import("usage_analysis.zig");
 const nested_captures = @import("nested_captures.zig");
 const scope_analyzer = @import("../../scope_analyzer.zig");
 const var_hoisting = @import("../../var_hoisting.zig");
+const self_analyzer = @import("../../self_analyzer.zig");
 
 /// Info about a type check at the start of a function
 pub const TypeCheckInfo = struct {
@@ -526,6 +527,9 @@ pub fn genFunctionBody(
         }
     }
 
+    // Track output position for unused anytype param detection after body generation
+    const body_start_pos: usize = self.output.items.len;
+
     // Generate default parameter initialization (before declaring them in scope)
     // When default value references the same name as the parameter (e.g., def foo(x=x):),
     // we need to use a different local name to avoid shadowing the module-level variable
@@ -541,7 +545,12 @@ pub fn genFunctionBody(
                 false;
 
             // Check if parameter is unused in the function body
-            const is_param_unused = !param_analyzer.isNameUsedInBody(func.body, arg.name);
+            // For generator functions, use ExcludingYield since yield bodies become `// pass`
+            const is_generator = signature.hasYieldStatement(func.body);
+            const is_param_unused = if (is_generator)
+                !param_analyzer.isNameUsedInBodyExcludingYield(func.body, arg.name)
+            else
+                !param_analyzer.isNameUsedInBody(func.body, arg.name);
 
             if (needs_rename) {
                 if (is_param_unused) {
@@ -674,6 +683,62 @@ pub fn genFunctionBody(
         // No type-check patterns - generate body normally
         for (func.body) |stmt| {
             try self.generateStmt(stmt);
+        }
+    }
+
+    // Check if anytype parameters were actually used in generated body
+    // If not, emit `_ = param;` to suppress unused parameter warning
+    // Handle early returns: if body ends with return, insert at body_start_pos instead of appending
+    {
+        const body_output = self.output.items[body_start_pos..];
+        // Check if body ends with a return statement (would make appended code unreachable)
+        const ends_with_return = blk: {
+            // Look for "return" followed by optional value and ";\n" at end of body
+            // Trim trailing whitespace and check last meaningful statement
+            var end_idx = body_output.len;
+            while (end_idx > 0 and (body_output[end_idx - 1] == ' ' or body_output[end_idx - 1] == '\n' or body_output[end_idx - 1] == '\t')) {
+                end_idx -= 1;
+            }
+            if (end_idx >= 2 and body_output[end_idx - 1] == ';') {
+                // Find start of last statement
+                var stmt_start: usize = end_idx - 1;
+                while (stmt_start > 0 and body_output[stmt_start - 1] != '\n' and body_output[stmt_start - 1] != '{' and body_output[stmt_start - 1] != '}') {
+                    stmt_start -= 1;
+                }
+                // Skip indentation
+                while (stmt_start < end_idx and (body_output[stmt_start] == ' ' or body_output[stmt_start] == '\t')) {
+                    stmt_start += 1;
+                }
+                if (end_idx - stmt_start >= 6) {
+                    const last_stmt = body_output[stmt_start..end_idx];
+                    break :blk std.mem.startsWith(u8, last_stmt, "return ");
+                }
+            }
+            break :blk false;
+        };
+
+        for (func.args) |arg| {
+            // Only check anytype params (they don't get _ prefix in signature)
+            if (self.anytype_params.contains(arg.name)) {
+                // Check if this param appears in the generated body
+                if (std.mem.indexOf(u8, body_output, arg.name) == null) {
+                    // Param not used - emit discard
+                    if (ends_with_return) {
+                        // Body ends with return - insert at body_start_pos
+                        // Build the discard statement
+                        const discard = try std.fmt.allocPrint(self.allocator, "    _ = {s};\n", .{arg.name});
+                        defer self.allocator.free(discard);
+                        // Insert at body_start_pos
+                        try self.output.insertSlice(self.allocator, body_start_pos, discard);
+                    } else {
+                        // Safe to append at end
+                        try self.emitIndent();
+                        try self.emit("_ = ");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                        try self.emit(";\n");
+                    }
+                }
+            }
         }
     }
 
@@ -1100,6 +1165,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // This pattern requires generating separate code paths for each type to avoid Zig type errors
     const type_dispatch_info = try detectTypeChangingPattern(self, method);
 
+    // Track output position before body generation to check if self was used
+    const body_start_pos = self.output.items.len;
+
     if (type_dispatch_info.needs_dispatch) {
         // Generate comptime type dispatch
         try generateComptimeTypeDispatch(self, method, type_dispatch_info);
@@ -1107,6 +1175,46 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // Generate method body normally
         for (method.body) |method_stmt| {
             try self.generateStmt(method_stmt);
+        }
+    }
+
+    // Check if self was actually used in generated body (for methods with self parameter)
+    // This handles cases where self usage was in skipped code paths (e.g., PyValue iteration)
+    // IMPORTANT: Only emit _ = self if signature actually named the parameter 'self' (not '_')
+    // Check ACTUAL generated signature to avoid recomputing complex signature.zig logic
+    if (has_self and self.current_class_name != null) {
+        // Look at what was ACTUALLY emitted in signature before body_start_pos
+        // Find the LAST "pub fn " to locate THIS method's signature (not previous methods)
+        const pre_body = self.output.items[0..body_start_pos];
+        const last_pub_fn = std.mem.lastIndexOf(u8, pre_body, "pub fn ");
+        if (last_pub_fn) |sig_start| {
+            // Find the end of signature (the opening brace { of function body)
+            const sig_end = std.mem.indexOfPos(u8, pre_body, sig_start, "{") orelse body_start_pos;
+            const signature = pre_body[sig_start..sig_end];
+            // Check if THIS method's signature uses (self: or (__self:
+            const uses_self = std.mem.indexOf(u8, signature, "(self:") != null;
+            const uses___self = std.mem.indexOf(u8, signature, "(__self:") != null;
+
+            if (uses_self or uses___self) {
+                const body_output = self.output.items[body_start_pos..];
+                // Check for any use of self identifier in generated body
+                const self_ident = if (uses___self) "__self" else "self";
+                const dot_pattern = if (uses___self) "__self." else "self.";
+                const comma_pattern = if (uses___self) "__self," else "self,";
+                const paren_pattern = if (uses___self) "__self)" else "self)";
+                const amp_pattern = if (uses___self) "&__self" else "&self";
+                const self_used_in_body = std.mem.indexOf(u8, body_output, dot_pattern) != null or
+                    std.mem.indexOf(u8, body_output, comma_pattern) != null or
+                    std.mem.indexOf(u8, body_output, paren_pattern) != null or
+                    std.mem.indexOf(u8, body_output, amp_pattern) != null;
+                if (!self_used_in_body) {
+                    // self parameter exists but wasn't used in generated body - suppress warning
+                    try self.emitIndent();
+                    try self.emit("_ = ");
+                    try self.emit(self_ident);
+                    try self.emit(";\n");
+                }
+            }
         }
     }
 
