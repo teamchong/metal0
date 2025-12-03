@@ -222,10 +222,9 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         return;
     }
 
-    // For other callables, generate a comptime-conditional try-catch
-    // Using inline block to check if return type is error union
-    // Use __ar_blk to avoid conflicts with nested blk: labels from genAttribute
-    try self.emit("__ar_blk: { const __ar_call = ");
+    // For assertRaises, we need to check if the callable raises an error
+    // Use unittest.expectError helper which handles both error and non-error types
+    try self.emit("if (runtime.unittest.expectError(");
 
     // Check if callable is an attribute on an IMPORTED module (e.g., copy.replace)
     // vs a local variable attribute (e.g., operator.lt where operator = self.module)
@@ -472,9 +471,8 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         }
         try self.emit(")");
     }
-    // Check if result type is error union at comptime to use catch, otherwise silently pass
-    // For non-error types, assertRaises can't verify exception behavior statically
-    try self.emit("; if (@typeInfo(@TypeOf(__ar_call)) == .error_union) { _ = __ar_call catch break :__ar_blk {}; @panic(\"assertRaises: expected exception\"); } }");
+    // expectError returns true if NO error was raised (test should fail)
+    try self.emit(")) @panic(\"assertRaises: expected exception\")");
 }
 
 /// Generate code for self.assertRaisesRegex(exception, regex, callable, *args)
@@ -490,7 +488,7 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
     // Use __ar_blk to avoid conflicts with nested blk: labels
     try self.emit("__ar_blk: { _ = ");
     try parent.genExpr(self, args[1]); // regex parameter
-    try self.emit("; const __ar_call = ");
+    try self.emit("; _ = ");
 
     // Handle special callables that need runtime wrappers
     if (args[2] == .name and std.mem.eql(u8, args[2].name.id, "int")) {
@@ -593,7 +591,8 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
         }
         try self.emit(")");
     }
-    try self.emit("; if (@typeInfo(@TypeOf(__ar_call)) == .error_union) { _ = __ar_call catch break :__ar_blk {}; @panic(\"assertRaisesRegex: expected exception\"); } }");
+    // Catch error directly on call - can't store first since error propagates immediately
+    try self.emit(" catch break :__ar_blk {}; @panic(\"assertRaisesRegex: expected exception\"); }");
 }
 
 /// Generate code for self.assertWarns(warning, callable, *args)

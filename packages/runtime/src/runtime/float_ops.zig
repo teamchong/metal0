@@ -351,7 +351,13 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
             // Check for __bool__ method FIRST - takes precedence over __base_value__
             // Python: if a class defines __bool__, it's called even if it inherits from int/bool
             if (@hasDecl(ChildType, "__bool__")) {
-                return try first.__bool__();
+                const result = try first.__bool__();
+                // Python: __bool__ must return bool, not int or any other type
+                // TypeError: __bool__ should return bool, returned <type>
+                if (@TypeOf(result) != bool) {
+                    return PythonError.TypeError;
+                }
+                return result;
             }
             // Check for __len__ method (containers are truthy if len > 0)
             // Python raises ValueError if __len__ returns negative
@@ -377,7 +383,13 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
         // Check for __bool__ method FIRST - takes precedence over __base_value__
         // Python: if a class defines __bool__, it's called even if it inherits from int/bool
         if (@hasDecl(FirstType, "__bool__")) {
-            return try first.__bool__();
+            const result = try first.__bool__();
+            // Python: __bool__ must return bool, not int or any other type
+            // TypeError: __bool__ should return bool, returned <type>
+            if (@TypeOf(result) != bool) {
+                return PythonError.TypeError;
+            }
+            return result;
         }
         // Check for __len__ method (containers are truthy if len > 0)
         // Python raises ValueError if __len__ returns negative

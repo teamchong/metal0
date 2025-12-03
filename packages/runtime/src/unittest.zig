@@ -64,6 +64,25 @@ pub const assertNotIsSubclass = assertions_type.assertNotIsSubclass;
 pub const subTest = subtest.subTest;
 pub const subTestInt = subtest.subTestInt;
 
+/// Helper for assertRaises codegen - returns true if value is NOT an error
+/// For error unions: returns true if no error, false if error
+/// For non-error types: returns true (no error possible)
+pub fn expectError(value: anytype) bool {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+    if (info == .error_union) {
+        // Error union - check if it's an error
+        if (value) |_| {
+            return true; // No error - test should fail
+        } else |_| {
+            return false; // Error raised - test passes
+        }
+    } else {
+        // Not an error union - no error possible
+        return true;
+    }
+}
+
 /// Base TestCase class with setUp/tearDown stubs
 /// Python classes call super().setUp() which becomes unittest.TestCase.setUp()
 pub const TestCase = struct {
