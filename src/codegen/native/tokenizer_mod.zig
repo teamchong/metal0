@@ -40,12 +40,22 @@ fn handleEncode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for tokenizer.decode(tokens)
+/// Converts PyList of PyInt to []u32 before calling runtime decode
 fn handleDecode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("try runtime.tokenizer.decode(__global_allocator, ");
+    try self.emit("(blk: { ");
+    try self.emit("const __dec_list = ");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     }
-    try self.emit(")");
+    try self.emit("; ");
+    // Convert PyList to []u32
+    try self.emit("var __dec_tokens = try __global_allocator.alloc(u32, runtime.PyList.len(__dec_list)); ");
+    try self.emit("var __dec_i: usize = 0; ");
+    try self.emit("while (__dec_i < __dec_tokens.len) : (__dec_i += 1) { ");
+    try self.emit("const __dec_item = try runtime.PyList.getItem(__dec_list, __dec_i); ");
+    try self.emit("__dec_tokens[__dec_i] = @intCast(runtime.PyInt.getValue(__dec_item)); ");
+    try self.emit("} ");
+    try self.emit("break :blk try runtime.tokenizer.decode(__global_allocator, __dec_tokens); })");
 }
 
 /// Generate code for tokenizer.count_tokens(text)

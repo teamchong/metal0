@@ -1,251 +1,137 @@
-#!/usr/bin/env python3
 """
-Comprehensive BPE correctness test framework
-Tests metal0 tokenizer against rs-bpe and tiktoken for 100% correctness
+Comprehensive BPE correctness test - verifies encode/decode round-trip
 
-Simplified version for metal0 compilation.
-Original version uses subprocess/tempfile/try-except which metal0 doesn't support.
+Usage:
+    metal0 test_comprehensive_correctness.py
+
+Tests encode/decode round-trip: decode(encode(text)) == text
 """
 
-print("Loading test suite...")
-print("")
+from metal0 import tokenizer
 
-passed = 0
-total = 0
+# Initialize tokenizer
+tokenizer.init("/Users/steven_chong/Downloads/repos/metal0/packages/tokenizer/dist/cl100k_base_full.json")
 
-# Edge case tests
-print("Running edge case tests...")
 
-# Test 1: empty string validation
-total = total + 1
-name1 = "empty_string"
-text1 = ""
-if len(name1) > 0 and len(text1) >= 0:
-    passed = passed + 1
+def run_tests():
+    passed = 0
+    failed = 0
 
-# Test 2: single space
-total = total + 1
-name2 = "single_space"
-text2 = " "
-if len(name2) > 0 and len(text2) >= 0:
-    passed = passed + 1
+    print("Running correctness tests...")
+    print("")
 
-# Test 3: single char
-total = total + 1
-name3 = "single_char"
-text3 = "a"
-if len(name3) > 0 and len(text3) == 1:
-    passed = passed + 1
+    # Edge cases
+    print("Edge cases...")
 
-# Test 4: newline (metal0 counts escape as 2 chars, so using > 0)
-total = total + 1
-name4 = "single_newline"
-text4 = "\n"
-if len(name4) > 0 and len(text4) > 0:
-    passed = passed + 1
-
-# Test 5: short word
-total = total + 1
-name5 = "short_word"
-text5 = "hello"
-if len(name5) > 0 and len(text5) == 5:
-    passed = passed + 1
-
-# Test 6: whitespace variations
-total = total + 1
-name6 = "multiple_spaces"
-text6 = "   "
-if len(name6) > 0 and len(text6) == 3:
-    passed = passed + 1
-
-# Test 7: leading spaces
-total = total + 1
-name7 = "leading_spaces"
-text7 = "   hello"
-if len(name7) > 0 and len(text7) == 8:
-    passed = passed + 1
-
-# Test 8: trailing spaces
-total = total + 1
-name8 = "trailing_spaces"
-text8 = "hello   "
-if len(name8) > 0 and len(text8) == 8:
-    passed = passed + 1
-
-# Test 9: internal spaces
-total = total + 1
-name9 = "internal_spaces"
-text9 = "hello   world"
-if len(name9) > 0 and len(text9) == 13:
-    passed = passed + 1
-
-# Test 10: long repeated string
-total = total + 1
-name10 = "long_repeated"
-text10 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-if len(name10) > 0:
-    if len(text10) > 50:
+    t1 = tokenizer.encode("")
+    d1 = tokenizer.decode(t1)
+    if d1 == "":
         passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: empty_string")
 
-# Test 11: long varied string
-total = total + 1
-name11 = "long_varied"
-text11 = "quick brown fox quick brown fox quick brown fox quick brown fox"
-if len(name11) > 0:
-    if len(text11) > 50:
+    t2 = tokenizer.encode(" ")
+    d2 = tokenizer.decode(t2)
+    if d2 == " ":
         passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: single_space")
 
-# Test 12: punctuation
-total = total + 1
-name12 = "punctuation"
-text12 = "!@#$%^&*()_+-="
-if len(name12) > 0 and len(text12) == 14:
-    passed = passed + 1
+    t3 = tokenizer.encode("a")
+    d3 = tokenizer.decode(t3)
+    if d3 == "a":
+        passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: single_char")
 
-# Test 13: numbers only
-total = total + 1
-name13 = "numbers_only"
-text13 = "0123456789"
-if len(name13) > 0 and len(text13) == 10:
-    passed = passed + 1
+    t4 = tokenizer.encode("hello")
+    d4 = tokenizer.decode(t4)
+    if d4 == "hello":
+        passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: short_word")
 
-# Test 14: mixed numbers
-total = total + 1
-name14 = "mixed_numbers"
-text14 = "abc123def456"
-if len(name14) > 0 and len(text14) == 12:
-    passed = passed + 1
+    t5 = tokenizer.encode("   ")
+    d5 = tokenizer.decode(t5)
+    if d5 == "   ":
+        passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: multiple_spaces")
 
-# Test 15: multiple newlines (metal0 counts escapes as 2 chars each, so using > 0)
-total = total + 1
-name15 = "multiple_newlines"
-text15 = "\n\n\n"
-if len(name15) > 0 and len(text15) > 0:
-    passed = passed + 1
+    t6 = tokenizer.encode("   hello")
+    d6 = tokenizer.decode(t6)
+    if d6 == "   hello":
+        passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: leading_spaces")
 
-edge_passed = passed
-edge_total = total
+    t7 = tokenizer.encode("hello   ")
+    d7 = tokenizer.decode(t7)
+    if d7 == "hello   ":
+        passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: trailing_spaces")
 
-print("  Edge cases: " + str(edge_passed) + "/" + str(edge_total))
+    t8 = tokenizer.encode("hello   world")
+    d8 = tokenizer.decode(t8)
+    if d8 == "hello   world":
+        passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: internal_spaces")
 
-# Unicode case tests
-print("Running unicode case tests...")
-unicode_start = passed
+    t10 = tokenizer.encode("0123456789")
+    d10 = tokenizer.decode(t10)
+    if d10 == "0123456789":
+        passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: numbers_only")
 
-# Test 16: simple text
-total = total + 1
-name16 = "chinese_simple"
-text16 = "nihao"
-if len(name16) > 0 and len(text16) == 5:
-    passed = passed + 1
+    t11 = tokenizer.encode("abc123def456")
+    d11 = tokenizer.decode(t11)
+    if d11 == "abc123def456":
+        passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: mixed_numbers")
 
-# Test 17: mixed text
-total = total + 1
-name17 = "chinese_mixed"
-text17 = "Hello nihao World"
-if len(name17) > 0 and len(text17) > 10:
-    passed = passed + 1
+    # Real-world cases
+    print("Real-world cases...")
 
-# Test 18: emoji placeholder
-total = total + 1
-name18 = "emoji_placeholder"
-text18 = ":smile:"
-if len(name18) > 0 and len(text18) == 7:
-    passed = passed + 1
+    t12 = tokenizer.encode("The quick brown fox jumps over the lazy dog.")
+    d12 = tokenizer.decode(t12)
+    if d12 == "The quick brown fox jumps over the lazy dog.":
+        passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: sentence")
 
-# Test 19: emoji mixed
-total = total + 1
-name19 = "emoji_mixed"
-text19 = "Hello :world:"
-if len(name19) > 0 and len(text19) > 10:
-    passed = passed + 1
+    t14 = tokenizer.encode("def hello(): return 42")
+    d14 = tokenizer.decode(t14)
+    if d14 == "def hello(): return 42":
+        passed = passed + 1
+    else:
+        failed = failed + 1
+        print("FAIL: code")
 
-# Test 20: multi script
-total = total + 1
-name20 = "multi_script"
-text20 = "Hello Privet Bonjour"
-if len(name20) > 0 and len(text20) == 20:
-    passed = passed + 1
+    # Summary
+    print("")
+    print("=" * 60)
+    total = passed + failed
+    if failed == 0:
+        print("ALL TESTS PASSED (" + str(passed) + "/" + str(total) + ")")
+    else:
+        print("FAILED (" + str(passed) + "/" + str(total) + " passed, " + str(failed) + " failed)")
+    print("=" * 60)
 
-unicode_passed = passed - unicode_start
-unicode_total = total - edge_total
 
-print("  Unicode cases: " + str(unicode_passed) + "/" + str(unicode_total))
-
-# Adversarial case tests
-print("Running adversarial case tests...")
-adversarial_start = passed
-
-# Test 21: repeated aa
-total = total + 1
-name21 = "repeated_aa"
-text21 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-if len(name21) > 0 and len(text21) > 50:
-    passed = passed + 1
-
-# Test 22: repeated aba
-total = total + 1
-name22 = "repeated_aba"
-text22 = "abaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaabaaba"
-if len(name22) > 0 and len(text22) > 50:
-    passed = passed + 1
-
-# Test 23: repeated abc
-total = total + 1
-name23 = "repeated_abc"
-text23 = "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc"
-if len(name23) > 0 and len(text23) > 50:
-    passed = passed + 1
-
-# Test 24: nested pattern
-total = total + 1
-name24 = "nested_pattern"
-text24 = "aabbccaabbccaabbccaabbccaabbccaabbccaabbccaabbccaabbccaabbccaabbccaabbccaabbcc"
-if len(name24) > 0 and len(text24) > 50:
-    passed = passed + 1
-
-# Test 25: alternating
-total = total + 1
-name25 = "alternating"
-text25 = "ababababababababababababababababababababababababababababababababababababababababababababababab"
-if len(name25) > 0 and len(text25) > 50:
-    passed = passed + 1
-
-# Test 26: quasi random
-total = total + 1
-name26 = "quasi_random"
-text26 = "aksjdhfkjashdfkjhaksjdhfkjashdfkjhaksjdhfkjashdfkjhaksjdhfkjashdfkjhaksjdhfkjashdfkjh"
-if len(name26) > 0 and len(text26) > 50:
-    passed = passed + 1
-
-# Test 27: all same char
-total = total + 1
-name27 = "all_same_char"
-text27 = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-if len(name27) > 0 and len(text27) > 50:
-    passed = passed + 1
-
-# Test 28: common rare
-total = total + 1
-name28 = "common_rare"
-text28 = "the xqz end"
-if len(name28) > 0 and len(text28) == 11:
-    passed = passed + 1
-
-adversarial_passed = passed - adversarial_start
-adversarial_total = total - edge_total - unicode_total
-
-print("  Adversarial cases: " + str(adversarial_passed) + "/" + str(adversarial_total))
-
-print("")
-print("============================================================")
-
-# Summary
-if passed == total:
-    print("ALL TESTS PASSED (" + str(passed) + "/" + str(total) + ")")
-    print("BPE test framework validation successful!")
-else:
-    failed = total - passed
-    print("TESTS FAILED (" + str(passed) + "/" + str(total) + " passed, " + str(failed) + " failed)")
-
-print("============================================================")
+if __name__ == "__main__":
+    run_tests()
