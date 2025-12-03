@@ -426,6 +426,8 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for bool(obj)
 /// Converts to bool
 /// Python truthiness rules: 0, "", [], {} are False, everything else is True
+/// NOTE: Uses boolBuiltinCall which returns PythonError!bool to properly
+/// propagate TypeError when __bool__ returns a non-bool type
 pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // bool() with no args returns False
     if (args.len == 0) {
@@ -433,13 +435,16 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    if (args.len != 1) {
-        return;
-    }
-
-    // Use runtime.toBool for proper Python truthiness semantics
-    // Handles: integers, floats, bools, strings, slices, etc.
-    try self.emit("runtime.toBool(");
+    // Use runtime.boolBuiltinCall which returns !bool to properly propagate
+    // TypeError when __bool__ returns non-bool (Python 3 requirement)
+    // Also handles extra args by raising TypeError at runtime
+    try self.emit("(try runtime.boolBuiltinCall(");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit(", .{");
+    // Pass rest arguments as tuple to detect extra args at runtime
+    for (args[1..], 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try self.genExpr(arg);
+    }
+    try self.emit("}))");
 }

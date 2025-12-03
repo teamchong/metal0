@@ -125,7 +125,22 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         else
             null;
 
-        if (needs_self_deref) {
+        // Magic method conversion ALWAYS takes precedence (e.g., __bool__ must validate return type)
+        if (conversion) |conv| {
+            try self.emit(conv.prefix);
+            if (needs_self_deref) {
+                const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
+                const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
+                if (current_class_is_nested) {
+                    try self.emit(self_name);
+                } else {
+                    try self.output.writer(self.allocator).print("{s}.*", .{self_name});
+                }
+            } else {
+                try self.genExpr(value.*);
+            }
+            try self.emit(conv.suffix);
+        } else if (needs_self_deref) {
             // For nested classes, return the pointer directly
             // since init() returns *@This() and methods returning self also return *@This()
             // For top-level classes, dereference to return @This() value
@@ -138,10 +153,6 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
                 // Top-level class: dereference to get value
                 try self.output.writer(self.allocator).print("{s}.*", .{self_name});
             }
-        } else if (conversion) |conv| {
-            try self.emit(conv.prefix);
-            try self.genExpr(value.*);
-            try self.emit(conv.suffix);
         } else {
             try self.genExpr(value.*);
         }

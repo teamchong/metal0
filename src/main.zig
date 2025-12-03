@@ -15,8 +15,42 @@ pub const CompileOptions = struct {
     binary: bool = false, // --binary flag
     force: bool = false, // --force/-f flag
     emit_bytecode: bool = false, // --emit-bytecode flag (for runtime eval subprocess)
-    wasm: bool = false, // --wasm/-w flag for WebAssembly output
+    wasm: bool = false, // --wasm/-w flag for WebAssembly output (legacy, use target instead)
     emit_zig_only: bool = false, // --emit-zig flag - generate .zig file only, no compilation
+    target: Target = .native, // --target flag for cross-compilation
+
+    pub const Target = enum {
+        native, // Default: compile for current platform
+        wasm_browser, // WebAssembly for browser: -Oz, strip, no debug, smallest size
+        wasm_edge, // WebAssembly for edge (WasmEdge/Cloudflare): -O3, fast startup
+        linux_x64,
+        linux_arm64,
+        macos_x64,
+        macos_arm64,
+        windows_x64,
+
+        /// Get Zig target triple for cross-compilation
+        pub fn toZigTarget(self: Target) ?[]const u8 {
+            return switch (self) {
+                .native => null, // Use host
+                .wasm_browser, .wasm_edge => "wasm32-freestanding",
+                .linux_x64 => "x86_64-linux",
+                .linux_arm64 => "aarch64-linux",
+                .macos_x64 => "x86_64-macos",
+                .macos_arm64 => "aarch64-macos",
+                .windows_x64 => "x86_64-windows",
+            };
+        }
+
+        /// Get optimization flags
+        pub fn optimizeMode(self: Target) []const u8 {
+            return switch (self) {
+                .wasm_browser => "-Oz", // Smallest size for browser downloads
+                .wasm_edge => "-O3", // Fastest for edge compute
+                else => "-O3", // Fast by default
+            };
+        }
+    };
 };
 
 // Re-export commonly used functions

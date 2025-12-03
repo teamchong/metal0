@@ -351,7 +351,13 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
             // Check for __bool__ method FIRST - takes precedence over __base_value__
             // Python: if a class defines __bool__, it's called even if it inherits from int/bool
             if (@hasDecl(ChildType, "__bool__")) {
-                const result = try first.__bool__();
+                // Check if __bool__ takes mutable pointer - if so, cast away const
+                const bool_fn = @typeInfo(@TypeOf(ChildType.__bool__));
+                const first_param = bool_fn.@"fn".params[0].type.?;
+                const result = if (@typeInfo(first_param) == .pointer and !@typeInfo(first_param).pointer.is_const)
+                    try @constCast(first).__bool__() // Cast away const for mutable __bool__
+                else
+                    try first.__bool__();
                 // Python: __bool__ must return bool, not int or any other type
                 // TypeError: __bool__ should return bool, returned <type>
                 if (@TypeOf(result) != bool) {
@@ -383,7 +389,13 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
         // Check for __bool__ method FIRST - takes precedence over __base_value__
         // Python: if a class defines __bool__, it's called even if it inherits from int/bool
         if (@hasDecl(FirstType, "__bool__")) {
-            const result = try first.__bool__();
+            // Check if __bool__ takes mutable pointer - if so, cast away const
+            const bool_fn = @typeInfo(@TypeOf(FirstType.__bool__));
+            const first_param = bool_fn.@"fn".params[0].type.?;
+            const result = if (@typeInfo(first_param) == .pointer and !@typeInfo(first_param).pointer.is_const)
+                try @constCast(&first).__bool__() // Need to take address and cast
+            else
+                try first.__bool__();
             // Python: __bool__ must return bool, not int or any other type
             // TypeError: __bool__ should return bool, returned <type>
             if (@TypeOf(result) != bool) {
