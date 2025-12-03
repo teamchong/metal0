@@ -9,7 +9,7 @@ const ns_to_sec = h.c("blk: { const _t = std.time.nanoTimestamp(); break :blk @a
 const nano_ts = h.c("@as(i64, @intCast(std.time.nanoTimestamp()))");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "time", h.c("@as(f64, @floatFromInt(std.time.timestamp()))") },
+    .{ "time", ns_to_sec }, // Use nanoTimestamp for sub-second precision
     .{ "time_ns", nano_ts }, .{ "sleep", genSleep },
     .{ "perf_counter", ns_to_sec }, .{ "perf_counter_ns", nano_ts },
     .{ "monotonic", ns_to_sec }, .{ "monotonic_ns", nano_ts },
