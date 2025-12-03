@@ -420,19 +420,69 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
 
                 try self.emit("(try runtime.pyFormat(__global_allocator, ");
                 try genExpr(self, fe.expr.*);
-                try self.emit(", \"");
-                // Escape the format spec for Zig string literal
-                for (fe.format_spec) |c| {
-                    switch (c) {
-                        '"' => try self.emit("\\\""),
-                        '\\' => try self.emit("\\\\"),
-                        '\n' => try self.emit("\\\\n"), // double-escape for Zig literal
-                        '\r' => try self.emit("\\\\r"),
-                        '\t' => try self.emit("\\\\t"),
-                        else => try self.output.append(self.allocator, c),
+                try self.emit(", ");
+
+                // Check if format spec has nested expressions (PEP 701)
+                if (fe.format_spec_parts) |spec_parts| {
+                    // Build format spec dynamically from parts
+                    // We need to use type-appropriate format specifiers
+                    try self.emit("(try std.fmt.allocPrint(__global_allocator, \"");
+                    // Build format string for the parts with type-aware specifiers
+                    for (spec_parts) |spec_part| {
+                        switch (spec_part) {
+                            .literal => |lit| {
+                                for (lit) |c| {
+                                    switch (c) {
+                                        '"' => try self.emit("\\\""),
+                                        '\\' => try self.emit("\\\\"),
+                                        '{' => try self.emit("{{"),
+                                        '}' => try self.emit("}}"),
+                                        else => try self.output.append(self.allocator, c),
+                                    }
+                                }
+                            },
+                            .expr => |e| {
+                                // Determine format specifier based on expression type
+                                const expr_type = try self.type_inferrer.inferExpr(e.*);
+                                switch (expr_type) {
+                                    .string => try self.emit("{s}"),
+                                    .int => try self.emit("{d}"),
+                                    .float => try self.emit("{d}"),
+                                    else => try self.emit("{any}"),
+                                }
+                            },
+                        }
                     }
+                    try self.emit("\", .{");
+                    // Now generate the expression values
+                    var first = true;
+                    for (spec_parts) |spec_part| {
+                        switch (spec_part) {
+                            .literal => {},
+                            .expr => |e| {
+                                if (!first) try self.emit(", ");
+                                first = false;
+                                try genExpr(self, e.*);
+                            },
+                        }
+                    }
+                    try self.emit("}))");
+                } else {
+                    // Simple format spec - use literal string
+                    try self.emit("\"");
+                    for (fe.format_spec) |c| {
+                        switch (c) {
+                            '"' => try self.emit("\\\""),
+                            '\\' => try self.emit("\\\\"),
+                            '\n' => try self.emit("\\\\n"), // double-escape for Zig literal
+                            '\r' => try self.emit("\\\\r"),
+                            '\t' => try self.emit("\\\\t"),
+                            else => try self.output.append(self.allocator, c),
+                        }
+                    }
+                    try self.emit("\"");
                 }
-                try self.emit("\"))");
+                try self.emit("))");
 
                 const expr_code = try self.output.toOwnedSlice(self.allocator);
                 try args_list.append(self.allocator, expr_code);

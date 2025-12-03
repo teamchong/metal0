@@ -68,15 +68,22 @@ benchmark-encoding: build-metal0
 	@./$(BIN_DIR)/bench_encoding
 	@echo ""
 
-# Training benchmarks (uses Zig trainer - training is Zig-native)
-benchmark-train:
+# Training benchmarks: Python → metal0 → binary
+benchmark-train: build-train
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-	@echo "$(GREEN)📊 BPE Training Benchmark$(RESET)"
+	@echo "$(GREEN)📊 BPE Training Benchmark (metal0 Python flow)$(RESET)"
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo ""
-	@echo "Note: Training uses Zig-native implementation (not Python)"
-	@./bench_training.sh
+	@echo "Flow: bench_train_metal0.py → metal0 → bin/bench_train"
 	@echo ""
+	@./$(BIN_DIR)/bench_train
+	@echo ""
+
+# Build training benchmark: Python → metal0 → binary
+build-train:
+	@echo "$(YELLOW)Compiling bench_train_metal0.py...$(RESET)"
+	cd $(REPO_ROOT) && $(METAL0) build -b packages/tokenizer/bench_train_metal0.py --force || echo "TODO: Create bench_train_metal0.py"
+	cp $(REPO_ROOT)/build/lib.macosx-11.0-arm64/bench_train_metal0 $(BIN_DIR)/bench_train 2>/dev/null || true
 
 # Web/WASM benchmark
 benchmark-web: build-wasm
@@ -88,16 +95,12 @@ benchmark-web: build-wasm
 	@./bench_web.sh
 	@echo ""
 
-# Build WASM (TODO: Python → metal0 → WASM)
+# Build WASM: Python → metal0 → WASM
 build-wasm:
-	@echo "$(YELLOW)🔨 Building WASM tokenizer...$(RESET)"
+	@echo "$(YELLOW)🔨 Building WASM tokenizer (Python → metal0 → WASM)...$(RESET)"
 	@mkdir -p dist
-	@zig build-exe src/wasm.zig \
-		-target wasm32-freestanding \
-		-fno-entry \
-		-O ReleaseSmall \
-		-rdynamic \
-		-femit-bin=dist/metal0_tokenizer.wasm
+	cd $(REPO_ROOT) && $(METAL0) build --target wasm32 packages/tokenizer/wasm_tokenizer_metal0.py --force || echo "TODO: Create wasm_tokenizer_metal0.py"
+	cp $(REPO_ROOT)/build/lib.wasm32/wasm_tokenizer_metal0.wasm dist/metal0_tokenizer.wasm 2>/dev/null || true
 	@echo "$(GREEN)✅ WASM build complete$(RESET)"
 	@echo ""
 

@@ -7,6 +7,7 @@ const hashmap_helper = @import("hashmap_helper");
 const shared = @import("../shared_maps.zig");
 const BinOpStrings = shared.BinOpStrings;
 const function_traits = @import("function_traits");
+const zig_keywords = @import("zig_keywords");
 
 /// Builtins that return int for type inference
 const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{
@@ -44,7 +45,7 @@ fn genExprWithSubs(
             if (subs.get(n.id)) |sub_name| {
                 try self.emit(sub_name);
             } else {
-                try self.emit(n.id);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), n.id);
             }
         },
         .binop => |b| {
@@ -60,12 +61,45 @@ fn genExprWithSubs(
             try constants.genConstant(self, c);
         },
         .call => |c| {
-            // Use full call dispatch for ALL calls to handle:
-            // - Method calls (attribute)
-            // - Imported functions (randrange from random module)
-            // - Builtins, local functions, etc.
-            const calls = @import("calls.zig");
-            try calls.genCall(self, c);
+            // For calls, we need to use the full call dispatch for proper handling
+            // But we also need substitutions for the arguments
+            // Check if this is a simple local function call (not builtin/stdlib)
+            const builtins_dispatch = @import("../dispatch/builtins.zig");
+            const is_simple_call = if (c.func.* == .name) blk: {
+                const func_name = c.func.name.id;
+                // If it's a builtin, use full dispatch
+                if (builtins_dispatch.BuiltinMap.get(func_name) != null) break :blk false;
+                // If it's a known type/class, use full dispatch
+                if (std.mem.eql(u8, func_name, "list") or
+                    std.mem.eql(u8, func_name, "dict") or
+                    std.mem.eql(u8, func_name, "set") or
+                    std.mem.eql(u8, func_name, "tuple") or
+                    std.mem.eql(u8, func_name, "str") or
+                    std.mem.eql(u8, func_name, "int") or
+                    std.mem.eql(u8, func_name, "float") or
+                    std.mem.eql(u8, func_name, "bool"))
+                    break :blk false;
+                // Simple local function call
+                break :blk true;
+            } else false;
+
+            if (is_simple_call) {
+                // Simple local function - generate with substituted arguments
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), c.func.name.id);
+                try self.emit("(__global_allocator, ");
+                var first = true;
+                for (c.args) |arg| {
+                    if (!first) try self.emit(", ");
+                    first = false;
+                    try genExprWithSubs(self, arg, subs);
+                }
+                try self.emit(")");
+            } else {
+                // Complex call - fall through to regular handler
+                // Note: this loses substitutions for args, but builtins handle their own args
+                const parent = @import("../expressions.zig");
+                try parent.genExpr(self, expr);
+            }
         },
         .list => |l| {
             // Handle list literals with substitution
@@ -88,6 +122,107 @@ fn genExprWithSubs(
             self.dedent();
             try self.emitIndent();
             try self.emit("}");
+        },
+        .subscript => |sub| {
+            // Handle slicing/indexing with substitution: mem[i:i+itemsize]
+            switch (sub.slice) {
+                .slice => |sr| {
+                    // It's a slice - generate slice with substitutions
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.output.writer(self.allocator).print("slice_{d}: {{ const __s = ", .{label_id});
+                    try genExprWithSubs(self, sub.value.*, subs);
+                    try self.emit("; const __start = @min(");
+                    if (sr.lower) |lower| {
+                        try genExprWithSubs(self, lower.*, subs);
+                    } else {
+                        try self.emit("0");
+                    }
+                    try self.emit(", __s.len); const __end = @min(");
+                    if (sr.upper) |upper| {
+                        try genExprWithSubs(self, upper.*, subs);
+                    } else {
+                        try self.emit("__s.len");
+                    }
+                    try self.output.writer(self.allocator).print(", __s.len); break :slice_{d} if (__start < __end) __s[__start..__end] else \"\"; }}", .{label_id});
+                },
+                .index => |idx| {
+                    // Simple index with substitution
+                    try genExprWithSubs(self, sub.value.*, subs);
+                    try self.emit("[");
+                    try genExprWithSubs(self, idx.*, subs);
+                    try self.emit("]");
+                },
+            }
+        },
+        .unaryop => |u| {
+            // Handle unary operations with substitution
+            switch (u.op) {
+                .USub => {
+                    try self.emit("(-");
+                    try genExprWithSubs(self, u.operand.*, subs);
+                    try self.emit(")");
+                },
+                .UAdd => {
+                    try self.emit("(+");
+                    try genExprWithSubs(self, u.operand.*, subs);
+                    try self.emit(")");
+                },
+                .Not => {
+                    try self.emit("(!");
+                    try genExprWithSubs(self, u.operand.*, subs);
+                    try self.emit(")");
+                },
+                .Invert => {
+                    try self.emit("(~");
+                    try genExprWithSubs(self, u.operand.*, subs);
+                    try self.emit(")");
+                },
+            }
+        },
+        .attribute => |a| {
+            // Handle attribute access with substitution: x.attr
+            try genExprWithSubs(self, a.value.*, subs);
+            try self.emit(".");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), a.attr);
+        },
+        .tuple => |t| {
+            // Handle tuple with substitution
+            try self.emit(".{ ");
+            for (t.elts, 0..) |elt, idx| {
+                if (idx > 0) try self.emit(", ");
+                try genExprWithSubs(self, elt, subs);
+            }
+            try self.emit(" }");
+        },
+        .if_expr => |ie| {
+            // Handle ternary: x if cond else y
+            try self.emit("(if (");
+            try genExprWithSubs(self, ie.condition.*, subs);
+            try self.emit(") ");
+            try genExprWithSubs(self, ie.body.*, subs);
+            try self.emit(" else ");
+            try genExprWithSubs(self, ie.orelse_value.*, subs);
+            try self.emit(")");
+        },
+        .compare => |cmp| {
+            // Handle comparisons with substitution
+            try self.emit("(");
+            try genExprWithSubs(self, cmp.left.*, subs);
+            for (cmp.ops, 0..) |op, idx| {
+                const op_str = switch (op) {
+                    .Eq => " == ",
+                    .NotEq => " != ",
+                    .Lt => " < ",
+                    .LtEq => " <= ",
+                    .Gt => " > ",
+                    .GtEq => " >= ",
+                    else => " ? ",
+                };
+                try self.emit(op_str);
+                try genExprWithSubs(self, cmp.comparators[idx], subs);
+            }
+            try self.emit(")");
         },
         else => {
             // For other expressions, fallback to regular genExpr

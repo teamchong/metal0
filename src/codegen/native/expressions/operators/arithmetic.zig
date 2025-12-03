@@ -467,14 +467,16 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         }
 
         // unknown * int - could be string repeat in inline for context
-        // Generate comptime type check
+        // Generate comptime type check with unique label to avoid conflicts
         if (left_type == .unknown and (right_type == .int or right_type == .unknown)) {
             const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-            try self.emit("blk: { const _lhs = ");
+            const label_id = self.block_label_counter;
+            self.block_label_counter += 1;
+            try self.output.writer(self.allocator).print("mul_{d}: {{ const _lhs = ", .{label_id});
             try genExpr(self, binop.left.*);
             try self.emit("; const _rhs = ");
             try genExpr(self, binop.right.*);
-            try self.emit("; break :blk if (@TypeOf(_lhs) == []const u8) runtime.strRepeat(");
+            try self.output.writer(self.allocator).print("; break :mul_{d} if (@TypeOf(_lhs) == []const u8) runtime.strRepeat(", .{label_id});
             try self.emit(alloc_name);
             try self.emit(", _lhs, @as(usize, @intCast(_rhs))) else _lhs * _rhs; }");
             return;

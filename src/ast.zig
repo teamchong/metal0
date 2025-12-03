@@ -5,6 +5,7 @@ const core_mod = @import("ast/core.zig");
 // Re-export f-string types
 pub const FStringPart = fstring_mod.FStringPart;
 pub const FString = fstring_mod.FString;
+pub const FormatSpecPart = fstring_mod.FormatSpecPart;
 
 // Re-export core AST types
 pub const Node = core_mod.Node;

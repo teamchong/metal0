@@ -89,6 +89,11 @@ fn isNameUsedInStmtExcludingYield(stmt: ast.Node, name: []const u8) bool {
             if (isNameUsedInBodyExcludingYield(try_stmt.finalbody, name)) return true;
             return false;
         },
+        .aug_assign => |aug| {
+            if (isNameUsedInExpr(aug.target.*, name)) return true;
+            if (isNameUsedInExpr(aug.value.*, name)) return true;
+            return false;
+        },
         else => false,
     };
 }
@@ -285,6 +290,12 @@ fn isNameUsedInStmt(stmt: ast.Node, name: []const u8) bool {
         .yield_from_stmt => |yield_from| {
             // Check yield from iterable expression
             return isNameUsedInExpr(yield_from.value.*, name);
+        },
+        .aug_assign => |aug| {
+            // Check augmented assignment (e.g., x += y)
+            if (isNameUsedInExpr(aug.target.*, name)) return true;
+            if (isNameUsedInExpr(aug.value.*, name)) return true;
+            return false;
         },
         else => false,
     };

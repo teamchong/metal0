@@ -4,13 +4,21 @@ const std = @import("std");
 // We only use *Node (pointer), so we don't need the complete type here
 const Node = @import("core.zig").Node;
 
+/// Format spec part - for nested expressions in format specs (PEP 701)
+/// e.g., f'{value:{width}}' has format spec parts: [expr("width")]
+pub const FormatSpecPart = union(enum) {
+    literal: []const u8,
+    expr: *Node, // Nested expression like {width}
+};
+
 /// F-string part - can be literal text, expression, or formatted expression
 pub const FStringPart = union(enum) {
     literal: []const u8,
     expr: *Node,
     format_expr: struct {
         expr: *Node,
-        format_spec: []const u8,
+        format_spec: []const u8, // Keep for simple format specs
+        format_spec_parts: ?[]FormatSpecPart = null, // For nested expressions (PEP 701)
         conversion: ?u8 = null, // 'r', 's', or 'a' for !r, !s, !a
     },
     // Expression with conversion but no format spec (e.g., {x!r})

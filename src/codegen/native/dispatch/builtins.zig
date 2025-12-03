@@ -21,7 +21,7 @@ const inspect_mod = @import("../inspect_mod.zig");
 const BuiltinHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 
 /// All builtin functions mapped to their handlers (O(1) lookup)
-const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
+pub const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     // Type conversion
     .{ "len", builtins.genLen },
     .{ "str", builtins.genStr },

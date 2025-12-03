@@ -458,9 +458,12 @@ fn convertFStringPart(self: *Parser, lexer_part: lexer.FStringPart) ParseError!a
         },
         .format_expr => |fe| {
             const expr_ptr = try parseEmbeddedExpr(self, fe.expr);
+            // Check if format_spec has nested expressions (PEP 701)
+            const format_spec_parts = try parseFormatSpecParts(self, fe.format_spec);
             return .{ .format_expr = .{
                 .expr = expr_ptr,
                 .format_spec = fe.format_spec,
+                .format_spec_parts = format_spec_parts,
                 .conversion = fe.conversion,
             } };
         },
@@ -472,6 +475,140 @@ fn convertFStringPart(self: *Parser, lexer_part: lexer.FStringPart) ParseError!a
             } };
         },
     }
+}
+
+/// Parse format spec string for nested expressions (PEP 701)
+/// e.g., "{width}" -> [expr(width)]
+/// e.g., "{width}.{precision}" -> [expr(width), literal("."), expr(precision)]
+fn parseFormatSpecParts(self: *Parser, format_spec: []const u8) ParseError!?[]ast.FormatSpecPart {
+    // Quick check: if no '{' in format spec, no nested expressions
+    if (std.mem.indexOf(u8, format_spec, "{") == null) {
+        return null;
+    }
+
+    var parts = std.ArrayList(ast.FormatSpecPart){};
+    errdefer {
+        for (parts.items) |*part| {
+            switch (part.*) {
+                .expr => |e| {
+                    e.deinit(self.allocator);
+                    self.allocator.destroy(e);
+                },
+                .literal => {},
+            }
+        }
+        parts.deinit(self.allocator);
+    }
+
+    var i: usize = 0;
+    var literal_start: usize = 0;
+
+    while (i < format_spec.len) {
+        if (format_spec[i] == '{') {
+            // Save any pending literal
+            if (i > literal_start) {
+                try parts.append(self.allocator, .{ .literal = format_spec[literal_start..i] });
+            }
+
+            // Find matching }
+            var brace_depth: usize = 1;
+            var j: usize = i + 1;
+            var in_string: u8 = 0;
+            while (j < format_spec.len and brace_depth > 0) {
+                const c = format_spec[j];
+                if (in_string != 0) {
+                    if (c == '\\' and j + 1 < format_spec.len) {
+                        j += 2;
+                        continue;
+                    }
+                    if (c == in_string) in_string = 0;
+                } else {
+                    if (c == '"' or c == '\'') {
+                        in_string = c;
+                    } else if (c == '{') {
+                        brace_depth += 1;
+                    } else if (c == '}') {
+                        brace_depth -= 1;
+                    }
+                }
+                j += 1;
+            }
+
+            // Extract expression text (without braces)
+            var expr_text = format_spec[i + 1 .. j - 1];
+
+            // Strip conversion spec (!r, !s, !a) and inner format spec (:...) from nested expression
+            // PEP 701 allows {expr!r} or {expr:spec} or {expr!r:spec} in format specs
+            // For now, we only use the expression value, ignoring conversion/inner format
+            if (expr_text.len > 0) {
+                // Find !r, !s, !a conversion (at top level, not inside strings)
+                var conv_pos: ?usize = null;
+                var colon_pos: ?usize = null;
+                var k: usize = 0;
+                var in_str: u8 = 0;
+                var depth: usize = 0;
+                while (k < expr_text.len) {
+                    const ch = expr_text[k];
+                    if (in_str != 0) {
+                        if (ch == '\\' and k + 1 < expr_text.len) {
+                            k += 2;
+                            continue;
+                        }
+                        if (ch == in_str) in_str = 0;
+                    } else {
+                        if (ch == '"' or ch == '\'') {
+                            in_str = ch;
+                        } else if (ch == '(' or ch == '[' or ch == '{') {
+                            depth += 1;
+                        } else if (ch == ')' or ch == ']' or ch == '}') {
+                            if (depth > 0) depth -= 1;
+                        } else if (depth == 0) {
+                            if (ch == '!' and conv_pos == null and colon_pos == null) {
+                                // Check if followed by r, s, or a
+                                if (k + 1 < expr_text.len) {
+                                    const next = expr_text[k + 1];
+                                    if (next == 'r' or next == 's' or next == 'a') {
+                                        conv_pos = k;
+                                    }
+                                }
+                            } else if (ch == ':' and colon_pos == null) {
+                                colon_pos = k;
+                            }
+                        }
+                    }
+                    k += 1;
+                }
+
+                // Trim expression to just the expression part (before ! or :)
+                if (conv_pos) |cp| {
+                    expr_text = expr_text[0..cp];
+                } else if (colon_pos) |cp| {
+                    expr_text = expr_text[0..cp];
+                }
+
+                if (expr_text.len > 0) {
+                    const expr_ptr = try parseEmbeddedExpr(self, expr_text);
+                    try parts.append(self.allocator, .{ .expr = expr_ptr });
+                }
+            }
+
+            literal_start = j;
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+
+    // Save any remaining literal
+    if (literal_start < format_spec.len) {
+        try parts.append(self.allocator, .{ .literal = format_spec[literal_start..] });
+    }
+
+    if (parts.items.len == 0) {
+        return null;
+    }
+
+    return try parts.toOwnedSlice(self.allocator);
 }
 
 fn parseEmbeddedExpr(self: *Parser, expr_text: []const u8) ParseError!*ast.Node {
