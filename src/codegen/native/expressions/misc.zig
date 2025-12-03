@@ -216,6 +216,19 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
     }
 
+    // Check if this is a ctypes CDLL attribute access (lib.func_name)
+    // Returns a function pointer lookup from the dynamic library
+    if (value_type == .cdll) {
+        // Generate: lib.lookup(*const fn(...) callconv(.c) T, "func_name")
+        // For now, we emit a placeholder that will be resolved at runtime
+        // The actual signature would need to be determined from argtypes/restype
+        try genExpr(self, attr.value.*);
+        try self.emit(".lookup(*const fn() callconv(.c) isize, \"");
+        try self.emit(attr.attr);
+        try self.emit("\")");
+        return;
+    }
+
     // Check if this is a Path property access using type inference
     if (value_type == .path) {
         if (PathProperties.has(attr.attr)) {

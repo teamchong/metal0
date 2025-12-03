@@ -79,6 +79,12 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("packages/bigint/src/bigint.zig"),
     });
 
+    // Tokenizer module for BPE tokenization (GPT-4, etc.)
+    const tokenizer_mod = b.addModule("tokenizer", .{
+        .root_source_file = b.path("packages/tokenizer/src/tokenizer.zig"),
+    });
+    tokenizer_mod.addImport("json", json_mod);
+
     // Package manager module (PEP 440, 508, requirements.txt, METADATA parsing)
     const pkg_mod = b.addModule("pkg", .{
         .root_source_file = b.path("packages/pkg/src/pkg.zig"),
@@ -100,6 +106,7 @@ pub fn build(b: *std.Build) void {
     runtime.addImport("bigint", bigint_mod);
     runtime.addImport("gzip", gzip_module);
     runtime.addImport("h2", h2_mod);
+    runtime.addImport("tokenizer", tokenizer_mod);
     collections.addImport("runtime", runtime);
 
     // C interop module

@@ -7,6 +7,26 @@ const literals = @import("../literals.zig");
 const expressions = @import("../expressions.zig");
 const parsePostfix = @import("../postfix.zig").parsePostfix;
 
+/// Strip quotes from a string lexeme, handling both single/double and triple quotes.
+/// Returns the content between quotes.
+fn stripQuotes(s: []const u8) []const u8 {
+    if (s.len == 0) return s;
+
+    // Detect quote character
+    const quote = s[0];
+    if (quote != '"' and quote != '\'') return s;
+
+    // Check for triple quotes
+    if (s.len >= 6 and s[0] == quote and s[1] == quote and s[2] == quote) {
+        // Triple quoted: """content""" or '''content'''
+        return s[3 .. s.len - 3];
+    } else if (s.len >= 2) {
+        // Single/double quoted: "content" or 'content'
+        return s[1 .. s.len - 1];
+    }
+    return s;
+}
+
 /// Parse primary expressions: literals, identifiers, grouped expressions
 /// NOTE: Unary operators (-, +, ~) are handled in parseFactor (arithmetic.zig)
 /// to ensure correct precedence with ** operator (e.g., -2**4 = -(2**4) = -16)
@@ -129,14 +149,16 @@ fn parseString(self: *Parser) ParseError!ast.Node {
         if (next_type == .String or next_type == .RawString) {
             self.skipNewlines();
             const next_str = self.advance().?;
-            // Strip 'r' prefix if it's a raw string
-            const next_content_raw = if (next_type == .RawString and next_str.lexeme.len > 0 and next_str.lexeme[0] == 'r')
-                next_str.lexeme[1..]
-            else
-                next_str.lexeme;
+            // Strip 'r' or 'R' prefix if it's a raw string
+            var next_content_raw = next_str.lexeme;
+            if (next_type == .RawString and next_content_raw.len > 0) {
+                const c = next_content_raw[0];
+                if (c == 'r' or c == 'R') next_content_raw = next_content_raw[1..];
+            }
 
-            const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
-            const second_content = if (next_content_raw.len >= 2) next_content_raw[1..] else next_content_raw;
+            // Use stripQuotes for proper triple-quote handling
+            const first_content = stripQuotes(result_str);
+            const second_content = stripQuotes(next_content_raw);
 
             const new_len = first_content.len + second_content.len;
             const new_str = try self.allocator.alloc(u8, new_len);
@@ -147,15 +169,21 @@ fn parseString(self: *Parser) ParseError!ast.Node {
             if (prev_allocated) |prev| {
                 self.allocator.free(prev);
             }
-            result_str = new_str;
-            prev_allocated = new_str;
+            // Wrap result in quotes so subsequent iterations can strip them
+            const wrapped = try self.allocator.alloc(u8, new_len + 2);
+            wrapped[0] = '"';
+            @memcpy(wrapped[1 .. new_len + 1], new_str);
+            wrapped[new_len + 1] = '"';
+            self.allocator.free(new_str);
+            result_str = wrapped;
+            prev_allocated = wrapped;
         } else if (next_type == .FString) {
             // String followed by f-string: "a" f"b{x}" -> becomes f-string
             // Convert current string content to f-string literal part, then delegate
             self.skipNewlines();
 
-            // Strip quotes from current string
-            const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
+            // Strip quotes from current string using proper helper
+            const first_content = stripQuotes(result_str);
 
             // Free any previously allocated string
             if (prev_allocated) |prev| {
@@ -191,10 +219,11 @@ fn parseString(self: *Parser) ParseError!ast.Node {
 
 fn parseByteString(self: *Parser) ParseError!ast.Node {
     const str_tok = self.advance().?;
-    var result_str = if (str_tok.lexeme.len > 0 and str_tok.lexeme[0] == 'b')
-        str_tok.lexeme[1..]
-    else
-        str_tok.lexeme;
+    // Strip 'b' or 'B' prefix
+    var result_str = str_tok.lexeme;
+    if (result_str.len > 0 and (result_str[0] == 'b' or result_str[0] == 'B')) {
+        result_str = result_str[1..];
+    }
     var prev_allocated: ?[]const u8 = null;
 
     // Handle implicit byte string concatenation: b"a" b"b" -> b"ab"
@@ -213,16 +242,16 @@ fn parseByteString(self: *Parser) ParseError!ast.Node {
         if (next_type == .ByteString or next_type == .String) {
             self.skipNewlines();
             const next_str = self.advance().?;
-            // Strip 'b' prefix if it's a byte string
-            const next_content_raw = if (next_type == .ByteString and next_str.lexeme.len > 0 and next_str.lexeme[0] == 'b')
-                next_str.lexeme[1..]
-            else
-                next_str.lexeme;
+            // Strip 'b' or 'B' prefix if it's a byte string
+            var next_content_raw = next_str.lexeme;
+            if (next_type == .ByteString and next_content_raw.len > 0) {
+                const c = next_content_raw[0];
+                if (c == 'b' or c == 'B') next_content_raw = next_content_raw[1..];
+            }
 
-            // Strip quotes: first_content is everything except trailing quote
-            // second_content is everything except leading quote
-            const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
-            const second_content = if (next_content_raw.len >= 2) next_content_raw[1..] else next_content_raw;
+            // Use stripQuotes for proper triple-quote handling
+            const first_content = stripQuotes(result_str);
+            const second_content = stripQuotes(next_content_raw);
 
             const new_len = first_content.len + second_content.len;
             const new_str = try self.allocator.alloc(u8, new_len);
@@ -230,8 +259,14 @@ fn parseByteString(self: *Parser) ParseError!ast.Node {
             @memcpy(new_str[first_content.len..], second_content);
 
             if (prev_allocated) |prev| self.allocator.free(prev);
-            result_str = new_str;
-            prev_allocated = new_str;
+            // Wrap result in quotes so subsequent iterations can strip them
+            const wrapped = try self.allocator.alloc(u8, new_len + 2);
+            wrapped[0] = '"';
+            @memcpy(wrapped[1 .. new_len + 1], new_str);
+            wrapped[new_len + 1] = '"';
+            self.allocator.free(new_str);
+            result_str = wrapped;
+            prev_allocated = wrapped;
         } else {
             break;
         }
@@ -243,11 +278,11 @@ fn parseByteString(self: *Parser) ParseError!ast.Node {
 
 fn parseRawString(self: *Parser) ParseError!ast.Node {
     const str_tok = self.advance().?;
-    // Strip the 'r' prefix
-    var result_str = if (str_tok.lexeme.len > 0 and str_tok.lexeme[0] == 'r')
-        str_tok.lexeme[1..]
-    else
-        str_tok.lexeme;
+    // Strip the 'r' or 'R' prefix
+    var result_str = str_tok.lexeme;
+    if (result_str.len > 0 and (result_str[0] == 'r' or result_str[0] == 'R')) {
+        result_str = result_str[1..];
+    }
     var prev_allocated: ?[]const u8 = null;
 
     // Handle implicit string concatenation: r"a" r"b" or r"a" "b" -> "ab"
@@ -266,16 +301,16 @@ fn parseRawString(self: *Parser) ParseError!ast.Node {
         if (next_type == .RawString or next_type == .String) {
             self.skipNewlines();
             const next_str = self.advance().?;
-            // Strip 'r' prefix if it's a raw string
-            const next_content_raw = if (next_type == .RawString and next_str.lexeme.len > 0 and next_str.lexeme[0] == 'r')
-                next_str.lexeme[1..]
-            else
-                next_str.lexeme;
+            // Strip 'r' or 'R' prefix if it's a raw string
+            var next_content_raw = next_str.lexeme;
+            if (next_type == .RawString and next_content_raw.len > 0) {
+                const c = next_content_raw[0];
+                if (c == 'r' or c == 'R') next_content_raw = next_content_raw[1..];
+            }
 
-            // Strip quotes: first_content is everything except trailing quote
-            // second_content is everything except leading quote
-            const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
-            const second_content = if (next_content_raw.len >= 2) next_content_raw[1..] else next_content_raw;
+            // Use stripQuotes for proper triple-quote handling
+            const first_content = stripQuotes(result_str);
+            const second_content = stripQuotes(next_content_raw);
 
             const new_len = first_content.len + second_content.len;
             const new_str = try self.allocator.alloc(u8, new_len);
@@ -285,12 +320,18 @@ fn parseRawString(self: *Parser) ParseError!ast.Node {
             if (prev_allocated) |prev| {
                 self.allocator.free(prev);
             }
-            result_str = new_str;
-            prev_allocated = new_str;
+            // Wrap result in quotes so subsequent iterations can strip them
+            const wrapped = try self.allocator.alloc(u8, new_len + 2);
+            wrapped[0] = '"';
+            @memcpy(wrapped[1 .. new_len + 1], new_str);
+            wrapped[new_len + 1] = '"';
+            self.allocator.free(new_str);
+            result_str = wrapped;
+            prev_allocated = wrapped;
         } else if (next_type == .FString) {
             // Raw string followed by f-string
             self.skipNewlines();
-            const first_content = if (result_str.len >= 2) result_str[0 .. result_str.len - 1] else result_str;
+            const first_content = stripQuotes(result_str);
 
             if (prev_allocated) |prev| {
                 self.allocator.free(prev);
@@ -437,14 +478,35 @@ fn parseEmbeddedExpr(self: *Parser, expr_text: []const u8) ParseError!*ast.Node 
     var expr_lexer = try lexer.Lexer.init(self.allocator, expr_text);
     defer expr_lexer.deinit();
 
-    const expr_tokens = try expr_lexer.tokenize();
-    defer lexer.freeTokens(self.allocator, expr_tokens);
+    const raw_tokens = try expr_lexer.tokenize();
+    defer lexer.freeTokens(self.allocator, raw_tokens);
+
+    // Filter out Newline/Indent/Dedent tokens - in f-string expressions these are irrelevant
+    var filtered = std.ArrayList(lexer.Token){};
+    defer filtered.deinit(self.allocator);
+    for (raw_tokens) |tok| {
+        if (tok.type != .Newline and tok.type != .Indent and tok.type != .Dedent) {
+            try filtered.append(self.allocator, tok);
+        }
+    }
+    const expr_tokens = try filtered.toOwnedSlice(self.allocator);
+    defer self.allocator.free(expr_tokens);
 
     var expr_parser = Parser.init(self.allocator, expr_tokens);
-    defer expr_parser.deinit();
 
     var expr_node = try expr_parser.parseExpression();
     errdefer expr_node.deinit(self.allocator);
+
+    // Transfer allocated strings from expr_parser to self before deinit
+    // This prevents them from being freed when expr_parser.deinit() is called
+    for (expr_parser.allocated_strings.items) |s| {
+        try self.allocated_strings.append(self.allocator, s);
+    }
+    // Clear expr_parser's list so it doesn't free them on deinit
+    expr_parser.allocated_strings.items.len = 0;
+
+    expr_parser.deinit();
+
     return try self.allocNode(expr_node);
 }
 
@@ -491,11 +553,11 @@ fn parseYieldExpr(self: *Parser) ParseError!ast.Node {
         return ast.Node{ .yield_from_stmt = .{ .value = try self.allocNode(value) } };
     }
 
-    // Check if there's a value expression - stop at ), ], }, newline, or comma
+    // Check if there's a value expression - stop at ), ], }, newline, comma, or EOF
     const value_ptr: ?*ast.Node = blk: {
         if (self.peek()) |tok| {
             if (tok.type == .Newline or tok.type == .RParen or tok.type == .RBracket or
-                tok.type == .RBrace or tok.type == .Comma)
+                tok.type == .RBrace or tok.type == .Comma or tok.type == .Eof)
             {
                 break :blk null;
             }
@@ -569,10 +631,19 @@ fn parseTupleElement(self: *Parser) ParseError!ast.Node {
     return self.parseExpression();
 }
 
-/// Parse a comprehension target: single name, subscript, or tuple of names (e.g., x or tgt[0] or x, y)
+/// Parse a single target element, handling starred expressions (*rest)
+fn parseCompTarget(self: *Parser) ParseError!ast.Node {
+    if (self.match(.Star)) {
+        var value = try parsePostfix(self);
+        errdefer value.deinit(self.allocator);
+        return ast.Node{ .starred = .{ .value = try self.allocNode(value) } };
+    }
+    return try parsePostfix(self);
+}
+
+/// Parse a comprehension target: single name, subscript, or tuple of names (e.g., x or tgt[0] or x, y or x, *rest)
 fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
-    // Use parsePostfix to handle subscript targets like tgt[0]
-    var first = try parsePostfix(self);
+    var first = try parseCompTarget(self);
     errdefer first.deinit(self.allocator);
 
     // Check if there are more targets (tuple unpacking)
@@ -580,7 +651,7 @@ fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
         return first;
     }
 
-    // It's a tuple target like: x, y in items
+    // It's a tuple target like: x, y in items or x, *rest in items
     var elts = std.ArrayList(ast.Node){};
     errdefer {
         for (elts.items) |*e| e.deinit(self.allocator);
@@ -593,7 +664,7 @@ fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
     while (self.check(.Comma) and !self.check(.In)) {
         _ = self.advance(); // consume comma
         if (self.check(.In)) break; // trailing comma before 'in'
-        var elem = try parsePostfix(self);
+        var elem = try parseCompTarget(self);
         errdefer elem.deinit(self.allocator);
         try elts.append(self.allocator, elem);
     }

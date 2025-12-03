@@ -7,8 +7,8 @@ const Parser = @import("../parser.zig").Parser;
 /// Parse a comprehension target: single name, subscript, or tuple of names (e.g., x or tgt[0] or x, y)
 /// Returns a Name/Subscript node for single target, or a Tuple node for multiple targets
 fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
-    // Use parsePostfix to handle subscript targets like tgt[0]
-    var first = try self.parsePostfix();
+    // Parse a target element, which may be starred (*rest)
+    var first = try parseCompTarget(self);
     errdefer first.deinit(self.allocator);
 
     // Check if there are more targets (tuple unpacking)
@@ -16,7 +16,7 @@ fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
         return first;
     }
 
-    // It's a tuple target like: x, y in items
+    // It's a tuple target like: x, y in items or x, *rest in items
     var elts = std.ArrayList(ast.Node){};
     errdefer {
         for (elts.items) |*e| e.deinit(self.allocator);
@@ -29,7 +29,7 @@ fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
     while (self.check(.Comma) and !self.check(.In)) {
         _ = self.advance(); // consume comma
         if (self.check(.In)) break; // trailing comma before 'in'
-        var elem = try self.parsePostfix();
+        var elem = try parseCompTarget(self);
         errdefer elem.deinit(self.allocator);
         try elts.append(self.allocator, elem);
     }
@@ -39,6 +39,18 @@ fn parseComprehensionTarget(self: *Parser) ParseError!ast.Node {
             .elts = try elts.toOwnedSlice(self.allocator),
         },
     };
+}
+
+/// Parse a single target element, handling starred expressions (*rest)
+fn parseCompTarget(self: *Parser) ParseError!ast.Node {
+    // Check for starred target: *rest
+    if (self.match(.Star)) {
+        var value = try self.parsePostfix();
+        errdefer value.deinit(self.allocator);
+        const value_ptr = try self.allocNode(value);
+        return ast.Node{ .starred = .{ .value = value_ptr } };
+    }
+    return try self.parsePostfix();
 }
 
 /// Parse a list literal: [1, 2, 3] or list comprehension: [x for x in items]

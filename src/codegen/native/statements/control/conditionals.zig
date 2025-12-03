@@ -500,6 +500,12 @@ fn genPatternCondition(self: *NativeCodegen, pattern: ast.Node.MatchPattern, sub
             // Match inner pattern
             try genPatternCondition(self, ap.pattern.*, subject);
         },
+        .value => |node| {
+            // Value pattern: compare subject against the dotted expression
+            _ = try builder.write(subject);
+            _ = try builder.write(" == ");
+            try self.genExpr(node.*);
+        },
     }
 }
 

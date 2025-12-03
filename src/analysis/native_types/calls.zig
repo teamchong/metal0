@@ -14,6 +14,7 @@ const static_maps = @import("calls/static_maps.zig");
 const builtin_calls = @import("calls/builtin_calls.zig");
 const method_calls = @import("calls/method_calls.zig");
 const module_calls = @import("calls/module_calls.zig");
+const inferrer_mod = @import("inferrer.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -26,6 +27,23 @@ const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 // Forward declaration for inferExpr (from expressions.zig)
 const expressions = @import("expressions.zig");
 
+/// Map ctypes type name to NativeType
+fn ctypesToNativeType(ctype_name: []const u8) NativeType {
+    if (std.mem.eql(u8, ctype_name, "c_size_t")) return .usize;
+    if (std.mem.eql(u8, ctype_name, "c_ssize_t")) return .{ .int = .bounded };
+    if (std.mem.eql(u8, ctype_name, "c_int")) return .{ .int = .bounded };
+    if (std.mem.eql(u8, ctype_name, "c_uint")) return .usize;
+    if (std.mem.eql(u8, ctype_name, "c_long")) return .{ .int = .bounded };
+    if (std.mem.eql(u8, ctype_name, "c_ulong")) return .usize;
+    if (std.mem.eql(u8, ctype_name, "c_longlong")) return .{ .int = .bounded };
+    if (std.mem.eql(u8, ctype_name, "c_ulonglong")) return .usize;
+    if (std.mem.eql(u8, ctype_name, "c_float")) return .float;
+    if (std.mem.eql(u8, ctype_name, "c_double")) return .float;
+    if (std.mem.eql(u8, ctype_name, "c_char_p")) return .{ .string = .runtime };
+    if (std.mem.eql(u8, ctype_name, "c_void_p")) return .unknown;
+    return .{ .int = .bounded }; // Default to int
+}
+
 /// Infer type from function/method call
 pub fn inferCall(
     allocator: std.mem.Allocator,
@@ -34,9 +52,29 @@ pub fn inferCall(
     func_return_types: *FnvHashMap,
     call: ast.Node.Call,
 ) InferError!NativeType {
+    return inferCallWithInferrer(allocator, var_types, class_fields, func_return_types, call, null);
+}
+
+/// Infer type from function/method call with optional TypeInferrer for ctypes tracking
+pub fn inferCallWithInferrer(
+    allocator: std.mem.Allocator,
+    var_types: *FnvHashMap,
+    class_fields: *FnvClassMap,
+    func_return_types: *FnvHashMap,
+    call: ast.Node.Call,
+    type_inferrer: ?*inferrer_mod.TypeInferrer,
+) InferError!NativeType {
     // Check if this is a registered function (lambda or regular function)
     if (call.func.* == .name) {
         const func_name = call.func.name.id;
+
+        // Check if this is a tracked ctypes function
+        if (type_inferrer) |ti| {
+            if (ti.ctypes_functions.get(func_name)) |ctypes_info| {
+                return ctypesToNativeType(ctypes_info.restype);
+            }
+        }
+
         return try builtin_calls.inferBuiltinCall(
             allocator,
             var_types,
@@ -149,6 +187,11 @@ pub fn inferCall(
 
         // Infer object type and check for instance methods
         const obj_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, attr.value.*);
+
+        // ctypes CDLL function calls: lib.strlen("hello") returns usize by default
+        if (obj_type == .cdll) {
+            return .usize;
+        }
 
         // Class instance method calls (handles chained access like self.foo.get_val())
         if (obj_type == .class_instance) {

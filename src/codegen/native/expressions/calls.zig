@@ -11,9 +11,50 @@ const import_registry = @import("../import_registry.zig");
 const generators = @import("../statements/functions/generators.zig");
 const shared = @import("../shared_maps.zig");
 const RuntimeExceptions = shared.RuntimeExceptions;
+const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
 
 fn isRuntimeExceptionType(name: []const u8) bool {
     return RuntimeExceptions.has(name);
+}
+
+/// Map Python/inferred type to C ABI type for ctypes FFI
+fn inferCType(native_type: NativeType) []const u8 {
+    return switch (native_type) {
+        .string => "[*:0]const u8", // C string pointer
+        .int => "isize", // C long
+        .usize => "usize", // size_t
+        .float => "f64", // C double
+        .bool => "c_int", // C bool is int
+        else => "*anyopaque", // Generic pointer for unknown types
+    };
+}
+
+/// Map ctypes type name to Zig type
+fn ctypesToZig(ctype_name: []const u8) []const u8 {
+    // Map common ctypes names to Zig types
+    if (std.mem.eql(u8, ctype_name, "c_char_p")) return "[*:0]const u8";
+    if (std.mem.eql(u8, ctype_name, "c_wchar_p")) return "[*:0]const u32";
+    if (std.mem.eql(u8, ctype_name, "c_void_p")) return "*anyopaque";
+    if (std.mem.eql(u8, ctype_name, "c_bool")) return "bool";
+    if (std.mem.eql(u8, ctype_name, "c_char")) return "u8";
+    if (std.mem.eql(u8, ctype_name, "c_wchar")) return "u32";
+    if (std.mem.eql(u8, ctype_name, "c_byte")) return "i8";
+    if (std.mem.eql(u8, ctype_name, "c_ubyte")) return "u8";
+    if (std.mem.eql(u8, ctype_name, "c_short")) return "i16";
+    if (std.mem.eql(u8, ctype_name, "c_ushort")) return "u16";
+    if (std.mem.eql(u8, ctype_name, "c_int")) return "c_int";
+    if (std.mem.eql(u8, ctype_name, "c_uint")) return "c_uint";
+    if (std.mem.eql(u8, ctype_name, "c_long")) return "isize";
+    if (std.mem.eql(u8, ctype_name, "c_ulong")) return "usize";
+    if (std.mem.eql(u8, ctype_name, "c_longlong")) return "i64";
+    if (std.mem.eql(u8, ctype_name, "c_ulonglong")) return "u64";
+    if (std.mem.eql(u8, ctype_name, "c_size_t")) return "usize";
+    if (std.mem.eql(u8, ctype_name, "c_ssize_t")) return "isize";
+    if (std.mem.eql(u8, ctype_name, "c_float")) return "f32";
+    if (std.mem.eql(u8, ctype_name, "c_double")) return "f64";
+    if (std.mem.eql(u8, ctype_name, "c_longdouble")) return "f128";
+    // Default to c_int for unknown types
+    return "c_int";
 }
 
 /// Generate function call - dispatches to specialized handlers or fallback
@@ -26,6 +67,51 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     // Try to dispatch to specialized handler
     const dispatched = try dispatch.dispatchCall(self, call);
     if (dispatched) return;
+
+    // Handle tracked ctypes function calls: strlen(b"hello") where strlen was assigned from lib.strlen
+    if (call.func.* == .name) {
+        const func_name = call.func.name.id;
+        if (self.ctypes_functions.get(func_name)) |ctypes_info| {
+            // Generate call using tracked argtypes/restype
+            try self.emit("((");
+            try self.emit(ctypes_info.library_var);
+            try self.emit(".lookup(*const fn(");
+            // Generate parameter types from tracked argtypes
+            if (ctypes_info.argtypes.len > 0) {
+                for (ctypes_info.argtypes, 0..) |argtype, i| {
+                    if (i > 0) try self.emit(", ");
+                    try self.emit(ctypesToZig(argtype));
+                }
+            } else {
+                // No argtypes set - infer from arguments
+                for (call.args, 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    const arg_type = try self.type_inferrer.inferExpr(arg);
+                    try self.emit(inferCType(arg_type));
+                }
+            }
+            try self.emit(") callconv(.c) ");
+            try self.emit(ctypesToZig(ctypes_info.restype));
+            try self.emit(", \"");
+            try self.emit(ctypes_info.func_name);
+            try self.emit("\")) orelse @panic(\"Symbol not found: ");
+            try self.emit(ctypes_info.func_name);
+            try self.emit("\"))(");
+            // Generate arguments - convert to C types if needed
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                const arg_type = try self.type_inferrer.inferExpr(arg);
+                if (arg_type == .string) {
+                    try genExpr(self, arg);
+                    try self.emit(".ptr");
+                } else {
+                    try genExpr(self, arg);
+                }
+            }
+            try self.emit(")");
+            return;
+        }
+    }
 
     // Handle from-imported json.loads: from json import loads -> loads()
     // The generated wrapper function takes []const u8, not PyObject
@@ -139,6 +225,42 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     // Handle method calls (obj.method())
     if (call.func.* == .attribute) {
         const attr = call.func.attribute;
+
+        // Handle ctypes CDLL function calls: lib.strlen("hello")
+        // The base value (lib) should be a CDLL type
+        const base_type = try self.type_inferrer.inferExpr(attr.value.*);
+        if (base_type == .cdll) {
+            // Generate: (lib.lookup(*const fn(...) callconv(.c) T, "func_name") orelse unreachable)(args)
+            // Infer parameter types from argument types
+            try self.emit("((");
+            try genExpr(self, attr.value.*);
+            try self.emit(".lookup(*const fn(");
+            // Generate parameter types based on argument inference
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                const arg_type = try self.type_inferrer.inferExpr(arg);
+                try self.emit(inferCType(arg_type));
+            }
+            try self.emit(") callconv(.c) usize, \"");
+            try self.emit(attr.attr);
+            try self.emit("\")) orelse @panic(\"Symbol not found: ");
+            try self.emit(attr.attr);
+            try self.emit("\"))(");
+            // Generate arguments - convert to C types if needed
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                const arg_type = try self.type_inferrer.inferExpr(arg);
+                if (arg_type == .string) {
+                    // Convert Python string to C string pointer
+                    try genExpr(self, arg);
+                    try self.emit(".ptr");
+                } else {
+                    try genExpr(self, arg);
+                }
+            }
+            try self.emit(")");
+            return;
+        }
 
         // Handle object.__hash__(value) - Python's base hash implementation
         // This is equivalent to runtime.pyHash(value) or id(value) for identity hash

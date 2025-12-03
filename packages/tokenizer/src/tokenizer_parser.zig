@@ -11,9 +11,9 @@ const builder = @import("tokenizer_builder.zig");
 const AhoCorasick = @import("aho_corasick.zig").AhoCorasick;
 const FnvHashContext = @import("fnv_hash.zig").FnvHashContext;
 
-// Use metal0's optimized JSON parser (2.17x faster than std.json)
-const json = @import("runtime/src/json/parse.zig");
-const JsonValue = @import("runtime/src/json/value.zig").JsonValue;
+// metal0's optimized JSON parser
+const json = @import("json");
+const JsonValue = json.JsonValue;
 
 /// Tokenizer structure (forward declaration for parser)
 pub const TokenizerData = struct {
@@ -147,10 +147,9 @@ pub fn initFromFile(tokenizer_path: []const u8, allocator: Allocator) !Tokenizer
     const buffer = try allocator.alloc(u8, stat.size);
     defer allocator.free(buffer);
 
-    const bytes_read = try file.readAll(buffer);
-    _ = bytes_read;
+    _ = try file.readAll(buffer);
 
-    var parsed = try json_parser.parse(buffer, allocator);
+    var parsed = try json.parse.parse(buffer, allocator);
     defer parsed.deinit(allocator);
 
     return try parseTokenizerJSON(parsed, allocator);
@@ -167,54 +166,37 @@ pub fn parseTokenizerJSON(root_value: JsonValue, allocator: Allocator) !Tokenize
     var merges = std.ArrayList(Pair){};
     errdefer merges.deinit(allocator);
 
-    var merges_map = std.HashMap(
-        Pair,
-        u32,
-        FnvHashContext(Pair),
-        std.hash_map.default_max_load_percentage,
-    ).initContext(allocator, FnvHashContext(Pair){});
+    var merges_map = std.HashMap(Pair, u32, FnvHashContext(Pair), std.hash_map.default_max_load_percentage).initContext(allocator, FnvHashContext(Pair){});
     errdefer merges_map.deinit();
 
     if (root_value != .object) return error.InvalidJson;
     const root = root_value.object;
 
-    // Simple format: {"vocab": {"base64_token": rank, ...}}
     const vocab_value = root.get("vocab") orelse return error.MissingVocab;
-    if (vocab_value.* != .object) return error.InvalidJson;
+    if (vocab_value != .object) return error.InvalidJson;
     const vocab_json = vocab_value.object;
     var it = vocab_json.iterator();
 
     while (it.next()) |entry| {
         const token_b64 = entry.key_ptr.*;
+        const value = entry.value_ptr.*;
 
-        if (entry.value_ptr.* != .number_int) return error.InvalidJson;
-        const rank = @as(u32, @intCast(entry.value_ptr.number_int));
+        if (value != .number_int) return error.InvalidJson;
+        const rank = @as(u32, @intCast(value.number_int));
 
-        // Decode base64
         const decoder = std.base64.standard.Decoder;
-        const decoded_size = try decoder.calcSizeForSlice(token_b64); // Exact size, not max
+        const decoded_size = try decoder.calcSizeForSlice(token_b64);
         const token_bytes = try allocator.alloc(u8, decoded_size);
         try decoder.decode(token_bytes, token_b64);
-        const token = token_bytes[0..decoded_size];
 
-        try vocab.put(token, rank);
-        try vocab_r.put(rank, token);
+        try vocab.put(token_bytes, rank);
+        try vocab_r.put(rank, token_bytes);
     }
 
-    // No explicit merges needed - we'll look up concatenated bytes in vocab
-    // Skip trie (use vocab-based BPE)
     const trie: ?*TrieNode = null;
-
-    // Build split_table for BacktrackEncoder validation
     const split_table = try builder.buildSplitTable(&vocab_r, &vocab, &merges_map, allocator);
-
-    // Build Aho-Corasick automaton for fast vocab lookup
     const aho_corasick = try builder.buildAhoCorasick(&vocab_r, allocator);
-
-    // Build next_prefix_match table (rs-bpe optimization)
     const next_prefix_match = try builder.buildNextPrefixMatch(&vocab_r, aho_corasick.?, allocator);
-
-    // Default GPT-4 pattern
     const pattern_str = try allocator.dupe(u8, "'s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^[:alnum:][:space:]]+| +[[:space:]]*| +");
 
     return TokenizerData{

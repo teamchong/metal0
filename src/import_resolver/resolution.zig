@@ -27,6 +27,8 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
         "_collections_abc",
         // Python directive modules
         "__future__",
+        // metal0 native libraries (Zig implementations)
+        "metal0",      "metal0.tokenizer",
     };
     for (stdlib_modules) |stdlib_mod| {
         if (std.mem.eql(u8, module_name, stdlib_mod)) {

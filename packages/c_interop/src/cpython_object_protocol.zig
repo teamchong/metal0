@@ -218,23 +218,26 @@ export fn PyObject_Type(obj: *cpython.PyObject) callconv(.c) *cpython.PyObject {
 export fn PyObject_IsTrue(obj: *cpython.PyObject) callconv(.c) c_int {
     // Special cases for common types
     const type_obj = cpython.Py_TYPE(obj);
-    const type_name = std.mem.span(type_obj.tp_name);
 
-    // None is always false
-    if (std.mem.eql(u8, type_name, "NoneType")) {
-        return 0;
-    }
+    if (type_obj.tp_name) |name| {
+        const type_name: []const u8 = std.mem.span(name);
 
-    // Bool type
-    if (std.mem.eql(u8, type_name, "bool")) {
-        // Simplified: assume bool is stored as int-like
-        return 1; // TODO: Check actual bool value
-    }
+        // None is always false
+        if (std.mem.eql(u8, type_name, "NoneType")) {
+            return 0;
+        }
 
-    // Numeric types: zero is false, non-zero is true
-    if (std.mem.eql(u8, type_name, "int") or std.mem.eql(u8, type_name, "float")) {
-        // TODO: Check actual numeric value
-        return 1;
+        // Bool type
+        if (std.mem.eql(u8, type_name, "bool")) {
+            // Simplified: assume bool is stored as int-like
+            return 1; // TODO: Check actual bool value
+        }
+
+        // Numeric types: zero is false, non-zero is true
+        if (std.mem.eql(u8, type_name, "int") or std.mem.eql(u8, type_name, "float")) {
+            // TODO: Check actual numeric value
+            return 1;
+        }
     }
 
     // For now, default to true

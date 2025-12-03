@@ -3,6 +3,7 @@ const ast = @import("ast");
 const core = @import("core.zig");
 const hashmap_helper = @import("hashmap_helper");
 const calls = @import("calls.zig");
+const inferrer_mod = @import("inferrer.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -133,6 +134,18 @@ pub fn inferExpr(
     func_return_types: *FnvHashMap,
     node: ast.Node,
 ) InferError!NativeType {
+    return inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, node, null);
+}
+
+/// Infer the native type of an expression node with optional TypeInferrer for ctypes tracking
+pub fn inferExprWithInferrer(
+    allocator: std.mem.Allocator,
+    var_types: *FnvHashMap,
+    class_fields: *FnvClassMap,
+    func_return_types: *FnvHashMap,
+    node: ast.Node,
+    type_inferrer: ?*inferrer_mod.TypeInferrer,
+) InferError!NativeType {
     return switch (node) {
         .constant => |c| inferConstant(c.value),
         .fstring => .{ .string = .runtime },
@@ -145,8 +158,8 @@ pub fn inferExpr(
             if (isCallableTypeName(n.id)) break :blk .callable;
             break :blk .unknown;
         },
-        .binop => |b| try inferBinOp(allocator, var_types, class_fields, func_return_types, b),
-        .call => |c| try calls.inferCall(allocator, var_types, class_fields, func_return_types, c),
+        .binop => |b| try inferBinOpWithInferrer(allocator, var_types, class_fields, func_return_types, b, type_inferrer),
+        .call => |c| try calls.inferCallWithInferrer(allocator, var_types, class_fields, func_return_types, c, type_inferrer),
         .subscript => |s| blk: {
             // Infer subscript type: obj[index] or obj[slice]
             const obj_type = try inferExpr(allocator, var_types, class_fields, func_return_types, s.value.*);
@@ -324,6 +337,14 @@ pub fn inferExpr(
                 if (attr_hash == NAME_HASH or attr_hash == STEM_HASH or attr_hash == SUFFIX_HASH) {
                     break :blk .{ .string = .runtime };
                 }
+            }
+
+            // ctypes CDLL attribute access - returns a c_func (foreign function pointer)
+            if (obj_type == .cdll) {
+                const lib_name = obj_type.cdll;
+                const func_name_copy = allocator.dupe(u8, a.attr) catch a.attr;
+                const lib_copy = allocator.dupe(u8, lib_name) catch lib_name;
+                break :blk .{ .c_func = .{ .library = lib_copy, .func_name = func_name_copy } };
             }
 
             break :blk .unknown;
@@ -585,8 +606,20 @@ fn inferBinOp(
     func_return_types: *FnvHashMap,
     binop: ast.Node.BinOp,
 ) InferError!NativeType {
-    const left_type = try inferExpr(allocator, var_types, class_fields, func_return_types, binop.left.*);
-    const right_type = try inferExpr(allocator, var_types, class_fields, func_return_types, binop.right.*);
+    return inferBinOpWithInferrer(allocator, var_types, class_fields, func_return_types, binop, null);
+}
+
+/// Infer type from binary operation with optional TypeInferrer
+fn inferBinOpWithInferrer(
+    allocator: std.mem.Allocator,
+    var_types: *FnvHashMap,
+    class_fields: *FnvClassMap,
+    func_return_types: *FnvHashMap,
+    binop: ast.Node.BinOp,
+    type_inferrer: ?*inferrer_mod.TypeInferrer,
+) InferError!NativeType {
+    const left_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, binop.left.*, type_inferrer);
+    const right_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, binop.right.*, type_inferrer);
 
     // Get type tags for analysis
     const left_tag = @as(std.meta.Tag(NativeType), left_type);

@@ -3,6 +3,7 @@ const ast = @import("ast");
 const core = @import("core.zig");
 const hashmap_helper = @import("hashmap_helper");
 const inferrer_mod = @import("inferrer.zig");
+const expressions = @import("expressions.zig");
 const TypeInferrer = inferrer_mod.TypeInferrer;
 
 pub const NativeType = core.NativeType;
@@ -21,11 +22,11 @@ pub fn visitStmt(
     class_fields: *FnvClassMap,
     func_return_types: *FnvHashMap,
     class_constructor_args: *FnvArgsMap,
-    inferExprFn: *const fn (allocator: std.mem.Allocator, var_types: *FnvHashMap, class_fields: *FnvClassMap, func_return_types: *FnvHashMap, node: ast.Node) InferError!NativeType,
+    _: anytype, // Legacy inferExprFn parameter - kept for API compatibility
     node: ast.Node,
 ) InferError!void {
     // Call the scoped version with null inferrer (legacy mode - uses global var_types)
-    return visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, node, null);
+    return visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {}, node, null);
 }
 
 /// Visit statement with optional TypeInferrer for scoped variable tracking
@@ -35,13 +36,38 @@ pub fn visitStmtScoped(
     class_fields: *FnvClassMap,
     func_return_types: *FnvHashMap,
     class_constructor_args: *FnvArgsMap,
-    inferExprFn: *const fn (allocator: std.mem.Allocator, var_types: *FnvHashMap, class_fields: *FnvClassMap, func_return_types: *FnvHashMap, node: ast.Node) InferError!NativeType,
+    _: anytype, // Legacy inferExprFn parameter - kept for API compatibility, not used
     node: ast.Node,
     type_inferrer: ?*inferrer_mod.TypeInferrer,
 ) InferError!void {
     switch (node) {
         .assign => |assign| {
-            const value_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
+            // Use inferExprWithInferrer to get ctypes function return types
+            const value_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, assign.value.*, type_inferrer);
+
+            // Track ctypes function references: strlen = libc.strlen
+            if (assign.value.* == .attribute) {
+                const attr_val = assign.value.attribute;
+                if (attr_val.value.* == .name) {
+                    const lib_type = var_types.get(attr_val.value.name.id) orelse .unknown;
+                    if (lib_type == .cdll) {
+                        for (assign.targets) |target| {
+                            if (target == .name) {
+                                if (type_inferrer) |ti| {
+                                    const info = inferrer_mod.CTypesFuncInfo{
+                                        .library_var = attr_val.value.name.id,
+                                        .func_name = attr_val.attr,
+                                        .argtypes = &[_][]const u8{},
+                                        .restype = "c_int", // Default return type
+                                    };
+                                    try ti.ctypes_functions.put(target.name.id, info);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             for (assign.targets) |target| {
                 if (target == .name) {
                     const var_name = target.name.id;
@@ -71,6 +97,51 @@ pub fn visitStmtScoped(
                             try var_types.put(var_name, value_type);
                         }
                     }
+                } else if (target == .attribute) {
+                    // Handle ctypes argtypes/restype assignment: strlen.argtypes = [...], strlen.restype = c_int
+                    if (type_inferrer) |ti| {
+                        const attr = target.attribute;
+                        if (attr.value.* == .name) {
+                            const var_name = attr.value.name.id;
+                            if (ti.ctypes_functions.get(var_name)) |existing_info| {
+                                if (std.mem.eql(u8, attr.attr, "argtypes")) {
+                                    // Parse argtypes list
+                                    if (assign.value.* == .list) {
+                                        var argtypes_list = std.ArrayList([]const u8){};
+                                        for (assign.value.list.elts) |elem| {
+                                            if (elem == .attribute and elem.attribute.value.* == .name) {
+                                                if (std.mem.eql(u8, elem.attribute.value.name.id, "ctypes")) {
+                                                    argtypes_list.append(allocator, elem.attribute.attr) catch continue;
+                                                }
+                                            }
+                                        }
+                                        const new_info = inferrer_mod.CTypesFuncInfo{
+                                            .library_var = existing_info.library_var,
+                                            .func_name = existing_info.func_name,
+                                            .argtypes = argtypes_list.toOwnedSlice(allocator) catch &[_][]const u8{},
+                                            .restype = existing_info.restype,
+                                        };
+                                        try ti.ctypes_functions.put(var_name, new_info);
+                                    }
+                                } else if (std.mem.eql(u8, attr.attr, "restype")) {
+                                    // Parse restype
+                                    var restype_name: []const u8 = "c_int";
+                                    if (assign.value.* == .attribute and assign.value.attribute.value.* == .name) {
+                                        if (std.mem.eql(u8, assign.value.attribute.value.name.id, "ctypes")) {
+                                            restype_name = assign.value.attribute.attr;
+                                        }
+                                    }
+                                    const new_info = inferrer_mod.CTypesFuncInfo{
+                                        .library_var = existing_info.library_var,
+                                        .func_name = existing_info.func_name,
+                                        .argtypes = existing_info.argtypes,
+                                        .restype = restype_name,
+                                    };
+                                    try ti.ctypes_functions.put(var_name, new_info);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -83,7 +154,7 @@ pub fn visitStmtScoped(
 
             // 2. Fall back to value inference
             if (var_type == .unknown and ann_assign.value != null) {
-                var_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, ann_assign.value.?.*);
+                var_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ann_assign.value.?.*, type_inferrer);
             }
 
             // 3. Store type
@@ -131,7 +202,7 @@ pub fn visitStmtScoped(
                                             if (return_type == .unknown) {
                                                 for (getter.body) |body_stmt| {
                                                     if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
-                                                        return_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*);
+                                                        return_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*, type_inferrer);
                                                         break;
                                                     }
                                                 }
@@ -146,7 +217,7 @@ pub fn visitStmtScoped(
                         }
 
                         // Infer type from value
-                        const field_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
+                        const field_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, assign.value.*, type_inferrer);
                         try fields.put(field_name, field_type);
                     }
                 }
@@ -211,13 +282,13 @@ pub fn visitStmtScoped(
                                         field_type = try inferConstant(assign.value.constant.value);
                                     } else if (assign.value.* == .dict) {
                                         // Infer dict type
-                                        field_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
+                                        field_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, assign.value.*, type_inferrer);
                                     } else if (assign.value.* == .call) {
                                         // If assigning from a call, infer type (handles class constructors)
-                                        field_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
+                                        field_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, assign.value.*, type_inferrer);
                                     } else {
                                         // For all other expressions (binop, unaryop, etc.), use generic inference
-                                        field_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, assign.value.*);
+                                        field_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, assign.value.*, type_inferrer);
                                     }
 
                                     try fields.put(field_name, field_type);
@@ -249,7 +320,7 @@ pub fn visitStmtScoped(
                     if (return_type == .unknown) {
                         for (method.body) |body_stmt| {
                             if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
-                                return_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*);
+                                return_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*, type_inferrer);
                                 break;
                             }
                         }
@@ -301,17 +372,17 @@ pub fn visitStmtScoped(
                     }
                     // Visit method body statements with scoped tracking
                     for (method.body) |body_stmt| {
-                        try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, body_stmt, type_inferrer);
+                        try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},body_stmt, type_inferrer);
                     }
                 }
             }
         },
         .if_stmt => |if_stmt| {
-            for (if_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
-            for (if_stmt.else_body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+            for (if_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
+            for (if_stmt.else_body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
         },
         .while_stmt => |while_stmt| {
-            for (while_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+            for (while_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
         },
         .for_stmt => |for_stmt| {
             // Register loop variables before visiting body
@@ -358,7 +429,7 @@ pub fn visitStmtScoped(
                         for (for_stmt.iter.call.args, 0..) |arg, i| {
                             if (i < targets.len and targets[i] == .name) {
                                 // Infer element type from the arg (could be name or list literal)
-                                const arg_type = inferExprFn(allocator, var_types, class_fields, func_return_types, arg) catch .unknown;
+                                const arg_type = expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, arg, type_inferrer) catch .unknown;
                                 const elem_type = switch (arg_type) {
                                     .list => |l| l.*,
                                     .array => |a| a.element_type.*,
@@ -371,7 +442,7 @@ pub fn visitStmtScoped(
                 } else if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .attribute) {
                     // Generic tuple unpacking from method calls like dict.items()
                     // for k, v in dict.items(): ...
-                    const iter_type = inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.*) catch .unknown;
+                    const iter_type = expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, for_stmt.iter.*, type_inferrer) catch .unknown;
 
                     // If method returns a list of tuples, unpack the tuple element types
                     if (iter_type == .list) {
@@ -394,7 +465,7 @@ pub fn visitStmtScoped(
                         // Infer type of each target from corresponding tuple element
                         for (targets, 0..) |target, i| {
                             if (target == .name) {
-                                const elem_type = inferExprFn(allocator, var_types, class_fields, func_return_types, first_elem.tuple.elts[i]) catch .unknown;
+                                const elem_type = expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, first_elem.tuple.elts[i], type_inferrer) catch .unknown;
                                 try var_types.put(target.name.id, elem_type);
                             }
                         }
@@ -440,7 +511,7 @@ pub fn visitStmtScoped(
                         }
                     } else {
                         // Generic method call - try to infer from return type
-                        const iter_type = inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.*) catch .unknown;
+                        const iter_type = expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, for_stmt.iter.*, type_inferrer) catch .unknown;
                         const elem_type = switch (iter_type) {
                             .list => |l| l.*,
                             .array => |a| a.element_type.*,
@@ -473,25 +544,25 @@ pub fn visitStmtScoped(
                 } else if (for_stmt.iter.* == .list and for_stmt.iter.list.elts.len > 0) {
                     // Iterating over list literal: for sign in ["", "+", "-"]
                     // Widen across all elements for heterogeneous lists like ['illegal', -1, 1 << 32]
-                    var elem_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.list.elts[0]);
+                    var elem_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, for_stmt.iter.list.elts[0], type_inferrer);
                     for (for_stmt.iter.list.elts[1..]) |elem| {
-                        const this_type = inferExprFn(allocator, var_types, class_fields, func_return_types, elem) catch .unknown;
+                        const this_type = expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, elem, type_inferrer) catch .unknown;
                         elem_type = elem_type.widen(this_type);
                     }
                     try putForVarType(var_types, type_inferrer, target_name, elem_type);
                 } else if (for_stmt.iter.* == .tuple and for_stmt.iter.tuple.elts.len > 0) {
                     // Iterating over tuple literal: for sign in "", "+", "-"
                     // Widen across all elements for heterogeneous tuples
-                    var elem_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, for_stmt.iter.tuple.elts[0]);
+                    var elem_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, for_stmt.iter.tuple.elts[0], type_inferrer);
                     for (for_stmt.iter.tuple.elts[1..]) |elem| {
-                        const this_type = inferExprFn(allocator, var_types, class_fields, func_return_types, elem) catch .unknown;
+                        const this_type = expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, elem, type_inferrer) catch .unknown;
                         elem_type = elem_type.widen(this_type);
                     }
                     try putForVarType(var_types, type_inferrer, target_name, elem_type);
                 }
             }
 
-            for (for_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+            for (for_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
         },
         .function_def => |func_def| {
             // Enter named scope for this function
@@ -517,13 +588,13 @@ pub fn visitStmtScoped(
             }
 
             // Visit function body FIRST to register local variable types with scoping
-            for (func_def.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+            for (func_def.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
 
             // If no annotation (unknown), infer from return statements AFTER visiting body
             if (return_type == .unknown) {
                 for (func_def.body) |body_stmt| {
                     if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
-                        return_type = try inferExprFn(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*);
+                        return_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*, type_inferrer);
                         break;
                     }
                 }
@@ -537,20 +608,20 @@ pub fn visitStmtScoped(
         },
         .try_stmt => |try_stmt| {
             // Visit try body
-            for (try_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+            for (try_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
             // Visit except handlers
             for (try_stmt.handlers) |handler| {
-                for (handler.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+                for (handler.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
             }
             // Visit else body
-            for (try_stmt.else_body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+            for (try_stmt.else_body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
             // Visit finally body
-            for (try_stmt.finalbody) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+            for (try_stmt.finalbody) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
         },
         .match_stmt => |match_stmt| {
             // Visit each case body
             for (match_stmt.cases) |case| {
-                for (case.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+                for (case.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
             }
         },
         else => {},

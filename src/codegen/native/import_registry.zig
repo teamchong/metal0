@@ -180,6 +180,15 @@ const ReFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
     .{ "findall", ReErrorFn },
 });
 
+/// metal0.tokenizer module: native Zig BPE tokenizer (248x faster than tiktoken)
+const TokenizerFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
+    .{ "encode", FunctionMeta{ .no_alloc = false, .returns_error = true } },
+    .{ "decode", FunctionMeta{ .no_alloc = false, .returns_error = true } },
+    .{ "count_tokens", FunctionMeta{ .no_alloc = false, .returns_error = true } },
+    .{ "init", FunctionMeta{ .no_alloc = false, .returns_error = true } },
+    .{ "load", FunctionMeta{ .no_alloc = false, .returns_error = true } },
+});
+
 /// sqlite3 module: C interop functions (no allocator needed, returns errors)
 const Sqlite3ErrorFn = FunctionMeta{ .no_alloc = true, .returns_error = true };
 const Sqlite3FuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
@@ -275,6 +284,8 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("warnings", .zig_runtime, "std", null); // warnings module
     try registry.register("traceback", .zig_runtime, "std", null); // traceback module
     try registry.register("pprint", .zig_runtime, "std", null); // pprint module
+    try registry.register("ctypes", .zig_runtime, "runtime.ctypes", null); // ctypes module - FFI for C libraries
+    try registry.register("_ctypes", .zig_runtime, "runtime.ctypes", null); // _ctypes internal module
     try registry.register("platform", .zig_runtime, "std", null); // platform module
     try registry.register("locale", .zig_runtime, "std", null); // locale module
     try registry.register("codecs", .zig_runtime, "std", null); // codecs module
@@ -293,8 +304,13 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("urllib", .compile_python, null, null);
     try registry.register("datetime", .zig_runtime, "runtime.datetime", null); // datetime uses runtime.datetime
 
-    // Dynamic features (unsupported - require runtime)
-    try registry.register("importlib", .unsupported, null, null);
+    // importlib module - static resolution at compile time
+    try registry.register("importlib", .zig_runtime, null, null);
+    try registry.register("importlib.abc", .zig_runtime, null, null);
+    try registry.register("importlib.resources", .zig_runtime, null, null);
+    try registry.register("importlib.metadata", .zig_runtime, null, null);
+    try registry.register("importlib.util", .zig_runtime, null, null);
+    try registry.register("importlib.machinery", .zig_runtime, null, null);
 
     // Test support modules (for CPython unittest compatibility)
     try registry.register("test", .zig_runtime, "runtime.test_support", null);
@@ -307,6 +323,12 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("test.support.script_helper", .zig_runtime, "runtime.test_support.script_helper", null);
     try registry.register("test.support.hashlib_helper", .zig_runtime, "runtime.test_support.hashlib_helper", null);
     try registry.register("test.support.numbers", .zig_runtime, "runtime.test_support.numbers", null);
+
+    // metal0 native libraries (Zig implementations exposed to Python)
+    // Usage: from metal0 import tokenizer
+    // Note: metal0 itself doesn't need a zig_import - only the submodules do
+    try registry.register("metal0", .zig_runtime, null, null);
+    try registry.registerWithMeta("metal0.tokenizer", .zig_runtime, "__metal0_tokenizer", null, true, &TokenizerFuncMeta);
 
     return registry;
 }

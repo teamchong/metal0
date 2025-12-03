@@ -107,6 +107,12 @@ pub const NativeType = union(enum) {
     sqlite_rows: void, // []sqlite3.Row - result from fetchall/fetchmany
     sqlite_row: void, // ?sqlite3.Row - result from fetchone
     exception: []const u8, // Exception type - stores exception name (RuntimeError, ValueError, etc.)
+    cdll: []const u8, // ctypes.CDLL - stores library path for FFI
+    c_func: struct {
+        library: []const u8, // Library name (for lookup)
+        func_name: []const u8, // Function name in the library
+    }, // ctypes function pointer from CDLL attribute access
+    pyobject: []const u8, // PyObject from C extension module (stores module name)
 
     /// Check if this is a simple type (int, bigint, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
@@ -287,6 +293,9 @@ pub const NativeType = union(enum) {
                 try buf.appendSlice(allocator, exc_name);
             },
             .callable => try buf.appendSlice(allocator, "runtime.builtins.PyCallable"),
+            .cdll => try buf.appendSlice(allocator, "runtime.ctypes.CDLL"),
+            .c_func => try buf.appendSlice(allocator, "*const fn() callconv(.c) anyopaque"),
+            .pyobject => try buf.appendSlice(allocator, "*runtime.PyObject"),
         }
     }
 

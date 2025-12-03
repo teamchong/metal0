@@ -209,6 +209,22 @@ pub fn deinit(self: *NativeCodegen) void {
         cg.deinit();
     }
 
+    // Clean up ctypes_functions tracking
+    // Note: Keys are allocated, values have allocated argtypes arrays
+    for (self.ctypes_functions.keys()) |key| {
+        self.allocator.free(key);
+    }
+    for (self.ctypes_functions.values()) |info| {
+        self.allocator.free(info.library_var);
+        self.allocator.free(info.func_name);
+        self.allocator.free(info.restype);
+        for (info.argtypes) |at| {
+            self.allocator.free(at);
+        }
+        self.allocator.free(info.argtypes);
+    }
+    self.ctypes_functions.deinit();
+
     self.allocator.destroy(self);
 }
 

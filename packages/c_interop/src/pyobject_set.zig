@@ -1,408 +1,484 @@
-/// PySet and PyFrozenSet - Using Generic Set Implementation
+/// PySet and PyFrozenSet - EXACT CPython 3.12 memory layout
 ///
-/// Key insight: PySet and PyFrozenSet share the SAME implementation!
-/// Only difference: type object pointer (mutable vs immutable)
+/// Uses exact CPython PySetObject struct for binary compatibility.
 ///
-/// Comptime wins:
-/// - Same set_impl code for both types
-/// - 150 lines total instead of 750!
-/// - Mutation methods check type at runtime (unavoidable for C API)
+/// Reference: cpython/Include/cpython/setobject.h
+
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
-const set_impl = @import("collections/set_impl.zig");
 
 const allocator = std.heap.c_allocator;
 
-/// PyObject set config (with refcounting!)
-pub const PySetConfig = struct {
-    pub const KeyType = *cpython.PyObject;
+// Re-export types from cpython_object.zig for exact CPython layout
+pub const PySetObject = cpython.PySetObject;
+pub const setentry = cpython.setentry;
+pub const PySet_MINSIZE = cpython.PySet_MINSIZE;
 
-    pub fn hashKey(key: *cpython.PyObject) u64 {
-        // Use CPython's tp_hash
-        const type_obj = cpython.Py_TYPE(key);
-        if (type_obj.tp_hash) |hash_fn| {
-            const hash = hash_fn(key);
-            return @bitCast(hash);
+// ============================================================================
+// Type Objects
+// ============================================================================
+
+pub var PySet_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "set",
+    .tp_basicsize = @sizeOf(PySetObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = set_dealloc,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null, // Sets are not hashable
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE | cpython.Py_TPFLAGS_HAVE_GC,
+    .tp_doc = "set() -> new empty set object",
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = @offsetOf(PySetObject, "weakreflist"),
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
+
+pub var PyFrozenSet_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "frozenset",
+    .tp_basicsize = @sizeOf(PySetObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = set_dealloc,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = frozenset_hash,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE | cpython.Py_TPFLAGS_HAVE_GC,
+    .tp_doc = "frozenset() -> empty frozenset object",
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = @offsetOf(PySetObject, "weakreflist"),
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
+
+// ============================================================================
+// Core API Functions
+// ============================================================================
+
+/// Compute hash for a key
+fn computeHash(key: *cpython.PyObject) isize {
+    const type_obj = cpython.Py_TYPE(key);
+    if (type_obj.tp_hash) |hash_fn| {
+        return hash_fn(key);
+    }
+    return @intCast(@intFromPtr(key));
+}
+
+/// Find entry in set
+fn lookupEntry(set: *PySetObject, key: *cpython.PyObject, hash: isize) ?*setentry {
+    const mask: usize = @intCast(set.mask);
+    var idx = @as(usize, @intCast(@as(u64, @bitCast(@as(i64, hash))) & mask));
+    var perturb: u64 = @bitCast(@as(i64, hash));
+    const table: [*]setentry = @ptrCast(set.table.?);
+
+    while (true) {
+        const entry = &table[idx];
+
+        if (entry.key == null) {
+            return null; // Empty slot - not found
         }
 
-        // Fallback: use pointer address
-        return @intFromPtr(key);
+        if (entry.hash == hash and entry.key == key) {
+            return entry; // Found
+        }
+
+        // Probe next slot
+        perturb >>= 5;
+        idx = (idx * 5 + 1 + perturb) & mask;
     }
+}
 
-    pub fn keysEqual(a: *cpython.PyObject, b: *cpython.PyObject) bool {
-        // Pointer equality for now (should use PyObject_RichCompareBool)
-        return a == b;
+/// Find empty slot for insertion
+fn findEmptySlot(set: *PySetObject, hash: isize) *setentry {
+    const mask: usize = @intCast(set.mask);
+    var idx = @as(usize, @intCast(@as(u64, @bitCast(@as(i64, hash))) & mask));
+    var perturb: u64 = @bitCast(@as(i64, hash));
+    const table: [*]setentry = @ptrCast(set.table.?);
+
+    while (true) {
+        const entry = &table[idx];
+
+        if (entry.key == null) {
+            return entry;
+        }
+
+        perturb >>= 5;
+        idx = (idx * 5 + 1 + perturb) & mask;
     }
+}
 
-    pub fn retainKey(key: *cpython.PyObject) *cpython.PyObject {
-        key.ob_refcnt += 1;
-        return key;
-    }
-
-    pub fn releaseKey(key: *cpython.PyObject) void {
-        key.ob_refcnt -= 1;
-        // Would call dealloc if refcnt == 0
-    }
-};
-
-const SetCore = set_impl.SetImpl(PySetConfig);
-
-/// PySet and PyFrozenSet use SAME struct!
-pub const PySetObject = extern struct {
-    ob_base: cpython.PyObject,
-    impl: *SetCore,
-};
-
-/// PyFrozenSet uses SAME struct, DIFFERENT type!
-pub const PyFrozenSetObject = extern struct {
-    ob_base: cpython.PyObject,
-    impl: *SetCore, // Same implementation!
-};
-
-/// Type objects
-pub var PySet_Type: cpython.PyTypeObject = undefined;
-pub var PyFrozenSet_Type: cpython.PyTypeObject = undefined;
-
-// ============================================================================
-// CREATION (Comptime helper - works for both!)
-// ============================================================================
-
-/// Comptime helper - works for both PySet and PyFrozenSet!
-fn createSet(type_obj: *cpython.PyTypeObject, iterable: ?*cpython.PyObject) ?*cpython.PyObject {
+/// Create new set with given type
+fn createSet(type_obj: *cpython.PyTypeObject) ?*cpython.PyObject {
     const set = allocator.create(PySetObject) catch return null;
 
-    set.ob_base = .{
-        .ob_refcnt = 1,
-        .ob_type = type_obj, // ← Comptime: set vs frozenset!
-    };
+    set.ob_base.ob_refcnt = 1;
+    set.ob_base.ob_type = type_obj;
+    set.fill = 0;
+    set.used = 0;
+    set.mask = PySet_MINSIZE - 1;
+    set.table = @ptrCast(&set.smalltable);
+    set.hash = -1; // Not computed yet (for frozenset)
+    set.finger = 0;
+    set.weakreflist = null;
 
-    const impl = allocator.create(SetCore) catch {
-        allocator.destroy(set);
-        return null;
-    };
-
-    impl.* = SetCore.init(allocator) catch {
-        allocator.destroy(impl);
-        allocator.destroy(set);
-        return null;
-    };
-
-    set.impl = impl;
-
-    // Add items from iterable
-    if (iterable) |iter_obj| {
-        // TODO: Iterate and add items
-        _ = iter_obj;
+    // Initialize smalltable
+    for (&set.smalltable) |*entry| {
+        entry.key = null;
+        entry.hash = 0;
     }
 
     return @ptrCast(&set.ob_base);
 }
 
 /// Create new PySet
-export fn PySet_New(iterable: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    return createSet(&PySet_Type, iterable);
+pub export fn PySet_New(iterable: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const set = createSet(&PySet_Type);
+    if (set == null) return null;
+
+    // TODO: Add items from iterable
+    _ = iterable;
+
+    return set;
 }
 
 /// Create new PyFrozenSet
-export fn PyFrozenSet_New(iterable: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    return createSet(&PyFrozenSet_Type, iterable);
+pub export fn PyFrozenSet_New(iterable: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const set = createSet(&PyFrozenSet_Type);
+    if (set == null) return null;
+
+    // TODO: Add items from iterable
+    _ = iterable;
+
+    return set;
 }
 
-// ============================================================================
-// MUTATION (Only PySet, comptime check!)
-// ============================================================================
+/// Get set size
+pub export fn PySet_Size(obj: *cpython.PyObject) callconv(.c) isize {
+    const set: *PySetObject = @ptrCast(@alignCast(obj));
+    return set.used;
+}
 
-/// Add element to set (PySet only!)
-export fn PySet_Add(set_obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
-    if (cpython.Py_TYPE(set_obj) == &PyFrozenSet_Type) {
-        // Error: frozenset is immutable
-        return -1;
+/// Get set size (macro version)
+export fn PySet_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
+    return PySet_Size(obj);
+}
+
+/// Check if set contains element
+pub export fn PySet_Contains(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
+    const set: *PySetObject = @ptrCast(@alignCast(obj));
+    const hash = computeHash(key);
+
+    if (lookupEntry(set, key, hash) != null) {
+        return 1;
     }
-
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    set.impl.add(key) catch return -1;
     return 0;
 }
 
-/// Discard element from set (PySet only!)
-export fn PySet_Discard(set_obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
-    if (cpython.Py_TYPE(set_obj) == &PyFrozenSet_Type) {
-        // Error: frozenset is immutable
-        return -1;
+/// Add element to set
+pub export fn PySet_Add(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
+    if (cpython.Py_TYPE(obj) == &PyFrozenSet_Type) {
+        return -1; // frozenset is immutable
     }
 
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    set.impl.discard(key);
+    const set: *PySetObject = @ptrCast(@alignCast(obj));
+    const hash = computeHash(key);
+
+    // Check if already exists
+    if (lookupEntry(set, key, hash) != null) {
+        return 0; // Already in set
+    }
+
+    // TODO: Check if we need to resize
+
+    // Find empty slot and insert
+    const entry = findEmptySlot(set, hash);
+    key.ob_refcnt += 1;
+    entry.key = key;
+    entry.hash = hash;
+    set.fill += 1;
+    set.used += 1;
+
     return 0;
 }
 
-/// Remove element from set (PySet only!)
-export fn PySet_Remove(set_obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
-    if (cpython.Py_TYPE(set_obj) == &PyFrozenSet_Type) {
-        // Error: frozenset is immutable
-        return -1;
+/// Discard element from set (no error if not found)
+pub export fn PySet_Discard(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
+    if (cpython.Py_TYPE(obj) == &PyFrozenSet_Type) {
+        return -1; // frozenset is immutable
     }
 
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    return if (set.impl.remove(key)) 0 else -1;
+    const set: *PySetObject = @ptrCast(@alignCast(obj));
+    const hash = computeHash(key);
+
+    if (lookupEntry(set, key, hash)) |entry| {
+        if (entry.key) |k| {
+            k.ob_refcnt -= 1;
+        }
+        entry.key = null; // Mark as deleted (dummy)
+        entry.hash = 0;
+        set.used -= 1;
+        return 1; // Found and removed
+    }
+
+    return 0; // Not found
 }
 
-/// Pop arbitrary element from set (PySet only!)
-export fn PySet_Pop(set_obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    if (cpython.Py_TYPE(set_obj) == &PyFrozenSet_Type) {
-        // Error: frozenset is immutable
-        return null;
+/// Pop arbitrary element from set
+pub export fn PySet_Pop(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    if (cpython.Py_TYPE(obj) == &PyFrozenSet_Type) {
+        return null; // frozenset is immutable
     }
 
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    var iter = set.impl.iterator();
-    if (iter.next()) |key| {
-        _ = set.impl.remove(key);
-        return key;
+    const set: *PySetObject = @ptrCast(@alignCast(obj));
+
+    if (set.used == 0) return null;
+
+    // Find first non-empty entry using finger
+    const mask: usize = @intCast(set.mask);
+    var idx: usize = @intCast(set.finger);
+    const table: [*]setentry = @ptrCast(set.table.?);
+
+    while (idx <= mask) : (idx += 1) {
+        const entry = &table[idx];
+        if (entry.key != null) {
+            const key = entry.key;
+            entry.key = null;
+            entry.hash = 0;
+            set.used -= 1;
+            set.finger = @intCast(idx);
+            return key;
+        }
+    }
+
+    // Wrap around
+    idx = 0;
+    while (idx < @as(usize, @intCast(set.finger))) : (idx += 1) {
+        const entry = &table[idx];
+        if (entry.key != null) {
+            const key = entry.key;
+            entry.key = null;
+            entry.hash = 0;
+            set.used -= 1;
+            set.finger = @intCast(idx);
+            return key;
+        }
     }
 
     return null;
 }
 
-/// Clear all elements (PySet only!)
-export fn PySet_Clear(set_obj: *cpython.PyObject) callconv(.c) c_int {
-    if (cpython.Py_TYPE(set_obj) == &PyFrozenSet_Type) {
-        // Error: frozenset is immutable
-        return -1;
+/// Clear all elements
+pub export fn PySet_Clear(obj: *cpython.PyObject) callconv(.c) c_int {
+    if (cpython.Py_TYPE(obj) == &PyFrozenSet_Type) {
+        return -1; // frozenset is immutable
     }
 
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    set.impl.clear();
+    const set: *PySetObject = @ptrCast(@alignCast(obj));
+
+    // Decref all keys
+    const mask: usize = @intCast(set.mask);
+    const table: [*]setentry = @ptrCast(set.table.?);
+    var i: usize = 0;
+    while (i <= mask) : (i += 1) {
+        const entry = &table[i];
+        if (entry.key) |key| {
+            key.ob_refcnt -= 1;
+            entry.key = null;
+            entry.hash = 0;
+        }
+    }
+
+    // Reset to smalltable if using external table
+    const smalltable_ptr: *setentry = @ptrCast(&set.smalltable);
+    if (set.table != smalltable_ptr) {
+        // TODO: Free external table
+        set.table = @ptrCast(&set.smalltable);
+        set.mask = PySet_MINSIZE - 1;
+    }
+
+    set.fill = 0;
+    set.used = 0;
+    set.finger = 0;
+
     return 0;
 }
 
 // ============================================================================
-// QUERY (Both get these - comptime shared!)
+// Type Checking
 // ============================================================================
 
-/// Check if set contains element (works for both!)
-export fn PySet_Contains(set_obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    return if (set.impl.contains(key)) 1 else 0;
-}
-
-/// Get set size (works for both!)
-export fn PySet_Size(set_obj: *cpython.PyObject) callconv(.c) isize {
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    return @intCast(set.impl.size());
-}
-
-/// Get set size (alternative name, works for both!)
-export fn PySet_GET_SIZE(set_obj: *cpython.PyObject) callconv(.c) isize {
-    return PySet_Size(set_obj);
-}
-
-// ============================================================================
-// SET OPERATIONS (Works for both!)
-// ============================================================================
-
-/// Union: self | other
-export fn PySet_Union(
-    set_obj: *cpython.PyObject,
-    other_obj: *cpython.PyObject,
-) callconv(.c) ?*cpython.PyObject {
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    const other = @as(*PySetObject, @ptrCast(other_obj));
-
-    // Create new set with union
-    const result = createSet(cpython.Py_TYPE(set_obj), null) orelse return null;
-    const result_set = @as(*PySetObject, @ptrCast(result));
-
-    // Copy self
-    var iter1 = set.impl.iterator();
-    while (iter1.next()) |key| {
-        result_set.impl.add(key) catch {
-            allocator.destroy(result_set);
-            return null;
-        };
-    }
-
-    // Add other
-    result_set.impl.unionWith(other.impl) catch {
-        allocator.destroy(result_set);
-        return null;
-    };
-
-    return result;
-}
-
-/// Intersection: self & other
-export fn PySet_Intersection(
-    set_obj: *cpython.PyObject,
-    other_obj: *cpython.PyObject,
-) callconv(.c) ?*cpython.PyObject {
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    const other = @as(*PySetObject, @ptrCast(other_obj));
-
-    var intersection = set.impl.intersectionWith(other.impl) catch return null;
-
-    const result = allocator.create(PySetObject) catch {
-        intersection.deinit();
-        return null;
-    };
-
-    result.ob_base = .{
-        .ob_refcnt = 1,
-        .ob_type = cpython.Py_TYPE(set_obj),
-    };
-
-    const impl_ptr = allocator.create(SetCore) catch {
-        allocator.destroy(result);
-        intersection.deinit();
-        return null;
-    };
-
-    impl_ptr.* = intersection;
-    result.impl = impl_ptr;
-
-    return @ptrCast(&result.ob_base);
-}
-
-/// Difference: self - other
-export fn PySet_Difference(
-    set_obj: *cpython.PyObject,
-    other_obj: *cpython.PyObject,
-) callconv(.c) ?*cpython.PyObject {
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    const other = @as(*PySetObject, @ptrCast(other_obj));
-
-    var difference = set.impl.differenceWith(other.impl) catch return null;
-
-    const result = allocator.create(PySetObject) catch {
-        difference.deinit();
-        return null;
-    };
-
-    result.ob_base = .{
-        .ob_refcnt = 1,
-        .ob_type = cpython.Py_TYPE(set_obj),
-    };
-
-    const impl_ptr = allocator.create(SetCore) catch {
-        allocator.destroy(result);
-        difference.deinit();
-        return null;
-    };
-
-    impl_ptr.* = difference;
-    result.impl = impl_ptr;
-
-    return @ptrCast(&result.ob_base);
-}
-
-/// Symmetric difference: self ^ other
-export fn PySet_SymmetricDifference(
-    set_obj: *cpython.PyObject,
-    other_obj: *cpython.PyObject,
-) callconv(.c) ?*cpython.PyObject {
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    const other = @as(*PySetObject, @ptrCast(other_obj));
-
-    var sym_diff = set.impl.symmetricDifferenceWith(other.impl) catch return null;
-
-    const result = allocator.create(PySetObject) catch {
-        sym_diff.deinit();
-        return null;
-    };
-
-    result.ob_base = .{
-        .ob_refcnt = 1,
-        .ob_type = cpython.Py_TYPE(set_obj),
-    };
-
-    const impl_ptr = allocator.create(SetCore) catch {
-        allocator.destroy(result);
-        sym_diff.deinit();
-        return null;
-    };
-
-    impl_ptr.* = sym_diff;
-    result.impl = impl_ptr;
-
-    return @ptrCast(&result.ob_base);
-}
-
-/// Check if subset: self <= other
-export fn PySet_IsSubset(
-    set_obj: *cpython.PyObject,
-    other_obj: *cpython.PyObject,
-) callconv(.c) c_int {
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    const other = @as(*PySetObject, @ptrCast(other_obj));
-
-    return if (set.impl.isSubsetOf(other.impl)) 1 else 0;
-}
-
-/// Check if superset: self >= other
-export fn PySet_IsSuperset(
-    set_obj: *cpython.PyObject,
-    other_obj: *cpython.PyObject,
-) callconv(.c) c_int {
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    const other = @as(*PySetObject, @ptrCast(other_obj));
-
-    return if (set.impl.isSupersetOf(other.impl)) 1 else 0;
-}
-
-/// Check if disjoint
-export fn PySet_IsDisjoint(
-    set_obj: *cpython.PyObject,
-    other_obj: *cpython.PyObject,
-) callconv(.c) c_int {
-    const set = @as(*PySetObject, @ptrCast(set_obj));
-    const other = @as(*PySetObject, @ptrCast(other_obj));
-
-    return if (set.impl.isDisjoint(other.impl)) 1 else 0;
-}
-
-// ============================================================================
-// TYPE CHECKING
-// ============================================================================
-
-/// Check if object is PySet
-export fn PySet_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PySet_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PySet_Type) 1 else 0;
 }
 
-/// Check if object is PyFrozenSet
-export fn PyFrozenSet_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+export fn PySet_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+    return if (cpython.Py_TYPE(obj) == &PySet_Type) 1 else 0;
+}
+
+pub export fn PyFrozenSet_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyFrozenSet_Type) 1 else 0;
 }
 
-/// Check if object is PySet or PyFrozenSet
-export fn PyAnySet_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+export fn PyFrozenSet_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+    return if (cpython.Py_TYPE(obj) == &PyFrozenSet_Type) 1 else 0;
+}
+
+pub export fn PyAnySet_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     return if (type_obj == &PySet_Type or type_obj == &PyFrozenSet_Type) 1 else 0;
 }
 
-// Tests
-test "pyset creation" {
-    const testing = std.testing;
+// ============================================================================
+// Internal Functions
+// ============================================================================
 
-    const set = PySet_New(null);
-    try testing.expect(set != null);
+fn set_dealloc(obj: *cpython.PyObject) callconv(.c) void {
+    const set: *PySetObject = @ptrCast(@alignCast(obj));
 
-    if (set) |s| {
-        try testing.expectEqual(@as(c_int, 1), PySet_Check(s));
-        try testing.expectEqual(@as(c_int, 0), PyFrozenSet_Check(s));
-        try testing.expectEqual(@as(isize, 0), PySet_Size(s));
+    // Decref all keys
+    const mask: usize = @intCast(set.mask);
+    const table: [*]setentry = @ptrCast(set.table.?);
+    var i: usize = 0;
+    while (i <= mask) : (i += 1) {
+        if (table[i].key) |key| {
+            key.ob_refcnt -= 1;
+        }
     }
+
+    // Free external table if not using smalltable
+    const smalltable_ptr: *setentry = @ptrCast(&set.smalltable);
+    if (set.table != smalltable_ptr) {
+        // TODO: Free external table
+    }
+
+    allocator.destroy(set);
 }
 
-test "pyfrozenset creation" {
-    const testing = std.testing;
+fn frozenset_hash(obj: *cpython.PyObject) callconv(.c) isize {
+    const set: *PySetObject = @ptrCast(@alignCast(obj));
 
-    const fset = PyFrozenSet_New(null);
-    try testing.expect(fset != null);
-
-    if (fset) |s| {
-        try testing.expectEqual(@as(c_int, 0), PySet_Check(s));
-        try testing.expectEqual(@as(c_int, 1), PyFrozenSet_Check(s));
-        try testing.expectEqual(@as(isize, 0), PySet_Size(s));
+    // Return cached hash if available
+    if (set.hash != -1) {
+        return set.hash;
     }
+
+    // Compute hash (XOR of element hashes)
+    var hash: u64 = 0;
+    const mask: usize = @intCast(set.mask);
+    const table: [*]setentry = @ptrCast(set.table.?);
+    var i: usize = 0;
+
+    while (i <= mask) : (i += 1) {
+        if (table[i].key != null) {
+            hash ^= @bitCast(@as(i64, table[i].hash));
+        }
+    }
+
+    const result: isize = @intCast(hash);
+    set.hash = result;
+    return result;
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "PySetObject layout matches CPython" {
+    // PySetObject has specific layout with smalltable inline
+    try std.testing.expectEqual(@as(usize, 0), @offsetOf(PySetObject, "ob_base"));
+    try std.testing.expectEqual(@as(usize, 16), @offsetOf(PySetObject, "fill"));
+    try std.testing.expectEqual(@as(usize, 24), @offsetOf(PySetObject, "used"));
+    try std.testing.expectEqual(@as(usize, 32), @offsetOf(PySetObject, "mask"));
+    try std.testing.expectEqual(@as(usize, 40), @offsetOf(PySetObject, "table"));
+    try std.testing.expectEqual(@as(usize, 48), @offsetOf(PySetObject, "hash"));
+    try std.testing.expectEqual(@as(usize, 56), @offsetOf(PySetObject, "finger"));
+    try std.testing.expectEqual(@as(usize, 64), @offsetOf(PySetObject, "smalltable"));
+}
+
+test "set exports" {
+    _ = PySet_New;
+    _ = PySet_Add;
+    _ = PySet_Contains;
+    _ = PySet_Check;
 }

@@ -348,20 +348,12 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
     }
 
     if (all_literals) {
-        // Simple case: just concatenate literals
+        // Simple case: just concatenate literals (but process Python escape sequences)
         try self.emit("\"");
         for (fstring.parts) |part| {
             const lit = part.literal;
-            for (lit) |c| {
-                switch (c) {
-                    '"' => try self.emit("\\\""),
-                    '\\' => try self.emit("\\\\"),
-                    '\n' => try self.emit("\\n"),
-                    '\r' => try self.emit("\\r"),
-                    '\t' => try self.emit("\\t"),
-                    else => try self.output.writer(self.allocator).print("{c}", .{c}),
-                }
-            }
+            // Process Python escape sequences like \N{name}, \xNN, \uNNNN
+            try constants.emitPythonEscapedString(self, lit);
         }
         try self.emit("\"");
         return;
@@ -383,25 +375,15 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
     for (fstring.parts) |part| {
         switch (part) {
             .literal => |lit| {
-                // Escape braces for Zig format strings and special chars for Zig string literals
-                for (lit) |c| {
-                    if (c == '{' or c == '}') {
-                        try format_buf.append(self.allocator, c);
-                        try format_buf.append(self.allocator, c); // Double to escape
-                    } else if (c == '"') {
-                        try format_buf.appendSlice(self.allocator, "\\\""); // Escape double quotes
-                    } else if (c == '\\') {
-                        try format_buf.appendSlice(self.allocator, "\\\\"); // Escape backslashes
-                    } else if (c == '\n') {
-                        try format_buf.appendSlice(self.allocator, "\\n"); // Escape newlines
-                    } else if (c == '\r') {
-                        try format_buf.appendSlice(self.allocator, "\\r"); // Escape carriage returns
-                    } else if (c == '\t') {
-                        try format_buf.appendSlice(self.allocator, "\\t"); // Escape tabs
-                    } else {
-                        try format_buf.append(self.allocator, c);
-                    }
-                }
+                // Process Python escape sequences like \N{name}, \xNN, \uNNNN
+                // and escape braces for Zig format strings
+                const saved_output = self.output;
+                self.output = std.ArrayList(u8){};
+                try constants.emitPythonEscapedStringExt(self, lit, true);
+                const escaped = try self.output.toOwnedSlice(self.allocator);
+                defer self.allocator.free(escaped);
+                self.output = saved_output;
+                try format_buf.appendSlice(self.allocator, escaped);
             },
             .expr => |expr| {
                 // Determine format specifier based on inferred type

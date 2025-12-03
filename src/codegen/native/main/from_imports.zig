@@ -113,6 +113,26 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
+        // Handle metal0 native libraries (from metal0 import tokenizer)
+        if (std.mem.eql(u8, from_imp.module, "metal0")) {
+            for (from_imp.names, 0..) |name, i| {
+                if (std.mem.eql(u8, name, "*")) continue;
+
+                const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                    from_imp.asnames[i].?
+                else
+                    name;
+
+                // Skip if already generated
+                if (generated_symbols.contains(symbol_name)) continue;
+
+                // Register for dispatch routing (tokenizer.encode -> metal0.tokenizer.encode)
+                try self.local_from_imports.put(symbol_name, "metal0.tokenizer");
+                try generated_symbols.put(symbol_name, {});
+            }
+            continue;
+        }
+
         // Handle inline-only modules (no zig_import, functions are generated inline)
         // These modules don't have a struct to reference - their functions are
         // directly generated at call sites via dispatch (e.g., from decimal import Decimal)

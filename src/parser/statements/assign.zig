@@ -174,8 +174,28 @@ pub fn parseExprOrAssign(self: *Parser) ParseError!ast.Node {
     };
 
     if (aug_op) |op| {
-        var value = try self.parseExpression();
-        errdefer value.deinit(self.allocator);
+        var first_value = try self.parseExpression();
+        errdefer first_value.deinit(self.allocator);
+
+        // Handle trailing comma to form tuple: x += (a, b), means x += ((a, b),)
+        const value = if (self.check(.Comma) and !self.check(.Newline)) blk: {
+            var elts = std.ArrayList(ast.Node){};
+            errdefer {
+                for (elts.items) |*e| e.deinit(self.allocator);
+                elts.deinit(self.allocator);
+            }
+            try elts.append(self.allocator, first_value);
+            first_value = ast.Node{ .pass = {} }; // Transfer ownership
+
+            while (self.match(.Comma)) {
+                if (self.check(.Newline) or self.check(.Semicolon)) break; // trailing comma
+                var elem = try self.parseExpression();
+                errdefer elem.deinit(self.allocator);
+                try elts.append(self.allocator, elem);
+            }
+            break :blk ast.Node{ .tuple = .{ .elts = try elts.toOwnedSlice(self.allocator) } };
+        } else first_value;
+
         // Accept either newline or semicolon as statement terminator
         if (!self.match(.Newline)) _ = self.match(.Semicolon);
 
