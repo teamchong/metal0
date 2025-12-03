@@ -85,6 +85,7 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
             var bracket_depth: usize = 0; // Track [] for slice expressions
             var paren_depth: usize = 0; // Track () for function calls
             var in_string: u8 = 0; // Track string delimiters (', ", or 0 if not in string)
+            var in_triple: bool = false; // Track if we're in a triple-quoted string
             var has_format_spec = false;
             var has_conversion = false;
             var conversion_char: u8 = 0;
@@ -95,6 +96,7 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
                 const c = self.peek().?;
 
                 // Handle string literals inside expression - ignore braces while in strings
+                // in_string_triple tracks if we're in a triple-quoted string (need ''' or """ to close)
                 if (in_string != 0) {
                     if (c == '\\') {
                         // Skip escaped char in string
@@ -102,15 +104,20 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
                         if (!self.isAtEnd()) _ = self.advance();
                         continue;
                     } else if (c == in_string) {
-                        // Check for triple quote end
-                        if (self.peekAhead(1) == in_string and self.peekAhead(2) == in_string) {
+                        // Check for triple quote end (only closes if we started with triple)
+                        if (in_triple and self.peekAhead(1) == in_string and self.peekAhead(2) == in_string) {
                             _ = self.advance();
                             _ = self.advance();
+                            _ = self.advance();
+                            in_string = 0;
+                            in_triple = false;
+                        } else if (!in_triple) {
+                            // Single/double quote closes single-quoted string
                             _ = self.advance();
                             in_string = 0;
                         } else {
+                            // In triple-quoted string, single quote doesn't close it
                             _ = self.advance();
-                            in_string = 0;
                         }
                         continue;
                     }
@@ -123,11 +130,13 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
                     // Check for triple quote
                     if (self.peekAhead(1) == c and self.peekAhead(2) == c) {
                         in_string = c;
+                        in_triple = true;
                         _ = self.advance();
                         _ = self.advance();
                         _ = self.advance();
                     } else {
                         in_string = c;
+                        in_triple = false;
                         _ = self.advance();
                     }
                     continue;
@@ -145,9 +154,13 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
 
                 if (c == '{') {
                     brace_depth += 1;
+                    _ = self.advance();
+                    continue;
                 } else if (c == '}') {
                     brace_depth -= 1;
                     if (brace_depth == 0) break;
+                    _ = self.advance();
+                    continue;
                 } else if (c == '[') {
                     bracket_depth += 1;
                     _ = self.advance();
@@ -184,11 +197,53 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
                     _ = self.advance(); // consume ':'
                     format_spec_start = self.current;
 
-                    // Parse format spec until } - but track nested braces!
-                    // Format specs like {value:{ width}.{precision}} have nested expressions
+                    // Parse format spec until } - but track nested braces and strings!
+                    // Format specs like {value:{"{"}>10} have nested expressions with strings
                     var format_brace_depth: usize = 0;
+                    var format_in_string: u8 = 0; // Track string delimiters
+                    var format_in_triple: bool = false;
                     while (!self.isAtEnd()) {
                         const fc = self.peek().?;
+
+                        // Handle strings - ignore braces inside strings
+                        if (format_in_string != 0) {
+                            if (fc == '\\') {
+                                _ = self.advance();
+                                if (!self.isAtEnd()) _ = self.advance();
+                                continue;
+                            } else if (fc == format_in_string) {
+                                if (format_in_triple and self.peekAhead(1) == format_in_string and self.peekAhead(2) == format_in_string) {
+                                    _ = self.advance();
+                                    _ = self.advance();
+                                    _ = self.advance();
+                                    format_in_string = 0;
+                                    format_in_triple = false;
+                                } else if (!format_in_triple) {
+                                    _ = self.advance();
+                                    format_in_string = 0;
+                                }
+                                continue;
+                            }
+                            _ = self.advance();
+                            continue;
+                        }
+
+                        // Check for string start
+                        if (fc == '"' or fc == '\'') {
+                            if (self.peekAhead(1) == fc and self.peekAhead(2) == fc) {
+                                format_in_string = fc;
+                                format_in_triple = true;
+                                _ = self.advance();
+                                _ = self.advance();
+                                _ = self.advance();
+                            } else {
+                                format_in_string = fc;
+                                format_in_triple = false;
+                                _ = self.advance();
+                            }
+                            continue;
+                        }
+
                         if (fc == '{') {
                             format_brace_depth += 1;
                         } else if (fc == '}') {

@@ -15,14 +15,22 @@ pub fn init(allocator: std.mem.Allocator, path: []const u8) !*Tokenizer {
     const tok = try allocator.create(Tokenizer);
     tok.* = try Tokenizer.init(path, allocator);
     global_tokenizer = tok;
+
+    // Warmup: first encode initializes internal caches and data structures
+    // Without this, the first real encode may crash on longer texts
+    _ = try tok.encode("warmup");
+
     return tok;
 }
 
 /// Encode text to token IDs (uses global tokenizer if initialized)
+/// Returns a persistent copy (caller owns the memory)
 pub fn encode(allocator: std.mem.Allocator, text: []const u8) ![]u32 {
-    _ = allocator;
     if (global_tokenizer) |tok| {
-        return tok.encode(text);
+        const tokens = try tok.encode(text);
+        // tok.encode() returns arena-allocated memory that gets reset on next call
+        // Must duplicate to return persistent memory
+        return try allocator.dupe(u32, tokens);
     }
     return error.TokenizerNotInitialized;
 }
