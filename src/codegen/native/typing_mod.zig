@@ -7,7 +7,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Dict", h.c("hashmap_helper.StringHashMap(*runtime.PyObject)") },
     .{ "Set", h.c("hashmap_helper.StringHashMap(void)") }, .{ "Tuple", h.c("struct {}") },
     .{ "Union", h.c("*runtime.PyObject") }, .{ "Any", h.c("*runtime.PyObject") },
-    .{ "Callable", h.c("*const fn () void") }, .{ "TypeVar", h.c("type") },
-    .{ "Generic", h.c("type") }, .{ "cast", h.passN(1, "void{}") },
+    .{ "Callable", h.c("*const fn () void") }, .{ "TypeVar", h.discard("void{}") },
+    .{ "Generic", h.c("void{}") }, .{ "cast", h.passN(1, "void{}") },
     .{ "get_type_hints", h.c("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)") },
 });

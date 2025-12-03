@@ -114,20 +114,33 @@ pub fn analyzeModule(module: ast.Node.Module, allocator: std.mem.Allocator) !Mod
 
         // Collect top-level assignments as module-level variables
         // In Python, top-level assignments create module-level variables
+        // Skip typing module calls (TypeVar, etc.) which are type hints
         if (stmt == .assign) {
-            for (stmt.assign.targets) |target| {
-                if (target == .name) {
-                    const var_name = target.name.id;
-                    // Check if already added (avoid duplicates)
-                    var exists = false;
-                    for (global_vars.items) |existing| {
-                        if (std.mem.eql(u8, existing, var_name)) {
-                            exists = true;
-                            break;
+            // Skip TypeVar, ParamSpec, TypeVarTuple assignments - they're type hints
+            const is_typing_hint = blk: {
+                if (stmt.assign.value.* == .call and stmt.assign.value.call.func.* == .name) {
+                    const name = stmt.assign.value.call.func.name.id;
+                    break :blk std.mem.eql(u8, name, "TypeVar") or
+                        std.mem.eql(u8, name, "ParamSpec") or
+                        std.mem.eql(u8, name, "TypeVarTuple");
+                }
+                break :blk false;
+            };
+            if (!is_typing_hint) {
+                for (stmt.assign.targets) |target| {
+                    if (target == .name) {
+                        const var_name = target.name.id;
+                        // Check if already added (avoid duplicates)
+                        var exists = false;
+                        for (global_vars.items) |existing| {
+                            if (std.mem.eql(u8, existing, var_name)) {
+                                exists = true;
+                                break;
+                            }
                         }
-                    }
-                    if (!exists) {
-                        try global_vars.append(allocator, var_name);
+                        if (!exists) {
+                            try global_vars.append(allocator, var_name);
+                        }
                     }
                 }
             }
