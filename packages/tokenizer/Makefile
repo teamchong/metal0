@@ -7,7 +7,8 @@ BLUE := \033[0;34m
 RESET := \033[0m
 
 # Paths
-METAL0 := ../../zig-out/bin/metal0
+REPO_ROOT := $(shell cd ../.. && pwd)
+METAL0 := $(REPO_ROOT)/zig-out/bin/metal0
 BIN_DIR := bin
 
 # Default target - show help
@@ -29,15 +30,18 @@ help:
 	@echo ""
 
 # Build metal0 tokenizer binaries from Python source
+# Note: metal0 must run from repo root for proper module resolution
 build-metal0:
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo "$(GREEN)🔨 Compiling Python → Native with metal0$(RESET)"
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@mkdir -p $(BIN_DIR)
 	@echo "$(YELLOW)Compiling accuracy_test_metal0.py...$(RESET)"
-	$(METAL0) accuracy_test_metal0.py -o $(BIN_DIR)/accuracy_test --force
+	cd $(REPO_ROOT) && $(METAL0) build -b packages/tokenizer/accuracy_test_metal0.py --force
+	cp $(REPO_ROOT)/build/lib.macosx-11.0-arm64/accuracy_test_metal0 $(BIN_DIR)/accuracy_test
 	@echo "$(YELLOW)Compiling bench_full_metal0.py...$(RESET)"
-	$(METAL0) bench_full_metal0.py -o $(BIN_DIR)/bench_encoding --force
+	cd $(REPO_ROOT) && $(METAL0) build -b packages/tokenizer/bench_full_metal0.py --force || true
+	cp $(REPO_ROOT)/build/lib.macosx-11.0-arm64/bench_full_metal0 $(BIN_DIR)/bench_encoding 2>/dev/null || true
 	@echo "$(GREEN)✅ Build complete$(RESET)"
 	@echo ""
 

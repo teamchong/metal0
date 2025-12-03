@@ -540,6 +540,8 @@ pub fn genFunctionBody(
                     try self.emit("_param orelse ");
                     try expressions.genExpr(self, default_expr.*);
                     try self.emit(";\n");
+                    // Declare the param so it won't be hoisted later
+                    try self.declareVar(arg.name);
                 }
             }
         }

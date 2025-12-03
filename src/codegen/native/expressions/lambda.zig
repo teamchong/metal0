@@ -282,6 +282,39 @@ fn isParamUsedInBody(param_name: []const u8, body: ast.Node) bool {
             }
             break :blk false;
         },
+        .listcomp => |lc| blk: {
+            // Check the element expression
+            if (isParamUsedInBody(param_name, lc.elt.*)) break :blk true;
+            // Check all generators' iterables and conditions
+            for (lc.generators) |gen| {
+                if (isParamUsedInBody(param_name, gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| {
+                    if (isParamUsedInBody(param_name, cond)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .dictcomp => |dc| blk: {
+            if (isParamUsedInBody(param_name, dc.key.*)) break :blk true;
+            if (isParamUsedInBody(param_name, dc.value.*)) break :blk true;
+            for (dc.generators) |gen| {
+                if (isParamUsedInBody(param_name, gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| {
+                    if (isParamUsedInBody(param_name, cond)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .genexp => |ge| blk: {
+            if (isParamUsedInBody(param_name, ge.elt.*)) break :blk true;
+            for (ge.generators) |gen| {
+                if (isParamUsedInBody(param_name, gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| {
+                    if (isParamUsedInBody(param_name, cond)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
         else => false,
     };
 }

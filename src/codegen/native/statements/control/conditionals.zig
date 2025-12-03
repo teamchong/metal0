@@ -220,6 +220,23 @@ fn collectAssignedVars(self: *NativeCodegen, stmts: []const ast.Node, vars: *std
     }
 }
 
+/// Collect class names defined in a list of statements
+/// Used to prevent hoisting variables whose types are defined inside the block
+fn collectNestedClassNames(stmts: []const ast.Node, classes: *std.ArrayList([]const u8), allocator: std.mem.Allocator) !void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .class_def => |cd| {
+                try classes.append(allocator, cd.name);
+            },
+            .if_stmt => |nested_if| {
+                try collectNestedClassNames(nested_if.body, classes, allocator);
+                try collectNestedClassNames(nested_if.else_body, classes, allocator);
+            },
+            else => {},
+        }
+    }
+}
+
 
 /// Generate if statement
 pub fn genIf(self: *NativeCodegen, if_stmt: ast.Node.If) CodegenError!void {
@@ -271,6 +288,13 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         var assigned_vars = std.ArrayList(HoistedVar){};
         defer assigned_vars.deinit(self.allocator);
 
+        // First, collect class names defined inside the if/else blocks
+        // These cannot be hoisted as types
+        var nested_classes = std.ArrayList([]const u8){};
+        defer nested_classes.deinit(self.allocator);
+        collectNestedClassNames(if_stmt.body, &nested_classes, self.allocator) catch {};
+        collectNestedClassNames(if_stmt.else_body, &nested_classes, self.allocator) catch {};
+
         // Collect variables from all branches
         try collectAssignedVars(self, if_stmt.body, &assigned_vars);
         try collectAssignedVars(self, if_stmt.else_body, &assigned_vars);
@@ -278,6 +302,19 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         // Emit declarations for variables that will be assigned in branches
         for (assigned_vars.items) |v| {
             const var_type = self.type_inferrer.inferExpr(v.node) catch .unknown;
+
+            // Skip hoisting if type refers to a class defined inside the block
+            if (var_type == .class_instance) {
+                var skip = false;
+                for (nested_classes.items) |nested_class| {
+                    if (std.mem.eql(u8, var_type.class_instance, nested_class)) {
+                        skip = true;
+                        break;
+                    }
+                }
+                if (skip) continue;
+            }
+
             var type_buf = std.ArrayList(u8){};
             defer type_buf.deinit(self.allocator);
             var_type.toZigType(self.allocator, &type_buf) catch {
