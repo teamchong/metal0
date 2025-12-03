@@ -71,8 +71,35 @@ pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) Codege
     self.allocator.free(targets);
 }
 
+/// Check if an expression is a typing module call that should be a no-op
+/// e.g., TypeVar('T'), Generic, etc.
+fn isTypingNoOp(expr: ast.Node) bool {
+    if (expr != .call) return false;
+    const call = expr.call;
+    if (call.func.* != .name) return false;
+    const name = call.func.name.id;
+    // TypeVar, ParamSpec, TypeVarTuple are all type hint constructors
+    return std.mem.eql(u8, name, "TypeVar") or
+        std.mem.eql(u8, name, "ParamSpec") or
+        std.mem.eql(u8, name, "TypeVarTuple");
+}
+
 /// Generate assignment statement with automatic defer cleanup
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
+    // Skip typing module assignments (TypeVar, etc.)
+    // T = TypeVar('T') should be a no-op at runtime
+    if (isTypingNoOp(assign.value.*)) {
+        try self.emitIndent();
+        try self.emit("// type hint: ");
+        for (assign.targets) |target| {
+            if (target == .name) {
+                try self.emit(target.name.id);
+            }
+        }
+        try self.emit("\n");
+        return;
+    }
+
     // Infer type from the current value expression
     var value_type = try self.inferExprScoped(assign.value.*);
     const original_expr_type = value_type; // Keep for class_instance shadowing detection
