@@ -30,7 +30,7 @@ pub fn setupRuntimeFiles(allocator: std.mem.Allocator) !void {
     };
 
     // Copy runtime files to cache for import
-    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "parallel.zig", "http.zig", "json.zig", "re.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "netpoller.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig", "pickle.zig", "test_support.zig", "expr_parser.zig", "zlib.zig", "base64.zig", "pylong.zig", "_string.zig", "type_factory.zig", "pycomplex.zig" };
+    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "parallel.zig", "http.zig", "json.zig", "re.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "netpoller.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig", "pickle.zig", "test_support.zig", "expr_parser.zig", "zlib.zig", "base64.zig", "pylong.zig", "_string.zig", "type_factory.zig", "pycomplex.zig", "ctypes.zig", "tokenizer.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(aa, "packages/runtime/src/{s}", .{file});
         const dst_path = try std.fmt.allocPrint(aa, "{s}/{s}", .{ build_dir, file });
@@ -48,6 +48,7 @@ pub fn setupRuntimeFiles(allocator: std.mem.Allocator) !void {
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"regex\")", "@import(\"regex/src/pyregex/regex.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"bigint\")", "@import(\"bigint.zig\")");
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"tokenizer\")", "@import(\"tokenizer/src/tokenizer.zig\")");
 
         // Patch relative utils imports to use local utils/ directory
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"../../src/utils/", "@import(\"utils/");
@@ -92,6 +93,9 @@ pub fn setupRuntimeFiles(allocator: std.mem.Allocator) !void {
     // Copy regex package to build dir
     try compiler_utils.copyRegexPackage(aa, build_dir);
 
+    // Copy tokenizer package to build dir
+    try compiler_utils.copyTokenizerPackage(aa, build_dir);
+
     // Copy utils directory to build dir (for hashmap_helper, wyhash)
     try compiler_utils.copySrcUtilsDir(aa, build_dir);
 }
@@ -111,7 +115,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     };
 
     // Copy runtime files to cache for import
-    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "parallel.zig", "http.zig", "json.zig", "re.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "netpoller.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig", "pickle.zig", "test_support.zig", "expr_parser.zig", "zlib.zig", "base64.zig", "pylong.zig", "_string.zig", "type_factory.zig", "pycomplex.zig" };
+    const runtime_files = [_][]const u8{ "runtime.zig", "runtime_format.zig", "pystring.zig", "pylist.zig", "dict.zig", "pyint.zig", "pyfloat.zig", "pybool.zig", "pytuple.zig", "async.zig", "asyncio.zig", "parallel.zig", "http.zig", "json.zig", "re.zig", "eval.zig", "exec.zig", "ast_executor.zig", "bytecode.zig", "eval_cache.zig", "compile.zig", "dynamic_import.zig", "dynamic_attrs.zig", "string_utils.zig", "comptime_helpers.zig", "math.zig", "closure_impl.zig", "sys.zig", "time.zig", "py_value.zig", "green_thread.zig", "scheduler.zig", "work_queue.zig", "netpoller.zig", "unittest.zig", "datetime.zig", "pathlib.zig", "os.zig", "pyfile.zig", "io.zig", "hashlib.zig", "pickle.zig", "test_support.zig", "expr_parser.zig", "zlib.zig", "base64.zig", "pylong.zig", "_string.zig", "type_factory.zig", "pycomplex.zig", "ctypes.zig", "tokenizer.zig" };
     for (runtime_files) |file| {
         const src_path = try std.fmt.allocPrint(aa, "packages/runtime/src/{s}", .{file});
         const dst_path = try std.fmt.allocPrint(aa, "{s}/{s}", .{ build_dir, file });
@@ -129,6 +133,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"regex\")", "@import(\"regex/src/pyregex/regex.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"bigint\")", "@import(\"bigint.zig\")");
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"tokenizer\")", "@import(\"tokenizer/src/tokenizer.zig\")");
 
         // Patch relative utils imports to use local utils/ directory
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"../../src/utils/", "@import(\"utils/");
@@ -172,6 +177,9 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
 
     // Copy regex package to build dir
     try compiler_utils.copyRegexPackage(aa, build_dir);
+
+    // Copy tokenizer package to build dir
+    try compiler_utils.copyTokenizerPackage(aa, build_dir);
 
     // Copy utils directory to build dir (for hashmap_helper, wyhash)
     try compiler_utils.copySrcUtilsDir(aa, build_dir);
@@ -499,6 +507,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"regex\")", "@import(\"regex/src/pyregex/regex.zig\")");
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"bigint\")", "@import(\"bigint.zig\")");
+        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"tokenizer\")", "@import(\"tokenizer/src/tokenizer.zig\")");
 
         // Patch relative utils imports to use local utils/ directory
         content = try std.mem.replaceOwned(u8, aa, content, "@import(\"../../src/utils/", "@import(\"utils/");
@@ -542,6 +551,9 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
 
     // Copy regex package to build dir
     try compiler_utils.copyRegexPackage(aa, build_dir);
+
+    // Copy tokenizer package to build dir
+    try compiler_utils.copyTokenizerPackage(aa, build_dir);
 
     // Copy utils directory to build dir (for hashmap_helper, wyhash)
     try compiler_utils.copySrcUtilsDir(aa, build_dir);

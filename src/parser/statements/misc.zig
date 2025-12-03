@@ -246,6 +246,17 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
                         } else break;
                     }
                 }
+                // Handle "or" in exception types: except Exception or Exception:
+                while (self.match(.Or)) {
+                    // Skip dotted exception type
+                    while (self.peek()) |next_type| {
+                        if (next_type.type == .Ident) {
+                            _ = self.advance();
+                            // Skip dots in the name
+                            if (!self.match(.Dot)) break;
+                        } else break;
+                    }
+                }
             } else if (tok.type == .LParen) {
                 // Parenthesized exception type: except (Exception) as e:
                 // or except (ValueError, TypeError) as e:
@@ -325,6 +336,19 @@ pub fn parseTry(self: *Parser) ParseError!ast.Node {
                 next_tok.type == .From or
                 next_tok.type == .Del or
                 next_tok.type == .Yield or
+                next_tok.type == .Number or // for expressions like 1/0
+                next_tok.type == .LParen or // for (expr)
+                next_tok.type == .LBracket or // for [expr]
+                next_tok.type == .LBrace or // for {expr}
+                next_tok.type == .String or // for string expressions
+                next_tok.type == .FString or // for f-strings
+                next_tok.type == .Not or // for not expr
+                next_tok.type == .Minus or // for -expr
+                next_tok.type == .Plus or // for +expr
+                next_tok.type == .Tilde or // for ~expr
+                next_tok.type == .Lambda or // for lambda
+                next_tok.type == .Await or // for await expr
+                next_tok.type == .Star or // for *expr
                 next_tok.type == .Ident; // for assignments and expressions
 
             if (is_oneliner) {
@@ -783,6 +807,16 @@ pub fn parseWith(self: *Parser) ParseError!ast.Node {
     }
 }
 
+/// Parse a target element, handling starred expressions (*rest)
+fn parseTargetElem(self: *Parser) ParseError!ast.Node {
+    if (self.match(.Star)) {
+        var value = try self.parsePostfix();
+        errdefer value.deinit(self.allocator);
+        return ast.Node{ .starred = .{ .value = try self.allocNode(value) } };
+    }
+    return try self.parseExpression();
+}
+
 /// Parse "as target" part of with statement, returning the full target node
 fn parseAsTarget(self: *Parser) ParseError!?*ast.Node {
     if (self.peek()) |tok| {
@@ -791,7 +825,7 @@ fn parseAsTarget(self: *Parser) ParseError!?*ast.Node {
             const target = try self.parsePostfix();
             return try self.allocNode(target);
         } else if (tok.type == .LParen) {
-            // Tuple target: as (a, b, c)
+            // Tuple target: as (a, *b, c)
             _ = self.advance(); // consume (
             var elts = std.ArrayList(ast.Node){};
             errdefer {
@@ -801,13 +835,13 @@ fn parseAsTarget(self: *Parser) ParseError!?*ast.Node {
 
             // Parse first element
             if (!self.check(.RParen)) {
-                const first = try self.parseExpression();
+                const first = try parseTargetElem(self);
                 try elts.append(self.allocator, first);
 
                 // Parse remaining elements
                 while (self.match(.Comma)) {
                     if (self.check(.RParen)) break; // trailing comma
-                    const elt = try self.parseExpression();
+                    const elt = try parseTargetElem(self);
                     try elts.append(self.allocator, elt);
                 }
             }
@@ -816,7 +850,7 @@ fn parseAsTarget(self: *Parser) ParseError!?*ast.Node {
             const elts_slice = try elts.toOwnedSlice(self.allocator);
             return try self.allocNode(ast.Node{ .tuple = .{ .elts = elts_slice } });
         } else if (tok.type == .LBracket) {
-            // List target: as [a, b, c]
+            // List target: as [a, *b, c]
             _ = self.advance(); // consume [
             var elts = std.ArrayList(ast.Node){};
             errdefer {
@@ -826,13 +860,13 @@ fn parseAsTarget(self: *Parser) ParseError!?*ast.Node {
 
             // Parse first element
             if (!self.check(.RBracket)) {
-                const first = try self.parseExpression();
+                const first = try parseTargetElem(self);
                 try elts.append(self.allocator, first);
 
                 // Parse remaining elements
                 while (self.match(.Comma)) {
                     if (self.check(.RBracket)) break; // trailing comma
-                    const elt = try self.parseExpression();
+                    const elt = try parseTargetElem(self);
                     try elts.append(self.allocator, elt);
                 }
             }
@@ -934,7 +968,18 @@ pub fn parseMatch(self: *Parser) ParseError!ast.Node {
     _ = try self.expect(.Ident);
 
     // Parse the subject expression
-    const subject = try self.parseExpression();
+    var subject = try self.parseExpression();
+    // Check for tuple subject: match x, y:  or match x,:
+    if (self.check(.Comma)) {
+        var elts = std.ArrayList(ast.Node){};
+        try elts.append(self.allocator, subject);
+        while (self.match(.Comma)) {
+            if (self.check(.Colon)) break;
+            const next = try self.parseExpression();
+            try elts.append(self.allocator, next);
+        }
+        subject = ast.Node{ .tuple = .{ .elts = try elts.toOwnedSlice(self.allocator) } };
+    }
     const subject_ptr = try self.allocNode(subject);
     errdefer self.allocator.destroy(subject_ptr);
 
@@ -965,7 +1010,31 @@ pub fn parseMatch(self: *Parser) ParseError!ast.Node {
         }
 
         // Parse pattern
-        const pattern = try parseMatchPattern(self);
+        var pattern = try parseMatchPattern(self);
+
+        // Check for top-level or-pattern: case {0: x} | {1: y} | []:
+        if (self.check(.Pipe)) {
+            var patterns = std.ArrayList(ast.Node.MatchPattern){};
+            try patterns.append(self.allocator, pattern);
+            while (self.match(.Pipe)) {
+                const next = try parseMatchPattern(self);
+                try patterns.append(self.allocator, next);
+            }
+            pattern = ast.Node.MatchPattern{ .or_pattern = try patterns.toOwnedSlice(self.allocator) };
+        }
+
+        // Check for implicit tuple pattern: case 0, *x:
+        if (self.check(.Comma)) {
+            var patterns = std.ArrayList(ast.Node.MatchPattern){};
+            try patterns.append(self.allocator, pattern);
+            while (self.match(.Comma)) {
+                // Don't consume if followed by guard or colon
+                if (self.check(.If) or self.check(.Colon)) break;
+                const next = try parseMatchPattern(self);
+                try patterns.append(self.allocator, next);
+            }
+            pattern = ast.Node.MatchPattern{ .sequence = try patterns.toOwnedSlice(self.allocator) };
+        }
 
         // Check for guard: case x if condition:
         var guard: ?*ast.Node = null;
@@ -1031,10 +1100,22 @@ pub fn parseMatch(self: *Parser) ParseError!ast.Node {
 
 /// Parse a match pattern
 fn parseMatchPattern(self: *Parser) ParseError!ast.Node.MatchPattern {
-    // Check for wildcard pattern: case _
+    // Check for wildcard pattern: case _ or case _ as name
     if (self.peek()) |tok| {
         if (tok.type == .Ident and std.mem.eql(u8, tok.lexeme, "_")) {
             _ = self.advance();
+            // Check for as-pattern: _ as name
+            if (self.match(.As)) {
+                const name_tok = try self.expect(.Ident);
+                const wildcard_pattern = try self.allocator.create(ast.Node.MatchPattern);
+                wildcard_pattern.* = .{ .wildcard = {} };
+                return ast.Node.MatchPattern{
+                    .as_pattern = .{
+                        .pattern = wildcard_pattern,
+                        .name = name_tok.lexeme,
+                    },
+                };
+            }
             return ast.Node.MatchPattern{ .wildcard = {} };
         }
     }
@@ -1042,33 +1123,168 @@ fn parseMatchPattern(self: *Parser) ParseError!ast.Node.MatchPattern {
     // Check for literal patterns: case 1, case "hello", case True, case None
     if (self.peek()) |tok| {
         switch (tok.type) {
-            .Number, .String, .True, .False, .None => {
-                const lit = try self.parsePrimary();
+            .Star => {
+                // Star pattern: *x in sequence/tuple patterns
+                _ = self.advance(); // consume *
+                if (self.peek()) |name_tok| {
+                    if (name_tok.type == .Ident) {
+                        const name = name_tok.lexeme;
+                        _ = self.advance();
+                        // *_ is wildcard, *name captures rest
+                        if (std.mem.eql(u8, name, "_")) {
+                            return ast.Node.MatchPattern{ .wildcard = {} };
+                        }
+                        return ast.Node.MatchPattern{ .capture = name };
+                    }
+                }
+                return ast.Node.MatchPattern{ .wildcard = {} };
+            },
+            .Number, .String, .True, .False, .None, .ComplexNumber => {
+                var lit = try self.parsePrimary();
+                // Handle complex number literals: case 0 + 0j, case 1 - 1j
+                if (self.peek()) |next_tok| {
+                    if (next_tok.type == .Plus or next_tok.type == .Minus) {
+                        // Check if followed by imaginary number
+                        if (self.current + 1 < self.tokens.len) {
+                            const after_op = self.tokens[self.current + 1];
+                            if (after_op.type == .ComplexNumber) {
+                                // Parse as binary expression: 0 + 0j
+                                const op = self.advance().?;
+                                const right = try self.parsePrimary();
+                                const left_ptr = try self.allocNode(lit);
+                                const right_ptr = try self.allocNode(right);
+                                lit = ast.Node{
+                                    .binop = .{
+                                        .left = left_ptr,
+                                        .op = if (op.type == .Plus) .Add else .Sub,
+                                        .right = right_ptr,
+                                    },
+                                };
+                            }
+                        }
+                    }
+                }
                 const lit_ptr = try self.allocNode(lit);
-                return ast.Node.MatchPattern{ .literal = lit_ptr };
+                const pattern = ast.Node.MatchPattern{ .literal = lit_ptr };
+                // Check for or-pattern: case 1 | 2 | 3
+                if (self.check(.Pipe)) {
+                    var patterns = std.ArrayList(ast.Node.MatchPattern){};
+                    try patterns.append(self.allocator, pattern);
+                    while (self.match(.Pipe)) {
+                        // Parse just the literal, not full pattern (no recursive or/as)
+                        const next_lit = try self.parsePrimary();
+                        const next_lit_ptr = try self.allocNode(next_lit);
+                        try patterns.append(self.allocator, .{ .literal = next_lit_ptr });
+                    }
+                    const or_pattern = ast.Node.MatchPattern{ .or_pattern = try patterns.toOwnedSlice(self.allocator) };
+                    // Check for as-pattern: case 0 | 1 | 2 as z
+                    if (self.match(.As)) {
+                        const as_name_tok = try self.expect(.Ident);
+                        const pattern_ptr = try self.allocator.create(ast.Node.MatchPattern);
+                        pattern_ptr.* = or_pattern;
+                        return ast.Node.MatchPattern{
+                            .as_pattern = .{ .pattern = pattern_ptr, .name = as_name_tok.lexeme },
+                        };
+                    }
+                    return or_pattern;
+                }
+                return pattern;
             },
             .Minus => {
                 // Negative number: case -1
                 const expr = try self.parseExpression();
                 const expr_ptr = try self.allocNode(expr);
-                return ast.Node.MatchPattern{ .literal = expr_ptr };
+                const pattern = ast.Node.MatchPattern{ .literal = expr_ptr };
+                // Check for or-pattern
+                if (self.check(.Pipe)) {
+                    var patterns = std.ArrayList(ast.Node.MatchPattern){};
+                    try patterns.append(self.allocator, pattern);
+                    while (self.match(.Pipe)) {
+                        const next = try parseMatchPattern(self);
+                        try patterns.append(self.allocator, next);
+                    }
+                    return ast.Node.MatchPattern{ .or_pattern = try patterns.toOwnedSlice(self.allocator) };
+                }
+                return pattern;
             },
             .LBracket => {
                 // Sequence pattern: case [a, b, c]
-                return parseSequencePattern(self);
+                var seq_pattern = try parseSequencePattern(self);
+                // Check for or-pattern: [1, 2] | True
+                if (self.check(.Pipe)) {
+                    var patterns = std.ArrayList(ast.Node.MatchPattern){};
+                    try patterns.append(self.allocator, seq_pattern);
+                    while (self.match(.Pipe)) {
+                        const next = try parseMatchPattern(self);
+                        try patterns.append(self.allocator, next);
+                    }
+                    seq_pattern = ast.Node.MatchPattern{ .or_pattern = try patterns.toOwnedSlice(self.allocator) };
+                }
+                // Check for as-pattern: [] as z
+                if (self.match(.As)) {
+                    const as_name_tok = try self.expect(.Ident);
+                    const pattern_ptr = try self.allocator.create(ast.Node.MatchPattern);
+                    pattern_ptr.* = seq_pattern;
+                    return ast.Node.MatchPattern{
+                        .as_pattern = .{ .pattern = pattern_ptr, .name = as_name_tok.lexeme },
+                    };
+                }
+                return seq_pattern;
             },
             .LBrace => {
                 // Mapping pattern: case {"key": value}
-                return parseMappingPattern(self);
+                const map_pattern = try parseMappingPattern(self);
+                // Check for or-pattern: {} | []
+                if (self.check(.Pipe)) {
+                    var patterns = std.ArrayList(ast.Node.MatchPattern){};
+                    try patterns.append(self.allocator, map_pattern);
+                    while (self.match(.Pipe)) {
+                        const next = try parseMatchPattern(self);
+                        try patterns.append(self.allocator, next);
+                    }
+                    return ast.Node.MatchPattern{ .or_pattern = try patterns.toOwnedSlice(self.allocator) };
+                }
+                return map_pattern;
             },
             .LParen => {
-                // Could be tuple or grouped pattern
+                // Could be tuple, grouped pattern, or or-pattern
                 _ = self.advance(); // consume '('
                 if (self.check(.RParen)) {
                     _ = self.advance();
                     return ast.Node.MatchPattern{ .sequence = &[_]ast.Node.MatchPattern{} };
                 }
-                const inner = try parseMatchPattern(self);
+                var inner = try parseMatchPattern(self);
+                // Check for as-pattern inside parens: (0 as z)
+                if (self.check(.As)) {
+                    _ = self.advance();
+                    const as_name_tok = try self.expect(.Ident);
+                    const inner_ptr = try self.allocator.create(ast.Node.MatchPattern);
+                    inner_ptr.* = inner;
+                    inner = ast.Node.MatchPattern{
+                        .as_pattern = .{ .pattern = inner_ptr, .name = as_name_tok.lexeme },
+                    };
+                }
+                // Check for or-pattern inside parens: ([1, 2] | False)
+                if (self.check(.Pipe)) {
+                    var patterns = std.ArrayList(ast.Node.MatchPattern){};
+                    try patterns.append(self.allocator, inner);
+                    while (self.match(.Pipe)) {
+                        const next = try parseMatchPattern(self);
+                        try patterns.append(self.allocator, next);
+                    }
+                    _ = try self.expect(.RParen);
+                    const or_pattern = ast.Node.MatchPattern{ .or_pattern = try patterns.toOwnedSlice(self.allocator) };
+                    // Check for as-pattern after or-pattern in parens
+                    if (self.match(.As)) {
+                        const as_name_tok = try self.expect(.Ident);
+                        const pattern_ptr = try self.allocator.create(ast.Node.MatchPattern);
+                        pattern_ptr.* = or_pattern;
+                        return ast.Node.MatchPattern{
+                            .as_pattern = .{ .pattern = pattern_ptr, .name = as_name_tok.lexeme },
+                        };
+                    }
+                    return or_pattern;
+                }
                 if (self.check(.Comma)) {
                     // Tuple pattern
                     var patterns = std.ArrayList(ast.Node.MatchPattern){};
@@ -1079,18 +1295,113 @@ fn parseMatchPattern(self: *Parser) ParseError!ast.Node.MatchPattern {
                         try patterns.append(self.allocator, next);
                     }
                     _ = try self.expect(.RParen);
-                    return ast.Node.MatchPattern{ .sequence = try patterns.toOwnedSlice(self.allocator) };
+                    var tuple_pattern = ast.Node.MatchPattern{ .sequence = try patterns.toOwnedSlice(self.allocator) };
+                    // Check for or-pattern after tuple: (a, b, ...) | (c, d, ...)
+                    if (self.check(.Pipe)) {
+                        var or_patterns = std.ArrayList(ast.Node.MatchPattern){};
+                        try or_patterns.append(self.allocator, tuple_pattern);
+                        while (self.match(.Pipe)) {
+                            const next = try parseMatchPattern(self);
+                            try or_patterns.append(self.allocator, next);
+                        }
+                        tuple_pattern = ast.Node.MatchPattern{ .or_pattern = try or_patterns.toOwnedSlice(self.allocator) };
+                    }
+                    // Check for as-pattern: (p, q) as x
+                    if (self.match(.As)) {
+                        const as_name_tok = try self.expect(.Ident);
+                        const pattern_ptr = try self.allocator.create(ast.Node.MatchPattern);
+                        pattern_ptr.* = tuple_pattern;
+                        return ast.Node.MatchPattern{
+                            .as_pattern = .{ .pattern = pattern_ptr, .name = as_name_tok.lexeme },
+                        };
+                    }
+                    return tuple_pattern;
                 }
                 _ = try self.expect(.RParen);
+                // Check for or-pattern after grouped pattern: (0 as y) | (1 as y)
+                if (self.check(.Pipe)) {
+                    var patterns = std.ArrayList(ast.Node.MatchPattern){};
+                    try patterns.append(self.allocator, inner);
+                    while (self.match(.Pipe)) {
+                        const next = try parseMatchPattern(self);
+                        try patterns.append(self.allocator, next);
+                    }
+                    inner = ast.Node.MatchPattern{ .or_pattern = try patterns.toOwnedSlice(self.allocator) };
+                }
+                // Check for as-pattern after grouped pattern: (0 as w) as z
+                if (self.match(.As)) {
+                    const as_name_tok = try self.expect(.Ident);
+                    const pattern_ptr = try self.allocator.create(ast.Node.MatchPattern);
+                    pattern_ptr.* = inner;
+                    return ast.Node.MatchPattern{
+                        .as_pattern = .{ .pattern = pattern_ptr, .name = as_name_tok.lexeme },
+                    };
+                }
                 return inner;
             },
             .Ident => {
                 const name = tok.lexeme;
                 _ = self.advance();
 
-                // Check for class pattern: case Point(x=0)
+                // Check for dotted pattern: case Foo.Bar.x or case Foo.Bar(...)
+                if (self.check(.Dot)) {
+                    // Start with the name as initial node
+                    var node: ast.Node = .{ .name = .{ .id = name } };
+
+                    // Parse remaining dots
+                    while (self.match(.Dot)) {
+                        const attr_tok = try self.expect(.Ident);
+                        const obj_ptr = try self.allocNode(node);
+                        node = .{ .attribute = .{ .value = obj_ptr, .attr = attr_tok.lexeme } };
+                    }
+
+                    // Check if this is a class pattern: Foo.Bar(...)
+                    if (self.check(.LParen)) {
+                        const node_ptr = try self.allocNode(node);
+                        return parseDottedClassPattern(self, node_ptr);
+                    }
+
+                    // Value pattern: case Foo.Bar.x matches against Foo.Bar.x
+                    const node_ptr = try self.allocNode(node);
+                    const pattern = ast.Node.MatchPattern{ .value = node_ptr };
+                    // Check for as-pattern: A.y as z
+                    if (self.match(.As)) {
+                        const as_name_tok = try self.expect(.Ident);
+                        const pattern_ptr = try self.allocator.create(ast.Node.MatchPattern);
+                        pattern_ptr.* = pattern;
+                        return ast.Node.MatchPattern{
+                            .as_pattern = .{
+                                .pattern = pattern_ptr,
+                                .name = as_name_tok.lexeme,
+                            },
+                        };
+                    }
+                    return pattern;
+                }
+
+                // Check for class pattern: case Point(x=0) or Point(x, y) as p or Point(x) | Point(y)
                 if (self.check(.LParen)) {
-                    return parseClassPattern(self, name);
+                    var class_pattern = try parseClassPattern(self, name);
+                    // Check for or-pattern after class pattern: Point(x) | Point(y)
+                    if (self.check(.Pipe)) {
+                        var patterns = std.ArrayList(ast.Node.MatchPattern){};
+                        try patterns.append(self.allocator, class_pattern);
+                        while (self.match(.Pipe)) {
+                            const next = try parseMatchPattern(self);
+                            try patterns.append(self.allocator, next);
+                        }
+                        class_pattern = ast.Node.MatchPattern{ .or_pattern = try patterns.toOwnedSlice(self.allocator) };
+                    }
+                    // Check for as-pattern after class pattern
+                    if (self.match(.As)) {
+                        const as_name_tok = try self.expect(.Ident);
+                        const pattern_ptr = try self.allocator.create(ast.Node.MatchPattern);
+                        pattern_ptr.* = class_pattern;
+                        return ast.Node.MatchPattern{
+                            .as_pattern = .{ .pattern = pattern_ptr, .name = as_name_tok.lexeme },
+                        };
+                    }
+                    return class_pattern;
                 }
 
                 // Check for or pattern: case 1 | 2 | 3
@@ -1104,8 +1415,18 @@ fn parseMatchPattern(self: *Parser) ParseError!ast.Node.MatchPattern {
                     return ast.Node.MatchPattern{ .or_pattern = try patterns.toOwnedSlice(self.allocator) };
                 }
 
-                // Simple capture pattern: case x
-                return ast.Node.MatchPattern{ .capture = name };
+                // Simple capture pattern: case x, or case y as v
+                const capture = ast.Node.MatchPattern{ .capture = name };
+                // Check for as-pattern: y as v
+                if (self.match(.As)) {
+                    const as_name_tok = try self.expect(.Ident);
+                    const pattern_ptr = try self.allocator.create(ast.Node.MatchPattern);
+                    pattern_ptr.* = capture;
+                    return ast.Node.MatchPattern{
+                        .as_pattern = .{ .pattern = pattern_ptr, .name = as_name_tok.lexeme },
+                    };
+                }
+                return capture;
             },
             else => {
                 // Skip unknown tokens for now
@@ -1117,17 +1438,37 @@ fn parseMatchPattern(self: *Parser) ParseError!ast.Node.MatchPattern {
     return ParseError.UnexpectedEof;
 }
 
+/// Parse a single element of a sequence pattern, handling *rest
+fn parseSequencePatternElement(self: *Parser) ParseError!ast.Node.MatchPattern {
+    // Handle star pattern: *name or *_
+    if (self.match(.Star)) {
+        if (self.peek()) |tok| {
+            if (tok.type == .Ident) {
+                const name = tok.lexeme;
+                _ = self.advance();
+                // *_ is a wildcard capture, *name captures to name
+                if (std.mem.eql(u8, name, "_")) {
+                    return ast.Node.MatchPattern{ .wildcard = {} };
+                }
+                return ast.Node.MatchPattern{ .capture = name };
+            }
+        }
+        return ast.Node.MatchPattern{ .wildcard = {} };
+    }
+    return parseMatchPattern(self);
+}
+
 fn parseSequencePattern(self: *Parser) ParseError!ast.Node.MatchPattern {
     _ = try self.expect(.LBracket);
     var patterns = std.ArrayList(ast.Node.MatchPattern){};
     errdefer patterns.deinit(self.allocator);
 
     if (!self.check(.RBracket)) {
-        const first = try parseMatchPattern(self);
+        const first = try parseSequencePatternElement(self);
         try patterns.append(self.allocator, first);
         while (self.match(.Comma)) {
             if (self.check(.RBracket)) break;
-            const next = try parseMatchPattern(self);
+            const next = try parseSequencePatternElement(self);
             try patterns.append(self.allocator, next);
         }
     }
@@ -1141,16 +1482,36 @@ fn parseMappingPattern(self: *Parser) ParseError!ast.Node.MatchPattern {
     errdefer entries.deinit(self.allocator);
 
     if (!self.check(.RBrace)) {
-        // Parse key: pattern pairs
-        const key = try self.parsePrimary();
-        const key_ptr = try self.allocNode(key);
-        _ = try self.expect(.Colon);
-        const value_pattern = try parseMatchPattern(self);
-        try entries.append(self.allocator, .{ .key = key_ptr, .pattern = value_pattern });
+        // Check for double-star rest pattern: {**rest}
+        if (self.match(.DoubleStar)) {
+            // **rest pattern - capture remaining keys
+            const rest_name = try self.expect(.Ident);
+            const rest_pattern = ast.Node.MatchPattern{ .capture = rest_name.lexeme };
+            // Use a name node with special marker "**" prefix as key
+            const rest_key = ast.Node{ .name = .{ .id = rest_name.lexeme } };
+            const rest_key_ptr = try self.allocNode(rest_key);
+            try entries.append(self.allocator, .{ .key = rest_key_ptr, .pattern = rest_pattern });
+        } else {
+            // Parse key: pattern pairs (use parseExpression for negative/complex keys like -0-0j)
+            const key = try self.parseExpression();
+            const key_ptr = try self.allocNode(key);
+            _ = try self.expect(.Colon);
+            const value_pattern = try parseMatchPattern(self);
+            try entries.append(self.allocator, .{ .key = key_ptr, .pattern = value_pattern });
+        }
 
         while (self.match(.Comma)) {
             if (self.check(.RBrace)) break;
-            const next_key = try self.parsePrimary();
+            // Check for double-star rest pattern: {x: 1, **rest}
+            if (self.match(.DoubleStar)) {
+                const rest_name = try self.expect(.Ident);
+                const rest_pattern = ast.Node.MatchPattern{ .capture = rest_name.lexeme };
+                const rest_key = ast.Node{ .name = .{ .id = rest_name.lexeme } };
+                const rest_key_ptr = try self.allocNode(rest_key);
+                try entries.append(self.allocator, .{ .key = rest_key_ptr, .pattern = rest_pattern });
+                break; // **rest must be last
+            }
+            const next_key = try self.parseExpression();
             const next_key_ptr = try self.allocNode(next_key);
             _ = try self.expect(.Colon);
             const next_value_pattern = try parseMatchPattern(self);
@@ -1159,6 +1520,26 @@ fn parseMappingPattern(self: *Parser) ParseError!ast.Node.MatchPattern {
     }
     _ = try self.expect(.RBrace);
     return ast.Node.MatchPattern{ .mapping = try entries.toOwnedSlice(self.allocator) };
+}
+
+/// Parse a class pattern with a dotted class name like Foo.Bar(...)
+fn parseDottedClassPattern(self: *Parser, cls_node: *ast.Node) ParseError!ast.Node.MatchPattern {
+    _ = try self.expect(.LParen);
+
+    // Skip pattern arguments - just consume until )
+    // A more complete implementation would parse the patterns
+    var depth: usize = 1;
+    while (depth > 0 and self.current < self.tokens.len) {
+        if (self.peek()) |tok| {
+            if (tok.type == .LParen) depth += 1 else if (tok.type == .RParen) depth -= 1;
+            if (depth > 0) _ = self.advance();
+        } else break;
+    }
+    _ = try self.expect(.RParen);
+
+    // For dotted class patterns, treat as value pattern comparing against the class type
+    // This is a simplification - full match/case would need isinstance() check
+    return ast.Node.MatchPattern{ .value = cls_node };
 }
 
 fn parseClassPattern(self: *Parser, cls_name: []const u8) ParseError!ast.Node.MatchPattern {

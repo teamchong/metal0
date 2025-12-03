@@ -232,6 +232,62 @@ pub fn copyRegexPackage(allocator: std.mem.Allocator, build_dir: []const u8) !vo
     try copyDirRecursive(allocator, "packages/regex/src/pyregex", try std.fmt.allocPrint(allocator, "{s}/regex/src/pyregex", .{build_dir}));
 }
 
+/// Copy tokenizer package to cache for metal0.tokenizer
+pub fn copyTokenizerPackage(allocator: std.mem.Allocator, build_dir: []const u8) !void {
+    // Copy packages/tokenizer/src to cache/tokenizer/src
+    try copyTokenizerDirWithPatching(allocator, "packages/tokenizer/src", try std.fmt.allocPrint(allocator, "{s}/tokenizer/src", .{build_dir}));
+}
+
+/// Recursively copy tokenizer directory with import patching
+fn copyTokenizerDirWithPatching(allocator: std.mem.Allocator, src_path: []const u8, dst_path: []const u8) !void {
+    defer allocator.free(dst_path);
+
+    // Create destination directory
+    std.fs.cwd().makePath(dst_path) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    // Open source directory
+    var src_dir = std.fs.cwd().openDir(src_path, .{ .iterate = true }) catch |err| {
+        if (err == error.FileNotFound) return;
+        return err;
+    };
+    defer src_dir.close();
+
+    // Iterate through entries
+    var iterator = src_dir.iterate();
+    while (try iterator.next()) |entry| {
+        if (entry.kind == .file) {
+            const src_file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ src_path, entry.name });
+            defer allocator.free(src_file_path);
+            const dst_file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dst_path, entry.name });
+            defer allocator.free(dst_file_path);
+
+            const src_file = try std.fs.cwd().openFile(src_file_path, .{});
+            defer src_file.close();
+            const dst_file = try std.fs.cwd().createFile(dst_file_path, .{});
+            defer dst_file.close();
+
+            var content = try src_file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+
+            // Patch imports for .zig files
+            if (std.mem.endsWith(u8, entry.name, ".zig")) {
+                // Patch @import("json") to relative path from tokenizer/src/
+                // json.zig is at cache root level, so from tokenizer/src/ it's ../../json.zig
+                content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"json\")", "@import(\"../../json.zig\")");
+            }
+
+            try dst_file.writeAll(content);
+            allocator.free(content);
+        } else if (entry.kind == .directory) {
+            const new_src = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ src_path, entry.name });
+            defer allocator.free(new_src);
+            const new_dst = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dst_path, entry.name });
+            try copyTokenizerDirWithPatching(allocator, new_src, new_dst);
+        }
+    }
+}
+
 /// Recursively copy directory
 pub fn copyDirRecursive(allocator: std.mem.Allocator, src_path: []const u8, dst_path: []const u8) !void {
     defer allocator.free(dst_path);

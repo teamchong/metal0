@@ -242,6 +242,11 @@ pub const ImportGraph = struct {
                 std.debug.print("  Skipped import (zig_runtime): {s}\n", .{import_name});
                 continue;
             }
+            // Skip C extension modules - they're loaded at runtime via c_interop
+            if (import_resolver.isCExtension(import_name, self.allocator)) {
+                std.debug.print("  Skipped import (c_extension): {s}\n", .{import_name});
+                continue;
+            }
             if (try import_resolver.resolveImportSource(import_name, dir, self.allocator)) |resolved| {
                 std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, resolved });
                 defer self.allocator.free(resolved);

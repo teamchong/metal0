@@ -26,6 +26,9 @@ pub const ast_executor = @import("ast_executor.zig");
 /// Export calendar module
 pub const calendar = @import("calendar.zig");
 
+/// Export ctypes FFI module
+pub const ctypes = @import("ctypes.zig");
+
 /// Export dynamic attribute access stubs
 const dynamic_attrs = @import("dynamic_attrs.zig");
 
@@ -1369,6 +1372,7 @@ pub const parallel = @import("parallel.zig");
 pub const io = @import("io.zig");
 pub const json = @import("json.zig");
 pub const re = @import("re.zig");
+pub const tokenizer = @import("tokenizer.zig");
 pub const sys = @import("sys.zig");
 pub const time = @import("time.zig");
 pub const math = @import("math.zig");
